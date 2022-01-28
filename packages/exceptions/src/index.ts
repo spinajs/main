@@ -4,7 +4,7 @@
 export class Exception extends Error {
   /**
    * Constructs new exception with message
-   * 
+   *
    * @param message - error message
    * @param inner - inner exception ( eg. original couse of error )
    */
@@ -48,7 +48,6 @@ export class BadRequest extends Exception {}
  * HTTP 403 - Forbidden
  */
 export class Forbidden extends Exception {}
- 
 
 /**
  * Exception thrown when there was error with IO operations ie. not accessible file
@@ -74,7 +73,6 @@ export class UnexpectedServerError extends Exception {}
  * Exception occurs when resource is duplicated eg. unique constraint failed in db
  */
 export class ResourceDuplicated extends Exception {}
-
 
 /**
  * The exception that is thrown when JSON entity is checked against schema and is invalid
