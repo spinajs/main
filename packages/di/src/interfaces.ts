@@ -1,22 +1,18 @@
 import { ResolveType } from './enums';
 import { Class, Factory } from './types';
 import { EventEmitter } from 'events';
+import { TypedArray } from './array';
 
 /**
  * Interface to describe DI binding behaviour
  */
 export interface IBind {
   /**
-   * Private var for holding implementation type
-   */
-  _impl: any;
-
-  /**
    * `as` binding (alias)
    *
    * @param type - base class that is being registered
    */
-  as<T>(type: Class<T> | string): this;
+  as(type: Class<any> | string): this;
 
   /**
    * self bind, class should be resolved by its name. Its default behaviour.
@@ -30,8 +26,8 @@ export interface IBind {
 }
 
 export interface IContainer extends EventEmitter {
-  Cache: Map<string, any[] | any>;
-  Registry: Map<string, any[] | any>;
+  Cache: Map<string, unknown[]>;
+  Registry: Map<string, Array<Class<unknown> | Factory<unknown>>>;
 
   clear(): void;
   clearRegistry(): void;
@@ -40,46 +36,40 @@ export interface IContainer extends EventEmitter {
   register<T>(implementation: Class<T> | Factory<T>): IBind;
 
   child(): IContainer;
-  get<T>(service: TypedArray<T>, parent?: boolean): T[];
-  get<T>(service: string | Class<T>, parent?: boolean): T;
-  get<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): T | T[];
-  getRegistered<T>(service: string | Class<T>, parent: boolean): Class<any>[];
+  get<T>(service: TypedArray<T>, parent?: boolean): T[] | null;
+  get<T>(service: string | Class<T>, parent?: boolean): T | null;
+  get<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): T | T[] | null;
+  getRegisteredTypes<T>(service: string | Class<T>, parent?: boolean): Array<Class<unknown> | Factory<unknown>>;
 
   has<T>(service: string | Class<T>, parent?: boolean): boolean;
   hasRegistered<T>(service: Class<T> | string, parent?: boolean): boolean;
+  hasRegisteredType<T>(source: Class<T> | string, implementation: Class<T> | Factory<T> | string): boolean;
 
-  resolve<T>(type: string, options?: any[], check?: boolean): T;
+  resolve<T>(type: string, options?: unknown[], check?: boolean): T;
   resolve<T>(type: string, check?: boolean): T;
-  resolve<T>(
-    type: Class<T> | Factory<T>,
-    options?: any[] | boolean,
-    check?: boolean,
-  ): T extends AsyncModule ? Promise<T> : T;
-  resolve<T>(
-    type: TypedArray<T>,
-    options?: any[] | boolean,
-    check?: boolean,
-  ): T extends AsyncModule ? Promise<T[]> : T[];
+  resolve<T>(type: Class<T> | Factory<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncModule ? Promise<T> : T;
+  resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncModule ? Promise<T[]> : T[];
   resolve<T>(type: Class<T> | Factory<T>, check?: boolean): T extends AsyncModule ? Promise<T> : T;
   resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncModule ? Promise<T[]> : T[];
+  resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean): Promise<T | T[]> | T | T[];
 }
 
 /**
  * Injection description definition structure
  */
-export interface IInjectDescriptor<T = any> {
+export interface IInjectDescriptor<T> {
   inject: IToInject<T>[];
   resolver: ResolveType;
 }
 
-export interface IToInject<T = any> {
-  inject: Class<T>;
+export interface IToInject<T> {
+  inject: Class<T> | TypedArray<T>;
   autoinject: boolean;
   autoinjectKey: string;
 }
 
 export interface IResolvedInjection {
-  instance: any;
+  instance: unknown;
   autoinject: boolean;
   autoinjectKey: string;
 }
@@ -101,20 +91,21 @@ export interface IResolvedInjection {
 // }
 
 export class Module {
-  protected resolved: boolean = false;
+  protected resolved = false;
   public get Resolved(): boolean {
     return this.resolved;
   }
 }
 
 export abstract class SyncModule extends Module {
-  public resolve(_: IContainer) {
+  public resolve() {
     this.resolved = true;
   }
 }
 
 export class AsyncModule extends Module {
-  public async resolveAsync(_: IContainer): Promise<void> {
+  /* eslint-disable */
+  public async resolveAsync(): Promise<void> {
     this.resolved = true;
   }
 }

@@ -1,26 +1,21 @@
 import { ResolveType } from './enums';
 import { IInjectDescriptor } from './interfaces';
-import { DI } from './root';
+import { Class } from './types';
+import { TypedArray } from './array';
+import * as DI from './root';
 
-export const DI_DESCRIPTION_SYMBOL = Symbol.for('DI_INJECTION_DESCRIPTOR');
+export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
 
-function AddDependency(
-  callback?: (
-    descriptor: IInjectDescriptor<any>,
-    target: ArrayBuffer,
-    propertyKey: string | symbol,
-    indexOrDescriptor: number | PropertyDescriptor,
-  ) => void,
-): any {
-  return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
-    let descriptor: IInjectDescriptor<any> = target[DI_DESCRIPTION_SYMBOL];
+function AddDependency(callback?: (descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => void): any {
+  return (target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
+    let descriptor = (target as any).__DI_INJECTION_DESCRIPTOR__ as IInjectDescriptor<unknown>;
     if (!descriptor) {
       descriptor = {
         inject: [],
         resolver: ResolveType.Singleton,
       };
 
-      target[DI_DESCRIPTION_SYMBOL] = descriptor;
+      (target as any)[`${DI_DESCRIPTION_SYMBOL}`] = descriptor;
     }
 
     if (callback) {
@@ -36,7 +31,7 @@ function AddDependency(
  * to register implementation that can be resolved by framework or other parts without knowing about specific implementations eg.
  * avaible database drivers.
  *
- * @param as register class in DI container as something else.
+ * @param as - register class in DI container as something else.
  *
  * @example
  * ```typescript
@@ -55,8 +50,8 @@ function AddDependency(
  * ```
  *
  */
-export function Injectable(as?: Class | string) {
-  return (target: any) => {
+export function Injectable(as?: Class<unknown> | string) {
+  return (target: Class<unknown>) => {
     if (as) {
       DI.register(target).as(as);
     } else {
@@ -91,13 +86,13 @@ export function Injectable(as?: Class | string) {
  *
  * ```
  */
-export function Inject(...args: (Class | TypedArray<any>)[]) {
-  return AddDependency((descriptor: IInjectDescriptor) => {
+export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
+  return AddDependency((descriptor: IInjectDescriptor<unknown>) => {
     for (const a of args) {
       descriptor.inject.push({
         autoinject: false,
         autoinjectKey: '',
-        inject: a as any,
+        inject: a,
       });
     }
   });
@@ -107,8 +102,7 @@ export function Inject(...args: (Class | TypedArray<any>)[]) {
  * Automatically injects dependency based on reflected property type. Uses experimental typescript reflection api
  * If decorator is applied to array property all registered type instances are injected, otherwise only first / only that exists
  *
- * @param target
- * @param key
+ * @param injectType - when injecting array of some type, type must be explicitly provided. Typescript reflection cant reflect declared array types
  * @example
  * ```javascript
  * class Foo{
@@ -129,9 +123,9 @@ export function Inject(...args: (Class | TypedArray<any>)[]) {
  *
  * ```
  */
-export function Autoinject(injectType?: Class) {
-  return AddDependency((descriptor: IInjectDescriptor, target: any, propertyKey: string) => {
-    const type = Reflect.getMetadata('design:type', target, propertyKey);
+export function Autoinject(injectType?: Class<unknown>) {
+  return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+    const type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
     const isArray = type.name === 'Array';
 
     if (type.name === 'Array' && !injectType) {
@@ -168,14 +162,14 @@ export function Autoinject(injectType?: Class) {
  *
  * ```
  */
-export function LazyInject(service: Class | string) {
+export function LazyInject(service: Class<any> | string) {
   return (target?: any, key?: string) => {
     // property getter
     const getter = () => {
       if (typeof service === 'string') {
-        return DI.get<any>(service);
+        return DI.get(service);
       } else {
-        return DI.resolve<any>(service);
+        return DI.resolve(service);
       }
     };
 
@@ -192,7 +186,7 @@ export function LazyInject(service: Class | string) {
  * Per child instance injection decorator - object is resolved once per container - child containers have own instances.
  */
 export function PerChildInstance() {
-  return AddDependency((descriptor: IInjectDescriptor) => {
+  return AddDependency((descriptor: IInjectDescriptor<unknown>) => {
     descriptor.resolver = ResolveType.PerChildContainer;
   });
 }
@@ -201,7 +195,7 @@ export function PerChildInstance() {
  * NewInstance injection decorator - every time class is injected - its created from scratch
  */
 export function NewInstance() {
-  return AddDependency((descriptor: IInjectDescriptor) => {
+  return AddDependency((descriptor: IInjectDescriptor<unknown>) => {
     descriptor.resolver = ResolveType.NewInstance;
   });
 }

@@ -5,5 +5,5 @@ export * from './enums';
 export * from './types';
 export * from './helpers';
 export * from './container';
-export * from './root';
+export * as DI from './root';
 export * from './exceptions';

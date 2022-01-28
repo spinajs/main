@@ -4,14 +4,15 @@
   "description": "lightweight di container ",
   "main": "lib/index.js",
   "scripts": {
+    "build": "npm run clean && npm run compile",
+    "clean": "",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
-    "build": "tsc",
-    "build-watch": "tsc -w",
+    "compile": "tsc -p tsconfig.build.json",
     "prepare": "npm run build",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "tslint -p tsconfig.json",
+    "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
     "prepublishOnly": "npm test && npm run lint",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src",
@@ -38,8 +39,8 @@
   },
   "homepage": "https://github.com/spinajs/di#readme",
   "dependencies": {
-    "@spinajs/exceptions": "file:../exceptions",
-    "lodash": "^4.17.14",
+    "@spinajs/exceptions": "^1.2.1",
     "reflect-metadata": "^0.1.13"
-  }
+  },
+  "gitHead": "c34426e3f8b35aef42bc615a16dc1b223b7e71ba"
 }

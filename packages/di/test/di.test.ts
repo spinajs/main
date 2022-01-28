@@ -115,7 +115,6 @@ LazyInjectDep.Counter = 0;
 
 class LazyInjectResolve {
     @LazyInject(LazyInjectDep)
-    // @ts-ignore
     public Instance: LazyInjectDep;
 }
 
@@ -267,7 +266,7 @@ describe("Dependency injection", () => {
         expect(registry.get(InjectableBase.name)[0]).to.be.not.null;
         expect(registry.get(InjectableBase.name)[0].name).to.eq("InjectableTest");
 
-        const services = DI.resolve(Array.ofType(InjectableBase));
+        const services = DI.resolve<InjectableBase>(Array.ofType(InjectableBase));
         expect(services).to.be.an("array").that.have.length(2);
         expect(services[0]).to.be.instanceOf(InjectableTest);
         expect(services[1]).to.be.instanceOf(InjectableTest2);
@@ -302,7 +301,7 @@ describe("Dependency injection", () => {
         DI.register(SampleImplementation1).as(SampleBaseClass);
         DI.register(SampleImplementation2).as(SampleBaseClass);
 
-        const val = DI.resolve(Array.ofType(SampleBaseClass));
+        const val = DI.resolve<SampleBaseClass>(Array.ofType(SampleBaseClass));
         expect(val).to.be.not.null;
         expect(val.length).to.eq(2);
         expect(val[0] instanceof SampleImplementation1).to.be.true;

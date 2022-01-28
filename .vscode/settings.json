@@ -14,13 +14,20 @@
         "**/.hg": true,
         "**/.DS_Store": true,
         "node_modules": true,
+        "**/node_modules": true,
         "build-spec": true,
         "build": true,
         "lib": true,
+        "**/lib": true,
+        "**/coverage": true,
+        "**/.nyc_output": true,
         "package-lock.json": true
     },
     "mocha.files.glob": "test/**/*.ts",
     "mocha.requires": [
         "ts-node/register"
-    ]
+    ],
+    "mocha.env": {
+        "TS_NODE_PROJECT" : "tsconfig.json"
+    }
 }

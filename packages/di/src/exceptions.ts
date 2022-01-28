@@ -10,3 +10,5 @@ export class ResolveException extends Error {
     super(message);
   }
 }
+
+export class BindException extends Error {}

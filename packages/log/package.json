@@ -12,7 +12,7 @@
     "build-watch": "tsc -w",
     "prepare": "npm run build",
     "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
-    "lint": "tslint -p tsconfig.json",
+    "lint": "eslint -c .eslintrc.js --ext .ts src",
     "prepublishOnly": "npm test && npm run lint",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src",
@@ -25,15 +25,16 @@
   },
   "homepage": "https://github.com/spinajs/log#readme",
   "dependencies": {
-    "@spinajs/configuration": "file:../configuration",
-    "@spinajs/di": "file:../di",
-    "@spinajs/exceptions": "file:../exceptions",
-    "@spinajs/validation": "file:../validation",
+    "@spinajs/configuration": "^1.2.1",
+    "@spinajs/di": "^1.2.1",
+    "@spinajs/exceptions": "^1.2.1",
+    "@spinajs/validation": "^1.2.1",
     "colors": "^1.4.0",
     "glob": "^7.2.0",
     "glob-to-regexp": "^0.4.1",
     "lodash": "^4.17.14",
     "luxon": "^2.3.0",
     "node-schedule": "^2.1.0"
-  }
+  },
+  "gitHead": "c34426e3f8b35aef42bc615a16dc1b223b7e71ba"
 }

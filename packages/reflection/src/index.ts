@@ -2,11 +2,10 @@ import * as fs from 'fs';
 import * as glob from 'glob';
 import * as path from 'path';
 import * as ts from 'typescript';
-
 import { Configuration } from '@spinajs/configuration';
 import { AsyncModule, DI } from '@spinajs/di';
 import { InvalidArgument, Exception } from '@spinajs/exceptions';
-import { LogModule } from '@spinajs/log';
+import { Log } from '@spinajs/log';
 
 /**
  * Class info structure
@@ -156,8 +155,8 @@ function _listOrResolveFromFiles(
     });
 
     function _loadInstances(): Promise<Array<ClassInfo<any>>> | Array<ClassInfo<any>> {
-      const config = DI.resolve(Configuration);
-      const logger = DI.resolve(LogModule).getLogger();
+      const config = DI.get(Configuration);
+      const logger = DI.resolve(Log, ["reflection"]);
       let directories = config.get<string[]>(configPath);
 
       if (!directories || directories.length === 0) {

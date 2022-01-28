@@ -1,25 +1,12 @@
 {
 	"folders": [
+		 
 		{
-			"path": "packages/configuration"
-		}, 
-		{
-			"path": "packages/di"
-		},
-		{
-			"path": "packages/exceptions"
-		}, 
-		{
-			"path": "packages/reflection"
-		},
-		{
-			"path": "packages/log"
-		}, 
-		{
-			"path": "packages/validation"
+			"path": "."
 		} 
 	],
 	"settings": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
 		
 	}
 }

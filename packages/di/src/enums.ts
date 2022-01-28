@@ -1,6 +1,5 @@
 /**
  * How to resolve class
- * @enum
  */
 export enum ResolveType {
   /**
