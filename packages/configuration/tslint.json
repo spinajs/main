@@ -1,0 +1,34 @@
+{
+  "extends": [
+    "tslint:recommended",
+    "tslint-config-prettier",
+    "tslint-no-unused-expression-chai",
+    "tslint-circular-dependencies"
+  ],
+  "rules": {
+    "max-classes-per-file": {
+      "severity": "off"
+    },
+    "no-instanceof-operator": {
+      "severity": "off"
+    },
+    "imports-after-export": {
+      "severity": "off"
+    },
+    "no-console": {
+      "severity": "off"
+    },
+    "no-shadowed-variable": {
+      "severity": "off"
+    },
+    "ordered-imports": {
+      "severity": "off"
+    },
+    "variable-name":{
+      "severity": "off"
+    },
+    "object-literal-sort-keys":{
+      "severity": "off"
+    }
+  }
+}

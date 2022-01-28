@@ -1,0 +1,48 @@
+{
+  "name": "@spinajs/configuration",
+  "version": "1.1.9",
+  "description": "framework configuration module",
+  "main": "lib/index.js",
+  "private": false,
+  "scripts": {
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "build": "tsc",
+    "build-watch": "tsc -w",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
+    "lint": "tslint -p tsconfig.json",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "types": "lib",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/configuration.git"
+  },
+  "keywords": [
+    "di",
+    "container",
+    "spinajs",
+    "di"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/configuration/issues"
+  },
+  "homepage": "https://github.com/spinajs/configuration#readme",
+  "dependencies": {
+    "@spinajs/di": "file:../di",
+    "@spinajs/exceptions": "file:../exceptions",
+    "@spinajs/log": "file:../log",
+    "glob": "^7.1.4",
+    "lodash": "^4.17.14"
+  }
+}

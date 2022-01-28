@@ -1,0 +1,48 @@
+{
+  "name": "@spinajs/validation",
+  "version": "1.1.9",
+  "description": "validation library for spinajs framework",
+  "main": "lib/index.js",
+  "private": false,
+  "scripts": {
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "build": "tsc",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
+    "lint": "tslint -p tsconfig.json",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/validation.git"
+  },
+  "keywords": [
+    "spinajs",
+    "validation",
+    "schema"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/validation/issues"
+  },
+  "homepage": "https://github.com/spinajs/validation#readme",
+  "dependencies": {
+    "@spinajs/configuration": "file:../configuration",
+    "@spinajs/di": "file:../di",
+    "@spinajs/exceptions": "file:../exceptions",
+    "@spinajs/log": "file:../log",
+    "ajv": "^8.8.2",
+    "ajv-formats": "^2.1.1",
+    "ajv-keywords": "^5.1.0",
+    "ajv-merge-patch": "^5.0.1"
+  }
+}

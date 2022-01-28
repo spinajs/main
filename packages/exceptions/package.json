@@ -1,0 +1,39 @@
+{
+  "name": "@spinajs/exceptions",
+  "version": "1.0.5",
+  "description": "exceptions definitions used all across framework modules",
+  "main": "lib/index.js",
+  "private": false,
+  "scripts": {
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "build": "tsc",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
+    "lint": "tslint -p tsconfig.json",
+    "prepublishOnly": "npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/exceptions.git"
+  },
+  "keywords": [
+    "di",
+    "container",
+    "spinajs",
+    "di"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/exceptions/issues"
+  },
+  "homepage": "https://github.com/spinajs/exceptions#readme"
+}

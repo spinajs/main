@@ -1,0 +1,26 @@
+// Place your settings in this file to overwrite default and user settings.
+{
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/bower_components": true,
+        "**/build": true,
+        "**/lib": true,
+        "package-lock.json": true
+    },
+    "editor.minimap.enabled": false,
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/.DS_Store": true,
+        "node_modules": true,
+        "build-spec": true,
+        "build": true,
+        "lib": true,
+        "package-lock.json": true
+    },
+    "mocha.files.glob": "test/**/*.ts",
+    "mocha.requires": [
+        "ts-node/register"
+    ]
+}
