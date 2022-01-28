@@ -34,9 +34,7 @@ export class ClassInfo<T> {
 /**
  * Exception thrown when some error during reflection occurs
  */
-export class ReflectionException extends Exception {
-
-}
+export class ReflectionException extends Exception {}
 
 /**
  * Helper class for extracting various information from typescript source code
@@ -64,7 +62,7 @@ export class TypescriptCompiler {
   public getClassMembers(className: string) {
     const members: Map<string, ts.MethodDeclaration> = new Map<string, ts.MethodDeclaration>();
 
-    const sourceFile = this.compiled.getSourceFile(this.tsFile)
+    const sourceFile = this.compiled.getSourceFile(this.tsFile);
 
     // Walk the tree to search for classes
     ts.forEachChild(
@@ -127,7 +125,12 @@ export function ListFromFiles(filter: string, configPath: string, typeMatcher?: 
   return _listOrResolveFromFiles(filter, configPath, false, typeMatcher);
 }
 
-function _listOrResolveFromFiles(filter: string, configPath: string, resolve: boolean, typeMatcher?: (fileName: string) => string) {
+function _listOrResolveFromFiles(
+  filter: string,
+  configPath: string,
+  resolve: boolean,
+  typeMatcher?: (fileName: string) => string,
+) {
   return (target: any, propertyKey: string | symbol) => {
     if (!filter) {
       throw new InvalidArgument('filter parameter is null or empty');

@@ -1,176 +1,181 @@
 export enum LogLevel {
-    Security = 999,
+  Security = 999,
 
-    Fatal = 6,
+  Fatal = 6,
 
-    Error = 5,
+  Error = 5,
 
-    Warn = 4,
+  Warn = 4,
 
-    Success = 3,
+  Success = 3,
 
-    Info = 2,
+  Info = 2,
 
-    Debug = 1,
+  Debug = 1,
 
-    Trace = 0,
+  Trace = 0
 }
 
 export const StrToLogLevel = {
-    "trace": LogLevel.Trace,
-    "debug": LogLevel.Debug,
-    "info": LogLevel.Info,
-    "success": LogLevel.Success,
-    "warn": LogLevel.Warn,
-    "error": LogLevel.Error,
-    "fatal": LogLevel.Fatal,
-    "security": LogLevel.Security
-}
+  trace: LogLevel.Trace,
+  debug: LogLevel.Debug,
+  info: LogLevel.Info,
+  success: LogLevel.Success,
+  warn: LogLevel.Warn,
+  error: LogLevel.Error,
+  fatal: LogLevel.Fatal,
+  security: LogLevel.Security
+};
 
 export const LogLevelStrings = {
-    [LogLevel.Debug]: "debug",
-    [LogLevel.Error]: "error",
-    [LogLevel.Fatal]: "fatal",
-    [LogLevel.Info]: "info",
-    [LogLevel.Security]: "security",
-    [LogLevel.Success]: "success",
-    [LogLevel.Trace]: "trace",
-    [LogLevel.Warn]: "warn",
+  [LogLevel.Debug]: "debug",
+  [LogLevel.Error]: "error",
+  [LogLevel.Fatal]: "fatal",
+  [LogLevel.Info]: "info",
+  [LogLevel.Security]: "security",
+  [LogLevel.Success]: "success",
+  [LogLevel.Trace]: "trace",
+  [LogLevel.Warn]: "warn"
 };
 
 export abstract class LogVariable {
-    public abstract get Name(): string;
-    public abstract Value(option?: string): string;
+  public abstract get Name(): string;
+  public abstract Value(option?: string): string;
 }
 
 export interface ILogRule {
-    name: string;
-    level: "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "security" | "success";
-    target: string | string[];
+  name: string;
+  level:
+    | "trace"
+    | "debug"
+    | "info"
+    | "warn"
+    | "error"
+    | "fatal"
+    | "security"
+    | "success";
+  target: string | string[];
 }
 
 export interface ITargetsOption {
-    name: string,
-    type: string,
-    options: ICommonTargetOptions;
+  name: string;
+  type: string;
+  options: ICommonTargetOptions;
 }
 
 export interface ILogOptions {
-    targets: ITargetsOption[];
-    rules: ILogRule[];
-    variables: {}
+  targets: ITargetsOption[];
+  rules: ILogRule[];
+  variables: {};
 }
 
 export interface ICommonTargetOptions {
-    /**
-     * Message layout. You can use variables
-     * 
-     * Default message layout is: {datetime} {level} {message} ({logger})
-     */
-    layout: string;
+  /**
+   * Message layout. You can use variables
+   *
+   * Default message layout is: {datetime} {level} {message} ({logger})
+   */
+  layout: string;
 
-    /**
-     * Target name
-     */
-    name: string;
+  /**
+   * Target name
+   */
+  name: string;
 
-    /**
-     * Target type
-     */
-    type: string;
+  /**
+   * Target type
+   */
+  type: string;
 
-    /**
-     * Is logger enabled
-     */
-    enabled: boolean;
+  /**
+   * Is logger enabled
+   */
+  enabled: boolean;
 }
 
 // tslint:disable-next-line
-export interface IBlackHoleTargetOptions extends ICommonTargetOptions {
-
-}
+export interface IBlackHoleTargetOptions extends ICommonTargetOptions {}
 
 export interface IColoredConsoleTargetOptions extends ICommonTargetOptions {
-
-    /**
-     * Color theme for console message. Best leave it for default.
-     */
-    theme: {
-        security: string | string[],
-        fatal: string | string[],
-        error: string | string[],
-        warn: string | string[],
-        success: string | string[],
-        info: string | string[],
-        debug: string | string[],
-        trace: string | string[],
-    }
+  /**
+   * Color theme for console message. Best leave it for default.
+   */
+  theme: {
+    security: string | string[];
+    fatal: string | string[];
+    error: string | string[];
+    warn: string | string[];
+    success: string | string[];
+    info: string | string[];
+    debug: string | string[];
+    trace: string | string[];
+  };
 }
 
 export interface IFileTargetOptions extends ICommonTargetOptions {
-    options: {
-        /**
-         * path whre log is stored. It is allowed to use variables to create path eg. date / time etc.
-         */
-        path: string;
+  options: {
+    /**
+     * path whre log is stored. It is allowed to use variables to create path eg. date / time etc.
+     */
+    path: string;
 
-        /**
-         * Archive path for logs eg. when size is exceeded. Is is allowed to use variables eg. date / time etc.
-         * 
-         * Default is none. When not set archive files are stored in same folder as logs.
-         */
-        archivePath: string;
+    /**
+     * Archive path for logs eg. when size is exceeded. Is is allowed to use variables eg. date / time etc.
+     *
+     * Default is none. When not set archive files are stored in same folder as logs.
+     */
+    archivePath: string;
 
-        /**
-         * Maximum log file size, if exceeded it is moved to archive, and new log file is created
-         * 
-         * Default is 1mb
-         */
-        maxSize: number;
+    /**
+     * Maximum log file size, if exceeded it is moved to archive, and new log file is created
+     *
+     * Default is 1mb
+     */
+    maxSize: number;
 
-        /**
-         * Should compress log file when moved to archive
-         * 
-         * Default is false
-         */
-        compress: boolean;
+    /**
+     * Should compress log file when moved to archive
+     *
+     * Default is false
+     */
+    compress: boolean;
 
-        /**
-         * Should rotate log file eg. new  file every new day. 
-         * You should use cron like definition eg. at 1am every day: 0 1 * * * 
-         * When rotate event occurs, old file is moved to archive, and new one is created
-         * 
-         * Default is not set
-         */
-        rotate: string;
+    /**
+     * Should rotate log file eg. new  file every new day.
+     * You should use cron like definition eg. at 1am every day: 0 1 * * *
+     * When rotate event occurs, old file is moved to archive, and new one is created
+     *
+     * Default is not set
+     */
+    rotate: string;
 
-        /**
-         * How mutch archive files should be preserved before deletion. Default is 0
-         * Eg. to store max 5 archive files, set it to 5. Oldest by modification time are deleted.
-         */
-        maxArchiveFiles: number;
+    /**
+     * How mutch archive files should be preserved before deletion. Default is 0
+     * Eg. to store max 5 archive files, set it to 5. Oldest by modification time are deleted.
+     */
+    maxArchiveFiles: number;
 
-        /**
-         * Buffer size for incoming log messages. Messages are stored in buffer before write to file.
-         * 
-         * Default is 8kb
-         */
-        bufferSize: number;
+    /**
+     * Buffer size for incoming log messages. Messages are stored in buffer before write to file.
+     *
+     * Default is 8kb
+     */
+    bufferSize: number;
 
-        /**
-         * Time in ms after whitch flush will be forced. If set to 0 feature is disabled ( any data hangin in temp buffer will not be saved before it reaches bufferSize)
-         * Default time is 10s.
-         */
-        flushTimeout: number;
-    }
+    /**
+     * Time in ms after whitch flush will be forced. If set to 0 feature is disabled ( any data hangin in temp buffer will not be saved before it reaches bufferSize)
+     * Default time is 10s.
+     */
+    flushTimeout: number;
+  };
 }
 
 export interface ILogTargetData {
-    Level: LogLevel;
-    Variables: {
-        error: Error | undefined,
-        level: string,
-        logger: string,
-        message: string
-    };
+  Level: LogLevel;
+  Variables: {
+    error: Error | undefined;
+    level: string;
+    logger: string;
+    message: string;
+  };
 }
