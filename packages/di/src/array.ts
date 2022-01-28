@@ -10,6 +10,6 @@ export class TypedArray<R> extends Array<R> {
 }
 
 // tslint:disable-next-line: only-arrow-functions
-Array.ofType = function<T>(type: Class<T>) {
+Array.ofType = function <T>(type: Class<T>) {
   return new TypedArray<T>(type);
 };

@@ -11,10 +11,9 @@ export namespace DI {
 
   /***
    * EVENT LISTENER STUFF
-   * 
+   *
    * Allows to use event listener stuff on root container
    */
-
 
   export function on(event: string, listener: (...args: any) => void) {
     return RootContainer.on(event, listener);
@@ -89,7 +88,7 @@ export namespace DI {
   }
 
   /**
-   * Register class/interface to DI root container. If 
+   * Register class/interface to DI root container. If
    * @param type - interface object to register
    * @throws { InvalidArgument } if type is null or undefined
    */

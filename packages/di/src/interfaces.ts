@@ -1,6 +1,6 @@
 import { ResolveType } from './enums';
 import { Class, Factory } from './types';
-import { EventEmitter } from "events";
+import { EventEmitter } from 'events';
 
 /**
  * Interface to describe DI binding behaviour
@@ -108,11 +108,9 @@ export class Module {
 }
 
 export abstract class SyncModule extends Module {
-
   public resolve(_: IContainer) {
     this.resolved = true;
   }
-
 }
 
 export class AsyncModule extends Module {

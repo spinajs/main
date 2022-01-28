@@ -103,7 +103,6 @@ export function Inject(...args: (Class | TypedArray<any>)[]) {
   });
 }
 
-
 /**
  * Automatically injects dependency based on reflected property type. Uses experimental typescript reflection api
  * If decorator is applied to array property all registered type instances are injected, otherwise only first / only that exists

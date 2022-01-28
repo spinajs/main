@@ -5,9 +5,17 @@ import { TypedArray } from './array';
 import { DI_DESCRIPTION_SYMBOL } from './decorators';
 import { ResolveType } from './enums';
 import { isConstructor } from './helpers';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncModule, IToInject, AsyncModule } from './interfaces';
+import {
+  IBind,
+  IContainer,
+  IInjectDescriptor,
+  IResolvedInjection,
+  SyncModule,
+  IToInject,
+  AsyncModule,
+} from './interfaces';
 import { Class, Factory, Constructor } from './types';
-import { EventEmitter } from "events";
+import { EventEmitter } from 'events';
 import { ResolveException } from './exceptions';
 
 /**
@@ -133,7 +141,7 @@ export class Container extends EventEmitter implements IContainer {
 
   /**
    * Gets already resolved services. Works only for singleton classes.
-   * 
+   *
    * Do not try to get service by factory func, it will always return null.
    * If you somehowe want to cache instances created by factory functions,
    * factory itself should do that somehow and end user should always resolve by
@@ -150,8 +158,8 @@ export class Container extends EventEmitter implements IContainer {
       typeof service === 'string'
         ? this.Registry.get(service) || service
         : service instanceof TypedArray
-          ? this.Registry.get(service.Type.name)
-          : this.Registry.get(service.name) || service.name;
+        ? this.Registry.get(service.Type.name)
+        : this.Registry.get(service.name) || service.name;
 
     if (!identifier) {
       return null;
@@ -165,19 +173,18 @@ export class Container extends EventEmitter implements IContainer {
      * When we try to get type by factory func, always return null
      * It's technically an arror becouse factory func in in charge now
      * of managing intances of created objects (eg. creating cache)
-     * 
+     *
      * We do not track of any instances created by factory funcions.
      */
-    const isFactory = !isConstructor(identifier[identifier.length - 1]) && _.isFunction(identifier[identifier.length - 1]);
+    const isFactory =
+      !isConstructor(identifier[identifier.length - 1]) && _.isFunction(identifier[identifier.length - 1]);
     if (isFactory) {
       return null;
     }
 
-
     if (service instanceof TypedArray) {
-      return (identifier as Class<T>[]).map(t => _get(t.name));
+      return (identifier as Class<T>[]).map((t) => _get(t.name));
     }
-
 
     return _get((identifier[identifier.length - 1] as any).name);
 
@@ -306,8 +313,8 @@ export class Container extends EventEmitter implements IContainer {
     const targetType: any[] = isArray
       ? this.getRegistered<T>((type as TypedArray<T>).Type.name) || [(type as TypedArray<T>).Type]
       : typeof type === 'string'
-        ? this.getRegistered(type)
-        : this.getRegistered((type as any).name) || [type];
+      ? this.getRegistered(type)
+      : this.getRegistered((type as any).name) || [type];
 
     if (!targetType) {
       throw new Error(`cannot resolve type ${type} becouse is not registered in container`);
@@ -318,8 +325,8 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     if (isArray) {
-      const resolved = targetType.map(r => this.resolveArrayType(sourceType, r, opt));
-      if (resolved.some(r => r instanceof Promise)) {
+      const resolved = targetType.map((r) => this.resolveArrayType(sourceType, r, opt));
+      if (resolved.some((r) => r instanceof Promise)) {
         return Promise.all(resolved) as Promise<T[]>;
       }
 
@@ -329,7 +336,11 @@ export class Container extends EventEmitter implements IContainer {
     return this.resolveType(sourceType, targetType[targetType.length - 1], opt);
   }
 
-  private resolveArrayType<T>(sourceType: Class<T> | string, targetType: Class<T> | Factory<T>, options?: any[]): Promise<T> | T {
+  private resolveArrayType<T>(
+    sourceType: Class<T> | string,
+    targetType: Class<T> | Factory<T>,
+    options?: any[],
+  ): Promise<T> | T {
     const tname = typeof sourceType === 'string' ? sourceType : sourceType.name;
     if (!this.Registry.has(tname)) {
       throw new ResolveException(`Cannot resolve array of type ${tname}, no types are registered in container.`);
@@ -338,7 +349,11 @@ export class Container extends EventEmitter implements IContainer {
     return this.resolveType(sourceType, targetType, options);
   }
 
-  private resolveType<T>(sourceType: Class<T> | string, targetType: Class<T> | Factory<T>, options?: any[]): Promise<T> | T {
+  private resolveType<T>(
+    sourceType: Class<T> | string,
+    targetType: Class<T> | Factory<T>,
+    options?: any[],
+  ): Promise<T> | T {
     const self = this;
     const descriptor = _extractDescriptor<T>(targetType);
     const isFactory = !isConstructor(targetType) && _.isFunction(targetType);
@@ -361,10 +376,10 @@ export class Container extends EventEmitter implements IContainer {
 
     if (deps instanceof Promise) {
       return deps
-        .then(resolvedDependencies => {
+        .then((resolvedDependencies) => {
           return _resolve(descriptor, targetType, resolvedDependencies);
-        }).then(_setCache)
-
+        })
+        .then(_setCache);
     } else {
       const resInstance = _resolve(descriptor, targetType, deps as IResolvedInjection[]);
       if (resInstance instanceof Promise) {
@@ -380,7 +395,6 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     function _setCache(r: any) {
-
       const checkParent = descriptor.resolver === ResolveType.Singleton;
       const toCheck = _getNameOfResolvedType();
 
@@ -426,7 +440,6 @@ export class Container extends EventEmitter implements IContainer {
       return descriptor;
 
       function reduce(t: any) {
-
         if (!t) {
           return;
         }
@@ -438,13 +451,11 @@ export class Container extends EventEmitter implements IContainer {
           descriptor.inject = descriptor.inject.concat(t[DI_DESCRIPTION_SYMBOL].inject);
           descriptor.resolver = t[DI_DESCRIPTION_SYMBOL].resolver;
         }
-
-
       }
     }
 
     function _resolveDeps(toInject: IToInject[]) {
-      const dependencies = toInject.map(t => {
+      const dependencies = toInject.map((t) => {
         const promiseOrVal = self.resolve(t.inject);
         if (promiseOrVal instanceof Promise) {
           return new Promise((res, _) => {
@@ -464,7 +475,7 @@ export class Container extends EventEmitter implements IContainer {
         };
       });
 
-      if (dependencies.some(p => p instanceof Promise)) {
+      if (dependencies.some((p) => p instanceof Promise)) {
         return Promise.all(dependencies);
       }
 
@@ -491,7 +502,7 @@ export class Container extends EventEmitter implements IContainer {
         newInstance = (typeToCreate as Factory<any>)(self, ...[].concat(options));
       } else {
         if (_.isArray(a)) {
-          args = args.concat(a.filter(i => !i.autoinject).map(i => i.instance));
+          args = args.concat(a.filter((i) => !i.autoinject).map((i) => i.instance));
         }
 
         if (!_.isEmpty(options)) {
@@ -500,23 +511,26 @@ export class Container extends EventEmitter implements IContainer {
 
         newInstance = new (Function.prototype.bind.apply(typeToCreate, args))();
 
-        for (const ai of a.filter(i => i.autoinject)) {
+        for (const ai of a.filter((i) => i.autoinject)) {
           newInstance[ai.autoinjectKey] = ai.instance;
         }
 
         if (newInstance instanceof AsyncModule) {
-          return new Promise(res => {
-            newInstance.resolveAsync(self).then(() => {
-              self.emit(`di.resolved.${_getNameOfResolvedType()}`);
-            }).then(() => {
-              res(newInstance);
-            });
+          return new Promise((res) => {
+            newInstance
+              .resolveAsync(self)
+              .then(() => {
+                self.emit(`di.resolved.${_getNameOfResolvedType()}`);
+              })
+              .then(() => {
+                res(newInstance);
+              });
           });
         } else {
           if (newInstance instanceof SyncModule) {
             newInstance.resolve(self);
           }
-          self.emit(`di.resolved.${_getNameOfResolvedType()}`)
+          self.emit(`di.resolved.${_getNameOfResolvedType()}`);
         }
       }
 
@@ -528,7 +542,7 @@ export class Container extends EventEmitter implements IContainer {
     const sourceName = typeof source === 'string' ? source : source.name;
     const targetName = typeof type === 'string' ? type : type.name;
     if (this.registry.has(sourceName)) {
-      return this.registry.get(sourceName).find(s => s.name === targetName) !== undefined;
+      return this.registry.get(sourceName).find((s) => s.name === targetName) !== undefined;
     }
 
     return false;
