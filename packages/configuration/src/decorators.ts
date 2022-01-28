@@ -1,29 +1,28 @@
-import { DI } from "@spinajs/di";
-import { Configuration } from "./types"
+import { DI } from '@spinajs/di';
+import { Configuration } from './types';
 
 /**
  * Injects configuration value to given class property
- * 
+ *
  * @param path path to configuration value eg. "app.dirs.stats"
  * @param dafaultValue default value if path not exists
- * @returns 
+ * @returns
  */
 export function Config(path: string, dafaultValue?: any) {
-    return (target?: any, key?: string): any => {
+  return (target?: any, key?: string): any => {
+    let config: Configuration = null;
 
-        let config: Configuration = null;
+    const getter = () => {
+      if (!config) {
+        config = DI.get(Configuration);
+      }
+      return config.get(path, dafaultValue);
+    };
 
-        const getter = () => {
-            if (!config) {
-                config = DI.get(Configuration);
-            }
-            return config.get(path, dafaultValue);
-        }
-
-        Object.defineProperty(target, key, {
-            get: getter,
-            enumerable: false,
-            configurable: false
-        });
-    }
+    Object.defineProperty(target, key, {
+      get: getter,
+      enumerable: false,
+      configurable: false,
+    });
+  };
 }

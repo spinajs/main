@@ -4,7 +4,7 @@ import { join, normalize, resolve } from 'path';
 import { ConfigurationSource } from './sources';
 import { Configuration, ConfigurationOptions } from './types';
 import { parseArgv } from './util';
-import * as _ from "lodash";
+import * as _ from 'lodash';
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
@@ -16,7 +16,7 @@ export class FrameworkConfiguration extends Configuration {
   /**
    * Current running app name
    */
-  public RunApp: string = "";
+  public RunApp: string = '';
 
   /**
    * Loaded & merged configuration
@@ -55,7 +55,7 @@ export class FrameworkConfiguration extends Configuration {
   /**
    * Sets at given path configuration value. Use when you want to override config
    * loaded from files programatically
-   * 
+   *
    * @param path config path
    * @param value value to set
    */
@@ -64,23 +64,27 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   public async resolveAsync(container: IContainer): Promise<void> {
-
     if (!container.hasRegistered(ConfigurationSource)) {
-      throw new InvalidOperation("No configuration sources configured. Please ensure that config module have any source to read from !");
+      throw new InvalidOperation(
+        'No configuration sources configured. Please ensure that config module have any source to read from !',
+      );
     }
 
-    this.Sources = await container.resolve(Array.ofType(ConfigurationSource), [this.RunApp, this.CustomConfigPaths, this.AppBaseDir]);
+    this.Sources = await container.resolve(Array.ofType(ConfigurationSource), [
+      this.RunApp,
+      this.CustomConfigPaths,
+      this.AppBaseDir,
+    ]);
 
-    await Promise.all(this.Sources.map(s => s.Load())).then(result => {
-      result.map(c => _.merge(this.Config, c));
+    await Promise.all(this.Sources.map((s) => s.Load())).then((result) => {
+      result.map((c) => _.merge(this.Config, c));
     });
 
     this.applyAppDirs();
     this.configure();
- 
+
     await super.resolveAsync(container);
   }
-
 
   protected dir(toJoin: string) {
     return normalize(join(resolve(this.AppBaseDir), toJoin));
@@ -90,7 +94,6 @@ export class FrameworkConfiguration extends Configuration {
    * adds app dirs to system.dirs config
    */
   protected applyAppDirs() {
-
     if (!this.RunApp) {
       return;
     }
