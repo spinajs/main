@@ -1,0 +1,25 @@
+{
+	"folders": [
+		{
+			"path": "packages/configuration"
+		}, 
+		{
+			"path": "packages/di"
+		},
+		{
+			"path": "packages/exceptions"
+		}, 
+		{
+			"path": "packages/reflection"
+		},
+		{
+			"path": "packages/log"
+		}, 
+		{
+			"path": "packages/validation"
+		} 
+	],
+	"settings": {
+		
+	}
+}
