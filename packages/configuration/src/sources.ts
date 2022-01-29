@@ -5,7 +5,6 @@ import { join, normalize, resolve } from 'path';
 import { findBasePath, uncache } from './util';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Log } from '@spinajs/log/lib/log';
 
 function mergeArrays(target: any, source: any) {
   if (_.isArray(target)) {
@@ -93,7 +92,7 @@ export class JsFileSource extends BaseFileSource {
     return common;
 
     function _load(file: string) {
-      Log.trace(`Trying to load file ${file}`, 'Configuration');
+      //Log.trace(`Trying to load file ${file}`, 'Configuration');
 
       uncache(file);
       return require(file);
@@ -118,7 +117,7 @@ export class JsonFileSource extends BaseFileSource {
 
     function _load(file: string) {
       try {
-        Log.trace(`Trying to load file ${file}`, 'Configuration');
+        //Log.trace(`Trying to load file ${file}`, 'Configuration');
 
         return JSON.parse(fs.readFileSync(file, 'utf-8'));
       } catch (err) {

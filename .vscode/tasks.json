@@ -8,6 +8,30 @@
 			"problemMatcher": ["$eslint-stylish"],
 			"label": "npm: lint - packages/di",
 			"detail": "eslint  --fix -c .eslintrc.js --ext .ts src"
+		},
+		{
+			"type": "npm",
+			"script": "lint",
+			"path": "packages/exceptions/",
+			"problemMatcher": ["$eslint-stylish"],
+			"label": "npm: lint - packages/exceptions",
+			"detail": "eslint  --fix -c .eslintrc.js --ext .ts src"
+		},
+		{
+			"type": "npm",
+			"script": "lint",
+			"path": "packages/reflection/",
+			"problemMatcher": ["$eslint-stylish"],
+			"label": "npm: lint - packages/reflection",
+			"detail": "eslint  --fix -c .eslintrc.js --ext .ts src"
+		},
+		{
+			"type": "npm",
+			"script": "lint",
+			"path": "packages/validation/",
+			"problemMatcher": ["$eslint-stylish"],
+			"label": "npm: lint - packages/validation",
+			"detail": "eslint  --fix -c .eslintrc.js --ext .ts src"
 		}
 	]
 }

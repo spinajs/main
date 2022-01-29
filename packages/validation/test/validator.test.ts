@@ -1,9 +1,9 @@
 import 'mocha';
-import { DI, IContainer } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from "@spinajs/configuration";
-import sinon from 'sinon';
+import * as sinon from 'sinon';
 import { expect } from 'chai';
-import _ from 'lodash';
+import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import { DataValidator } from '../src/validator';
 import { Schema } from '../src';
@@ -18,8 +18,8 @@ class TestConfiguration extends FrameworkConfiguration {
 
     }
 
-    public async resolveAsync(container: IContainer): Promise<void> {
-        await super.resolveAsync(container);
+    public async resolveAsync(): Promise<void> {
+        await super.resolveAsync();
 
         _.merge(this.Config, {
             system: {

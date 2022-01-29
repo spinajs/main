@@ -1,5 +1,5 @@
 import { Container } from './container';
-import { IBind, IContainer, AsyncModule } from './interfaces';
+import { IBind, IContainer, AsyncModule, ResolvableObject } from './interfaces';
 import { Class, Factory } from './types';
 import { TypedArray } from './array';
 
@@ -91,7 +91,7 @@ export function clearCache() {
  * @param type - interface object to register
  * @throws {@link InvalidArgument} if type is null or undefined
  */
-export function register<T>(type: Class<T> | Factory<T>): IBind {
+export function register<T>(type: Class<T> | Factory<T> | ResolvableObject): IBind {
   return RootContainer.register(type);
 }
 
@@ -130,7 +130,7 @@ export function get<T>(serviceName: string | Class<T> | TypedArray<T>): T | T[] 
  * @param service - service name or class to check
  */
 export function has<T>(service: string | Class<T>): boolean {
-  return RootContainer.has(service);
+  return RootContainer.isResolved(service);
 }
 
 /**

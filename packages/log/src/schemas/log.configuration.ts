@@ -1,5 +1,6 @@
 const CONFIGURATION_SCHEMA = {
   $id: "spinajs/log.configuration.schema.json",
+  $configurationModule: "logger",
   description: "Logger configuration option validation",
   type: "object",
   properties: {

@@ -1,36 +1,20 @@
-import { Config } from "@spinajs/configuration/lib/decorators";
-import { AsyncModule, Autoinject, IContainer } from "@spinajs/di";
-import { DataValidator } from "@spinajs/validation";
-import { ILogOptions } from "./types";
+import { Bootstrapper, DI } from "@spinajs/di";
 import { Log } from "./log";
+import CONFIGURATION_SCHEMA from "./schemas/log.configuration";
 
-export class LogBootstrap extends AsyncModule {
-  @Autoinject()
-  protected Validator: DataValidator;
+export class Logger extends Bootstrapper {
+  public async bootstrap(): Promise<void> {
 
-  @Config("logger")
-  protected Options: ILogOptions;
+    DI.register(CONFIGURATION_SCHEMA).asValue("__configurationSchema__");
 
-  public async resolveAsync(_: IContainer) {
-    /**
-     * Check if options are valid, if not break, break, break
-     */
-    this.Validator.validate(
-      "spinajs/log.configuration.schema.json",
-      this.Options
-    );
-
-    process.on("uncaughtException", err => {
-      Log.fatal(err, "Unhandled exception occured", "process");
+    process.on("uncaughtException", (err) => {
+      const log = DI.resolve(Log, ["process"]);
+      log.fatal(err, "Unhandled exception occured");
     });
 
     process.on("unhandledRejection", (reason, p) => {
-      Log.fatal(
-        reason as any,
-        "Unhandled rejection at Promise %s",
-        "process",
-        p
-      );
+      const log = DI.resolve(Log, ["process"]);
+      log.fatal(reason as Error, "Unhandled rejection at Promise %s", p);
     });
   }
 }

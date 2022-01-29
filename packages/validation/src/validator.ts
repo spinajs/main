@@ -1,35 +1,35 @@
-import { SyncModule, IContainer } from '@spinajs/di';
+import { SyncModule, IContainer, Autoinject } from '@spinajs/di';
 import Ajv from 'ajv';
 import { Config } from '@spinajs/configuration';
 import { IValidationError, ValidationFailed } from './exceptions';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators';
 import { Log } from '@spinajs/log/lib/log';
-import { SchemaSource } from './sources';
+import { IValidationOptions, SchemaSource, ISchemaObject } from './types';
 
 export class DataValidator extends SyncModule {
   @Config('validation')
-  public Options: any;
+  public Options: IValidationOptions;
 
+  @Autoinject(SchemaSource)
   protected Sources: SchemaSource[];
 
   protected Validator: Ajv;
 
+  @Autoinject()
   protected Container: IContainer;
 
-  public resolve(container: IContainer) {
-    this.Sources = container.resolve(Array.ofType(SchemaSource));
-
+  public resolve() {
     if (!this.Sources || this.Sources.length === 0) {
       throw new InvalidOperation('No schema sources avaible. Register any in DI container');
     }
 
     const ajvConfig = {
-      logger: {
-        log: (msg: string) => Log.info(msg, 'validation'),
-        warn: (msg: string) => Log.warn(msg, 'validation'),
-        error: (msg: string) => Log.error(msg, 'validation'),
-      },
+      // logger: {
+      //   // log: (msg: string) => Log.info(msg, 'validation'),
+      //   // warn: (msg: string) => Log.warn(msg, 'validation'),
+      //   // error: (msg: string) => Log.error(msg, 'validation'),
+      // },
       ...this.Options,
     };
 
@@ -44,11 +44,11 @@ export class DataValidator extends SyncModule {
     // add keywords
     require('ajv-keywords')(this.Validator);
 
-    this.Sources.map(x => x.Load())
+    this.Sources.map((x) => x.Load())
       .reduce((prev, curr) => {
         return prev.concat(curr);
       }, [])
-      .filter(s => {
+      .filter((s) => {
         // validate schema can throw sometimes
         try {
           const vResult = this.Validator.validateSchema(s.schema, true);
@@ -60,18 +60,18 @@ export class DataValidator extends SyncModule {
 
           return true;
         } catch (err) {
-          Log.error(`Schema at ${s.file} invalid, reason: ${err.message}`, 'validator');
+          Log.error(`Schema at ${s.file} invalid, reason: ${(err as Error).message}`, 'validator');
           return false;
         }
       })
-      .forEach(s => {
+      .forEach((s) => {
         this.addSchema(s.schema, s.schema.$id);
       });
 
-    super.resolve(container);
+    super.resolve();
   }
 
-  public addSchema(schemaObject: any, identifier: string) {
+  public addSchema(schemaObject: object, identifier: string) {
     if (!this.hasSchema(identifier)) {
       this.Validator.addSchema(schemaObject, identifier);
       Log.trace(`Schema ${identifier} added !`, 'validator');
@@ -82,8 +82,8 @@ export class DataValidator extends SyncModule {
    *
    * Checks if schema is loaded ( from file )
    *
-   * @param schemaId schema id to check
-   * @returns { boolean } true if schema is loaded, false otherwise
+   * @param schemaId - schema id to check
+   * @returns  true if schema is loaded, false otherwise
    */
   public hasSchema(schemaId: string): boolean {
     return !!this.Validator.getSchema(schemaId);
@@ -92,68 +92,34 @@ export class DataValidator extends SyncModule {
   /**
    * Tries to validate given data
    *
-   * @param data data to validate. Function will try to extract schema attached to object via @Schema decorator
-   * @return { array : [boolean, ValidationError[]]} [0] true if data is valid, false otherwise, [1] list of all errors. If
-   *                                                 set in config validation.allErrors is set to false, only firs error is returned
+   * @param data - data to validate. Function will try to extract schema attached to object via `@Schema` decorator
+   *
    */
-  public tryValidate(data: any): [boolean, IValidationError[]];
+  public tryValidate(data: object): [boolean, IValidationError[]];
   /**
    * Tries to validate given data
    *
-   * @param  {string|object|Boolean} schemaKeyRef key, ref or schema object
-   * @param  {Any} data to be validated
-   * @return { array : [boolean, ValidationError[]]} [0] true if data is valid, false otherwise, [1] list of all errors. If
-   *                                                 set in config validation.allErrors is set to false, only firs error is returned
+   * @param  schemaKeyRef - key, ref or schema object
+   * @param  data - to be validated
    */
-  public tryValidate(schema: object | string, data: any): [boolean, IValidationError[]];
-  public tryValidate(schemaOrData: object | string, data?: any): [boolean, IValidationError[] | null] {
-    if (arguments.length === 1) {
-      const schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData);
+  public tryValidate(schema: object | string, data: object): [boolean, IValidationError[]];
+  public tryValidate(schemaOrData: object | string, data?: object): [boolean, IValidationError[] | null] {
+    let schema: ISchemaObject = null;
 
-      if (!schema) {
-        return [
-          false,
-          [
-            {
-              keyword: 'empty_schema',
-              instancePath: './',
-              schemaPath: '',
-              params: { data: '' },
-            },
-          ],
-        ];
-      }
-
-      const result = this.Validator.validate(schema, schemaOrData);
-      if (!result) {
-        return [false, this.Validator.errors ?? null];
-      }
+    if (!data) {
+      schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject;
     } else {
-      if (!data) {
-        return [
-          false,
-          [
-            {
-              keyword: 'invalid_argument',
-              instancePath: './',
-              schemaPath: '',
-              params: { data: '' },
-            },
-          ],
-        ];
-      }
-
-      let schema = null;
-
       if (typeof schemaOrData === 'object') {
-        schema = schemaOrData;
+        schema = schemaOrData as ISchemaObject;
       } else if (typeof schemaOrData === 'string') {
-        const s = this.Validator.getSchema(schemaOrData);
-        schema = s?.schema;
+        /* eslint-disable */
+        schema = (this.Validator.getSchema(schemaOrData) as any) ?? null;
       } else {
-        schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData);
+        schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject;
       }
+    }
 
+    if (!schema) {
       if (!schema) {
         return [
           false,
@@ -167,11 +133,11 @@ export class DataValidator extends SyncModule {
           ],
         ];
       }
+    }
 
-      const result = this.Validator.validate(schema, data);
-      if (!result) {
-        return [false, this.Validator.errors ?? null];
-      }
+    const result = this.Validator.validate(schema, schemaOrData);
+    if (!result) {
+      return [false, this.Validator.errors ?? null];
     }
 
     return [true, null];
@@ -180,20 +146,20 @@ export class DataValidator extends SyncModule {
   /**
    * Validate given data. When failed, exception is thrown
    *
-   * @param data data to validate. Function will try to extract schema attached to object via @Schema decorator
-   * @throws {InvalidArgument | ValidationFailed }
+   * @param data - data to validate. Function will try to extract schema attached to object via `@Schema` decorator
+   * @throws {@link InvalidArgument | ValidationFailed }
    */
-  public validate(data: any): void;
+  public validate(data: object): void;
 
   /**
    * Validate given data
    *
-   * @param  {string|object|Boolean} schemaKeyRef key, ref or schema object
-   * @param  {Any} data to be validated
-   * @throws {InvalidArgumen | ValidationFailed }
+   * @param  schemaKeyRef - key, ref or schema object
+   * @param  data - to be validated
+   * @throws {@link InvalidArgumen | ValidationFailed }
    */
-  public validate(schema: object | string, data: any): void;
-  public validate(schemaOrData: object | string, data?: any): void {
+  public validate(schema: object | string, data: object): void;
+  public validate(schemaOrData: object | string, data?: object): void {
     const [isValid, errors] = this.tryValidate(schemaOrData, data);
     if (!isValid) {
       switch (errors[0].keyword) {

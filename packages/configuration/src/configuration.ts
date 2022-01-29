@@ -1,10 +1,12 @@
-import { IContainer, Injectable } from '@spinajs/di';
+import { Autoinject, Container, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { join, normalize, resolve } from 'path';
 import { ConfigurationSource } from './sources';
 import { Configuration, ConfigurationOptions } from './types';
 import { parseArgv } from './util';
 import * as _ from 'lodash';
+import Ajv from 'ajv';
+import { InvalidConfiguration } from './exception';
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
@@ -26,6 +28,9 @@ export class FrameworkConfiguration extends Configuration {
   protected CustomConfigPaths: string[];
 
   protected Sources: ConfigurationSource[];
+
+  @Autoinject()
+  protected Container: Container;
 
   /**
    *
@@ -63,14 +68,14 @@ export class FrameworkConfiguration extends Configuration {
     this.Config = _.set(this.Config, path, value);
   }
 
-  public async resolveAsync(container: IContainer): Promise<void> {
-    if (!container.hasRegistered(ConfigurationSource)) {
+  public async resolveAsync(): Promise<void> {
+    if (!this.Container.hasRegistered(ConfigurationSource)) {
       throw new InvalidOperation(
         'No configuration sources configured. Please ensure that config module have any source to read from !',
       );
     }
 
-    this.Sources = await container.resolve(Array.ofType(ConfigurationSource), [
+    this.Sources = await this.Container.resolve(Array.ofType(ConfigurationSource), [
       this.RunApp,
       this.CustomConfigPaths,
       this.AppBaseDir,
@@ -80,10 +85,9 @@ export class FrameworkConfiguration extends Configuration {
       result.map((c) => _.merge(this.Config, c));
     });
 
+    this.validateConfig();
     this.applyAppDirs();
     this.configure();
-
-    await super.resolveAsync(container);
   }
 
   protected dir(toJoin: string) {
@@ -101,6 +105,52 @@ export class FrameworkConfiguration extends Configuration {
     for (const prop of Object.keys(this.get(['system', 'dirs'], []))) {
       this.get<string[]>(['system', 'dirs', prop]).push(this.dir(`/${this.RunApp}/${prop}`));
     }
+  }
+
+  protected validateConfig() {
+    const validator = new Ajv({
+      // logger: {
+      //   // log: (msg: string) => {},
+      //   // warn: (msg: string) => {},
+      //   // error: (msg: string) => {},
+      // },
+
+      // enable all errors on  validation, not only first one that occurred
+      allErrors: true,
+
+      // remove properties that are not defined in schema
+      removeAdditional: true,
+
+      // set default values if possible
+      useDefaults: true,
+
+      // The option coerceTypes allows you to have your data types coerced to the types specified in your schema type keywords
+      coerceTypes: true,
+    });
+
+    // add $merge & $patch for json schema
+    require('ajv-merge-patch')(validator);
+
+    // add common formats validation eg: date time
+    require('ajv-formats')(validator);
+
+    // add keywords
+    require('ajv-keywords')(validator);
+
+    const schemas = this.Container.get<any[]>('__configurationSchema__', true);
+
+    Object.keys(this.Config).forEach((k) => {
+      const schema = schemas.find((x) => x.$configurationModule === k);
+
+      if (schema) {
+        if (!validator.validate(schema, this.Config[k])) {
+          throw new InvalidConfiguration(
+            'invalid configuration ! Check config files and restart app.',
+            validator.errors,
+          );
+        }
+      }
+    });
   }
 
   /**

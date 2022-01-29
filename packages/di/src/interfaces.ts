@@ -2,6 +2,8 @@ import { ResolveType } from './enums';
 import { Class, Factory } from './types';
 import { EventEmitter } from 'events';
 import { TypedArray } from './array';
+import { Registry } from './registry';
+import { ContainerCache } from './container-cache';
 
 /**
  * Interface to describe DI binding behaviour
@@ -20,30 +22,42 @@ export interface IBind {
   asSelf(): this;
 
   /**
+   * Registers as value, it wont be resolved or called, just stored as is in container
+   *
+   * @param type - name of type / key after whitch implementation will be resolved
+   */
+  asValue(type: string): this;
+
+  /**
    * Registers object as single instance ( singleton )
    */
   singleInstance(): this;
 }
 
+export interface ResolvableObject {
+  [key: string]: any;
+}
+
 export interface IContainer extends EventEmitter {
-  Cache: Map<string, unknown[]>;
-  Registry: Map<string, Array<Class<unknown> | Factory<unknown>>>;
+  Cache: ContainerCache;
+  Registry: Registry;
+  Parent: IContainer;
 
   clear(): void;
   clearRegistry(): void;
   clearCache(): void;
 
-  register<T>(implementation: Class<T> | Factory<T>): IBind;
+  register<T>(implementation: Class<T> | Factory<T> | ResolvableObject): IBind;
 
   child(): IContainer;
   get<T>(service: TypedArray<T>, parent?: boolean): T[] | null;
   get<T>(service: string | Class<T>, parent?: boolean): T | null;
   get<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): T | T[] | null;
-  getRegisteredTypes<T>(service: string | Class<T>, parent?: boolean): Array<Class<unknown> | Factory<unknown>>;
+  getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): Array<Class<unknown> | Factory<unknown>>;
 
-  has<T>(service: string | Class<T>, parent?: boolean): boolean;
-  hasRegistered<T>(service: Class<T> | string, parent?: boolean): boolean;
-  hasRegisteredType<T>(source: Class<T> | string, implementation: Class<T> | Factory<T> | string): boolean;
+  isResolved<T>(service: string | Class<T>, parent?: boolean): boolean;
+  hasRegistered<T>(service: Class<T> | string | TypedArray<T>, parent?: boolean): boolean;
+  hasRegisteredType<T>(source: Class<any> | string | TypedArray<any>, type: Class<T> | string | TypedArray<T>, parent?: boolean): boolean;
 
   resolve<T>(type: string, options?: unknown[], check?: boolean): T;
   resolve<T>(type: string, check?: boolean): T;
@@ -108,4 +122,8 @@ export class AsyncModule extends Module {
   public async resolveAsync(): Promise<void> {
     this.resolved = true;
   }
+}
+
+export abstract class Bootstrapper {
+  public abstract bootstrap(): Promise<void> | void;
 }

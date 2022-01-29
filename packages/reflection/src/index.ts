@@ -3,7 +3,7 @@ import * as glob from 'glob';
 import * as path from 'path';
 import * as ts from 'typescript';
 import { Configuration } from '@spinajs/configuration';
-import { AsyncModule, DI } from '@spinajs/di';
+import { AsyncModule, Class, DI } from '@spinajs/di';
 import { InvalidArgument, Exception } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
 
@@ -56,7 +56,7 @@ export class TypescriptCompiler {
    *
    * Extracts all members info from typescript class eg. method name, parameters, return types etc.
    *
-   * @param className name of class to parse
+   * @param className - name of class to parse
    */
   public getClassMembers(className: string) {
     const members: Map<string, ts.MethodDeclaration> = new Map<string, ts.MethodDeclaration>();
@@ -69,7 +69,7 @@ export class TypescriptCompiler {
       this.walkClassNode(
         className,
         this.walkMemberNode((method: ts.MethodDeclaration) => {
-          members.set((method.name as any).text, method);
+          members.set(method.name.getText(), method);
         }),
       ),
     );
@@ -156,7 +156,7 @@ function _listOrResolveFromFiles(
 
     function _loadInstances(): Promise<Array<ClassInfo<any>>> | Array<ClassInfo<any>> {
       const config = DI.get(Configuration);
-      const logger = DI.resolve(Log, ["reflection"]);
+      const logger = DI.resolve(Log, ['reflection']);
       let directories = config.get<string[]>(configPath);
 
       if (!directories || directories.length === 0) {
@@ -170,9 +170,9 @@ function _listOrResolveFromFiles(
       let promised = false;
 
       const result = directories
-        .map((d: string) => path.normalize(d))
         .filter((d: string) => {
-          const exists = fs.existsSync(d);
+          /* eslint-disable */
+          const exists = fs.existsSync(path.normalize(d));
           if (!exists) {
             logger.warn(`Directory ${d} not exists`);
           }
@@ -185,7 +185,9 @@ function _listOrResolveFromFiles(
 
           const name = path.parse(f).name;
           const nameToResolve = typeMatcher ? typeMatcher(name) : name;
-          const type = require(f)[nameToResolve];
+
+          /* eslint-disable */
+          const type = require(f)[`${nameToResolve}`] as Class<any>;
 
           if (!type) {
             throw new ReflectionException(`cannot find class ${nameToResolve} in file ${f}`);

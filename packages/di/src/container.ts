@@ -3,11 +3,13 @@ import 'reflect-metadata';
 import { TypedArray } from './array';
 import { DI_DESCRIPTION_SYMBOL } from './decorators';
 import { ResolveType } from './enums';
-import { isAsyncModule, isFactory, uniqBy } from './helpers';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncModule, IToInject, AsyncModule } from './interfaces';
+import { getTypeName, isAsyncModule, isFactory, uniqBy, isTypedArray } from './helpers';
+import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncModule, IToInject, AsyncModule, ResolvableObject } from './interfaces';
 import { Class, Factory } from './types';
 import { EventEmitter } from 'events';
 import { Binder } from './binder';
+import { Registry } from './registry';
+import { ContainerCache } from './container-cache';
 
 /**
  * Dependency injection container implementation
@@ -17,12 +19,12 @@ export class Container extends EventEmitter implements IContainer {
    * Handles information about what is registered as what
    * eg. that class IConfiguration should be resolved as DatabaseConfiguration etc.
    */
-  private registry: Map<string, Array<Class<unknown> | Factory<unknown>>>;
+  private registry: Registry;
 
   /**
    * Singletons cache, objects that should be created only once are stored here.
    */
-  private cache: Map<string, unknown[]>;
+  private cache: ContainerCache;
 
   /**
    * Parent container if avaible
@@ -40,14 +42,16 @@ export class Container extends EventEmitter implements IContainer {
     return this.registry;
   }
 
+  public get Parent() {
+    return this.parent;
+  }
+
   constructor(parent?: IContainer) {
     super();
 
-    this.registry = new Map<string, Array<Class<unknown> | Factory<unknown>>>();
-    this.cache = new Map<string, unknown[]>();
+    this.registry = new Registry(this);
+    this.cache = new ContainerCache(this);
     this.parent = parent || undefined;
-
-    this.registerSelf();
   }
 
   /**
@@ -62,15 +66,13 @@ export class Container extends EventEmitter implements IContainer {
    */
   public clearCache(): void {
     this.cache.clear();
-    this.cache = new Map<string, unknown[]>();
   }
 
   /**
    * Clears container resolved types
    */
   public clearRegistry(): void {
-    this.registry.clear();
-    this.registerSelf();
+    this.Registry.clear();
   }
 
   /**
@@ -78,7 +80,7 @@ export class Container extends EventEmitter implements IContainer {
    * @param type - interface object to register
    * @throws {@link InvalidArgument} if type is null or undefined
    */
-  public register<T>(implementation: Class<T> | Factory<T>): IBind {
+  public register<T>(implementation: Class<T> | Factory<T> | ResolvableObject): IBind {
     if (!implementation) {
       throw new InvalidArgument('argument `type` cannot be null or undefined');
     }
@@ -118,15 +120,22 @@ export class Container extends EventEmitter implements IContainer {
       return null;
     };
 
-    const identifier = typeof service === 'string' ? this.Registry.get(service) || service : service instanceof TypedArray ? this.Registry.get(service.Type.name) : this.Registry.get(service.name) || service.name;
-
-    if (!identifier) {
-      return null;
+    // get value registered as TypedArray ( mean to return all created instances )
+    if (service instanceof TypedArray) {
+      return _get(service.Type.name) as T[];
     }
 
-    // get value registered under string ( could be anything )
-    if (typeof identifier === 'string') {
-      return _get(identifier) as T;
+    const rTypes = this.Registry.getTypes(service, parent);
+
+    if (!rTypes) {
+      // if nothing is registered as factory func or class
+      // maybe we just added something to cache directly
+      // eg. static object, number, etc
+      if (typeof service === 'string') {
+        return _get(service) as T;
+      }
+
+      return null;
     }
 
     /**
@@ -137,47 +146,18 @@ export class Container extends EventEmitter implements IContainer {
      *
      * We do not track of any instances created by factory funcions.
      */
-    if (isFactory(identifier[identifier.length - 1])) {
+    if (isFactory(rTypes[rTypes.length - 1])) {
       return null;
-    }
-
-    // get value registered as TypedArray ( mean to return all created instances )
-    if (service instanceof TypedArray) {
-      return _get(service.Type.name) as T[];
     }
 
     // lastly, try to get newest registered type
     // if eg. we registerd couple of types under same identifier
     // return last registered implementation
-    return _get(identifier[identifier.length - 1].name) as T;
-  }
-
-  public getRegisteredTypes<T>(service: string | Class<T>, parent = true): Array<Class<unknown> | Factory<unknown>> {
-    if (!service) {
-      throw new InvalidArgument('argument "service" cannot be null or empty');
-    }
-
-    const name = typeof service === 'string' ? service : service.constructor.name;
-
-    if (this.registry.has(name)) {
-      return this.Registry.get(name);
-    }
-
-    if (this.parent && parent) {
-      return this.parent.getRegisteredTypes(service, parent);
-    }
-
-    return null;
+    return _get(rTypes[rTypes.length - 1].name) as T;
   }
 
   public hasRegistered<T>(service: Class<T> | string, parent = true): boolean {
-    if (this.registry.has(typeof service === 'string' ? service : service.name)) {
-      return true;
-    } else if (this.parent && parent) {
-      return this.parent.hasRegistered(service);
-    }
-
-    return false;
+    return this.Registry.hasRegistered(service, parent);
   }
 
   /**
@@ -188,22 +168,8 @@ export class Container extends EventEmitter implements IContainer {
    * @returns true if service instance already exists, otherwise false.
    * @throws {@link InvalidArgument} when service is null or empty
    */
-  public has<T>(service: string | Class<T>, parent = true): boolean {
-    if (!service) {
-      throw new InvalidArgument('argument cannot be null or empty');
-    }
-
-    const name = typeof service === 'string' ? service : service.name;
-
-    if (this.cache.has(name)) {
-      return true;
-    }
-
-    if (this.parent && parent) {
-      return this.parent.has(name);
-    }
-
-    return false;
+  public isResolved<T>(service: string | Class<T>, parent = true): boolean {
+    return this.Cache.has(service, parent);
   }
 
   /**
@@ -250,9 +216,8 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     const sourceType = type instanceof TypedArray ? type.Type : type;
-    const sourceName = typeof type === 'string' ? type : type instanceof TypedArray ? type.Type.name : type.name;
+    const sourceName = getTypeName(type);
     const opt = typeof options === 'boolean' ? null : options;
-    const isArray = type instanceof TypedArray;
 
     if (options === true || check === true) {
       if (!this.hasRegistered(sourceType)) {
@@ -266,10 +231,10 @@ export class Container extends EventEmitter implements IContainer {
       return null;
     }
 
-    if (isArray) {
+    if (isTypedArray(type)) {
       // if its array type, resolve all registered types or type
       // used in typed array
-      const targetType = this.getRegisteredTypes(sourceName) ?? [type.Type];
+      const targetType = this.getRegisteredTypes(type) ?? [type.Type];
       const resolved = targetType.map((r) => this.resolveType(sourceType, r, opt));
       if (resolved.some((r) => r instanceof Promise)) {
         return Promise.all(resolved) as Promise<T[]>;
@@ -281,9 +246,13 @@ export class Container extends EventEmitter implements IContainer {
       // 1. last registered type OR
       // 2. if non is registered - type itself
 
-      const targetType = this.getRegisteredTypes(sourceName) ?? [type];
+      const targetType = this.getRegisteredTypes(type) ?? [type];
       return this.resolveType(sourceType, targetType[targetType.length - 1], opt) as T;
     }
+  }
+
+  public getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): (Class<unknown> | Factory<unknown>)[] {
+    return this.Registry.getTypes(service, parent);
   }
 
   private resolveType<T>(sourceType: Class<T> | string, targetType: Class<T> | Factory<T>, options?: unknown[]): Promise<T> | T {
@@ -310,15 +279,13 @@ export class Container extends EventEmitter implements IContainer {
     const setCache = (r: T) => {
       const toCheck = tType.name;
 
-      if (!this.has(toCheck, isSingleton)) {
-        this.Cache.set(toCheck, [r]);
-      }
+      this.Cache.add(toCheck, r);
 
       return r;
     };
 
     const getCachedInstance = (e: string | Class<unknown>, parent: boolean) => {
-      if (this.has(e, parent)) {
+      if (this.isResolved(e, parent)) {
         return this.get(e, parent);
       }
 
@@ -329,7 +296,8 @@ export class Container extends EventEmitter implements IContainer {
       if (d.resolver === ResolveType.NewInstance) {
         return this.getNewInstance(t, i, options);
       }
-      this.registerType(sName, t);
+
+      this.Registry.register(sName, t);
       return getCachedInstance(tType, d.resolver === ResolveType.Singleton ? true : false) || this.getNewInstance(t, i, options);
     };
 
@@ -337,7 +305,7 @@ export class Container extends EventEmitter implements IContainer {
     if (isSingletonInChild || isSingleton) {
       // if its singleton ( not per child container )
       // check also in parent containers
-      if (this.has(tType, isSingleton)) {
+      if (this.isResolved(tType, isSingleton)) {
         return this.get(tType) as unknown as T;
       }
     }
@@ -359,16 +327,6 @@ export class Container extends EventEmitter implements IContainer {
 
       setCache(resInstance as T);
       return resInstance as T;
-    }
-  }
-
-  protected registerType(name: string, type: Class<unknown>) {
-    if (!this.hasRegistered(name, false)) {
-      this.Registry.set(name, [type]);
-    } else {
-      if (!this.hasRegisteredType(name, type)) {
-        this.Registry.set(name, this.Registry.get(name).concat(type));
-      }
     }
   }
 
@@ -422,14 +380,8 @@ export class Container extends EventEmitter implements IContainer {
     return newInstance;
   }
 
-  public hasRegisteredType<T>(source: Class<T> | string, type: Class<T> | string) {
-    const sourceName = typeof source === 'string' ? source : source.name;
-    const targetName = typeof type === 'string' ? type : type.name;
-    if (this.registry.has(sourceName)) {
-      return this.registry.get(sourceName).find((s) => s.name === targetName) !== undefined;
-    }
-
-    return false;
+  public hasRegisteredType<T>(source: Class<T> | string, type: Class<T> | string | TypedArray<T>, parent?: boolean) {
+    return this.Registry.hasRegisteredType(source, type, parent);
   }
 
   protected resolveDependencies(toInject: IToInject<unknown>[]) {
@@ -492,10 +444,5 @@ export class Container extends EventEmitter implements IContainer {
         }
       }
     }
-  }
-
-  // allows container instance to be resolved
-  private registerSelf() {
-    this.cache.set('Container', [this]);
   }
 }

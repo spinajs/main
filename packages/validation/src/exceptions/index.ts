@@ -12,5 +12,5 @@ export class ValidationFailed extends Exception {
   }
 }
 
-// tslint:disable-next-line
+/* eslint-disable */
 export interface IValidationError extends ErrorObject {}

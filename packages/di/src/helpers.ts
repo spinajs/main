@@ -1,3 +1,4 @@
+import { TypedArray } from './array';
 import { AsyncModule, SyncModule } from './interfaces';
 import { Factory, Class } from './types';
 
@@ -7,7 +8,7 @@ import { Factory, Class } from './types';
  *
  * @param value - value to test
  */
-export function isConstructor(value: Class<unknown> | Factory<unknown>): value is Class<unknown> {
+export function isConstructor(value: any): value is Class<unknown> {
   try {
     Reflect.construct(String, [], value);
   } catch (e) {
@@ -17,16 +18,20 @@ export function isConstructor(value: Class<unknown> | Factory<unknown>): value i
   return true;
 }
 
-export function isFactory(value: Class<unknown> | Factory<unknown>): value is Factory<unknown> {
+export function isFactory(value: any): value is Factory<any> {
   return !isConstructor(value) && typeof value === 'function';
 }
 
-export function isAsyncModule(value: unknown): value is AsyncModule {
+export function isAsyncModule(value: any): value is AsyncModule {
   return value instanceof AsyncModule;
 }
 
-export function isSyncModule(value: unknown): value is SyncModule {
+export function isSyncModule(value: any): value is SyncModule {
   return value instanceof SyncModule;
+}
+
+export function isTypedArray(value: any): value is TypedArray<any> {
+  return value instanceof TypedArray;
 }
 
 export function uniqBy<T>(arr: T[], comparator: (a: T, b: T) => boolean) {
@@ -37,4 +42,8 @@ export function uniqBy<T>(arr: T[], comparator: (a: T, b: T) => boolean) {
     }
   }
   return uniques;
+}
+
+export function getTypeName(type: TypedArray<any> | Class<any> | string) {
+  return typeof type === 'string' ? type : type instanceof TypedArray ? type.Type.name : type.name;
 }
