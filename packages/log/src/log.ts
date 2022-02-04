@@ -1,7 +1,10 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration/lib/types";
 import { Autoinject, Container, DI, IContainer, NewInstance, ResolveException, SyncModule } from "@spinajs/di";
 import { LogTarget } from "./targets/LogTarget";
-import { ICommonTargetOptions, LogLevel, LogLevelStrings, ILogOptions, ILogRule, ILogTargetData, StrToLogLevel, ITargetsOption } from "./types";
+import { ICommonTargetOptions, LogLevel, LogLevelStrings, ILogOptions, ILogRule, ILogTargetData, StrToLogLevel, ITargetsOption, LogVariables } from "./types";
 import * as util from "util";
 import * as globToRegexp from "glob-to-regexp";
 import { InvalidOption } from "@spinajs/exceptions";
@@ -15,7 +18,7 @@ function createLogMessageObject(err: Error | string, message: string | any[], le
     Level: level,
     Variables: {
       error: err instanceof Error ? err : undefined,
-      level: LogLevelStrings[level].toUpperCase(),
+      level: LogLevelStrings[`${level}`].toUpperCase(),
       logger: lName,
       message: tMsg,
       ...variables,
@@ -23,17 +26,15 @@ function createLogMessageObject(err: Error | string, message: string | any[], le
   };
 }
 
-function wrapWrite(level: LogLevel) {
-  const self = this;
-
+function wrapWrite(this: Log, level: LogLevel) {
   return (err: Error | string, message: string | any[], ...args: any[]): void => {
     if (err instanceof Error) {
-      self.write(err, message, level, ...args);
+      this.write(err, message, level, ...args);
     } else {
       if (message) {
-        self.write(err, null, level, ...[message, ...args]);
+        this.write(err, null, level, ...[message, ...args]);
       } else {
-        self.write(err, null, level, ...args);
+        this.write(err, null, level, ...args);
       }
     }
   };
@@ -119,7 +120,12 @@ export class Log extends SyncModule {
 
     // if we have already created logger write to it
     if (Log.Loggers.has(logName)) {
-      Log.Loggers.get(logName).Targets.forEach((t) => t.instance.write(msg));
+      Log.Loggers.get(logName).Targets.forEach((t) => {
+        // eslint-disable-next-line promise/no-promise-in-callback
+        t.instance.write(msg).catch((err) => {
+          console.error(err);
+        });
+      });
       return;
     }
 
@@ -205,7 +211,7 @@ export class Log extends SyncModule {
     wrapWrite.apply(this, [LogLevel.Success])(err, message, ...args);
   }
 
-  public child(name: string, variables?: {}): Log {
+  public child(name: string, variables?: LogVariables): Log {
     return DI.resolve(Log, [
       `${this.Name}.${name}`,
       {
@@ -221,7 +227,11 @@ export class Log extends SyncModule {
       Log.LogBuffer.get(this.Name)
         .filter((msg: ILogTargetData) => msg.Variables.logger === this.Name)
         .forEach((msg: ILogTargetData) => {
-          this.Targets.forEach((t) => t.instance.write(msg));
+          this.Targets.forEach((t) => {
+            t.instance.write(msg).catch((err) => {
+              console.error(err);
+            });
+          });
         });
     }
   }
@@ -256,7 +266,10 @@ export class Log extends SyncModule {
     const lMsg = createLogMessageObject(err, message, level, this.Name, this.Variables, ...args);
     this.Targets.forEach((t) => {
       if (level >= StrToLogLevel[t.rule.level]) {
-        t.instance.write(lMsg);
+        // eslint-disable-next-line promise/no-promise-in-callback
+        t.instance.write(lMsg).catch((err) => {
+          console.error(err);
+        });
       }
     });
   }

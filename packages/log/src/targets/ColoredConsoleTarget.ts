@@ -6,9 +6,7 @@ import {
 import { Injectable, Singleton } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
 import { LogLevel } from "..";
-
-// eslint:disable-next-line
-const colors = require("colors/safe");
+import * as colors from "colors/safe";
 
 export const DEFAULT_THEME = {
   security: ["red", "bgBrightWhite"],
@@ -51,6 +49,11 @@ export class ColoredConsoleTarget extends LogTarget<
     }
 
     this.StdConsoleCallbackMap[data.Level](
+
+      /**
+       * we are safe to call, disable eslint
+       */
+      /* eslint-disable */
       (colors as any)[LogLevelStrings[data.Level]](
         this.format(data.Variables, this.Options.layout)
       )

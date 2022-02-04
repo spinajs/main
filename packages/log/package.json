@@ -37,5 +37,8 @@
     "luxon": "^2.3.0",
     "node-schedule": "^2.1.0"
   },
+  "devDependencies": {
+    "@types/color": "^3.0.3"
+  },
   "gitHead": "c34426e3f8b35aef42bc615a16dc1b223b7e71ba"
 }
