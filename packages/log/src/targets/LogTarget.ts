@@ -32,7 +32,7 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModu
 
   public abstract write(data: ILogTargetData): Promise<void>;
 
-  protected format(customVars: LogVariables, layout: string): string {
+  protected format(customVars: LogVariables | null, layout: string): string {
     if (customVars.message) {
       return this._format(
         {

@@ -243,8 +243,8 @@ export class Log extends SyncModule {
       });
 
       if (!found) {
-        throw new InvalidOption(`No target matching rule ${r.target}`);
-      }
+        throw new InvalidOption(`No target matching rule ${r.name}`);
+      } 
 
       return found.map((f) => {
         return {

@@ -171,9 +171,9 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       }
 
       this.CurrentFileSize = 0;
-      this.LogDirPath = this.format({}, path.dirname(path.resolve(this.Options.options.path)));
-      this.ArchiveDirPath = this.Options.options.archivePath ? this.format({}, path.resolve(this.Options.options.archivePath)) : this.LogDirPath;
-      this.LogFileName = this.format({}, path.basename(this.Options.options.path));
+      this.LogDirPath = this.format(null, path.dirname(path.resolve(this.Options.options.path)));
+      this.ArchiveDirPath = this.Options.options.archivePath ? this.format(null, path.resolve(this.Options.options.archivePath)) : this.LogDirPath;
+      this.LogFileName = this.format(null, path.basename(this.Options.options.path));
       this.LogPath = path.join(this.LogDirPath, this.LogFileName);
 
       const { name, ext } = path.parse(this.LogFileName);
