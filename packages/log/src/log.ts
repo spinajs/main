@@ -3,7 +3,7 @@ import { Autoinject, Container, DI, IContainer, NewInstance, ResolveException, S
 import { LogTarget } from "./targets/LogTarget";
 import { ICommonTargetOptions, LogLevel, LogLevelStrings, ILogOptions, ILogRule, ILogTargetData, StrToLogLevel, ITargetsOption } from "./types";
 import * as util from "util";
-import globToRegexp from "glob-to-regexp";
+import * as globToRegexp from "glob-to-regexp";
 import { InvalidOption } from "@spinajs/exceptions";
 
 function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogTargetData {

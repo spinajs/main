@@ -3,10 +3,10 @@ import { Log } from "./log";
 
 /**
  * Creates ( if not exists ) new logger instance with given name and optional variables
- * @param name name of logger
- * @param variables optional log variables
+ * @param name - name of logger
+ * @param variables - optional log variables
  */
-export function Logger(name: string, variables?: {}) {
+export function Logger(name: string, variables?: Record<string, unknown>) {
   return (target: any, key: string): any => {
     let logger: Log;
 

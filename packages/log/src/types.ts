@@ -13,7 +13,7 @@ export enum LogLevel {
 
   Debug = 1,
 
-  Trace = 0
+  Trace = 0,
 }
 
 export const StrToLogLevel = {
@@ -24,7 +24,7 @@ export const StrToLogLevel = {
   warn: LogLevel.Warn,
   error: LogLevel.Error,
   fatal: LogLevel.Fatal,
-  security: LogLevel.Security
+  security: LogLevel.Security,
 };
 
 export const LogLevelStrings = {
@@ -35,7 +35,7 @@ export const LogLevelStrings = {
   [LogLevel.Security]: "security",
   [LogLevel.Success]: "success",
   [LogLevel.Trace]: "trace",
-  [LogLevel.Warn]: "warn"
+  [LogLevel.Warn]: "warn",
 };
 
 export abstract class LogVariable {
@@ -45,15 +45,7 @@ export abstract class LogVariable {
 
 export interface ILogRule {
   name: string;
-  level:
-    | "trace"
-    | "debug"
-    | "info"
-    | "warn"
-    | "error"
-    | "fatal"
-    | "security"
-    | "success";
+  level: "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "security" | "success";
   target: string | string[];
 }
 
@@ -66,14 +58,14 @@ export interface ITargetsOption {
 export interface ILogOptions {
   targets: ITargetsOption[];
   rules: ILogRule[];
-  variables: {};
+  variables: Record<string, unknown>;
 }
 
 export interface ICommonTargetOptions {
   /**
    * Message layout. You can use variables
    *
-   * Default message layout is: {datetime} {level} {message} ({logger})
+   * Default message layout is: datetime level message (logger)
    */
   layout: string;
 
@@ -92,9 +84,6 @@ export interface ICommonTargetOptions {
    */
   enabled: boolean;
 }
-
-// tslint:disable-next-line
-export interface IBlackHoleTargetOptions extends ICommonTargetOptions {}
 
 export interface IColoredConsoleTargetOptions extends ICommonTargetOptions {
   /**
@@ -170,12 +159,20 @@ export interface IFileTargetOptions extends ICommonTargetOptions {
   };
 }
 
+export interface ILogStaticVariables {
+  error: Error | undefined;
+  level: string;
+  logger: string;
+  message: string;
+}
+
+export interface ILogVariable {
+  [key: string]: string | (() => string);
+}
+
 export interface ILogTargetData {
   Level: LogLevel;
-  Variables: {
-    error: Error | undefined;
-    level: string;
-    logger: string;
-    message: string;
-  };
+  Variables: LogVariables;
 }
+
+export type LogVariables = ILogStaticVariables & ILogVariable;

@@ -32,6 +32,14 @@
 			"problemMatcher": ["$eslint-stylish"],
 			"label": "npm: lint - packages/validation",
 			"detail": "eslint  --fix -c .eslintrc.js --ext .ts src"
+		},
+		{
+			"type": "npm",
+			"script": "lint",
+			"path": "packages/log/",
+			"problemMatcher": ["$eslint-stylish"],
+			"label": "npm: lint - packages/log",
+			"detail": "eslint  --fix -c .eslintrc.js --ext .ts src"
 		}
 	]
 }

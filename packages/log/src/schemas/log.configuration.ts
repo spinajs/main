@@ -5,8 +5,7 @@ const CONFIGURATION_SCHEMA = {
   type: "object",
   properties: {
     targets: {
-      description:
-        "Log target, where log messages should be written to, and their options",
+      description: "Log target, where log messages should be written to, and their options",
       type: "array",
       minItems: 1,
       uniqueItems: true,
@@ -14,73 +13,73 @@ const CONFIGURATION_SCHEMA = {
         type: "object",
         properties: {
           layout: {
-            type: "string"
+            type: "string",
           },
           name: {
-            type: "string"
+            type: "string",
           },
           type: {
-            type: "string"
+            type: "string",
           },
           theme: {
             type: "object",
             properties: {
               security: {
-                type: "string"
+                type: "string",
               },
               fatal: {
-                type: "string"
+                type: "string",
               },
               error: {
-                type: "string"
+                type: "string",
               },
               warn: {
-                type: "string"
+                type: "string",
               },
               success: {
-                type: "string"
+                type: "string",
               },
               info: {
-                type: "string"
+                type: "string",
               },
               debug: {
-                type: "string"
+                type: "string",
               },
               trace: {
-                type: "string"
-              }
-            }
+                type: "string",
+              },
+            },
           },
           enabled: {
-            type: "boolean"
+            type: "boolean",
           },
           path: {
-            type: "string"
+            type: "string",
           },
           archivePath: {
-            type: "string"
+            type: "string",
           },
           maxSize: {
             type: "integer",
-            minimum: 10000
+            minimum: 10000,
           },
           compress: {
-            type: "boolean"
+            type: "boolean",
           },
           rotate: {
-            type: "string"
+            type: "string",
           },
           maxArchiveFiles: {
             type: "integer",
-            minimum: 1
+            minimum: 1,
           },
           bufferSize: {
             type: "integer",
-            minimum: 1000
-          }
+            minimum: 1000,
+          },
         },
-        required: ["name", "type"]
-      }
+        required: ["name", "type"],
+      },
     },
     rules: {
       description: "Log rules, what log should be write where",
@@ -91,39 +90,30 @@ const CONFIGURATION_SCHEMA = {
         type: "object",
         properties: {
           name: {
-            type: "string"
+            type: "string",
           },
           level: {
             type: "string",
-            enum: [
-              "trace",
-              "debug",
-              "warn",
-              "info",
-              "error",
-              "fatal",
-              "security",
-              "success"
-            ]
+            enum: ["trace", "debug", "warn", "info", "error", "fatal", "security", "success"],
           },
           target: {
             oneOf: [
               {
-                type: "string"
+                type: "string",
               },
               {
                 type: "array",
                 items: {
-                  type: "string"
-                }
-              }
-            ]
-          }
+                  type: "string",
+                },
+              },
+            ],
+          },
         },
-        required: ["name", "level", "target"]
-      }
-    }
-  }
+        required: ["name", "level", "target"],
+      },
+    },
+  },
 };
 
 export default CONFIGURATION_SCHEMA;

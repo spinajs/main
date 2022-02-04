@@ -3,11 +3,11 @@ import {
   LogLevelStrings,
   ILogTargetData
 } from "./../types";
-import { IContainer, Injectable, Singleton } from "@spinajs/di";
+import { Injectable, Singleton } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
 import { LogLevel } from "..";
 
-// tslint:disable-next-line
+// eslint:disable-next-line
 const colors = require("colors/safe");
 
 export const DEFAULT_THEME = {
@@ -40,9 +40,9 @@ export class ColoredConsoleTarget extends LogTarget<
     [LogLevel.Warn]: console.warn
   };
 
-  public resolve(_: IContainer) {
+  public resolve() {
     colors.setTheme(this.Options.theme ?? DEFAULT_THEME);
-    super.resolve(_);
+    super.resolve();
   }
 
   public async write(data: ILogTargetData): Promise<void> {

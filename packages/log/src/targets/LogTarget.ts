@@ -1,14 +1,11 @@
-import { ICommonTargetOptions } from "./../types";
 import { Inject, SyncModule } from "@spinajs/di";
-import _ from "lodash";
-import { LogVariable, ILogTargetData } from "../types";
+import * as _ from "lodash";
+import { LogVariable, ILogTargetData, ICommonTargetOptions, LogVariables } from "../types";
 
 @Inject(Array.ofType(LogVariable))
-export abstract class LogTarget<
-  T extends ICommonTargetOptions
-> extends SyncModule {
-  public HasError: boolean = false;
-  public Error: Error | null = null;
+export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModule {
+  public HasError = false;
+  public Error: Error | null | unknown = null;
   protected VariablesDictionary: Map<string, LogVariable> = new Map();
   protected LayoutRegexp: RegExp;
   protected Options: T;
@@ -16,17 +13,17 @@ export abstract class LogTarget<
   constructor(protected Variables: LogVariable[], options: T) {
     super();
 
-    this.Variables.forEach(v => {
+    this.Variables.forEach((v) => {
       this.VariablesDictionary.set(v.Name, v);
     });
 
-    this.LayoutRegexp = /\{((.*?)(:(.*?))?)\}/gm;
+    this.LayoutRegexp = /\{((.*?):(.*?))?\}/gm;
 
     if (options) {
       this.Options = _.merge(
         _.merge(this.Options, {
           enabled: true,
-          layout: "{datetime} {level} {message} {error} ({logger})"
+          layout: "{datetime} {level} {message} {error} ({logger})",
         }),
         options
       );
@@ -35,50 +32,53 @@ export abstract class LogTarget<
 
   public abstract write(data: ILogTargetData): Promise<void>;
 
-  protected format(customVars: {}, layout: string): string {
-    const self = this;
-
-    if ((customVars as any).message) {
-      return _format(
+  protected format(customVars: LogVariables, layout: string): string {
+    if (customVars.message) {
+      return this._format(
         {
           ...customVars,
-          message: _format(customVars, (customVars as any).message)
-        },
+          message: this._format(customVars, customVars.message),
+        } as LogVariables,
         layout
       );
     }
 
-    return _format(customVars, layout);
+    return this._format(customVars, layout);
+  }
 
-    function _format(vars: {}, txt: string) {
-      self.LayoutRegexp.lastIndex = 0;
+  protected _format(vars: LogVariables, txt: string) {
+    this.LayoutRegexp.lastIndex = 0;
 
-      const varMatch = [...txt.matchAll(self.LayoutRegexp)];
-      if (!varMatch) {
-        return "";
-      }
-
-      let result = txt;
-
-      varMatch.forEach(v => {
-        if ((vars as any)[v[2]]) {
-          result = result.replace(v[0], (vars as any)[v[2]]);
-        } else {
-          const variable = self.VariablesDictionary.get(v[2]);
-          if (variable) {
-            // optional parameter eg. {env:PORT}
-            if (v[3]) {
-              result = result.replace(v[0], variable.Value(v[4]));
-            } else {
-              result = result.replace(v[0], variable.Value());
-            }
-          } else {
-            result = result.replace(v[0], "");
-          }
-        }
-      });
-
-      return result;
+    const varMatch = [...txt.matchAll(this.LayoutRegexp)];
+    if (!varMatch) {
+      return "";
     }
+
+    let result = txt;
+
+    varMatch.forEach((v) => {
+      if (vars[v[2]]) {
+        const fVar = vars[v[2]];
+        if (fVar instanceof Function) {
+          result = result.replace(v[0], fVar());
+        } else {
+          result = result.replace(v[0], fVar);
+        }
+      } else {
+        const variable = this.VariablesDictionary.get(v[2]);
+        if (variable) {
+          // optional parameter eg. {env:PORT}
+          if (v[3]) {
+            result = result.replace(v[0], variable.Value(v[3]));
+          } else {
+            result = result.replace(v[0], variable.Value());
+          }
+        } else {
+          result = result.replace(v[0], "");
+        }
+      }
+    });
+
+    return result;
   }
 }

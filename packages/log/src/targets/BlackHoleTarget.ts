@@ -1,4 +1,4 @@
-import { IBlackHoleTargetOptions } from "./../types";
+import { ICommonTargetOptions } from "./../types";
 import { Injectable, Singleton } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
 
@@ -7,7 +7,7 @@ import { LogTarget } from "./LogTarget";
  */
 @Singleton()
 @Injectable("BlackHoleTarget")
-export class BlackHoleTarget extends LogTarget<IBlackHoleTargetOptions> {
+export class BlackHoleTarget extends LogTarget<ICommonTargetOptions> {
   public async write(): Promise<void> {
     return;
   }

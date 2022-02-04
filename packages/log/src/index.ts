@@ -6,12 +6,12 @@
  * When we export, we can see configuration variable
  * in webpack module cache and webpack config loader can see it
  */
-export * from "./config/log";
+export * as config from"./config/log";
 
 /**
  * Same issue with schemas
  */
-export * from "./schemas/log.configuration";
+export * as CONFIGURATION_SCHEMA from "./schemas/log.configuration";
 
 export * from "./types";
 export * from "./targets";

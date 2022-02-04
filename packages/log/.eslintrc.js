@@ -22,7 +22,6 @@ module.exports = {
       'plugin:import/errors',
       'plugin:import/warnings',
       'plugin:import/typescript',
-      'plugin:prettier/recommended',
       'plugin:promise/recommended',
       'plugin:@typescript-eslint/recommended',
       'plugin:@typescript-eslint/recommended-requiring-type-checking',
@@ -35,12 +34,8 @@ module.exports = {
     plugins: ['promise', 'prettier', 'eslint-plugin-import', 'eslint-plugin-prefer-arrow', '@typescript-eslint', 'tsdoc', 'security'],
     rules: {
       'tsdoc/syntax': 'warn',
-      'prettier/prettier': [
-        'error',
-        {
-          endOfLine: 'auto',
-        },
-      ],
+      "security/detect-unsafe-regex" : "off",
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   };
   
