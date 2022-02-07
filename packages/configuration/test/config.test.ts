@@ -5,167 +5,158 @@ import { join, normalize } from 'path';
 
 import { DI } from '@spinajs/di';
 import { FrameworkConfiguration } from '../src/configuration';
-import { Configuration } from "../src/types";
+import { Configuration } from '../src/types';
 
 function cfg() {
-    return DI.resolve<Configuration>(Configuration);
+  return DI.resolve<Configuration>(Configuration);
 }
 
 function cfgApp() {
-
-    return DI.resolve<Configuration>(Configuration, [{
-        app: "testapp",
-        appBaseDir: normalize(join(__dirname, "/mocks/apps"))
-    }]);
+  return DI.resolve<Configuration>(Configuration, [
+    {
+      app: 'testapp',
+      appBaseDir: normalize(join(__dirname, '/mocks/apps')),
+    },
+  ]);
 }
-
 
 function cfgNoApp() {
-    return DI.resolve<Configuration>(Configuration, [{
-        cfgCustomPaths: normalize(join(__dirname, "/mocks/config"))
-    }]);
+  return DI.resolve<Configuration>(Configuration, [
+    {
+      cfgCustomPaths: normalize(join(__dirname, '/mocks/config')),
+    },
+  ]);
 }
 
-class TestConfiguration extends FrameworkConfiguration {
+class TestConfiguration extends FrameworkConfiguration {}
 
-}
+describe('Configuration tests', () => {
+  before(() => {
+    DI.register(TestConfiguration).as(Configuration);
+  });
 
-describe("Configuration tests", () => {
+  beforeEach(() => {
+    DI.clearCache();
+  });
 
-    before(() => {
-        DI.register(TestConfiguration).as(Configuration);
-    });
+  it('Should load multiple nested files', async () => {
+    const config = await cfgNoApp();
+    const test = config.get(['test', 'value2']);
+    expect(test).to.be.eq(666);
+  });
 
-    beforeEach(() => {
-        DI.clearCache();
-    });
+  it('Should load config files without app specified', async () => {
+    const config = await cfgNoApp();
+    const test = config.get(['app', 'appLoaded']);
+    expect(test).to.be.undefined;
+  });
 
-    it("Should load multiple nested files", async () => {
-        const config = await cfgNoApp();
-        const test = config.get(["test", "value2"]);
-        expect(test).to.be.eq(666);
-    });
+  it('Should load config files', async () => {
+    const config = await cfgNoApp();
+    const test = config.get(['test']);
+    const json = config.get(['jsonentry']);
 
+    expect(test).to.not.be.undefined;
+    expect(json).to.be.true;
+  });
 
-    it("Should load config files without app specified", async () => {
-        const config = await cfgNoApp();
-        const test = config.get(["app", "appLoaded"]);
-        expect(test).to.be.undefined;
-    });
+  it('should return default value if no config property exists', async () => {
+    const config = await cfgNoApp();
+    const test = config.get(['test', 'value3'], 111);
 
+    expect(test).to.be.eq(111);
+  });
 
-    it("Should load config files", async () => {
-        const config = await cfgNoApp();
-        const test = config.get(["test"]);
-        const json = config.get(["jsonentry"]);
+  it('should merge two config files', async () => {
+    const config = await cfgNoApp();
+    const test = config.get('test.array');
 
-        expect(test).to.not.be.undefined;
-        expect(json).to.be.true;
-    });
+    expect(test).to.include.members([1, 2, 3, 4]);
+  });
 
-    it("should return default value if no config property exists", async () => {
+  it('should run configuration function', async () => {
+    const config = await cfgNoApp();
+    const test = config.get('test.confFunc');
 
-        const config = await cfgNoApp();
-        const test = config.get(["test", "value3"], 111);
+    expect(test).to.eq(true);
+  });
 
-        expect(test).to.be.eq(111);
-    });
+  it('should get with dot notation', async () => {
+    const config = await cfgNoApp();
+    const test = config.get('test.value');
 
-    it("should merge two config files", async () => {
-        const config = await cfgNoApp();
-        const test = config.get("test.array");
+    expect(test).to.eq(1);
+  });
 
-        expect(test).to.include.members([1, 2, 3, 4]);
-    });
+  it('should merge application config', async () => {
+    const config = await cfgApp();
+    const test = config.get('app');
 
-    it("should run configuration function", async () => {
-        const config = await cfgNoApp();
-        const test = config.get("test.confFunc");
+    expect(test).to.not.be.undefined;
+  });
 
-        expect(test).to.eq(true);
-    });
+  it('should return undefined when no value', async () => {
+    const config = await cfgNoApp();
+    const test = config.get('app.undefinedValue');
 
-    it("should get with dot notation", async () => {
-        const config = await cfgNoApp();
-        const test = config.get("test.value");
+    expect(test).to.be.undefined;
+  });
 
-        expect(test).to.eq(1);
-    });
+  it('should merge app config with app from argv', async () => {
+    const dir = normalize(join(__dirname, '/mocks/apps'));
 
-    it("should merge application config", async () => {
+    process.argv.push('--app');
+    process.argv.push('testapp');
 
-        const config = await cfgApp();
-        const test = config.get("app");
+    process.argv.push('--apppath');
+    process.argv.push(dir);
+    const config = await cfg();
 
-        expect(test).to.not.be.undefined;
-    });
+    const test = config.get('app');
+    expect(test).to.not.be.undefined;
 
-    it("should return undefined when no value", async () => {
+    expect(config.RunApp).to.eq('testapp');
+    expect(config.AppBaseDir).to.eq(dir);
+  });
 
-        const config = await cfgNoApp();
-        const test = config.get("app.undefinedValue");
+  it('Should load production only config', async () => {
+    process.env.NODE_ENV = 'production';
 
-        expect(test).to.be.undefined;
-    });
+    const config = await cfgNoApp();
 
-    it("should merge app config with app from argv", async () => {
+    expect(config.get('test.production')).to.eq(true);
+    expect(config.get('test.development')).to.eq(undefined);
 
-        const dir = normalize(join(__dirname, "/mocks/apps"));
+    expect(config.get('json-prod')).to.eq(true);
+    expect(config.get('json-dev')).to.eq(undefined);
 
-        process.argv.push("--app");
-        process.argv.push("testapp");
+    expect(config.get('configuration.isDevelopment')).to.eq(false);
+    expect(config.get('configuration.isProduction')).to.eq(true);
+  });
 
-        process.argv.push("--apppath");
-        process.argv.push(dir);
-        const config = await cfg();
+  it('Should load development only config', async () => {
+    process.env.NODE_ENV = 'development';
 
-        const test = config.get("app");
-        expect(test).to.not.be.undefined;
+    const config = await cfgNoApp();
 
-        expect(config.RunApp).to.eq("testapp");
-        expect(config.AppBaseDir).to.eq(dir);
+    expect(config.get('test.production')).to.eq(undefined);
+    expect(config.get('test.development')).to.eq(true);
 
-    });
+    expect(config.get('json-prod')).to.eq(undefined);
+    expect(config.get('json-dev')).to.eq(true);
 
-    it("Should load production only config", async () => {
-        process.env.NODE_ENV = "production";
+    expect(config.get('configuration.isDevelopment')).to.eq(true);
+    expect(config.get('configuration.isProduction')).to.eq(false);
+  });
 
-        const config = await cfgNoApp();
+  it('Set should override loaded config', async () => {
+    const config = await cfgNoApp();
+    const test = config.get('test.value');
+    expect(test).to.eq(1);
 
-        expect(config.get("test.production")).to.eq(true);
-        expect(config.get("test.development")).to.eq(undefined);
+    config.set('test.value', 555);
 
-        expect(config.get("json-prod")).to.eq(true);
-        expect(config.get("json-dev")).to.eq(undefined);
-
-        expect(config.get("configuration.isDevelopment")).to.eq(false);
-        expect(config.get("configuration.isProduction")).to.eq(true);
-    });
-
-    it("Should load development only config", async () => {
-        process.env.NODE_ENV = "development";
-
-        const config = await cfgNoApp();
-
-        expect(config.get("test.production")).to.eq(undefined);
-        expect(config.get("test.development")).to.eq(true);
-
-        expect(config.get("json-prod")).to.eq(undefined);
-        expect(config.get("json-dev")).to.eq(true);
-
-        expect(config.get("configuration.isDevelopment")).to.eq(true);
-        expect(config.get("configuration.isProduction")).to.eq(false);
-    })
-
-    it("Set should override loaded config", async () => {
-
-        const config = await cfgNoApp();
-        const test = config.get("test.value");
-        expect(test).to.eq(1);
-
-        config.set("test.value", 555);
-
-        const test2 = config.get("test.value");
-        expect(test2).to.eq(555);
-    });
+    const test2 = config.get('test.value');
+    expect(test2).to.eq(555);
+  });
 });

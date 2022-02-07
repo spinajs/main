@@ -44,7 +44,7 @@
                 "--timeout",
                 "999999",
                 "--colors",
-                "${workspaceFolder}/configuration/test/**/*.ts",
+                "${workspaceFolder}/packages/configuration/test/**/*.ts",
             ],
             "protocol": "inspector"
         },

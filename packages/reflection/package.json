@@ -32,7 +32,8 @@
     "@spinajs/configuration": "^1.2.1",
     "@spinajs/di": "^1.2.1",
     "@spinajs/exceptions": "^1.2.1",
-    "@spinajs/log": "^1.2.1"
+    "@spinajs/log": "^1.2.1",
+    "lodash": "^4.17.21"
   },
   "gitHead": "c34426e3f8b35aef42bc615a16dc1b223b7e71ba"
 }
