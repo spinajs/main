@@ -60,6 +60,9 @@
     "@spinajs/exceptions": "file:packages\\exceptions",
     "@spinajs/log": "file:packages\\log",
     "@spinajs/reflection": "file:packages\\reflection",
-    "@spinajs/validation": "file:packages\\validation"
+    "@spinajs/validation": "file:packages\\validation",
+    "@spinajs/log-common": "file:packages\\log-common",
+    "@spinajs/internal-logger": "file:packages\\internal-logger"
+
   }
 }

@@ -17,6 +17,7 @@ module.exports = {
     browser: true,
     es6: true,
   },
+  ignorePatterns: ['.eslintrc.js'],
   extends: [
     'plugin:security/recommended',
     'plugin:import/errors',
@@ -29,7 +30,7 @@ module.exports = {
   ],
   parser: '@typescript-eslint/parser',
   parserOptions: {
-    project: 'tsconfig.json',
+    project: './tsconfig.json',
     sourceType: 'module',
   },
   plugins: ['promise', 'prettier', 'eslint-plugin-import', 'eslint-plugin-prefer-arrow', '@typescript-eslint', 'tsdoc', 'security'],

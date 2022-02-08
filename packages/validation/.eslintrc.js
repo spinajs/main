@@ -17,6 +17,7 @@ module.exports = {
     browser: true,
     es6: true,
   },
+  ignorePatterns: ['.eslintrc.js'],
   extends: [
     'plugin:security/recommended',
     'plugin:import/errors',

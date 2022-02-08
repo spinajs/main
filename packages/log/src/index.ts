@@ -1,3 +1,4 @@
+ 
 /**
  * We export default configuration for webpack modules
  * Normally we load configuration from disk via filesystem
@@ -13,7 +14,7 @@ export * as config from"./config/log";
  */
 export * as CONFIGURATION_SCHEMA from "./schemas/log.configuration";
 
-export * from "./types";
+export * from "@spinajs/log-common";
 export * from "./targets";
 export * from "./variables";
 export * from "./log";

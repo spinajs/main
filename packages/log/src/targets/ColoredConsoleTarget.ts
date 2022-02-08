@@ -1,8 +1,4 @@
-import {
-  IColoredConsoleTargetOptions,
-  LogLevelStrings,
-  ILogTargetData
-} from "./../types";
+import { IColoredConsoleTargetOptions, LogLevelStrings, ILogTargetData } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
 import { LogLevel } from "..";
@@ -16,14 +12,12 @@ export const DEFAULT_THEME = {
   success: "green",
   info: "white",
   debug: "gray",
-  trace: "gray"
+  trace: "gray",
 };
 
 @Singleton()
 @Injectable("ConsoleTarget")
-export class ColoredConsoleTarget extends LogTarget<
-  IColoredConsoleTargetOptions
-> {
+export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions> {
   protected StdConsoleCallbackMap = {
     [LogLevel.Error]: console.error,
     [LogLevel.Fatal]: console.error,
@@ -35,7 +29,7 @@ export class ColoredConsoleTarget extends LogTarget<
     [LogLevel.Trace]: console.debug,
     [LogLevel.Debug]: console.debug,
 
-    [LogLevel.Warn]: console.warn
+    [LogLevel.Warn]: console.warn,
   };
 
   public resolve() {
@@ -49,14 +43,11 @@ export class ColoredConsoleTarget extends LogTarget<
     }
 
     this.StdConsoleCallbackMap[data.Level](
-
       /**
        * we are safe to call, disable eslint
        */
       /* eslint-disable */
-      (colors as any)[LogLevelStrings[data.Level]](
-        this.format(data.Variables, this.Options.layout)
-      )
+      (colors as any)[LogLevelStrings[data.Level]](this.format(data.Variables, this.Options.layout))
     );
   }
 }

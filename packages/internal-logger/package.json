@@ -1,0 +1,37 @@
+{
+  "name": "@spinajs/internal-logger",
+  "version": "1.2.1",
+  "description": "internal logger used by some packages. do not use it in production environment",
+  "homepage": "https://github.com/spinajs/main#readme",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "dependencies": {
+    "@spinajs/di": "^1.2.1"
+  },
+  "scripts": {
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -p tsconfig.build.json",
+    "clean": "",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
+    "lint": "eslint -c .eslintrc.js --ext .ts src",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  }
+}

@@ -12,6 +12,22 @@
 		{
 			"type": "npm",
 			"script": "lint",
+			"path": "packages/log-common/",
+			"problemMatcher": ["$eslint-stylish"],
+			"label": "npm: lint - packages/log-common",
+			"detail": "eslint  --fix -c .eslintrc.js --ext .ts src"
+		},
+		{
+			"type": "npm",
+			"script": "lint",
+			"path": "packages/configuration/",
+			"problemMatcher": ["$eslint-stylish"],
+			"label": "npm: lint - packages/configuration",
+			"detail": "eslint  --fix -c .eslintrc.js --ext .ts src"
+		},
+		{
+			"type": "npm",
+			"script": "lint",
 			"path": "packages/exceptions/",
 			"problemMatcher": ["$eslint-stylish"],
 			"label": "npm: lint - packages/exceptions",

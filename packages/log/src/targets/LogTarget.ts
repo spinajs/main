@@ -1,6 +1,12 @@
 import { Inject, SyncModule } from "@spinajs/di";
 import * as _ from "lodash";
-import { LogVariable, ILogTargetData, ICommonTargetOptions, LogVariables } from "../types";
+import { LogVariable, ILogTargetData, ICommonTargetOptions, LogVariables, ILogRule, ITargetsOption } from "@spinajs/log-common";
+
+export interface ILogTargetDesc {
+  instance: LogTarget<ICommonTargetOptions>;
+  options?: ITargetsOption;
+  rule: ILogRule;
+}
 
 @Inject(Array.ofType(LogVariable))
 export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModule {

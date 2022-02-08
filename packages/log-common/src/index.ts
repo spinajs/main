@@ -1,3 +1,5 @@
+import * as util from "util";
+
 export enum LogLevel {
   Security = 999,
 
@@ -176,3 +178,20 @@ export interface ILogTargetData {
 }
 
 export type LogVariables = ILogStaticVariables & ILogVariable;
+
+export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogTargetData {
+  const sMsg = err instanceof Error ? (message as string) : err;
+  const tMsg = args.length !== 0 ? util.format(sMsg, ...args) : sMsg;
+  const lName = logger ?? message;
+
+  return {
+    Level: level,
+    Variables: {
+      error: err instanceof Error ? err : undefined,
+      level: LogLevelStrings[`${level}`].toUpperCase(),
+      logger: lName,
+      message: tMsg,
+      ...variables,
+    },
+  };
+}

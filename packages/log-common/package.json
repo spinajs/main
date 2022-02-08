@@ -1,5 +1,4 @@
 {
-  "name": "@spinajs/log",
   "version": "1.2.1",
   "description": "Log lib for all spinejs related libs",
   "main": "lib/index.js",
@@ -21,25 +20,23 @@
   },
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/log)",
   "license": "MIT",
+  "name": "@spinajs/log-common",
+  "homepage": "https://github.com/spinajs/main#readme",
+  "directories": {
+    "lib": "lib",
+    "test": "__tests__"
+  },
+  "files": [
+    "lib"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
   "bugs": {
-    "url": "https://github.com/spinajs/log/issues"
-  },
-  "homepage": "https://github.com/spinajs/log#readme",
-  "dependencies": {
-    "@spinajs/configuration": "^1.2.1",
-    "@spinajs/di": "^1.2.1",
-    "@spinajs/exceptions": "^1.2.1",
-    "@spinajs/log-common": "^1.2.1",
-    "ajv": "^8.8.2",
-    "colors": "^1.4.0",
-    "glob": "^7.2.0",
-    "glob-to-regexp": "^0.4.1",
-    "lodash": "^4.17.14",
-    "luxon": "^2.3.0",
-    "node-schedule": "^2.1.0"
-  },
-  "devDependencies": {
-    "@types/color": "^3.0.3"
-  },
-  "gitHead": "c34426e3f8b35aef42bc615a16dc1b223b7e71ba"
+    "url": "https://github.com/spinajs/main/issues"
+  }
 }

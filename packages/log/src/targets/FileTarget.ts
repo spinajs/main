@@ -2,7 +2,7 @@
 
 import { Injectable, NewInstance } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
-import { IFileTargetOptions, ILogTargetData } from "../types";
+import { IFileTargetOptions, ILogTargetData } from "@spinajs/log-common";
 import * as fs from "fs";
 import * as path from "path";
 import { Job, scheduleJob } from "node-schedule";
