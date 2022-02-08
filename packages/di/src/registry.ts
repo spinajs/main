@@ -1,23 +1,20 @@
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { TypedArray } from './array';
-import { getTypeName, isConstructor, isFactory } from './helpers';
+import { getTypeName, isConstructor, isFactory, isObject } from './helpers';
 import { IContainer } from './interfaces';
 import { Class, Factory } from './types';
 
 export class Registry {
   protected registry: Map<string, any[]> = new Map<string, any[]>();
 
-  constructor(protected container: IContainer) {
-    this.initialize();
-  }
+  constructor(protected container: IContainer) {}
 
   public clear() {
     this.registry.clear();
-    this.initialize();
   }
 
   public register(name: string | Class<any> | TypedArray<any>, type: any) {
-    if (!isConstructor(type) && !isFactory(type)) {
+    if (!isConstructor(type) && !isFactory(type) && !isObject(type)) {
       throw new InvalidOperation('cannot register type if its not an class or factory function');
     } else {
       const tname = getTypeName(name);
@@ -33,7 +30,7 @@ export class Registry {
     }
   }
 
-  public hasRegisteredType(source: Class<any> | string | TypedArray<any>, type: Class<any> | string | TypedArray<any>, parent?: boolean) {
+  public hasRegisteredType(source: Class<any> | string | TypedArray<any>, type: Class<any> | string | TypedArray<any> | object, parent?: boolean) {
     const sourceName = getTypeName(source);
     const targetName = getTypeName(type);
     if (this.registry.has(sourceName)) {
@@ -63,15 +60,12 @@ export class Registry {
   }
 
   public hasRegistered<T>(service: TypedArray<T> | Class<T> | string, parent = true): boolean {
-    if (!this.registry.has(getTypeName(service)) && parent && this.container.Parent) {
+    if (this.registry.has(getTypeName(service))) {
+      return true;
+    } else if (parent && this.container.Parent) {
       return this.container.Parent.hasRegistered(service, parent);
     }
 
     return false;
-  }
-
-  protected initialize() {
-    // allows container instance to be resolved
-    this.register('Container', this.container);
   }
 }

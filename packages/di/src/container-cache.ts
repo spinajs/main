@@ -1,3 +1,4 @@
+import { TypedArray } from './array';
 import { getTypeName } from './helpers';
 import { IContainer } from './interfaces';
 import { Class } from './types';
@@ -7,9 +8,13 @@ export class ContainerCache {
 
   constructor(private container: IContainer) {
     this.cache = new Map<string, any[]>();
+
+    // add to cache container
+    // so we can inject container if needed
+    this.add(container, container);
   }
 
-  public add(key: string | Class<any>, instance: any) {
+  public add(key: string | Class<any> | object, instance: any) {
     const tName = getTypeName(key);
 
     if (this.has(key)) {
@@ -19,7 +24,7 @@ export class ContainerCache {
     }
   }
 
-  public has(key: string | Class<any>, parent?: boolean): boolean {
+  public has(key: string | Class<any> | object | TypedArray<any>, parent?: boolean): boolean {
     if (this.cache.has(getTypeName(key))) {
       return true;
     }
@@ -31,7 +36,7 @@ export class ContainerCache {
     return false;
   }
 
-  public get(key: string | Class<any>, parent?: boolean): any {
+  public get(key: string | Class<any> | TypedArray<any>, parent?: boolean): any {
     const tName = getTypeName(key);
 
     if (this.cache.has(tName)) {
@@ -39,13 +44,14 @@ export class ContainerCache {
     }
 
     if (parent && this.container.Parent) {
-      return this.container.Parent.Cache.get(key);
+      return this.container.Parent.Cache.get(key, parent);
     }
 
-    return undefined;
+    return [];
   }
 
   public clear() {
     this.cache.clear();
+    this.add(this.container, this.container);
   }
 }

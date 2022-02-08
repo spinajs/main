@@ -22,6 +22,10 @@ export function isFactory(value: any): value is Factory<any> {
   return !isConstructor(value) && typeof value === 'function';
 }
 
+export function isObject(value: any): value is object {
+  return typeof value === 'object';
+}
+
 export function isAsyncModule(value: any): value is AsyncModule {
   return value instanceof AsyncModule;
 }
@@ -44,6 +48,6 @@ export function uniqBy<T>(arr: T[], comparator: (a: T, b: T) => boolean) {
   return uniques;
 }
 
-export function getTypeName(type: TypedArray<any> | Class<any> | string) {
-  return typeof type === 'string' ? type : type instanceof TypedArray ? type.Type.name : type.name;
+export function getTypeName(type: TypedArray<any> | Class<any> | string | object): string {
+  return typeof type === 'string' ? type : type instanceof TypedArray ? type.Type.name : isConstructor(type) ? type.name : type.constructor.name;
 }

@@ -2,12 +2,19 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import * as chai from 'chai';
 import * as chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { AsyncModule, Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, SyncModule, Singleton, ResolveException } from '../src';
+import { AsyncModule, Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, SyncModule, Singleton } from '../src';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
 class NoRegisteredType {}
+
+class InjectableBase {}
+@Injectable(InjectableBase)
+export class InjectableTest {}
+
+@Injectable(InjectableBase)
+export class InjectableTest2 {}
 
 @Singleton()
 class Foo {
@@ -167,7 +174,6 @@ describe('Dependency injection', () => {
 
     const registry = DI.RootContainer.Registry;
 
-    expect(registry).to.be.an('Map').that.have.length(1);
     expect(registry.getTypes(InjectableTest)).to.be.an('array').that.have.length(1);
     expect(registry.getTypes(InjectableTest)[0]).to.be.not.null;
     expect(DI.resolve(InjectableTest)).to.be.not.null;
@@ -181,7 +187,6 @@ describe('Dependency injection', () => {
 
     const registry = DI.RootContainer.Registry;
 
-    expect(registry).to.be.an('Map').that.have.length(1);
     expect(registry.getTypes(InjectableBase)).to.be.an('array').that.have.length(1);
     expect(registry.getTypes(InjectableBase)[0]).to.be.not.null;
     expect(registry.getTypes(InjectableBase)[0].name).to.eq('InjectableTest');
@@ -199,7 +204,6 @@ describe('Dependency injection', () => {
 
     const registry = DI.RootContainer.Registry;
 
-    expect(registry).to.be.an('Map').that.have.length(1);
     expect(registry.getTypes(InjectableBase)).to.be.an('array').that.have.length(2);
     expect(registry.getTypes(InjectableBase)[0]).to.be.not.null;
     expect(registry.getTypes(InjectableBase)[0].name).to.eq('InjectableTest');
@@ -510,7 +514,7 @@ describe('Dependency injection', () => {
     DI.resolve(Test);
     expect(DI.get('Test')).to.be.not.null;
     DI.clear();
-    expect(DI.get('Test')).to.be.null;
+    expect(DI.get('Test')).to.be.undefined;
   });
 
   it('Should get if type is already resolved', () => {
@@ -521,8 +525,8 @@ describe('Dependency injection', () => {
     expect(DI.get('Test')).to.be.not.null;
   });
 
-  it('Get should return null if type is not already resolved', () => {
-    expect(DI.get('Test')).to.be.null;
+  it('Get should return undefined if type is not already resolved', () => {
+    expect(DI.get('Test')).to.be.undefined;
   });
 
   it('Should throw if type is unknown', () => {
@@ -555,9 +559,7 @@ describe('Dependency injection', () => {
       expect(container).to.be.not.null;
       expect(container.constructor.name).to.eq('Container');
       return new DatabaseImpl();
-    })
-      .as(IDatabase)
-      .singleInstance();
+    }).as(IDatabase);
 
     const instance = DI.resolve<IDatabase>(IDatabase);
     expect(instance).to.be.not.null;
@@ -665,18 +667,14 @@ describe('Dependency injection', () => {
     expect(getted[1]).to.be.instanceOf(InjectableTest2);
   });
 
-  it('Should throw when trying to resolve array type', () => {
-    expect(() => DI.resolve(Array.ofType(NoRegisteredType))).to.throw(ResolveException);
+  it('Should return empty arrat when trying to resolve array type', () => {
+    const t = DI.resolve(Array.ofType(NoRegisteredType));
+    expect(t).to.be.an('array').and.to.have.lengthOf(0);
   });
 
   it('Should @Inject should resolve all implementations', () => {
-    class InjectableBase {}
-
-    @Injectable(InjectableBase)
-    class InjectableTest {}
-
-    @Injectable(InjectableBase)
-    class InjectableTest2 {}
+    DI.register(InjectableTest).as(InjectableBase);
+    DI.register(InjectableTest2).as(InjectableBase);
 
     @Inject(Array.ofType(InjectableBase))
     class ResolvableClass {
@@ -802,9 +800,7 @@ describe('Dependency injection', () => {
   it('Should resolve factory function as string', async () => {
     DI.register(() => {
       return { id: 1 };
-    })
-      .as('Test')
-      .singleInstance();
+    }).as('Test');
 
     const instance = await DI.resolve('Test');
     expect(instance).to.include({ id: 1 });

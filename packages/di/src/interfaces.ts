@@ -57,7 +57,7 @@ export interface IContainer extends EventEmitter {
 
   isResolved<T>(service: string | Class<T>, parent?: boolean): boolean;
   hasRegistered<T>(service: Class<T> | string | TypedArray<T>, parent?: boolean): boolean;
-  hasRegisteredType<T>(source: Class<any> | string | TypedArray<any>, type: Class<T> | string | TypedArray<T>, parent?: boolean): boolean;
+  hasRegisteredType<T>(source: Class<any> | string | TypedArray<any>, type: Class<T> | string | TypedArray<T> | object, parent?: boolean): boolean;
 
   resolve<T>(type: string, options?: unknown[], check?: boolean): T;
   resolve<T>(type: string, check?: boolean): T;
