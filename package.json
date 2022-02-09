@@ -58,11 +58,11 @@
     "@spinajs/configuration": "file:packages\\configuration",
     "@spinajs/di": "file:packages\\di",
     "@spinajs/exceptions": "file:packages\\exceptions",
+    "@spinajs/internal-logger": "file:packages\\internal-logger",
     "@spinajs/log": "file:packages\\log",
+    "@spinajs/log-common": "file:packages\\log-common",
     "@spinajs/reflection": "file:packages\\reflection",
     "@spinajs/validation": "file:packages\\validation",
-    "@spinajs/log-common": "file:packages\\log-common",
-    "@spinajs/internal-logger": "file:packages\\internal-logger"
-
+    "rxjs": "^7.5.4"
   }
 }
