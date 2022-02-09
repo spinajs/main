@@ -1,6 +1,13 @@
 import { Inject, SyncModule } from "@spinajs/di";
 import * as _ from "lodash";
-import { LogVariable, ILogEntry, ICommonTargetOptions, LogVariables, ILogRule, ITargetsOption } from "@spinajs/log-common";
+import {
+  LogVariable,
+  ILogEntry,
+  ICommonTargetOptions,
+  LogVariables,
+  ILogRule,
+  ITargetsOption,
+} from "@spinajs/log-common";
 
 export interface ILogTargetDesc {
   instance: LogTarget<ICommonTargetOptions>;
@@ -9,7 +16,9 @@ export interface ILogTargetDesc {
 }
 
 @Inject(Array.ofType(LogVariable))
-export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModule {
+export abstract class LogTarget<
+  T extends ICommonTargetOptions
+> extends SyncModule {
   public HasError = false;
   public Error: Error | null | unknown = null;
   protected VariablesDictionary: Map<string, LogVariable> = new Map();

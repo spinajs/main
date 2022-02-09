@@ -14,7 +14,7 @@ export function Logger(name: string, variables?: Record<string, unknown>) {
     const getter = () => {
       if (!logger) {
         const allLoggers = DI.get(Array.ofType(Log));
-        const found = allLoggers.find(l => l.Name);
+        const found = allLoggers.find((l) => l.Name);
 
         if (found) {
           logger = found;
@@ -29,7 +29,7 @@ export function Logger(name: string, variables?: Record<string, unknown>) {
     Object.defineProperty(target, key, {
       get: getter,
       enumerable: false,
-      configurable: false
+      configurable: false,
     });
   };
 }

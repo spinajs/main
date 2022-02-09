@@ -1,4 +1,3 @@
- 
 /**
  * We export default configuration for webpack modules
  * Normally we load configuration from disk via filesystem
@@ -7,7 +6,7 @@
  * When we export, we can see configuration variable
  * in webpack module cache and webpack config loader can see it
  */
-export * as config from"./config/log";
+export * as config from "./config/log";
 
 /**
  * Same issue with schemas

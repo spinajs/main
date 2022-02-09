@@ -7,10 +7,10 @@ function dir(path: string) {
 const config = {
   system: {
     dirs: {
-      schemas: [dir("./../schemas")]
-    }
+      schemas: [dir("./../schemas")],
+    },
   },
-  log: {}
+  log: {},
 };
 
 export default config;

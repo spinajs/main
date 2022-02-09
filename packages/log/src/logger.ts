@@ -5,7 +5,6 @@ import CONFIGURATION_SCHEMA from "./schemas/log.configuration";
 @Autoinject
 export class Logger extends Bootstrapper {
   public async bootstrap(): Promise<void> {
-
     DI.register(CONFIGURATION_SCHEMA).asValue("__configurationSchema__");
 
     process.on("uncaughtException", (err) => {
