@@ -1,14 +1,15 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { DI } from '@spinajs/di';
 import { Configuration } from './types';
 
 /**
  * Injects configuration value to given class property
  *
- * @param path path to configuration value eg. "app.dirs.stats"
- * @param dafaultValue default value if path not exists
+ * @param path - path to configuration value eg. "app.dirs.stats"
+ * @param dafaultValue - default value if path not exists
  * @returns
  */
-export function Config(path: string, dafaultValue?: any) {
+export function Config(path: string, dafaultValue?: unknown) {
   return (target?: any, key?: string): any => {
     let config: Configuration = null;
 

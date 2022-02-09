@@ -1,5 +1,5 @@
 import { Injectable } from "@spinajs/di";
-import { LogVariable } from "../types";
+import { LogVariable } from "@spinajs/log-common";
 
 @Injectable(LogVariable)
 export class ProcVariable extends LogVariable {

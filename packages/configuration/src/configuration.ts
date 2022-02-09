@@ -1,8 +1,10 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Autoinject, Container, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { join, normalize, resolve } from 'path';
 import { ConfigurationSource } from './sources';
-import { Configuration, ConfigurationOptions } from './types';
+import { Configuration, ConfigurationOptions, IConfigurable, IConfigurationSchema } from './types';
 import { parseArgv } from './util';
 import * as _ from 'lodash';
 import Ajv from 'ajv';
@@ -13,17 +15,17 @@ export class FrameworkConfiguration extends Configuration {
   /**
    * Apps configuration base dir, where to look for app config
    */
-  public AppBaseDir: string = './';
+  public AppBaseDir = './';
 
   /**
    * Current running app name
    */
-  public RunApp: string = '';
+  public RunApp = '';
 
   /**
    * Loaded & merged configuration
    */
-  protected Config: any = {};
+  protected Config: Record<string, unknown> = {};
 
   protected CustomConfigPaths: string[];
 
@@ -34,9 +36,9 @@ export class FrameworkConfiguration extends Configuration {
 
   /**
    *
-   * @param app application name, pass it when you run in application mode
-   * @param baseDir configuration base dir, where to look for application configs
-   * @param cfgCustomPaths custom cfg paths eg. to load config from non standard folders ( usefull in tests )
+   * @param app - application name, pass it when you run in application mode
+   * @param baseDir - configuration base dir, where to look for application configs
+   * @param cfgCustomPaths - custom cfg paths eg. to load config from non standard folders ( usefull in tests )
    */
   constructor(options?: ConfigurationOptions) {
     super();
@@ -51,20 +53,19 @@ export class FrameworkConfiguration extends Configuration {
    *
    * @param path - path to property eg. ["system","dirs"]
    * @param defaultValue - optional, if value at specified path not exists returns default value
-   * @returns { T | undefined }
    */
   public get<T>(path: string[] | string, defaultValue?: T): T {
-    return _.get(this.Config, path, defaultValue);
+    return _.get(this.Config, path, defaultValue) as T;
   }
 
   /**
    * Sets at given path configuration value. Use when you want to override config
    * loaded from files programatically
    *
-   * @param path config path
-   * @param value value to set
+   * @param path - config path
+   * @param value - value to set
    */
-  public set(path: string[] | string, value: any) {
+  public set(path: string[] | string, value: unknown) {
     this.Config = _.set(this.Config, path, value);
   }
 
@@ -75,14 +76,16 @@ export class FrameworkConfiguration extends Configuration {
       );
     }
 
-    this.Sources = await this.Container.resolve(Array.ofType(ConfigurationSource), [
+    this.Sources = this.Container.resolve<ConfigurationSource>(Array.ofType(ConfigurationSource), [
       this.RunApp,
       this.CustomConfigPaths,
       this.AppBaseDir,
     ]);
 
     await Promise.all(this.Sources.map((s) => s.Load())).then((result) => {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       result.map((c) => _.merge(this.Config, c));
+      return;
     });
 
     this.validateConfig();
@@ -137,13 +140,13 @@ export class FrameworkConfiguration extends Configuration {
     // add keywords
     require('ajv-keywords')(validator);
 
-    const schemas = this.Container.get<any[]>('__configurationSchema__', true);
+    const schemas = this.Container.get<IConfigurationSchema[]>('__configurationSchema__', true);
 
     Object.keys(this.Config).forEach((k) => {
       const schema = schemas.find((x) => x.$configurationModule === k);
 
       if (schema) {
-        if (!validator.validate(schema, this.Config[k])) {
+        if (!validator.validate(schema, this.Config[`${k}`])) {
           throw new InvalidConfiguration(
             'invalid configuration ! Check config files and restart app.',
             validator.errors,
@@ -159,9 +162,9 @@ export class FrameworkConfiguration extends Configuration {
    */
   protected configure() {
     for (const prop of Object.keys(this.Config)) {
-      const subconfig = this.Config[prop];
+      const subconfig = this.Config[`${prop}`] as IConfigurable;
 
-      if (_.isFunction(subconfig.configure)) {
+      if (subconfig.configure && typeof subconfig.configure === 'function') {
         subconfig.configure.apply(this);
       }
     }

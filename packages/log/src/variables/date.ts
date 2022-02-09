@@ -1,6 +1,6 @@
 import { Injectable } from "@spinajs/di";
 import { DateTime } from "luxon";
-import { LogVariable } from "../types";
+import { LogVariable } from "@spinajs/log-common";
 
 @Injectable(LogVariable)
 export class DateTimeLogVariable extends LogVariable {

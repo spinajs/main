@@ -41,12 +41,13 @@
   "dependencies": {
     "@spinajs/di": "^1.2.1",
     "@spinajs/exceptions": "^1.2.1",
-    "glob": "^7.1.4",
-    "lodash": "^4.17.14",
+    "@spinajs/internal-logger": "^1.2.1",
     "ajv": "^8.8.2",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",
-    "ajv-merge-patch": "^5.0.1"
+    "ajv-merge-patch": "^5.0.1",
+    "glob": "^7.1.4",
+    "lodash": "^4.17.14"
   },
   "gitHead": "c34426e3f8b35aef42bc615a16dc1b223b7e71ba"
 }

@@ -8,6 +8,14 @@ export interface IFrameworkVersion {
   major: number;
 }
 
+export interface IConfigurationSchema {
+  $configurationModule: string;
+}
+
+export interface IConfigurable {
+  configure(this: Configuration): void;
+}
+
 export interface ConfigurationOptions {
   /**
    * application name, pass it when you run in application mode
@@ -52,8 +60,8 @@ export abstract class Configuration extends AsyncModule {
    * Sets at given path configuration value. Use when you want to override config
    * loaded from files programatically
    *
-   * @param path config path
-   * @param value value to set
+   * @param path - config path
+   * @param value - value to set
    */
-  public abstract set(path: string[] | string, value: any): void;
+  public abstract set(path: string[] | string, value: unknown): void;
 }

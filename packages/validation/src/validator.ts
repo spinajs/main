@@ -4,8 +4,8 @@ import { Config } from '@spinajs/configuration';
 import { IValidationError, ValidationFailed } from './exceptions';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators';
-import { Log } from '@spinajs/log/lib/log';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types';
+import { Logger, ILog } from '@spinajs/log';
 
 export class DataValidator extends SyncModule {
   @Config('validation')
@@ -13,6 +13,9 @@ export class DataValidator extends SyncModule {
 
   @Autoinject(SchemaSource)
   protected Sources: SchemaSource[];
+
+  @Logger('validation')
+  protected Log: ILog;
 
   protected Validator: Ajv;
 
@@ -25,11 +28,11 @@ export class DataValidator extends SyncModule {
     }
 
     const ajvConfig = {
-      // logger: {
-      //   // log: (msg: string) => Log.info(msg, 'validation'),
-      //   // warn: (msg: string) => Log.warn(msg, 'validation'),
-      //   // error: (msg: string) => Log.error(msg, 'validation'),
-      // },
+      logger: {
+        log: (msg: string) => this.Log.info(msg),
+        warn: (msg: string) => this.Log.warn(msg),
+        error: (msg: string) => this.Log.error(msg),
+      },
       ...this.Options,
     };
 
@@ -53,14 +56,14 @@ export class DataValidator extends SyncModule {
         try {
           const vResult = this.Validator.validateSchema(s.schema, true);
           if (!vResult) {
-            Log.error(`Schema at ${s.file} invalid`, 'validator');
+            this.Log.error(`Schema at ${s.file} invalid`, 'validator');
 
             return false;
           }
 
           return true;
         } catch (err) {
-          Log.error(`Schema at ${s.file} invalid, reason: ${(err as Error).message}`, 'validator');
+          this.Log.error(`Schema at ${s.file} invalid, reason: ${(err as Error).message}`, 'validator');
           return false;
         }
       })
@@ -74,7 +77,7 @@ export class DataValidator extends SyncModule {
   public addSchema(schemaObject: object, identifier: string) {
     if (!this.hasSchema(identifier)) {
       this.Validator.addSchema(schemaObject, identifier);
-      Log.trace(`Schema ${identifier} added !`, 'validator');
+      this.Log.trace(`Schema ${identifier} added !`, 'validator');
     }
   }
 

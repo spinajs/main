@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/unbound-method */
 import * as fs from 'fs';
 import _ = require('lodash');
 import { join, resolve } from 'path';
@@ -5,7 +7,8 @@ import { join, resolve } from 'path';
 /**
  * Hack to inform ts that jasmine var is declared to skip syntax error
  */
-declare var jasmine: any;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+declare let jasmine: never;
 
 export function parseArgv(param: string): string {
   const index = process.argv.indexOf(param);
@@ -25,7 +28,7 @@ export function findBasePath(path: string): string {
   return findBasePath(resolve(path, '..'));
 }
 
-export function merge(to: any, from: any): void {
+export function merge(to: unknown, from: unknown): unknown {
   _.mergeWith(to, from, (src, dest) => {
     if (_.isArray(src) && _.isArray(dest)) {
       const tmp = src.concat(dest);
@@ -41,7 +44,7 @@ export function merge(to: any, from: any): void {
 // clean require cache config
 // http://stackoverflow.com/questions/9210542/node-js-require-cache-possible-to-invalidate
 export function uncache(file: string) {
-  delete require.cache[file];
+  delete require.cache[`${file}`];
   return file;
 }
 

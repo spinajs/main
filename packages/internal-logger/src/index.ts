@@ -1,4 +1,4 @@
-import { Bootstrapper, DI, IContainer } from "@spinajs/di";
+import { Bootstrapper, DI } from "@spinajs/di";
 import { ILogEntry, LogLevel, createLogMessageObject, ILog } from "@spinajs/log-common";
 
 /**

@@ -1,26 +1,33 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable } from '@spinajs/di';
 import { glob } from 'glob';
-import _ = require('lodash');
+import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import { findBasePath, uncache } from './util';
 import * as fs from 'fs';
 import * as path from 'path';
+import { InternalLogger } from '@spinajs/internal-logger';
 
-function mergeArrays(target: any, source: any) {
+function mergeArrays(target: unknown[], source: unknown[]): unknown {
   if (_.isArray(target)) {
     return target.concat(source);
   }
 }
 
 export abstract class ConfigurationSource {
-  public abstract Load(): Promise<any>;
+  public abstract Load(): Promise<unknown>;
 }
 
 export abstract class BaseFileSource extends ConfigurationSource {
   /**
    * Configuration base dir, where to look for app config
    */
-  public BaseDir: string = './';
+  public BaseDir = './';
 
   protected CommonDirs = [
     // this module path
@@ -39,7 +46,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
     'config',
   ];
 
-  protected BasePath: string = '';
+  protected BasePath = '';
 
   constructor(protected RunApp?: string, protected CustomConfigPaths?: string[], protected appBaseDir?: string) {
     super();
@@ -95,6 +102,10 @@ export class JsFileSource extends BaseFileSource {
       //Log.trace(`Trying to load file ${file}`, 'Configuration');
 
       uncache(file);
+
+      InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
+
+      // eslint-disable-next-line security/detect-non-literal-require
       return require(file);
     }
   }
@@ -117,7 +128,7 @@ export class JsonFileSource extends BaseFileSource {
 
     function _load(file: string) {
       try {
-        //Log.trace(`Trying to load file ${file}`, 'Configuration');
+        InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
 
         return JSON.parse(fs.readFileSync(file, 'utf-8'));
       } catch (err) {

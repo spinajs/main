@@ -20,6 +20,14 @@
 		{
 			"type": "npm",
 			"script": "lint",
+			"path": "packages/internal-logger/",
+			"problemMatcher": ["$eslint-stylish"],
+			"label": "npm: lint - packages/internal-logger",
+			"detail": "eslint  --fix -c .eslintrc.js --ext .ts src"
+		},
+		{
+			"type": "npm",
+			"script": "lint",
 			"path": "packages/configuration/",
 			"problemMatcher": ["$eslint-stylish"],
 			"label": "npm: lint - packages/configuration",

@@ -6,7 +6,7 @@
  * When we export, we can see configuration variable
  * in webpack module cache and webpack config loader can see it
  */
-export * from './config/configuration';
+export * as configuration from './config/configuration';
 export * from './types';
 export * from './sources';
 export * from './decorators';
