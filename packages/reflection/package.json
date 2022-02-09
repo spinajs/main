@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/reflection",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "SpinaJS reflection helpers",
   "main": "lib/index.js",
   "private": false,
@@ -12,7 +12,7 @@
     "compile": "tsc -p tsconfig.build.json",
     "clean": "",
     "prepare": "npm run build",
-    "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
+    "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.js --ext .ts src",
     "prepublishOnly": "npm test && npm run lint",
     "preversion": "npm run lint",
@@ -29,10 +29,10 @@
   },
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
-    "@spinajs/configuration": "^1.2.1",
-    "@spinajs/di": "^1.2.1",
-    "@spinajs/exceptions": "^1.2.1",
-    "@spinajs/log": "^1.2.1",
+    "@spinajs/configuration": "^1.2.2",
+    "@spinajs/di": "^1.2.2",
+    "@spinajs/exceptions": "^1.2.2",
+    "@spinajs/log": "^1.2.2",
     "lodash": "^4.17.21"
   },
   "gitHead": "c34426e3f8b35aef42bc615a16dc1b223b7e71ba"
