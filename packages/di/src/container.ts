@@ -339,7 +339,7 @@ export class Container extends EventEmitter implements IContainer {
           (newInstance as AsyncModule)
             .resolveAsync()
             .then(() => {
-              this.emit(`di.resolved.${typeToCreate.name}`);
+              this.emit(`di.resolved.${typeToCreate.name}`, this, newInstance);
             })
             .then(() => {
               res(newInstance);
@@ -349,7 +349,8 @@ export class Container extends EventEmitter implements IContainer {
         if (newInstance instanceof SyncModule) {
           newInstance.resolve();
         }
-        this.emit(`di.resolved.${typeToCreate.name}`);
+
+        this.emit(`di.resolved.${typeToCreate.name}`, this, newInstance);
       }
     }
 

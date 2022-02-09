@@ -172,14 +172,52 @@ export interface ILogVariable {
   [key: string]: string | (() => string);
 }
 
-export interface ILogTargetData {
+export interface ILogEntry {
   Level: LogLevel;
   Variables: LogVariables;
 }
 
+export interface ILog {
+  trace(message: string, ...args: any[]): void;
+  trace(err: Error, message: string, ...args: any[]): void;
+  trace(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  debug(message: string, ...args: any[]): void;
+  debug(err: Error, message: string, ...args: any[]): void;
+  debug(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  info(message: string, ...args: any[]): void;
+  info(err: Error, message: string, ...args: any[]): void;
+  info(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  warn(message: string, ...args: any[]): void;
+  warn(err: Error, message: string, ...args: any[]): void;
+  warn(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  error(message: string, ...args: any[]): void;
+  error(err: Error, message: string, ...args: any[]): void;
+  error(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  fatal(message: string, ...args: any[]): void;
+  fatal(err: Error, message: string, ...args: any[]): void;
+  fatal(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  security(message: string, ...args: any[]): void;
+  security(err: Error, message: string, ...args: any[]): void;
+  security(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  success(message: string, ...args: any[]): void;
+  success(err: Error, message: string, ...args: any[]): void;
+  success(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  child(name: string, variables?: LogVariables): ILog;
+
+  write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;
+}
+
 export type LogVariables = ILogStaticVariables & ILogVariable;
 
-export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogTargetData {
+export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
   const sMsg = err instanceof Error ? (message as string) : err;
   const tMsg = args.length !== 0 ? util.format(sMsg, ...args) : sMsg;
   const lName = logger ?? message;

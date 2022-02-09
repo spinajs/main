@@ -2,7 +2,7 @@
 
 import { Injectable, NewInstance } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
-import { IFileTargetOptions, ILogTargetData } from "@spinajs/log-common";
+import { IFileTargetOptions, ILogEntry } from "@spinajs/log-common";
 import * as fs from "fs";
 import * as path from "path";
 import { Job, scheduleJob } from "node-schedule";
@@ -58,7 +58,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     super.resolve();
   }
 
-  public write(data: ILogTargetData): Promise<void> {
+  public write(data: ILogEntry): Promise<void> {
     if (!this.Options.enabled) {
       return;
     }

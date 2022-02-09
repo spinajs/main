@@ -1,4 +1,4 @@
-import { IColoredConsoleTargetOptions, LogLevelStrings, ILogTargetData } from "@spinajs/log-common";
+import { IColoredConsoleTargetOptions, LogLevelStrings, ILogEntry } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
 import { LogLevel } from "..";
@@ -37,7 +37,7 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
     super.resolve();
   }
 
-  public async write(data: ILogTargetData): Promise<void> {
+  public async write(data: ILogEntry): Promise<void> {
     if (!this.Options.enabled) {
       return;
     }

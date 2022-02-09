@@ -4,30 +4,29 @@
 import { Configuration } from "@spinajs/configuration/lib/types";
 import { Autoinject, Container, DI, IContainer, NewInstance, SyncModule } from "@spinajs/di";
 import { ILogTargetDesc, LogTarget } from "./targets/LogTarget";
-import { ICommonTargetOptions, LogLevel, ILogOptions, ILogRule, ILogTargetData, StrToLogLevel, LogVariables, createLogMessageObject } from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogRule, ILogEntry, StrToLogLevel, LogVariables, createLogMessageObject, ILog } from "@spinajs/log-common";
 import * as globToRegexp from "glob-to-regexp";
 import { InvalidOption } from "@spinajs/exceptions";
 
 function wrapWrite(this: Log, level: LogLevel) {
-  return (err: Error | string, message: string | any[], ...args: any[]): void => {
+  return (err: Error | string, message: string | any[], ...args: any[]) => {
     if (err instanceof Error) {
-      this.write(err, message, level, ...args);
+      return this.write(createLogMessageObject(err, message, level, this.Name, this.Variables, ...args));
     } else {
       if (message) {
-        this.write(err, null, level, ...[message, ...args]);
+        return this.write(createLogMessageObject(null, err, level, this.Name, this.Variables, ...[message, ...args]));
       } else {
-        this.write(err, null, level, ...args);
+        return this.write(createLogMessageObject(null, err, level, this.Name, this.Variables, ...args));
       }
     }
   };
 }
 
-
 /**
  * Default log implementation interface. Taken from bunyan. Feel free to implement own.
  */
 @NewInstance()
-export class Log extends SyncModule {
+export class Log extends SyncModule implements ILog {
   /**
    *  STATIC METHODS FOR LOGGER, ALLOWS TO LOG TO ANY TARGET
    *  EVEN BEFORE LOG MODULE INITIALIZATION.
@@ -61,8 +60,7 @@ export class Log extends SyncModule {
 
     this.matchRulesToLogger();
     this.resolveLogTargets();
-    this.writeBufferedMessages();
-
+ 
     super.resolve();
 
     Log.Loggers.set(this.Name, this);
@@ -116,6 +114,12 @@ export class Log extends SyncModule {
     wrapWrite.apply(this, [LogLevel.Success])(err, message, ...args);
   }
 
+  public write(entry: ILogEntry) {
+    if (entry.Variables.logger === this.Name) {
+      return Promise.allSettled(this.Targets.filter((t) => entry.Level >= StrToLogLevel[t.rule.level]).map((t) => t.instance.write(entry)));
+    }
+  }
+
   public child(name: string, variables?: LogVariables): Log {
     return DI.resolve(Log, [
       `${this.Name}.${name}`,
@@ -125,20 +129,6 @@ export class Log extends SyncModule {
       },
       this,
     ]);
-  }
-
-  protected writeBufferedMessages() {
-    if (Log.LogBuffer.has(this.Name)) {
-      Log.LogBuffer.get(this.Name)
-        .filter((msg: ILogTargetData) => msg.Variables.logger === this.Name)
-        .forEach((msg: ILogTargetData) => {
-          this.Targets.forEach((t) => {
-            t.instance.write(msg).catch((err) => {
-              console.error(err);
-            });
-          });
-        });
-    }
   }
 
   protected resolveLogTargets() {
@@ -164,18 +154,6 @@ export class Log extends SyncModule {
   protected matchRulesToLogger() {
     this.Rules = this.Options.rules.filter((r) => {
       return globToRegexp(r.name).test(this.Name);
-    });
-  }
-
-  protected write(err: Error | string, message: string | any[], level: LogLevel, ...args: any[]) {
-    const lMsg = createLogMessageObject(err, message, level, this.Name, this.Variables, ...args);
-    this.Targets.forEach((t) => {
-      if (level >= StrToLogLevel[t.rule.level]) {
-        // eslint-disable-next-line promise/no-promise-in-callback
-        t.instance.write(lMsg).catch((err) => {
-          console.error(err);
-        });
-      }
     });
   }
 }

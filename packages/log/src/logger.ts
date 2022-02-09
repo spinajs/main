@@ -1,7 +1,8 @@
-import { Bootstrapper, DI } from "@spinajs/di";
+import { Autoinject, Bootstrapper, DI } from "@spinajs/di";
 import { Log } from "./log";
 import CONFIGURATION_SCHEMA from "./schemas/log.configuration";
 
+@Autoinject
 export class Logger extends Bootstrapper {
   public async bootstrap(): Promise<void> {
 

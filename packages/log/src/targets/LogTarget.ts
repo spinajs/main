@@ -1,6 +1,6 @@
 import { Inject, SyncModule } from "@spinajs/di";
 import * as _ from "lodash";
-import { LogVariable, ILogTargetData, ICommonTargetOptions, LogVariables, ILogRule, ITargetsOption } from "@spinajs/log-common";
+import { LogVariable, ILogEntry, ICommonTargetOptions, LogVariables, ILogRule, ITargetsOption } from "@spinajs/log-common";
 
 export interface ILogTargetDesc {
   instance: LogTarget<ICommonTargetOptions>;
@@ -36,7 +36,7 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModu
     }
   }
 
-  public abstract write(data: ILogTargetData): Promise<void>;
+  public abstract write(data: ILogEntry): Promise<void>;
 
   protected format(customVars: LogVariables | null, layout: string): string {
     if (customVars.message) {

@@ -1,14 +1,49 @@
-import { DI } from "@spinajs/di";
-import { ILogTargetData, LogLevel, createLogMessageObject } from "@spinajs/log-common";
+import { Bootstrapper, DI, IContainer } from "@spinajs/di";
+import { ILogEntry, LogLevel, createLogMessageObject, ILog } from "@spinajs/log-common";
 
 /**
  * This class is used only in some spinajs packages
  * to avoid circular dependencies with logger and/or config packages
- * 
+ *
  * It should not be used in production
  */
-export class InternalLogger {
-  protected static LogBuffer: Map<string, ILogTargetData[]> = new Map();
+export class InternalLogger extends Bootstrapper {
+  public bootstrap(): void | Promise<void> {
+    const write = () => {
+      InternalLogger.LogBuffer.forEach((value, lName) => {
+        const logger: ILog = DI.resolve("__log__", [lName]);
+        if (logger) {
+          value.forEach((msg) => {
+            logger
+              .write(msg)
+              .then((values) => {
+                values.forEach((v) => {
+                  if (v.status === "rejected") {
+                    console.error(`Couldnt write to logger ${lName} message ${JSON.stringify(msg)}, reason: ${v.reason as string}`);
+                  }
+                });
+
+                return;
+              })
+              .catch(null);
+          });
+        }
+      });
+      InternalLogger.LogBuffer.clear();
+    };
+
+    // when log system is resolved
+    // write all buffered messages to it
+    if (DI.has("Logger")) {
+      // if we botstrapped before logger
+      write();
+    } else {
+      // if not wait for event to occur
+      DI.once("di.resolved.Logger", () => write());
+    }
+  }
+
+  protected static LogBuffer: Map<string, ILogEntry[]> = new Map();
 
   public static trace(message: string, name: string, ...args: any[]): void;
   public static trace(err: Error, message: string, name: string, ...args: any[]): void;
@@ -62,14 +97,23 @@ export class InternalLogger {
     const msg = createLogMessageObject(err, message, level, name, {}, ...args);
     const logName = name ?? (message as string);
 
-    if (DI.has("__log__")) {
-      const logger = DI.resolve("__log__", [logName]);
+    // when we have log system working, write directly to it
+    if (DI.has("logger")) {
+      const logger: ILog = DI.resolve("__log__", [logName]);
       if (logger) {
-        logger.Targets.forEach((t) => {
-          t.instance.write(msg).catch((err) => {
-            console.error(err);
-          });
-        });
+        // eslint-disable-next-line promise/no-promise-in-callback
+        logger
+          .write(msg)
+          .then((values) => {
+            values.forEach((v) => {
+              if (v.status === "rejected") {
+                console.error(v.reason);
+              }
+            });
+
+            return;
+          })
+          .catch(null);
       } else {
         InternalLogger.writeInternal(msg, logName);
       }
