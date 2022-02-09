@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/internal-logger",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "internal logger used by some packages. do not use it in production environment",
   "homepage": "https://github.com/spinajs/main#readme",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "url": "git+https://github.com/spinajs/main.git"
   },
   "dependencies": {
-    "@spinajs/di": "^1.2.1"
+    "@spinajs/di": "^1.2.2"
   },
   "scripts": {
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -24,7 +24,7 @@
     "compile": "tsc -p tsconfig.build.json",
     "clean": "",
     "prepare": "npm run build",
-    "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
+    "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.js --ext .ts src",
     "prepublishOnly": "npm test && npm run lint",
     "preversion": "npm run lint",
