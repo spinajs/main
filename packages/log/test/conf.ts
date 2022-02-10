@@ -1,4 +1,4 @@
-import { FrameworkConfiguration } from "@spinajs/configuration/lib";
+import { FrameworkConfiguration } from "@spinajs/configuration";
 import { join, normalize, resolve } from 'path';
 import { mergeArrays } from './utils';
 import * as _ from "lodash";

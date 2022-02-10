@@ -1,9 +1,7 @@
-import { AsyncModule, IContainer } from "@spinajs/di";
+import { AsyncModule } from '@spinajs/di';
 
 export class FooService22 extends AsyncModule {
-
-    public resolveAsync(_: IContainer): Promise<void> {
-        return Promise.resolve();
-    }
-
+  public resolveAsync(): Promise<void> {
+    return Promise.resolve();
+  }
 }
