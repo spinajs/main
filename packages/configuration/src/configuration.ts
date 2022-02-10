@@ -147,7 +147,7 @@ export class FrameworkConfiguration extends Configuration {
     // to match config module with config schema
     validator.addKeyword('$configurationModule');
 
-    const schemas = this.Container.get<IConfigurationSchema[]>(Array.ofType('__configurationSchema__'), true);
+    const schemas = this.Container.get<IConfigurationSchema>(Array.ofType('__configurationSchema__'), true);
 
     if (schemas) {
       Object.keys(this.Config).forEach((k) => {
