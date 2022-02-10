@@ -361,7 +361,6 @@ export class Container extends EventEmitter implements IContainer {
             .then(() => {
               this.emit(`di.resolved.${typeToCreate.name}`, this, newInstance);
               this.emit(`di.resolved.${sourceType}`, this, newInstance);
-
             })
             .then(() => {
               res(newInstance);
@@ -375,7 +374,6 @@ export class Container extends EventEmitter implements IContainer {
 
         this.emit(`di.resolved.${typeToCreate.name}`, this, newInstance);
         this.emit(`di.resolved.${sourceType}`, this, newInstance);
-
       }
     }
 
