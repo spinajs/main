@@ -42,8 +42,8 @@ function wrapWrite(this: Log, level: LogLevel) {
       if (message) {
         return this.write(
           createLogMessageObject(
-            null,
             err,
+            null,
             level,
             this.Name,
             this.Variables,
@@ -53,8 +53,8 @@ function wrapWrite(this: Log, level: LogLevel) {
       } else {
         return this.write(
           createLogMessageObject(
-            null,
             err,
+            null,
             level,
             this.Name,
             this.Variables,

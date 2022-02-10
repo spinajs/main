@@ -1,21 +1,19 @@
-import { NewInstance } from '@spinajs/di';
-import {  ICommonTargetOptions, ILogTargetData } from '../../src/types';
-import { Injectable } from '@spinajs/di';
-import { LogTarget } from '../../src/targets';
+/* eslint-disable @typescript-eslint/no-empty-function */
+import { NewInstance, Injectable } from "@spinajs/di";
+import { ICommonTargetOptions, ILogEntry } from "@spinajs/log-common";
+
+import { LogTarget } from "../../src/targets";
 
 /**
  * Empty writer, usefull for tests or when we dont want to get any messages
  */
 @NewInstance()
 @Injectable("TestWildcard")
-export class TestWildcard extends LogTarget<ICommonTargetOptions>
-{
-    public async write(data: ILogTargetData): Promise<void> {
-        this.sink(this.format(data.Variables, this.Options.layout));
-    }
+export class TestWildcard extends LogTarget<ICommonTargetOptions> {
+  public async write(data: ILogEntry): Promise<void> {
+    this.sink(this.format(data.Variables, this.Options.layout));
+  }
 
-    public sink(_msg: string) {
-      
-    }
-
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  public sink(_msg: string) {}
 }

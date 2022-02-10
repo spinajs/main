@@ -3,7 +3,7 @@ import 'reflect-metadata';
 import { TypedArray } from './array';
 import { DI_DESCRIPTION_SYMBOL } from './decorators';
 import { ResolveType } from './enums';
-import { getTypeName, isAsyncModule, isFactory, uniqBy, isTypedArray } from './helpers';
+import { getTypeName, isAsyncModule, isFactory, uniqBy, isTypedArray, isPromise } from './helpers';
 import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncModule, IToInject, AsyncModule, ResolvableObject } from './interfaces';
 import { Class, Factory } from './types';
 import { EventEmitter } from 'events';
@@ -115,7 +115,8 @@ export class Container extends EventEmitter implements IContainer {
       return this.cache.get(service.Type.name) as T[];
     }
 
-    return this.cache.get(service, parent)[0] as T;
+    const r = this.cache.get(service, parent);
+    return r[r.length - 1] as T;
   }
 
   public hasRegistered<T>(service: Class<T> | string, parent = true): boolean {
@@ -181,7 +182,7 @@ export class Container extends EventEmitter implements IContainer {
     const sourceName = getTypeName(type);
     const opt = typeof options === 'boolean' ? null : options;
     const setCache = (r: T) => {
-      this.Cache.add(getTypeName(type), r);
+      this.Cache.add(type, r);
       return r;
     };
 
@@ -192,6 +193,14 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     if (isTypedArray(type)) {
+      // special case for arrays
+      // if we have in cache, retunr all we got
+      // TODO: fix this and every time check if theres is any
+      // new registerd type
+      if (this.Cache.has(type)) {
+        return this.Cache.get(type);
+      }
+
       // if its array type, resolve all registered types or throw exception
       const targetType = this.getRegisteredTypes(type);
 
@@ -206,6 +215,8 @@ export class Container extends EventEmitter implements IContainer {
           return value;
         });
       }
+
+      // special case, we dont want to cache multiple times
 
       (resolved as T[]).forEach((v) => setCache(v));
       return resolved as T[];
@@ -225,9 +236,18 @@ export class Container extends EventEmitter implements IContainer {
       }
 
       // resolve last registered type ( newest )
-      const rValue = this.resolveType(sourceType, targetType[targetType.length - 1], opt) as T;
-      setCache(rValue);
-      return rValue;
+      const rValue = this.resolveType(sourceType, targetType[targetType.length - 1], opt);
+
+      if (isPromise(rValue)) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        return (rValue as any).then((v: any) => {
+          setCache(v as T);
+          return v as T;
+        });
+      }
+
+      setCache(rValue as T);
+      return rValue as T;
     }
   }
 

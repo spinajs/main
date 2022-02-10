@@ -1,8 +1,7 @@
 import { FrameworkConfiguration } from "@spinajs/configuration/lib";
-import { IContainer } from "@spinajs/di";
 import { join, normalize, resolve } from 'path';
 import { mergeArrays } from './utils';
-import _ from "lodash";
+import * as _ from "lodash";
 
 function dir(path: string) {
     return resolve(normalize(join(__dirname, path)));
@@ -10,8 +9,8 @@ function dir(path: string) {
 
 export class TestConfiguration extends FrameworkConfiguration {
 
-    public async resolveAsync(container: IContainer): Promise<void> {
-        await super.resolveAsync(container);
+    public async resolveAsync(): Promise<void> {
+        await super.resolveAsync();
 
         _.mergeWith(this.Config, {
             system: {

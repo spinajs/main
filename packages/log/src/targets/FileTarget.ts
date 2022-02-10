@@ -81,12 +81,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
   protected archive() {
     const files = glob
-      .sync(
-        path.join(
-          this.ArchiveDirPath,
-          `archived_${this.LogBaseName}*{${this.LogFileExt},.gzip}`
-        )
-      )
+      .sync(path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}*{${this.LogFileExt},.gzip}`))
       .map((f) => {
         return {
           name: f,
@@ -95,64 +90,44 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       })
       .sort((x) => x.stat.mtime.getTime());
 
-    const newestFile =
-      files.length !== 0 ? files[files.length - 1].name : undefined;
-    const fIndex = newestFile
-      ? parseInt(
-          newestFile.substring(
-            newestFile.lastIndexOf("_") + 1,
-            newestFile.lastIndexOf("_") + 2
-          ),
-          10
-        ) + 1
-      : 1;
-    const archPath = path.join(
-      this.ArchiveDirPath,
-      `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}`
-    );
+    const newestFile = files.length !== 0 ? files[files.length - 1].name : undefined;
+    const fIndex = newestFile ? parseInt(newestFile.substring(newestFile.lastIndexOf("_") + 1, newestFile.lastIndexOf("_") + 2), 10) + 1 : 1;
+    const archPath = path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}`);
 
-    try {
-      this.flush();
+    this.flush();
 
-      if (!fs.existsSync(this.LogPath)) {
-        return;
-      }
+    if (!fs.existsSync(this.LogPath)) {
+      return;
+    }
 
-      fs.closeSync(this.LogFileDescriptor);
-      fs.copyFileSync(this.LogPath, archPath);
-      fs.unlinkSync(this.LogPath);
+    fs.closeSync(this.LogFileDescriptor);
+    fs.copyFileSync(this.LogPath, archPath);
+    fs.unlinkSync(this.LogPath);
 
-      this.initialize();
+    this.initialize();
 
-      if (this.Options.options.compress) {
-        const zippedPath = path.join(
-          this.ArchiveDirPath,
-          `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}.gzip`
-        );
-        const zip = zlib.createGzip();
-        const read = fs.createReadStream(archPath);
-        const write = fs.createWriteStream(zippedPath);
+    if (this.Options.options.compress) {
+      const zippedPath = path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}.gzip`);
+      const zip = zlib.createGzip();
+      const read = fs.createReadStream(archPath);
+      const write = fs.createWriteStream(zippedPath);
 
-        read.pipe(zip).pipe(write);
+      read.pipe(zip).pipe(write);
 
-        write.on("finish", () => {
-          read.close();
-          zip.close();
-          write.close();
-          fs.unlink(archPath, () => {
-            return;
-          });
-        });
-      }
-
-      if (files.length >= this.Options.options.maxArchiveFiles) {
-        fs.unlink(files[0].name, () => {
+      write.on("finish", () => {
+        read.close();
+        zip.close();
+        write.close();
+        fs.unlink(archPath, () => {
           return;
         });
-      }
-    } catch (err: unknown) {
-      this.Error = err;
-      this.HasError = true;
+      });
+    }
+
+    if (files.length >= this.Options.options.maxArchiveFiles) {
+      fs.unlink(files[0].name, () => {
+        return;
+      });
     }
   }
 
@@ -161,89 +136,67 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       return;
     }
 
-    try {
-      fs.writeFileSync(this.LogFileDescriptor, this.Buffer.join());
+    fs.writeFileSync(this.LogFileDescriptor, this.Buffer.join());
 
-      this.CurrentFileSize += this.BufferSize;
-      this.Buffer = [];
-      this.BufferSize = 0;
-    } catch (err) {
-      this.HasError = true;
-      this.Error = err;
-    }
+    this.CurrentFileSize += this.BufferSize;
+    this.Buffer = [];
+    this.BufferSize = 0;
   }
 
   private rotate() {
     if (this.Options.options.rotate) {
-      this.RotateJob = scheduleJob(
-        `LogScheduleJob`,
-        this.Options.options.rotate,
-        () => {
-          this.archive();
-        }
-      );
+      this.RotateJob = scheduleJob(`LogScheduleJob`, this.Options.options.rotate, () => {
+        this.archive();
+      });
     }
   }
 
   private initialize() {
-    try {
-      this.flush();
+    this.flush();
 
-      if (this.LogFileDescriptor >= 0) {
-        fs.closeSync(this.LogFileDescriptor);
-        this.LogFileDescriptor = 0;
-      }
-
-      this.CurrentFileSize = 0;
-      this.LogDirPath = this.format(
-        null,
-        path.dirname(path.resolve(this.Options.options.path))
-      );
-      this.ArchiveDirPath = this.Options.options.archivePath
-        ? this.format(null, path.resolve(this.Options.options.archivePath))
-        : this.LogDirPath;
-      this.LogFileName = this.format(
-        null,
-        path.basename(this.Options.options.path)
-      );
-      this.LogPath = path.join(this.LogDirPath, this.LogFileName);
-
-      const { name, ext } = path.parse(this.LogFileName);
-      this.LogFileExt = ext;
-      this.LogBaseName = name;
-
-      if (!this.LogDirPath) {
-        throw new InvalidOption("Missing LogDirPath log option");
-      }
-
-      if (!fs.existsSync(this.LogDirPath)) {
-        fs.mkdirSync(this.LogDirPath);
-      }
-
-      if (this.ArchiveDirPath) {
-        if (!fs.existsSync(this.ArchiveDirPath)) {
-          fs.mkdirSync(this.ArchiveDirPath);
-        }
-      }
-
-      if (fs.existsSync(this.LogPath)) {
-        const { size } = fs.statSync(this.LogPath);
-        this.CurrentFileSize = size;
-      }
-
-      this.LogFileDescriptor = fs.openSync(this.LogPath, "a");
-
-      if (this.Options.options.flushTimeout !== 0) {
-        setTimeout(() => {
-          this.flush();
-        }, this.Options.options.flushTimeout);
-      }
-
-      this.HasError = false;
-      this.Error = null;
-    } catch (err) {
-      this.HasError = true;
-      this.Error = err;
+    if (this.LogFileDescriptor >= 0) {
+      fs.closeSync(this.LogFileDescriptor);
+      this.LogFileDescriptor = 0;
     }
+
+    this.CurrentFileSize = 0;
+    this.LogDirPath = this.format(null, path.dirname(path.resolve(this.Options.options.path)));
+    this.ArchiveDirPath = this.Options.options.archivePath ? this.format(null, path.resolve(this.Options.options.archivePath)) : this.LogDirPath;
+    this.LogFileName = this.format(null, path.basename(this.Options.options.path));
+    this.LogPath = path.join(this.LogDirPath, this.LogFileName);
+
+    const { name, ext } = path.parse(this.LogFileName);
+    this.LogFileExt = ext;
+    this.LogBaseName = name;
+
+    if (!this.LogDirPath) {
+      throw new InvalidOption("Missing LogDirPath log option");
+    }
+
+    if (!fs.existsSync(this.LogDirPath)) {
+      fs.mkdirSync(this.LogDirPath);
+    }
+
+    if (this.ArchiveDirPath) {
+      if (!fs.existsSync(this.ArchiveDirPath)) {
+        fs.mkdirSync(this.ArchiveDirPath);
+      }
+    }
+
+    if (fs.existsSync(this.LogPath)) {
+      const { size } = fs.statSync(this.LogPath);
+      this.CurrentFileSize = size;
+    }
+
+    this.LogFileDescriptor = fs.openSync(this.LogPath, "a");
+
+    if (this.Options.options.flushTimeout !== 0) {
+      setTimeout(() => {
+        this.flush();
+      }, this.Options.options.flushTimeout);
+    }
+
+    this.HasError = false;
+    this.Error = null;
   }
 }

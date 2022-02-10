@@ -18,7 +18,9 @@ export class ContainerCache {
     const tName = getTypeName(key);
 
     if (this.has(key)) {
-      this.cache.get(tName).push(instance);
+      if (this.cache.get(tName).indexOf(instance) === -1) {
+        this.cache.get(tName).push(instance);
+      }
     } else {
       this.cache.set(tName, [instance]);
     }

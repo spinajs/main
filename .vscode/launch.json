@@ -59,7 +59,7 @@
                 "--timeout",
                 "999999",
                 "--colors",
-                "${workspaceFolder}/log/test/**/*.ts",
+                "${workspaceFolder}/packages/log/test/**/*.ts",
             ],
             "protocol": "inspector",
             "env": {

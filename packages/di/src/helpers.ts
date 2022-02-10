@@ -30,6 +30,10 @@ export function isAsyncModule(value: any): value is AsyncModule {
   return value instanceof AsyncModule;
 }
 
+export function isPromise(value: any): value is Promise<any> {
+  return Boolean(value && typeof value.then === 'function');
+}
+
 export function isSyncModule(value: any): value is SyncModule {
   return value instanceof SyncModule;
 }
