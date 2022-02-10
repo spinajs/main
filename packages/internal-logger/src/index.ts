@@ -1,4 +1,4 @@
-import { Bootstrapper, DI } from "@spinajs/di";
+import { Bootstrapper, DI, Injectable } from "@spinajs/di";
 import {
   ILogEntry,
   LogLevel,
@@ -12,6 +12,7 @@ import {
  *
  * It should not be used in production
  */
+@Injectable(Bootstrapper)
 export class InternalLogger extends Bootstrapper {
   public bootstrap(): void | Promise<void> {
     const write = () => {

@@ -1,7 +1,7 @@
-'use strict';
+"use strict";
 
-const internalLogger = require('..');
+const internalLogger = require("..");
 
-describe('@spinajs/internal-logger', () => {
-    it('needs tests');
+describe("@spinajs/internal-logger", () => {
+  it("needs tests");
 });

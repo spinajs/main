@@ -2,65 +2,21 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration/lib/types";
-import {
-  Autoinject,
-  Container,
-  DI,
-  IContainer,
-  NewInstance,
-  SyncModule,
-} from "@spinajs/di";
+import { Autoinject, Container, DI, IContainer, NewInstance, SyncModule } from "@spinajs/di";
 import { ILogTargetDesc, LogTarget } from "./targets/LogTarget";
-import {
-  ICommonTargetOptions,
-  LogLevel,
-  ILogOptions,
-  ILogRule,
-  ILogEntry,
-  StrToLogLevel,
-  LogVariables,
-  createLogMessageObject,
-  ILog,
-} from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogRule, ILogEntry, StrToLogLevel, LogVariables, createLogMessageObject, ILog } from "@spinajs/log-common";
 import * as globToRegexp from "glob-to-regexp";
 import { InvalidOption } from "@spinajs/exceptions";
 
 function wrapWrite(this: Log, level: LogLevel) {
   return (err: Error | string, message: string | any[], ...args: any[]) => {
     if (err instanceof Error) {
-      return this.write(
-        createLogMessageObject(
-          err,
-          message,
-          level,
-          this.Name,
-          this.Variables,
-          ...args
-        )
-      );
+      return this.write(createLogMessageObject(err, message, level, this.Name, this.Variables, ...args));
     } else {
       if (message) {
-        return this.write(
-          createLogMessageObject(
-            err,
-            null,
-            level,
-            this.Name,
-            this.Variables,
-            ...[message, ...args]
-          )
-        );
+        return this.write(createLogMessageObject(err, null, level, this.Name, this.Variables, ...[message, ...args]));
       } else {
-        return this.write(
-          createLogMessageObject(
-            err,
-            null,
-            level,
-            this.Name,
-            this.Variables,
-            ...args
-          )
-        );
+        return this.write(createLogMessageObject(err, null, level, this.Name, this.Variables, ...args));
       }
     }
   };
@@ -94,11 +50,7 @@ export class Log extends SyncModule implements ILog {
   @Autoinject()
   protected Container: Container;
 
-  constructor(
-    public Name: string,
-    public Variables?: any,
-    protected Parent?: Log
-  ) {
+  constructor(public Name: string, public Variables?: any, protected Parent?: Log) {
     super();
   }
 
@@ -116,91 +68,55 @@ export class Log extends SyncModule implements ILog {
 
   public trace(message: string, ...args: any[]): void;
   public trace(err: Error, message: string, ...args: any[]): void;
-  public trace(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public trace(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Trace])(err, message, ...args);
   }
 
   public debug(message: string, ...args: any[]): void;
   public debug(err: Error, message: string, ...args: any[]): void;
-  public debug(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public debug(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Debug])(err, message, ...args);
   }
 
   public info(message: string, ...args: any[]): void;
   public info(err: Error, message: string, ...args: any[]): void;
-  public info(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public info(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Info])(err, message, ...args);
   }
 
   public warn(message: string, ...args: any[]): void;
   public warn(err: Error, message: string, ...args: any[]): void;
-  public warn(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public warn(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Warn])(err, message, ...args);
   }
 
   public error(message: string, ...args: any[]): void;
   public error(err: Error, message: string, ...args: any[]): void;
-  public error(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public error(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Error])(err, message, ...args);
   }
 
   public fatal(message: string, ...args: any[]): void;
   public fatal(err: Error, message: string, ...args: any[]): void;
-  public fatal(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public fatal(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Fatal])(err, message, ...args);
   }
 
   public security(message: string, ...args: any[]): void;
   public security(err: Error, message: string, ...args: any[]): void;
-  public security(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public security(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Security])(err, message, ...args);
   }
 
   public success(message: string, ...args: any[]): void;
   public success(err: Error, message: string, ...args: any[]): void;
-  public success(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public success(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Success])(err, message, ...args);
   }
 
   public write(entry: ILogEntry) {
     if (entry.Variables.logger === this.Name) {
-      return Promise.allSettled(
-        this.Targets.filter(
-          (t) => entry.Level >= StrToLogLevel[t.rule.level]
-        ).map((t) => t.instance.write(entry))
-      );
+      return Promise.allSettled(this.Targets.filter((t) => entry.Level >= StrToLogLevel[t.rule.level]).map((t) => t.instance.write(entry)));
     }
   }
 
@@ -218,9 +134,7 @@ export class Log extends SyncModule implements ILog {
   protected resolveLogTargets() {
     this.Targets = this.Rules.map((r) => {
       const found = this.Options.targets.filter((t) => {
-        return Array.isArray(r.target)
-          ? r.target.includes(t.name)
-          : r.target === t.name;
+        return Array.isArray(r.target) ? r.target.includes(t.name) : r.target === t.name;
       });
 
       if (!found) {
@@ -234,10 +148,7 @@ export class Log extends SyncModule implements ILog {
           rule: r,
         };
       });
-    }).reduce(
-      (prev: ILogTargetDesc[], curr: ILogTargetDesc[]) => prev.concat(...curr),
-      []
-    );
+    }).reduce((prev: ILogTargetDesc[], curr: ILogTargetDesc[]) => prev.concat(...curr), []);
   }
 
   protected matchRulesToLogger() {

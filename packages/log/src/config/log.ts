@@ -10,7 +10,6 @@ const config = {
       schemas: [dir("./../schemas")],
     },
   },
-  log: {},
 };
 
 export default config;
