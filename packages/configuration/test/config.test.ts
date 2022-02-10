@@ -176,7 +176,7 @@ describe('Configuration tests', () => {
     expect(cfgNoApp()).to.be.fulfilled;
   });
 
-  it('Should reject on validate config', async () => {
+  it('Should reject on validate config', () => {
     DI.register({
       $id: 'test',
       $configurationModule: 'test',
@@ -187,10 +187,7 @@ describe('Configuration tests', () => {
       },
       required: ['value', 'array'],
     }).asArrayValue('__configurationSchema__');
-    try {
-      await cfgNoApp();
-    } catch (err) {
-      console.log(err);
-    }
+
+    expect(cfgNoApp()).to.be.rejected;
   });
 });
