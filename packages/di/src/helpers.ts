@@ -53,5 +53,5 @@ export function uniqBy<T>(arr: T[], comparator: (a: T, b: T) => boolean) {
 }
 
 export function getTypeName(type: TypedArray<any> | Class<any> | string | object): string {
-  return typeof type === 'string' ? type : type instanceof TypedArray ? type.Type.name : isConstructor(type) ? type.name : type.constructor.name;
+  return typeof type === 'string' ? type : type instanceof TypedArray ? getTypeName(type.Type) : isConstructor(type) ? type.name : type.constructor.name;
 }

@@ -112,7 +112,7 @@ export class Container extends EventEmitter implements IContainer {
   public get<T>(service: string | Class<T> | TypedArray<T>, parent = true): T | T[] {
     // get value registered as TypedArray ( mean to return all created instances )
     if (service instanceof TypedArray) {
-      return this.cache.get(service.Type.name) as T[];
+      return this.cache.get(getTypeName(service.Type)) as T[];
     }
 
     const r = this.cache.get(service, parent);
@@ -420,7 +420,7 @@ export class Container extends EventEmitter implements IContainer {
 
     descriptor.inject = uniqBy(descriptor.inject, (a, b) => {
       if (a.inject instanceof TypedArray && b.inject instanceof TypedArray) {
-        return a.inject.Type.name === b.inject.Type.name;
+        return getTypeName(a.inject.Type) === getTypeName(b.inject.Type);
       } else {
         return (a.inject as Class<unknown>).name === (b.inject as Class<unknown>).name;
       }
