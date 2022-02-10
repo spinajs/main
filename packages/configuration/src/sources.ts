@@ -74,6 +74,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
       }, [])
       // normalize & resolve paths to be sure
       .map((f: string) => normalize(resolve(f)))
+      .filter((f: string, index: number, self: any[]) => self.indexOf(f) === index)
       .map(callback)
       .filter((v: any) => v !== null)
       // load & merge configs
