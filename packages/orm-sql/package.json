@@ -1,0 +1,29 @@
+{
+  "name": "@spinajs/orm-sql",
+  "version": "1.2.23",
+  "description": "> TODO: description",
+  "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
+  "homepage": "https://github.com/spinajs/main#readme",
+  "license": "ISC",
+  "main": "lib/orm-sql.js",
+  "directories": {
+    "lib": "lib",
+    "test": "__tests__"
+  },
+  "files": [
+    "lib"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "scripts": {
+    "test": "echo \"Error: run tests from root\" && exit 1"
+  },
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  }
+}
