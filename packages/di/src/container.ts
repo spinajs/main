@@ -260,7 +260,7 @@ export class Container extends EventEmitter implements IContainer {
      * If its a factory func, always resolve as new instance
      */
     if (isFactory(targetType)) {
-      return this.getNewInstance(targetType, null, options) as T;
+      return this.getNewInstance(getTypeName(sourceType), targetType, null, options) as T;
     }
 
     // we now know its not factory func
@@ -286,11 +286,11 @@ export class Container extends EventEmitter implements IContainer {
 
     const resolve = (d: IInjectDescriptor<unknown>, t: Class<T>, i: IResolvedInjection[]) => {
       if (d.resolver === ResolveType.NewInstance) {
-        return this.getNewInstance(t, i, options);
+        return this.getNewInstance(getTypeName(sourceType), t, i, options);
       }
 
       this.Registry.register(sName, t);
-      return getCachedInstance(tType, d.resolver === ResolveType.Singleton ? true : false) || this.getNewInstance(t, i, options);
+      return getCachedInstance(tType, d.resolver === ResolveType.Singleton ? true : false) || this.getNewInstance(getTypeName(sourceType), t, i, options);
     };
 
     // check cache if needed
@@ -326,7 +326,7 @@ export class Container extends EventEmitter implements IContainer {
     }
   }
 
-  protected getNewInstance(typeToCreate: Class<unknown> | Factory<unknown>, a?: IResolvedInjection[], options?: unknown[]): Promise<unknown> | unknown {
+  protected getNewInstance(sourceType: string, typeToCreate: Class<unknown> | Factory<unknown>, a?: IResolvedInjection[], options?: unknown[]): Promise<unknown> | unknown {
     let args: unknown[] = [null];
     let newInstance: unknown = null;
 
@@ -360,6 +360,8 @@ export class Container extends EventEmitter implements IContainer {
             .resolveAsync()
             .then(() => {
               this.emit(`di.resolved.${typeToCreate.name}`, this, newInstance);
+              this.emit(`di.resolved.${sourceType}`, this, newInstance);
+
             })
             .then(() => {
               res(newInstance);
@@ -372,6 +374,8 @@ export class Container extends EventEmitter implements IContainer {
         }
 
         this.emit(`di.resolved.${typeToCreate.name}`, this, newInstance);
+        this.emit(`di.resolved.${sourceType}`, this, newInstance);
+
       }
     }
 
