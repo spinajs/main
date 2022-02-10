@@ -4,7 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Injectable } from '@spinajs/di';
+import { Injectable, DI } from '@spinajs/di';
 import { glob } from 'glob';
 import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
@@ -87,11 +87,13 @@ export abstract class BaseFileSource extends ConfigurationSource {
 export class JsFileSource extends BaseFileSource {
   public async Load(): Promise<any> {
     const common = this.load('!(*.dev|*.prod).js', _load);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const dEnv = DI.get<any>('process.env') ?? process.env;
 
-    if (process.env.NODE_ENV) {
-      if (process.env.NODE_ENV === 'development') {
+    if (dEnv.NODE_ENV) {
+      if (dEnv.NODE_ENV === 'development') {
         return _.mergeWith(common, this.load('*.dev.js', _load), mergeArrays);
-      } else if (process.env.NODE_ENV === 'production') {
+      } else {
         return _.mergeWith(common, this.load('*.prod.js', _load), mergeArrays);
       }
     }
@@ -115,11 +117,13 @@ export class JsFileSource extends BaseFileSource {
 export class JsonFileSource extends BaseFileSource {
   public async Load(): Promise<any> {
     const common = this.load('!(*.dev|*.prod).json', _load);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const dEnv = DI.get<any>('process.env') ?? process.env;
 
-    if (process.env.NODE_ENV) {
-      if (process.env.NODE_ENV === 'development') {
+    if (dEnv.NODE_ENV) {
+      if (dEnv.NODE_ENV === 'development') {
         return _.mergeWith(common, this.load('*.dev.json', _load), mergeArrays);
-      } else if (process.env.NODE_ENV === 'production') {
+      } else {
         return _.mergeWith(common, this.load('*.prod.json', _load), mergeArrays);
       }
     }
