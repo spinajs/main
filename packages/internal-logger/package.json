@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/internal-logger",
-  "version": "1.2.12",
+  "version": "1.2.14",
   "description": "internal logger used by some packages. do not use it in production environment",
   "homepage": "https://github.com/spinajs/main#readme",
   "license": "MIT",
