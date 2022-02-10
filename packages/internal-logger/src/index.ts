@@ -196,7 +196,7 @@ export class InternalLogger extends Bootstrapper {
     const logName = name ?? (message as string);
 
     // when we have log system working, write directly to it
-    if (DI.has("logger")) {
+    if (DI.has("Configuration")) {
       const logger: ILog = DI.resolve("__log__", [logName]);
       if (logger) {
         // eslint-disable-next-line promise/no-promise-in-callback
