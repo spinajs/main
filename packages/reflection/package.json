@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/reflection",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "SpinaJS reflection helpers",
   "main": "lib/index.js",
   "private": false,
@@ -29,10 +29,10 @@
   },
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
-    "@spinajs/configuration": "^1.2.3",
-    "@spinajs/di": "^1.2.3",
-    "@spinajs/exceptions": "^1.2.3",
-    "@spinajs/log": "^1.2.3",
+    "@spinajs/configuration": "^1.2.4",
+    "@spinajs/di": "^1.2.4",
+    "@spinajs/exceptions": "^1.2.4",
+    "@spinajs/log": "^1.2.4",
     "lodash": "^4.17.21"
   },
   "gitHead": "718e55b9543f6d9f966e7a3caea17f6f3dc00be7"
