@@ -29,6 +29,14 @@ export interface IBind {
   asValue(type: string): this;
 
   /**
+   * Add value as array entry, and push to array if already value exists.
+   * Usefull if for eg. user wants to add multiple values and not override its contents.
+   *
+   * @param type - name / or type to add
+   */
+  asArrayValue(type: string): this;
+
+  /**
    * Registers object as single instance ( singleton )
    */
   singleInstance(): this;

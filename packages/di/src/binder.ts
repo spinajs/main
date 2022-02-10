@@ -20,8 +20,29 @@ export class Binder<T> implements IBind {
     return this;
   }
 
+  /**
+   * Add plain value to container. If value exists, it overrides content in  container cache
+   *
+   * @param type - name of added value
+   * @returns
+   */
   asValue(type: string): this {
     this.container.Cache.add(type, this.implementation);
+    return this;
+  }
+
+  /**
+   * Add value as array entry, and push to array if already value exists.
+   * Usefull if for eg. user wants to add multiple values and not override its contents.
+   *
+   * @param type - name / or type to add
+   */
+  asArrayValue(type: string): this {
+    if (this.container.Cache.has(type)) {
+      (this.container.Cache.get(type) as any[]).push(this.implementation);
+    } else {
+      this.container.Cache.add(type, [this.implementation]);
+    }
     return this;
   }
 

@@ -9,6 +9,7 @@ import { parseArgv } from './util';
 import * as _ from 'lodash';
 import Ajv from 'ajv';
 import { InvalidConfiguration } from './exception';
+import { InternalLogger } from '@spinajs/internal-logger';
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
@@ -112,11 +113,11 @@ export class FrameworkConfiguration extends Configuration {
 
   protected validateConfig() {
     const validator = new Ajv({
-      // logger: {
-      //   // log: (msg: string) => {},
-      //   // warn: (msg: string) => {},
-      //   // error: (msg: string) => {},
-      // },
+      logger: {
+        log: (msg: string) => InternalLogger.info(msg, 'Configuration'),
+        warn: (msg: string) => InternalLogger.warn(msg, 'Configuration'),
+        error: (msg: string) => InternalLogger.error(msg, 'Configuration'),
+      },
 
       // enable all errors on  validation, not only first one that occurred
       allErrors: true,
@@ -140,20 +141,29 @@ export class FrameworkConfiguration extends Configuration {
     // add keywords
     require('ajv-keywords')(validator);
 
+    // in strict mode ajv will throw when
+    // unknown keyword in schema is met
+    // we use $configurationModule keyword to identify
+    // to match config module with config schema
+    validator.addKeyword('$configurationModule');
+
     const schemas = this.Container.get<IConfigurationSchema[]>('__configurationSchema__', true);
 
-    Object.keys(this.Config).forEach((k) => {
-      const schema = schemas.find((x) => x.$configurationModule === k);
+    if (schemas) {
+      Object.keys(this.Config).forEach((k) => {
+        const schema = schemas.find((x) => x.$configurationModule === k);
 
-      if (schema) {
-        if (!validator.validate(schema, this.Config[`${k}`])) {
-          throw new InvalidConfiguration(
-            'invalid configuration ! Check config files and restart app.',
-            validator.errors,
-          );
+        if (schema) {
+          const result = validator.validate(schema, this.Config[`${k}`]);
+          if (!result) {
+            throw new InvalidConfiguration(
+              'invalid configuration ! Check config files and restart app.',
+              validator.errors,
+            );
+          }
         }
-      }
-    });
+      });
+    }
   }
 
   /**

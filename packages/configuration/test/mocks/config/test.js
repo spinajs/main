@@ -1,5 +1,4 @@
 module.exports.test = {
-    value: 1,
-    array: [1, 2],
- 
-}
+  value: 1,
+  array: [1, 2],
+};

@@ -335,7 +335,7 @@ export class Container extends EventEmitter implements IContainer {
       }
 
       if (isAsyncModule(newInstance)) {
-        return new Promise((res) => {
+        return new Promise((res, rej) => {
           (newInstance as AsyncModule)
             .resolveAsync()
             .then(() => {
@@ -343,7 +343,8 @@ export class Container extends EventEmitter implements IContainer {
             })
             .then(() => {
               res(newInstance);
-            });
+            })
+            .catch((err) => rej(err));
         });
       } else {
         if (newInstance instanceof SyncModule) {

@@ -1,9 +1,7 @@
 module.exports.test = {
-    array: [3, 4],
+  array: [3, 4],
 
-    configure: function(){
-        this.set("test.confFunc", true);
-    },
-
- 
-}
+  configure: function () {
+    this.set('test.confFunc', true);
+  },
+};

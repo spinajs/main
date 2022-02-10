@@ -1,4 +1,3 @@
 module.exports.test = {
-    value2: 666,
- 
-}
+  value2: 666,
+};

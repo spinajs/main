@@ -1,11 +1,18 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-floating-promises */
 import 'mocha';
 
+import * as chai from 'chai';
 import { expect } from 'chai';
+import * as chaiAsPromised from 'chai-as-promised';
 import { join, normalize } from 'path';
 
 import { DI } from '@spinajs/di';
 import { FrameworkConfiguration } from '../src/configuration';
 import { Configuration } from '../src/types';
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+chai.use(chaiAsPromised);
 
 function cfg() {
   return DI.resolve<Configuration>(Configuration);
@@ -129,9 +136,6 @@ describe('Configuration tests', () => {
 
     expect(config.get('json-prod')).to.eq(true);
     expect(config.get('json-dev')).to.eq(undefined);
-
-    expect(config.get('configuration.isDevelopment')).to.eq(false);
-    expect(config.get('configuration.isProduction')).to.eq(true);
   });
 
   it('Should load development only config', async () => {
@@ -144,9 +148,6 @@ describe('Configuration tests', () => {
 
     expect(config.get('json-prod')).to.eq(undefined);
     expect(config.get('json-dev')).to.eq(true);
-
-    expect(config.get('configuration.isDevelopment')).to.eq(true);
-    expect(config.get('configuration.isProduction')).to.eq(false);
   });
 
   it('Set should override loaded config', async () => {
@@ -158,5 +159,38 @@ describe('Configuration tests', () => {
 
     const test2 = config.get('test.value');
     expect(test2).to.eq(555);
+  });
+
+  it('Should validate config', () => {
+    DI.register({
+      $id: 'test',
+      $configurationModule: 'test',
+      type: 'object',
+      properties: {
+        value: { type: 'number' },
+        array: { type: 'array' },
+      },
+      required: ['value', 'array'],
+    }).asArrayValue('__configurationSchema__');
+
+    expect(cfgNoApp()).to.be.fulfilled;
+  });
+
+  it('Should reject on validate config', async () => {
+    DI.register({
+      $id: 'test',
+      $configurationModule: 'test',
+      type: 'object',
+      properties: {
+        value: { type: 'array' },
+        array: { type: 'array' },
+      },
+      required: ['value', 'array'],
+    }).asArrayValue('__configurationSchema__');
+    try {
+      await cfgNoApp();
+    } catch (err) {
+      console.log(err);
+    }
   });
 });
