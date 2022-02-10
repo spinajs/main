@@ -171,7 +171,7 @@ describe('Configuration tests', () => {
         array: { type: 'array' },
       },
       required: ['value', 'array'],
-    }).asArrayValue('__configurationSchema__');
+    }).asValue('__configurationSchema__');
 
     expect(cfgNoApp()).to.be.fulfilled;
   });
@@ -186,7 +186,18 @@ describe('Configuration tests', () => {
         array: { type: 'array' },
       },
       required: ['value', 'array'],
-    }).asArrayValue('__configurationSchema__');
+    }).asValue('__configurationSchema__');
+
+    DI.register({
+      $id: 'test2',
+      $configurationModule: 'test2',
+      type: 'object',
+      properties: {
+        value: { type: 'number' },
+        array: { type: 'array' },
+      },
+      required: ['value', 'array'],
+    }).asValue('__configurationSchema__');
 
     expect(cfgNoApp()).to.be.rejected;
   });
