@@ -77,9 +77,11 @@ export class FrameworkConfiguration extends Configuration {
       );
     }
 
-    this.CustomConfigPaths.forEach((p) => {
-      InternalLogger.trace(`Custom config path at: ${p}`, 'Configuration');
-    });
+    if (this.CustomConfigPaths) {
+      this.CustomConfigPaths.forEach((p) => {
+        InternalLogger.trace(`Custom config path at: ${p}`, 'Configuration');
+      });
+    }
 
     if (this.RunApp) {
       InternalLogger.trace(`Run app is ${this.RunApp}`, 'Configuration');
