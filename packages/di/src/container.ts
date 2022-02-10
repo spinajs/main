@@ -185,6 +185,13 @@ export class Container extends EventEmitter implements IContainer {
       this.Cache.add(type, r);
       return r;
     };
+    const emit = (target: any) => {
+      // firs event to emit that particular type was resolved
+      this.emit(`di.resolved.${getTypeName(target)}`, this, target);
+
+      // emit that source type was resolved
+      this.emit(`di.resolved.${sourceName}`, this, target);
+    };
 
     if (options === true || check === true) {
       if (!this.hasRegistered(sourceType)) {
@@ -211,14 +218,20 @@ export class Container extends EventEmitter implements IContainer {
       const resolved = targetType.map((r) => this.resolveType(type, r, opt));
       if (resolved.some((r) => r instanceof Promise)) {
         return (Promise.all(resolved) as Promise<T[]>).then((value) => {
-          value.forEach((v) => setCache(v));
+          value.forEach((v) => {
+            setCache(v);
+            emit(v);
+          });
           return value;
         });
       }
 
       // special case, we dont want to cache multiple times
 
-      (resolved as T[]).forEach((v) => setCache(v));
+      (resolved as T[]).forEach((v) => {
+        setCache(v);
+        emit(v);
+      });
       return resolved as T[];
     } else {
       // finaly resolve single type:
@@ -242,11 +255,14 @@ export class Container extends EventEmitter implements IContainer {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-call
         return (rValue as any).then((v: any) => {
           setCache(v as T);
+          emit(v);
           return v as T;
         });
       }
 
       setCache(rValue as T);
+      emit(rValue);
+
       return rValue as T;
     }
   }
@@ -260,7 +276,7 @@ export class Container extends EventEmitter implements IContainer {
      * If its a factory func, always resolve as new instance
      */
     if (isFactory(targetType)) {
-      return this.getNewInstance(getTypeName(sourceType), targetType, null, options) as T;
+      return this.getNewInstance(targetType, null, options) as T;
     }
 
     // we now know its not factory func
@@ -286,11 +302,11 @@ export class Container extends EventEmitter implements IContainer {
 
     const resolve = (d: IInjectDescriptor<unknown>, t: Class<T>, i: IResolvedInjection[]) => {
       if (d.resolver === ResolveType.NewInstance) {
-        return this.getNewInstance(getTypeName(sourceType), t, i, options);
+        return this.getNewInstance(t, i, options);
       }
 
       this.Registry.register(sName, t);
-      return getCachedInstance(tType, d.resolver === ResolveType.Singleton ? true : false) || this.getNewInstance(getTypeName(sourceType), t, i, options);
+      return getCachedInstance(tType, d.resolver === ResolveType.Singleton ? true : false) || this.getNewInstance(t, i, options);
     };
 
     // check cache if needed
@@ -326,7 +342,7 @@ export class Container extends EventEmitter implements IContainer {
     }
   }
 
-  protected getNewInstance(sourceType: string, typeToCreate: Class<unknown> | Factory<unknown>, a?: IResolvedInjection[], options?: unknown[]): Promise<unknown> | unknown {
+  protected getNewInstance(typeToCreate: Class<unknown> | Factory<unknown>, a?: IResolvedInjection[], options?: unknown[]): Promise<unknown> | unknown {
     let args: unknown[] = [null];
     let newInstance: unknown = null;
 
@@ -358,10 +374,7 @@ export class Container extends EventEmitter implements IContainer {
         return new Promise((res, rej) => {
           (newInstance as AsyncModule)
             .resolveAsync()
-            .then(() => {
-              this.emit(`di.resolved.${typeToCreate.name}`, this, newInstance);
-              this.emit(`di.resolved.${sourceType}`, this, newInstance);
-            })
+            .then(() => {})
             .then(() => {
               res(newInstance);
             })
@@ -371,9 +384,6 @@ export class Container extends EventEmitter implements IContainer {
         if (newInstance instanceof SyncModule) {
           newInstance.resolve();
         }
-
-        this.emit(`di.resolved.${typeToCreate.name}`, this, newInstance);
-        this.emit(`di.resolved.${sourceType}`, this, newInstance);
       }
     }
 
