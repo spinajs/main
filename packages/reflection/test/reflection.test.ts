@@ -184,8 +184,7 @@ describe('Reflection tests', () => {
     expect(target.services[0].instance.Counter).to.eq(1);
     expect(target2.services[0].instance.Counter).to.eq(1);
 
-    expect(DI.RootContainer.Cache).to.be.an('Map');
-    expect(DI.RootContainer.Cache.get('FooService')).to.be.not.null;
+    expect(DI.RootContainer.Cache.get('FooServiceAlwaysNew')).to.be.not.null;
   });
 
   it('Should list class from files', () => {
@@ -196,7 +195,7 @@ describe('Reflection tests', () => {
     ListFromFiles('/**/*.{ts,js}', 'system.dirs.alwaysnew')(target, 'services');
 
     expect(target.services).to.be.an('array');
-    expect(target.services[0].name).to.eq('FooService');
+    expect(target.services[0].name).to.eq('FooServiceAlwaysNew');
     expect(target.services[0].instance).to.be.null;
   });
 
