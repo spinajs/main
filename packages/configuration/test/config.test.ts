@@ -30,7 +30,7 @@ function cfgApp() {
 function cfgNoApp() {
   return DI.resolve<Configuration>(Configuration, [
     {
-      cfgCustomPaths: normalize(join(__dirname, '/mocks/config')),
+      cfgCustomPaths: [normalize(join(__dirname, '/mocks/config'))],
     },
   ]);
 }
