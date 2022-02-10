@@ -3,9 +3,9 @@ import { Log } from "./log";
 import CONFIGURATION_SCHEMA from "./schemas/log.configuration";
 
 @Autoinject
-export class Logger extends Bootstrapper {
+export class LogBotstrapper extends Bootstrapper {
   public async bootstrap(): Promise<void> {
-    DI.register(CONFIGURATION_SCHEMA).asValue("__configurationSchema__");
+    DI.register(CONFIGURATION_SCHEMA).asArrayValue("__configurationSchema__");
 
     process.on("uncaughtException", (err) => {
       const log = DI.resolve(Log, ["process"]);
