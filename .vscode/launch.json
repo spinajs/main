@@ -92,7 +92,7 @@
                 "--timeout",
                 "999999",
                 "--colors",
-                "${workspaceFolder}/validation/test/**/*.ts",
+                "${workspaceFolder}/packages/validation/test/**/*.ts",
             ],
             "protocol": "inspector",
             "env": {

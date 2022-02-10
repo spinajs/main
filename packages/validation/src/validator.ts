@@ -116,7 +116,7 @@ export class DataValidator extends SyncModule {
         schema = schemaOrData as ISchemaObject;
       } else if (typeof schemaOrData === 'string') {
         /* eslint-disable */
-        schema = (this.Validator.getSchema(schemaOrData) as any) ?? null;
+        schema = (this.Validator.getSchema(schemaOrData) as any)?.schema ?? null;
       } else {
         schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject;
       }
@@ -138,7 +138,7 @@ export class DataValidator extends SyncModule {
       }
     }
 
-    const result = this.Validator.validate(schema, schemaOrData);
+    const result = this.Validator.validate(schema, data ? data : schemaOrData);
     if (!result) {
       return [false, this.Validator.errors ?? null];
     }
