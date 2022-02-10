@@ -81,6 +81,12 @@ export class FrameworkConfiguration extends Configuration {
       InternalLogger.trace(`Custom config path at: ${p}`, 'Configuration');
     });
 
+    if (this.RunApp) {
+      InternalLogger.trace(`Run app is ${this.RunApp}`, 'Configuration');
+    }
+
+    InternalLogger.trace(`App base dir is ${this.AppBaseDir}`, 'Configuration');
+
     this.Sources = this.Container.resolve<ConfigurationSource>(Array.ofType(ConfigurationSource), [
       this.RunApp,
       this.CustomConfigPaths,
