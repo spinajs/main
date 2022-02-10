@@ -1,8 +1,8 @@
-import { Autoinject, Bootstrapper, DI } from "@spinajs/di";
+import { Injectable, Bootstrapper, DI } from "@spinajs/di";
 import { Log } from "./log";
 import CONFIGURATION_SCHEMA from "./schemas/log.configuration";
 
-@Autoinject
+@Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
   public async bootstrap(): Promise<void> {
     DI.register(CONFIGURATION_SCHEMA).asArrayValue("__configurationSchema__");
