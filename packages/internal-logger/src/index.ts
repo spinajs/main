@@ -42,14 +42,16 @@ export class InternalLogger extends Bootstrapper {
       InternalLogger.LogBuffer.clear();
     };
 
-    // when log system is resolved
+    // We must wait for configuration to load
+    // becouse log is dependent on it
+    // when configuration system is resolved
     // write all buffered messages to it
-    if (DI.has("Logger")) {
+    if (DI.has("Configuration")) {
       // if we botstrapped before logger
       write();
     } else {
       // if not wait for event to occur
-      DI.once("di.resolved.Logger", () => write());
+      DI.once("di.resolved.Configuration", () => write());
     }
   }
 
