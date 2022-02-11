@@ -90,6 +90,7 @@ describe("logger tests", function () {
     log.security("Hello world");
 
     const now = DateTime.now();
+    debugger;
 
     expect(spy.args[0][0])
       .to.be.a("string")

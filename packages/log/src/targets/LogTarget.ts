@@ -75,6 +75,8 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModu
         if (variable) {
           // optional parameter eg. {env:PORT}
           result = result.replace(v[0], variable.Value(v[4] ?? null));
+        } else {
+          result = result.replace(v[0], "");
         }
       }
     });
