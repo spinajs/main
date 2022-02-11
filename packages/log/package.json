@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/log",
-  "version": "1.2.27",
+  "version": "1.2.28",
   "description": "Log lib for all spinejs related libs",
   "main": "lib/index.js",
   "private": false,
@@ -29,7 +29,7 @@
     "@spinajs/configuration": "^1.2.26",
     "@spinajs/di": "^1.2.26",
     "@spinajs/exceptions": "^1.2.7",
-    "@spinajs/log-common": "^1.2.27",
+    "@spinajs/log-common": "^1.2.28",
     "ajv": "^8.8.2",
     "colors": "^1.4.0",
     "glob": "^7.2.0",
