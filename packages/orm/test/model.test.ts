@@ -84,7 +84,7 @@ describe('General model tests', () => {
     const orm = await db();
 
     expect(() => {
-      ModelNoDescription.where("1", 1);
+      ModelNoDescription.where('1', 1);
     }).to.throw('model ModelNoDescription does not have model descriptor. Use @model decorator on class');
   });
 
@@ -93,7 +93,7 @@ describe('General model tests', () => {
     const orm = await db();
 
     expect(() => {
-      ModelNoConnection.where("1", 1);
+      ModelNoConnection.where('1', 1);
     }).to.throw('model ModelNoConnection have invalid connection SampleConnectionNotExists, please check your db config file or model connection name');
   });
 
@@ -528,15 +528,51 @@ describe('General model tests', () => {
   });
 
   it('Model should insert', async () => {
-    expect(false).to.be.true;
-  });
+    // @ts-ignore
+    const orm = await db();
 
-  it('Model should update on duplicate', async () => {
-    expect(false).to.be.true;
+    const fI = sinon.stub(FakeInsertQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    sinon
+      .stub(FakeSqliteDriver.prototype, 'execute')
+      .onCall(0)
+      .returns(
+        new Promise((res) => {
+          res([{ Id: 1 }]);
+        }),
+      );
+
+    await Model1.insert({
+      Bar: 'hello',
+    });
+
+    expect(fI.calledOnce).to.be.true;
   });
 
   it('Model should insert array at one query', async () => {
-    expect(false).to.be.true;
+    // @ts-ignore
+    const orm = await db();
+
+    const fI = sinon.stub(FakeInsertQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    sinon
+      .stub(FakeSqliteDriver.prototype, 'execute')
+      .onCall(0)
+      .returns(
+        new Promise((res) => {
+          res([{ Id: 1 }]);
+        }),
+      );
+
+    await Model1.insert([{Bar: 'hello'}, {Bar: 'hello'}, {Bar: 'hello'}]);
+
+    expect(fI.calledOnce).to.be.true;
   });
 
   it('destroy should update deleted_at', async () => {
