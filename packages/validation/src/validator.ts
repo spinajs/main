@@ -1,4 +1,4 @@
-import { SyncModule, IContainer, Autoinject, Container } from '@spinajs/di';
+import { SyncModule, Autoinject, Container } from '@spinajs/di';
 import Ajv from 'ajv';
 import { Config } from '@spinajs/configuration';
 import { IValidationError, ValidationFailed } from './exceptions';

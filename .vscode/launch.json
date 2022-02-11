@@ -19,6 +19,21 @@
         {
             "type": "node",
             "request": "launch",
+            "name": "ORM_SQL test",
+            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+            "args": [
+                "-r",
+                "ts-node/register",
+                "--timeout",
+                "999999",
+                "--colors",
+                "${workspaceFolder}/packages/orm-sql/test/**/*.ts",
+            ],
+            "protocol": "inspector"
+        },
+        {
+            "type": "node",
+            "request": "launch",
             "name": "ORM test",
             "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
             "args": [

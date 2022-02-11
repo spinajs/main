@@ -12,6 +12,14 @@
 		{
 			"type": "npm",
 			"script": "lint",
+			"path": "packages/orm-sql/",
+			"problemMatcher": ["$eslint-stylish"],
+			"label": "npm: lint - packages/orm-sql",
+			"detail": "eslint  --fix -c .eslintrc.js --ext .ts src"
+		},
+		{
+			"type": "npm",
+			"script": "lint",
 			"path": "packages/orm/",
 			"problemMatcher": ["$eslint-stylish"],
 			"label": "npm: lint - packages/orm",

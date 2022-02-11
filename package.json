@@ -64,6 +64,7 @@
     "@spinajs/reflection": "file:packages\\reflection",
     "@spinajs/validation": "file:packages\\validation",
     "@spinajs/orm": "file:packages\\orm",
+    "@spinajs/orm-sql": "file:packages\\orm-sql",
     "rxjs": "^7.5.4"
   }
 }
