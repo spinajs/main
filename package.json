@@ -63,6 +63,7 @@
     "@spinajs/log-common": "file:packages\\log-common",
     "@spinajs/reflection": "file:packages\\reflection",
     "@spinajs/validation": "file:packages\\validation",
+    "@spinajs/orm": "file:packages\\orm",
     "rxjs": "^7.5.4"
   }
 }

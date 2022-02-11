@@ -1,14 +1,7 @@
+/* eslint-disable prettier/prettier */
 import { UuidConverter } from './converters';
-import {
-  IModelDescrtiptor,
-  IMigrationDescriptor,
-  RelationType,
-  IRelationDescriptor,
-  IDiscriminationEntry,
-  DatetimeValueConverter,
-  ValueConverter,
-  SetValueConverter,
-} from './interfaces';
+import { Constructor } from '@spinajs/di';
+import { IModelDescrtiptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, ValueConverter, SetValueConverter } from './interfaces';
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
@@ -18,18 +11,8 @@ export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
 
 /**
  * Helper func to create model metadata
- *
- * @param callback
  */
-export function extractDecoratorDescriptor(
-  callback: (
-    model: IModelDescrtiptor,
-    target: any,
-    propertyKey: symbol | string,
-    indexOrDescriptor: number | PropertyDescriptor,
-  ) => void,
-  base = false,
-): any {
+export function extractDecoratorDescriptor(callback: (model: IModelDescrtiptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void, base = false): any {
   return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
     let metadata: IModelDescrtiptor = null;
     if (!base) {
@@ -81,7 +64,7 @@ export function extractDecoratorDescriptor(
 /**
  * Sets migration option
  *
- * @param connection connection name, must exists in configuration file
+ * @param connection - connection name, must exists in configuration file
  */
 export function Migration(connection: string) {
   return (target: any) => {
@@ -99,9 +82,9 @@ export function Migration(connection: string) {
 }
 
 /**
- * @Connection model decorator, assigns connection to model
+ * Connection model decorator, assigns connection to model
  *
- * @param name connection name, must be avaible in db config
+ * @param name - connection name, must be avaible in db config
  */
 export function Connection(name: string) {
   return extractDecoratorDescriptor((model: IModelDescrtiptor) => {
@@ -110,9 +93,9 @@ export function Connection(name: string) {
 }
 
 /**
- * @TableName model decorator, assigns table from database to model
+ * TableName model decorator, assigns table from database to model
  *
- * @param name table name in database that is referred by this model
+ * @param name - table name in database that is referred by this model
  */
 export function Model(tableName: string) {
   return extractDecoratorDescriptor((model: IModelDescrtiptor) => {
@@ -207,7 +190,7 @@ export function Primary() {
  */
 export function Ignore() {
   return extractDecoratorDescriptor((model: IModelDescrtiptor, _target: any, propertyKey: string) => {
-    const columnDesc = model.Columns.find(c => c.Name === propertyKey);
+    const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
       model.Columns.push({ Name: propertyKey, Ignore: true } as any);
@@ -217,13 +200,12 @@ export function Ignore() {
   }, true);
 }
 
-
 /**
  * Marks columns as UUID. Column will be generated ad creation
  */
 export function Uuid() {
   return extractDecoratorDescriptor((model: IModelDescrtiptor, _target: any, propertyKey: string) => {
-    const columnDesc = model.Columns.find(c => c.Name === propertyKey);
+    const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
       model.Columns.push({ Name: propertyKey, Uuid: true } as any);
@@ -248,15 +230,15 @@ export function JunctionTable() {
  *
  * Marks model to have discrimination map.
  *
- * @param fieldName db field name to look for
- * @param discriminationMap field - model mapping
+ * @param fieldName - db field name to look for
+ * @param discriminationMap - field - model mapping
  */
 export function DiscriminationMap(fieldName: string, discriminationMap: IDiscriminationEntry[]) {
   return extractDecoratorDescriptor((model: IModelDescrtiptor, _target: any, _propertyKey: string) => {
     model.DiscriminationMap.Field = fieldName;
     model.DiscriminationMap.Models = new Map<string, Constructor<ModelBase>>();
 
-    discriminationMap.forEach(d => {
+    discriminationMap.forEach((d) => {
       model.DiscriminationMap.Models.set(d.Key, d.Value);
     });
   }, true);
@@ -269,17 +251,13 @@ export function DiscriminationMap(fieldName: string, discriminationMap: IDiscrim
 export function Recursive() {
   return extractDecoratorDescriptor((model: IModelDescrtiptor, _target: any, propertyKey: string) => {
     if (!model.Relations.has(propertyKey)) {
-      throw new InvalidOperation(
-        `cannot set recursive on not existing relation ( relation ${propertyKey} on model ${model.Name} )`,
-      );
+      throw new InvalidOperation(`cannot set recursive on not existing relation ( relation ${propertyKey} on model ${model.Name} )`);
     }
 
     const relation = model.Relations.get(propertyKey);
 
     if (relation.Type !== RelationType.One) {
-      throw new InvalidOperation(
-        `cannot set recursive on non one-to-one relation ( relation ${propertyKey} on model ${model.Name} )`,
-      );
+      throw new InvalidOperation(`cannot set recursive on non one-to-one relation ( relation ${propertyKey} on model ${model.Name} )`);
     }
 
     relation.Recursive = true;
@@ -314,7 +292,6 @@ export function BelongsTo(foreignKey?: string, primaryKey?: string) {
   });
 }
 
-
 /**
  * Creates one to one relation with target model.
  *
@@ -335,13 +312,12 @@ export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: str
   });
 }
 
-
 /**
  * Creates one to many relation with target model.
  *
  * @param targetModel - due to limitations of metadata reflection api in typescript target model mus be set explicitly
  * @param foreignKey - foreign key name in db, defaults to lowercase property name with _id suffix eg. owner_id
- * @param primaryKey
+ * @param primaryKey - primary key in source table defaults to lowercase property name with _id suffix eg. owner_id
  *
  */
 export function HasMany(targetModel: Constructor<ModelBase>, foreignKey?: string, primaryKey?: string) {
@@ -361,21 +337,14 @@ export function HasMany(targetModel: Constructor<ModelBase>, foreignKey?: string
 /**
  * Creates many to many relation with separate join table
  *
- * @param junctionModel model for junction table
- * @param targetModel  model for related data
- * @param targetModelPKey target model primary key name
- * @param sourceModelPKey source model primary key name
- * @param junctionModelTargetPk junction table target primary key name ( foreign key for target model )
- * @param junctionModelSourcePk junction table source primary key name ( foreign key for source model )
+ * @param junctionModel - model for junction table
+ * @param targetModel - model for related data
+ * @param targetModelPKey - target model primary key name
+ * @param sourceModelPKey - source model primary key name
+ * @param junctionModelTargetPk - junction table target primary key name ( foreign key for target model )
+ * @param junctionModelSourcePk - junction table source primary key name ( foreign key for source model )
  */
-export function HasManyToMany(
-  junctionModel: Constructor<ModelBase>,
-  targetModel: Constructor<ModelBase>,
-  targetModelPKey?: string,
-  sourceModelPKey?: string,
-  junctionModelTargetPk?: string,
-  junctionModelSourcePk?: string,
-) {
+export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase>, targetModelPKey?: string, sourceModelPKey?: string, junctionModelTargetPk?: string, junctionModelSourcePk?: string) {
   return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
     const targetModelDescriptor = extractModelDescriptor(targetModel);
 

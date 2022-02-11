@@ -1,23 +1,9 @@
+/* eslint-disable prettier/prettier */
 import { QueryContext } from './interfaces';
-import { SyncModule, IContainer, DI } from '@spinajs/di';
+import { SyncModule, IContainer, DI, Inject, Container } from '@spinajs/di';
 import { IDriverOptions, IColumnDescriptor } from '.';
-import {
-  UpdateQueryBuilder,
-  SelectQueryBuilder,
-  IndexQueryBuilder,
-  DeleteQueryBuilder,
-  InsertQueryBuilder,
-  SchemaQueryBuilder,
-  QueryBuilder,
-} from './builders';
-import {
-  ModelHydrator,
-  DbPropertyHydrator,
-  OneToOneRelationHydrator,
-  NonDbPropertyHydrator,
-  JunctionModelPropertyHydrator,
-} from './hydrators';
-import { Logger, Log } from '@spinajs/log';
+import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder } from './builders';
+import { ModelHydrator, DbPropertyHydrator, OneToOneRelationHydrator, NonDbPropertyHydrator, JunctionModelPropertyHydrator } from './hydrators';
 
 export type TransactionCallback = (driver: OrmDriver) => Promise<any>;
 
@@ -27,10 +13,10 @@ export abstract class OrmDriver extends SyncModule {
    */
   public Options: IDriverOptions;
 
-  public Container: IContainer;
+  @Inject(Container)
+  protected RootContainer: IContainer;
 
-  @Logger({ module: 'ORM' })
-  protected Log: Log;
+  public Container: IContainer;
 
   constructor(options: IDriverOptions) {
     super();
@@ -41,17 +27,11 @@ export abstract class OrmDriver extends SyncModule {
   /**
    * Executes query on database
    *
-   * @param stmt query string or query objects that is executed in database
-   * @param params binding parameters
-   * @param context query context to optimize queries sent to DB
+   * @param stmt - query string or query objects that is executed in database
+   * @param params - binding parameters
+   * @param context - query context to optimize queries sent to DB
    */
-  public execute(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any> {
-    if (this.Options.Debug?.Queries) {
-      this.Log.trace('[ QUERY ] raw query: %s , bindings: %s, context: %s', stmt, params.join(','), context);
-    }
-
-    return undefined;
-  }
+  public abstract execute(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
 
   /**
    * Checks if database is avaible
@@ -61,7 +41,7 @@ export abstract class OrmDriver extends SyncModule {
 
   /**
    * Connects to database
-   * @throws {OrmException} if can't connec to to database
+   * @throws OrmException if can't connec to to database
    */
   public abstract connect(): Promise<OrmDriver>;
 
@@ -72,8 +52,8 @@ export abstract class OrmDriver extends SyncModule {
 
   public abstract tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]>;
 
-  public resolve(container: IContainer) {
-    this.Container = container.child();
+  public resolve() {
+    this.Container = this.RootContainer.child();
 
     /**
      * Hydrators are registered globally

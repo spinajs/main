@@ -48,7 +48,8 @@
     "@spinajs/reflection": "^1.2.20",
     "lodash": "^4.17.14",
     "typescript-mix": "^3.1.3",
-    "uuid": "^8.3.3"
+    "uuid": "^8.3.2",
+    "luxon": "^2.3.0"
   },
   "gitHead": "848afb031af6f1d163ebc548d4f2038ad00fcea1"
 }

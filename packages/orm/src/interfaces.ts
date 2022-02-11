@@ -1,9 +1,10 @@
+/* eslint-disable prettier/prettier */
 import { RawQuery } from './builders';
 import { SORT_ORDER, WhereBoolean } from './enums';
 import { IQueryStatement, WrapStatement } from './statements';
 import { WhereFunction } from './types';
 import { OrmDriver } from './driver';
-import { NewInstance } from '@spinajs/di';
+import { NewInstance, Constructor } from '@spinajs/di';
 import { ModelBase } from './model';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 
@@ -136,13 +137,6 @@ export interface IDriverOptions {
   };
 
   DefaultConnection: boolean;
-
-  /**
-   * Debug queries sent to orm driver. It writes raw queries queries to log for debug purposes
-   */
-  Debug?: {
-    Queries?: boolean;
-  };
 }
 
 export interface IMigrationDescriptor {
@@ -428,14 +422,11 @@ export abstract class OrmMigration {
    * Migrate up - create tables, indices etc.
    * Be aware that model function are not avaible yet. To fill tables with
    * data use fill function
-   *
-   * @param connection
    */
   public abstract up(connection: OrmDriver): Promise<void>;
 
   /**
    * Migrate down - undo changes made in up
-   * @param connection
    */
   public abstract down(connection: OrmDriver): Promise<void>;
 }
@@ -494,7 +485,7 @@ export interface IColumnsBuilder {
    *
    * Select columns from db result ( multiple at once )
    *
-   * @param names column names to select
+   * @param names - column names to select
    */
   columns(names: string[]): this;
 
@@ -507,22 +498,22 @@ export interface IColumnsBuilder {
    * Selects single column from DB result with optional alias
    * Can be used multiple times
    *
-   * @param column column to select
-   * @param alias column alias ( optional )
+   * @param column - column to select
+   * @param alias - column alias ( optional )
    */
   select(column: string, alias?: string): this;
 
   /**
    * Selects custom values from DB. eg. Count(*)
    *
-   * @param rawQuery  raw query to be executed
+   * @param rawQuery - raw query to be executed
    */
   select(rawQuery: RawQuery): this;
 
   /**
    * Selects multiple columns at once with aliases. Map key property is column name, value is its alias
    *
-   * @param columns column list with aliases
+   * @param columns - column list with aliases
    */
   // tslint:disable-next-line: unified-signatures
   select(columns: Map<string, string>): this;
@@ -606,14 +597,7 @@ export interface IJoinBuilder {
   crossJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
 }
 
-export interface ISelectQueryBuilder
-  extends IColumnsBuilder,
-  IOrderByBuilder,
-  ILimitBuilder,
-  IWhereBuilder,
-  IJoinBuilder,
-  IWithRecursiveBuilder,
-  IGroupByBuilder {
+export interface ISelectQueryBuilder extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder, IWhereBuilder, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {
   min(column: string, as?: string): this;
   max(column: string, as?: string): this;
   count(column: string, as?: string): this;
@@ -639,7 +623,6 @@ export interface ILimitCompiler {
 export interface IGroupByCompiler {
   group(builder: IGroupByBuilder): ICompilerOutput;
 }
-
 
 export interface IRecursiveCompiler {
   recursive(builder: IWithRecursiveBuilder): ICompilerOutput;
@@ -738,7 +721,7 @@ export interface IBuilderMiddleware {
    * Executed AFTER query is executed in DB and raw data is fetched
    * Use it to transform DB data before everything else
    *
-   * @param data raw data fetched from DB
+   * @param data - raw data fetched from DB
    */
   afterData(data: any[]): any[];
 
@@ -747,14 +730,14 @@ export interface IBuilderMiddleware {
    * override model creation logic. If null is returned, default model
    * is executed
    *
-   * @param data raw data to create
+   * @param data - raw data to create
    */
   modelCreation(data: any): ModelBase;
 
   /**
    * executed after model was created ( all returned data by query is executed)
    *
-   * @param data hydrated data. Models are created and hydrated with data
+   * @param data - hydrated data. Models are created and hydrated with data
    */
   afterHydration(data: ModelBase[]): Promise<any[] | void>;
 }
@@ -782,9 +765,9 @@ export class ValueConverter implements IValueConverter {
 /**
  * Converter for DATETIME field (eg. mysql datetime)
  */
-export class DatetimeValueConverter extends ValueConverter { }
+export class DatetimeValueConverter extends ValueConverter {}
 
 /**
  * Converter for set field (eg. mysql SET)
  */
-export class SetValueConverter extends ValueConverter { }
+export class SetValueConverter extends ValueConverter {}

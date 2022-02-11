@@ -1,62 +1,29 @@
-import { Container, Inject, NewInstance } from '@spinajs/di';
+/* eslint-disable prettier/prettier */
+
+import { Container, Inject, NewInstance, Constructor } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
 import * as _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SORT_ORDER, WhereBoolean, WhereOperators, JoinMethod } from './enums';
-import {
-  DeleteQueryCompiler,
-  IColumnsBuilder,
-  ICompilerOutput,
-  ILimitBuilder,
-  InsertQueryCompiler,
-  IOrderByBuilder,
-  IQueryBuilder,
-  IQueryLimit,
-  ISelectQueryBuilder,
-  ISort,
-  IWhereBuilder,
-  SelectQueryCompiler,
-  TableQueryCompiler,
-  UpdateQueryCompiler,
-  QueryContext,
-  IJoinBuilder,
-  IndexQueryCompiler,
-  RelationType,
-  IBuilderMiddleware,
-  IWithRecursiveBuilder,
-  ReferentialAction,
-  IGroupByBuilder,
-} from './interfaces';
-import {
-  BetweenStatement,
-  ColumnMethodStatement,
-  ColumnStatement,
-  ExistsQueryStatement,
-  InSetStatement,
-  InStatement,
-  IQueryStatement,
-  RawQueryStatement,
-  WhereQueryStatement,
-  WhereStatement,
-  ColumnRawStatement,
-  JoinStatement,
-  WithRecursiveStatement,
-  GroupByStatement,
-  WrapStatement,
-  Wrap,
-} from './statements';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder } from './interfaces';
+import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, WrapStatement, Wrap } from './statements';
 import { WhereFunction } from './types';
 import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
-import {
-  OrmRelation,
-  BelongsToRelation,
-  IOrmRelation,
-  OneToManyRelation,
-  ManyToManyRelation,
-  BelongsToRecursiveRelation,
-} from './relations';
+import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
+
+/**
+ *  Trick typescript by using the inbuilt interface inheritance and declaration merging
+ *  for builder classes.
+ *
+ *  We use mixins to extend functionality of builder eg. insert query builder uses function from columns builder
+ *  and so on...
+ */
+export interface InsertQueryBuilder extends IColumnsBuilder {}
+export interface DeleteQueryBuilder extends IWhereBuilder, ILimitBuilder {}
+export interface UpdateQueryBuilder extends IColumnsBuilder, IWhereBuilder {}
+export interface SelectQueryBuilder extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder, IWhereBuilder, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {}
 
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(WhereOperators).includes((val as any).toLowerCase());
@@ -111,7 +78,7 @@ export class Builder<T = any> {
             }, []);
           }
 
-          const models = transformedResult.map(r => {
+          const models = transformedResult.map((r) => {
             let model = null;
             for (const middleware of this._middlewares) {
               model = middleware.modelCreation(r);
@@ -232,7 +199,7 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
   /**
    * Sets table alias for query
    *
-   * @param alias sql table alias
+   * @param alias - sql table alias
    */
   public setAlias(alias: string) {
     this._tableAlias = alias;
@@ -364,13 +331,8 @@ export class ColumnsBuilder implements IColumnsBuilder {
   public columns(names: string[]) {
     const descriptor = extractModelDescriptor(this._model);
 
-    this._columns = names.map(n => {
-      return this._container.resolve<ColumnStatement>(ColumnStatement, [
-        n,
-        null,
-        this._tableAlias,
-        descriptor?.Columns.find(c => c.Name === n),
-      ]);
+    this._columns = names.map((n) => {
+      return this._container.resolve<ColumnStatement>(ColumnStatement, [n, null, this._tableAlias, descriptor?.Columns.find((c) => c.Name === n)]);
     });
 
     return this;
@@ -381,30 +343,14 @@ export class ColumnsBuilder implements IColumnsBuilder {
 
     if (column instanceof Map) {
       column.forEach((alias, colName) => {
-        this._columns.push(
-          this._container.resolve<ColumnStatement>(ColumnStatement, [
-            colName,
-            alias,
-            this._tableAlias,
-            descriptor?.Columns.find(c => c.Name === colName),
-          ]),
-        );
+        this._columns.push(this._container.resolve<ColumnStatement>(ColumnStatement, [colName, alias, this._tableAlias, descriptor?.Columns.find((c) => c.Name === colName)]));
       });
     }
 
     if (column instanceof RawQuery) {
-      this._columns.push(
-        this._container.resolve<ColumnRawStatement>(ColumnRawStatement, [column, null, this._tableAlias]),
-      );
+      this._columns.push(this._container.resolve<ColumnRawStatement>(ColumnRawStatement, [column, null, this._tableAlias]));
     } else {
-      this._columns.push(
-        this._container.resolve<ColumnStatement>(ColumnStatement, [
-          column,
-          alias,
-          this._tableAlias,
-          descriptor?.Columns.find(c => c.Name === column),
-        ]),
-      );
+      this._columns.push(this._container.resolve<ColumnStatement>(ColumnStatement, [column, alias, this._tableAlias, descriptor?.Columns.find((c) => c.Name === column)]));
     }
 
     return this;
@@ -428,7 +374,7 @@ export class RawQuery {
   public static create(query: string, bindings?: any[]) {
     return new RawQuery(query, bindings);
   }
-  private _query: string = '';
+  private _query = '';
   private _bindings: any[] = [];
 
   constructor(query: string, bindings?: any[]) {
@@ -451,12 +397,10 @@ export class GroupByBuilder implements IGroupByBuilder {
   }
 
   public groupBy(expression: string | RawQuery): this {
-
-    this._groupStatements.push(this._container.resolve<GroupByStatement>(GroupByStatement, [expression]))
+    this._groupStatements.push(this._container.resolve<GroupByStatement>(GroupByStatement, [expression]));
 
     return this;
   }
-
 }
 
 export class JoinBuilder implements IJoinBuilder {
@@ -481,115 +425,60 @@ export class JoinBuilder implements IJoinBuilder {
 
   public innerJoin(query: RawQuery): this;
   public innerJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public innerJoin(
-    _table: string | RawQuery,
-    _AliasOrForeignKey?: string,
-    _fkOrPkKey?: string,
-    _primaryKey?: string,
-  ): this {
+  public innerJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.INNER, ...arguments);
     return this;
   }
 
   public leftJoin(query: RawQuery): this;
   public leftJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public leftJoin(
-    _table: string | RawQuery,
-    _AliasOrForeignKey?: string,
-    _fkOrPkKey?: string,
-    _primaryKey?: string,
-  ): this {
+  public leftJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.LEFT, ...arguments);
     return this;
   }
 
   public leftOuterJoin(query: RawQuery): this;
   public leftOuterJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public leftOuterJoin(
-    _table: string | RawQuery,
-    _AliasOrForeignKey?: string,
-    _fkOrPkKey?: string,
-    _primaryKey?: string,
-  ): this {
+  public leftOuterJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.LEFT_OUTER, ...arguments);
     return this;
   }
 
   public rightJoin(query: RawQuery): this;
   public rightJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public rightJoin(
-    _table: string | RawQuery,
-    _AliasOrForeignKey?: string,
-    _fkOrPkKey?: string,
-    _primaryKey?: string,
-  ): this {
+  public rightJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.RIGHT, ...arguments);
     return this;
   }
 
   public rightOuterJoin(query: RawQuery): this;
   public rightOuterJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public rightOuterJoin(
-    _table: string | RawQuery,
-    _AliasOrForeignKey?: string,
-    _fkOrPkKey?: string,
-    _primaryKey?: string,
-  ): this {
+  public rightOuterJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.RIGHT_OUTER, ...arguments);
     return this;
   }
 
   public fullOuterJoin(query: RawQuery): this;
   public fullOuterJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public fullOuterJoin(
-    _table: string | RawQuery,
-    _AliasOrForeignKey?: string,
-    _fkOrPkKey?: string,
-    _primaryKey?: string,
-  ): this {
+  public fullOuterJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.FULL_OUTER, ...arguments);
     return this;
   }
 
   public crossJoin(query: RawQuery): this;
   public crossJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public crossJoin(
-    _table: string | RawQuery,
-    _AliasOrForeignKey?: string,
-    _fkOrPkKey?: string,
-    _primaryKey?: string,
-  ): this {
+  public crossJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.CROSS, ...arguments);
     return this;
   }
 
-  private addJoinStatement(
-    method: JoinMethod,
-    table: string | RawQuery,
-    AliasOrForeignKey?: string,
-    fkOrPkKey?: string,
-    primaryKey?: string,
-  ) {
+  private addJoinStatement(method: JoinMethod, table: string | RawQuery, AliasOrForeignKey?: string, fkOrPkKey?: string, primaryKey?: string) {
     let stmt: JoinStatement = null;
 
     if (arguments.length === 4) {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [
-        table,
-        method,
-        AliasOrForeignKey,
-        fkOrPkKey,
-        null,
-        this._tableAlias,
-      ]);
+      stmt = this._container.resolve<JoinStatement>(JoinStatement, [table, method, AliasOrForeignKey, fkOrPkKey, null, this._tableAlias]);
     } else if (arguments.length === 5) {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [
-        table,
-        method,
-        fkOrPkKey,
-        primaryKey,
-        AliasOrForeignKey,
-        this._tableAlias,
-      ]);
+      stmt = this._container.resolve<JoinStatement>(JoinStatement, [table, method, fkOrPkKey, primaryKey, AliasOrForeignKey, this._tableAlias]);
     } else {
       stmt = this._container.resolve<JoinStatement>(JoinStatement, [table, method]);
     }
@@ -609,12 +498,7 @@ export class WithRecursiveBuilder implements IWithRecursiveBuilder {
   }
 
   public withRecursive(rcKeyName: string, pkName: string) {
-    this._cteStatement = this._container.resolve<WithRecursiveStatement>(WithRecursiveStatement, [
-      'cte',
-      this,
-      rcKeyName,
-      pkName,
-    ]);
+    this._cteStatement = this._container.resolve<WithRecursiveStatement>(WithRecursiveStatement, ['cte', this, rcKeyName, pkName]);
     return this;
   }
 }
@@ -643,11 +527,7 @@ export class WhereBuilder implements IWhereBuilder {
     this._tableAlias = tableAlias;
   }
 
-  public where(
-    column: string | boolean | WhereFunction | RawQuery | WrapStatement | {},
-    operator?: WhereOperators | any,
-    value?: any,
-  ): this {
+  public where(column: string | boolean | WhereFunction | RawQuery | WrapStatement | {}, operator?: WhereOperators | any, value?: any): this {
     const self = this;
 
     // Support "where true || where false"
@@ -656,24 +536,16 @@ export class WhereBuilder implements IWhereBuilder {
     }
 
     if (column instanceof RawQuery) {
-      this.Statements.push(
-        this._container.resolve<RawQueryStatement>(RawQueryStatement, [
-          column.Query,
-          column.Bindings,
-          self._tableAlias,
-        ]),
-      );
+      this.Statements.push(this._container.resolve<RawQueryStatement>(RawQueryStatement, [column.Query, column.Bindings, self._tableAlias]));
       return this;
     }
 
     // handle nested where's
     if (_.isFunction(column)) {
       const builder = new WhereBuilder(this._container, this._tableAlias);
-      (column as WhereFunction).call(builder);
+      column.call(builder);
 
-      self.Statements.push(
-        this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self._tableAlias]),
-      );
+      self.Statements.push(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self._tableAlias]));
       return this;
     }
 
@@ -691,8 +563,6 @@ export class WhereBuilder implements IWhereBuilder {
     /**
      * handles for where("foo", 1).where(...) cases
      * it produces WHERE foo = 1
-     * @param c
-     * @param operator
      */
     function _handleForTwo(c: any, v: any) {
       if (v === undefined) {
@@ -702,14 +572,12 @@ export class WhereBuilder implements IWhereBuilder {
       if (!_.isString(c) && !(c instanceof Wrap)) {
         throw new InvalidArgument(`column is not of type string or wrapped.`);
       }
- 
+
       if (v === null) {
         return this.whereNull(c);
       }
 
-      self._statements.push(
-        self._container.resolve<WhereStatement>(WhereStatement, [c, WhereOperators.EQ, v, self._tableAlias, this._container]),
-      );
+      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, WhereOperators.EQ, v, self._tableAlias, this._container]));
 
       return self;
     }
@@ -717,9 +585,6 @@ export class WhereBuilder implements IWhereBuilder {
     /**
      * Handles for where("foo",'!=',1) etc
      * it produces WHERE foo != 1
-     * @param c
-     * @param o
-     * @param v
      */
     function _handleForThree(c: any, o: any, v: any) {
       if (!isWhereOperator(o)) {
@@ -729,7 +594,7 @@ export class WhereBuilder implements IWhereBuilder {
       if (!_.isString(c) && !(c instanceof Wrap)) {
         throw new InvalidArgument(`column is not of type string or wrapped.`);
       }
- 
+
       if (v === null) {
         return this.whereNull(c);
       }
@@ -738,9 +603,7 @@ export class WhereBuilder implements IWhereBuilder {
         return o === WhereOperators.NOT_NULL ? this.whereNotNull(c) : this.whereNull(c);
       }
 
-      self._statements.push(
-        self._container.resolve<WhereStatement>(WhereStatement, [c, o, v, self._tableAlias, this._container]),
-      );
+      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, v, self._tableAlias, this._container]));
 
       return this;
     }
@@ -765,22 +628,13 @@ export class WhereBuilder implements IWhereBuilder {
   }
 
   public whereNotNull(column: string): this {
-    this._statements.push(
-      this._container.resolve<WhereStatement>(WhereStatement, [
-        column,
-        WhereOperators.NOT_NULL,
-        null,
-        this._tableAlias,
-      ]),
-    );
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, WhereOperators.NOT_NULL, null, this._tableAlias]));
 
     return this;
   }
 
   public whereNull(column: string): this {
-    this._statements.push(
-      this._container.resolve<WhereStatement>(WhereStatement, [column, WhereOperators.NULL, null, this._tableAlias]),
-    );
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, WhereOperators.NULL, null, this._tableAlias]));
     return this;
   }
 
@@ -789,58 +643,42 @@ export class WhereBuilder implements IWhereBuilder {
   }
 
   public whereIn(column: string, val: any[]): this {
-    this._statements.push(
-      this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias]),
-    );
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias]));
     return this;
   }
 
   public whereNotIn(column: string, val: any[]): this {
-    this._statements.push(
-      this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias]),
-    );
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias]));
     return this;
   }
 
   public whereExist(query: SelectQueryBuilder): this {
-    this._statements.push(
-      this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, false]),
-    );
+    this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, false]));
     return this;
   }
 
   public whereNotExists(query: SelectQueryBuilder): this {
-    this._statements.push(
-      this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, true]),
-    );
+    this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, true]));
     return this;
   }
 
   public whereBetween(column: string, val: any[]): this {
-    this._statements.push(
-      this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, false, this._tableAlias]),
-    );
+    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, false, this._tableAlias]));
     return this;
   }
 
   public whereNotBetween(column: string, val: any[]): this {
-    this._statements.push(
-      this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, true, this._tableAlias]),
-    );
+    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, true, this._tableAlias]));
     return this;
   }
 
   public whereInSet(column: string, val: any[]): this {
-    this._statements.push(
-      this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this._tableAlias]),
-    );
+    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this._tableAlias]));
     return this;
   }
 
   public whereNotInSet(column: string, val: any[]): this {
-    this._statements.push(
-      this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this._tableAlias]),
-    );
+    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this._tableAlias]));
     return this;
   }
 
@@ -849,10 +687,6 @@ export class WhereBuilder implements IWhereBuilder {
     return this;
   }
 }
-
-// tslint:disable-next-line
-export interface SelectQueryBuilder extends ISelectQueryBuilder { }
-
 export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
    * column query props
@@ -890,8 +724,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   protected _relations: IOrmRelation[] = [];
 
   @use(WhereBuilder, LimitBuilder, OrderByBuilder, ColumnsBuilder, JoinBuilder, WithRecursiveBuilder, GroupByBuilder)
-  /// @ts-ignore
-  private this: this;
+  this: this;
 
   public get IsDistinct() {
     return this._distinct;
@@ -937,9 +770,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public setAlias(alias: string) {
     this._tableAlias = alias;
 
-    this._columns.forEach(c => (c.TableAlias = alias));
-    this._joinStatements.forEach(c => (c.TableAlias = alias));
-    this._statements.forEach(c => (c.TableAlias = alias));
+    this._columns.forEach((c) => (c.TableAlias = alias));
+    this._joinStatements.forEach((c) => (c.TableAlias = alias));
+    this._statements.forEach((c) => (c.TableAlias = alias));
 
     return this;
   }
@@ -970,12 +803,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     const relDescription = descriptor.Relations.get(relation);
     if (relDescription.Type === RelationType.One && relDescription.Recursive) {
-      relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [
-        this._container.get(Orm),
-        this,
-        relDescription,
-        this._owner,
-      ]);
+      relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this._container.get(Orm), this, relDescription, this._owner]);
     } else {
       if (relDescription.Recursive) {
         throw new InvalidOperation(`cannot mark relation as recursive with non one-to-one relation type`);
@@ -983,28 +811,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
       switch (relDescription.Type) {
         case RelationType.One:
-          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [
-            this._container.get(Orm),
-            this,
-            relDescription,
-            this._owner,
-          ]);
+          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this._container.get(Orm), this, relDescription, this._owner]);
           break;
         case RelationType.Many:
-          relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [
-            this._container.get(Orm),
-            this,
-            relDescription,
-            this._owner,
-          ]);
+          relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this._container.get(Orm), this, relDescription, this._owner]);
           break;
         case RelationType.ManyToMany:
-          relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [
-            this._container.get(Orm),
-            this,
-            relDescription,
-            null,
-          ]);
+          relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [this._container.get(Orm), this, relDescription, null]);
           break;
       }
     }
@@ -1025,62 +838,27 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public min(column: string, as?: string): this {
-    this._columns.push(
-      this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [
-        column,
-        ColumnMethods.MIN,
-        as,
-        this._tableAlias,
-      ]),
-    );
+    this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MIN, as, this._tableAlias]));
     return this;
   }
 
   public max(column: string, as?: string): this {
-    this._columns.push(
-      this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [
-        column,
-        ColumnMethods.MAX,
-        as,
-        this._tableAlias,
-      ]),
-    );
+    this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MAX, as, this._tableAlias]));
     return this;
   }
 
   public count(column: string, as?: string): this {
-    this._columns.push(
-      this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [
-        column,
-        ColumnMethods.COUNT,
-        as,
-        this._tableAlias,
-      ]),
-    );
+    this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.COUNT, as, this._tableAlias]));
     return this;
   }
 
   public sum(column: string, as?: string): this {
-    this._columns.push(
-      this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [
-        column,
-        ColumnMethods.SUM,
-        as,
-        this._tableAlias,
-      ]),
-    );
+    this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.SUM, as, this._tableAlias]));
     return this;
   }
 
   public avg(column: string, as?: string): this {
-    this._columns.push(
-      this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [
-        column,
-        ColumnMethods.AVG,
-        as,
-        this._tableAlias,
-      ]),
-    );
+    this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.AVG, as, this._tableAlias]));
     return this;
   }
 
@@ -1117,8 +895,6 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 }
 
-// tslint:disable-next-line
-export interface DeleteQueryBuilder extends IWhereBuilder, ILimitBuilder { }
 export class DeleteQueryBuilder extends QueryBuilder {
   /**
    * where query props
@@ -1155,9 +931,7 @@ export class DeleteQueryBuilder extends QueryBuilder {
   }
 
   public toDB(): ICompilerOutput {
-    return this._container
-      .resolve<DeleteQueryCompiler>(DeleteQueryCompiler, [this])
-      .compile();
+    return this._container.resolve<DeleteQueryCompiler>(DeleteQueryCompiler, [this]).compile();
   }
 
   public truncate() {
@@ -1209,8 +983,6 @@ export class OnDuplicateQueryBuilder {
   }
 }
 
-// tslint:disable-next-line
-export interface UpdateQueryBuilder extends IWhereBuilder { }
 export class UpdateQueryBuilder extends QueryBuilder {
   /**
    * where query props
@@ -1223,9 +995,7 @@ export class UpdateQueryBuilder extends QueryBuilder {
     return this._value;
   }
 
-  @use(WhereBuilder)
-  /// @ts-ignore
-  private this: this;
+  @use(WhereBuilder) this: this;
 
   constructor(container: Container, driver: OrmDriver, model: Constructor<any>) {
     super(container, driver, model);
@@ -1248,14 +1018,10 @@ export class UpdateQueryBuilder extends QueryBuilder {
   }
 
   public toDB(): ICompilerOutput {
-    return this._container
-      .resolve<UpdateQueryCompiler>(UpdateQueryCompiler, [this])
-      .compile();
+    return this._container.resolve<UpdateQueryCompiler>(UpdateQueryCompiler, [this]).compile();
   }
 }
 
-// tslint:disable-next-line
-export interface InsertQueryBuilder extends IColumnsBuilder { }
 export class InsertQueryBuilder extends QueryBuilder {
   public DuplicateQueryBuilder: OnDuplicateQueryBuilder;
 
@@ -1265,9 +1031,7 @@ export class InsertQueryBuilder extends QueryBuilder {
 
   protected _ignore: boolean;
 
-  @use(ColumnsBuilder)
-  /// @ts-ignore
-  private this: this;
+  @use(ColumnsBuilder) this: this;
 
   public get Values() {
     return this._values;
@@ -1300,13 +1064,7 @@ export class InsertQueryBuilder extends QueryBuilder {
     const self = this;
 
     if (Array.isArray(data)) {
-      this.columns(
-        _.chain(data)
-          .map(_.keys)
-          .flatten()
-          .uniq()
-          .value(),
-      );
+      this.columns(_.chain(data).map(_.keys).flatten().uniq().value());
 
       data.forEach((d: any) => {
         _addData(d);
@@ -1320,9 +1078,9 @@ export class InsertQueryBuilder extends QueryBuilder {
       const binding: any[] = [];
 
       self._columns
-        .filter(c => !(c.Column instanceof RawQuery))
-        .map(c => {
-          return (c as ColumnStatement).Column;
+        .filter((c) => !(c.Column instanceof RawQuery))
+        .map((c) => {
+          return c.Column;
         })
         .forEach((c: string) => {
           binding.push(d[c]);
@@ -1340,10 +1098,11 @@ export class InsertQueryBuilder extends QueryBuilder {
   }
 
   public onDuplicate(column?: string | string[]): OnDuplicateQueryBuilder {
-
     let columnToCheck = column;
     if (!columnToCheck) {
-      columnToCheck = extractModelDescriptor(this._model).Columns.filter(c => c.Unique && !c.PrimaryKey).map(c => c.Name);
+      columnToCheck = extractModelDescriptor(this._model)
+        .Columns.filter((c) => c.Unique && !c.PrimaryKey)
+        .map((c) => c.Name);
     }
 
     this.DuplicateQueryBuilder = new OnDuplicateQueryBuilder(this._container, this, columnToCheck);
@@ -1351,11 +1110,10 @@ export class InsertQueryBuilder extends QueryBuilder {
   }
 
   public toDB(): ICompilerOutput {
-    return this._container
-      .resolve<InsertQueryCompiler>(InsertQueryCompiler, [this])
-      .compile();
+    return this._container.resolve<InsertQueryCompiler>(InsertQueryCompiler, [this]).compile();
   }
 }
+
 @NewInstance()
 @Inject(Container)
 export class IndexQueryBuilder extends Builder {
@@ -1395,9 +1153,7 @@ export class IndexQueryBuilder extends Builder {
   }
 
   public toDB(): ICompilerOutput {
-    return this._container
-      .resolve<IndexQueryCompiler>(IndexQueryCompiler, [this])
-      .compile();
+    return this._container.resolve<IndexQueryCompiler>(IndexQueryCompiler, [this]).compile();
   }
 }
 
@@ -1422,7 +1178,7 @@ export class ForeignKeyBuilder {
    *
    * Referenced field in child table
    *
-   * @param fkName name of foreign field in child table
+   * @param fkName - name of foreign field in child table
    */
   public foreignKey(fkName: string) {
     this.ForeignKeyField = fkName;
@@ -1434,8 +1190,8 @@ export class ForeignKeyBuilder {
    *
    * Referenced parent table & key
    *
-   * @param table parent table
-   * @param pKey parant table key field
+   * @param table - parent table
+   * @param pKey - parant table key field
    */
   public references(table: string, pKey: string) {
     this.Table = table;
@@ -1448,7 +1204,7 @@ export class ForeignKeyBuilder {
    *
    * On delete action
    *
-   * @param action action to take on delete
+   * @param action - action to take on delete
    */
   public onDelete(action: ReferentialAction) {
     this.OnDeleteAction = action;
@@ -1460,7 +1216,7 @@ export class ForeignKeyBuilder {
    *
    * On update action
    *
-   * @param action action to take on update
+   * @param action - action to take on update
    */
   public onUpdate(action: ReferentialAction) {
     this.OnUpdateAction = action;
@@ -1629,10 +1385,7 @@ export class TableQueryBuilder extends QueryBuilder {
   }
 
   public increments(name: string) {
-    return this.int(name)
-      .autoIncrement()
-      .notNull()
-      .primaryKey();
+    return this.int(name).autoIncrement().notNull().primaryKey();
   }
 
   public comment(comment: string) {
@@ -1652,16 +1405,14 @@ export class TableQueryBuilder extends QueryBuilder {
   }
 
   public toDB(): ICompilerOutput {
-    return this._container
-      .resolve<TableQueryCompiler>(TableQueryCompiler, [this])
-      .compile();
+    return this._container.resolve<TableQueryCompiler>(TableQueryCompiler, [this]).compile();
   }
 }
 
 @NewInstance()
 @Inject(Container)
 export class SchemaQueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver) { }
+  constructor(protected container: Container, protected driver: OrmDriver) {}
 
   public createTable(name: string, callback: (table: TableQueryBuilder) => void) {
     const builder = new TableQueryBuilder(this.container, this.driver, name);
@@ -1671,7 +1422,7 @@ export class SchemaQueryBuilder {
   }
 }
 
-Object.values(ColumnType).forEach(type => {
+Object.values(ColumnType).forEach((type) => {
   (TableQueryBuilder.prototype as any)[type] = function (name: string, ...args: any[]) {
     const _builder = new ColumnQueryBuilder(name, type, ...args);
     this._columns.push(_builder);

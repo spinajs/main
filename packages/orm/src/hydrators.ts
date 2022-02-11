@@ -1,3 +1,5 @@
+/* eslint-disable prettier/prettier */
+import { ForwardRefFunction } from './interfaces';
 import { ModelBase } from './model';
 import { isConstructor } from '@spinajs/di';
 
@@ -15,7 +17,7 @@ export class OneToOneRelationHydrator extends ModelHydrator {
     for (const [key, val] of descriptor.Relations) {
       if (values[key] != null) {
         const entity = target as any;
-        entity[key] = !isConstructor(val.TargetModel) ? new ((val.TargetModel as any)())() : new (val.TargetModel as any)();
+        entity[key] = !isConstructor(val.TargetModel) ? new ((val.TargetModel as ForwardRefFunction)())() : new (val.TargetModel as any)();
         entity[key].hydrate(values[key]);
 
         delete (target as any)[val.ForeignKey];
@@ -33,9 +35,9 @@ export class DbPropertyHydrator extends ModelHydrator {
 
     // filter out model joined properties
     // we handle it in later
-    const keys = Object.keys(values).filter(k => descriptor.Columns?.find(c => c.Name === k));
-    keys.forEach(k => {
-      const column = descriptor.Columns?.find(c => c.Name === k);
+    const keys = Object.keys(values).filter((k) => descriptor.Columns?.find((c) => c.Name === k));
+    keys.forEach((k) => {
+      const column = descriptor.Columns?.find((c) => c.Name === k);
       (target as any)[k] = column.Converter ? column.Converter.fromDB(values[k]) : values[k];
     });
   }
@@ -49,8 +51,8 @@ export class NonDbPropertyHydrator extends ModelHydrator {
     }
 
     // get only properties that are not in DB
-    const keys = Object.keys(values).filter(k => descriptor.Columns?.find(c => c.Name === k) === undefined);
-    keys.forEach(k => {
+    const keys = Object.keys(values).filter((k) => descriptor.Columns?.find((c) => c.Name === k) === undefined);
+    keys.forEach((k) => {
       (target as any)[k] = values[k];
     });
   }

@@ -1,21 +1,15 @@
+/* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
-import { AsyncModule, IContainer } from '@spinajs/di';
-import { Autoinject } from '@spinajs/di';
+import { AsyncModule, IContainer, Autoinject, Inject, Container, Class } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { ClassInfo, ListFromFiles } from '@spinajs/reflection';
-import _ from 'lodash';
-import {
-  IDriverOptions,
-  IMigrationDescriptor,
-  OrmMigration,
-  MigrationTransactionMode,
-  IModelDescrtiptor,
-} from './interfaces';
+import * as _ from 'lodash';
+import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode, IModelDescrtiptor } from './interfaces';
 import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor } from './model';
 import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from './decorators';
 import { OrmDriver } from './driver';
 import { InvalidOperation } from '@spinajs/exceptions';
-import moment from "moment";
+import { DateTime } from 'luxon';
 import { OrmException } from './exceptions';
 
 /**
@@ -45,9 +39,10 @@ export class Orm extends AsyncModule {
 
   public Connections: Map<string, OrmDriver> = new Map<string, OrmDriver>();
 
+  @Inject(Container)
   public Container: IContainer;
 
-  @Logger({ module: 'ORM' })
+  @Logger('ORM')
   protected Log: Log;
 
   @Autoinject()
@@ -57,7 +52,7 @@ export class Orm extends AsyncModule {
    *
    * Migrates schema up ( fill function is not executed )
    *
-   * @param name migration file name
+   * @param name - migration file name
    */
   public async migrateUp(name?: string): Promise<void> {
     const self = this;
@@ -93,7 +88,7 @@ export class Orm extends AsyncModule {
    *
    * Migrates schema up ( fill function is not executed )
    *
-   * @param name migration file name
+   * @param name - migration file name
    */
   public async migrateDown(name?: string): Promise<void> {
     const self = this;
@@ -137,7 +132,7 @@ export class Orm extends AsyncModule {
           const columns = await connection.tableInfo(descriptor.TableName, connection.Options.Database);
           if (columns) {
             m.type[MODEL_DESCTRIPTION_SYMBOL].Columns = _.uniqBy(
-              _.map(columns, c => {
+              _.map(columns, (c) => {
                 return _.assign(c, _.find(descriptor.Columns, { Name: c.Name }));
               }),
               'Name',
@@ -145,7 +140,7 @@ export class Orm extends AsyncModule {
           }
 
           for (const [key, val] of descriptor.Converters) {
-            const column = (m.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescrtiptor).Columns.find(c => c.Name === key);
+            const column = (m.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescrtiptor).Columns.find((c) => c.Name === key);
             if (column) {
               column.Converter = connection.Container.hasRegistered(val) ? connection.Container.resolve(val) : null;
             }
@@ -155,8 +150,7 @@ export class Orm extends AsyncModule {
     }
   }
 
-  public async resolveAsync(container: IContainer): Promise<void> {
-    this.Container = container;
+  public async resolveAsync(): Promise<void> {
     const migrateOnStartup = this.Configuration.get<boolean>('db.Migration.Startup', false);
 
     await this.createConnections();
@@ -177,7 +171,7 @@ export class Orm extends AsyncModule {
    *
    * NOTE: use it in ORM constructor before ORM is resolved & model list used.
    *
-   * @param model model to register
+   * @param model - model to register
    */
   protected registerModel<T extends ModelBase>(model: Class<T>) {
     this.Models.push({
@@ -194,11 +188,10 @@ export class Orm extends AsyncModule {
    *
    * NOTE: use it in ORM constructor before ORM is resolved & migrate function used.
    *
-   * @param model model to register
+   * @param model - model to register
    */
   protected registerMigration<T extends OrmMigration>(migration: Class<T>) {
-
-    const date = moment().format("YYYY_MM_DD_HH_mm_ss");
+    const date = DateTime.now().toFormat('YYYY_MM_DD_HH_mm_ss');
 
     this.Migrations.push({
       file: `${migration.name}_${date}.registered`,
@@ -210,18 +203,16 @@ export class Orm extends AsyncModule {
   private async createConnections() {
     const connections = await Promise.all(
       this.Configuration.get<IDriverOptions[]>('db.Connections', [])
-        .map(c => {
+        .map((c) => {
           return this.Container.resolve<OrmDriver>(c.Driver, [c]);
         })
-        .filter(c => c !== null)
-        .map(c => c.connect()),
+        .filter((c) => c !== null)
+        .map((c) => c.connect()),
     );
 
-    connections.forEach(c => {
+    connections.forEach((c) => {
       this.Connections.set(c.Options.Name, c);
-      this.Log.info(
-        `Found ORM driver ${c.Options.Name} with parameters ${JSON.stringify(_.pick(c.Options, CFG_PROPS))}`,
-      );
+      this.Log.info(`Found ORM driver ${c.Options.Name} with parameters ${JSON.stringify(_.pick(c.Options, CFG_PROPS))}`);
     });
 
     const defaultConnection = this.Configuration.get<string>('db.DefaultConnection');
@@ -235,7 +226,7 @@ export class Orm extends AsyncModule {
   }
 
   private applyModelMixins() {
-    this.Models.forEach(m => {
+    this.Models.forEach((m) => {
       // tslint:disable-next-line: forin
       for (const mixin in MODEL_STATIC_MIXINS) {
         m.type[mixin] = (MODEL_STATIC_MIXINS as any)[mixin].bind(m.type);
@@ -243,54 +234,52 @@ export class Orm extends AsyncModule {
     });
   }
 
-  private async executeAvaibleMigrations(
-    name: string,
-    callback: (migration: OrmMigration, driver: OrmDriver) => Promise<void>,
-    down: boolean,
-  ) {
-    const toMigrate = name ? this.Migrations.filter(m => m.name === name) : this.Migrations;
+  private async executeAvaibleMigrations(name: string, callback: (migration: OrmMigration, driver: OrmDriver) => Promise<void>, down: boolean) {
+    const toMigrate = name ? this.Migrations.filter((m) => m.name === name) : this.Migrations;
 
-    let migrations = toMigrate.map(x => {
-      const match = x.file.match(MIGRATION_FILE_REGEXP);
+    let migrations = toMigrate
+      .map((x) => {
+        const match = x.file.match(MIGRATION_FILE_REGEXP);
 
-      if (match === null || match.length !== 4) {
-        throw new OrmException(`Migration file name have invalid format ( expected: some_name_YYYY_MM_DD_HH_mm_ss got ${x.file})`);
-      }
+        if (match === null || match.length !== 4) {
+          throw new OrmException(`Migration file name have invalid format ( expected: some_name_YYYY_MM_DD_HH_mm_ss got ${x.file})`);
+        }
 
-      const created = moment(match[2], "YYYY_MM_DD_HH_mm_ss");
+        const created = DateTime.fromFormat(match[2], 'YYYY_MM_DD_HH_mm_ss');
 
-      if (!created.isValid()) {
-        throw new OrmException(`Migration file ${x.file} have invalid name format ( invalid migration date )`)
-      }
+        if (!created.isValid) {
+          throw new OrmException(`Migration file ${x.file} have invalid name format ( invalid migration date )`);
+        }
 
-      return {
-        created,
-        ...x
-      }
-    }).filter(x => x !== null).sort((a, b) => {
-      if (a.created.isBefore(b.created)) {
-        return -1;
-      }
-      return 1;
-    });
+        return {
+          created,
+          ...x,
+        };
+      })
+      .filter((x) => x !== null)
+      .sort((a, b) => {
+        if (a.created < b.created) {
+          return -1;
+        }
+        return 1;
+      });
 
     if (down) {
       migrations = migrations.reverse();
     }
 
     for (const m of migrations) {
-      const md = (m.type as any)[MIGRATION_DESCRIPTION_SYMBOL] as IMigrationDescriptor;
+      const md = m.type[MIGRATION_DESCRIPTION_SYMBOL] as IMigrationDescriptor;
       const cn = this.Connections.get(md.Connection);
       const migrationTableName = cn.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
 
-      const exists = await cn
-        .select()
-        .from(migrationTableName)
-        .where({ Migration: m.name })
-        .first();
+      const exists = await cn.select().from(migrationTableName).where({ Migration: m.name }).first();
 
       if (!exists) {
-        const migration = (await this.Container.resolve(m.type, [cn])) as OrmMigration;
+        const migration = await this.Container.resolve<OrmMigration>(m.type, [cn]);
+
+        this.Log.info(`Setting up migration ${m.name} from file ${m.file} created at ${m.created} mode: ${down ? 'migrate down' : 'migrate up'}`);
+
         await callback(migration, cn);
       }
     }
@@ -307,14 +296,13 @@ export class Orm extends AsyncModule {
         migrationTable = await connection.tableInfo(migrationTableName);
 
         // tslint:disable-next-line: no-empty
-      } catch { }
+      } catch {}
 
       if (!migrationTable) {
-        await connection.schema().createTable(migrationTableName, table => {
-          table
-            .string('Migration')
-            .unique()
-            .notNull();
+        this.Log.info(`No migration table in database, recreating migration information ...`);
+
+        await connection.schema().createTable(migrationTableName, (table) => {
+          table.string('Migration').unique().notNull();
           table.dateTime('CreatedAt').notNull();
         });
       }

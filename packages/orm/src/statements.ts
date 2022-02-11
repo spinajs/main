@@ -1,7 +1,8 @@
+/* eslint-disable prettier/prettier */
 import { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders';
 import { ColumnMethods, WhereOperators, JoinMethod } from './enums';
-import { NewInstance, Container } from '@spinajs/di';
-import _ from 'lodash';
+import { NewInstance, Container, Class } from '@spinajs/di';
+import * as _ from 'lodash';
 import { IColumnDescriptor } from './interfaces';
 
 export interface IQueryStatementResult {
@@ -50,12 +51,7 @@ export abstract class RawQueryStatement extends QueryStatement {
 
 @NewInstance()
 export abstract class WithRecursiveStatement extends QueryStatement {
-  constructor(
-    protected _name: string,
-    protected _query: SelectQueryBuilder,
-    protected _rcKeyName: string,
-    protected _pkName: string,
-  ) {
+  constructor(protected _name: string, protected _query: SelectQueryBuilder, protected _rcKeyName: string, protected _pkName: string) {
     super(null);
   }
 
@@ -105,10 +101,10 @@ export abstract class WhereQueryStatement extends QueryStatement {
 
 @NewInstance()
 export abstract class WhereStatement extends QueryStatement {
-  protected _column: string | Wrap
+  protected _column: string | Wrap;
   protected _operator: WhereOperators;
   protected _value: any;
-  protected _container : Container;
+  protected _container: Container;
 
   constructor(column: string, operator: WhereOperators, value: any, tableAlias: string, container: Container) {
     super(tableAlias);
@@ -123,8 +119,7 @@ export abstract class WhereStatement extends QueryStatement {
 
 export class Wrap {
   public Column: string;
-  public Wrapper: Class<WrapStatement>
-
+  public Wrapper: Class<WrapStatement>;
 
   constructor(column: string, wrapper: Class<WrapStatement>) {
     this.Column = column;
@@ -135,25 +130,21 @@ export class Wrap {
 @NewInstance()
 export abstract class WrapStatement {
   protected _value: any;
-  protected _tableAlias : string;
+  protected _tableAlias: string;
 
   constructor(value: any, tableAlias: string) {
     this._tableAlias = tableAlias;
     this._value = value;
   }
 
-  public abstract wrap() : string;
+  public abstract wrap(): string;
 }
 
 @NewInstance()
-export abstract class DateWrapper extends WrapStatement {
-
-}
+export abstract class DateWrapper extends WrapStatement {}
 
 @NewInstance()
-export abstract class DateTimeWrapper extends WrapStatement {
-
-}
+export abstract class DateTimeWrapper extends WrapStatement {}
 
 @NewInstance()
 export abstract class JoinStatement extends QueryStatement {
@@ -165,14 +156,7 @@ export abstract class JoinStatement extends QueryStatement {
   protected _alias: string;
   protected _tableAlias: string;
 
-  constructor(
-    table: string | RawQuery,
-    method: JoinMethod,
-    foreignKey: string,
-    primaryKey: string,
-    alias: string,
-    tableAlias: string,
-  ) {
+  constructor(table: string | RawQuery, method: JoinMethod, foreignKey: string, primaryKey: string, alias: string, tableAlias: string) {
     super(tableAlias);
 
     this._method = method;

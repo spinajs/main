@@ -12,38 +12,27 @@ https://github.com/typescript-eslint/tslint-to-eslint-config/blob/master/docs/FA
 Happy linting! 💖
 */
 module.exports = {
-    root: true,
-    env: {
-      browser: true,
-      es6: true,
-    },
-    ignorePatterns: ['.eslintrc.js'],
-    extends: [
-      'plugin:security/recommended',
-      'plugin:import/errors',
-      'plugin:import/warnings',
-      'plugin:import/typescript',
-      'plugin:prettier/recommended',
-      'plugin:promise/recommended',
-      'plugin:@typescript-eslint/recommended',
-      'plugin:@typescript-eslint/recommended-requiring-type-checking',
+  root: true,
+  env: {
+    browser: true,
+    es6: true,
+  },
+  ignorePatterns: ['.eslintrc.js'],
+  extends: [
+  ],
+  parser: '@typescript-eslint/parser',
+  parserOptions: {
+    project: './tsconfig.json',
+    sourceType: 'module',
+  },
+  plugins: ['promise', 'prettier', 'eslint-plugin-import', 'eslint-plugin-prefer-arrow', '@typescript-eslint', 'tsdoc', 'security'],
+  rules: {
+    'tsdoc/syntax': 'warn',
+    'prettier/prettier': [
+      'error',
+      {
+        endOfLine: 'auto',
+      },
     ],
-    parser: '@typescript-eslint/parser',
-    parserOptions: {
-      project: 'tsconfig.json',
-      sourceType: 'module',
-    },
-    plugins: ['promise', 'prettier', 'eslint-plugin-import', 'eslint-plugin-prefer-arrow', '@typescript-eslint', 'tsdoc', 'security'],
-    rules: {
-      'tsdoc/syntax': 'warn',
-      'security/detect-non-literal-fs-filename': "off",
-      'typescript-eslint/no-explicit-any': 'off',
-      'prettier/prettier': [
-        'error',
-        {
-          endOfLine: 'auto',
-        },
-      ],
-    },
-  };
-  
+  },
+};
