@@ -34,6 +34,7 @@ export class Log extends SyncModule implements ILog {
    *  Prevents from losing log message when initializing modules
    */
   public static Loggers: Map<string, Log> = new Map();
+  public Timers: Map<string, Date> = new Map<string, Date>();
 
   public static clearLoggers() {
     Log.Loggers.clear();
@@ -56,6 +57,26 @@ export class Log extends SyncModule implements ILog {
 
   public addVariable(name: string, value: unknown) {
     this.Variables[`${name}`] = value;
+  }
+
+  public timeStart(name: string): void {
+    if (this.Timers.has(name)) {
+      return;
+    }
+
+    this.Timers.set(name, new Date());
+  }
+  public timeEnd(name: string): number {
+    if (this.Timers.has(name)) {
+      const cTime = new Date();
+      const diff = cTime.getTime() - this.Timers.get(name).getTime();
+
+      this.Timers.delete(name);
+
+      return diff;
+    }
+
+    return 0;
   }
 
   public resolve(): void {

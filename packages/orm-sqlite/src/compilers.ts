@@ -1,3 +1,4 @@
+/* eslint-disable security/detect-object-injection */
 /* eslint-disable prettier/prettier */
 
 import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
@@ -56,7 +57,7 @@ export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler 
           .getParent()
           .getColumns()
           .findIndex((col: ColumnStatement) => (_.isString(col.Column) ? col.Column === c : null));
-        return this._builder.getParent().Values[0][`${cIndex}`];
+        return this._builder.getParent().Values[0][cIndex];
       } else {
         return c.Bindings;
       }

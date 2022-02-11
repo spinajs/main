@@ -1,5 +1,4 @@
-import { Log, Logger } from '@spinajs/log';
-import { ILog } from './../../log-common/src/index';
+import { Log } from '@spinajs/log';
 /* eslint-disable prettier/prettier */
 import { QueryContext } from './interfaces';
 import { SyncModule, IContainer, DI, Container, Autoinject } from '@spinajs/di';
@@ -18,8 +17,7 @@ export abstract class OrmDriver extends SyncModule {
   @Autoinject()
   protected RootContainer: Container;
 
-  @Logger("OrmDriver")
-  protected Log : Log;
+  protected Log: Log;
 
   public Container: IContainer;
 
@@ -58,6 +56,11 @@ export abstract class OrmDriver extends SyncModule {
   public abstract tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]>;
 
   public resolve() {
+    this.Log = DI.resolve(Log, [`orm-driver-${this.Options.Name}`]);
+    this.Log.addVariable('orm-name', this.Options.Name);
+    this.Log.addVariable('orm-host', this.Options.Host);
+    this.Log.addVariable('orm-database', this.Options.Database);
+
     this.Container = this.RootContainer.child();
 
     /**

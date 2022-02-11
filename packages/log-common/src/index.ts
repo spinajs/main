@@ -47,15 +47,7 @@ export abstract class LogVariable {
 
 export interface ILogRule {
   name: string;
-  level:
-    | "trace"
-    | "debug"
-    | "info"
-    | "warn"
-    | "error"
-    | "fatal"
-    | "security"
-    | "success";
+  level: "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "security" | "success";
   target: string | string[];
 }
 
@@ -177,7 +169,7 @@ export interface ILogStaticVariables {
 }
 
 export interface ILogVariable {
-  [key: string]: string | (() => string);
+  [key: string]: unknown | (() => unknown);
 }
 
 export interface ILogEntry {
@@ -222,19 +214,15 @@ export interface ILog {
 
   write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;
 
-  addVariable(name : string, value : unknown) : void;
+  addVariable(name: string, value: unknown): void;
+
+  timeStart(name: string): void;
+  timeEnd(name : string): number;
 }
 
 export type LogVariables = ILogStaticVariables & ILogVariable;
 
-export function createLogMessageObject(
-  err: Error | string,
-  message: string | any[],
-  level: LogLevel,
-  logger: string,
-  variables: any,
-  ...args: any[]
-): ILogEntry {
+export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
   const sMsg = err instanceof Error ? (message as string) : err;
   const tMsg = args.length !== 0 ? util.format(sMsg, ...args) : sMsg;
   const lName = logger ?? message;

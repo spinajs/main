@@ -1,27 +1,38 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/require-await */
+import { LogLevel } from './../../log-common/src/index';
 /* eslint-disable prettier/prettier */
 export * from './compilers';
 
 import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, DatetimeValueConverter } from '@spinajs/orm';
-import { Database } from 'sqlite3';
+import { Database, RunResult } from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
-import { Injectable, Container } from '@spinajs/di';
+import { Injectable } from '@spinajs/di';
 import { SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler } from './compilers';
 import { SqlLiteJoinStatement } from './statements';
 import { SqliteDatetimeValueConverter } from './converters';
 import { ResourceDuplicated } from '@spinajs/exceptions';
+import { IIndexInfo, ITableInfo } from './types';
 
 @Injectable('orm-driver-sqlite')
 export class SqliteOrmDriver extends SqlDriver {
+  protected executionId = 0;
+
   protected Db: Database;
 
-  public execute(stmt: string, params: any[], queryContext: QueryContext): Promise<any> {
+  public execute(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
 
     if (!this.Db) {
       throw new Error('cannot execute sqlite statement, no db connection avaible');
     }
 
-    this.trac
+    const tName = `query-${this.executionId++}`;
+    this.Log.timeStart(`query-${tName}`);
 
     return new Promise((resolve, reject) => {
       switch (queryContext) {
@@ -49,7 +60,7 @@ export class SqliteOrmDriver extends SqlDriver {
           });
           break;
         case QueryContext.Insert:
-          this.Db.run(stmt, ...queryParams, function (this: Database, err: unknown) {
+          this.Db.run(stmt, ...queryParams, function (this: RunResult, err: any) {
             if (err) {
               if (err.code === 'SQLITE_CONSTRAINT') {
                 reject(new ResourceDuplicated(err));
@@ -63,7 +74,37 @@ export class SqliteOrmDriver extends SqlDriver {
           });
           break;
       }
-    });
+    })
+      .then((val) => {
+        const tDiff = this.Log.timeEnd(`query-${tName}`);
+
+        void this.Log.write({
+          Level: LogLevel.Trace,
+          Variables: {
+            error: null,
+            message: `Executed: ${stmt}, bindings: ${params.join(',')}`,
+            logger: this.Log.Name,
+            level: 'trace',
+            duration: tDiff,
+          },
+        });
+
+        return val;
+      })
+      .catch((err) => {
+        const tDiff = this.Log.timeEnd(`query-${tName}`);
+
+        void this.Log.write({
+          Level: LogLevel.Error,
+          Variables: {
+            error: err,
+            message: `Failed: ${stmt}, bindings: ${params.join(',')}`,
+            logger: this.Log.Name,
+            level: 'Error',
+            duration: tDiff,
+          },
+        });
+      });
   }
 
   public async ping(): Promise<boolean> {
@@ -72,7 +113,7 @@ export class SqliteOrmDriver extends SqlDriver {
 
   public async connect(): Promise<OrmDriver> {
     return new Promise((resolve, reject) => {
-      this.Db = new Database(this.Options.Filename, (err) => {
+      this.Db = new Database(this.Options.Filename, (err: unknown) => {
         if (err) {
           reject(err);
           return;
@@ -84,22 +125,20 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public async disconnect(): Promise<OrmDriver> {
-    return new Promise((res, rej) => {
-      this.Db.close((err) => {
+    return new Promise((resolve, reject) => {
+      this.Db.close((err: any) => {
         if (err) {
-          rej(err);
+          reject(err);
           return;
         }
 
         this.Db = null;
-        res(this);
+        resolve(this);
       });
     });
   }
 
-  public async resolve(container: Container) {
-    super.resolve(container);
-
+  public resolve() {
     this.Container.register(SqliteColumnCompiler).as(ColumnQueryCompiler);
     this.Container.register(SqliteTableQueryCompiler).as(TableQueryCompiler);
     this.Container.register(SqliteOrderByCompiler).as(OrderByQueryCompiler);
@@ -136,17 +175,16 @@ export class SqliteOrmDriver extends SqlDriver {
    *
    * Retrieves information about specific DB table if exists. If table not exists returns null
    *
-   * @param name table name to retrieve info
+   * @param name - table name to retrieve info
    * @param _schema - optional schema name
-   * @returns {[] | null}
    */
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
-    const tblInfo = (await this.execute(`PRAGMA table_info(${name});`, null, QueryContext.Select)) as [];
+    const tblInfo = (await this.execute(`PRAGMA table_info(${name});`, null, QueryContext.Select)) as ITableInfo[];
 
-    const indexInfo = (await this.execute(`select type, name, tbl_name, sql FROM sqlite_master WHERE type='index' AND tbl_name='${name}'`, null, QueryContext.Select)) as [];
+    const indexInfo = (await this.execute(`select type, name, tbl_name, sql FROM sqlite_master WHERE type='index' AND tbl_name='${name}'`, null, QueryContext.Select)) as IIndexInfo[];
 
     const re = /\((.*?)\)/;
-    const indices = indexInfo.map((i: any) => {
+    const indices = indexInfo.map((i) => {
       return {
         table: i.tbl_name,
         column_name: i.sql?.match(re)[0],
@@ -157,7 +195,7 @@ export class SqliteOrmDriver extends SqlDriver {
       return null;
     }
 
-    return tblInfo.map((r: any) => {
+    return tblInfo.map((r: ITableInfo) => {
       return {
         Type: r.type,
         MaxLength: -1,
