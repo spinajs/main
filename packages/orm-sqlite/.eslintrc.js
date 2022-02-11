@@ -38,6 +38,7 @@ module.exports = {
       'tsdoc/syntax': 'warn',
       'security/detect-non-literal-fs-filename': "off",
       'typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
       'prettier/prettier': [
         'error',
         {

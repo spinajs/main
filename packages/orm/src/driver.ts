@@ -1,3 +1,5 @@
+import { Log, Logger } from '@spinajs/log';
+import { ILog } from './../../log-common/src/index';
 /* eslint-disable prettier/prettier */
 import { QueryContext } from './interfaces';
 import { SyncModule, IContainer, DI, Container, Autoinject } from '@spinajs/di';
@@ -15,6 +17,9 @@ export abstract class OrmDriver extends SyncModule {
 
   @Autoinject()
   protected RootContainer: Container;
+
+  @Logger("OrmDriver")
+  protected Log : Log;
 
   public Container: IContainer;
 

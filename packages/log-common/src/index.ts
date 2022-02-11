@@ -221,6 +221,8 @@ export interface ILog {
   child(name: string, variables?: LogVariables): ILog;
 
   write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;
+
+  addVariable(name : string, value : unknown) : void;
 }
 
 export type LogVariables = ILogStaticVariables & ILogVariable;

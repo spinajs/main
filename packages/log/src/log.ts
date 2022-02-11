@@ -50,8 +50,12 @@ export class Log extends SyncModule implements ILog {
   @Autoinject()
   protected Container: Container;
 
-  constructor(public Name: string, public Variables?: any, protected Parent?: Log) {
+  constructor(public Name: string, public Variables?: Record<string, unknown>, protected Parent?: Log) {
     super();
+  }
+
+  public addVariable(name: string, value: unknown) {
+    this.Variables[`${name}`] = value;
   }
 
   public resolve(): void {
