@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
-import { AsyncModule, IContainer, Autoinject, Inject, Container, Class } from '@spinajs/di';
+import { AsyncModule, Autoinject, Container, Class } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { ClassInfo, ListFromFiles } from '@spinajs/reflection';
 import * as _ from 'lodash';
@@ -39,8 +39,8 @@ export class Orm extends AsyncModule {
 
   public Connections: Map<string, OrmDriver> = new Map<string, OrmDriver>();
 
-  @Inject(Container)
-  public Container: IContainer;
+  @Autoinject()
+  public Container: Container;
 
   @Logger('ORM')
   protected Log: Log;
@@ -191,7 +191,7 @@ export class Orm extends AsyncModule {
    * @param model - model to register
    */
   protected registerMigration<T extends OrmMigration>(migration: Class<T>) {
-    const date = DateTime.now().toFormat('YYYY_MM_DD_HH_mm_ss');
+    const date = DateTime.now().toFormat('yyyy_MM_dd_HH_mm_ss');
 
     this.Migrations.push({
       file: `${migration.name}_${date}.registered`,
@@ -242,10 +242,10 @@ export class Orm extends AsyncModule {
         const match = x.file.match(MIGRATION_FILE_REGEXP);
 
         if (match === null || match.length !== 4) {
-          throw new OrmException(`Migration file name have invalid format ( expected: some_name_YYYY_MM_DD_HH_mm_ss got ${x.file})`);
+          throw new OrmException(`Migration file name have invalid format ( expected: some_name_yyyy_MM_dd_HH_mm_ss got ${x.file})`);
         }
 
-        const created = DateTime.fromFormat(match[2], 'YYYY_MM_DD_HH_mm_ss');
+        const created = DateTime.fromFormat(match[2], 'yyyy_MM_dd_HH_mm_ss');
 
         if (!created.isValid) {
           throw new OrmException(`Migration file ${x.file} have invalid name format ( invalid migration date )`);

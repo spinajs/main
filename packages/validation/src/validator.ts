@@ -1,4 +1,4 @@
-import { SyncModule, IContainer, Autoinject } from '@spinajs/di';
+import { SyncModule, IContainer, Autoinject, Container } from '@spinajs/di';
 import Ajv from 'ajv';
 import { Config } from '@spinajs/configuration';
 import { IValidationError, ValidationFailed } from './exceptions';
@@ -20,7 +20,7 @@ export class DataValidator extends SyncModule {
   protected Validator: Ajv;
 
   @Autoinject()
-  protected Container: IContainer;
+  protected Container: Container;
 
   public resolve() {
     if (!this.Sources || this.Sources.length === 0) {

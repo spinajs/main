@@ -31,7 +31,7 @@ export function isAsyncModule(value: any): value is AsyncModule {
 }
 
 export function isPromise(value: any): value is Promise<any> {
-  return Boolean(value && typeof value.then === 'function');
+  return value instanceof Promise;
 }
 
 export function isSyncModule(value: any): value is SyncModule {

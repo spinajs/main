@@ -135,7 +135,7 @@ export function Autoinject(injectType?: Class<unknown>) {
     descriptor.inject.push({
       autoinject: true,
       autoinjectKey: propertyKey,
-      inject: isArray ? Array.ofType(injectType) : type,
+      inject: isArray ? Array.ofType(injectType) : injectType ?? type,
     });
   });
 }

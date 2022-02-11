@@ -29,7 +29,7 @@ describe('Orm general', () => {
 
   afterEach(async () => {
     sinon.restore();
-    DI.clear();
+    DI.clearCache();
   });
 
   it('ORM should create connections', async () => {

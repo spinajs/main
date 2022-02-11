@@ -186,11 +186,15 @@ export class Container extends EventEmitter implements IContainer {
       return r;
     };
     const emit = (target: any) => {
-      // firs event to emit that particular type was resolved
-      this.emit(`di.resolved.${getTypeName(target)}`, this, target);
+      // do not emit when we alrady created and cached value
+      // ( resolve happends only once eg. for singletons)
+      if (!this.Cache.has(getTypeName(target))) {
+        // firs event to emit that particular type was resolved
+        this.emit(`di.resolved.${getTypeName(target)}`, this, target);
 
-      // emit that source type was resolved
-      this.emit(`di.resolved.${sourceName}`, this, target);
+        // emit that source type was resolved
+        this.emit(`di.resolved.${sourceName}`, this, target);
+      }
     };
 
     if (options === true || check === true) {
@@ -219,8 +223,8 @@ export class Container extends EventEmitter implements IContainer {
       if (resolved.some((r) => r instanceof Promise)) {
         return (Promise.all(resolved) as Promise<T[]>).then((value) => {
           value.forEach((v) => {
-            setCache(v);
             emit(v);
+            setCache(v);
           });
           return value;
         });
@@ -229,8 +233,8 @@ export class Container extends EventEmitter implements IContainer {
       // special case, we dont want to cache multiple times
 
       (resolved as T[]).forEach((v) => {
-        setCache(v);
         emit(v);
+        setCache(v);
       });
       return resolved as T[];
     } else {
@@ -254,14 +258,14 @@ export class Container extends EventEmitter implements IContainer {
       if (isPromise(rValue)) {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-call
         return (rValue as any).then((v: any) => {
-          setCache(v as T);
           emit(v);
+          setCache(v as T);
           return v as T;
         });
       }
 
-      setCache(rValue as T);
       emit(rValue);
+      setCache(rValue as T);
 
       return rValue as T;
     }

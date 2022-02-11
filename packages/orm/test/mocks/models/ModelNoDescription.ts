@@ -1,16 +1,13 @@
-import { ModelBase } from "../../../src/model";
+import { ModelBase } from '../../../src/model';
 
- 
-// @ts-ignore
-export class ModelNoDescription extends ModelBase
-{
-    public Id: number;
+export class ModelNoDescription extends ModelBase {
+  public Id: number;
 
-    public ArchivedAt : Date;
+  public ArchivedAt: Date;
 
-    public CreatedAt : Date;
+  public CreatedAt: Date;
 
-    public UpdatedAt : Date;
+  public UpdatedAt: Date;
 
-    public DeletedAt : Date;
+  public DeletedAt: Date;
 }

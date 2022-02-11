@@ -2,7 +2,6 @@
 import { ValueConverter } from './../src/interfaces';
 import { join, normalize, resolve } from 'path';
 import { IColumnDescriptor, ColumnQueryCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder } from '../src';
-import { IContainer } from '@spinajs/di';
 import { OrmDriver, TransactionCallback } from './../src/driver';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import * as _ from 'lodash';
@@ -29,6 +28,16 @@ export class ConnectionConf extends FrameworkConfiguration {
             migrations: [dir('./mocks/migrations')],
             models: [dir('./mocks/models')],
           },
+        },
+        logger: {
+          targets: [
+            {
+              name: 'Empty',
+              type: 'BlackHoleTarget',
+            },
+          ],
+
+          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
         db: {
           Migration: {
@@ -79,8 +88,6 @@ export class FakeSqliteDriver extends OrmDriver {
     return null;
   }
 
-  public resolve(): void {}
-
   public transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<void> {
     if (queryOrCallback instanceof Function) {
       queryOrCallback(this);
@@ -110,8 +117,6 @@ export class FakeMysqlDriver extends OrmDriver {
   public async tableInfo(_table: string, _schema: string): Promise<IColumnDescriptor[]> {
     return null;
   }
-
-  public resolve(): void {}
 
   public transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<void> {
     if (queryOrCallback instanceof Function) {

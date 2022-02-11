@@ -1,12 +1,12 @@
 /* eslint-disable prettier/prettier */
 import { NonDbPropertyHydrator } from './../src/hydrators';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import * as _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/orm';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler, FakeColumnQueryCompiler, dir } from './misc';
+import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler, FakeColumnQueryCompiler, dir, mergeArrays } from './misc';
 import * as sinon from 'sinon';
 import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode } from '../src';
 import { Migration1 } from './mocks/migrations/Migration1_2021_12_01_12_00_00';
@@ -37,7 +37,7 @@ describe('Orm migrations', () => {
   });
 
   afterEach(async () => {
-    DI.clear();
+    DI.clearCache();
     sinon.restore();
   });
 
@@ -53,51 +53,61 @@ describe('Orm migrations', () => {
     const orm = await db();
 
     const up = sinon.stub(Migration1.prototype, 'up');
-    await orm.migrateUp('Migration1_2021_12_01_12_00_00');
+    await orm.migrateUp('Migration1');
 
     expect(up.calledOnceWith(orm.Connections.get('sqlite'))).to.be.true;
   });
 
   it('ORM should run migration in transaction scope', async () => {
-    // @ts-ignore
+    class FakeConf extends FrameworkConfiguration {
+      public async resolveAsync(): Promise<void> {
+        await super.resolveAsync();
 
-    class FakeTransactionConf extends ConnectionConf {
-      protected conf = {
-        log: {
-          name: 'spine-framework',
-          /**
-           * streams to log to. See more on bunyan docs
-           */
-          streams: null as any,
-        },
-        system: {
-          dirs: {
-            migrations: [dir('./mocks/migrations')],
-            models: [dir('./mocks/models')],
-          },
-        },
-        db: {
-          Migration: {
-            Startup: true,
-          },
-          Connections: [
-            {
-              Driver: 'sqlite',
-              Filename: 'foo.sqlite',
-              Name: 'sqlite',
-              Migration: {
-                Transaction: {
-                  Mode: MigrationTransactionMode.PerMigration,
-                },
+        _.mergeWith(
+          this.Config,
+          {
+            system: {
+              dirs: {
+                migrations: [dir('./mocks/migrations')],
+                models: [dir('./mocks/models')],
               },
             },
-          ],
-        },
-      };
+            logger: {
+              targets: [
+                {
+                  name: 'Empty',
+                  type: 'BlackHoleTarget',
+                },
+              ],
+
+              rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+            },
+            db: {
+              Migration: {
+                Startup: true,
+              },
+              Connections: [
+                {
+                  Driver: 'sqlite',
+                  Filename: 'foo.sqlite',
+                  Name: 'sqlite',
+                  Migration: {
+                    Transaction: {
+                      Mode: MigrationTransactionMode.PerMigration,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+
+          mergeArrays,
+        );
+      }
     }
 
     const container = DI.child();
-    container.register(FakeTransactionConf).as(Configuration);
+    container.register(FakeConf).as(Configuration);
 
     const orm = await container.resolve(Orm);
 
@@ -148,47 +158,58 @@ describe('Orm migrations', () => {
   });
 
   it('Should register migration programatically', async () => {
-    class FakeTransactionConf extends ConnectionConf {
-      protected conf = {
-        log: {
-          name: 'spine-framework',
-          /**
-           * streams to log to. See more on bunyan docs
-           */
-          streams: null as any,
-        },
-        system: {
-          dirs: {
-            migrations: [dir('./mocks/migrations')],
-            models: [dir('./mocks/models')],
-          },
-        },
-        db: {
-          Migration: {
-            Startup: true,
-          },
-          Connections: [
+
+    class FakeConf extends FrameworkConfiguration {
+        public async resolveAsync(): Promise<void> {
+          await super.resolveAsync();
+  
+          _.mergeWith(
+            this.Config,
             {
-              Driver: 'sqlite',
-              Filename: 'foo.sqlite',
-              Name: 'sqlite',
-              Migration: {
-                Transaction: {
-                  Mode: MigrationTransactionMode.None,
+              system: {
+                dirs: {
+                  migrations: [dir('./mocks/migrations')],
+                  models: [dir('./mocks/models')],
                 },
               },
+              logger: {
+                targets: [
+                  {
+                    name: 'Empty',
+                    type: 'BlackHoleTarget',
+                  },
+                ],
+  
+                rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+              },
+              db: {
+                Migration: {
+                  Startup: true,
+                },
+                Connections: [
+                  {
+                    Driver: 'sqlite',
+                    Filename: 'foo.sqlite',
+                    Name: 'sqlite',
+                    Migration: {
+                      Transaction: {
+                        Mode: MigrationTransactionMode.None,
+                      },
+                    },
+                  },
+                ],
+              },
             },
-          ],
-        },
-      };
-    }
-    @Migration('sqlite')
-    // @ts-ignore
-    class Test extends OrmMigration {
-      // tslint:disable-next-line: no-empty
-      public async up(_: OrmDriver) {}
+  
+            mergeArrays,
+          );
+        }
+      }
 
-      // tslint:disable-next-line: no-empty
+     
+    @Migration('sqlite')
+    class Test extends OrmMigration {
+      public async up(_: OrmDriver) {}
       public async down(_: OrmDriver) {}
     }
 
@@ -202,7 +223,7 @@ describe('Orm migrations', () => {
     const fakeUp = sinon.spy(Test.prototype, 'up');
 
     const container = DI.child();
-    container.register(FakeTransactionConf).as(Configuration);
+    container.register(FakeConf).as(Configuration);
     container.register(FakeOrm).as(Orm);
 
     const orm = await container.resolve(Orm);

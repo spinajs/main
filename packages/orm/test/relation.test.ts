@@ -465,7 +465,7 @@ describe('Orm relations tests', () => {
   });
 
   afterEach(async () => {
-    DI.clear();
+    DI.clearCache();
 
     sinon.restore();
     (Model1 as any)[MODEL_DESCTRIPTION_SYMBOL].Columns = [] as any;

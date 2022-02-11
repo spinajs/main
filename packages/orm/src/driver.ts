@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { QueryContext } from './interfaces';
-import { SyncModule, IContainer, DI, Inject, Container } from '@spinajs/di';
+import { SyncModule, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { IDriverOptions, IColumnDescriptor } from '.';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder } from './builders';
 import { ModelHydrator, DbPropertyHydrator, OneToOneRelationHydrator, NonDbPropertyHydrator, JunctionModelPropertyHydrator } from './hydrators';
@@ -13,8 +13,8 @@ export abstract class OrmDriver extends SyncModule {
    */
   public Options: IDriverOptions;
 
-  @Inject(Container)
-  protected RootContainer: IContainer;
+  @Autoinject()
+  protected RootContainer: Container;
 
   public Container: IContainer;
 
