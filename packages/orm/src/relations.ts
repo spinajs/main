@@ -222,7 +222,7 @@ class BelongsToRelationResultTransformMiddleware implements IBuilderMiddleware {
   /**
    * Dynamically sets a deeply nested value in an object.
    * Optionally "bores" a path to it if its undefined.
-   * 
+   *
    * @param obj  - The object which contains the value you want to change/set.
    * @param path  - The array representation of path to the value you want to change/set.
    * @param value - The value you want to set it to.
