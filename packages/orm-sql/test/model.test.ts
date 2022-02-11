@@ -18,11 +18,9 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 
 describe('model generated queries', () => {
-  beforeEach(async () => {
+  before(() => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(FakeSqliteDriver).as('sqlite');
-
-    await DI.resolve(Orm);
   });
 
   afterEach(() => {
@@ -31,6 +29,7 @@ describe('model generated queries', () => {
   });
 
   it('static model update', async () => {
+    await DI.resolve(Orm);
     const updateSpy = sinon.spy(SqlUpdateQueryCompiler.prototype, 'compile');
 
     await Model1.update({ Bar: '1' }).where({
@@ -40,23 +39,24 @@ describe('model generated queries', () => {
     await Model1.update({ Bar: '1' }).where({
       Id: null,
     });
- 
 
     expect(updateSpy.returnValues[0].expression).to.eq('UPDATE `TestTable1` SET `Bar` = ? WHERE Id = ?');
     expect(updateSpy.returnValues[1].expression).to.eq('UPDATE `TestTable1` SET `Bar` = ? WHERE Id IS NULL');
   });
 
   it('model insert with uuid from static function', async () => {
+    await DI.resolve(Orm);
+
     const insertSpy = sinon.spy(SqlInsertQueryCompiler.prototype, 'compile');
 
     await UuidModel.insert(new UuidModel());
 
     expect(insertSpy.returnValues[0].expression).to.eq('INSERT INTO `TestTable2` (`Id`) VALUES (?)');
     expect(typeof insertSpy.returnValues[0].bindings[0]).to.eq('string');
-    expect(insertSpy.returnValues[0].bindings[0].length).to.eq(32);
+    expect(insertSpy.returnValues[0].bindings[0].length).to.eq(36);
   });
 
-  it('insert should throw when fields are null', () => {
+  it('insert should throw when fields are null', async () => {
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
     tableInfoStub.withArgs('TestTable2', undefined).returns(
       new Promise((resolve) => {
@@ -115,7 +115,7 @@ describe('model generated queries', () => {
         ]);
       }),
     );
-
+    await DI.resolve(Orm);
     const model = new Model2({
       Far: 'hello',
     });
@@ -123,7 +123,10 @@ describe('model generated queries', () => {
 
     expect(model.insert()).to.be.rejected;
 
-    model.Bar = 'dada';
-    expect(model.insert()).to.be.fulfilled;
+    const model2 = new Model2({
+      Far: 'hello',
+    });
+    model2.Bar = "helo";
+    expect(model2.insert()).to.be.fulfilled;
   });
 });

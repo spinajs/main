@@ -10,6 +10,7 @@ import { Orm } from './orm';
 import { ModelHydrator } from './hydrators';
 import * as _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
+import { OrmException } from './exceptions';
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescrtiptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
@@ -207,6 +208,9 @@ export class ModelBase {
 
     this.ModelDescriptor.Columns?.forEach((c) => {
       const val = (this as any)[c.Name];
+      if ((!c.Nullable && val === null) || val === undefined || val === '') {
+        throw new OrmException(`Field ${c.Name} cannot be null`);
+      }
       (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val) : val;
     });
 

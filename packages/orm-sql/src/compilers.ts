@@ -37,7 +37,7 @@ export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQue
   constructor(builder: T) {
     super();
 
-    if (builder !== null && builder !== undefined) {
+    if (builder === null && builder === undefined) {
       throw new InvalidOperation('builder cannot be null or undefined');
     }
 
@@ -108,7 +108,7 @@ export class SqlForeignKeyQueryCompiler implements ForeignKeyQueryCompiler {
   }
 
   public compile(): ICompilerOutput {
-    const exprr = `FOREIGN KEY (${this._builder.ForeignKeyField}) REFERENCES \`${this._builder.Table}\`(${this._builder.PrimaryKey}) ON DELETE ${this._builder.OnDeleteAction} ON UPDATE ${this._builder.OnUpdateAction}`;
+    const exprr = `FOREIGN KEY (${this._builder.ForeignKeyField}) REFERENCES ${this._builder.Table}(${this._builder.PrimaryKey}) ON DELETE ${this._builder.OnDeleteAction} ON UPDATE ${this._builder.OnUpdateAction}`;
 
     return {
       bindings: [],

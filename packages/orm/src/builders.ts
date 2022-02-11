@@ -1099,7 +1099,7 @@ export class InsertQueryBuilder extends QueryBuilder {
 
   public onDuplicate(column?: string | string[]): OnDuplicateQueryBuilder {
     let columnToCheck = column;
-    if (!columnToCheck) {
+    if (!columnToCheck && this.this._model) {
       columnToCheck = extractModelDescriptor(this._model)
         .Columns.filter((c) => c.Unique && !c.PrimaryKey)
         .map((c) => c.Name);

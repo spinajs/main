@@ -59,11 +59,11 @@ describe('Query builder generic', () => {
   it('throw on invalid table', () => {
     expect(() => {
       sqb().select('*').from('');
-    }).to.be.rejected;
+    }).to.throw;
 
     expect(() => {
       sqb().select('*').from('  ');
-    }).to.be.rejected;
+    }).to.throw;
   });
 
   it('set & get schema', () => {
@@ -567,12 +567,12 @@ describe('Relations query builder', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$RelationModel2$`.`Id` as `$Relation$.Id`,`$RelationModel2$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty3` as `$Relation$.$Relation3$.RelationProperty3` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$Relation$`.Id = `$RelationModel$`.relation_id LEFT JOIN `RelationTable3` as `$Relation$.$Relation3$` ON `$Relation$.$Relation3$`.Id = `$RelationModel2$`.relation3_id WHERE `$RelationModel$`.Id = ?');
+    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty3` as `$Relation$.$Relation3$.RelationProperty3` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$Relation$`.Id = `$RelationModel$`.relation_id LEFT JOIN `RelationTable3` as `$Relation$.$Relation3$` ON `$Relation$.$Relation3$`.Id = `$Relation$`.relation3_id WHERE `$RelationModel$`.Id = ?');
   });
 
   it('belongsTo with custom keys', () => {
     const result = RelationModel.where('Id', 1).populate('Relation2').toDB();
-    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation2$`.`Id` as `$Relation2$.Id`,`$Relation2$`.`RelationProperty` as `$Relation2$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation2$` ON `$Relation2$`.fK_Id = `$RelationModel$`.pK_Id WHERE $RelationModel$.Id = ?');
+    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation2$`.`Id` as `$Relation2$.Id`,`$Relation2$`.`RelationProperty` as `$Relation2$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation2$` ON `$Relation2$`.fK_Id = `$RelationModel$`.pK_Id WHERE `$RelationModel$`.Id = ?');
   });
 
   it('hasManyToMany', async () => {
@@ -621,37 +621,37 @@ describe('Select query builder', () => {
 
   it('group by simple', () => {
     const result = sqb().groupBy('Category').from('roles').columns(['id', 'parent_id', 'slug']).toDB();
-    expect(result.expression).to.equal('SELECT `id`,`parent`,`slug` FROM `roles` GROUP BY `Category`');
+    expect(result.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` GROUP BY `Category`');
   });
 
   it('group by raw', () => {
     const result = sqb().groupBy(new RawQuery('DATE(`CreatedAt`)')).from('roles').columns(['id', 'parent_id', 'slug']).toDB();
-    expect(result.expression).to.equal('SELECT `id`,`parent`,`slug` FROM `roles` GROUP BY DATE(`CreatedAt`)');
+    expect(result.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` GROUP BY DATE(`CreatedAt`)');
   });
 
   it('wrap where date', () => {
     const result = sqb().from('roles').where(Wrapper.Date('CreatedAt'), 'abc').columns(['id', 'parent_id', 'slug']).toDB();
-    expect(result.expression).to.equal('SELECT `id`,`parent`,`slug` FROM `roles` WHERE DATE(`CreatedAt`) = ?');
+    expect(result.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE DATE(`CreatedAt`) = ?');
   });
 
   it('wrap where datetime', () => {
     const result = sqb().from('roles').where(Wrapper.DateTime('CreatedAt'), 'abc').columns(['id', 'parent_id', 'slug']).toDB();
-    expect(result.expression).to.equal('SELECT `id`,`parent`,`slug` FROM `roles` WHERE DATETIME(`CreatedAt`) = ?');
+    expect(result.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE DATETIME(`CreatedAt`) = ?');
   });
 
   it('wrap where three params', () => {
     const result = sqb().from('roles').where(Wrapper.DateTime('CreatedAt'), '<', 'abc').columns(['id', 'parent_id', 'slug']).toDB();
-    expect(result.expression).to.equal('SELECT `id`,`parent`,`slug` FROM `roles` WHERE DATETIME(`CreatedAt`) < ?');
+    expect(result.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE DATETIME(`CreatedAt`) < ?');
   });
 
   it('withRecursion simple', () => {
     const result = sqb().withRecursive('parent_id', 'id').from('roles').columns(['id', 'parent_id', 'slug']).toDB();
-    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive$`.parent_id = `$recursive$`.id ) SELECT * FROM recursive_cte');
+    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(id,parent_id,slug) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive_cte$`.parent_id = `$recursive$`.id ) SELECT * FROM recursive_cte');
   });
 
   it('withRecursion with where', () => {
     const result = sqb().withRecursive('parent_id', 'id').from('roles').columns(['id', 'parent_id', 'slug']).where('id', 2).toDB();
-    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE id = ? UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive$`.parent_id = `$recursive$`.id ) SELECT * FROM recursive_cte');
+    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(id,parent_id,slug) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE id = ? UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive_cte$`.parent_id = `$recursive$`.id ) SELECT * FROM recursive_cte');
     expect(result.bindings).to.be.an('array').to.include(2);
   });
 
@@ -882,11 +882,11 @@ describe('insert query builder', () => {
         active: true,
         email: 'spine@spine.pl',
       })
-      .onDuplicate()
+      .onDuplicate("id")
       .update(['email', 'active'])
       .toDB();
 
-    expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?) ON DUPLICATE KEY UPDATE `email` = `?`,`active` = `?`');
+    expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?) ON DUPLICATE KEY UPDATE `email` = ?,`active` = ?');
     expect(result.bindings).to.be.an('array').to.include.members([1, true, 'spine@spine.pl', 'spine@spine.pl', true]);
   });
 });
@@ -994,8 +994,7 @@ describe('schema building', () => {
 
   it('create index', () => {
     const result = inqb().table('metadata').unique().name('metadata_owners_idx').columns(['OwnerId', 'Key']).toDB();
-
-    expect(result.expression).to.contain('CREATE UNIQUE INDEX `metadata_owners_idx` ON metadata (`OwnerId`,`Key`)');
+    expect(result.expression).to.contain('CREATE UNIQUE INDEX `metadata_owners_idx` ON `metadata` (`OwnerId`,`Key`)');
   });
 
   it('column with auto increment', () => {
