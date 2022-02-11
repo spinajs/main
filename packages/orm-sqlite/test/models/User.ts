@@ -1,17 +1,16 @@
-import { ModelBase, Primary, CreatedAt, Connection, Model } from "@spinajs/orm";
- 
+import { ModelBase, Primary, CreatedAt, Connection, Model } from '@spinajs/orm';
+import { DateTime } from 'luxon';
 
-@Connection("sqlite")
-@Model("user")
-export class User extends ModelBase<User>
-{
-    @Primary()
-    public Id: number;
+@Connection('sqlite')
+@Model('user')
+export class User extends ModelBase {
+  @Primary()
+  public Id: number;
 
-    public Name: string;
+  public Name: string;
 
-    public Password: string;
+  public Password: string;
 
-    @CreatedAt()
-    public CreatedAt: Date;
+  @CreatedAt()
+  public CreatedAt: DateTime;
 }

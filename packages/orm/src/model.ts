@@ -82,7 +82,7 @@ export class ModelBase {
    *
    * @param _data - data to insert
    */
-  public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>): Promise<void> {
+  public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>): InsertQueryBuilder {
     throw Error('Not implemented');
   }
 
@@ -124,7 +124,7 @@ export class ModelBase {
    * gets model by specified pk, if not exists, returns null
    *
    */
-  public static get<T extends typeof ModelBase>(this: T, _pk: any): Promise<Array<InstanceType<T>>> {
+  public static get<T extends typeof ModelBase>(this: T, _pk: any): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
 
@@ -132,7 +132,7 @@ export class ModelBase {
    * Finds model by specified pk. If model not exists in db throws exception
    *
    */
-  public static getOrFail<T extends typeof ModelBase>(this: T, _pk: any): Promise<Array<InstanceType<T>>> {
+  public static getOrFail<T extends typeof ModelBase>(this: T, _pk: any): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
 
