@@ -9,7 +9,7 @@ export class SqliteDatetimeValueConverter extends DatetimeValueConverter {
     }
 
     if (value instanceof DateTime) {
-      value.toISO();
+      return value.toISO();
     }
 
     return null;

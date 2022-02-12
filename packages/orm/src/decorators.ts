@@ -110,8 +110,8 @@ export function Model(tableName: string) {
 export function CreatedAt() {
   return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
-    if (type.name !== 'Date') {
-      throw Error('Proprety CreatedAt must be Date type');
+    if (type.name !== 'DateTime') {
+      throw Error('Proprety CreatedAt must be DateTime type');
     }
 
     model.Timestamps.CreatedAt = propertyKey;

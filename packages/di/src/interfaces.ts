@@ -48,6 +48,7 @@ export interface IContainer extends EventEmitter {
   clearCache(): void;
 
   register<T>(implementation: Class<T> | Factory<T> | ResolvableObject): IBind;
+  unregister<T>(implementation: Class<T> | Factory<T> | ResolvableObject): void;
 
   child(): IContainer;
   get<T>(service: TypedArray<T>, parent?: boolean): T[] | null;

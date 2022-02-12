@@ -56,7 +56,7 @@ export class Orm extends AsyncModule {
    */
   public async migrateUp(name?: string): Promise<void> {
     const self = this;
-
+ 
     await this.executeAvaibleMigrations(
       name,
       async (migration: OrmMigration, driver: OrmDriver) => {
@@ -154,9 +154,9 @@ export class Orm extends AsyncModule {
     const migrateOnStartup = this.Configuration.get<boolean>('db.Migration.Startup', false);
 
     await this.createConnections();
+    await this.prepareMigrations();
 
     if (migrateOnStartup) {
-      await this.prepareMigrations();
       await this.migrateUp();
     }
 
@@ -291,12 +291,8 @@ export class Orm extends AsyncModule {
 
       let migrationTable = null;
 
-      // if there is no info on migraiton table or query throws we assume table not exists
-      try {
-        migrationTable = await connection.tableInfo(migrationTableName);
-
-        // tslint:disable-next-line: no-empty
-      } catch {}
+      // if there is no info on migraiton table
+      migrationTable = await connection.tableInfo(migrationTableName);
 
       if (!migrationTable) {
         this.Log.info(`No migration table in database, recreating migration information ...`);

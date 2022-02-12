@@ -1,11 +1,14 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable prettier/prettier */
-import { TestMigration } from './migrations/TestMigration';
+/* eslint-disable @typescript-eslint/no-floating-promises */
+import { TestMigration } from './migrations/TestMigration_2022_02_08_01_13_00';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from './../src/index';
 import { DI } from '@spinajs/di';
-import { Orm, IWhereBuilder } from '@spinajs/orm';
+import { Orm, IWhereBuilder, MigrationTransactionMode, Migration, OrmDriver, OrmMigration, QueryContext } from '@spinajs/orm';
 import * as _ from 'lodash';
 import * as chai from 'chai';
 import * as chaiAsPromised from 'chai-as-promised';
@@ -17,10 +20,56 @@ import { dir, mergeArrays } from './util';
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
-
 export const TEST_MIGRATION_TABLE_NAME = 'orm_migrations';
 
+export class ConnectionConf2 extends FrameworkConfiguration {
+  public async resolveAsync(): Promise<void> {
+    await super.resolveAsync();
 
+    _.mergeWith(
+      this.Config,
+      {
+        logger: {
+          targets: [
+            {
+              name: 'Empty',
+              type: 'BlackHoleTarget',
+              layout: '{datetime} {level} {message} {error} duration: {duration} ms ({logger})',
+            },
+          ],
+
+          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+        },
+        system: {
+          dirs: {
+            models: [dir('./models')],
+            migrations: [dir('./migrations')],
+          },
+        },
+        db: {
+          Migration: {
+            Startup: false,
+          },
+          Connections: [
+            {
+              Driver: 'orm-driver-sqlite',
+              Filename: ':memory:',
+              Name: 'sqlite',
+              Migration: {
+                Table: TEST_MIGRATION_TABLE_NAME,
+
+                Transaction: {
+                  Mode: MigrationTransactionMode.PerMigration,
+                },
+              },
+            },
+          ],
+        },
+      },
+      mergeArrays,
+    );
+  }
+}
 
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolveAsync(): Promise<void> {
@@ -29,6 +78,17 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
+        logger: {
+          targets: [
+            {
+              name: 'Empty',
+              type: 'BlackHoleTarget',
+              layout: '{datetime} {level} {message} {error} duration: {duration} ({logger})',
+            },
+          ],
+
+          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+        },
         system: {
           dirs: {
             models: [dir('./models')],
@@ -59,13 +119,10 @@ export function db() {
 
 describe('Sqlite driver migration, updates, deletions & inserts', () => {
   beforeEach(async () => {
+    DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     await DI.resolve(Orm);
-  });
-
-  afterEach(() => {
-    DI.clearCache();
   });
 
   it('Should migrate', async () => {
@@ -192,16 +249,13 @@ describe('Sqlite driver migrate', () => {
 
 describe('Sqlite model functions', () => {
   beforeEach(async () => {
+    DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     await DI.resolve(Orm);
 
     await db().migrateUp();
     await db().reloadTableInfo();
-  });
-
-  afterEach(() => {
-    DI.clearCache();
   });
 
   it('should model create', async () => {
@@ -282,7 +336,7 @@ describe('Sqlite queries', () => {
     const user = await User.get(1);
 
     expect(user).instanceOf(User);
-    expect(user.CreatedAt).instanceof(Date);
+    expect(user.CreatedAt).instanceof(DateTime);
   });
 
   it('should run on duplicate', async () => {
@@ -292,7 +346,7 @@ describe('Sqlite queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    await User.insert({ Id: 1, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') })
+    await User.insert(new User({ Id: 1, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }))
       .onDuplicate('Id')
       .update(['Name', 'Password']);
 
@@ -300,9 +354,84 @@ describe('Sqlite queries', () => {
     const user = await User.get(1);
 
     expect(user).instanceOf(User);
-    expect(user.CreatedAt).instanceof(Date);
+    expect(user.CreatedAt).instanceof(DateTime);
     expect(user.Name).to.eq('test2');
     expect(user.Password).to.eq('test_password_2');
     expect(all.length).to.eq(1);
+  });
+});
+
+describe('Sqlite driver migrate with transaction', () => {
+  beforeEach(() => {
+    DI.clearCache();
+
+    DI.register(ConnectionConf2).as(Configuration);
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('Should commit migration', async () => {
+    const orm = await DI.resolve(Orm);
+    const driver = orm.Connections.get('sqlite');
+    const trSpy = sinon.spy(driver, 'transaction');
+    const exSpy = sinon.spy(driver, 'execute');
+
+    await orm.migrateUp();
+
+    expect(trSpy.calledOnce).to.be.true;
+    expect(exSpy.getCall(1).args[0]).to.eq('BEGIN TRANSACTION');
+    expect(exSpy.getCall(5).args[0]).to.eq('COMMIT');
+
+    expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
+
+    const result = (await driver.execute(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, null, QueryContext.Select)) as unknown[];
+    expect(result[0]).to.be.not.undefined;
+    expect(result[0]).to.be.not.null;
+    expect((result[0] as any).Migration).to.eq('TestMigration');
+  });
+
+  it('Should rollback migration', async () => {
+    @Migration('sqlite')
+    class MigrationFailed extends OrmMigration {
+      public async up(connection: OrmDriver): Promise<void> {
+        await connection.insert().into('not_exists').values({ id: 1 });
+      }
+      public down(_connection: OrmDriver): Promise<void> {
+        return;
+      }
+    }
+
+    class Fake2Orm extends Orm {
+      constructor() {
+        super();
+
+        this.Migrations.length = 0;
+        this.Models.length = 0;
+        this.registerMigration(MigrationFailed);
+      }
+    }
+    DI.register(Fake2Orm).as(Orm);
+    const orm = await DI.resolve(Orm);
+    const driver = orm.Connections.get('sqlite');
+    const trSpy = sinon.spy(driver, 'transaction');
+    const exSpy = sinon.spy(driver, 'execute');
+
+    try {
+      await orm.migrateUp();
+    } catch {}
+
+    expect(trSpy.calledOnce).to.be.true;
+    expect(exSpy.getCall(1).args[0]).to.eq('BEGIN TRANSACTION');
+    expect(exSpy.getCall(3).args[0]).to.eq('ROLLBACK');
+
+    expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.rejected;
+    const result = (await driver.execute(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, null, QueryContext.Select)) as unknown[];
+    expect(result.length).to.be.eq(0);
+
+    DI.unregister(Fake2Orm);
+    DI.unregister(MigrationFailed);
   });
 });

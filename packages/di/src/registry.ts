@@ -13,19 +13,29 @@ export class Registry {
     this.registry.clear();
   }
 
+  public unregister(type: any) {
+    const tname = getTypeName(type);
+
+    this.registry.forEach((value) => {
+      const index = value.findIndex((x) => getTypeName(x) === tname);
+      if (index !== -1) {
+        value.splice(index, 1);
+      }
+    });
+  }
+
   public register(name: string | Class<any> | TypedArray<any>, type: any) {
     if (!isConstructor(type) && !isFactory(type) && !isObject(type)) {
       throw new InvalidOperation('cannot register type if its not an class or factory function');
     } else {
       const tname = getTypeName(name);
-      if (!this.hasRegisteredType(name, type)) {
-        const value = this.registry.get(tname);
-
-        if (value) {
+      const value = this.registry.get(tname);
+      if (value) {
+        if (!value.find((v) => getTypeName(v) === getTypeName(type))) {
           value.push(type);
-        } else {
-          this.registry.set(tname, [type]);
         }
+      } else {
+        this.registry.set(tname, [type]);
       }
     }
   }

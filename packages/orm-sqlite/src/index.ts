@@ -82,7 +82,7 @@ export class SqliteOrmDriver extends SqlDriver {
           Level: LogLevel.Trace,
           Variables: {
             error: null,
-            message: `Executed: ${stmt}, bindings: ${params.join(',')}`,
+            message: `Executed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
             logger: this.Log.Name,
             level: 'trace',
             duration: tDiff,
@@ -98,12 +98,14 @@ export class SqliteOrmDriver extends SqlDriver {
           Level: LogLevel.Error,
           Variables: {
             error: err,
-            message: `Failed: ${stmt}, bindings: ${params.join(',')}`,
+            message: `Failed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
             logger: this.Log.Name,
             level: 'Error',
             duration: tDiff,
           },
         });
+
+        throw err;
       });
   }
 
@@ -139,6 +141,8 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public resolve() {
+    super.resolve();
+
     this.Container.register(SqliteColumnCompiler).as(ColumnQueryCompiler);
     this.Container.register(SqliteTableQueryCompiler).as(TableQueryCompiler);
     this.Container.register(SqliteOrderByCompiler).as(OrderByQueryCompiler);
@@ -183,6 +187,10 @@ export class SqliteOrmDriver extends SqlDriver {
 
     const indexInfo = (await this.execute(`select type, name, tbl_name, sql FROM sqlite_master WHERE type='index' AND tbl_name='${name}'`, null, QueryContext.Select)) as IIndexInfo[];
 
+    if (!tblInfo || !indexInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
+      return null;
+    }
+
     const re = /\((.*?)\)/;
     const indices = indexInfo.map((i) => {
       return {
@@ -190,10 +198,6 @@ export class SqliteOrmDriver extends SqlDriver {
         column_name: i.sql?.match(re)[0],
       };
     });
-
-    if (!Array.isArray(tblInfo) || tblInfo.length === 0) {
-      return null;
-    }
 
     return tblInfo.map((r: ITableInfo) => {
       return {

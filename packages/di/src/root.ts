@@ -95,6 +95,10 @@ export function register<T>(type: Class<T> | Factory<T> | ResolvableObject): IBi
   return RootContainer.register(type);
 }
 
+export function unregister<T>(type: Class<T> | Factory<T> | ResolvableObject): void {
+  return RootContainer.unregister(type);
+}
+
 /**
  * Resolves specified type from root container.
  *

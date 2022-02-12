@@ -112,7 +112,9 @@ export class Builder<T = any> {
       } catch (err) {
         reject(err);
       }
-    }, reject) as Promise<any>;
+    }).catch((err)=>{
+      reject(err);
+    }) as Promise<any>;
   }
 }
 
