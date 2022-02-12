@@ -45,5 +45,5 @@
     "@spinajs/orm": "^1.2.28",
     "typescript-mix": "^3.1.3"
   },
-  "gitHead": "64489d19ad3963b92a3844017a005ba79f017aa5"
+  "gitHead": "6c2237dec16356eb3f60bd96451f27a213c49e86"
 }

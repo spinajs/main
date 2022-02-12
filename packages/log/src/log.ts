@@ -48,11 +48,15 @@ export class Log extends SyncModule implements ILog {
 
   protected Targets: ILogTargetDesc[];
 
+  protected Variables: Record<string, any> = {};
+
   @Autoinject()
   protected Container: Container;
 
-  constructor(public Name: string, public Variables?: Record<string, unknown>, protected Parent?: Log) {
+  constructor(public Name: string, variables?: Record<string, unknown>, protected Parent?: Log) {
     super();
+
+    this.Variables = variables ?? {};
   }
 
   public addVariable(name: string, value: unknown) {
