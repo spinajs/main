@@ -1,23 +1,23 @@
-import { Connection, Primary,  Model, Archived, CreatedAt, UpdatedAt, SoftDelete } from "../../../src/decorators";
-import { ModelBase } from "../../../src/model";
+import { Connection, Primary, Model, Archived, CreatedAt, UpdatedAt, SoftDelete } from '../../../src/decorators';
+import { ModelBase } from '../../../src/model';
+import { DateTime } from 'luxon';
 
-@Connection("SampleConnection1")
-@Model("TestTable2")
+@Connection('SampleConnection1')
+@Model('TestTable2')
 // @ts-ignore
-export class Model2 extends ModelBase
-{
-    @Primary()
-    public Id: number;
+export class Model2 extends ModelBase {
+  @Primary()
+  public Id: number;
 
-    @Archived()
-    public ArchivedAt : Date;
+  @Archived()
+  public ArchivedAt: DateTime;
 
-    @CreatedAt()
-    public CreatedAt : Date;
+  @CreatedAt()
+  public CreatedAt: DateTime;
 
-    @UpdatedAt()
-    public UpdatedAt : Date;
+  @UpdatedAt()
+  public UpdatedAt: DateTime;
 
-    @SoftDelete()
-    public DeletedAt : Date;
+  @SoftDelete()
+  public DeletedAt: DateTime;
 }

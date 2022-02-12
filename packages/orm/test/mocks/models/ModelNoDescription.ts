@@ -1,13 +1,14 @@
 import { ModelBase } from '../../../src/model';
+import { DateTime } from 'luxon';
 
 export class ModelNoDescription extends ModelBase {
   public Id: number;
 
-  public ArchivedAt: Date;
+  public ArchivedAt: DateTime;
 
-  public CreatedAt: Date;
+  public CreatedAt: DateTime;
 
-  public UpdatedAt: Date;
+  public UpdatedAt: DateTime;
 
-  public DeletedAt: Date;
+  public DeletedAt: DateTime;
 }

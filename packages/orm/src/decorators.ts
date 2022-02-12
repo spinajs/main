@@ -128,8 +128,8 @@ export function CreatedAt() {
 export function UpdatedAt() {
   return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
-    if (type.name !== 'Date') {
-      throw Error('Proprety UpdatedAt must be Date type');
+    if (type.name !== 'DateTime') {
+      throw Error('Proprety UpdatedAt must be DateTime type');
     }
 
     model.Timestamps.UpdatedAt = propertyKey;
@@ -146,8 +146,8 @@ export function UpdatedAt() {
 export function SoftDelete() {
   return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
-    if (type.name !== 'Date') {
-      throw Error('Proprety DeletedAt must be Date type');
+    if (type.name !== 'DateTime') {
+      throw Error('Proprety DeletedAt must be DateTime type');
     }
 
     model.SoftDelete.DeletedAt = propertyKey;
@@ -165,7 +165,7 @@ export function SoftDelete() {
 export function Archived() {
   return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
-    if (type.name !== 'Date') {
+    if (type.name !== 'DateTime') {
       throw Error('Proprety DeletedAt must be Date type');
     }
 
@@ -370,8 +370,8 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
 export function DateTime() {
   return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
-    if (type.name !== 'Date') {
-      throw Error(`Proprety  ${propertyKey} must be Date type`);
+    if (type.name !== 'DateTime') {
+      throw Error(`Proprety  ${propertyKey} must be DateTime type`);
     }
 
     if (model.Converters.has(propertyKey)) {

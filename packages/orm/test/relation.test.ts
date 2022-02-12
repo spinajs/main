@@ -546,7 +546,7 @@ describe('Orm relations tests', () => {
   it('HasMany nested relation is executed', async () => {
     sinon
       .stub(FakeSqliteDriver.prototype, 'execute')
-      .onFirstCall()
+      .onCall(0)
       .returns(
         new Promise((res) => {
           res([
@@ -557,7 +557,29 @@ describe('Orm relations tests', () => {
           ]);
         }),
       )
-      .onSecondCall()
+      .onCall(1)
+      .returns(
+        new Promise((res) => {
+          res([
+            {
+              Id: 1,
+              Property1: 'Property1',
+            },
+          ]);
+        }),
+      )
+      .onCall(2)
+      .returns(
+        new Promise((res) => {
+          res([
+            {
+              Id: 1,
+              Property1: 'Property1',
+            },
+          ]);
+        }),
+      )
+      .onCall(3)
       .returns(
         new Promise((res) => {
           res([
@@ -569,7 +591,7 @@ describe('Orm relations tests', () => {
           ]);
         }),
       )
-      .onThirdCall()
+      .onCall(4)
       .returns(
         new Promise((res) => {
           res([
@@ -581,6 +603,7 @@ describe('Orm relations tests', () => {
           ]);
         }),
       );
+     
 
     await db();
     const callback = sinon.spy(OneToManyRelation.prototype, 'execute');

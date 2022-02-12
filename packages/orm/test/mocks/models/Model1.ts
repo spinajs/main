@@ -2,6 +2,7 @@
 import { Connection, Primary, Model, Archived, CreatedAt, UpdatedAt, SoftDelete, BelongsTo, DateTime } from '../../../src/decorators';
 import { ModelBase } from '../../../src/model';
 import { Model4 } from './Model4';
+import { DateTime as lDateTime} from "luxon";
 
 @Connection('sqlite')
 @Model('TestTable1')
@@ -11,16 +12,16 @@ export class Model1 extends ModelBase {
 
   @Archived()
   @DateTime()
-  public ArchivedAt: Date;
+  public ArchivedAt: lDateTime;
 
   @CreatedAt()
-  public CreatedAt: Date;
+  public CreatedAt: lDateTime;
 
   @UpdatedAt()
-  public UpdatedAt: Date;
+  public UpdatedAt: lDateTime;
 
   @SoftDelete()
-  public DeletedAt: Date;
+  public DeletedAt: lDateTime;
 
   public Bar: string;
 
