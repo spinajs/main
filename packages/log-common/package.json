@@ -1,5 +1,5 @@
 {
-  "version": "1.2.28",
+  "version": "1.2.29",
   "description": "Log lib for all spinejs related libs",
   "main": "lib/index.js",
   "private": false,

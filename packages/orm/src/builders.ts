@@ -63,58 +63,61 @@ export class Builder<T = any> {
 
   public then(resolve: (rows: any[]) => void, reject: (err: Error) => void): Promise<T> {
     const compiled = this.toDB();
-    return this._driver.execute(compiled.expression, compiled.bindings, this._queryContext).then((result: any[]) => {
-      try {
-        if (this._asRaw) {
-          resolve(result);
-          return;
-        }
-        if (this._model && !this._nonSelect) {
-          let transformedResult = result;
-
-          if (this._middlewares.length > 0) {
-            transformedResult = this._middlewares.reduce((_, current) => {
-              return current.afterData(result);
-            }, []);
+    return this._driver
+      .execute(compiled.expression, compiled.bindings, this._queryContext)
+      .then((result: any[]) => {
+        try {
+          if (this._asRaw) {
+            resolve(result);
+            return;
           }
+          if (this._model && !this._nonSelect) {
+            let transformedResult = result;
 
-          const models = transformedResult.map((r) => {
-            let model = null;
-            for (const middleware of this._middlewares) {
-              model = middleware.modelCreation(r);
-              if (model !== null) {
-                break;
+            if (this._middlewares.length > 0) {
+              transformedResult = this._middlewares.reduce((_, current) => {
+                return current.afterData(result);
+              }, []);
+            }
+
+            const models = transformedResult.map((r) => {
+              let model = null;
+              for (const middleware of this._middlewares) {
+                model = middleware.modelCreation(r);
+                if (model !== null) {
+                  break;
+                }
               }
-            }
 
-            if (model === null) {
-              model = new this._model();
-              model.hydrate(r);
-            }
+              if (model === null) {
+                model = new this._model();
+                model.hydrate(r);
+              }
 
-            return model;
-          });
+              return model;
+            });
 
-          const afterMiddlewarePromises = this._middlewares.reduce((prev, current) => {
-            return prev.concat([current.afterHydration(models)]);
-          }, [] as Array<Promise<any[] | void>>);
+            const afterMiddlewarePromises = this._middlewares.reduce((prev, current) => {
+              return prev.concat([current.afterHydration(models)]);
+            }, [] as Array<Promise<any[] | void>>);
 
-          if (this._middlewares.length > 0) {
-            Promise.all(afterMiddlewarePromises).then(() => {
+            if (this._middlewares.length > 0) {
+              Promise.all(afterMiddlewarePromises).then(() => {
+                resolve(models);
+              }, reject);
+            } else {
               resolve(models);
-            }, reject);
+            }
           } else {
-            resolve(models);
+            resolve(result);
           }
-        } else {
-          resolve(result);
+        } catch (err) {
+          reject(err);
         }
-      } catch (err) {
+      })
+      .catch((err) => {
         reject(err);
-      }
-    }).catch((err)=>{
-      reject(err);
-    }) as Promise<any>;
+      }) as Promise<any>;
   }
 }
 

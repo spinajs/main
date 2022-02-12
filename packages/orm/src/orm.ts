@@ -56,7 +56,7 @@ export class Orm extends AsyncModule {
    */
   public async migrateUp(name?: string): Promise<void> {
     const self = this;
- 
+
     await this.executeAvaibleMigrations(
       name,
       async (migration: OrmMigration, driver: OrmDriver) => {
