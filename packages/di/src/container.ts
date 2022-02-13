@@ -10,6 +10,7 @@ import { EventEmitter } from 'events';
 import { Binder } from './binder';
 import { Registry } from './registry';
 import { ContainerCache } from './container-cache';
+import { isArray } from 'lodash';
 
 /**
  * Dependency injection container implementation
@@ -189,21 +190,6 @@ export class Container extends EventEmitter implements IContainer {
     const sourceType = type instanceof TypedArray ? type.Type : type;
     const sourceName = getTypeName(type);
     const opt = typeof options === 'boolean' ? null : options;
-    const setCache = (r: T) => {
-      this.Cache.add(type, r);
-      return r;
-    };
-    const emit = (target: any) => {
-      // do not emit when we alrady created and cached value
-      // ( resolve happends only once eg. for singletons)
-      if (!this.Cache.has(getTypeName(target))) {
-        // firs event to emit that particular type was resolved
-        this.emit(`di.resolved.${getTypeName(target)}`, this, target);
-
-        // emit that source type was resolved
-        this.emit(`di.resolved.${sourceName}`, this, target);
-      }
-    };
 
     if (options === true || check === true) {
       if (!this.hasRegistered(sourceType)) {
@@ -229,21 +215,8 @@ export class Container extends EventEmitter implements IContainer {
 
       const resolved = targetType.map((r) => this.resolveType(type, r, opt));
       if (resolved.some((r) => r instanceof Promise)) {
-        return (Promise.all(resolved) as Promise<T[]>).then((value) => {
-          value.forEach((v) => {
-            emit(v);
-            setCache(v);
-          });
-          return value;
-        });
+        return Promise.all(resolved) as any;
       }
-
-      // special case, we dont want to cache multiple times
-
-      (resolved as T[]).forEach((v) => {
-        emit(v);
-        setCache(v);
-      });
       return resolved as T[];
     } else {
       // finaly resolve single type:
@@ -262,20 +235,7 @@ export class Container extends EventEmitter implements IContainer {
 
       // resolve last registered type ( newest )
       const rValue = this.resolveType(sourceType, targetType[targetType.length - 1], opt);
-
-      if (isPromise(rValue)) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-        return (rValue as any).then((v: any) => {
-          emit(v);
-          setCache(v as T);
-          return v as T;
-        });
-      }
-
-      emit(rValue);
-      setCache(rValue as T);
-
-      return rValue as T;
+      return rValue as any;
     }
   }
 
@@ -304,9 +264,26 @@ export class Container extends EventEmitter implements IContainer {
     const isSingletonInChild = descriptor.resolver === ResolveType.PerChildContainer;
     const isSingleton = descriptor.resolver === ResolveType.Singleton;
 
+    const setCache = (target: T) => {
+      this.Cache.add(sourceType, target);
+      return target;
+    };
+    const emit = (target: any) => {
+      // do not emit when we alrady created and cached value
+      // ( resolve happends only once eg. for singletons)
+      if (!this.Cache.has(getTypeName(target))) {
+        // firs event to emit that particular type was resolved
+        this.emit(`di.resolved.${getTypeName(target)}`, this, target);
+
+        // emit that source type was resolved
+        this.emit(`di.resolved.${getTypeName(sourceType)}`, this, target);
+      }
+    };
+
     const getCachedInstance = (e: string | Class<any> | TypedArray<any>, parent: boolean) => {
       if (this.isResolved(e, parent)) {
-        return this.get(e as any, parent);
+        const rArray = this.get(e as any, parent);
+        return isArray(rArray) ? rArray.find((x) => getTypeName(x) === getTypeName(targetType)) : rArray;
       }
 
       return null;
@@ -314,11 +291,38 @@ export class Container extends EventEmitter implements IContainer {
 
     const resolve = (d: IInjectDescriptor<unknown>, t: Class<T>, i: IResolvedInjection[]) => {
       if (d.resolver === ResolveType.NewInstance) {
-        return this.getNewInstance(t, i, options);
+        const instance = this.getNewInstance(t, i, options);
+
+        if (isPromise(instance)) {
+          return instance.then((r) => {
+            emit(r);
+            return r;
+          });
+        } else {
+          emit(instance);
+          return instance;
+        }
       }
 
       this.Registry.register(sName, t);
-      return getCachedInstance(tType, d.resolver === ResolveType.Singleton ? true : false) || this.getNewInstance(t, i, options);
+
+      const cashed = getCachedInstance(tType, d.resolver === ResolveType.Singleton ? true : false);
+      if (!cashed) {
+        const instance = this.getNewInstance(t, i, options);
+        if (isPromise(instance)) {
+          return instance.then((r) => {
+            setCache(r);
+            emit(r);
+            return r;
+          });
+        } else {
+          setCache(instance as T);
+          emit(instance);
+          return instance;
+        }
+      } else {
+        return cashed;
+      }
     };
 
     // check cache if needed
