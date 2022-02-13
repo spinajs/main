@@ -33,5 +33,6 @@
     "@spinajs/orm": "^1.2.35",
     "lodash": "^4.17.21",
     "luxon": "^2.3.0"
-  }
+  },
+  "gitHead": "ac376f4a76429562c45dc00855347bbecd3c0798"
 }

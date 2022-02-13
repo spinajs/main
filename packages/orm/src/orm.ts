@@ -158,7 +158,6 @@ export class Orm extends AsyncModule {
     const migrateOnStartup = this.Configuration.get<boolean>('db.Migration.Startup', false);
 
     await this.createConnections();
-    await this.prepareMigrations();
 
     // add all registered migrations via DI
     DI.get<Class<unknown>>(Array.ofType('__migrations___')).forEach((m) => {
@@ -170,6 +169,7 @@ export class Orm extends AsyncModule {
     });
 
     if (migrateOnStartup) {
+      await this.prepareMigrations();
       await this.migrateUp();
     }
 

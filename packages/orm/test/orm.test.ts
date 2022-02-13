@@ -33,8 +33,32 @@ describe('Orm general', () => {
   });
 
   it('ORM should create connections', async () => {
-    const connect1 = sinon.stub(FakeSqliteDriver.prototype, 'connect').returnsThis();
-    const connect2 = sinon.stub(FakeMysqlDriver.prototype, 'connect').returnsThis();
+    const connect1 = sinon.stub(FakeSqliteDriver.prototype, 'connect').returns(
+      new Promise((resolve) => {
+        resolve(
+          new FakeSqliteDriver({
+            Name: 'test',
+            Driver: 'test',
+            Options: {},
+            PoolLimit: 0,
+            DefaultConnection: false,
+          }),
+        );
+      }),
+    );
+    const connect2 = sinon.stub(FakeMysqlDriver.prototype, 'connect').returns(
+      new Promise((resolve) => {
+        resolve(
+          new FakeMysqlDriver({
+            Name: 'test2',
+            Driver: 'test',
+            Options: {},
+            PoolLimit: 0,
+            DefaultConnection: false,
+          }),
+        );
+      }),
+    );
 
     // @ts-ignore
     const orm = await db();

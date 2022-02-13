@@ -544,7 +544,7 @@ describe('Orm relations tests', () => {
   });
 
   it('HasMany nested relation is executed', async () => {
-    sinon
+    const eStub = sinon
       .stub(FakeSqliteDriver.prototype, 'execute')
       .onCall(0)
       .returns(
@@ -562,8 +562,9 @@ describe('Orm relations tests', () => {
         new Promise((res) => {
           res([
             {
-              Id: 1,
-              Property1: 'Property1',
+              Id: 2,
+              Property2: 'property2',
+              rel_1: 1,
             },
           ]);
         }),
@@ -573,25 +574,14 @@ describe('Orm relations tests', () => {
         new Promise((res) => {
           res([
             {
-              Id: 1,
-              Property1: 'Property1',
+              Id: 3,
+              Property3: 'property3',
+              rel_2: 2,
             },
           ]);
         }),
       )
       .onCall(3)
-      .returns(
-        new Promise((res) => {
-          res([
-            {
-              Id: 2,
-              Property2: 'property2',
-              rel_1: 1,
-            },
-          ]);
-        }),
-      )
-      .onCall(4)
       .returns(
         new Promise((res) => {
           res([
@@ -614,6 +604,7 @@ describe('Orm relations tests', () => {
       })
       .first<ModelNested1>();
 
+    console.log(eStub.callCount);
     expect(callback.calledTwice).to.be.true;
     expect(result).to.be.not.null;
     expect(result.HasMany1.length).to.eq(1);
