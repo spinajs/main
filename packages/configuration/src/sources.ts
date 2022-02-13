@@ -86,12 +86,10 @@ export class JsFileSource extends BaseFileSource {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const dEnv = DI.get<any>('process.env') ?? process.env;
 
-    if (dEnv.NODE_ENV) {
-      if (dEnv.NODE_ENV === 'development') {
-        return _.mergeWith(common, this.load('*.dev.js', _load), mergeArrays);
-      } else {
-        return _.mergeWith(common, this.load('*.prod.js', _load), mergeArrays);
-      }
+    if (dEnv.NODE_ENV && dEnv.NODE_ENV === 'development') {
+      return _.mergeWith(common, this.load('*.dev.js', _load), mergeArrays);
+    } else {
+      return _.mergeWith(common, this.load('*.prod.js', _load), mergeArrays);
     }
 
     return common;
@@ -116,12 +114,10 @@ export class JsonFileSource extends BaseFileSource {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const dEnv = DI.get<any>('process.env') ?? process.env;
 
-    if (dEnv.NODE_ENV) {
-      if (dEnv.NODE_ENV === 'development') {
-        return _.mergeWith(common, this.load('*.dev.json', _load), mergeArrays);
-      } else {
-        return _.mergeWith(common, this.load('*.prod.json', _load), mergeArrays);
-      }
+    if (dEnv.NODE_ENV && dEnv.NODE_ENV === 'development') {
+      return _.mergeWith(common, this.load('*.dev.json', _load), mergeArrays);
+    } else {
+      return _.mergeWith(common, this.load('*.prod.json', _load), mergeArrays);
     }
 
     return common;
