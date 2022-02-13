@@ -4,8 +4,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/require-await */
-import { LogLevel } from './../../log-common/src/index';
 /* eslint-disable prettier/prettier */
+
+import { LogLevel } from '@spinajs/log-common';
 export * from './compilers';
 
 import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, DatetimeValueConverter } from '@spinajs/orm';
