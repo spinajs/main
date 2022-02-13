@@ -336,7 +336,7 @@ export class Container extends EventEmitter implements IContainer {
       // when we later register another type of base class used in typed array
       // we will not resolve it, becaouse contaienr will not check
       // if in cache this new type exists ( only check if type in array exists )
-      const cached = getCachedInstance(sourceType, isSingleton) as any;
+      const cached = getCachedInstance(sourceType, isSingleton);
       if (cached) {
         return cached;
       }
