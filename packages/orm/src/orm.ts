@@ -55,7 +55,7 @@ export class Orm extends AsyncModule {
    * @param name - migration file name
    */
   public async migrateUp(name?: string): Promise<void> {
-    const self = this;
+    this.Log.info('DB migration UP started ...');
 
     await this.executeAvaibleMigrations(
       name,
@@ -70,6 +70,8 @@ export class Orm extends AsyncModule {
               Migration: migration.constructor.name,
               CreatedAt: new Date(),
             });
+
+          this.Log.info(`Migration ${migration.constructor.name}:up() success !`);
         };
 
         if (driver.Options.Migration?.Transaction?.Mode === MigrationTransactionMode.PerMigration) {
@@ -77,11 +79,11 @@ export class Orm extends AsyncModule {
         } else {
           await trFunction(driver);
         }
-
-        self.Log.info(`Migration ${migration.constructor.name} success !`);
       },
       false,
     );
+
+    this.Log.info('DB migration ended ...');
   }
 
   /**
@@ -91,7 +93,7 @@ export class Orm extends AsyncModule {
    * @param name - migration file name
    */
   public async migrateDown(name?: string): Promise<void> {
-    const self = this;
+    this.Log.info('DB migration DOWN started ...');
 
     await this.executeAvaibleMigrations(
       name,
@@ -105,6 +107,8 @@ export class Orm extends AsyncModule {
             .where({
               Migration: migration.constructor.name,
             });
+
+          this.Log.info(`Migration down ${migration.constructor.name}:DOWN success !`);
         };
 
         if (driver.Options.Migration?.Transaction?.Mode === MigrationTransactionMode.PerMigration) {
@@ -112,11 +116,11 @@ export class Orm extends AsyncModule {
         } else {
           await trFunction(driver);
         }
-
-        self.Log.info(`Migration down ${migration.constructor.name} success !`);
       },
       true,
     );
+
+    this.Log.info('DB migration ended ...');
   }
 
   /**
@@ -213,10 +217,20 @@ export class Orm extends AsyncModule {
     const connections = await Promise.all(
       this.Configuration.get<IDriverOptions[]>('db.Connections', [])
         .map((c) => {
+          if (!this.Container.hasRegistered(c.Driver)) {
+            this.Log.warn(`ORM connection driver ${c.Driver} not registerd`);
+          }
+
+          this.Log.trace(`Trying to create connection name: ${c.Name}, driver: ${c.Driver}`);
           return this.Container.resolve<OrmDriver>(c.Driver, [c]);
         })
         .filter((c) => c !== null)
-        .map((c) => c.connect()),
+        .map((c) => {
+          return c.connect().then((d) => {
+            this.Log.trace(`Connection succesyfully created ${d.Options.Name}`);
+            return d;
+          });
+        }),
     );
 
     connections.forEach((c) => {
