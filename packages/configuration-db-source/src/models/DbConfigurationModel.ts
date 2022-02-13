@@ -37,10 +37,10 @@ export class DbConfigurationModel extends ModelBase {
         this.Value = JSON.stringify(val);
         break;
       case 'date':
-        this.Value = (val as DateTime).toFormat("dd-MM-YYYY");
+        this.Value = (val as DateTime).toFormat('dd-MM-YYYY');
         break;
       case 'time':
-        this.Value = (val as DateTime).toFormat("HH:mm:ss");
+        this.Value = (val as DateTime).toFormat('HH:mm:ss');
         break;
       case 'datetime':
         this.Value = (val as DateTime).toISO();
