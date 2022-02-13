@@ -55,6 +55,9 @@ export class Orm extends AsyncModule {
    * @param name - migration file name
    */
   public async migrateUp(name?: string): Promise<void> {
+
+    await this.prepareMigrations();
+
     this.Log.info('DB migration UP started ...');
 
     await this.executeAvaibleMigrations(
@@ -93,6 +96,8 @@ export class Orm extends AsyncModule {
    * @param name - migration file name
    */
   public async migrateDown(name?: string): Promise<void> {
+    await this.prepareMigrations();
+
     this.Log.info('DB migration DOWN started ...');
 
     await this.executeAvaibleMigrations(
@@ -169,7 +174,6 @@ export class Orm extends AsyncModule {
     });
 
     if (migrateOnStartup) {
-      await this.prepareMigrations();
       await this.migrateUp();
     }
 
