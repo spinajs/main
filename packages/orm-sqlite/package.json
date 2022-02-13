@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-sqlite",
-  "version": "1.2.33",
+  "version": "1.2.34",
   "description": "framework orm sql-lite language module",
   "main": "lib/index.js",
   "private": false,
