@@ -1,0 +1,42 @@
+{
+  "name": "@spinajs/configuration-common",
+  "version": "1.2.30",
+  "description": "> TODO: description",
+  "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
+  "homepage": "https://github.com/spinajs/main#readme",
+  "license": "ISC",
+  "main": "lib/index.js",
+  "private": false,
+  "files": [
+    "lib/**/*"
+  ],
+  "types": "lib",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -p tsconfig.build.json",
+    "clean": "",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "dependencies": {
+    "@spinajs/di": "^1.2.30"
+  }
+}

@@ -68,12 +68,16 @@ export abstract class Configuration extends AsyncModule {
    * @param value - value to set
    */
   public abstract set(path: string[] | string, value: unknown): void;
+}
 
+export abstract class ConfigurationSource {
   /**
-   * Merge existing config value with new options instead overriding
-   *
-   * @param path - cfg path
-   * @param value - value to merge
+   * Order of cfg sources loading.
+   * Some sources need to be loaded before others eg. load db configuration
+   * from json, then load config from database using credentials
+   * from loaded file
    */
-  public abstract merge(path: string[] | string, value: unknown): void;
+  public abstract get Order(): number;
+
+  public abstract Load(configuration: Configuration): Promise<IConfigLike>;
 }

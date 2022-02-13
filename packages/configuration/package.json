@@ -43,6 +43,7 @@
     "@spinajs/di": "^1.2.30",
     "@spinajs/exceptions": "^1.2.7",
     "@spinajs/internal-logger": "^1.2.30",
+    "@spinajs/configuration-common": "^1.2.30",
     "ajv": "^8.8.2",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",

@@ -12,19 +12,7 @@ import { findBasePath, mergeArrays, uncache } from './util';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
-import { Configuration, IConfigLike } from './types';
-
-export abstract class ConfigurationSource {
-  /**
-   * Order of cfg sources loading.
-   * Some sources need to be loaded before others eg. load db configuration
-   * from json, then load config from database using credentials
-   * from loaded file
-   */
-  public abstract get Order(): number;
-
-  public abstract Load(configuration: Configuration): Promise<IConfigLike>;
-}
+import { ConfigurationSource } from '@spinajs/configuration-common';
 
 export abstract class BaseFileSource extends ConfigurationSource {
   /**

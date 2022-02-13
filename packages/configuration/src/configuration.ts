@@ -3,13 +3,14 @@
 import { Autoinject, Container, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { join, normalize, resolve } from 'path';
-import { ConfigurationSource } from './sources';
+import { ConfigurationSource } from '@spinajs/configuration-common';
 import { Configuration, ConfigurationOptions, IConfigurable, IConfigurationSchema } from './types';
 import { mergeArrays, parseArgv } from './util';
 import * as _ from 'lodash';
 import Ajv from 'ajv';
 import { InvalidConfiguration } from './exception';
 import { InternalLogger } from '@spinajs/internal-logger';
+import './sources';
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
@@ -72,6 +73,16 @@ export class FrameworkConfiguration extends Configuration {
    */
   public set(path: string[] | string, value: unknown) {
     this.Config = _.set(this.Config, path, value);
+  }
+
+  /**
+   * Merge existing config value with new options instead overriding
+   *
+   * @param path - cfg path
+   * @param value - value to merge
+   */
+  public merge(path: string[] | string, value: unknown) {
+    _.mergeWith(this.get(path), value, mergeArrays);
   }
 
   public async resolveAsync(): Promise<void> {

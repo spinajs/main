@@ -55,6 +55,8 @@
     "typescript": "^4.2.3"
   },
   "dependencies": {
+    "@spinajs/configuration-common": "file:packages\\configuration-common",
+    "@spinajs/configuration-db-source": "file:packages\\configuration-db-source",
     "@spinajs/configuration": "file:packages\\configuration",
     "@spinajs/di": "file:packages\\di",
     "@spinajs/exceptions": "file:packages\\exceptions",

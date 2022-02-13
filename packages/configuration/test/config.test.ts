@@ -161,6 +161,14 @@ describe('Configuration tests', () => {
     expect(test2).to.eq(555);
   });
 
+  it('should merge programatically', async () => {
+    const config = await cfgNoApp();
+
+    config.merge('test.array', [333]);
+
+    expect(config.get<number[]>('test.array')).to.include.members([1, 2, 333]);
+  });
+
   it('Should validate config', () => {
     DI.register({
       $id: 'test',
