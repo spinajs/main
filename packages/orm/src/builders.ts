@@ -1425,7 +1425,6 @@ export class SchemaQueryBuilder {
 
     return builder;
   }
-
 }
 
 Object.values(ColumnType).forEach((type) => {
