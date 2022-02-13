@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
-import { AsyncModule, Autoinject, Container, Class } from '@spinajs/di';
+import { AsyncModule, Autoinject, Container, Class, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { ClassInfo, ListFromFiles } from '@spinajs/reflection';
 import * as _ from 'lodash';
@@ -155,6 +155,15 @@ export class Orm extends AsyncModule {
 
     await this.createConnections();
     await this.prepareMigrations();
+
+    // add all registered migrations via DI
+    DI.get<Class<unknown>>(Array.ofType('__migrations___')).forEach((m) => {
+      this.registerMigration(m);
+    });
+
+    DI.get<Class<unknown>>(Array.ofType('__models__')).forEach((m) => {
+      this.registerModel(m);
+    });
 
     if (migrateOnStartup) {
       await this.migrateUp();
