@@ -2,7 +2,7 @@
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 
 @Migration('sqlite')
-export class ConfiguratioDbSourceInitialMigration extends OrmMigration {
+export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('configuration', (table) => {
       table.int('Id').primaryKey().autoIncrement();
