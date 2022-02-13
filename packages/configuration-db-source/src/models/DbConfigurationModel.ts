@@ -4,7 +4,7 @@ import { Connection, Primary, Model, ModelBase } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 @Connection('default')
-@Model('TestTable1')
+@Model('configuration')
 export class DbConfigurationModel extends ModelBase {
   private _realValue: number | string | DateTime | boolean | unknown;
 

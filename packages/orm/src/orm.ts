@@ -164,11 +164,11 @@ export class Orm extends AsyncModule {
     await this.createConnections();
 
     // add all registered migrations via DI
-    DI.get<Class<unknown>>(Array.ofType('__migrations___')).forEach((m) => {
+    DI.get<Class<unknown>>(Array.ofType('__migration__')).forEach((m) => {
       this.registerMigration(m);
     });
 
-    DI.get<Class<unknown>>(Array.ofType('__models__')).forEach((m) => {
+    DI.get<Class<unknown>>(Array.ofType('__model__')).forEach((m) => {
       this.registerModel(m);
     });
 
