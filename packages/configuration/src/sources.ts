@@ -8,19 +8,22 @@ import { Injectable, DI } from '@spinajs/di';
 import { glob } from 'glob';
 import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
-import { findBasePath, uncache } from './util';
+import { findBasePath, mergeArrays, uncache } from './util';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
-
-function mergeArrays(target: unknown[], source: unknown[]): unknown {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
+import { Configuration, IConfigLike } from './types';
 
 export abstract class ConfigurationSource {
-  public abstract Load(): Promise<unknown>;
+  /**
+   * Order of cfg sources loading.
+   * Some sources need to be loaded before others eg. load db configuration
+   * from json, then load config from database using credentials
+   * from loaded file
+   */
+  public abstract get Order(): number;
+
+  public abstract Load(configuration: Configuration): Promise<IConfigLike>;
 }
 
 export abstract class BaseFileSource extends ConfigurationSource {
@@ -47,6 +50,10 @@ export abstract class BaseFileSource extends ConfigurationSource {
   ];
 
   protected BasePath = '';
+
+  public get Order() {
+    return 1;
+  }
 
   constructor(protected RunApp?: string, protected CustomConfigPaths?: string[], protected appBaseDir?: string) {
     super();

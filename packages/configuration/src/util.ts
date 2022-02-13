@@ -41,6 +41,12 @@ export function merge(to: unknown, from: unknown): unknown {
   return to;
 }
 
+export function mergeArrays(target: unknown[], source: unknown[]): unknown {
+  if (_.isArray(target)) {
+    return target.concat(source);
+  }
+}
+
 // clean require cache config
 // http://stackoverflow.com/questions/9210542/node-js-require-cache-possible-to-invalidate
 export function uncache(file: string) {

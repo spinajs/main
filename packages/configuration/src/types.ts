@@ -8,6 +8,10 @@ export interface IFrameworkVersion {
   major: number;
 }
 
+export interface IConfigLike {
+  [val: string]: unknown;
+}
+
 export interface IConfigurationSchema {
   $configurationModule: string;
 }

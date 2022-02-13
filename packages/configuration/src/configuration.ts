@@ -5,7 +5,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { join, normalize, resolve } from 'path';
 import { ConfigurationSource } from './sources';
 import { Configuration, ConfigurationOptions, IConfigurable, IConfigurationSchema } from './types';
-import { parseArgv } from './util';
+import { mergeArrays, parseArgv } from './util';
 import * as _ from 'lodash';
 import Ajv from 'ajv';
 import { InvalidConfiguration } from './exception';
@@ -31,6 +31,10 @@ export class FrameworkConfiguration extends Configuration {
   protected CustomConfigPaths: string[];
 
   protected Sources: ConfigurationSource[];
+
+  protected Validator: Ajv;
+
+  protected ValidationSchemas: IConfigurationSchema[];
 
   @Autoinject()
   protected Container: Container;
@@ -89,42 +93,53 @@ export class FrameworkConfiguration extends Configuration {
 
     InternalLogger.trace(`App base dir is ${this.AppBaseDir}`, 'Configuration');
 
+    this.initValidator();
+    this.applyAppDirs();
+
+    /**
+     * Load and validate data from cfg sources
+     * in proper order
+     */
+    await this.loadSources();
+
+    this.configure();
+  }
+
+  protected async loadSources() {
     this.Sources = this.Container.resolve<ConfigurationSource>(Array.ofType(ConfigurationSource), [
       this.RunApp,
       this.CustomConfigPaths,
       this.AppBaseDir,
     ]);
 
-    await Promise.all(this.Sources.map((s) => s.Load())).then((result) => {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-      result.map((c) => _.merge(this.Config, c));
-      return;
+    // sort asc sources
+    this.Sources.sort((a, b) => {
+      return a.Order < b.Order ? -1 : a.Order > b.Order ? 1 : 0;
     });
 
-    this.validateConfig();
-    this.applyAppDirs();
-    this.configure();
-  }
+    for (const source of this.Sources) {
+      const rCfg = await source.Load(this);
 
-  protected dir(toJoin: string) {
-    return normalize(join(resolve(this.AppBaseDir), toJoin));
-  }
+      Object.keys(rCfg).forEach((k) => {
+        const schema = this.ValidationSchemas.find((x) => x.$configurationModule === k);
 
-  /**
-   * adds app dirs to system.dirs config
-   */
-  protected applyAppDirs() {
-    if (!this.RunApp) {
-      return;
+        if (schema) {
+          const result = this.Validator.validate(schema, rCfg[`${k}`]);
+          if (!result) {
+            throw new InvalidConfiguration(
+              'invalid configuration ! Check config files and restart app.',
+              this.Validator.errors,
+            );
+          }
+        }
+      });
+
+      _.mergeWith(this.Config, rCfg, mergeArrays);
     }
-
-    for (const prop of Object.keys(this.get(['system', 'dirs'], []))) {
-      this.get<string[]>(['system', 'dirs', prop]).push(this.dir(`/${this.RunApp}/${prop}`));
-    }
   }
 
-  protected validateConfig() {
-    const validator = new Ajv({
+  protected initValidator() {
+    this.Validator = new Ajv({
       logger: {
         log: (msg: string) => InternalLogger.info(msg, 'Configuration'),
         warn: (msg: string) => InternalLogger.warn(msg, 'Configuration'),
@@ -145,35 +160,41 @@ export class FrameworkConfiguration extends Configuration {
     });
 
     // add $merge & $patch for json schema
-    require('ajv-merge-patch')(validator);
+    require('ajv-merge-patch')(this.Validator);
 
     // add common formats validation eg: date time
-    require('ajv-formats')(validator);
+    require('ajv-formats')(this.Validator);
 
     // add keywords
-    require('ajv-keywords')(validator);
+    require('ajv-keywords')(this.Validator);
 
     // in strict mode ajv will throw when
     // unknown keyword in schema is met
     // we use $configurationModule keyword to identify
     // to match config module with config schema
-    validator.addKeyword('$configurationModule');
+    this.Validator.addKeyword('$configurationModule');
 
-    const schemas = this.Container.get<IConfigurationSchema>(Array.ofType('__configurationSchema__'), true);
-    if (schemas) {
-      Object.keys(this.Config).forEach((k) => {
-        const schema = schemas.find((x) => x.$configurationModule === k);
+    /**
+     * load all registered configuration json schemas
+     * for config value validation
+     */
+    this.ValidationSchemas = this.Container.get<IConfigurationSchema>(Array.ofType('__configurationSchema__'), true);
+  }
 
-        if (schema) {
-          const result = validator.validate(schema, this.Config[`${k}`]);
-          if (!result) {
-            throw new InvalidConfiguration(
-              'invalid configuration ! Check config files and restart app.',
-              validator.errors,
-            );
-          }
-        }
-      });
+  protected dir(toJoin: string) {
+    return normalize(join(resolve(this.AppBaseDir), toJoin));
+  }
+
+  /**
+   * adds app dirs to system.dirs config
+   */
+  protected applyAppDirs() {
+    if (!this.RunApp) {
+      return;
+    }
+
+    for (const prop of Object.keys(this.get(['system', 'dirs'], []))) {
+      this.get<string[]>(['system', 'dirs', prop]).push(this.dir(`/${this.RunApp}/${prop}`));
     }
   }
 
