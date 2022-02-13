@@ -55,7 +55,6 @@ export class Orm extends AsyncModule {
    * @param name - migration file name
    */
   public async migrateUp(name?: string): Promise<void> {
-
     await this.prepareMigrations();
 
     this.Log.info('DB migration UP started ...');
