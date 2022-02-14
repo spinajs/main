@@ -120,7 +120,9 @@ export class FrameworkConfiguration extends Configuration {
     const source = this.Container.resolve(sType);
     const sCfg = await source.Load(this);
 
-    this.validateAndMerge(sCfg);
+    if (sCfg) {
+      this.validateAndMerge(sCfg);
+    }
   }
 
   protected async loadSources() {
@@ -137,7 +139,10 @@ export class FrameworkConfiguration extends Configuration {
 
     for (const source of this.Sources) {
       const rCfg = await source.Load(this);
-      this.validateAndMerge(rCfg);
+
+      if (rCfg) {
+        this.validateAndMerge(rCfg);
+      }
     }
   }
 

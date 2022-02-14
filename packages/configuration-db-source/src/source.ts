@@ -31,7 +31,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
     if ((await this.CheckTable()) === false) {
       InternalLogger.warn(`Table for db configuration source not exists. Please run migration before use !`, 'configuration-db-source');
-      return;
+      return null;
     }
 
     const final = await this.LoadConfigurationFromDB();
