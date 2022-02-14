@@ -99,8 +99,6 @@ export class JsFileSource extends BaseFileSource {
       return _.mergeWith(common, this.load('*.prod.js', _load), mergeArrays);
     }
 
-    return common;
-
     function _load(file: string) {
       //Log.trace(`Trying to load file ${file}`, 'Configuration');
 
@@ -126,8 +124,6 @@ export class JsonFileSource extends BaseFileSource {
     } else {
       return _.mergeWith(common, this.load('*.prod.json', _load), mergeArrays);
     }
-
-    return common;
 
     function _load(file: string) {
       try {

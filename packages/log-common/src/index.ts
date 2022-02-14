@@ -62,13 +62,13 @@ export interface ILogRule {
 export interface ITargetsOption {
   name: string;
   type: string;
-  options: ICommonTargetOptions;
+  options?: ICommonTargetOptions;
 }
 
 export interface ILogOptions {
   targets: ITargetsOption[];
   rules: ILogRule[];
-  variables: Record<string, unknown>;
+  variables?: Record<string, unknown>;
 }
 
 export interface ICommonTargetOptions {

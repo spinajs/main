@@ -85,7 +85,20 @@ export class Log extends SyncModule implements ILog {
 
   public resolve(): void {
     const config = this.Container.get(Configuration);
-    this.Options = config.get("logger");
+
+    if (!config) {
+      throw new Error(`Configuration module is not avaible. Please resolve configuration module before any logging can occur`);
+    }
+
+    this.Options = config.get<ILogOptions>("logger", {
+      targets: [
+        {
+          name: "Console",
+          type: "ConsoleTarget",
+        },
+      ],
+      rules: [{ name: "*", level: "trace", target: "Console" }],
+    });
 
     this.matchRulesToLogger();
     this.resolveLogTargets();
