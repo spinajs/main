@@ -2,7 +2,7 @@
 /* eslint-disable prettier/prettier */
 
 import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
-import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder } from '@spinajs/orm';
+import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder } from '@spinajs/orm';
 import { NewInstance, Inject, Container, Autoinject } from '@spinajs/di';
 import _ = require('lodash');
 
@@ -66,6 +66,22 @@ export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler 
     return {
       bindings,
       expression: `ON CONFLICT(${this._builder.getColumn().join(',')}) DO UPDATE SET ${columns.join(',')}`,
+    };
+  }
+}
+
+@NewInstance()
+export class SqliteTableExistsCompiler implements TableExistsCompiler {
+  constructor(protected builder: TableExistsQueryBuilder) {
+    if (builder === null) {
+      throw new Error('table exists query builder cannot be null');
+    }
+  }
+
+  public compile(): ICompilerOutput {
+    return {
+      bindings: [this.builder.Table],
+      expression: `SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1;`,
     };
   }
 }

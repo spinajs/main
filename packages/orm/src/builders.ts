@@ -12,6 +12,7 @@ import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
+import { TableExistsCompiler } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -1325,6 +1326,19 @@ export class ColumnQueryBuilder {
   }
 }
 
+export class TableExistsQueryBuilder extends QueryBuilder {
+  constructor(container: Container, driver: OrmDriver, name: string) {
+    super(container, driver, null);
+
+    this.setTable(name);
+
+    this._queryContext = QueryContext.Select;
+  }
+  public toDB(): ICompilerOutput {
+    return this._container.resolve<TableExistsCompiler>(TableExistsCompiler, [this]).compile();
+  }
+}
+
 export class TableQueryBuilder extends QueryBuilder {
   public int: (name: string) => ColumnQueryBuilder;
   public bigint: (name: string) => ColumnQueryBuilder;
@@ -1358,6 +1372,11 @@ export class TableQueryBuilder extends QueryBuilder {
   public mediumblob: (name: string) => ColumnQueryBuilder;
   public longblob: (name: string) => ColumnQueryBuilder;
 
+  public ifExists(): TableQueryBuilder {
+    this._checkExists = true;
+    return this;
+  }
+
   public set: (name: string, allowed: string[]) => ColumnQueryBuilder;
 
   public get Columns() {
@@ -1375,6 +1394,12 @@ export class TableQueryBuilder extends QueryBuilder {
   protected _comment: string;
 
   protected _charset: string;
+
+  protected _checkExists: boolean;
+
+  public get CheckExists() {
+    return this._checkExists;
+  }
 
   constructor(container: Container, driver: OrmDriver, name: string) {
     super(container, driver, null);
@@ -1424,6 +1449,12 @@ export class SchemaQueryBuilder {
     callback.call(this, builder);
 
     return builder;
+  }
+
+  public async tableExists(name: string) {
+    const query = new TableExistsQueryBuilder(this.container, this.driver, name);
+    const exists = await query;
+    return exists !== null && exists.length === 1;
   }
 }
 

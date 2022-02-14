@@ -132,6 +132,17 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
     await expect(db().Connections.get('sqlite').select().from('notexisted')).to.be.rejected;
   });
 
+  it('Should check if table exists', async () => {
+
+    await db().migrateUp();
+
+    const exists = await db().Connections.get('sqlite').schema().tableExists("user");
+    const notExists = await db().Connections.get('sqlite').schema().tableExists("user2");
+
+    expect(exists).to.eq(true);
+    expect(notExists).to.eq(false);
+  });
+
   it('should insert query', async () => {
     await db().migrateUp();
     const id = await db().Connections.get('sqlite').insert().into('user').values({

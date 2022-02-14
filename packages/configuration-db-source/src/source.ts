@@ -11,6 +11,12 @@ import { DateTime } from 'luxon';
 
 @NewInstance()
 export class ConfiguratioDbSource extends ConfigurationSource {
+  protected Connection: OrmDriver;
+
+  protected Configuration: Configuration;
+
+  protected Options: IConfiguratioDbSourceConfig;
+
   public get Order(): number {
     // load as last, we want to have access to
     // connection options
@@ -18,20 +24,14 @@ export class ConfiguratioDbSource extends ConfigurationSource {
   }
 
   public async Load(configuration: Configuration): Promise<IConfigLike> {
-    const options = configuration.get<IConfiguratioDbSourceConfig>('configuration-db-source');
-    const dbConnections = configuration.get<IDriverOptions[]>('db.Connections');
-    const dbConnection = options.connection === 'default' ? configuration.get<string>('db.DefaultConnection') : options.connection;
-    const cfgConnectionOptions = dbConnections.find((x) => x.Name === dbConnection);
+    this.Configuration = configuration;
+    this.Options = this.Configuration.get('configuration-db-source');
 
-    if (!cfgConnectionOptions) {
-      throw new Error(`Connection for configuration-db-source named ${dbConnection} not exists`);
+    await this.Connect();
+
+    if ((await this.CheckTable()) === false) {
+      InternalLogger.warn(`Table for db configuration source not exists. Please run migration before use !`, 'configuration-db-source');
     }
-
-    InternalLogger.trace(`Using db connection ${dbConnection}`, 'Configuration-db-source');
-
-    // create raw connection to db
-    const driver = DI.resolve<OrmDriver>(cfgConnectionOptions.Driver, [cfgConnectionOptions]);
-    await driver.connect();
 
     const dbOptions = (await driver.select().from(options.table)) as IConfigurationEntry[];
     const processed = dbOptions.map((entry) => {
@@ -72,5 +72,25 @@ export class ConfiguratioDbSource extends ConfigurationSource {
     InternalLogger.success(`Configuration merged`, 'Configuration-db-source');
 
     return final;
+  }
+
+  protected async CheckTable(){
+      
+  }
+
+  protected async Connect() {
+    const dbConnections = this.Configuration.get<IDriverOptions[]>('db.Connections');
+    const dbConnection = this.Options.connection === 'default' ? this.Configuration.get<string>('db.DefaultConnection', this.Options.connection) : this.Options.connection;
+    const cfgConnectionOptions = dbConnections.find((x) => x.Name === dbConnection);
+
+    if (!cfgConnectionOptions) {
+      throw new Error(`Connection for configuration-db-source named ${dbConnection} not exists`);
+    }
+
+    InternalLogger.trace(`Using db connection ${dbConnection}`, 'Configuration-db-source');
+
+    // create raw connection to db
+    const driver = DI.resolve<OrmDriver>(cfgConnectionOptions.Driver, [cfgConnectionOptions]);
+    await driver.connect();
   }
 }
