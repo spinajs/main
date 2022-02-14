@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/log",
-  "version": "1.2.50",
+  "version": "1.2.59",
   "description": "Log lib for all spinejs related libs",
   "main": "lib/index.js",
   "private": false,
@@ -26,7 +26,7 @@
   },
   "homepage": "https://github.com/spinajs/log#readme",
   "dependencies": {
-    "@spinajs/configuration": "^1.2.50",
+    "@spinajs/configuration": "^1.2.59",
     "@spinajs/di": "^1.2.32",
     "@spinajs/exceptions": "^1.2.7",
     "@spinajs/log-common": "^1.2.49",
