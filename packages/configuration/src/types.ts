@@ -83,10 +83,10 @@ export abstract class Configuration extends AsyncModule {
    * Loads & merge configuration loaded from specific source.
    * Use it when you want load configuration not at startup
    * eg. becouse it depends on other module, or some runtime action
-   * 
+   *
    * When there is need for load configuration from source at startup,
    * simply decorate ConfigurationSource class with 'Autoinject' decorator.
-   * it will be registered in container and configuration module will resolve and 
+   * it will be registered in container and configuration module will resolve and
    * load it automatically
    *
    * @param source - configuration source to load from
