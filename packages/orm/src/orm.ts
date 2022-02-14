@@ -18,7 +18,6 @@ import { OrmException } from './exceptions';
 const CFG_PROPS = ['Database', 'User', 'Host', 'Port', 'Filename', 'Driver', 'Name'];
 const MIGRATION_TABLE_NAME = 'spinajs_migration';
 const MIGRATION_FILE_REGEXP = /(.*)_([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2})/;
- 
 
 export class Orm extends AsyncModule {
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.models')
