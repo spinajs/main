@@ -9,8 +9,8 @@ import { Orm } from '../src/orm';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler, FakeColumnQueryCompiler, dir, mergeArrays } from './misc';
 import * as sinon from 'sinon';
 import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode } from '../src';
-import { Migration1 } from './mocks/migrations/Migration1_2021_12_01_12_00_00';
-import { Migration2 } from './mocks/migrations/Migration2_2021_12_02_12_00_00';
+import { Migration1_2021_12_01_12_00_00 } from './mocks/migrations/Migration1_2021_12_01_12_00_00';
+import { Migration2_2021_12_02_12_00_00 } from './mocks/migrations/Migration2_2021_12_02_12_00_00';
 import { OrmDriver } from '../src/driver';
 
 const expect = chai.expect;
@@ -46,14 +46,14 @@ describe('Orm migrations', () => {
     const orm = await db();
 
     expect(orm.Migrations).to.be.an('array').with.length(2);
-    expect(orm.Migrations[0].type.name).to.eq('Migration1');
+    expect(orm.Migrations[0].type.name).to.eq('Migration1_2021_12_01_12_00_00');
   });
 
   it('ORM should run migration by name', async () => {
     const orm = await db();
 
-    const up = sinon.stub(Migration1.prototype, 'up');
-    await orm.migrateUp('Migration1');
+    const up = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'up');
+    await orm.migrateUp('Migration1_2021_12_01_12_00_00');
 
     expect(up.calledOnceWith(orm.Connections.get('sqlite'))).to.be.true;
   });
@@ -121,8 +121,8 @@ describe('Orm migrations', () => {
     // @ts-ignore
     const orm = await db();
 
-    const up = sinon.stub(Migration1.prototype, 'up');
-    const up2 = sinon.stub(Migration2.prototype, 'up');
+    const up = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'up');
+    const up2 = sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'up');
     await orm.migrateUp();
 
     expect(up.calledOnceWith(orm.Connections.get('sqlite'))).to.be.true;
@@ -133,8 +133,8 @@ describe('Orm migrations', () => {
     // @ts-ignore
     const orm = await db();
 
-    const spy1 = sinon.spy(Migration1.prototype, 'up');
-    const spy2 = sinon.spy(Migration2.prototype, 'up');
+    const spy1 = sinon.spy(Migration1_2021_12_01_12_00_00.prototype, 'up');
+    const spy2 = sinon.spy(Migration2_2021_12_02_12_00_00.prototype, 'up');
 
     await orm.migrateUp();
 
@@ -147,8 +147,8 @@ describe('Orm migrations', () => {
     // @ts-ignore
     const orm = await db();
 
-    const spy1 = sinon.spy(Migration1.prototype, 'down');
-    const spy2 = sinon.spy(Migration2.prototype, 'down');
+    const spy1 = sinon.spy(Migration1_2021_12_01_12_00_00.prototype, 'down');
+    const spy2 = sinon.spy(Migration2_2021_12_02_12_00_00.prototype, 'down');
 
     await orm.migrateDown();
 
@@ -208,7 +208,7 @@ describe('Orm migrations', () => {
 
      
     @Migration('sqlite')
-    class Test extends OrmMigration {
+    class Test_2021_12_02_12_00_00 extends OrmMigration {
       public async up(_: OrmDriver) {}
       public async down(_: OrmDriver) {}
     }
@@ -216,11 +216,11 @@ describe('Orm migrations', () => {
     class FakeOrm extends Orm {
       constructor() {
         super();
-        this.registerMigration(Test);
+        this.registerMigration(Test_2021_12_02_12_00_00);
       }
     }
 
-    const fakeUp = sinon.spy(Test.prototype, 'up');
+    const fakeUp = sinon.spy(Test_2021_12_02_12_00_00.prototype, 'up');
 
     const container = DI.child();
     container.register(FakeConf).as(Configuration);

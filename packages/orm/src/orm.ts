@@ -17,24 +17,14 @@ import { OrmException } from './exceptions';
  */
 const CFG_PROPS = ['Database', 'User', 'Host', 'Port', 'Filename', 'Driver', 'Name'];
 const MIGRATION_TABLE_NAME = 'spinajs_migration';
-const MIGRATION_FILE_REGEXP = /(.*)_([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2})\.(.*)/;
-const MIGRATION_TYPE_REGEXP = /(.*)_([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2})/;
-
-function migrationFileTypeMatcher(name: string) {
-  const match = name.match(MIGRATION_TYPE_REGEXP);
-
-  if (match === null || match.length !== 3) {
-    throw new OrmException(`Invalid migration file name ${name}, expected: ${name}_YYYY_MM_DD_HH_mm_ss`);
-  }
-
-  return match[1];
-}
+const MIGRATION_FILE_REGEXP = /(.*)_([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2})/;
+ 
 
 export class Orm extends AsyncModule {
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.models')
   public Models: Array<ClassInfo<ModelBase>>;
 
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.migrations', migrationFileTypeMatcher)
+  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.migrations')
   public Migrations: Array<ClassInfo<OrmMigration>>;
 
   public Connections: Map<string, OrmDriver> = new Map<string, OrmDriver>();
@@ -266,7 +256,7 @@ export class Orm extends AsyncModule {
 
   private getMigrationDate(migration: Class<OrmMigration>) {
     const match = migration.name.match(MIGRATION_FILE_REGEXP);
-    if (match === null || match.length !== 4) {
+    if (match === null || match.length !== 3) {
       return null;
     }
 
