@@ -207,11 +207,10 @@ export class Orm extends AsyncModule {
    * @param model - model to register
    */
   protected registerMigration<T extends OrmMigration>(migration: Class<T>) {
-    
     const created = this.getMigrationDate(migration);
 
-    if(created === null){
-      throw new OrmException(`Migration file ${migration.name} have invalid name format ( invalid migration name,  expected: some_name_yyyy_MM_dd_HH_mm_ss got ${migration.name})`)
+    if (created === null) {
+      throw new OrmException(`Migration file ${migration.name} have invalid name format ( invalid migration name,  expected: some_name_yyyy_MM_dd_HH_mm_ss got ${migration.name})`);
     }
 
     this.Migrations.push({
@@ -285,7 +284,6 @@ export class Orm extends AsyncModule {
 
     let migrations = toMigrate
       .map((x) => {
-
         const created = this.getMigrationDate(x.type);
 
         if (created === null) {
