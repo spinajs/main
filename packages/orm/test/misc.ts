@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { ValueConverter } from './../src/interfaces';
 import { join, normalize, resolve } from 'path';
-import { IColumnDescriptor, ColumnQueryCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder } from '../src';
+import { IColumnDescriptor, ColumnQueryCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder } from '../src';
 import { OrmDriver, TransactionCallback } from './../src/driver';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import * as _ from 'lodash';
@@ -147,6 +147,16 @@ export class FakeSelectQueryCompiler extends SelectQueryCompiler {
 }
 
 export class FakeDeleteQueryCompiler extends DeleteQueryCompiler {
+  public compile(): ICompilerOutput {
+    return {
+      expression: null,
+      bindings: null,
+    };
+  }
+}
+
+
+export class FakeTableExistsCompiler extends TableExistsCompiler {
   public compile(): ICompilerOutput {
     return {
       expression: null,

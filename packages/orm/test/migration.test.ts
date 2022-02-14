@@ -6,9 +6,9 @@ import * as chai from 'chai';
 import * as _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/orm';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler, FakeColumnQueryCompiler, dir, mergeArrays } from './misc';
+import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler, FakeColumnQueryCompiler, dir, mergeArrays, FakeTableExistsCompiler } from './misc';
 import * as sinon from 'sinon';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode } from '../src';
+import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableExistsCompiler, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode } from '../src';
 import { Migration1_2021_12_01_12_00_00 } from './mocks/migrations/Migration1_2021_12_01_12_00_00';
 import { Migration2_2021_12_02_12_00_00 } from './mocks/migrations/Migration2_2021_12_02_12_00_00';
 import { OrmDriver } from '../src/driver';
@@ -31,6 +31,7 @@ describe('Orm migrations', () => {
     DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
     DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
     DI.register(FakeColumnQueryCompiler).as(ColumnQueryCompiler);
+    DI.register(FakeTableExistsCompiler).as(TableExistsCompiler);
 
     DI.register(DbPropertyHydrator).as(ModelHydrator);
     DI.register(NonDbPropertyHydrator).as(ModelHydrator);
@@ -158,55 +159,53 @@ describe('Orm migrations', () => {
   });
 
   it('Should register migration programatically', async () => {
-
     class FakeConf extends FrameworkConfiguration {
-        public async resolveAsync(): Promise<void> {
-          await super.resolveAsync();
-  
-          _.mergeWith(
-            this.Config,
-            {
-              system: {
-                dirs: {
-                  migrations: [dir('./mocks/migrations')],
-                  models: [dir('./mocks/models')],
-                },
-              },
-              logger: {
-                targets: [
-                  {
-                    name: 'Empty',
-                    type: 'BlackHoleTarget',
-                  },
-                ],
-  
-                rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-              },
-              db: {
-                Migration: {
-                  Startup: true,
-                },
-                Connections: [
-                  {
-                    Driver: 'sqlite',
-                    Filename: 'foo.sqlite',
-                    Name: 'sqlite',
-                    Migration: {
-                      Transaction: {
-                        Mode: MigrationTransactionMode.None,
-                      },
-                    },
-                  },
-                ],
+      public async resolveAsync(): Promise<void> {
+        await super.resolveAsync();
+
+        _.mergeWith(
+          this.Config,
+          {
+            system: {
+              dirs: {
+                migrations: [dir('./mocks/migrations')],
+                models: [dir('./mocks/models')],
               },
             },
-  
-            mergeArrays,
-          );
-        }
-      }
+            logger: {
+              targets: [
+                {
+                  name: 'Empty',
+                  type: 'BlackHoleTarget',
+                },
+              ],
 
-     
+              rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+            },
+            db: {
+              Migration: {
+                Startup: true,
+              },
+              Connections: [
+                {
+                  Driver: 'sqlite',
+                  Filename: 'foo.sqlite',
+                  Name: 'sqlite',
+                  Migration: {
+                    Transaction: {
+                      Mode: MigrationTransactionMode.None,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+
+          mergeArrays,
+        );
+      }
+    }
+
     @Migration('sqlite')
     class Test_2021_12_02_12_00_00 extends OrmMigration {
       public async up(_: OrmDriver) {}
