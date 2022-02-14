@@ -3,13 +3,12 @@
 import { InternalLogger } from '@spinajs/internal-logger';
 /* eslint-disable prettier/prettier */
 import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
-import { DI, Injectable } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import { IDriverOptions, OrmDriver } from '@spinajs/orm';
 import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types';
 import * as _ from 'lodash';
 import { DateTime } from 'luxon';
 
-@Injectable(ConfigurationSource)
 export class ConfiguratioDbSource extends ConfigurationSource {
   public get Order(): number {
     // load as last, we want to have access to

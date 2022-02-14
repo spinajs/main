@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
-import { Autoinject, Container, Injectable } from '@spinajs/di';
+import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { join, normalize, resolve } from 'path';
-import { ConfigurationSource } from '@spinajs/configuration-common';
+import { ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
 import { Configuration, ConfigurationOptions, IConfigurable, IConfigurationSchema } from './types';
 import { mergeArrays, parseArgv } from './util';
 import * as _ from 'lodash';
@@ -116,6 +116,13 @@ export class FrameworkConfiguration extends Configuration {
     this.configure();
   }
 
+  public async mergeSource(sType: Class<ConfigurationSource>) {
+    const source = this.Container.resolve(sType);
+    const sCfg = await source.Load(this);
+
+    this.validateAndMerge(sCfg);
+  }
+
   protected async loadSources() {
     this.Sources = this.Container.resolve<ConfigurationSource>(Array.ofType(ConfigurationSource), [
       this.RunApp,
@@ -130,23 +137,26 @@ export class FrameworkConfiguration extends Configuration {
 
     for (const source of this.Sources) {
       const rCfg = await source.Load(this);
-
-      Object.keys(rCfg).forEach((k) => {
-        const schema = this.ValidationSchemas.find((x) => x.$configurationModule === k);
-
-        if (schema) {
-          const result = this.Validator.validate(schema, rCfg[`${k}`]);
-          if (!result) {
-            throw new InvalidConfiguration(
-              'invalid configuration ! Check config files and restart app.',
-              this.Validator.errors,
-            );
-          }
-        }
-      });
-
-      _.mergeWith(this.Config, rCfg, mergeArrays);
+      this.validateAndMerge(rCfg);
     }
+  }
+
+  protected validateAndMerge(rCfg: IConfigLike) {
+    Object.keys(rCfg).forEach((k) => {
+      const schema = this.ValidationSchemas.find((x) => x.$configurationModule === k);
+
+      if (schema) {
+        const result = this.Validator.validate(schema, rCfg[`${k}`]);
+        if (!result) {
+          throw new InvalidConfiguration(
+            'invalid configuration ! Check config files and restart app.',
+            this.Validator.errors,
+          );
+        }
+      }
+    });
+
+    _.mergeWith(this.Config, rCfg, mergeArrays);
   }
 
   protected initValidator() {
