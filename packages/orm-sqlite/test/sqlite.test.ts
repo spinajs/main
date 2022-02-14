@@ -393,8 +393,8 @@ describe('Sqlite driver migrate with transaction', () => {
     await orm.migrateUp();
 
     expect(trSpy.calledOnce).to.be.true;
-    expect(exSpy.getCall(4).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(8).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
+    expect(exSpy.getCall(7).args[0]).to.eq('COMMIT');
 
     expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 
@@ -435,8 +435,8 @@ describe('Sqlite driver migrate with transaction', () => {
     } catch {}
 
     expect(trSpy.calledOnce).to.be.true;
-    expect(exSpy.getCall(4).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(6).args[0]).to.eq('ROLLBACK');
+    expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
+    expect(exSpy.getCall(5).args[0]).to.eq('ROLLBACK');
 
     expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.rejected;
     const result = (await driver.execute(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, null, QueryContext.Select)) as unknown[];
