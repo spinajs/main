@@ -571,7 +571,7 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
   }
 
   protected _table() {
-    return `CREATE TABLE ${this.builder.CheckExists ? 'IF NOT EXISTS' : ''} ${this.tableAliasCompiler(this.builder)}`;
+    return `CREATE TABLE ${this.builder.CheckExists ? 'IF NOT EXISTS ' : ''}${this.tableAliasCompiler(this.builder)}`;
   }
 }
 
