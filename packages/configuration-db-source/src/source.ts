@@ -3,12 +3,13 @@
 import { InternalLogger } from '@spinajs/internal-logger';
 /* eslint-disable prettier/prettier */
 import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
-import { DI } from '@spinajs/di';
+import { DI, NewInstance } from '@spinajs/di';
 import { IDriverOptions, OrmDriver } from '@spinajs/orm';
 import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types';
 import * as _ from 'lodash';
 import { DateTime } from 'luxon';
 
+@NewInstance()
 export class ConfiguratioDbSource extends ConfigurationSource {
   public get Order(): number {
     // load as last, we want to have access to
@@ -26,10 +27,11 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       throw new Error(`Connection for configuration-db-source named ${dbConnection} not exists`);
     }
 
-    InternalLogger.trace(`Using db connection ${dbConnection}, database: ${cfgConnectionOptions.Database}, host: ${cfgConnectionOptions.Host}`, 'Configuration-db-source');
+    InternalLogger.trace(`Using db connection ${dbConnection}`, 'Configuration-db-source');
 
     // create raw connection to db
     const driver = DI.resolve<OrmDriver>(cfgConnectionOptions.Driver, [cfgConnectionOptions]);
+    await driver.connect();
 
     const dbOptions = (await driver.select().from(options.table)) as IConfigurationEntry[];
     const processed = dbOptions.map((entry) => {
@@ -58,8 +60,6 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       }
     });
 
-    await driver.disconnect();
-
     const grouped = _.groupBy(processed, 'Group');
     const final: IConfigLike = {};
     for (const k in grouped) {
@@ -68,6 +68,8 @@ export class ConfiguratioDbSource extends ConfigurationSource {
         (final[k] as IConfigLike)[v.Slug] = v.Value;
       }
     }
+
+    InternalLogger.success(`Configuration merged`, 'Configuration-db-source');
 
     return final;
   }
