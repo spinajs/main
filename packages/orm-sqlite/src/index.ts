@@ -1,4 +1,4 @@
-import { SqliteTableExistsCompiler } from './compilers';
+import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler } from './compilers';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -14,7 +14,6 @@ import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompile
 import { Database, RunResult } from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable } from '@spinajs/di';
-import { SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler } from './compilers';
 import { SqlLiteJoinStatement } from './statements';
 import { SqliteDatetimeValueConverter } from './converters';
 import { ResourceDuplicated } from '@spinajs/exceptions';
