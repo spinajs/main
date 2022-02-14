@@ -18,7 +18,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
   public async Load(configuration: Configuration): Promise<IConfigLike> {
     const options = configuration.get<IConfiguratioDbSourceConfig>('configuration-db-source');
-    const dbConnections = configuration.get<IDriverOptions[]>('db.connections');
+    const dbConnections = configuration.get<IDriverOptions[]>('db.Connections');
     const dbConnection = options.connection === 'default' ? configuration.get<string>('db.DefaultConnection') : options.connection;
     const cfgConnectionOptions = dbConnections.find((x) => x.Name === dbConnection);
 
