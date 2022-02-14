@@ -4,7 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-floating-promises */
-import { TestMigration } from './migrations/TestMigration_2022_02_08_01_13_00';
+import { TestMigration_2022_02_08_01_13_00 } from './migrations/TestMigration_2022_02_08_01_13_00';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from './../src/index';
 import { DI } from '@spinajs/di';
@@ -216,11 +216,11 @@ describe('Sqlite driver migrate', () => {
     const mResult = await db().Connections.get('sqlite').select().from(TEST_MIGRATION_TABLE_NAME).first();
     expect(mTable).to.be.not.null;
     expect(mResult).to.be.not.null;
-    expect((mResult as any).Migration).to.eq('TestMigration');
+    expect((mResult as any).Migration).to.eq('TestMigration_2022_02_08_01_13_00');
   });
 
   it('Should not migrate twice', async () => {
-    const spy = sinon.spy(TestMigration.prototype, 'up');
+    const spy = sinon.spy(TestMigration_2022_02_08_01_13_00.prototype, 'up');
 
     await db().migrateUp();
     await db().migrateUp();
@@ -390,12 +390,12 @@ describe('Sqlite driver migrate with transaction', () => {
     const result = (await driver.execute(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, null, QueryContext.Select)) as unknown[];
     expect(result[0]).to.be.not.undefined;
     expect(result[0]).to.be.not.null;
-    expect((result[0] as any).Migration).to.eq('TestMigration');
+    expect((result[0] as any).Migration).to.eq('TestMigration_2022_02_08_01_13_00');
   });
 
   it('Should rollback migration', async () => {
     @Migration('sqlite')
-    class MigrationFailed extends OrmMigration {
+    class MigrationFailed_2022_02_08_01_13_00 extends OrmMigration {
       public async up(connection: OrmDriver): Promise<void> {
         await connection.insert().into('not_exists').values({ id: 1 });
       }
@@ -410,7 +410,7 @@ describe('Sqlite driver migrate with transaction', () => {
 
         this.Migrations.length = 0;
         this.Models.length = 0;
-        this.registerMigration(MigrationFailed);
+        this.registerMigration(MigrationFailed_2022_02_08_01_13_00);
       }
     }
     DI.register(Fake2Orm).as(Orm);
@@ -432,6 +432,6 @@ describe('Sqlite driver migrate with transaction', () => {
     expect(result.length).to.be.eq(0);
 
     DI.unregister(Fake2Orm);
-    DI.unregister(MigrationFailed);
+    DI.unregister(MigrationFailed_2022_02_08_01_13_00);
   });
 });
