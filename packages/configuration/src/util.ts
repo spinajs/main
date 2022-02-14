@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 import * as fs from 'fs';
 import _ = require('lodash');
-import { join, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 
 /**
  * Hack to inform ts that jasmine var is declared to skip syntax error
@@ -23,6 +23,14 @@ export function parseArgv(param: string): string {
 export function findBasePath(path: string): string {
   if (fs.existsSync(join(path, 'node_modules'))) {
     return path;
+  }
+
+  const parentPath = dirname(path);
+
+  // if we reach root eg c:\
+  // and nothing is found return null
+  if (parentPath === path) {
+    return null;
   }
 
   return findBasePath(resolve(path, '..'));

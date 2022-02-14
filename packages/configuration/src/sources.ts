@@ -46,7 +46,14 @@ export abstract class BaseFileSource extends ConfigurationSource {
   constructor(protected RunApp?: string, protected CustomConfigPaths?: string[], protected appBaseDir?: string) {
     super();
 
-    this.BasePath = findBasePath(process.cwd());
+    // try to find root folder with node_modules
+    // on server environment
+    const bPath = findBasePath(process.cwd());
+
+    // if we cannot find node_modules folders and base path
+    // assume that process working dir is base path
+    // eg. on electron environment
+    this.BasePath = bPath === null ? process.cwd() : bPath;
   }
 
   protected load(extension: string, callback: (file: string) => any) {
