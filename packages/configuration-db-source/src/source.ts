@@ -31,9 +31,18 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
     if ((await this.CheckTable()) === false) {
       InternalLogger.warn(`Table for db configuration source not exists. Please run migration before use !`, 'configuration-db-source');
+      return;
     }
 
-    const dbOptions = (await driver.select().from(options.table)) as IConfigurationEntry[];
+    const final = await this.LoadConfigurationFromDB();
+
+    InternalLogger.success(`Configuration merged`, 'Configuration-db-source');
+
+    return final;
+  }
+
+  protected async LoadConfigurationFromDB() {
+    const dbOptions = (await this.Connection.select().from(this.Options.table)) as IConfigurationEntry[];
     const processed = dbOptions.map((entry) => {
       switch (entry.Type) {
         case 'string':
@@ -69,13 +78,11 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       }
     }
 
-    InternalLogger.success(`Configuration merged`, 'Configuration-db-source');
-
     return final;
   }
 
-  protected async CheckTable(){
-      
+  protected async CheckTable() {
+    return await this.Connection.schema().tableExists(this.Options.table);
   }
 
   protected async Connect() {

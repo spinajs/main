@@ -317,12 +317,12 @@ export class Orm extends AsyncModule {
     for (const [_, connection] of this.Connections) {
       const migrationTableName = connection.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
 
-      let migrationTable = null;
+       
 
       // if there is no info on migraiton table
-      migrationTable = await connection.tableInfo(migrationTableName);
+      const migrationTableExists = await connection.schema().tableExists(migrationTableName);
 
-      if (!migrationTable) {
+      if (!migrationTableExists) {
         this.Log.info(`No migration table in database, recreating migration information ...`);
 
         await connection.schema().createTable(migrationTableName, (table) => {
