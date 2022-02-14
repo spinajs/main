@@ -97,7 +97,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
     InternalLogger.trace(`Using db connection ${dbConnection}`, 'Configuration-db-source');
 
     // create raw connection to db
-    const driver = DI.resolve<OrmDriver>(cfgConnectionOptions.Driver, [cfgConnectionOptions]);
-    await driver.connect();
+    this.Connection = DI.resolve<OrmDriver>(cfgConnectionOptions.Driver, [cfgConnectionOptions]);
+    await this.Connection.connect();
   }
 }
