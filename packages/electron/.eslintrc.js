@@ -37,8 +37,14 @@ module.exports = {
   rules: {
     'tsdoc/syntax': 'warn',
 
-    // disable couse its hard to
-    // implement DI without some ugly hacks :)
+    '@typescript-eslint/no-unsafe-argument': 'off',
+    '@typescript-eslint/no-unsafe-member-access': 'off',
+    '@typescript-eslint/no-unsafe-call': 'off',
+    '@typescript-eslint/no-unsafe-return': 'off',
+    '@typescript-eslint/no-unsafe-member-access': 'off',
+    '@typescript-eslint/no-explicit-any': 'off',
+
+
     'prettier/prettier': [
       'error',
       {
