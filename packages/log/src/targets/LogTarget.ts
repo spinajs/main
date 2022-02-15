@@ -11,7 +11,7 @@ export interface ILogTargetDesc {
 export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModule {
   public HasError = false;
   public Error: Error | null | unknown = null;
-  protected Options: T;
+  public Options: T;
 
   constructor(options: T) {
     super();

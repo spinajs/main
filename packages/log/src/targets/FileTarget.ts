@@ -13,7 +13,6 @@ import * as glob from "glob";
 import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";
 
-@Injectable("FileTarget")
 @NewInstance()
 export class FileTarget extends LogTarget<IFileTargetOptions> {
   protected LogDirPath: string;
