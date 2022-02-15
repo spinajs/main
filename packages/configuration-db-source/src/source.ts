@@ -25,7 +25,10 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
   public async Load(configuration: Configuration): Promise<IConfigLike> {
     this.Configuration = configuration;
-    this.Options = this.Configuration.get('configuration-db-source');
+    this.Options = this.Configuration.get('configuration-db-source', {
+      connection: 'default',
+      table: 'configuration',
+    });
 
     await this.Connect();
 
