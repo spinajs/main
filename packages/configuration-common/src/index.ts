@@ -1,4 +1,4 @@
-import { AsyncModule } from '@spinajs/di';
+import { AsyncModule, Class } from '@spinajs/di';
 
 export * from './variables';
 
@@ -70,6 +70,29 @@ export abstract class Configuration extends AsyncModule {
    * @param value - value to set
    */
   public abstract set(path: string[] | string, value: unknown): void;
+
+  /**
+   * Merge existing config value with new options instead overriding
+   *
+   * @param path - cfg path
+   * @param value - value to merge
+   */
+  public abstract merge(path: string[] | string, value: unknown): void;
+
+  /**
+   *
+   * Loads & merge configuration loaded from specific source.
+   * Use it when you want load configuration not at startup
+   * eg. becouse it depends on other module, or some runtime action
+   *
+   * When there is need for load configuration from source at startup,
+   * simply decorate ConfigurationSource class with 'Autoinject' decorator.
+   * it will be registered in container and configuration module will resolve and
+   * load it automatically
+   *
+   * @param source - configuration source to load from
+   */
+  public abstract mergeSource(source: Class<ConfigurationSource>): Promise<void>;
 }
 
 export abstract class ConfigurationSource {

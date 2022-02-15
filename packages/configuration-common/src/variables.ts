@@ -105,11 +105,15 @@ export function format(customVars: ConfVariables | null, layout: string): string
   return _format(customVars, layout);
 }
 
-const LayoutRegexp = /\{([^:]*):([^\}]*)\}/gm;
-const Vars: Map<string, ConfigVariable> = null;
+/**
+ * This reg is safe, checked in RegexBuddy
+ */
+// eslint-disable-next-line security/detect-unsafe-regex
+const LayoutRegexp = /\$\{([^:\}]*)(:([^\}]*))?\}/gm;
+const Vars: Map<string, ConfigVariable> = new Map<string, ConfigVariable>();
 
 function _format(vars: ConfVariables, txt: string) {
-  if (Vars === null) {
+  if (Vars.size === 0) {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
     DI.resolve(Array.ofType(ConfigVariable)).forEach((v: ConfigVariable) => Vars.set(v.Name, v));
   }
@@ -127,7 +131,7 @@ function _format(vars: ConfVariables, txt: string) {
     if (vars && vars[v[1]]) {
       const fVar = vars[v[1]] as (format?: string) => string;
       if (fVar instanceof Function) {
-        result = result.replace(v[0], fVar(v[2] ?? null));
+        result = result.replace(v[0], fVar(v[3] ?? null));
       } else {
         result = result.replace(v[0], fVar);
       }
@@ -135,7 +139,7 @@ function _format(vars: ConfVariables, txt: string) {
       const variable = Vars.get(v[1]);
       if (variable) {
         // optional parameter eg. {env:PORT}
-        result = result.replace(v[0], variable.Value(v[2] ?? null));
+        result = result.replace(v[0], variable.Value(v[3] ?? null));
       } else {
         result = result.replace(v[0], '');
       }

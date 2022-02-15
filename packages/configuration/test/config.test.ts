@@ -6,10 +6,9 @@ import * as chai from 'chai';
 import { expect } from 'chai';
 import * as chaiAsPromised from 'chai-as-promised';
 import { join, normalize } from 'path';
-
 import { DI } from '@spinajs/di';
 import { FrameworkConfiguration } from '../src/configuration';
-import { Configuration } from '../src/types';
+import { Configuration } from '@spinajs/configuration-common';
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 chai.use(chaiAsPromised);
