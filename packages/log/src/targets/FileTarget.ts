@@ -173,8 +173,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     }
 
     this.CurrentFileSize = 0;
-    this.LogDirPath = format(null, path.dirname(path.resolve(this.Options.options.path)));
-    this.ArchiveDirPath = this.Options.options.archivePath ? format(null, path.resolve(this.Options.options.archivePath)) : this.LogDirPath;
+    this.LogDirPath = path.dirname(path.resolve(format(null, this.Options.options.path)));
+    this.ArchiveDirPath = this.Options.options.archivePath ? path.dirname(path.resolve(format(null, this.Options.options.archivePath))) : this.LogDirPath;
     this.LogFileName = format(null, path.basename(this.Options.options.path));
     this.LogPath = path.join(this.LogDirPath, this.LogFileName);
 
