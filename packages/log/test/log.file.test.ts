@@ -7,6 +7,7 @@ import { Log } from "../src";
 import * as _ from "lodash";
 import { expect } from "chai";
 import { TestConfiguration } from "./conf";
+import { DateTime } from "luxon";
 
 function logger(name?: string) {
   return DI.resolve(Log, [name ?? "TestLogger"]);
@@ -42,11 +43,26 @@ describe("file target tests", function () {
       .and.satisfy((msg: string) => msg.includes("INFO Hello world"));
   });
 
-  it("Should resolve file name with variables", async () => {});
+  it("Should resolve file name with variables", async () => {
+
+    const sSpy = sinon.spy(fs, "openSync");
+    logger("file");
+
+    expect(sSpy.getCall(0).args[0]).to.satisfy((name :string) => name.includes(`log_${DateTime.now().toFormat("dd_MM_yyyy")}.txt`))
+  });
 
   it("Should rotate log files when size is exceeded", async () => {});
 
   it("Should clean log files when criteria are met", async () => {});
 
-  it("should create file logger per creation", async () => {});
+  it("should create file logger per creation", async () => {
+
+    const sSpy = sinon.spy(fs, "openSync");
+
+    logger("file");
+    logger("file2");
+
+    expect(sSpy.callCount).to.eq(2);
+
+  });
 });

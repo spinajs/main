@@ -54,6 +54,17 @@ export class TestConfiguration extends FrameworkConfiguration {
                         maxArchiveFiles: 2,
                         bufferSize: 1
                     }
+                },
+                {
+                    name: "File2",
+                    type: "FileTarget",
+                    options: {
+                        path: dir("./logs/log_file2_${date:dd_MM_yyyy}.txt"),
+                        archivePath: dir("./logs/archive"),
+                        compress: true,
+                        maxArchiveFiles: 2,
+                        bufferSize: 1
+                    }
                 }
                 ],
 
@@ -66,7 +77,7 @@ export class TestConfiguration extends FrameworkConfiguration {
                     { name: "http/*/controller", level: "info", target: "TestWildcard" },
                     { name: "multiple-targets", level: "info", target: ["Format", "Level"]},
                     { name: "file", level: "trace", target: "File" },
-
+                    { name: "file2", level: "trace", target: "File" },
                 ],
             }
         },mergeArrays)
