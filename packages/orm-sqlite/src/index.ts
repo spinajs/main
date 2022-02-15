@@ -86,7 +86,7 @@ export class SqliteOrmDriver extends SqlDriver {
             error: null,
             message: `Executed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
             logger: this.Log.Name,
-            level: 'trace',
+            level: 'TRACE',
             duration: tDiff,
           },
         });
