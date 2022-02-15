@@ -39,12 +39,7 @@ export const LogLevelStrings = {
   [LogLevel.Trace]: "trace",
   [LogLevel.Warn]: "warn",
 };
-
-export abstract class LogVariable {
-  public abstract get Name(): string;
-  public abstract Value(option?: string): string;
-}
-
+ 
 export interface ILogRule {
   name: string;
   level:

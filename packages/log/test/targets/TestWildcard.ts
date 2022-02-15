@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
+import { format } from "@spinajs/configuration-common";
 import { NewInstance, Injectable } from "@spinajs/di";
 import { ICommonTargetOptions, ILogEntry } from "@spinajs/log-common";
 
@@ -11,7 +12,7 @@ import { LogTarget } from "../../src/targets";
 @Injectable("TestWildcard")
 export class TestWildcard extends LogTarget<ICommonTargetOptions> {
   public async write(data: ILogEntry): Promise<void> {
-    this.sink(this.format(data.Variables, this.Options.layout));
+    this.sink(format(data.Variables, this.Options.layout));
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

@@ -38,7 +38,7 @@ export class TestConfiguration extends FrameworkConfiguration {
                 {
                     name: "CustomLayout",
                     type: "TestTarget",
-                    layout: "{date:dd-MM-yyyy} {time:HH:mm} {message} {custom-var}"
+                    layout: "${date:dd-MM-yyyy} ${time:HH:mm} ${message} ${custom-var}"
                 },
                 {
                     name: "TestWildcard",
@@ -48,7 +48,7 @@ export class TestConfiguration extends FrameworkConfiguration {
                     name: "File",
                     type: "FileTarget",
                     options: {
-                        path: dir("./logs/log_{date:dd_MM_yyyy}.txt"),
+                        path: dir("./logs/log_${date:dd_MM_yyyy}.txt"),
                         archivePath: dir("./logs/archive"),
                         compress: true,
                         maxArchiveFiles: 2,

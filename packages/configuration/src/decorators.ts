@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { Configuration } from '@spinajs/configuration-common';
 import { DI } from '@spinajs/di';
-import { Configuration } from './types';
 
 /**
  * Injects configuration value to given class property

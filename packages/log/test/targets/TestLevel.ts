@@ -3,6 +3,7 @@
 import { ICommonTargetOptions, ILogEntry } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 import { LogTarget } from "../../src/targets";
+import { format } from "@spinajs/configuration-common";
 
 /**
  * Empty writer, usefull for tests or when we dont want to get any messages
@@ -11,7 +12,7 @@ import { LogTarget } from "../../src/targets";
 @Injectable("TestLevel")
 export class TestLevel extends LogTarget<ICommonTargetOptions> {
   public async write(data: ILogEntry): Promise<void> {
-    this.sink(this.format(data.Variables, this.Options.layout));
+    this.sink(format(data.Variables, this.Options.layout));
   }
 
   public sink(_msg: string) {}

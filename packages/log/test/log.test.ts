@@ -3,17 +3,18 @@ import { TestWildcard } from "./targets/TestWildcard";
 import { TestLevel } from "./targets/TestLevel";
 import { BlackHoleTarget } from "./../src/targets/BlackHoleTarget";
 import "mocha";
-import { DI } from "@spinajs/di";
-import { Configuration } from "@spinajs/configuration";
+import { DI, Injectable } from "@spinajs/di";
+import { Configuration, ConfigVariable } from "@spinajs/configuration";
 import * as sinon from "sinon";
-import { LogLevel, LogVariable, Log } from "../src";
+import { LogLevel, Log } from "../src";
 import { expect } from "chai";
 import * as _ from "lodash";
 import { TestTarget } from "./targets/TestTarget";
 import { DateTime } from "luxon";
 import { TestConfiguration } from "./conf";
 
-class CustomVariable extends LogVariable {
+@Injectable(ConfigVariable)
+export class CustomVariable extends ConfigVariable {
   public get Name(): string {
     return "custom-var";
   }
@@ -33,7 +34,6 @@ describe("logger tests", function () {
   before(async () => {
     DI.clearCache();
 
-    DI.register(CustomVariable).as(LogVariable);
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
   });
@@ -90,7 +90,6 @@ describe("logger tests", function () {
     log.security("Hello world");
 
     const now = DateTime.now();
-    debugger;
 
     expect(spy.args[0][0])
       .to.be.a("string")
@@ -175,7 +174,7 @@ describe("logger tests", function () {
     const log = logger("test-format");
     const date = DateTime.now();
 
-    log.info("Hello {date:HH:mm}");
+    log.info("Hello ${time:HH:mm}");
 
     expect(spy.args[0][0])
       .to.be.a("string")
@@ -194,12 +193,10 @@ describe("logger tests", function () {
   });
 
   it("Custom variables should be avaible in message", () => {
-    DI.register(CustomVariable).as(LogVariable);
-
     const spy = sinon.spy(TestTarget.prototype, "sink");
     const log = logger("test-variable");
 
-    log.info("{custom-var}");
+    log.info("${custom-var}");
 
     expect(spy.args[0][0])
       .to.be.a("string")
