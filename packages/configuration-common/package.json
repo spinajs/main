@@ -38,5 +38,6 @@
   },
   "dependencies": {
     "@spinajs/di": "^1.2.32"
-  }
+  },
+  "gitHead": "8f1ca8ef9451e62a52f33336801295d1db80a611"
 }
