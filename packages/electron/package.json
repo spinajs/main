@@ -1,0 +1,48 @@
+{
+  "name": "@spinajs/electron",
+  "version": "1.2.60",
+  "description": "spinajs extensions for electron",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -p tsconfig.build.json",
+    "clean": "",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "files": [
+    "lib/**/*",
+    "typings/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/di.git"
+  },
+  "keywords": [
+    "di",
+    "container",
+    "spinajs",
+    "di"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/di/issues"
+  },
+  "homepage": "https://github.com/spinajs/di#readme",
+  "devDependencies": {
+    "electron": "^17.0.0"
+  },
+  "dependencies": {
+    "@spinajs/configuration-common": "^1.2.60",
+    "@spinajs/di": "^1.2.32"
+  }
+}
