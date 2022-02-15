@@ -1,3 +1,4 @@
+import { InternalLogger } from "@spinajs/internal-logger";
 /* eslint security/detect-non-literal-fs-filename:0 -- Safe as no value holds user input */
 
 import { Injectable, NewInstance } from "@spinajs/di";
@@ -10,6 +11,7 @@ import { InvalidOption } from "@spinajs/exceptions";
 import { EOL } from "os";
 import * as glob from "glob";
 import * as zlib from "zlib";
+import { format } from "@spinajs/configuration";
 
 @Injectable("FileTarget")
 @NewInstance()
@@ -63,7 +65,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       return;
     }
 
-    const result = this.format(data.Variables, this.Options.layout) + EOL;
+    const result = format(data.Variables, this.Options.layout) + EOL;
     const bytes = Buffer.byteLength(result);
 
     this.BufferSize += bytes;
@@ -75,18 +77,15 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     }
 
     if (this.CurrentFileSize > this.Options.options.maxSize) {
+      InternalLogger.debug(`File ${this.LogPath} exceeded log size ( current: ${this.CurrentFileSize}, max: ${this.Options.options.maxSize})`, "file-target");
+
       this.archive();
     }
   }
 
   protected archive() {
     const files = glob
-      .sync(
-        path.join(
-          this.ArchiveDirPath,
-          `archived_${this.LogBaseName}*{${this.LogFileExt},.gzip}`
-        )
-      )
+      .sync(path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}*{${this.LogFileExt},.gzip}`))
       .map((f) => {
         return {
           name: f,
@@ -95,21 +94,9 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       })
       .sort((x) => x.stat.mtime.getTime());
 
-    const newestFile =
-      files.length !== 0 ? files[files.length - 1].name : undefined;
-    const fIndex = newestFile
-      ? parseInt(
-          newestFile.substring(
-            newestFile.lastIndexOf("_") + 1,
-            newestFile.lastIndexOf("_") + 2
-          ),
-          10
-        ) + 1
-      : 1;
-    const archPath = path.join(
-      this.ArchiveDirPath,
-      `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}`
-    );
+    const newestFile = files.length !== 0 ? files[files.length - 1].name : undefined;
+    const fIndex = newestFile ? parseInt(newestFile.substring(newestFile.lastIndexOf("_") + 1, newestFile.lastIndexOf("_") + 2), 10) + 1 : 1;
+    const archPath = path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}`);
 
     this.flush();
 
@@ -124,10 +111,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     this.initialize();
 
     if (this.Options.options.compress) {
-      const zippedPath = path.join(
-        this.ArchiveDirPath,
-        `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}.gzip`
-      );
+      const zippedPath = path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}.gzip`);
       const zip = zlib.createGzip();
       const read = fs.createReadStream(archPath);
       const write = fs.createWriteStream(zippedPath);
@@ -142,9 +126,15 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
           return;
         });
       });
+
+      InternalLogger.debug(`Created archived compressed file at ${zippedPath}`, "file-target");
+    } else {
+      InternalLogger.debug(`Created archived file at ${archPath}`, "file-target");
     }
 
     if (files.length >= this.Options.options.maxArchiveFiles) {
+      InternalLogger.debug(`Deleting old archive file ${files[0].name}`, "file-target");
+
       fs.unlink(files[0].name, () => {
         return;
       });
@@ -164,14 +154,13 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
   }
 
   private rotate() {
+
+    InternalLogger.debug(`Initializing rotating log files at schedule ${this.Options.options.rotate}`, "file-target");
+
     if (this.Options.options.rotate) {
-      this.RotateJob = scheduleJob(
-        `LogScheduleJob`,
-        this.Options.options.rotate,
-        () => {
-          this.archive();
-        }
-      );
+      this.RotateJob = scheduleJob(`LogScheduleJob`, this.Options.options.rotate, () => {
+        this.archive();
+      });
     }
   }
 
@@ -184,17 +173,9 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     }
 
     this.CurrentFileSize = 0;
-    this.LogDirPath = this.format(
-      null,
-      path.dirname(path.resolve(this.Options.options.path))
-    );
-    this.ArchiveDirPath = this.Options.options.archivePath
-      ? this.format(null, path.resolve(this.Options.options.archivePath))
-      : this.LogDirPath;
-    this.LogFileName = this.format(
-      null,
-      path.basename(this.Options.options.path)
-    );
+    this.LogDirPath = format(null, path.dirname(path.resolve(this.Options.options.path)));
+    this.ArchiveDirPath = this.Options.options.archivePath ? format(null, path.resolve(this.Options.options.archivePath)) : this.LogDirPath;
+    this.LogFileName = format(null, path.basename(this.Options.options.path));
     this.LogPath = path.join(this.LogDirPath, this.LogFileName);
 
     const { name, ext } = path.parse(this.LogFileName);
@@ -227,6 +208,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
         this.flush();
       }, this.Options.options.flushTimeout);
     }
+
+    InternalLogger.debug(`Creating log file at path ${this.LogPath}`, "file-target");
 
     this.HasError = false;
     this.Error = null;

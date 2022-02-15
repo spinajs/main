@@ -1,5 +1,7 @@
 import { AsyncModule } from '@spinajs/di';
 
+export * from './variables';
+
 /**
  * App version struct
  */

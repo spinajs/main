@@ -1,16 +1,24 @@
+/* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { join, normalize, resolve } from 'path';
-import { ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
-import { Configuration, ConfigurationOptions, IConfigurable, IConfigurationSchema } from './types';
+import {
+  ConfigurationSource,
+  IConfigLike,
+  Configuration,
+  ConfigurationOptions,
+  IConfigurable,
+  IConfigurationSchema,
+} from '@spinajs/configuration-common';
 import { mergeArrays, parseArgv } from './util';
 import * as _ from 'lodash';
 import Ajv from 'ajv';
 import { InvalidConfiguration } from './exception';
 import { InternalLogger } from '@spinajs/internal-logger';
 import './sources';
+import config from './config/configuration';
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
@@ -107,11 +115,26 @@ export class FrameworkConfiguration extends Configuration {
     this.initValidator();
     this.applyAppDirs();
 
+    // add default configuration of this module
+    // so we dont need to import it
+    this.set('configuration', config);
+
     /**
      * Load and validate data from cfg sources
      * in proper order
      */
     await this.loadSources();
+
+    /**
+     * Merge from DI container
+     * eg. when custom modules have config and dont want to use files
+     * eg. in webpack environment
+     */
+    this.Container.resolve(Array.ofType('__configuration__')).forEach((c: IConfigLike) => {
+      Object.keys(c).forEach((k) => {
+        this.merge(k, c[`${k}`]);
+      });
+    });
 
     this.configure();
   }

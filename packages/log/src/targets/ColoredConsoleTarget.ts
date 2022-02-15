@@ -7,6 +7,8 @@ import { Injectable, Singleton } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
 import { LogLevel } from "..";
 import * as colors from "colors/safe";
+import { format } from "@spinajs/configuration";
+import { InternalLogger } from "@spinajs/internal-logger";
 
 export const DEFAULT_THEME = {
   security: ["red", "bgBrightWhite"],
@@ -38,6 +40,9 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
 
   public resolve() {
     colors.setTheme(this.Options.theme ?? DEFAULT_THEME);
+
+    InternalLogger.debug(`Created console log target`, "file-target");
+
     super.resolve();
   }
 
@@ -52,7 +57,7 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
        */
       /* eslint-disable */
       (colors as any)[LogLevelStrings[data.Level]](
-        this.format(data.Variables, this.Options.layout)
+        format(data.Variables, this.Options.layout)
       )
     );
   }
