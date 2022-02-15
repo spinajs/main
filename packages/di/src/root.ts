@@ -98,8 +98,8 @@ export function register<T>(type: Class<T> | Factory<T> | ResolvableObject): IBi
 export function unregister<T>(type: Class<T> | Factory<T> | ResolvableObject): void {
   RootContainer.unregister(type);
 }
- 
-export function uncashe<T>(type:  string | Class<T> | TypedArray<T>, parent?: boolean): void {
+
+export function uncashe<T>(type: string | Class<T> | TypedArray<T>, parent?: boolean): void {
   RootContainer.uncache(type, parent);
 }
 

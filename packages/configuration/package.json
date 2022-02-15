@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration",
-  "version": "1.2.62",
+  "version": "1.2.68",
   "description": "framework configuration module",
   "main": "lib/index.js",
   "private": false,
@@ -40,10 +40,10 @@
   },
   "homepage": "https://github.com/spinajs/configuration#readme",
   "dependencies": {
-    "@spinajs/configuration-common": "^1.2.62",
-    "@spinajs/di": "^1.2.32",
+    "@spinajs/configuration-common": "^1.2.68",
+    "@spinajs/di": "^1.2.68",
     "@spinajs/exceptions": "^1.2.7",
-    "@spinajs/internal-logger": "^1.2.32",
+    "@spinajs/internal-logger": "^1.2.68",
     "ajv": "^8.8.2",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",
