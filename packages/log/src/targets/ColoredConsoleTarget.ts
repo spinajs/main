@@ -40,9 +40,6 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
 
   public resolve() {
     colors.setTheme(this.Options.theme ?? DEFAULT_THEME);
-
-    InternalLogger.debug(`Created console log target`, "file-target");
-
     super.resolve();
   }
 
