@@ -1,5 +1,5 @@
 import { FileTarget } from "./targets/FileTarget";
-import { IFileTargetOptions, ILogOptions } from "@spinajs/log-common";
+import { IFileTargetOptions } from "@spinajs/log-common";
 import { Injectable, Bootstrapper, DI, IContainer } from "@spinajs/di";
 import { Log } from "./log";
 import CONFIGURATION_SCHEMA from "./schemas/log.configuration";
