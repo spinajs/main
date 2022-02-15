@@ -97,6 +97,10 @@ export class Container extends EventEmitter implements IContainer {
     this.Registry.unregister(implementation);
   }
 
+  public uncache<T>(implementation: string | Class<T> | TypedArray<T>, parent?: boolean): void {
+    this.Cache.remove(implementation, parent);
+  }
+
   /**
    * Creates child DI container.
    *

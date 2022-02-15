@@ -4,13 +4,14 @@ import { DI } from "@spinajs/di";
 import { Configuration } from "@spinajs/configuration";
 import * as sinon from "sinon";
 import * as fs from "fs";
-import { Log } from "../src";
+import { Log, LogBotstrapper } from "../src";
 import * as _ from "lodash";
 import { expect } from "chai";
 import { TestConfiguration } from "./conf";
 import { DateTime } from "luxon";
 
 function logger(name?: string) {
+  DI.resolve(LogBotstrapper).bootstrap();
   return DI.resolve(Log, [name ?? "TestLogger"]);
 }
 
@@ -25,13 +26,15 @@ describe("file target tests", function () {
 
   beforeEach(() => {
     Log.clearLoggers();
+
+    DI.uncashe("__log_file_targets__");
   });
 
   afterEach(() => {
     sinon.restore();
   });
 
-  it("Should write to file", async () => {
+  it("Should write to file",  () => {
     const mk = sinon.mock(fs);
     const log = logger("file");
     const s2 = mk.expects("writeFileSync");
@@ -44,7 +47,7 @@ describe("file target tests", function () {
       .and.satisfy((msg: string) => msg.includes("INFO Hello world"));
   });
 
-  it("Should resolve file name with variables", async () => {
+  it("Should resolve file name with variables", () => {
 
     const sSpy = sinon.spy(fs, "openSync");
     logger("file");
@@ -56,7 +59,7 @@ describe("file target tests", function () {
 
   it("Should clean log files when criteria are met", async () => {});
 
-  it("should create file logger per creation", async () => {
+  it("should create file logger per creation", () => {
 
     const sSpy = sinon.spy(fs, "openSync");
 

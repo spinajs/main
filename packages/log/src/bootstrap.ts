@@ -6,7 +6,7 @@ import CONFIGURATION_SCHEMA from "./schemas/log.configuration";
 
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
-  public async bootstrap(): Promise<void> {
+  public bootstrap(): void {
     DI.register(CONFIGURATION_SCHEMA).asValue("__configurationSchema__");
 
     // register factory for file target,
@@ -17,8 +17,7 @@ export class LogBotstrapper extends Bootstrapper {
       let target = fileTargets.find((t: FileTarget) => t.Options.name === options.name) as FileTarget;
 
       if (!target) {
-
-        target = container.resolve<FileTarget>("__file_target_implementation__");
+        target = container.resolve<FileTarget>("__file_target_implementation__",[options]);
         container.register(target).asValue("__log_file_targets__");
 
         return target;

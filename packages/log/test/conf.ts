@@ -77,7 +77,7 @@ export class TestConfiguration extends FrameworkConfiguration {
                     { name: "http/*/controller", level: "info", target: "TestWildcard" },
                     { name: "multiple-targets", level: "info", target: ["Format", "Level"]},
                     { name: "file", level: "trace", target: "File" },
-                    { name: "file2", level: "trace", target: "File" },
+                    { name: "file2", level: "trace", target: "File2" },
                 ],
             }
         },mergeArrays)

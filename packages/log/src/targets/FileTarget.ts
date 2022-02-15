@@ -76,8 +76,6 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     }
 
     if (this.CurrentFileSize > this.Options.options.maxSize) {
-      InternalLogger.debug(`File ${this.LogPath} exceeded log size ( current: ${this.CurrentFileSize}, max: ${this.Options.options.maxSize})`, "file-target");
-
       this.archive();
     }
   }
@@ -154,8 +152,6 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
   private rotate() {
 
-    InternalLogger.debug(`Initializing rotating log files at schedule ${this.Options.options.rotate}`, "file-target");
-
     if (this.Options.options.rotate) {
       this.RotateJob = scheduleJob(`LogScheduleJob`, this.Options.options.rotate, () => {
         this.archive();
@@ -207,8 +203,6 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
         this.flush();
       }, this.Options.options.flushTimeout);
     }
-
-    InternalLogger.debug(`Creating log file at path ${this.LogPath}`, "file-target");
 
     this.HasError = false;
     this.Error = null;

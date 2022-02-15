@@ -14,6 +14,14 @@ export class ContainerCache {
     this.add(container, container);
   }
 
+  public remove(key: string | Class<any> | TypedArray<any>, parent?: boolean): void {
+    if (this.has(key)) {
+      this.cache.delete(getTypeName(key));
+    } else if (parent && this.container.Parent) {
+      this.container.Parent.uncache(key);
+    }
+  }
+
   public add(key: string | Class<any> | object, instance: any) {
     const tName = getTypeName(key);
 
