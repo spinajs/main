@@ -75,7 +75,7 @@ export interface IConfigVariable {
 }
 
 export interface IConfiguStatiVariables {
-  message: string;
+  message?: string;
 }
 
 export type ConfVariables = IConfiguStatiVariables & IConfigVariable;

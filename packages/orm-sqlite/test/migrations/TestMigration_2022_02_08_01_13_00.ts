@@ -18,5 +18,6 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
   }
 
   // tslint:disable-next-line: no-empty
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
   public async down(_connection: OrmDriver): Promise<void> {}
 }

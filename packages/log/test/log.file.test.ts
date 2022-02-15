@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-empty-function */
 import "mocha";
 import { DI } from "@spinajs/di";
 import { Configuration } from "@spinajs/configuration";

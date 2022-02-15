@@ -18,6 +18,7 @@ import { SqlLiteJoinStatement } from './statements';
 import { SqliteDatetimeValueConverter } from './converters';
 import { ResourceDuplicated } from '@spinajs/exceptions';
 import { IIndexInfo, ITableInfo } from './types';
+import { format } from '@spinajs/configuration';
 
 @Injectable('orm-driver-sqlite')
 export class SqliteOrmDriver extends SqlDriver {
@@ -116,7 +117,7 @@ export class SqliteOrmDriver extends SqlDriver {
 
   public async connect(): Promise<OrmDriver> {
     return new Promise((resolve, reject) => {
-      this.Db = new Database(this.Options.Filename, (err: unknown) => {
+      this.Db = new Database(format({}, this.Options.Filename), (err: unknown) => {
         if (err) {
           reject(err);
           return;
