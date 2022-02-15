@@ -39,7 +39,7 @@ export const LogLevelStrings = {
   [LogLevel.Trace]: "trace",
   [LogLevel.Warn]: "warn",
 };
- 
+
 export interface ILogRule {
   name: string;
   level:
