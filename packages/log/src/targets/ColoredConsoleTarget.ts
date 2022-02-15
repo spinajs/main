@@ -8,7 +8,6 @@ import { LogTarget } from "./LogTarget";
 import { LogLevel } from "..";
 import * as colors from "colors/safe";
 import { format } from "@spinajs/configuration";
-import { InternalLogger } from "@spinajs/internal-logger";
 
 export const DEFAULT_THEME = {
   security: ["red", "bgBrightWhite"],
