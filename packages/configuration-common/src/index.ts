@@ -46,6 +46,11 @@ export interface ConfigurationOptions {
 
 export abstract class Configuration extends AsyncModule {
   /**
+   * Root config object, contains whole app configuration
+   */
+  public abstract get RootConfig(): IConfigLike;
+
+  /**
    * Current running app name
    */
   public RunApp: string;

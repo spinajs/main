@@ -45,6 +45,10 @@ export class FrameworkConfiguration extends Configuration {
 
   protected ValidationSchemas: IConfigurationSchema[];
 
+  public get RootConfig() {
+    return this.Config;
+  }
+
   @Autoinject()
   protected Container: Container;
 
