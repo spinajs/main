@@ -25,9 +25,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
   protected RotateJob: Job;
   protected ArchiveJob: Job;
-
-  protected LogFileDescriptor: number;
-
+ 
   protected CurrentFileSize: number;
   protected BufferSize = 0;
 
@@ -50,10 +48,6 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
     process.on("exit", () => {
       this.flush();
-
-      if (this.LogFileDescriptor) {
-        fs.closeSync(this.LogFileDescriptor);
-      }
     });
 
     super.resolve();
@@ -68,7 +62,6 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     const bytes = Buffer.byteLength(result);
 
     this.BufferSize += bytes;
-
     this.Buffer.push(result);
 
     if (this.BufferSize > this.Options.options.bufferSize) {
@@ -101,7 +94,6 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       return;
     }
 
-    fs.closeSync(this.LogFileDescriptor);
     fs.copyFileSync(this.LogPath, archPath);
     fs.unlinkSync(this.LogPath);
 
@@ -123,15 +115,9 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
           return;
         });
       });
-
-      InternalLogger.debug(`Created archived compressed file at ${zippedPath}`, "file-target");
-    } else {
-      InternalLogger.debug(`Created archived file at ${archPath}`, "file-target");
     }
 
     if (files.length >= this.Options.options.maxArchiveFiles) {
-      InternalLogger.debug(`Deleting old archive file ${files[0].name}`, "file-target");
-
       fs.unlink(files[0].name, () => {
         return;
       });
@@ -139,11 +125,13 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
   }
 
   protected flush() {
-    if (!this.LogFileDescriptor || this.HasError || this.BufferSize === 0) {
+    if (this.HasError || this.BufferSize === 0) {
       return;
     }
 
-    fs.writeFileSync(this.LogFileDescriptor, this.Buffer.join());
+    const fd = fs.openSync(this.LogPath, "a");
+    fs.writeFileSync(fd, this.Buffer.join());
+    fs.closeSync(fd);
 
     this.CurrentFileSize += this.BufferSize;
     this.Buffer = [];
@@ -162,11 +150,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
   private initialize() {
     this.flush();
 
-    if (this.LogFileDescriptor >= 0) {
-      fs.closeSync(this.LogFileDescriptor);
-      this.LogFileDescriptor = 0;
-    }
-
+  
     this.CurrentFileSize = 0;
     this.LogDirPath = path.dirname(path.resolve(format(null, this.Options.options.path)));
     this.ArchiveDirPath = this.Options.options.archivePath ? path.resolve(format(null, this.Options.options.archivePath)) : this.LogDirPath;
@@ -196,7 +180,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       this.CurrentFileSize = size;
     }
 
-    this.LogFileDescriptor = fs.openSync(this.LogPath, "a");
+   
 
     if (this.Options.options.flushTimeout !== 0) {
       setTimeout(() => {
