@@ -1,6 +1,4 @@
-import { InternalLogger } from "@spinajs/internal-logger";
 /* eslint security/detect-non-literal-fs-filename:0 -- Safe as no value holds user input */
-
 import {  NewInstance } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
 import { IFileTargetOptions, ILogEntry } from "@spinajs/log-common";
