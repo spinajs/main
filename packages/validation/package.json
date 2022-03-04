@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/validation",
-  "version": "1.2.72",
+  "version": "1.2.73",
   "description": "validation library for spinajs framework",
   "main": "lib/index.js",
   "private": false,
@@ -39,7 +39,7 @@
     "@spinajs/configuration": "^1.2.71",
     "@spinajs/di": "^1.2.68",
     "@spinajs/exceptions": "^1.2.7",
-    "@spinajs/log": "^1.2.72",
+    "@spinajs/log": "^1.2.73",
     "ajv": "^8.8.2",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",
