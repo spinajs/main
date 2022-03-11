@@ -1,5 +1,5 @@
 /* eslint security/detect-non-literal-fs-filename:0 -- Safe as no value holds user input */
-import {  NewInstance } from "@spinajs/di";
+import {  Injectable, NewInstance } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
 import { IFileTargetOptions, ILogEntry } from "@spinajs/log-common";
 import * as fs from "fs";
@@ -12,6 +12,7 @@ import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";
 
 @NewInstance()
+@Injectable("FileTarget")
 export class FileTarget extends LogTarget<IFileTargetOptions> {
   protected LogDirPath: string;
   protected LogFileName: string;
