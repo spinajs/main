@@ -266,7 +266,15 @@ export class ModelBase {
     const id = await query.values(this.dehydrate());
 
     // ignore fired, we dont have insert ID
-    if (insertBehaviour !== InsertBehaviour.None && (id as any) === 0 && !this.PrimaryKeyValue) {
+    if (insertBehaviour === InsertBehaviour.OnDuplicateThrow && (id as any) === 0) {
+      throw new OrmException(
+        `Duplicated entry in db for unique keys: ${description.Columns.filter((c) => c.Unique)
+          .map((c) => {
+            (self as any)[c.Name];
+          })
+          .join(',')}`,
+      );
+    } else if (insertBehaviour === InsertBehaviour.OnDuplicateIgnore && (id as any) === 0 && !this.PrimaryKeyValue) {
       const { query, description } = _createQuery(this.constructor, SelectQueryBuilder, false);
       const idRes = await query
         .columns([this.PrimaryKeyName])
@@ -279,7 +287,7 @@ export class ModelBase {
 
       this.PrimaryKeyValue = (idRes as any)[this.PrimaryKeyName];
     } else {
-      this.PrimaryKeyValue = id;
+      this.PrimaryKeyValue = this.PrimaryKeyValue ?? id;
     }
   }
 
