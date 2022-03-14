@@ -20,6 +20,7 @@ import { BelongsToRelation, OneToManyRelation } from '../src/relations';
 import { Orm } from '../src/orm';
 import { RelationModel2 } from './mocks/models/RelationModel2';
 import { Model4 } from './mocks/models/Model4';
+import { ModelNested2 } from './mocks/models/ModelNested2';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -893,6 +894,27 @@ describe('Orm relations tests', () => {
     expect(result.Many[1].Owner).to.be.not.null;
 
     callback.restore();
+  });
+
+  it('Setting Id for relation owner should set foreign key', () =>{ 
+    const m = new ModelNested1();
+    const m2 = new ModelNested2();
+    m.HasMany1.push(m2);
+    m.PrimaryKeyValue = 666;
+
+    expect((m2 as any)["rel_1"]).to.eq(666);
+  });
+
+  it("Should attach model to relation and fill foreign key", () =>{ 
+    const m = new ModelNested1({
+      Id: 777
+    });
+    const m2 = new ModelNested2();
+    
+    m.attach(m2);
+
+    expect((m2 as any)["rel_1"]).to.eq(777);
+    expect(m.HasMany1.length).to.eq(1);
   });
 
   it('HasManyToMany relation should be executed', async () => {

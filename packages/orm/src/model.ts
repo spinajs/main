@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList } from './relations';
+import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation } from './relations';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
 import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter } from './interfaces';
 import { WhereFunction } from './types';
@@ -223,6 +223,16 @@ export class ModelBase {
     for (const [_, v] of this.ModelDescriptor.Relations.entries()) {
       if (v.TargetModel.name === (data as any).constructor.name) {
         (data as any)[v.ForeignKey] = this.PrimaryKeyValue;
+
+        switch (v.Type) {
+          case RelationType.One:
+            (this as any)[v.Name] = data;
+            break;
+          case RelationType.Many:
+          case RelationType.ManyToMany:
+            ((this as any)[v.Name] as Relation<ModelBase>).push(data);
+            break;
+        }
       }
     }
   }
@@ -235,7 +245,7 @@ export class ModelBase {
 
     this.ModelDescriptor.Columns?.forEach((c) => {
       const val = (this as any)[c.Name];
-      if (!c.PrimaryKey || (!c.Nullable && (val === null || val === undefined || val === ''))) {
+      if (c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
       (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val) : val;

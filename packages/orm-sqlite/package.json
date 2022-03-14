@@ -54,5 +54,5 @@
   "devDependencies": {
     "@types/sqlite3": "^3.1.5"
   },
-  "gitHead": "443f2b62fbb30bc0e7847b1672fe066a6a4ead69"
+  "gitHead": "4c58bd20c46200cc12515cbe9b7e5b599f5cf354"
 }
