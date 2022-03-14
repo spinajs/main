@@ -217,6 +217,12 @@ export class ModelBase {
     DI.resolve(Array.ofType(ModelHydrator)).forEach((h) => h.hydrate(this, data));
   }
 
+  /**
+   *
+   * Attachess model to proper relation an sets foreign key
+   *
+   * @param data - model to attach
+   */
   public attach(data: ModelBase) {
     // TODO: refactor this, to not check every time for relation
     // do this as map or smth
