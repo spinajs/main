@@ -68,6 +68,23 @@ export class ModelBase {
 
   public set PrimaryKeyValue(newVal: any) {
     (this as any)[this.PrimaryKeyName] = newVal;
+
+    this.ModelDescriptor.Relations.forEach((r) => {
+      const rel = (this as any)[r.Name];
+      if (!rel) return;
+
+      switch (r.Type) {
+        case RelationType.One:
+          (rel as any)[r.ForeignKey] = newVal;
+          break;
+        case RelationType.Many:
+          (rel as any[]).forEach((rVal) => (rVal[r.ForeignKey] = newVal));
+          break;
+        case RelationType.ManyToMany:
+          // TODO: rethink this
+          break;
+      }
+    });
   }
 
   /**
@@ -200,6 +217,17 @@ export class ModelBase {
     DI.resolve(Array.ofType(ModelHydrator)).forEach((h) => h.hydrate(this, data));
   }
 
+  public attach(data: ModelBase) {
+
+    // TODO: refactor this, to not check every time for relation
+    // do this as map or smth    
+    for (const [_, v] of this.ModelDescriptor.Relations.entries()) {
+      if (v.TargetModel.name === (data as any).constructor.name) {
+        (data as any)[v.ForeignKey] = this.PrimaryKeyValue;
+      }
+    }
+  }
+
   /**
    * Extracts all data from model. It takes only properties that exists in DB
    */
@@ -274,7 +302,10 @@ export class ModelBase {
           })
           .join(',')}`,
       );
-    } else if (insertBehaviour === InsertBehaviour.OnDuplicateIgnore && (id as any) === 0 && !this.PrimaryKeyValue) {
+    } else if (insertBehaviour === InsertBehaviour.OnDuplicateIgnore && !this.PrimaryKeyValue) {
+      // if OnDuplicateIgnore is set && we dont have pkey value, refresh pkey
+      // based on unique column constrains
+
       const { query, description } = _createQuery(this.constructor, SelectQueryBuilder, false);
       const idRes = await query
         .columns([this.PrimaryKeyName])

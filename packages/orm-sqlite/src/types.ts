@@ -1,8 +1,15 @@
-export interface IIndexInfo {
-  type: string;
+export interface IIndexInfoList {
+  seq: number;
   name: string;
-  tbl_name: string;
-  sql: string;
+  unique: number;
+  origin: string;
+  partial: number;
+}
+
+export interface IIndexInfo {
+  seqno : number;
+  cid: number;
+  name : string;
 }
 
 export interface ITableInfo {

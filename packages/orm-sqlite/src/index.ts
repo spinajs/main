@@ -17,7 +17,7 @@ import { Injectable } from '@spinajs/di';
 import { SqlLiteJoinStatement } from './statements';
 import { SqliteDatetimeValueConverter } from './converters';
 import { ResourceDuplicated } from '@spinajs/exceptions';
-import { IIndexInfo, ITableInfo } from './types';
+import { IIndexInfo, IIndexInfoList, ITableInfo } from './types';
 import { format } from '@spinajs/configuration';
 
 @Injectable('orm-driver-sqlite')
@@ -188,19 +188,21 @@ export class SqliteOrmDriver extends SqlDriver {
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
     const tblInfo = (await this.execute(`PRAGMA table_info(${name});`, null, QueryContext.Select)) as ITableInfo[];
 
-    const indexInfo = (await this.execute(`select type, name, tbl_name, sql FROM sqlite_master WHERE type='index' AND tbl_name='${name}'`, null, QueryContext.Select)) as IIndexInfo[];
-
-    if (!tblInfo || !indexInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
+    if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
       return null;
     }
 
-    const re = /\((.*?)\)/;
-    const indices = indexInfo.map((i) => {
-      return {
-        table: i.tbl_name,
-        column_name: i.sql?.match(re)[0],
-      };
-    });
+    // get all indices for table
+    const indexList = (await this.execute(`PRAGMA index_list("${name}")`, null, QueryContext.Select)) as IIndexInfoList[];
+    const uIndices: string[] = [];
+
+    // get all unique & fetch for whitch column
+    for (const idx of indexList.filter((i) => i.unique === 1)) {
+      const iInfo = (await this.execute(`PRAGMA index_info("${idx.name}")`, null, QueryContext.Select)) as IIndexInfo[];
+      if (iInfo && iInfo.length === 1) {
+        uIndices.push(iInfo[0].name);
+      }
+    }
 
     return tblInfo.map((r: ITableInfo) => {
       return {
@@ -220,7 +222,7 @@ export class SqliteOrmDriver extends SqlDriver {
         Name: r.name,
         Converter: null,
         Schema: _schema ? _schema : this.Options.Database,
-        Unique: indices.find((i) => i.column_name && i.column_name.includes(r.name) && i.table === name) !== undefined,
+        Unique: uIndices.find((i) => i.includes(r.name)) !== undefined,
       };
     });
   }

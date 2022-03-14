@@ -20,6 +20,7 @@ export enum QueryContext {
 export enum InsertBehaviour {
   /**
    * On duplicate entry ignore & fetch only model primary key
+   * On duplicate check not only for pkeys but also for unique constrain
    */
   OnDuplicateIgnore,
 
