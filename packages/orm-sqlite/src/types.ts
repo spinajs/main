@@ -7,9 +7,9 @@ export interface IIndexInfoList {
 }
 
 export interface IIndexInfo {
-  seqno : number;
+  seqno: number;
   cid: number;
-  name : string;
+  name: string;
 }
 
 export interface ITableInfo {

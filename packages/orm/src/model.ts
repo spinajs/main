@@ -218,9 +218,8 @@ export class ModelBase {
   }
 
   public attach(data: ModelBase) {
-
     // TODO: refactor this, to not check every time for relation
-    // do this as map or smth    
+    // do this as map or smth
     for (const [_, v] of this.ModelDescriptor.Relations.entries()) {
       if (v.TargetModel.name === (data as any).constructor.name) {
         (data as any)[v.ForeignKey] = this.PrimaryKeyValue;
