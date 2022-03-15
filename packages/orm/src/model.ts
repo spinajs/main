@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation } from './relations';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
-import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter } from './interfaces';
+import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter, UpdateResult } from './interfaces';
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
 import { WhereOperators } from './enums';
@@ -293,8 +293,6 @@ export class ModelBase {
    * primary key exists
    */
   public async insert(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
-    const self = this;
-
     const { query, description } = _createQuery(this.constructor, InsertQueryBuilder);
 
     switch (insertBehaviour) {
@@ -306,42 +304,68 @@ export class ModelBase {
         break;
     }
 
-    const id = await query.values(this.dehydrate());
+    const { LastInsertId, RowsAffected } = (await query.values(this.dehydrate())) as unknown as UpdateResult;
 
-    // ignore fired, we dont have insert ID
-    if (insertBehaviour === InsertBehaviour.OnDuplicateThrow && (id as any) === 0) {
-      throw new OrmException(
-        `Duplicated entry in db for unique keys: ${description.Columns.filter((c) => c.Unique)
-          .map((c) => {
-            (self as any)[c.Name];
-          })
-          .join(',')}`,
-      );
-    } else if (insertBehaviour === InsertBehaviour.OnDuplicateIgnore && !this.PrimaryKeyValue) {
-      // if OnDuplicateIgnore is set && we dont have pkey value, refresh pkey
-      // based on unique column constrains
-
-      const { query, description } = _createQuery(this.constructor, SelectQueryBuilder, false);
-      const idRes = await query
-        .columns([this.PrimaryKeyName])
-        .where(function () {
-          description.Columns.filter((c) => c.Unique).forEach((c) => {
-            this.where(c, (self as any)[c.Name]);
-          });
-        })
-        .first();
-
-      this.PrimaryKeyValue = (idRes as any)[this.PrimaryKeyName];
-    } else {
-      this.PrimaryKeyValue = this.PrimaryKeyValue ?? id;
+    if (RowsAffected !== 0) {
+      this.PrimaryKeyValue = this.PrimaryKeyValue ?? LastInsertId;
     }
   }
 
   /**
    * Gets model data from database and returns as fresh instance.
+   *
+   * If primary key is not fetched, tries to load by columns with unique constraint.
+   * If there is no unique columns or primary key, throws error
    */
   public async fresh(): Promise<this> {
-    return (this.constructor as any).get(this.PrimaryKeyValue);
+    const { query } = _createQuery(this.constructor, SelectQueryBuilder);
+    query.select('*');
+
+    if (this.PrimaryKeyValue) {
+      query.where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    } else {
+      const unique = this.ModelDescriptor.Columns.filter((x) => x.Unique);
+      if (unique.length !== 0) {
+        for (const c of unique) {
+          query.where(c.Name, '=', (this as any)[c.Name]);
+        }
+      } else {
+        throw new OrmException('Model dont have primary key set or columns with unique constraint, cannot fetch model from database');
+      }
+    }
+
+    return await query.firstOrFail();
+  }
+
+  /**
+   * Refresh model from database.
+   * 
+   * If no primary key is set, tries to fetch data base on columns
+   * with unique constraints. If none exists, throws exception
+   */
+  public async refresh(): Promise<void> {
+    let model: this = null;
+    const { query } = _createQuery(this.constructor, SelectQueryBuilder);
+    query.select('*');
+
+    if (this.PrimaryKeyValue) {
+      query.where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    } else {
+      const unique = this.ModelDescriptor.Columns.filter((x) => x.Unique);
+      if (unique.length !== 0) {
+        for (const c of unique) {
+          query.where(c.Name, '=', (this as any)[c.Name]);
+        }
+      } else {
+        throw new OrmException('Model dont have primary key set or columns with unique constraint, cannot fetch model from database');
+      }
+    }
+
+    model = await query.firstOrFail();
+
+    for (const c of this.ModelDescriptor.Columns) {
+      (this as any)[c.Name] = (model as any)[c.Name];
+    }
   }
 
   /**

@@ -40,6 +40,17 @@ export class SqliteOrmDriver extends SqlDriver {
       switch (queryContext) {
         case QueryContext.Update:
         case QueryContext.Delete:
+          this.Db.run(stmt, ...queryParams, function (this: RunResult, err: unknown) {
+            if (err) {
+              reject(err);
+              return;
+            }
+
+            resolve({
+              RowsAffected: this.changes,
+            });
+          });
+          break;
         case QueryContext.Schema:
         case QueryContext.Transaction:
           this.Db.run(stmt, ...queryParams, (err: unknown, data: unknown) => {
@@ -72,7 +83,10 @@ export class SqliteOrmDriver extends SqlDriver {
               return;
             }
 
-            resolve(this.lastID);
+            resolve({
+              RowsAffected: this.changes,
+              LastInsertId: this.lastID,
+            });
           });
           break;
       }

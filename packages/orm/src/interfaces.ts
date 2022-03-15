@@ -242,6 +242,14 @@ export enum RelationType {
 
 export type ForwardRefFunction = () => Constructor<ModelBase>;
 
+/**
+ * Returns result of last insert or affected rows ( eg. rows affected would be 0 if insert is ignored )
+ */
+export interface UpdateResult {
+  RowsAffected: number;
+  LastInsertId: number;
+}
+
 export interface IRelationDescriptor {
   /**
    * Name of relations, defaults for property name in model that owns relation
@@ -616,7 +624,7 @@ export interface ICompilerOutput {
 }
 
 export interface IQueryCompiler {
-  compile(): ICompilerOutput;
+  compile(): ICompilerOutput | ICompilerOutput[];
 }
 
 export interface ILimitCompiler {
@@ -693,6 +701,11 @@ export abstract class OnDuplicateQueryCompiler implements IQueryCompiler {
 
 @NewInstance()
 export abstract class TableQueryCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
+@NewInstance()
+export abstract class AlterTableQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
 

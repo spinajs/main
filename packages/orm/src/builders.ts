@@ -1,3 +1,4 @@
+import { OrmException } from './exceptions';
 /* eslint-disable prettier/prettier */
 
 import { Container, Inject, NewInstance, Constructor } from '@spinajs/di';
@@ -5,14 +6,14 @@ import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinaj
 import * as _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SORT_ORDER, WhereBoolean, WhereOperators, JoinMethod } from './enums';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder } from './interfaces';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder } from './interfaces';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, WrapStatement, Wrap } from './statements';
 import { WhereFunction } from './types';
 import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
-import { TableExistsCompiler } from '.';
+import { TableExistsCompiler, UpdateResult } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -1028,7 +1029,7 @@ export class UpdateQueryBuilder extends QueryBuilder {
   }
 }
 
-export class InsertQueryBuilder extends QueryBuilder {
+export class InsertQueryBuilder extends QueryBuilder<UpdateResult> {
   public DuplicateQueryBuilder: OnDuplicateQueryBuilder;
 
   protected _values: any[][];
@@ -1339,6 +1340,79 @@ export class TableExistsQueryBuilder extends QueryBuilder {
   }
 }
 
+export class AlterTableQueryBuilder extends QueryBuilder {
+  protected _column: ColumnQueryBuilder;
+
+  public NewTableName: string;
+
+  public DroppedColumn: string;
+
+  public OldColumnName : string;
+
+  public NewColumnName : string;
+
+  public get Column() {
+    return this._column;
+  }
+
+  constructor(container: Container, driver: OrmDriver, name: string) {
+    super(container, driver, null);
+
+    this.setTable(name);
+
+    this._queryContext = QueryContext.Schema;
+  }
+
+  public int: (name: string) => ColumnQueryBuilder;
+  public bigint: (name: string) => ColumnQueryBuilder;
+  public tinyint: (name: string) => ColumnQueryBuilder;
+  public smallint: (name: string) => ColumnQueryBuilder;
+  public mediumint: (name: string) => ColumnQueryBuilder;
+
+  public text: (name: string) => ColumnQueryBuilder;
+  public tinytext: (name: string) => ColumnQueryBuilder;
+  public mediumtext: (name: string) => ColumnQueryBuilder;
+  public smalltext: (name: string) => ColumnQueryBuilder;
+  public longtext: (name: string) => ColumnQueryBuilder;
+  public string: (name: string, length?: number) => ColumnQueryBuilder;
+
+  public float: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;
+  public double: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;
+  public decimal: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;
+  public boolean: (name: string) => ColumnQueryBuilder;
+  public bit: (name: string) => ColumnQueryBuilder;
+
+  public date: (name: string) => ColumnQueryBuilder;
+  public dateTime: (name: string) => ColumnQueryBuilder;
+  public time: (name: string) => ColumnQueryBuilder;
+  public timestamp: (name: string) => ColumnQueryBuilder;
+  public enum: (name: string, values: any[]) => ColumnQueryBuilder;
+  public json: (name: string) => ColumnQueryBuilder;
+
+  public binary: (name: string, size: number) => ColumnQueryBuilder;
+
+  public tinyblob: (name: string) => ColumnQueryBuilder;
+  public mediumblob: (name: string) => ColumnQueryBuilder;
+  public longblob: (name: string) => ColumnQueryBuilder;
+
+  public rename(newTableName: string) {
+    this.NewTableName = newTableName;
+  }
+
+  public renameColumn(column: string, newColumn: string) {
+    this.OldColumnName = column;
+    this.NewColumnName = newColumn;
+  }
+
+  public dropColumn(column: string) {
+    this.DroppedColumn = column;
+  }
+
+  public toDB(): ICompilerOutput {
+    return this._container.resolve<AlterTableQueryCompiler>(AlterTableQueryCompiler, [this]).compile();
+  }
+}
+
 export class TableQueryBuilder extends QueryBuilder {
   public int: (name: string) => ColumnQueryBuilder;
   public bigint: (name: string) => ColumnQueryBuilder;
@@ -1451,6 +1525,13 @@ export class SchemaQueryBuilder {
     return builder;
   }
 
+  public aleterTable(name: string, callback: (table: AlterTableQueryBuilder) => void) {
+    const builder = new AlterTableQueryBuilder(this.container, this.driver, name);
+    callback.call(this, builder);
+
+    return builder;
+  }
+
   public async tableExists(name: string) {
     const query = new TableExistsQueryBuilder(this.container, this.driver, name);
     const exists = await query;
@@ -1462,6 +1543,19 @@ Object.values(ColumnType).forEach((type) => {
   (TableQueryBuilder.prototype as any)[type] = function (name: string, ...args: any[]) {
     const _builder = new ColumnQueryBuilder(name, type, ...args);
     this._columns.push(_builder);
+    return _builder;
+  };
+});
+
+Object.values(ColumnType).forEach((type) => {
+  (AlterTableQueryBuilder.prototype as any)[type] = function (name: string, ...args: any[]) {
+    
+    if(this._column!== null){
+      throw new OrmException('Multiple column alterations not allowed. Prepare separate statement for each change.')
+    }
+
+    const _builder = new ColumnQueryBuilder(name, type, ...args);
+    this._column = _builder;
     return _builder;
   };
 });
