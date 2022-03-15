@@ -882,7 +882,7 @@ describe('insert query builder', () => {
         active: true,
         email: 'spine@spine.pl',
       })
-      .onDuplicate("id")
+      .onDuplicate('id')
       .update(['email', 'active'])
       .toDB();
 
@@ -1035,6 +1035,18 @@ describe('schema building', () => {
       .toDB();
 
     expect(result.expression).to.contain('`foo` TEXT NOT NULL');
+  });
+
+  it('temporary table', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.int('foo').notNull().primaryKey().autoIncrement();
+        table.int('bar').notNull().primaryKey().autoIncrement();
+        table.temporary();
+      })
+      .toDB();
+
+    expect(result.expression).to.equal('CREATE TEMPORARY TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT,`bar` INT NOT NULL AUTO_INCREMENT , PRIMARY KEY (`foo`,`bar`))');
   });
 
   it('column types', () => {

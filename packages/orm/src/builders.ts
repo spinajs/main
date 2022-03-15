@@ -1347,9 +1347,9 @@ export class AlterTableQueryBuilder extends QueryBuilder {
 
   public DroppedColumn: string;
 
-  public OldColumnName : string;
+  public OldColumnName: string;
 
-  public NewColumnName : string;
+  public NewColumnName: string;
 
   public get Column() {
     return this._column;
@@ -1451,6 +1451,10 @@ export class TableQueryBuilder extends QueryBuilder {
     return this;
   }
 
+  public temporary(): TableQueryBuilder {
+    return this;
+  }
+
   public set: (name: string, allowed: string[]) => ColumnQueryBuilder;
 
   public get Columns() {
@@ -1471,8 +1475,14 @@ export class TableQueryBuilder extends QueryBuilder {
 
   protected _checkExists: boolean;
 
+  protected _temporary: boolean;
+
   public get CheckExists() {
     return this._checkExists;
+  }
+
+  public get Temporary() {
+    return this._temporary;
   }
 
   constructor(container: Container, driver: OrmDriver, name: string) {
@@ -1549,9 +1559,8 @@ Object.values(ColumnType).forEach((type) => {
 
 Object.values(ColumnType).forEach((type) => {
   (AlterTableQueryBuilder.prototype as any)[type] = function (name: string, ...args: any[]) {
-    
-    if(this._column!== null){
-      throw new OrmException('Multiple column alterations not allowed. Prepare separate statement for each change.')
+    if (this._column !== null) {
+      throw new OrmException('Multiple column alterations not allowed. Prepare separate statement for each change.');
     }
 
     const _builder = new ColumnQueryBuilder(name, type, ...args);
