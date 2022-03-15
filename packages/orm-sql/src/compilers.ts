@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, ILimitCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder } from '@spinajs/orm';
+import { ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, ILimitCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, Autoinject } from '@spinajs/di';
 import _ = require('lodash');
@@ -521,6 +521,30 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
 
   protected into() {
     return `INSERT${this._builder.Ignore ? ' IGNORE' : ''} INTO \`${this._builder.Table}\``;
+  }
+}
+
+export interface SqlAlterTableQueryCompiler extends ITableAliasCompiler {}
+
+@NewInstance()
+@Inject(Container)
+export class SqlAlterTableQueryCompiler extends TableQueryCompiler {
+  @use(TableAliasCompiler) this: this;
+
+  constructor(protected container: Container, protected builder: AlterTableQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    const _table = this._table();
+
+    if(this.builder)
+
+    
+  }
+
+  protected _table() {
+    return `AlTER TABLE ${this.tableAliasCompiler(this.builder)}`;
   }
 }
 
