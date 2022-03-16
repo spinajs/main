@@ -571,7 +571,13 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
 
     if(!this.builder.Shallow)
     {
-      const fOut = this.builder.Filter.toDB();
+      const fOut = this.builder.Filter ? this.builder.Filter.toDB() : {
+        bindings: [],
+
+        // if no filter is provided, copy all the data
+        expression: `SELECT * FROM ${this.tableAliasCompiler(this.builder)}`
+      };
+
       const fExprr = `INSERT INTO ${this.builder.Table} ${fOut.expression}`;
 
       return [
