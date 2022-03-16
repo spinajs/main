@@ -17,6 +17,11 @@ export enum QueryContext {
   Transaction,
 }
 
+export enum ColumnAlterationType {
+  Add,
+  Modify,
+}
+
 export enum InsertBehaviour {
   /**
    * On duplicate entry ignore & fetch only model primary key
@@ -704,7 +709,6 @@ export abstract class TableQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
 
-
 @NewInstance()
 export abstract class TableCloneQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput[];
@@ -722,6 +726,11 @@ export abstract class TableExistsCompiler implements IQueryCompiler {
 
 @NewInstance()
 export abstract class ColumnQueryCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
+@NewInstance()
+export abstract class AlterColumnQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
 
@@ -798,3 +807,5 @@ export class DatetimeValueConverter extends ValueConverter {}
  * Converter for set field (eg. mysql SET)
  */
 export class SetValueConverter extends ValueConverter {}
+
+ 

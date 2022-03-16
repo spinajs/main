@@ -13,7 +13,7 @@ import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
-import { TableCloneQueryCompiler, TableExistsCompiler, UpdateResult } from '.';
+import { ColumnAlterationType, IRenameColumnDesc, TableCloneQueryCompiler, TableExistsCompiler, UpdateResult } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -42,6 +42,10 @@ export class Builder<T = any> {
   protected _queryContext: QueryContext;
   protected _middlewares: IBuilderMiddleware[] = [];
   protected _asRaw: boolean;
+
+  public get Driver(): OrmDriver {
+    return this._driver;
+  }
 
   constructor(container: Container, driver: OrmDriver, model?: Constructor<ModelBase>) {
     this._driver = driver;
@@ -1337,6 +1341,39 @@ export class ColumnQueryBuilder {
   }
 }
 
+export class AlterColumnQueryBuilder extends ColumnQueryBuilder {
+  public AlterType: ColumnAlterationType;
+  public AfterColumn: string;
+  public OldName: string;
+
+  constructor(name: string, type: string, ...args: any[]) {
+    super("",type, ...args);
+    this.OldName = name;
+  }
+
+  public addColumn() {
+    this.AlterType = ColumnAlterationType.Add;
+
+    return this;
+  }
+
+  public modify() {
+    this.AlterType = ColumnAlterationType.Modify;
+
+    return this;
+  }
+
+  public rename(newName: string) {
+    this.Name = newName;
+    return this;
+  }
+
+  public after(columnName: string) {
+    this.AfterColumn = columnName;
+    return this;
+  }
+}
+
 export class TableExistsQueryBuilder extends QueryBuilder {
   constructor(container: Container, driver: OrmDriver, name: string) {
     super(container, driver, null);
@@ -1355,11 +1392,9 @@ export class AlterTableQueryBuilder extends QueryBuilder {
 
   public NewTableName: string;
 
-  public DroppedColumn: string;
+  public DroppedColumns: string[];
 
-  public OldColumnName: string;
-
-  public NewColumnName: string;
+  public RenameColumns: AlterColumnQueryBuilder[];
 
   public get Columns() {
     return this._columns;
@@ -1371,51 +1406,70 @@ export class AlterTableQueryBuilder extends QueryBuilder {
     this.setTable(name);
 
     this._queryContext = QueryContext.Schema;
+    this.DroppedColumns = [];
+    this.RenameColumns = [];
   }
 
-  public int: (name: string) => ColumnQueryBuilder;
-  public bigint: (name: string) => ColumnQueryBuilder;
-  public tinyint: (name: string) => ColumnQueryBuilder;
-  public smallint: (name: string) => ColumnQueryBuilder;
-  public mediumint: (name: string) => ColumnQueryBuilder;
+  public int: (name: string) => AlterColumnQueryBuilder;
+  public bigint: (name: string) => AlterColumnQueryBuilder;
+  public tinyint: (name: string) => AlterColumnQueryBuilder;
+  public smallint: (name: string) => AlterColumnQueryBuilder;
+  public mediumint: (name: string) => AlterColumnQueryBuilder;
 
-  public text: (name: string) => ColumnQueryBuilder;
-  public tinytext: (name: string) => ColumnQueryBuilder;
-  public mediumtext: (name: string) => ColumnQueryBuilder;
-  public smalltext: (name: string) => ColumnQueryBuilder;
-  public longtext: (name: string) => ColumnQueryBuilder;
-  public string: (name: string, length?: number) => ColumnQueryBuilder;
+  public text: (name: string) => AlterColumnQueryBuilder;
+  public tinytext: (name: string) => AlterColumnQueryBuilder;
+  public mediumtext: (name: string) => AlterColumnQueryBuilder;
+  public smalltext: (name: string) => AlterColumnQueryBuilder;
+  public longtext: (name: string) => AlterColumnQueryBuilder;
+  public string: (name: string, length?: number) => AlterColumnQueryBuilder;
 
-  public float: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;
-  public double: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;
-  public decimal: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;
-  public boolean: (name: string) => ColumnQueryBuilder;
-  public bit: (name: string) => ColumnQueryBuilder;
+  public float: (name: string, precision?: number, scale?: number) => AlterColumnQueryBuilder;
+  public double: (name: string, precision?: number, scale?: number) => AlterColumnQueryBuilder;
+  public decimal: (name: string, precision?: number, scale?: number) => AlterColumnQueryBuilder;
+  public boolean: (name: string) => AlterColumnQueryBuilder;
+  public bit: (name: string) => AlterColumnQueryBuilder;
 
-  public date: (name: string) => ColumnQueryBuilder;
-  public dateTime: (name: string) => ColumnQueryBuilder;
-  public time: (name: string) => ColumnQueryBuilder;
-  public timestamp: (name: string) => ColumnQueryBuilder;
-  public enum: (name: string, values: any[]) => ColumnQueryBuilder;
-  public json: (name: string) => ColumnQueryBuilder;
+  public date: (name: string) => AlterColumnQueryBuilder;
+  public dateTime: (name: string) => AlterColumnQueryBuilder;
+  public time: (name: string) => AlterColumnQueryBuilder;
+  public timestamp: (name: string) => AlterColumnQueryBuilder;
+  public enum: (name: string, values: any[]) => AlterColumnQueryBuilder;
+  public json: (name: string) => AlterColumnQueryBuilder;
 
-  public binary: (name: string, size: number) => ColumnQueryBuilder;
+  public binary: (name: string, size: number) => AlterColumnQueryBuilder;
 
-  public tinyblob: (name: string) => ColumnQueryBuilder;
-  public mediumblob: (name: string) => ColumnQueryBuilder;
-  public longblob: (name: string) => ColumnQueryBuilder;
+  public tinyblob: (name: string) => AlterColumnQueryBuilder;
+  public mediumblob: (name: string) => AlterColumnQueryBuilder;
+  public longblob: (name: string) => AlterColumnQueryBuilder;
 
+  /**
+   * Renames table
+   * 
+   * @param newTableName - new table name
+   */
   public rename(newTableName: string) {
     this.NewTableName = newTableName;
   }
 
-  public renameColumn(column: string, newColumn: string) {
-    this.OldColumnName = column;
-    this.NewColumnName = newColumn;
+  /**
+   * Renames column
+   * 
+   * @param column - column to change
+   * @param newColumn - new name
+   * @param callback - callback to define column definition, it is required when renaming column to set its definition
+   * @returns
+   */
+  public renameColumn(column: string, newColumn: string, callback: (cDefinition: AlterColumnQueryBuilder) => void) {
+    const q = new AlterColumnQueryBuilder(column, '');
+    q.rename(newColumn);
+
+    callback(q);
+
+    return this;
   }
 
   public dropColumn(column: string) {
-    this.DroppedColumn = column;
+    this.DroppedColumns.push(column);
   }
 
   public toDB(): ICompilerOutput[] {
@@ -1596,9 +1650,9 @@ export class CloneTableQueryBuilder extends QueryBuilder {
 
     if (filter) {
       this._filter = new SelectQueryBuilder(this._container, this._driver);
-      filter(this._filter)
+      filter(this._filter);
     }
-    
+
     return this;
   }
 
@@ -1619,10 +1673,15 @@ export class SchemaQueryBuilder {
     return builder;
   }
 
+  public cloneTable(callback: (clone: CloneTableQueryBuilder) => void) {
+    const builder = new CloneTableQueryBuilder(this.container, this.driver);
+    callback(builder);
+    return builder;
+  }
+
   public alterTable(name: string, callback: (table: AlterTableQueryBuilder) => void) {
     const builder = new AlterTableQueryBuilder(this.container, this.driver, name);
     callback.call(this, builder);
-
     return builder;
   }
 
@@ -1643,12 +1702,8 @@ Object.values(ColumnType).forEach((type) => {
 
 Object.values(ColumnType).forEach((type) => {
   (AlterTableQueryBuilder.prototype as any)[type] = function (name: string, ...args: any[]) {
-    if (this._column !== null) {
-      throw new OrmException('Multiple column alterations not allowed. Prepare separate statement for each change.');
-    }
-
-    const _builder = new ColumnQueryBuilder(name, type, ...args);
-    this._column = _builder;
+    const _builder = new AlterColumnQueryBuilder(name, type, ...args);
+    this._columns.push(_builder);
     return _builder;
   };
 });
