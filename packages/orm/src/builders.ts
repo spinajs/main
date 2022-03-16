@@ -13,7 +13,7 @@ import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
-import { TableExistsCompiler, UpdateResult } from '.';
+import { TableCloneQueryCompiler, TableExistsCompiler, UpdateResult } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -59,67 +59,77 @@ export class Builder<T = any> {
   /**
    * Builds query that is ready to use in DB
    */
-  public toDB(): ICompilerOutput {
+  public toDB(): ICompilerOutput | ICompilerOutput[] {
     throw new MethodNotImplemented();
   }
 
   public then(resolve: (rows: any[]) => void, reject: (err: Error) => void): Promise<T> {
-    const compiled = this.toDB();
-    return this._driver
-      .execute(compiled.expression, compiled.bindings, this._queryContext)
-      .then((result: any[]) => {
-        try {
-          if (this._asRaw) {
-            resolve(result);
-            return;
-          }
-          if (this._model && !this._nonSelect) {
-            let transformedResult = result;
-
-            if (this._middlewares.length > 0) {
-              transformedResult = this._middlewares.reduce((_, current) => {
-                return current.afterData(result);
-              }, []);
+    const execute = (compiled: ICompilerOutput) => {
+      return this._driver
+        .execute(compiled.expression, compiled.bindings, this._queryContext)
+        .then((result: any[]) => {
+          try {
+            if (this._asRaw) {
+              resolve(result);
+              return;
             }
+            if (this._model && !this._nonSelect) {
+              let transformedResult = result;
 
-            const models = transformedResult.map((r) => {
-              let model = null;
-              for (const middleware of this._middlewares) {
-                model = middleware.modelCreation(r);
-                if (model !== null) {
-                  break;
+              if (this._middlewares.length > 0) {
+                transformedResult = this._middlewares.reduce((_, current) => {
+                  return current.afterData(result);
+                }, []);
+              }
+
+              const models = transformedResult.map((r) => {
+                let model = null;
+                for (const middleware of this._middlewares) {
+                  model = middleware.modelCreation(r);
+                  if (model !== null) {
+                    break;
+                  }
                 }
-              }
 
-              if (model === null) {
-                model = new this._model();
-                model.hydrate(r);
-              }
+                if (model === null) {
+                  model = new this._model();
+                  model.hydrate(r);
+                }
 
-              return model;
-            });
+                return model;
+              });
 
-            const afterMiddlewarePromises = this._middlewares.reduce((prev, current) => {
-              return prev.concat([current.afterHydration(models)]);
-            }, [] as Array<Promise<any[] | void>>);
+              const afterMiddlewarePromises = this._middlewares.reduce((prev, current) => {
+                return prev.concat([current.afterHydration(models)]);
+              }, [] as Array<Promise<any[] | void>>);
 
-            if (this._middlewares.length > 0) {
-              Promise.all(afterMiddlewarePromises).then(() => {
+              if (this._middlewares.length > 0) {
+                Promise.all(afterMiddlewarePromises).then(() => {
+                  resolve(models);
+                }, reject);
+              } else {
                 resolve(models);
-              }, reject);
+              }
             } else {
-              resolve(models);
+              resolve(result);
             }
-          } else {
-            resolve(result);
+          } catch (err) {
+            reject(err);
           }
-        } catch (err) {
+        })
+        .catch((err) => {
           reject(err);
-        }
-      })
-      .catch((err) => {
-        reject(err);
-      }) as Promise<any>;
+        }) as Promise<any>;
+    };
+
+    const compiled = this.toDB();
+
+    if (Array.isArray(compiled)) {
+      // TODO: rethink this cast
+      return Promise.all(compiled.map((c) => execute(c))) as unknown as Promise<T>;
+    } else {
+      return execute(compiled);
+    }
   }
 }
 
@@ -745,7 +755,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this._relations;
   }
 
-  constructor(container: Container, driver: OrmDriver, model: Constructor<any>, owner?: IOrmRelation) {
+  constructor(container: Container, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation) {
     super(container, driver, model);
 
     this._distinct = false;
@@ -1341,7 +1351,7 @@ export class TableExistsQueryBuilder extends QueryBuilder {
 }
 
 export class AlterTableQueryBuilder extends QueryBuilder {
-  protected _column: ColumnQueryBuilder;
+  protected _columns: ColumnQueryBuilder[];
 
   public NewTableName: string;
 
@@ -1351,8 +1361,8 @@ export class AlterTableQueryBuilder extends QueryBuilder {
 
   public NewColumnName: string;
 
-  public get Column() {
-    return this._column;
+  public get Columns() {
+    return this._columns;
   }
 
   constructor(container: Container, driver: OrmDriver, name: string) {
@@ -1408,7 +1418,7 @@ export class AlterTableQueryBuilder extends QueryBuilder {
     this.DroppedColumn = column;
   }
 
-  public toDB(): ICompilerOutput {
+  public toDB(): ICompilerOutput[] {
     return this._container.resolve<AlterTableQueryCompiler>(AlterTableQueryCompiler, [this]).compile();
   }
 }
@@ -1525,6 +1535,80 @@ export class TableQueryBuilder extends QueryBuilder {
 
 @NewInstance()
 @Inject(Container)
+export class CloneTableQueryBuilder extends QueryBuilder {
+  protected _cloneSrc: string;
+
+  protected _temporary: boolean;
+
+  protected _shallow: boolean;
+
+  protected _filter: SelectQueryBuilder;
+
+  public get CloneSource() {
+    return this._cloneSrc;
+  }
+
+  public get Temporary() {
+    return this._temporary;
+  }
+
+  public get Shallow() {
+    return this._shallow;
+  }
+
+  public get Filter() {
+    return this._filter;
+  }
+
+  constructor(protected container: Container, protected driver: OrmDriver) {
+    super(container, driver);
+
+    this._shallow = true;
+    this._cloneSrc = '';
+    this._temporary = false;
+  }
+
+  /**
+   * Clones table structure without data
+   * Shorthand for createTable(( table) => table.clone("new"));
+   *
+   * @param srcTable - source table name
+   * @param newTable - target table name
+   */
+  public shallowClone(srcTable: string, newTable: string) {
+    this.setTable(newTable);
+    this._cloneSrc = srcTable;
+
+    return this;
+  }
+
+  /**
+   * Clones table with data
+   *
+   * @param srcTable - source table name
+   * @param newTable - target table name
+   * @param filter - data filter, set null if all data is to be cloned
+   */
+  public async deepClone(srcTable: string, newTable: string, filter?: (query: SelectQueryBuilder) => void) {
+    this.setTable(newTable);
+    this._cloneSrc = srcTable;
+    this._shallow = false;
+
+    if (filter) {
+      this._filter = new SelectQueryBuilder(this._container, this._driver);
+      filter(this._filter)
+    }
+    
+    return this;
+  }
+
+  public toDB(): ICompilerOutput[] {
+    return this._container.resolve<TableCloneQueryCompiler>(TableCloneQueryCompiler, [this]).compile();
+  }
+}
+
+@NewInstance()
+@Inject(Container)
 export class SchemaQueryBuilder {
   constructor(protected container: Container, protected driver: OrmDriver) {}
 
@@ -1535,7 +1619,7 @@ export class SchemaQueryBuilder {
     return builder;
   }
 
-  public aleterTable(name: string, callback: (table: AlterTableQueryBuilder) => void) {
+  public alterTable(name: string, callback: (table: AlterTableQueryBuilder) => void) {
     const builder = new AlterTableQueryBuilder(this.container, this.driver, name);
     callback.call(this, builder);
 
