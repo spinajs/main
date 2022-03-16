@@ -1,9 +1,10 @@
+import { TableCloneQueryCompiler } from '.';
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, ILimitCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder } from '@spinajs/orm';
+import { ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, ILimitCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, Autoinject } from '@spinajs/di';
 import _ = require('lodash');
@@ -535,7 +536,7 @@ export class SqlAlterTableQueryCompiler extends TableQueryCompiler {
     super();
   }
 
-  public compile(): ICompilerOutput {
+  public compile(): ICompilerOutput[] {
     const _table = this._table();
 
     if(this.builder)
@@ -544,7 +545,49 @@ export class SqlAlterTableQueryCompiler extends TableQueryCompiler {
   }
 
   protected _table() {
-    return `AlTER TABLE ${this.tableAliasCompiler(this.builder)}`;
+    return `CREATE  TABLE ${this.tableAliasCompiler(this.builder)}`;
+  }
+}
+
+export interface SqlTableCloneQueryCompiler extends ITableAliasCompiler {}
+
+
+@NewInstance()
+@Inject(Container)
+export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
+  @use(TableAliasCompiler) this: this;
+
+  constructor(protected container: Container, protected builder: CloneTableQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput[] {
+    const _table = this._table();
+
+    const out1 : ICompilerOutput = {
+      bindings: [],
+      expression:  `${_table} LIKE ${this.builder.CloneSource}`
+    }
+
+    if(!this.builder.Shallow)
+    {
+      const fOut = this.builder.Filter.toDB();
+      const fExprr = `INSERT INTO ${this.builder.Table} ${fOut.expression}`;
+
+      return [
+        out1,
+        {
+          bindings:fOut.bindings,
+          expression: fExprr
+        }
+      ]
+    }
+
+    return [ out1 ];
+  }
+
+  protected _table() {
+    return `CREATE${this.builder.Temporary ? "TEMPORARY " : " "}TABLE ${this.tableAliasCompiler(this.builder)}`;
   }
 }
 
