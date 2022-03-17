@@ -1,8 +1,8 @@
 /* eslint-disable prettier/prettier */
 import { SqlSetConverter } from './converters';
-import { ColumnQueryCompiler, TableCloneQueryCompiler, SetValueConverter, GroupByStatement, DateTimeWrapper, DateWrapper, OrmDriver, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, RecursiveQueryCompiler, ForeignKeyQueryCompiler, GroupByQueryCompiler, AlterColumnQueryCompiler } from '@spinajs/orm';
+import { ColumnQueryCompiler, TableCloneQueryCompiler, SetValueConverter, GroupByStatement, DateTimeWrapper, DateWrapper, OrmDriver, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, RecursiveQueryCompiler, ForeignKeyQueryCompiler, GroupByQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper } from './statements';
-import { SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderQueryByCompiler, SqlOnDuplicateQueryCompiler, SqlIndexQueryCompiler, SqlWithRecursiveCompiler, SqlForeignKeyQueryCompiler, SqlColumnQueryCompiler, SqlGroupByCompiler, SqlTableCloneQueryCompiler, SqlAlterColumnQueryCompiler } from './compilers';
+import { SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderQueryByCompiler, SqlOnDuplicateQueryCompiler, SqlIndexQueryCompiler, SqlWithRecursiveCompiler, SqlForeignKeyQueryCompiler, SqlColumnQueryCompiler, SqlGroupByCompiler, SqlTableCloneQueryCompiler, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler } from './compilers';
 
 export * from './compilers';
 export * from './statements';
@@ -40,6 +40,7 @@ export abstract class SqlDriver extends OrmDriver {
     this.Container.register(SqlGroupByCompiler).as(GroupByQueryCompiler);
     this.Container.register(SqlTableCloneQueryCompiler).as(TableCloneQueryCompiler);
     this.Container.register(SqlAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
+    this.Container.register(SqlAlterTableQueryCompiler).as(AlterTableQueryCompiler);
     this.Container.register(SqlSetConverter).as(SetValueConverter);
   }
 }

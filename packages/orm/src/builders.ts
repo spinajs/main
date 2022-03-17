@@ -1346,8 +1346,11 @@ export class AlterColumnQueryBuilder extends ColumnQueryBuilder {
   public OldName: string;
 
   constructor(name: string, type: string, ...args: any[]) {
-    super("",type, ...args);
+    super(name,type, ...args);
     this.OldName = name;
+    
+    // we assume add by default
+    this.AlterType = ColumnAlterationType.Add;
   }
 
   public addColumn() {
@@ -1405,6 +1408,7 @@ export class AlterTableQueryBuilder extends QueryBuilder {
     this.setTable(name);
 
     this._queryContext = QueryContext.Schema;
+    this._columns = [];
     this.DroppedColumns = [];
     this.RenameColumns = [];
   }

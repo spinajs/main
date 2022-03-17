@@ -554,7 +554,7 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
     if (this.builder.NewTableName) {
       _outputs.push({
         bindings: [],
-        expression: `${_table} RENAME TO ${this.builder.NewTableName}`,
+        expression: `${_table} RENAME TO ${this.tableAliasCompiler(this.builder, this.builder.NewTableName)}`,
       });
     }
 
@@ -794,14 +794,14 @@ export class SqlAlterColumnQueryCompiler extends SqlColumnQueryCompiler {
     if (builder.AlterType === ColumnAlterationType.Add) {
       return {
         bindings: cDefinition.bindings,
-        expression: `ADD ${cDefinition.expression} ${builder.AfterColumn ? `AFTER ${builder.AfterColumn}` : ''}`,
+        expression: `ADD ${cDefinition.expression} ${builder.AfterColumn ? `AFTER \`${builder.AfterColumn}\`` : ''}`,
       };
     }
 
     if (builder.AlterType === ColumnAlterationType.Modify) {
       return {
         bindings: cDefinition.bindings,
-        expression: `MODIFY ${cDefinition.expression} ${builder.AfterColumn ? `AFTER ${builder.AfterColumn}` : ''}`,
+        expression: `MODIFY ${cDefinition.expression} ${builder.AfterColumn ? `\`AFTER ${builder.AfterColumn}\`` : ''}`,
       };
     }
   }

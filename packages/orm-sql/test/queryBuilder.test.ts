@@ -1085,7 +1085,41 @@ describe('schema building', () => {
     expect(result[0].expression).to.equal('CREATE TABLE `cloneTest` LIKE `test`');
     expect(result[1].expression).to.equal('INSERT INTO `cloneTest` SELECT * FROM `test` WHERE id > ?');
     expect(result[1].bindings[0]).to.equal(10);
+  });
 
+  it('Should drop column', () => {
+    const result = schqb()
+      .alterTable('test', (table) => {
+        table.dropColumn('Id');
+      })
+      .toDB();
+
+    expect(result.length).to.eq(1);
+    expect(result[0].expression).to.equal('ALTER TABLE `test` DROP COLUMN Id');
+  });
+
+  it('Should rename table', () => {
+    const result = schqb()
+      .alterTable('test', (table) => {
+        table.rename('test_new');
+      })
+      .toDB();
+
+    expect(result.length).to.eq(1);
+    expect(result[0].expression).to.equal('ALTER TABLE `test` RENAME TO `test_new`');
+  });
+
+  it('Should add multiple columns', () => {
+    const result = schqb()
+      .alterTable('test', (table) => {
+        table.int('Id2').after('Id');
+        table.int('Id3').after('Id2');
+      })
+      .toDB();
+
+    expect(result.length).to.eq(2);
+    expect(result[0].expression).to.equal('ALTER TABLE `test` ADD `Id2` INT AFTER `Id`');
+    expect(result[1].expression).to.equal('ALTER TABLE `test` ADD `Id3` INT AFTER `Id2`');
   });
 
   it('column types', () => {
