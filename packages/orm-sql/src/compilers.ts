@@ -1,28 +1,27 @@
 import { AlterColumnQueryBuilder } from './../../orm/src/builders';
-import { TableCloneQueryCompiler } from '.';
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, ILimitCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler } from '@spinajs/orm';
+import { TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, ILimitCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, Autoinject } from '@spinajs/di';
 import _ = require('lodash');
 
 interface ITableAliasCompiler {
-  tableAliasCompiler(builder: QueryBuilder): string;
+  tableAliasCompiler(builder: QueryBuilder, tbl?: string): string;
 }
 
 class TableAliasCompiler implements ITableAliasCompiler {
-  public tableAliasCompiler(builder: IQueryBuilder) {
+  public tableAliasCompiler(builder: IQueryBuilder, tbl?: string) {
     let table = '';
 
     if (builder.Schema) {
       table += `\`${builder.Schema}\`.`;
     }
 
-    table += `\`${builder.Table}\``;
+    table += `\`${tbl ? tbl : builder.Table}\``;
 
     if (builder.TableAlias) {
       table += ` as \`${builder.TableAlias}\``;
@@ -609,21 +608,20 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
 
     const out1: ICompilerOutput = {
       bindings: [],
-      expression: `${_table} LIKE ${this.builder.CloneSource}`,
+      expression: `${_table} LIKE ${this.tableAliasCompiler(this.builder, this.builder.CloneSource)}`,
     };
 
     if (!this.builder.Shallow) {
       const fOut =
-        this.builder.Filter !== null
-          ? this.builder.Filter.toDB()
+        this.builder.Filter !== undefined ? this.builder.Filter.toDB()
           : {
               bindings: [],
 
               // if no filter is provided, copy all the data
-              expression: `SELECT * FROM ${this.tableAliasCompiler(this.builder)}`,
+              expression: `SELECT * FROM ${this.tableAliasCompiler(this.builder, this.builder.CloneSource)}`,
             };
 
-      const fExprr = `INSERT INTO ${this.builder.Table} ${fOut.expression}`;
+      const fExprr = `INSERT INTO \`${this.builder.Table}\` ${fOut.expression}`;
 
       return [
         out1,
@@ -638,7 +636,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
   }
 
   protected _table() {
-    return `CREATE${this.builder.Temporary ? 'TEMPORARY ' : ' '}TABLE ${this.tableAliasCompiler(this.builder)}`;
+    return `CREATE${this.builder.Temporary ? ' TEMPORARY ' : ' '}TABLE ${this.tableAliasCompiler(this.builder)}`;
   }
 }
 
@@ -689,7 +687,7 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
   }
 
   protected _table() {
-    return `CREATE${this.builder.Temporary ? 'TEMPORARY ' : ' '}TABLE ${this.builder.CheckExists ? 'IF NOT EXISTS ' : ''}${this.tableAliasCompiler(this.builder)}`;
+    return `CREATE${this.builder.Temporary ? ' TEMPORARY ' : ' '}TABLE ${this.builder.CheckExists ? 'IF NOT EXISTS ' : ''}${this.tableAliasCompiler(this.builder)}`;
   }
 }
 
@@ -786,7 +784,7 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
 @NewInstance()
 export class SqlAlterColumnQueryCompiler extends SqlColumnQueryCompiler {
   constructor(builder: AlterColumnQueryBuilder) {
-    super(builder);
+    super(builder as ColumnQueryBuilder);
   }
 
   public compile(): ICompilerOutput {

@@ -1037,7 +1037,7 @@ describe('schema building', () => {
     expect(result.expression).to.contain('`foo` TEXT NOT NULL');
   });
 
-  it('temporary table', () => {
+  it('create temporary table', () => {
     const result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
         table.int('foo').notNull().primaryKey().autoIncrement();
@@ -1047,6 +1047,45 @@ describe('schema building', () => {
       .toDB();
 
     expect(result.expression).to.equal('CREATE TEMPORARY TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT,`bar` INT NOT NULL AUTO_INCREMENT , PRIMARY KEY (`foo`,`bar`))');
+  });
+
+  it('Clone table shallow', () => {
+    const result = schqb()
+      .cloneTable((table) => {
+        table.shallowClone('test', 'cloneTest');
+      })
+      .toDB();
+
+    expect(result.length).to.eq(1);
+    expect(result[0].expression).to.equal('CREATE TABLE `cloneTest` LIKE `test`');
+  });
+
+  it('Clone table deep', () => {
+    const result = schqb()
+      .cloneTable((table) => {
+        table.deepClone('test', 'cloneTest');
+      })
+      .toDB();
+
+    expect(result.length).to.eq(2);
+    expect(result[0].expression).to.equal('CREATE TABLE `cloneTest` LIKE `test`');
+    expect(result[1].expression).to.equal('INSERT INTO `cloneTest` SELECT * FROM `test`');
+  });
+
+  it('Clone table deep with filter', () => {
+    const result = schqb()
+      .cloneTable((table) => {
+        table.deepClone('test', 'cloneTest', (query) => {
+          query.where('id', '>', 10);
+        });
+      })
+      .toDB();
+
+    expect(result.length).to.eq(2);
+    expect(result[0].expression).to.equal('CREATE TABLE `cloneTest` LIKE `test`');
+    expect(result[1].expression).to.equal('INSERT INTO `cloneTest` SELECT * FROM `test` WHERE id > ?');
+    expect(result[1].bindings[0]).to.equal(10);
+
   });
 
   it('column types', () => {

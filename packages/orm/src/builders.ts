@@ -1515,6 +1515,7 @@ export class TableQueryBuilder extends QueryBuilder {
   }
 
   public temporary(): TableQueryBuilder {
+    this._temporary = true;
     return this;
   }
 
@@ -1555,6 +1556,7 @@ export class TableQueryBuilder extends QueryBuilder {
     this._comment = '';
     this._columns = [];
     this._foreignKeys = [];
+    this._temporary = false;
 
     this.setTable(name);
 
@@ -1649,6 +1651,7 @@ export class CloneTableQueryBuilder extends QueryBuilder {
 
     if (filter) {
       this._filter = new SelectQueryBuilder(this._container, this._driver);
+      this._filter.setTable(this._cloneSrc);
       filter(this._filter);
     }
 
