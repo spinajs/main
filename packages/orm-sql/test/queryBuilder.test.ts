@@ -1122,6 +1122,28 @@ describe('schema building', () => {
     expect(result[1].expression).to.equal('ALTER TABLE `test` ADD `Id3` INT AFTER `Id2`');
   });
 
+  it('Should modify column', () => {
+    const result = schqb()
+      .alterTable('test', (table) => {
+        table.string('Id2', 255).modify();
+      })
+      .toDB();
+
+    expect(result.length).to.eq(1);
+    expect(result[0].expression).to.equal('ALTER TABLE `test` MODIFY `Id2` VARCHAR(255)');
+  });
+
+  it('Should rename column', () => {
+    const result = schqb()
+      .alterTable('test', (table) => {
+        table.string('Id2').rename("Id3");
+      })
+      .toDB();
+
+    expect(result.length).to.eq(1);
+    expect(result[0].expression).to.equal('ALTER TABLE `test` RENAME COLUMN `Id2` TO `Id3`');
+  });
+
   it('column types', () => {
     const result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {

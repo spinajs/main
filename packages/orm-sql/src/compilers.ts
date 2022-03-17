@@ -558,19 +558,6 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
       });
     }
 
-    if (this.builder.RenameColumns.length !== 0) {
-      _outputs = _outputs.concat(
-        this.builder.RenameColumns.map((c) => {
-          const compiler = this.container.resolve(ColumnQueryCompiler, [c]);
-
-          return {
-            bindings: [],
-            expression: `${_table} CHANGE COLUMN ${c.OldName} ${compiler.compile().expression}`,
-          };
-        }),
-      );
-    }
-
     if (this.builder.Columns.length !== 0) {
       _outputs = _outputs.concat(
         this.builder.Columns.map((c) => {
@@ -613,7 +600,8 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
 
     if (!this.builder.Shallow) {
       const fOut =
-        this.builder.Filter !== undefined ? this.builder.Filter.toDB()
+        this.builder.Filter !== undefined
+          ? this.builder.Filter.toDB()
           : {
               bindings: [],
 
@@ -789,8 +777,16 @@ export class SqlAlterColumnQueryCompiler extends SqlColumnQueryCompiler {
 
   public compile(): ICompilerOutput {
     const builder = this.builder as AlterColumnQueryBuilder;
-    const cDefinition = super.compile();
 
+    if (builder.AlterType === ColumnAlterationType.Rename) {
+      const bld = this.builder as AlterColumnQueryBuilder;
+      return {
+        bindings: [],
+        expression: `RENAME COLUMN \`${bld.OldName}\` TO \`${bld.Name}\``,
+      };
+    }
+
+    const cDefinition = super.compile();
     if (builder.AlterType === ColumnAlterationType.Add) {
       return {
         bindings: cDefinition.bindings,
@@ -801,7 +797,7 @@ export class SqlAlterColumnQueryCompiler extends SqlColumnQueryCompiler {
     if (builder.AlterType === ColumnAlterationType.Modify) {
       return {
         bindings: cDefinition.bindings,
-        expression: `MODIFY ${cDefinition.expression} ${builder.AfterColumn ? `\`AFTER ${builder.AfterColumn}\`` : ''}`,
+        expression: `MODIFY ${cDefinition.expression}`,
       };
     }
   }

@@ -20,6 +20,7 @@ export enum QueryContext {
 export enum ColumnAlterationType {
   Add,
   Modify,
+  Rename
 }
 
 export enum InsertBehaviour {

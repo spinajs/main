@@ -1366,6 +1366,7 @@ export class AlterColumnQueryBuilder extends ColumnQueryBuilder {
   }
 
   public rename(newName: string) {
+    this.AlterType = ColumnAlterationType.Rename;
     this.Name = newName;
     return this;
   }
@@ -1396,8 +1397,6 @@ export class AlterTableQueryBuilder extends QueryBuilder {
 
   public DroppedColumns: string[];
 
-  public RenameColumns: AlterColumnQueryBuilder[];
-
   public get Columns() {
     return this._columns;
   }
@@ -1410,7 +1409,6 @@ export class AlterTableQueryBuilder extends QueryBuilder {
     this._queryContext = QueryContext.Schema;
     this._columns = [];
     this.DroppedColumns = [];
-    this.RenameColumns = [];
   }
 
   public int: (name: string) => AlterColumnQueryBuilder;
@@ -1452,23 +1450,6 @@ export class AlterTableQueryBuilder extends QueryBuilder {
    */
   public rename(newTableName: string) {
     this.NewTableName = newTableName;
-  }
-
-  /**
-   * Renames column
-   * 
-   * @param column - column to change
-   * @param newColumn - new name
-   * @param callback - callback to define column definition, it is required when renaming column to set its definition
-   * @returns
-   */
-  public renameColumn(column: string, newColumn: string, callback: (cDefinition: AlterColumnQueryBuilder) => void) {
-    const q = new AlterColumnQueryBuilder(column, '');
-    q.rename(newColumn);
-
-    callback(q);
-
-    return this;
   }
 
   public dropColumn(column: string) {
