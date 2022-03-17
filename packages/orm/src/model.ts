@@ -572,12 +572,6 @@ export const MODEL_STATIC_MIXINS = {
 
     // pk constrain
     query.where(description.PrimaryKey, pk);
-
-    // check for all unique columns ( unique constrain )
-    description.Columns.filter((c) => c.Unique).forEach((c) => {
-      query.andWhere(c, (data as any)[c.Name]);
-    });
-
     let entity = (await query.first()) as any;
 
     if (!entity) {

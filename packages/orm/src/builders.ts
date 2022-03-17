@@ -1,4 +1,3 @@
-import { OrmException } from './exceptions';
 /* eslint-disable prettier/prettier */
 
 import { Container, Inject, NewInstance, Constructor } from '@spinajs/di';
@@ -13,7 +12,7 @@ import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
-import { ColumnAlterationType, IRenameColumnDesc, TableCloneQueryCompiler, TableExistsCompiler, UpdateResult } from '.';
+import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, UpdateResult } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging

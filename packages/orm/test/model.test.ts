@@ -413,7 +413,7 @@ describe('General model tests', () => {
       .onCall(1)
       .returns(
         new Promise((res) => {
-          res(1);
+          res({ LastInsertId: 1, RowsAffected: 1 });
         }),
       );
 
@@ -449,7 +449,7 @@ describe('General model tests', () => {
       .onCall(1)
       .returns(
         new Promise((res) => {
-          res(1);
+          res({ LastInsertId: 1, RowsAffected: 1 });
         }),
       );
 
@@ -570,7 +570,7 @@ describe('General model tests', () => {
         }),
       );
 
-    await Model1.insert([{Bar: 'hello'}, {Bar: 'hello'}, {Bar: 'hello'}]);
+    await Model1.insert([{ Bar: 'hello' }, { Bar: 'hello' }, { Bar: 'hello' }]);
 
     expect(fI.calledOnce).to.be.true;
   });
@@ -668,15 +668,60 @@ describe('General model tests', () => {
     expect(model.Id).to.be.not.null;
   });
 
-  it('Model should get id when save with ignore', async () => {
+  it('Model should refresh', async () => {
+
+    const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
+
+    tableInfoStub.withArgs('TestTable2', undefined).returns(
+      new Promise((res) => {
+        res([
+          {
+            Type: 'INT',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'INT',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'Id',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: false,
+            Ignore: false,
+          },
+          {
+            Type: 'VARCHAR',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'VARCHAR',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'Bar',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: true,
+            Uuid: false,
+            Ignore: false,
+          },
+        ]);
+      }),
+    );
+
     await db();
 
-    sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
+    sinon.stub(FakeSqliteDriver.prototype, 'execute')
       .onCall(0)
       .returns(
         new Promise((res) => {
-          res(0);
+          res({
+            LastInsertId: 0, RowsAffected: 0
+          });
         }),
       )
       .onCall(1)
@@ -700,6 +745,7 @@ describe('General model tests', () => {
     });
 
     await model.insert(InsertBehaviour.OnDuplicateIgnore);
+    await model.refresh();
 
     expect(model.Id).to.eq(666);
   });
