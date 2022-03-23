@@ -38,9 +38,10 @@ export class Builder<T = any> {
   protected _model?: Constructor<ModelBase>;
 
   protected _nonSelect: boolean;
-  protected _queryContext: QueryContext;
   protected _middlewares: IBuilderMiddleware[] = [];
   protected _asRaw: boolean;
+
+  public QueryContext: QueryContext;
 
   public get Driver(): OrmDriver {
     return this._driver;
@@ -69,7 +70,7 @@ export class Builder<T = any> {
   public then(resolve: (rows: any[]) => void, reject: (err: Error) => void): Promise<T> {
     const execute = (compiled: ICompilerOutput) => {
       return this._driver
-        .execute(compiled.expression, compiled.bindings, this._queryContext)
+        .execute(compiled.expression, compiled.bindings, this.QueryContext)
         .then((result: any[]) => {
           try {
             if (this._asRaw) {
@@ -778,7 +779,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     };
 
     this._nonSelect = false;
-    this._queryContext = QueryContext.Select;
+    this.QueryContext = QueryContext.Select;
     this._owner = owner;
   }
 
@@ -947,7 +948,7 @@ export class DeleteQueryBuilder extends QueryBuilder {
       offset: -1,
     };
 
-    this._queryContext = QueryContext.Delete;
+    this.QueryContext = QueryContext.Delete;
   }
 
   public toDB(): ICompilerOutput {
@@ -1024,7 +1025,7 @@ export class UpdateQueryBuilder extends QueryBuilder {
     this._boolean = WhereBoolean.AND;
     this._statements = [];
 
-    this._queryContext = QueryContext.Update;
+    this.QueryContext = QueryContext.Update;
   }
 
   public in(name: string) {
@@ -1068,7 +1069,7 @@ export class InsertQueryBuilder extends QueryBuilder<UpdateResult> {
     this._columns = [];
     this._values = [];
 
-    this._queryContext = QueryContext.Insert;
+    this.QueryContext = QueryContext.Insert;
   }
 
   /**
@@ -1145,7 +1146,7 @@ export class IndexQueryBuilder extends Builder {
   constructor(container: Container, driver: OrmDriver) {
     super(container, driver);
 
-    this._queryContext = QueryContext.Schema;
+    this.QueryContext = QueryContext.Schema;
   }
 
   public name(name: string) {
@@ -1383,7 +1384,7 @@ export class TableExistsQueryBuilder extends QueryBuilder {
 
     this.setTable(name);
 
-    this._queryContext = QueryContext.Select;
+    this.QueryContext = QueryContext.Select;
   }
   public toDB(): ICompilerOutput {
     return this._container.resolve<TableExistsCompiler>(TableExistsCompiler, [this]).compile();
@@ -1406,7 +1407,7 @@ export class AlterTableQueryBuilder extends QueryBuilder {
 
     this.setTable(name);
 
-    this._queryContext = QueryContext.Schema;
+    this.QueryContext = QueryContext.Schema;
     this._columns = [];
     this.DroppedColumns = [];
   }
@@ -1545,7 +1546,7 @@ export class TableQueryBuilder extends QueryBuilder {
 
     this.setTable(name);
 
-    this._queryContext = QueryContext.Schema;
+    this.QueryContext = QueryContext.Schema;
   }
 
   public increments(name: string) {

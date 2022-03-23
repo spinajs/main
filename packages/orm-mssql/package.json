@@ -1,0 +1,52 @@
+{
+  "name": "@spinajs/orm-mssql",
+  "version": "1.2.77",
+  "description": "orm mssql integration",
+  "main": "lib/index.js",
+  "private": false,
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -p tsconfig.build.json",
+    "clean": "",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "types": "lib",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "di",
+    "container",
+    "spinajs",
+    "di"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "devDependencies": {
+    "@types/mssql": "^7.1.5"
+  },
+  "dependencies": {
+    "@spinajs/configuration": "^1.2.71",
+    "@spinajs/di": "^1.2.68",
+    "@spinajs/orm": "^1.2.77",
+    "mssql": "^8.0.2",
+    "typescript-mix": "^3.1.3"
+  }
+}

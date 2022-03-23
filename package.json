@@ -69,6 +69,7 @@
     "@spinajs/orm-sql": "file:packages\\orm-sql",
     "@spinajs/orm-sqlite": "file:packages\\orm-sqlite",
     "@spinajs/electron": "file:packages\\electron",
+    "@spinajs/orm-mssql": "file:packages\\orm-mssql",
     "rxjs": "^7.5.4"
   }
 }
