@@ -9,6 +9,7 @@
       "outDir": "lib/",
       "sourceMap": true,
       "target": "es2017",
+      "esModuleInterop":true,
       "lib": [
           "esnext",
           "dom"

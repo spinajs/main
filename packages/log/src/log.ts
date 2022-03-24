@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
-import { Configuration } from "@spinajs/configuration/lib/types";
+import { Configuration } from "@spinajs/configuration";
 import { Autoinject, Container, DI, IContainer, NewInstance, SyncModule } from "@spinajs/di";
 import { ILogTargetDesc, LogTarget } from "./targets/LogTarget";
 import { ICommonTargetOptions, LogLevel, ILogOptions, ILogRule, ILogEntry, StrToLogLevel, LogVariables, createLogMessageObject, ILog } from "@spinajs/log-common";
-import * as globToRegexp from "glob-to-regexp";
+import GlobToRegExp from "glob-to-regexp";
 import { InvalidOption } from "@spinajs/exceptions";
 
 function wrapWrite(this: Log, level: LogLevel) {
@@ -195,7 +195,10 @@ export class Log extends SyncModule implements ILog {
 
   protected matchRulesToLogger() {
     this.Rules = this.Options.rules.filter((r) => {
-      return globToRegexp(r.name).test(this.Name);
+      const g = GlobToRegExp(r.name);
+
+      // BUG: g.test throws vscode err ?
+      return (g as RegExp).test(this.Name);
     });
   }
 }

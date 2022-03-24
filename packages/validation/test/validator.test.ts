@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
-import 'mocha';
+import 'mocha'; 
+import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import * as sinon from 'sinon';
-import { expect } from 'chai';
 import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import { DataValidator } from '../src/validator';
@@ -20,7 +20,6 @@ function mergeArrays(target: any, source: any) {
 }
 
 class TestConfiguration extends FrameworkConfiguration {
-  set(_path: string | string[], _value: any): void {}
 
   public async resolveAsync(): Promise<void> {
     await super.resolveAsync();

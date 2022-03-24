@@ -9,8 +9,9 @@ import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor } from './model'
 import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from './decorators';
 import { OrmDriver } from './driver';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { DateTime } from 'luxon';
 import { OrmException } from './exceptions';
+import { DateTime } from "luxon";
+
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg

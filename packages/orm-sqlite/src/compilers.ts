@@ -4,7 +4,7 @@
 import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
 import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder } from '@spinajs/orm';
 import { NewInstance, Inject, Container, Autoinject } from '@spinajs/di';
-import _ from "lodash";
+import _ from 'lodash';
 
 @NewInstance()
 export class SqliteOrderByCompiler extends OrderByQueryCompiler {
