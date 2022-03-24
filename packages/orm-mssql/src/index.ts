@@ -1,7 +1,8 @@
+import { MsSqlTableExistsCompiler } from './compilers';
 /* eslint-disable security/detect-object-injection */
 import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
-import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { connect, ConnectionPool, Request } from 'mssql';
 import { IIndexInfo, ITableInfo } from './types';
@@ -13,29 +14,24 @@ export class MsSqlOrmDriver extends SqlDriver {
   protected _transactionRequest: Request = null;
 
   public async execute(stmt: string, params: any[], context: QueryContext): Promise<any> {
-    const findIndexes = (str: string): number[] => {
-      let idx = 0;
-      let pos = 0;
-      const indices: number[] = [];
-
-      while ((idx = str.indexOf(stmt, pos)) !== -1) {
-        pos = idx;
-        indices.push(idx);
-      }
-      return indices;
-    };
-
     const tName = `query-${this._executionId++}`;
     let finalQuery = stmt;
 
     this.Log.timeStart(`query-${tName}`);
+
     try {
       const req = this._transactionRequest ?? this._connectionPool.request();
-      const indexes = findIndexes(stmt);
+      let idx = 0;
+      let i = 0;
 
-      for (let i = 0; i < indexes.length; i++) {
-        finalQuery = finalQuery.substring(indexes[i], 1) + `p${i}` + finalQuery.substring(indexes[i] + 1);
+      /**
+       * Brute force replacement ? for @parameters
+       * MSSQL driver requires named parameters in query string
+       */
+      while ((idx = finalQuery.indexOf('?')) !== -1) {
+        finalQuery = finalQuery.substring(0, idx) + `@p${i}` + finalQuery.substring(idx + 1, finalQuery.length);
         req.input(`p${i}`, params[i]);
+        i++;
       }
 
       const result = await req.query(finalQuery);
@@ -56,15 +52,15 @@ export class MsSqlOrmDriver extends SqlDriver {
         case QueryContext.Update:
         case QueryContext.Delete:
           return {
-            RowsAffected: result.rowsAffected,
+            RowsAffected: result.rowsAffected[0],
           };
         case QueryContext.Insert:
           return {
-            RowsAffected: result.rowsAffected,
+            RowsAffected: result.rowsAffected[0],
             LastInsertId: result.output['ID'],
           };
         default:
-          return result.recordsets;
+          return result.recordset;
       }
     } catch (err) {
       const tDiff = this.Log.timeEnd(`query-${tName}`);
@@ -99,6 +95,9 @@ export class MsSqlOrmDriver extends SqlDriver {
       password: this.Options.Password,
       database: this.Options.Database,
       server: this.Options.Host,
+      options: {
+        trustServerCertificate: (this.Options.Options?.TrustServerCertificate as boolean) ?? true,
+      },
       pool: {
         max: this.Options.PoolLimit ?? 10,
         min: 0,
@@ -106,7 +105,15 @@ export class MsSqlOrmDriver extends SqlDriver {
       },
     });
 
+    await this.execute(`USE ${this.Options.Database}`, [], QueryContext.Schema);
+
     return this;
+  }
+
+  public resolve() {
+    super.resolve();
+
+    this.Container.register(MsSqlTableExistsCompiler).as(TableExistsCompiler);
   }
 
   public async disconnect(): Promise<OrmDriver> {
@@ -115,7 +122,7 @@ export class MsSqlOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
-    const tblInfo = (await this.execute(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? ${schema ? ' AND TABLE_SCHEMA=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as ITableInfo[];
+    const tblInfo = (await this.execute(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? ${schema ? 'AND TABLE_SCHEMA=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as ITableInfo[];
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
       return null;

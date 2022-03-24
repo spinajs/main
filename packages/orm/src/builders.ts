@@ -1673,8 +1673,13 @@ export class SchemaQueryBuilder {
     return builder;
   }
 
-  public async tableExists(name: string) {
+  public async tableExists(name: string, schema?: string) {
     const query = new TableExistsQueryBuilder(this.container, this.driver, name);
+
+    if(schema){
+      query.schema(schema);
+    }
+    
     const exists = await query;
     return exists !== null && exists.length === 1;
   }

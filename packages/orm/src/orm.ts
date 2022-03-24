@@ -319,7 +319,7 @@ export class Orm extends AsyncModule {
       const migrationTableName = connection.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
 
       // if there is no info on migraiton table
-      const migrationTableExists = await connection.schema().tableExists(migrationTableName);
+      const migrationTableExists = await connection.schema().tableExists(migrationTableName, connection.Options.Database);
 
       if (!migrationTableExists) {
         this.Log.info(`No migration table in database, recreating migration information ...`);

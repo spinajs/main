@@ -3,10 +3,10 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, ILimitCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler } from '@spinajs/orm';
+import { LimitBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, ILimitCompiler } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, Autoinject } from '@spinajs/di';
-import _ from "lodash";
+import _ from 'lodash';
 
 interface ITableAliasCompiler {
   tableAliasCompiler(builder: QueryBuilder, tbl?: string): string;
@@ -118,9 +118,21 @@ export class SqlForeignKeyQueryCompiler implements ForeignKeyQueryCompiler {
 }
 
 @NewInstance()
-export class SqlLimitCompiler implements ILimitCompiler {
-  public limit(builder: ILimitBuilder): ICompilerOutput {
-    const limits = builder.getLimits();
+export class SqlLimitQueryCompiler extends LimitQueryCompiler {
+  protected _builder: LimitBuilder;
+
+  constructor(builder: LimitBuilder) {
+    super();
+
+    if (!builder) {
+      throw new InvalidOperation('builder cannot be null or undefined');
+    }
+
+    this._builder = builder;
+  }
+
+  public compile(): ICompilerOutput {
+    const limits = this._builder.getLimits();
     const bindings = [];
     let stmt = '';
 
@@ -213,11 +225,11 @@ export class SqlJoinCompiler implements IJoinCompiler {
 }
 
 // tslint:disable-next-line
-export interface SqlSelectQueryCompiler extends IWhereCompiler, ILimitCompiler, IColumnsCompiler, ITableAliasCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler {}
+export interface SqlSelectQueryCompiler extends IWhereCompiler, IColumnsCompiler, ITableAliasCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler {}
 
 @NewInstance()
 export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder> {
-  @use(SqlWhereCompiler, SqlLimitCompiler, SqlColumnsCompiler, TableAliasCompiler, SqlJoinCompiler, SqlWithRecursiveCompiler, SqlGroupByCompiler) this: this;
+  @use(SqlWhereCompiler, SqlColumnsCompiler, TableAliasCompiler, SqlJoinCompiler, SqlWithRecursiveCompiler, SqlGroupByCompiler) this: this;
 
   @Autoinject()
   private Container: Container;
@@ -233,8 +245,8 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
 
     const columns = this.select();
     const from = this.from();
-    const limit = this.limit(this._builder as ILimitBuilder);
-    const sort = this.sort(this._builder as IOrderByBuilder);
+    const limit = this.limit();
+    const sort = this.sort();
     const where = this.where(this._builder as IWhereBuilder);
     const join = this.join(this._builder as IJoinBuilder);
     const group = this.group(this._builder as IGroupByBuilder);
@@ -254,8 +266,13 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
     };
   }
 
-  protected sort(builder: IOrderByBuilder) {
-    const compiler = this.Container.resolve<OrderByQueryCompiler>(OrderByQueryCompiler, [builder]);
+  protected limit() {
+    const compiler = this.Container.resolve<LimitQueryCompiler>(LimitQueryCompiler, [this._builder as ILimitBuilder]);
+    return compiler.compile();
+  }
+
+  protected sort() {
+    const compiler = this.Container.resolve<OrderByQueryCompiler>(OrderByQueryCompiler, [this._builder as IOrderByBuilder]);
     return compiler.compile();
   }
 

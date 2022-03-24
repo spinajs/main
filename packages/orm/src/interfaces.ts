@@ -681,6 +681,11 @@ export abstract class IndexQueryCompiler implements IQueryCompiler {
 }
 
 @NewInstance()
+export abstract class LimitQueryCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
+@NewInstance()
 export abstract class ForeignKeyQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }

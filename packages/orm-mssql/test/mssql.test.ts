@@ -11,6 +11,7 @@ import { DateTime } from 'luxon';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
+export const TEST_MIGRATION_TABLE_NAME = 'orm_migrations';
 
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolveAsync(): Promise<void> {
@@ -44,10 +45,20 @@ export class ConnectionConf extends FrameworkConfiguration {
             {
               Driver: 'orm-driver-mssql',
               Name: 'mssql',
-              Host: 'localhost,1992',
-              Password: '',
-              User: '',
+              Host: 'localhost',
+              Password: 'yourStrong(!)Password',
+              User: 'sa',
               Database: 'test',
+              Options: {
+                TrustServerCertificate: true,
+              },
+              Migration: {
+                Table: TEST_MIGRATION_TABLE_NAME,
+
+                Transaction: {
+                  Mode: MigrationTransactionMode.PerMigration,
+                },
+              },
             },
           ],
         },
