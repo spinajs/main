@@ -11,7 +11,7 @@ import { DI } from '@spinajs/di';
 import { Orm, IWhereBuilder, MigrationTransactionMode, Migration, OrmDriver, OrmMigration, QueryContext } from '@spinajs/orm';
 import * as _ from 'lodash';
 import * as chai from 'chai';
-import * as chaiAsPromised from 'chai-as-promised';
+import chaiAsPromised  from 'chai-as-promised';
 import { User } from './models/User';
 import * as sinon from 'sinon';
 import { DateTime } from 'luxon';
