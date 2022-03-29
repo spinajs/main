@@ -44,7 +44,7 @@ export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQue
     this._builder = builder;
   }
 
-  public abstract compile(): ICompilerOutput | ICompilerOutput[];
+  public abstract compile(): ICompilerOutput;
 }
 
 @NewInstance()
@@ -463,12 +463,10 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
     const values = this.values();
     const onDuplicate = this.onDuplicate();
 
-    return [
-      {
-        bindings: values.bindings.concat(onDuplicate.bindings),
-        expression: `${into} ${columns} ${values.data} ${onDuplicate.expression}`.trim(),
-      },
-    ];
+    return {
+      bindings: values.bindings.concat(onDuplicate.bindings),
+      expression: `${into} ${columns} ${values.data} ${onDuplicate.expression}`.trim(),
+    };
   }
 
   protected onDuplicate() {
@@ -617,7 +615,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
     if (!this.builder.Shallow) {
       const fOut =
         this.builder.Filter !== undefined
-          ? this.builder.Filter.toDB() as ICompilerOutput
+          ? (this.builder.Filter.toDB() as ICompilerOutput)
           : {
               bindings: [],
 

@@ -1,3 +1,4 @@
+import { OrmException } from './../../orm/src/exceptions';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import * as _ from 'lodash';
 import * as chai from 'chai';
@@ -128,25 +129,28 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
     expect(result.Name).to.eq('test');
   });
 
-  it('should insert or ignore  query', () => {
-    const result = db()
-      .Connections.get('mssql')
-      .insert()
-      .into('user')
-      .values({
-        Name: 'test',
-        Password: 'test_password',
-        CreatedAt: '2019-10-18',
-      })
-      .ignore()
-      .toDB();
-
-    expect(result.expression).to.eq('INSERT OR IGNORE INTO `user_test` (`Name`,`Password`,`CreatedAt`) VALUES (?,?,?)');
+  it('should throw insert or ignore  query', async () => {
+    const compile = () => {
+      db()
+        .Connections.get('mssql')
+        .insert()
+        .into('user')
+        .values({
+          Name: 'test',
+          Password: 'test_password',
+          CreatedAt: '2019-10-18',
+        })
+        .ignore()
+        .toDB();
+    };
+    expect(() => {
+      compile();
+    }).to.throw(OrmException);
   });
 
   it('should delete', async () => {
     await db().migrateUp();
-    await db().Connections.get('mssql').insert().into('user').values({
+    await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -169,7 +173,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
     await db()
       .Connections.get('mssql')
       .update()
-      .in('user')
+      .in('user_test')
       .update({
         Name: 'test updated',
       })
