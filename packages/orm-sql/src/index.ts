@@ -2,7 +2,7 @@
 import { SqlSetConverter } from './converters';
 import { ColumnQueryCompiler, TableCloneQueryCompiler, SetValueConverter, GroupByStatement, DateTimeWrapper, DateWrapper, OrmDriver, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, RecursiveQueryCompiler, ForeignKeyQueryCompiler, GroupByQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper } from './statements';
-import { SqlLimitQueryCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderQueryByCompiler, SqlOnDuplicateQueryCompiler, SqlIndexQueryCompiler, SqlWithRecursiveCompiler, SqlForeignKeyQueryCompiler, SqlColumnQueryCompiler, SqlGroupByCompiler, SqlTableCloneQueryCompiler, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler } from './compilers';
+import { SqlLimitQueryCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderByQueryCompiler, SqlOnDuplicateQueryCompiler, SqlIndexQueryCompiler, SqlWithRecursiveCompiler, SqlForeignKeyQueryCompiler, SqlColumnQueryCompiler, SqlGroupByCompiler, SqlTableCloneQueryCompiler, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler } from './compilers';
 
 export * from './compilers';
 export * from './statements';
@@ -32,7 +32,7 @@ export abstract class SqlDriver extends OrmDriver {
     this.Container.register(SqlDeleteQueryCompiler).as(DeleteQueryCompiler);
     this.Container.register(SqlInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(SqlTableQueryCompiler).as(TableQueryCompiler);
-    this.Container.register(SqlOrderQueryByCompiler).as(OrderByQueryCompiler);
+    this.Container.register(SqlOrderByQueryCompiler).as(OrderByQueryCompiler);
     this.Container.register(SqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(SqlIndexQueryCompiler).as(IndexQueryCompiler);
     this.Container.register(SqlForeignKeyQueryCompiler).as(ForeignKeyQueryCompiler);

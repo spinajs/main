@@ -302,7 +302,7 @@ export class Orm extends AsyncModule {
       const cn = this.Connections.get(md.Connection);
       const migrationTableName = cn.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
 
-      const exists = await cn.select().from(migrationTableName).where({ Migration: m.name }).first();
+      const exists = await cn.select().from(migrationTableName).where({ Migration: m.name }).orderByDescending("CreatedAt").first();
 
       if (!exists) {
         const migration = await this.Container.resolve<OrmMigration>(m.type, [cn]);

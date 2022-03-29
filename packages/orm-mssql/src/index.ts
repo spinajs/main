@@ -1,3 +1,4 @@
+import { OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
@@ -5,7 +6,7 @@ import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCa
 import { SqlDriver } from '@spinajs/orm-sql';
 import { connect, ConnectionPool, Request } from 'mssql';
 import { IIndexInfo, ITableInfo } from './types';
-import { MsSqlTableExistsCompiler, MsSqlLimitCompiler } from './compilers';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler } from './compilers';
 
 @Injectable('orm-driver-mssql')
 export class MsSqlOrmDriver extends SqlDriver {
@@ -115,6 +116,9 @@ export class MsSqlOrmDriver extends SqlDriver {
 
     this.Container.register(MsSqlTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(MsSqlLimitCompiler).as(LimitQueryCompiler);
+    this.Container.register(MsSqlOrderByCompiler).as(OrderByQueryCompiler);
+    this.Container.register(MsSqlTableQueryCompiler).as(TableQueryCompiler);
+    this.Container.register(MsSqlColumnQueryCompiler).as(ColumnQueryCompiler);
   }
 
   public async disconnect(): Promise<OrmDriver> {
@@ -123,13 +127,13 @@ export class MsSqlOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
-    const tblInfo = (await this.execute(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? ${schema ? 'AND TABLE_SCHEMA=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as ITableInfo[];
+    const tblInfo = (await this.execute(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? ${schema ? 'AND TABLE_CATALOG=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as ITableInfo[];
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
       return null;
     }
 
-    const indexList = (await this.execute(`select C.COLUMN_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS T JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE C ON C.CONSTRAINT_NAME=T.CONSTRAINT_NAME WHERE C.TABLE_NAME=? ${schema ? ' AND TABLE_SCHEMA=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as IIndexInfo[];
+    const indexList = (await this.execute(`select C.COLUMN_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS T JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE C ON C.CONSTRAINT_NAME=T.CONSTRAINT_NAME WHERE C.TABLE_NAME=? ${schema ? ' AND TABLE_CATALOG=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as IIndexInfo[];
 
     return tblInfo.map((r: ITableInfo) => {
       const isPrimary = indexList.find((c) => c.CONSTRAINT_TYPE === 'PRIMARY KEY' && c.COLUMN_NAME === r.COLUMN_NAME) !== undefined;

@@ -1268,10 +1268,10 @@ export class ColumnQueryBuilder {
   public Charset: string;
   public Collation: string;
   public NotNull: boolean;
-  public Type: string;
+  public Type: ColumnType;
   public Args: any[];
 
-  constructor(name: string, type: string, ...args: any[]) {
+  constructor(name: string, type: ColumnType, ...args: any[]) {
     this.Name = name;
     this.Type = type;
     this.Charset = '';
@@ -1346,10 +1346,10 @@ export class AlterColumnQueryBuilder extends ColumnQueryBuilder {
   public AfterColumn: string;
   public OldName: string;
 
-  constructor(name: string, type: string, ...args: any[]) {
-    super(name,type, ...args);
+  constructor(name: string, type: ColumnType, ...args: any[]) {
+    super(name, type, ...args);
     this.OldName = name;
-    
+
     // we assume add by default
     this.AlterType = ColumnAlterationType.Add;
   }
@@ -1446,7 +1446,7 @@ export class AlterTableQueryBuilder extends QueryBuilder {
 
   /**
    * Renames table
-   * 
+   *
    * @param newTableName - new table name
    */
   public rename(newTableName: string) {
@@ -1676,10 +1676,10 @@ export class SchemaQueryBuilder {
   public async tableExists(name: string, schema?: string) {
     const query = new TableExistsQueryBuilder(this.container, this.driver, name);
 
-    if(schema){
+    if (schema) {
       query.schema(schema);
     }
-    
+
     const exists = await query;
     return exists !== null && exists.length === 1;
   }

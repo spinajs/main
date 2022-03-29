@@ -48,7 +48,7 @@ export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQue
 }
 
 @NewInstance()
-export class SqlOrderQueryByCompiler extends OrderByQueryCompiler {
+export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
   protected _builder: OrderByBuilder;
 
   constructor(builder: OrderByBuilder) {
@@ -697,6 +697,50 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
 
 @NewInstance()
 export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
+  
+  protected _statementsMappings = {
+    set: (builder: ColumnQueryBuilder) => `SET(${builder.Args[0].map((a: string) => `'${a}\'`).join(',')})`,
+    string: (builder: ColumnQueryBuilder) => `VARCHAR(${builder.Args[0] ? builder.Args[0] : 255})`,
+    boolean: () => `TINYINT(1)`,
+    float: (builder: ColumnQueryBuilder) => {
+      const _precision = builder.Args[0] ? builder.Args[0] : 8;
+      const _scale = builder.Args[1] ? builder.Args[1] : 2;
+      return `${builder.Type.toUpperCase()}(${_precision},${_scale})`;
+    },
+    double: (builder: ColumnQueryBuilder) => this._statementsMappings.float(builder),
+    decimal: (builder: ColumnQueryBuilder) => this._statementsMappings.float(builder),
+    enum: (builder: ColumnQueryBuilder) => `${builder.Type.toUpperCase()}(${builder.Args[0].map((a: any) => `'${a}'`).join(',')})`,
+    binary: (builder: ColumnQueryBuilder) => `BINARY(${builder.Args[0] ?? 255}`,
+    smallint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    tinyint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    mediumint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    int: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    bigint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    tinytext: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    mediumtext: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    longtext: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    text: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    bit: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    date: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    time: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    dateTime: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    timestamp: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    json: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    tinyblob: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    mediumblob: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+    longblob: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
+
+    // COLUMN ADDITIONA PROPS
+    unsigned: () => 'UNSIGNED',
+    charset: (builder: ColumnQueryBuilder) => `CHARACTER SET '${builder.Charset}'`,
+    collation: (builder: ColumnQueryBuilder) => `COLLATE '${builder.Collation}'`,
+    notnull: () => `NOT NULL`,
+    default: () => this._defaultCompiler(),
+    autoincrement: () => `AUTO_INCREMENT`,
+    comment: (builder: ColumnQueryBuilder) => `COMMENT '${builder.Comment}'`,
+
+  };
+
   constructor(protected builder: ColumnQueryBuilder) {
     if (!builder) {
       throw new Error('column query builder cannot be null');
@@ -707,57 +751,28 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     const _stmt: string[] = [];
 
     _stmt.push(`\`${this.builder.Name}\``);
-
-    switch (this.builder.Type) {
-      case 'set':
-        _stmt.push(`SET(${this.builder.Args[0].map((a: string) => `'${a}\'`).join(',')})`);
-        break;
-      case 'string':
-        const _len = this.builder.Args[0] ? this.builder.Args[0] : 255;
-        _stmt.push(`VARCHAR(${_len})`);
-        break;
-      case 'boolean':
-        _stmt.push(`TINYINT(1)`);
-        break;
-      case 'float':
-      case 'double':
-      case 'decimal':
-        const _precision = this.builder.Args[0] ? this.builder.Args[0] : 8;
-        const _scale = this.builder.Args[1] ? this.builder.Args[1] : 2;
-        _stmt.push(`${this.builder.Type.toUpperCase()}(${_precision},${_scale})`);
-        break;
-      case 'enum':
-        const _enums = this.builder.Args[0].map((a: any) => `'${a}'`).join(',');
-        _stmt.push(`${this.builder.Type.toUpperCase()}(${_enums})`);
-        break;
-      case 'binary':
-        _stmt.push(`BINARY(${this.builder.Args[0] ?? 255}`);
-        break;
-      default:
-        _stmt.push(this.builder.Type.toUpperCase());
-        break;
-    }
+    _stmt.push(this._statementsMappings[this.builder.Type](this.builder));
 
     if (this.builder.Unsigned) {
-      _stmt.push('UNSIGNED');
+      _stmt.push(this._statementsMappings.unsigned());
     }
     if (this.builder.Charset) {
-      _stmt.push(`CHARACTER SET '${this.builder.Charset}'`);
+      _stmt.push(this._statementsMappings.charset(this.builder));
     }
     if (this.builder.Collation) {
-      _stmt.push(`COLLATE '${this.builder.Collation}'`);
+      _stmt.push(this._statementsMappings.collation(this.builder));
     }
     if (this.builder.NotNull) {
-      _stmt.push('NOT NULL');
+      _stmt.push(this._statementsMappings.notnull());
     }
     if (this.builder.Default) {
-      _stmt.push(this._defaultCompiler());
+      _stmt.push(this._statementsMappings.default());
     }
     if (this.builder.AutoIncrement) {
-      _stmt.push('AUTO_INCREMENT');
+      _stmt.push(this._statementsMappings.autoincrement());
     }
     if (this.builder.Comment) {
-      _stmt.push(`COMMENT '${this.builder.Comment}'`);
+      _stmt.push(this._statementsMappings.comment(this.builder));
     }
 
     return {
