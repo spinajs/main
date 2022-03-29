@@ -20,9 +20,9 @@ export enum QueryContext {
 export enum ColumnAlterationType {
   Add,
   Modify,
-  Rename
+  Rename,
 }
-
+ 
 export enum InsertBehaviour {
   /**
    * On duplicate entry ignore & fetch only model primary key
@@ -251,7 +251,7 @@ export type ForwardRefFunction = () => Constructor<ModelBase>;
 /**
  * Returns result of last insert or affected rows ( eg. rows affected would be 0 if insert is ignored )
  */
-export interface UpdateResult {
+export interface IUpdateResult {
   RowsAffected: number;
   LastInsertId: number;
 }
@@ -757,7 +757,7 @@ export abstract class GroupByQueryCompiler implements IQueryCompiler {
 /**
  * Middlewares for query builders
  */
-export interface IBuilderMiddleware {
+export interface IBuilderMiddleware<T = any[]> {
   /**
    *
    * Executed AFTER query is executed in DB and raw data is fetched
@@ -765,7 +765,7 @@ export interface IBuilderMiddleware {
    *
    * @param data - raw data fetched from DB
    */
-  afterData(data: any[]): any[];
+  afterData(data: T): T;
 
   /**
    * Executed when model is about to create. Use it to
@@ -813,5 +813,3 @@ export class DatetimeValueConverter extends ValueConverter {}
  * Converter for set field (eg. mysql SET)
  */
 export class SetValueConverter extends ValueConverter {}
-
- 

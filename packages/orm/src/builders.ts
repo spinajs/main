@@ -12,7 +12,7 @@ import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
-import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, UpdateResult } from '.';
+import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUpdateResult } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -38,7 +38,7 @@ export class Builder<T = any> {
   protected _model?: Constructor<ModelBase>;
 
   protected _nonSelect: boolean;
-  protected _middlewares: IBuilderMiddleware[] = [];
+  protected _middlewares: IBuilderMiddleware<T>[] = [];
   protected _asRaw: boolean;
 
   public QueryContext: QueryContext;
@@ -55,7 +55,7 @@ export class Builder<T = any> {
     this._asRaw = false;
   }
 
-  public middleware(middleware: IBuilderMiddleware) {
+  public middleware(middleware: IBuilderMiddleware<T>) {
     this._middlewares.push(middleware);
     return this;
   }
@@ -67,11 +67,11 @@ export class Builder<T = any> {
     throw new MethodNotImplemented();
   }
 
-  public then(resolve: (rows: any[]) => void, reject: (err: Error) => void): Promise<T> {
+  public then(resolve: (r: T) => void, reject: (err: Error) => void): Promise<T> {
     const execute = (compiled: ICompilerOutput) => {
       return this._driver
         .execute(compiled.expression, compiled.bindings, this.QueryContext)
-        .then((result: any[]) => {
+        .then((result: T) => {
           try {
             if (this._asRaw) {
               resolve(result);
@@ -81,12 +81,13 @@ export class Builder<T = any> {
               let transformedResult = result;
 
               if (this._middlewares.length > 0) {
-                transformedResult = this._middlewares.reduce((_, current) => {
+                transformedResult = this._middlewares.reduce((_: any, current) => {
                   return current.afterData(result);
                 }, []);
               }
 
-              const models = transformedResult.map((r) => {
+              // TODO: rething this casting
+              const models = (transformedResult as unknown as any[]).map((r) => {
                 let model = null;
                 for (const middleware of this._middlewares) {
                   model = middleware.modelCreation(r);
@@ -109,10 +110,10 @@ export class Builder<T = any> {
 
               if (this._middlewares.length > 0) {
                 Promise.all(afterMiddlewarePromises).then(() => {
-                  resolve(models);
+                  resolve(models as unknown as T);
                 }, reject);
               } else {
-                resolve(models);
+                resolve(models as unknown as T);
               }
             } else {
               resolve(result);
@@ -897,8 +898,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return compiler.compile();
   }
 
-  public then(resolve: (rows: any[]) => void, reject: (err: Error) => void): Promise<T> {
-    return super.then((result: any[]) => {
+  public then(resolve: (rows: any) => void, reject: (err: Error) => void): Promise<T> {
+    return super.then((result: any) => {
       if (this._first) {
         if (this._fail && result.length === 0) {
           reject(new Error('empty results'));
@@ -995,7 +996,7 @@ export class OnDuplicateQueryBuilder {
     return this;
   }
 
-  public then(resolve: (rows: any[]) => void, reject: (err: Error) => void): Promise<any> {
+  public then(resolve: (rows: IUpdateResult) => void, reject: (err: Error) => void): Promise<any> {
     return this._parent.then(resolve, reject);
   }
 
@@ -1043,7 +1044,7 @@ export class UpdateQueryBuilder extends QueryBuilder {
   }
 }
 
-export class InsertQueryBuilder extends QueryBuilder<UpdateResult> {
+export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   public DuplicateQueryBuilder: OnDuplicateQueryBuilder;
 
   protected _values: any[][];

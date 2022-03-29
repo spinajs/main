@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation } from './relations';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
-import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter, UpdateResult } from './interfaces';
+import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult } from './interfaces';
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
 import { WhereOperators } from './enums';
@@ -304,7 +304,7 @@ export class ModelBase {
         break;
     }
 
-    const { LastInsertId, RowsAffected } = (await query.values(this.dehydrate())) as unknown as UpdateResult;
+    const { LastInsertId, RowsAffected } = (await query.values(this.dehydrate())) as unknown as IUpdateResult;
 
     if (RowsAffected !== 0) {
       this.PrimaryKeyValue = this.PrimaryKeyValue ?? LastInsertId;

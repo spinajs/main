@@ -11,9 +11,19 @@ export class MsSqlTableExistsCompiler implements TableExistsCompiler {
   }
 
   public compile(): ICompilerOutput {
+    const bindings = [this.builder.Table];
+    let expression = '';
+
+    if (this.builder.Schema) {
+      bindings.push(this.builder.Schema);
+      expression = `SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? AND TABLE_CATALOG=? ORDER BY TABLE_NAME OFFSET 0 ROWS FETCH FIRST 1 ROWS ONLY`;
+    } else {
+      expression = `SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? ORDER BY TABLE_NAME OFFSET 0 ROWS FETCH FIRST 1 ROWS ONLY`;
+    }
+
     return {
-      bindings: [this.builder.Table, this.builder.Schema],
-      expression: `SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? AND TABLE_CATALOG=? ORDER BY TABLE_NAME OFFSET 0 ROWS FETCH FIRST 1 ROWS ONLY;`,
+      bindings,
+      expression,
     };
   }
 }

@@ -4,7 +4,7 @@ import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 @Migration('mssql')
 export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
-    await connection.schema().createTable('user', (table) => {
+    await connection.schema().createTable('user_test', (table) => {
       table.int('Id').primaryKey().autoIncrement();
       table.string('Name').notNull();
       table.string('Password').notNull();

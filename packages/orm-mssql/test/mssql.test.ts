@@ -97,14 +97,14 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
   it('Should migrate', async () => {
     await db().migrateUp();
 
-    await db().Connections.get('mssql').select().from('user');
+    await db().Connections.get('mssql').select().from('user_test');
     await expect(db().Connections.get('mssql').select().from('notexisted')).to.be.rejected;
   });
 
   it('Should check if table exists', async () => {
     await db().migrateUp();
 
-    const exists = await db().Connections.get('mssql').schema().tableExists('user');
+    const exists = await db().Connections.get('mssql').schema().tableExists('user_test');
     const notExists = await db().Connections.get('mssql').schema().tableExists('user2');
 
     expect(exists).to.eq(true);
@@ -113,15 +113,16 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
 
   it('should insert query', async () => {
     await db().migrateUp();
-    const id = await db().Connections.get('mssql').insert().into('user').values({
+    const iResult = await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
     });
 
-    const result: User = await db().Connections.get('mssql').select().from('user').first();
+    const result: User = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
 
-    expect(id).to.eq(1);
+    expect(iResult.RowsAffected).to.eq(1);
+    expect(iResult.LastInsertId).to.gt(1);
     expect(result).to.be.not.null;
     expect(result.Id).to.eq(1);
     expect(result.Name).to.eq('test');
@@ -140,7 +141,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
       .ignore()
       .toDB();
 
-    expect(result.expression).to.eq('INSERT OR IGNORE INTO `user` (`Name`,`Password`,`CreatedAt`) VALUES (?,?,?)');
+    expect(result.expression).to.eq('INSERT OR IGNORE INTO `user_test` (`Name`,`Password`,`CreatedAt`) VALUES (?,?,?)');
   });
 
   it('should delete', async () => {
@@ -151,15 +152,15 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
       CreatedAt: '2019-10-18',
     });
 
-    await db().Connections.get('mssql').del().from('user').where('id', 1);
+    await db().Connections.get('mssql').del().from('user_test').where('id', 1);
 
-    const result = await db().Connections.get('mssql').select().from('user').first();
+    const result = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
     expect(result).to.be.undefined;
   });
 
   it('should update', async () => {
     await db().migrateUp();
-    await db().Connections.get('mssql').insert().into('user').values({
+    await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -174,7 +175,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
       })
       .where('id', 1);
 
-    const result: User = await db().Connections.get('mssql').select().from('user').first();
+    const result: User = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
     expect(result).to.be.not.null;
     expect(result.Name).to.eq('test updated');
   });
@@ -197,7 +198,7 @@ describe('mssql model functions', () => {
       Password: 'test_password',
     });
 
-    const result: User = await db().Connections.get('mssql').select().from('user').first();
+    const result: User = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
 
     expect(result).to.be.not.null;
     expect(result.Id).to.eq(1);
@@ -226,13 +227,13 @@ describe('MsSql queries', () => {
   });
 
   it('should select and sort', async () => {
-    await db().Connections.get('mssql').insert().into('user').values({
+    await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'a',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
     });
 
-    await db().Connections.get('mssql').insert().into('user').values({
+    await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'b',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -246,7 +247,7 @@ describe('MsSql queries', () => {
   });
 
   it('should select to model', async () => {
-    await db().Connections.get('mssql').insert().into('user').values({
+    await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -260,7 +261,7 @@ describe('MsSql queries', () => {
   });
 
   it('should map datetime', async () => {
-    await db().Connections.get('mssql').insert().into('user').values({
+    await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -273,7 +274,7 @@ describe('MsSql queries', () => {
   });
 
   it('should run on duplicate', async () => {
-    await db().Connections.get('mssql').insert().into('user').values({
+    await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
