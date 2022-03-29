@@ -667,7 +667,7 @@ export abstract class RecursiveQueryCompiler implements IQueryCompiler {
 }
 @NewInstance()
 export abstract class SelectQueryCompiler implements IQueryCompiler {
-  public abstract compile(): ICompilerOutput;
+  public abstract compile(): ICompilerOutput | ICompilerOutput[];
 }
 
 @NewInstance()

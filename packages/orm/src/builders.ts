@@ -893,7 +893,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
-  public toDB(): ICompilerOutput {
+  public toDB(): ICompilerOutput | ICompilerOutput[] {
     const compiler = this._container.resolve<SelectQueryCompiler>(SelectQueryCompiler, [this]);
     return compiler.compile();
   }

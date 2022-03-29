@@ -1,6 +1,21 @@
 import { NewInstance } from '@spinajs/di';
 import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler } from '@spinajs/orm-sql';
+import { SqlColumnQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler } from '@spinajs/orm-sql';
+
+@NewInstance()
+export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
+  public compile() {
+    return [
+      ...super.compile(),
+
+      // to get last insert id we fire second query
+      {
+        bindings: [] as any[],
+        expression: 'SELECT SCOPE_IDENTITY()',
+      },
+    ];
+  }
+}
 
 @NewInstance()
 export class MsSqlTableExistsCompiler implements TableExistsCompiler {
