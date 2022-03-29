@@ -1,3 +1,4 @@
+import { OrmException } from './../../orm/src/exceptions';
 import { NewInstance } from '@spinajs/di';
 import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder } from '@spinajs/orm';
 import { SqlColumnQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler } from '@spinajs/orm-sql';
@@ -5,6 +6,10 @@ import { SqlColumnQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, 
 @NewInstance()
 export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
   public compile() {
+    if (this._builder.Ignore) {
+      throw new OrmException(`mssql insert or ignore is not supported`);
+    }
+
     const result = super.compile();
     return {
       bindings: result.bindings,

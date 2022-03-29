@@ -1,3 +1,4 @@
+import { ICompilerOutput } from './../../orm/src/interfaces';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers';
 import { NewInstance } from '@spinajs/di';
@@ -17,8 +18,8 @@ export class SqlRawStatement extends RawQueryStatement {
 @NewInstance()
 export class SqlWithRecursiveStatement extends WithRecursiveStatement {
   public build(): IQueryStatementResult {
-    const initialQuery = this._query.clone().clearJoins().toDB();
-    const additionalQuery = this._query.clone().clearWhere().clearJoins().setAlias('$recursive$').innerJoin('recursive_cte', '$recursive_cte$', this._pkName, this._rcKeyName).toDB();
+    const initialQuery = this._query.clone().clearJoins().toDB() as ICompilerOutput;
+    const additionalQuery = this._query.clone().clearWhere().clearJoins().setAlias('$recursive$').innerJoin('recursive_cte', '$recursive_cte$', this._pkName, this._rcKeyName).toDB() as ICompilerOutput;
     const cte_columns = this._query
       .getColumns()
       .map((c: ColumnStatement) => c.Column)
@@ -219,7 +220,7 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
 export class SqlExistsQueryStatement extends ExistsQueryStatement {
   public build(): IQueryStatementResult {
     let exprr = '';
-    const compiled = this._builder.toDB();
+    const compiled = this._builder.toDB() as ICompilerOutput;
 
     if (this._not) {
       exprr += `NOT EXISTS ( ${compiled.expression} )`;

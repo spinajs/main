@@ -5,7 +5,7 @@
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { LimitBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler } from '@spinajs/orm';
 import { use } from 'typescript-mix';
-import { NewInstance, Inject, Container, Autoinject } from '@spinajs/di';
+import { NewInstance, Inject, Container, Autoinject, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 
 interface ITableAliasCompiler {
@@ -44,7 +44,7 @@ export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQue
     this._builder = builder;
   }
 
-  public abstract compile(): ICompilerOutput;
+  public abstract compile(): ICompilerOutput | ICompilerOutput[];
 }
 
 @NewInstance()
@@ -451,11 +451,9 @@ export class SqlIndexQueryCompiler extends IndexQueryCompiler {
 }
 
 @NewInstance()
+@Inject(Container)
 export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder> {
-  @Autoinject()
-  protected _container: Container;
-
-  constructor(builder: InsertQueryBuilder) {
+  constructor(protected _container: IContainer, builder: InsertQueryBuilder) {
     super(builder);
   }
 
@@ -465,10 +463,12 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
     const values = this.values();
     const onDuplicate = this.onDuplicate();
 
-    return {
-      bindings: values.bindings.concat(onDuplicate.bindings),
-      expression: `${into} ${columns} ${values.data} ${onDuplicate.expression}`.trim(),
-    };
+    return [
+      {
+        bindings: values.bindings.concat(onDuplicate.bindings),
+        expression: `${into} ${columns} ${values.data} ${onDuplicate.expression}`.trim(),
+      },
+    ];
   }
 
   protected onDuplicate() {
@@ -617,7 +617,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
     if (!this.builder.Shallow) {
       const fOut =
         this.builder.Filter !== undefined
-          ? this.builder.Filter.toDB()
+          ? this.builder.Filter.toDB() as ICompilerOutput
           : {
               bindings: [],
 
@@ -697,7 +697,6 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
 
 @NewInstance()
 export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
-  
   protected _statementsMappings = {
     set: (builder: ColumnQueryBuilder) => `SET(${builder.Args[0].map((a: string) => `'${a}\'`).join(',')})`,
     string: (builder: ColumnQueryBuilder) => `VARCHAR(${builder.Args[0] ? builder.Args[0] : 255})`,
@@ -738,7 +737,6 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     default: () => this._defaultCompiler(),
     autoincrement: () => `AUTO_INCREMENT`,
     comment: (builder: ColumnQueryBuilder) => `COMMENT '${builder.Comment}'`,
-
   };
 
   constructor(protected builder: ColumnQueryBuilder) {
