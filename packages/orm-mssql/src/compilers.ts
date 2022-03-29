@@ -13,7 +13,7 @@ export class MsSqlTableExistsCompiler implements TableExistsCompiler {
   public compile(): ICompilerOutput {
     return {
       bindings: [this.builder.Table, this.builder.Schema],
-      expression: `SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? AND TABLE_SCHEMA=? LIMIT 1;`,
+      expression: `SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? AND TABLE_SCHEMA=? ORDER BY TABLE_NAME OFFSET 0 ROWS FETCH FIRST 1 ROWS ONLY;`,
     };
   }
 }

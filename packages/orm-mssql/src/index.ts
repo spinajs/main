@@ -1,11 +1,11 @@
-import { MsSqlTableExistsCompiler } from './compilers';
 /* eslint-disable security/detect-object-injection */
 import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
-import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, LimitQueryCompiler } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { connect, ConnectionPool, Request } from 'mssql';
 import { IIndexInfo, ITableInfo } from './types';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler } from './compilers';
 
 @Injectable('orm-driver-mssql')
 export class MsSqlOrmDriver extends SqlDriver {
@@ -15,7 +15,7 @@ export class MsSqlOrmDriver extends SqlDriver {
 
   public async execute(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const tName = `query-${this._executionId++}`;
-    let finalQuery = stmt;
+    let finalQuery = stmt.replaceAll('`', '');
 
     this.Log.timeStart(`query-${tName}`);
 
@@ -114,6 +114,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     super.resolve();
 
     this.Container.register(MsSqlTableExistsCompiler).as(TableExistsCompiler);
+    this.Container.register(MsSqlLimitCompiler).as(LimitQueryCompiler);
   }
 
   public async disconnect(): Promise<OrmDriver> {
