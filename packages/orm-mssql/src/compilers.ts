@@ -1,6 +1,17 @@
 import { NewInstance } from '@spinajs/di';
 import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler } from '@spinajs/orm-sql';
+import { SqlColumnQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler } from '@spinajs/orm-sql';
+
+@NewInstance()
+export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
+  public compile() {
+    const result = super.compile();
+    return {
+      bindings: result.bindings,
+      expression: result.expression + ' SELECT SCOPE_IDENTITY() as ID',
+    };
+  }
+}
 
 @NewInstance()
 export class MsSqlTableExistsCompiler implements TableExistsCompiler {

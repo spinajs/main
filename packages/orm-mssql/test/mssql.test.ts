@@ -124,7 +124,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
     expect(iResult.RowsAffected).to.eq(1);
     expect(iResult.LastInsertId).to.gt(1);
     expect(result).to.be.not.null;
-    expect(result.Id).to.eq(1);
+    expect(result.Id).to.gt(1);
     expect(result.Name).to.eq('test');
   });
 

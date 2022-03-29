@@ -1,12 +1,11 @@
-import { OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
-import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, LimitQueryCompiler } from '@spinajs/orm';
+import { OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, LimitQueryCompiler } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { connect, ConnectionPool, Request } from 'mssql';
 import { IIndexInfo, ITableInfo } from './types';
-import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler } from './compilers';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler } from './compilers';
 
 @Injectable('orm-driver-mssql')
 export class MsSqlOrmDriver extends SqlDriver {
@@ -58,7 +57,7 @@ export class MsSqlOrmDriver extends SqlDriver {
         case QueryContext.Insert:
           return {
             RowsAffected: result.rowsAffected[0],
-            LastInsertId: result.output['ID'],
+            LastInsertId: result.recordset[0].ID,
           };
         default:
           return result.recordset;
@@ -119,6 +118,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlOrderByCompiler).as(OrderByQueryCompiler);
     this.Container.register(MsSqlTableQueryCompiler).as(TableQueryCompiler);
     this.Container.register(MsSqlColumnQueryCompiler).as(ColumnQueryCompiler);
+    this.Container.register(MsSqlInsertQueryCompiler).as(InsertQueryCompiler);
   }
 
   public async disconnect(): Promise<OrmDriver> {
