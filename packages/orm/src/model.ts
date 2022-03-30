@@ -11,6 +11,7 @@ import { ModelHydrator } from './hydrators';
 import * as _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { OrmException } from './exceptions';
+import { ModelDehydrator } from './dehydrators';
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescrtiptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
@@ -247,25 +248,7 @@ export class ModelBase {
    * Extracts all data from model. It takes only properties that exists in DB
    */
   public dehydrate(): Partial<this> {
-    const obj = {};
-
-    this.ModelDescriptor.Columns?.forEach((c) => {
-      const val = (this as any)[c.Name];
-      if (c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
-        throw new OrmException(`Field ${c.Name} cannot be null`);
-      }
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val) : val;
-    });
-
-    for (const [, val] of this.ModelDescriptor.Relations) {
-      if (val.Type === RelationType.One) {
-        if ((this as any)[val.Name]) {
-          (obj as any)[val.ForeignKey] = (this as any)[val.Name].PrimaryKeyValue;
-        }
-      }
-    }
-
-    return obj;
+    return DI.resolve(ModelDehydrator).dehydrate(this);
   }
 
   /**

@@ -5,6 +5,7 @@ import { SyncModule, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { IDriverOptions, IColumnDescriptor } from '.';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder } from './builders';
 import { ModelHydrator, DbPropertyHydrator, OneToOneRelationHydrator, NonDbPropertyHydrator, JunctionModelPropertyHydrator } from './hydrators';
+import { ModelDehydrator, StandardModelDehydrator } from './dehydrators';
 
 export type TransactionCallback = (driver: OrmDriver) => Promise<any>;
 
@@ -70,6 +71,7 @@ export abstract class OrmDriver extends SyncModule {
     DI.register(NonDbPropertyHydrator).as(ModelHydrator);
     DI.register(OneToOneRelationHydrator).as(ModelHydrator);
     DI.register(JunctionModelPropertyHydrator).as(ModelHydrator);
+    DI.register(StandardModelDehydrator).as(ModelDehydrator);
   }
 
   /**
