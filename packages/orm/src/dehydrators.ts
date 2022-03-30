@@ -11,7 +11,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
     const obj = {};
 
     model.ModelDescriptor.Columns?.forEach((c) => {
-      const val = (this as any)[c.Name];
+      const val = (model as any)[c.Name];
       if (c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
@@ -20,8 +20,8 @@ export class StandardModelDehydrator extends ModelDehydrator {
 
     for (const [, val] of model.ModelDescriptor.Relations) {
       if (val.Type === RelationType.One) {
-        if ((this as any)[val.Name]) {
-          (obj as any)[val.ForeignKey] = (this as any)[val.Name].PrimaryKeyValue;
+        if ((model as any)[val.Name]) {
+          (obj as any)[val.ForeignKey] = (model as any)[val.Name].PrimaryKeyValue;
         }
       }
     }
