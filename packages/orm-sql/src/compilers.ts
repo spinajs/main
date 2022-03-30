@@ -3,17 +3,13 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler } from '@spinajs/orm';
+import { LimitBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 
-interface ITableAliasCompiler {
-  tableAliasCompiler(builder: QueryBuilder, tbl?: string): string;
-}
-
-class TableAliasCompiler implements ITableAliasCompiler {
-  public tableAliasCompiler(builder: IQueryBuilder, tbl?: string) {
+export class SqlTableAliasCompiler implements TableAliasCompiler {
+  public compile(builder: IQueryBuilder, tbl?: string) {
     let table = '';
 
     if (builder.Schema) {
@@ -225,15 +221,14 @@ export class SqlJoinCompiler implements IJoinCompiler {
 }
 
 // tslint:disable-next-line
-export interface SqlSelectQueryCompiler extends IWhereCompiler, IColumnsCompiler, ITableAliasCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler {}
+export interface SqlSelectQueryCompiler extends IWhereCompiler, IColumnsCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler {}
 
 @NewInstance()
 @Inject(Container)
 export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder> {
   @use(SqlWhereCompiler, SqlColumnsCompiler, TableAliasCompiler, SqlJoinCompiler, SqlWithRecursiveCompiler, SqlGroupByCompiler) this: this;
- 
 
-  constructor(protected _container : IContainer, builder: SelectQueryBuilder) {
+  constructor(protected _container: IContainer, builder: SelectQueryBuilder) {
     super(builder);
   }
 
@@ -290,18 +285,18 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
   }
 
   protected from() {
-    return 'FROM ' + this.tableAliasCompiler(this._builder);
+    return 'FROM ' + this._container.resolve(TableAliasCompiler).compile(this._builder);
   }
 }
 
 // tslint:disable-next-line
-export interface SqlUpdateQueryCompiler extends IWhereCompiler, ITableAliasCompiler {}
+export interface SqlUpdateQueryCompiler extends IWhereCompiler {}
 
 @NewInstance()
 export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder> {
   @use(SqlWhereCompiler, TableAliasCompiler) this: this;
 
-  constructor(_: IContainer, builder: UpdateQueryBuilder) {
+  constructor(protected _container: IContainer, builder: UpdateQueryBuilder) {
     super(builder);
   }
 
@@ -338,12 +333,12 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder>
   }
 
   protected table() {
-    return `UPDATE ${this.tableAliasCompiler(this._builder)} SET`;
+    return `UPDATE ${this._container.resolve(TableAliasCompiler).compile(this._builder)} SET`;
   }
 }
 
 // tslint:disable-next-line
-export interface SqlDeleteQueryCompiler extends IWhereCompiler, ITableAliasCompiler {}
+export interface SqlDeleteQueryCompiler extends IWhereCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -363,7 +358,7 @@ export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder>
     let _expression = '';
 
     if (this._builder.Truncate) {
-      _expression = `TRUNCATE TABLE ${this.tableAliasCompiler(this._builder)}`;
+      _expression = `TRUNCATE TABLE ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
     } else {
       _expression = _from + (_where.expression ? ` WHERE ${_where.expression}` : '') + _limit.expression;
     }
@@ -383,7 +378,7 @@ export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder>
   }
 
   protected from() {
-    return `DELETE FROM ${this.tableAliasCompiler(this._builder)}`;
+    return `DELETE FROM ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
   }
 }
 
@@ -533,7 +528,7 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
   }
 }
 
-export interface SqlAlterTableQueryCompiler extends ITableAliasCompiler {}
+export interface SqlAlterTableQueryCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -562,7 +557,7 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
     if (this.builder.NewTableName) {
       _outputs.push({
         bindings: [],
-        expression: `${_table} RENAME TO ${this.tableAliasCompiler(this.builder, this.builder.NewTableName)}`,
+        expression: `${_table} RENAME TO ${this.container.resolve(TableAliasCompiler).compile(this.builder, this.builder.NewTableName)}`,
       });
     }
 
@@ -583,11 +578,11 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
   }
 
   protected _table() {
-    return `ALTER TABLE ${this.tableAliasCompiler(this.builder)}`;
+    return `ALTER TABLE ${this.container.resolve(TableAliasCompiler).compile(this.builder)}`;
   }
 }
 
-export interface SqlTableCloneQueryCompiler extends ITableAliasCompiler {}
+export interface SqlTableCloneQueryCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -599,22 +594,23 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
   }
 
   public compile(): ICompilerOutput[] {
+    const _tblName = this.container.resolve(TableAliasCompiler).compile(this.builder, this.builder.CloneSource);
     const _table = this._table();
 
     const out1: ICompilerOutput = {
       bindings: [],
-      expression: `${_table} LIKE ${this.tableAliasCompiler(this.builder, this.builder.CloneSource)}`,
+      expression: `${_table} LIKE ${_tblName}`,
     };
 
     if (!this.builder.Shallow) {
       const fOut =
         this.builder.Filter !== undefined
-          ? (this.builder.Filter.toDB())
+          ? this.builder.Filter.toDB()
           : {
               bindings: [],
 
               // if no filter is provided, copy all the data
-              expression: `SELECT * FROM ${this.tableAliasCompiler(this.builder, this.builder.CloneSource)}`,
+              expression: `SELECT * FROM ${_tblName}`,
             };
 
       const fExprr = `INSERT INTO \`${this.builder.Table}\` ${fOut.expression}`;
@@ -632,11 +628,11 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
   }
 
   protected _table() {
-    return `CREATE${this.builder.Temporary ? ' TEMPORARY ' : ' '}TABLE ${this.tableAliasCompiler(this.builder)}`;
+    return `CREATE${this.builder.Temporary ? ' TEMPORARY ' : ' '}TABLE ${this.container.resolve(TableAliasCompiler).compile(this.builder)}`;
   }
 }
 
-export interface SqlTableQueryCompiler extends ITableAliasCompiler {}
+export interface SqlTableQueryCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -683,7 +679,7 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
   }
 
   protected _table() {
-    return `CREATE${this.builder.Temporary ? ' TEMPORARY ' : ' '}TABLE ${this.builder.CheckExists ? 'IF NOT EXISTS ' : ''}${this.tableAliasCompiler(this.builder)}`;
+    return `CREATE${this.builder.Temporary ? ' TEMPORARY ' : ' '}TABLE ${this.builder.CheckExists ? 'IF NOT EXISTS ' : ''}${this.container.resolve(TableAliasCompiler).compile(this.builder)}`;
   }
 }
 

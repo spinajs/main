@@ -206,12 +206,12 @@ describe('mssql model functions', () => {
     const result: User = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
 
     expect(result).to.be.not.null;
-    expect(result.Id).to.eq(1);
+    expect(result.Id).to.gt(0);
     expect(result.Name).to.eq('test');
     expect(result.Password).to.eq('test_password');
 
     expect(user).to.be.not.null;
-    expect(user.Id).to.eq(1);
+    expect(user.Id).to.gt(0);
     expect(user.Name).to.eq('test');
     expect(user.Password).to.eq('test_password');
   });
