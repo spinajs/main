@@ -5,7 +5,7 @@ import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverte
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
 import { Op, SqlOperator } from './enums';
-import { DI, isConstructor, Class } from '@spinajs/di';
+import { DI, isConstructor, Class, IContainer } from '@spinajs/di';
 import { Orm } from './orm';
 import { ModelHydrator } from './hydrators';
 import * as _ from 'lodash';
@@ -51,12 +51,37 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescrtiptor 
 }
 
 export class ModelBase {
+  private _descriptor: IModelDescrtiptor;
+  private _container: IContainer;
+
   /**
    * Gets descriptor for this model. It contains information about relations, orm driver, connection properties,
    * db table attached, column information and others.
    */
   public get ModelDescriptor() {
-    return extractModelDescriptor(this.constructor);
+    if (!this._descriptor) {
+      this._descriptor = extractModelDescriptor(this.constructor);
+    }
+
+    return this._descriptor;
+  }
+
+  /**
+   * Gets di container associated with this model ( via connection object  eg. different drivers have their own implementation of things)
+   */
+  public get Container() {
+    if (!this._container) {
+      const orm = DI.get<Orm>(Orm);
+      const driver = orm.Connections.get(this.ModelDescriptor.Connection);
+
+      if (!driver) {
+        throw new Error(`model ${this.constructor.name} have invalid connection ${this.ModelDescriptor.Connection}, please check your db config file or model connection name`);
+      }
+
+      this._container = driver.Container;
+    }
+
+    return this._container;
   }
 
   public get PrimaryKeyName() {
@@ -215,7 +240,7 @@ export class ModelBase {
    * @param data - data to fill
    */
   public hydrate(data: Partial<this>) {
-    DI.resolve(Array.ofType(ModelHydrator)).forEach((h) => h.hydrate(this, data));
+    this.Container.resolve(Array.ofType(ModelHydrator)).forEach((h) => h.hydrate(this, data));
   }
 
   /**
@@ -248,7 +273,7 @@ export class ModelBase {
    * Extracts all data from model. It takes only properties that exists in DB
    */
   public dehydrate(): Partial<this> {
-    return DI.resolve(ModelDehydrator).dehydrate(this);
+    return this.Container.resolve(ModelDehydrator).dehydrate(this);
   }
 
   /**
@@ -322,7 +347,7 @@ export class ModelBase {
 
   /**
    * Refresh model from database.
-   * 
+   *
    * If no primary key is set, tries to fetch data base on columns
    * with unique constraints. If none exists, throws exception
    */

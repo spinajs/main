@@ -1,5 +1,6 @@
-import { ModelBase, RelationType } from '@spinajs/orm';
 import { OrmException } from './exceptions';
+import { RelationType } from './interfaces';
+import { ModelBase } from './model';
 
 export abstract class ModelDehydrator {
   public abstract dehydrate(model: ModelBase): any;
