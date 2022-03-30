@@ -1,3 +1,4 @@
+import { OrmException } from './exceptions';
 /* eslint-disable prettier/prettier */
 
 import { Container, Inject, NewInstance, Constructor } from '@spinajs/di';
@@ -236,13 +237,10 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
 
 @NewInstance()
 export class LimitBuilder implements ILimitBuilder {
-  protected _fail: boolean;
   protected _first: boolean;
-
   protected _limit: IQueryLimit;
 
   constructor() {
-    this._fail = false;
     this._first = false;
     this._limit = {
       limit: -1,
@@ -275,9 +273,17 @@ export class LimitBuilder implements ILimitBuilder {
     return (await this) as any;
   }
 
-  public firstOrFail() {
-    this._fail = true;
-    return this.first();
+  public async firstOrFail() {
+    return this.firstOrThrow(new OrmException('not found'));
+  }
+
+  public async firstOrThrow(error: Error) {
+    const result = await this.first();
+    if (result === undefined) {
+      throw error;
+    }
+
+    return result;
   }
 
   public getLimits() {
@@ -901,10 +907,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public then(resolve: (rows: any) => void, reject: (err: Error) => void): Promise<T> {
     return super.then((result: any) => {
       if (this._first) {
-        if (this._fail && result.length === 0) {
-          reject(new Error('empty results'));
-        } else {
+        if (result.length !== 0) {
           resolve(result ? result[0] : null);
+        } else {
+          resolve(undefined);
         }
       } else {
         resolve(result);

@@ -483,6 +483,7 @@ export interface ILimitBuilder {
   skip(count: number): this;
   first<T>(): Promise<T>;
   firstOrFail<T>(): Promise<T>;
+  firstOrThrow<T>(error: Error): Promise<T>;
   getLimits(): IQueryLimit;
 }
 
@@ -546,23 +547,23 @@ export interface IWhereBuilder {
   where(val: {}): this;
   where(func: WhereFunction): this;
   where(column: string, operator: Op, value: any): this;
-  where(column: string, value: any) : this;
-  where(statement: WrapStatement) : this;
+  where(column: string, value: any): this;
+  where(statement: WrapStatement): this;
 
   orWhere(val: boolean): this;
   orWhere(val: {}): this;
   orWhere(func: WhereFunction): this;
   orWhere(column: string, operator: Op, value: any): this;
-  orWhere(column: string, value: any) : this;
-  orWhere(statement: WrapStatement) : this;
+  orWhere(column: string, value: any): this;
+  orWhere(statement: WrapStatement): this;
 
   andWhere(val: boolean): this;
   andWhere(val: {}): this;
   andWhere(func: WhereFunction): this;
   andWhere(column: string, operator: Op, value: any): this;
-  andWhere(column: string, value: any) : this;
-  andWhere(statement: WrapStatement) : this;
- 
+  andWhere(column: string, value: any): this;
+  andWhere(statement: WrapStatement): this;
+
   whereObject(obj: any): this;
   whereNotNull(column: string): this;
   whereNull(column: string): this;
