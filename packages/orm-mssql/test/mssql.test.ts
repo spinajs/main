@@ -9,7 +9,6 @@ import { IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { User } from './models/User';
 import { DateTime } from 'luxon';
-import { SqlOperator } from 'orm/src/enums';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);

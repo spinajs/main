@@ -1,4 +1,5 @@
 export * from './interfaces';
+export * from './enums';
 export * from './statements';
 export * from './builders';
 export * from './model';

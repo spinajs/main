@@ -3,7 +3,7 @@ import { ICompilerOutput } from './../../orm/src/interfaces';
 import { SqlWhereCompiler } from './compilers';
 import { NewInstance } from '@spinajs/di';
 import { BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement } from '@spinajs/orm';
-import { WhereOperators } from '@spinajs/orm/lib/enums';
+import { SqlOperator } from '@spinajs/orm';
 
 @NewInstance()
 export class SqlRawStatement extends RawQueryStatement {
@@ -64,7 +64,7 @@ export class SqlGroupByStatement extends GroupByStatement {
 @NewInstance()
 export class SqlWhereStatement extends WhereStatement {
   public build(): IQueryStatementResult {
-    const isNullableQuery = this._operator === WhereOperators.NOT_NULL || this._operator === WhereOperators.NULL;
+    const isNullableQuery = this._operator === SqlOperator.NOT_NULL || this._operator === SqlOperator.NULL;
     const binding = isNullableQuery ? '' : ' ?';
 
     let column = this._column;

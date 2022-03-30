@@ -3,7 +3,7 @@
 
 import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
 import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder } from '@spinajs/orm';
-import { NewInstance, Inject, Container, Autoinject } from '@spinajs/di';
+import { NewInstance, Inject, Container, Autoinject, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 
 @NewInstance()
@@ -102,12 +102,11 @@ export class SqliteTableQueryCompiler extends SqlTableQueryCompiler {
 }
 
 @NewInstance()
+@Inject(Container)
 export class SqliteInsertQueryCompiler extends SqlInsertQueryCompiler {
-  @Autoinject()
-  protected _container: Container;
-
-  constructor(builder: InsertQueryBuilder) {
-    super(builder);
+  
+  constructor(container: IContainer, builder: InsertQueryBuilder) {
+    super(container, builder);
   }
 
   public compile() {
