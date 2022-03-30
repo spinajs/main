@@ -1,4 +1,4 @@
-export interface ITableInfo {
+export interface ITableColumnInfo {
   TABLE_CATALOG: string;
   TABLE_SCHEMA: string;
   TABLE_NAME: string;
