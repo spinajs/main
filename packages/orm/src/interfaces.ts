@@ -1,6 +1,6 @@
 import { Op } from './enums';
 /* eslint-disable prettier/prettier */
-import { RawQuery } from './builders';
+import { QueryBuilder, RawQuery } from './builders';
 import { SORT_ORDER, WhereBoolean } from './enums';
 import { IQueryStatement, WrapStatement } from './statements';
 import { WhereFunction } from './types';
@@ -484,7 +484,7 @@ export interface ILimitBuilder {
   first<T>(): Promise<T>;
   firstOrFail<T>(): Promise<T>;
   firstOrThrow<T>(error: Error): Promise<T>;
-  orThrow<T>(error: Error) : Promise<T>;
+  orThrow<T>(error: Error): Promise<T>;
   getLimits(): IQueryLimit;
 }
 
@@ -550,7 +550,7 @@ export interface IWhereBuilder {
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
   where(statement: WrapStatement): this;
-  where(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any) : this;
+  where(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
   orWhere(val: {}): this;
@@ -558,8 +558,7 @@ export interface IWhereBuilder {
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
   orWhere(statement: WrapStatement): this;
-  orWhere(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any) : this;
-
+  orWhere(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
   andWhere(val: {}): this;
@@ -567,8 +566,7 @@ export interface IWhereBuilder {
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
   andWhere(statement: WrapStatement): this;
-  andWhere(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any) : this;
-
+  andWhere(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): this;
 
   whereObject(obj: any): this;
   whereNotNull(column: string): this;
@@ -839,3 +837,7 @@ export class DatetimeValueConverter extends ValueConverter {}
  * Converter for set field (eg. mysql SET)
  */
 export class SetValueConverter extends ValueConverter {}
+
+export abstract class TableAliasCompiler {
+  public abstract compile(builder: QueryBuilder, tbl?: string): string;
+}
