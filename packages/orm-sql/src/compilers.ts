@@ -12,8 +12,8 @@ export class SqlTableAliasCompiler implements TableAliasCompiler {
   public compile(builder: IQueryBuilder, tbl?: string) {
     let table = '';
 
-    if (builder.Schema) {
-      table += `\`${builder.Schema}\`.`;
+    if (builder.Database) {
+      table += `\`${builder.Database}\`.`;
     }
 
     table += `\`${tbl ? tbl : builder.Table}\``;

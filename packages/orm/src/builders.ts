@@ -1,7 +1,7 @@
 import { OrmException } from './exceptions';
 /* eslint-disable prettier/prettier */
 
-import { Container, Inject, NewInstance, Constructor } from '@spinajs/di';
+import { Container, Inject, NewInstance, Constructor, IContainer } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
 import * as _ from 'lodash';
 import { use } from 'typescript-mix';
@@ -35,7 +35,7 @@ function isWhereOperator(val: any) {
 @Inject(Container)
 export class Builder<T = any> {
   protected _driver: OrmDriver;
-  protected _container: Container;
+  protected _container: IContainer;
   protected _model?: Constructor<ModelBase>;
 
   protected _nonSelect: boolean;
@@ -48,7 +48,11 @@ export class Builder<T = any> {
     return this._driver;
   }
 
-  constructor(container: Container, driver: OrmDriver, model?: Constructor<ModelBase>) {
+  public get Container(): IContainer {
+    return this._container;
+  }
+
+  constructor(container: IContainer, driver: OrmDriver, model?: Constructor<ModelBase>) {
     this._driver = driver;
     this._container = container;
     this._model = model;
@@ -149,9 +153,9 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
   protected _method: QueryMethod;
   protected _table: string;
   protected _tableAlias: string;
-  protected _schema: string;
+  protected _database: string;
 
-  constructor(container: Container, driver: OrmDriver, model?: Constructor<ModelBase>) {
+  constructor(container: IContainer, driver: OrmDriver, model?: Constructor<ModelBase>) {
     super(container, driver, model);
   }
 
@@ -178,21 +182,21 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
    * @example
    * SELECT * FROM `spinejs`.`users` as u
    */
-  public get Schema() {
-    return this._schema;
+  public get Database() {
+    return this._database;
   }
 
   /**
    * Sets schema to this query.
    *
-   * @param schema - schema or database name in database
+   * @param database - schema or database name in database
    */
-  public schema(schema: string) {
-    if (!schema) {
+  public database(database: string) {
+    if (!database) {
       throw new InvalidArgument(`schema argument cannot be null or empty`);
     }
 
-    this._schema = schema;
+    this._database = database;
 
     return this;
   }
@@ -775,7 +779,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this._relations;
   }
 
-  constructor(container: Container, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation) {
+  constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation) {
     super(container, driver, model);
 
     this._distinct = false;
@@ -985,9 +989,9 @@ export class OnDuplicateQueryBuilder {
 
   protected _columnsToUpdate: Array<string | RawQuery>;
 
-  protected _container: Container;
+  protected _container: IContainer;
 
-  constructor(container: Container, insertQueryBuilder: InsertQueryBuilder, column?: string | string[]) {
+  constructor(container: IContainer, insertQueryBuilder: InsertQueryBuilder, column?: string | string[]) {
     this._parent = insertQueryBuilder;
     this._container = container;
 
@@ -1693,7 +1697,7 @@ export class SchemaQueryBuilder {
     const query = new TableExistsQueryBuilder(this.container, this.driver, name);
 
     if (schema) {
-      query.schema(schema);
+      query.database(schema);
     }
 
     const exists = await query;

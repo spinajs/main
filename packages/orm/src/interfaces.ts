@@ -5,7 +5,7 @@ import { SORT_ORDER, WhereBoolean } from './enums';
 import { IQueryStatement, WrapStatement } from './statements';
 import { WhereFunction } from './types';
 import { OrmDriver } from './driver';
-import { NewInstance, Constructor } from '@spinajs/di';
+import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
 import { ModelBase } from './model';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 
@@ -472,10 +472,13 @@ export interface ISort {
 export interface IQueryBuilder {
   Table: string;
   TableAlias: string;
-  Schema: string;
-  schema(schema: string): IQueryBuilder;
+  Database: string;
+  database(database: string): IQueryBuilder;
   from(table: string, alias?: string): this;
   setAlias(alias: string): this;
+
+  Driver: OrmDriver;
+  Container : IContainer;
 }
 
 export interface ILimitBuilder {
@@ -838,6 +841,7 @@ export class DatetimeValueConverter extends ValueConverter {}
  */
 export class SetValueConverter extends ValueConverter {}
 
+@Singleton()
 export abstract class TableAliasCompiler {
   public abstract compile(builder: QueryBuilder, tbl?: string): string;
 }

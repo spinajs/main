@@ -67,9 +67,9 @@ describe('Query builder generic', () => {
   });
 
   it('set & get schema', () => {
-    const query = sqb().select('*').from('users').schema('spine');
+    const query = sqb().select('*').from('users').database('spine');
 
-    expect(query.Schema).to.equal('spine');
+    expect(query.Database).to.equal('spine');
     expect(query.toDB().expression).to.equal('SELECT * FROM `spine`.`users`');
   });
 
@@ -96,11 +96,11 @@ describe('Query builder generic', () => {
     const schema = '';
 
     expect(() => {
-      sqb().select('*').from('users').schema(schema).toDB();
+      sqb().select('*').from('users').database(schema).toDB();
     }).to.throw();
 
     expect(() => {
-      sqb().select('*').from('users').schema(null).toDB();
+      sqb().select('*').from('users').database(null).toDB();
     }).to.throw();
   });
 });
@@ -289,12 +289,12 @@ describe('Delete query builder', () => {
   });
 
   it('Simple delete', () => {
-    const result = dqb().from('users').schema('spine').where('active', false).toDB();
+    const result = dqb().from('users').database('spine').where('active', false).toDB();
     expect(result.expression).to.equal('DELETE FROM `spine`.`users` WHERE active = ?');
   });
 
   it('Simple truncate', () => {
-    const result = dqb().from('users').schema('spine').truncate().toDB();
+    const result = dqb().from('users').database('spine').truncate().toDB();
     expect(result.expression).to.equal('TRUNCATE TABLE `spine`.`users`');
   });
 });
@@ -663,7 +663,7 @@ describe('Select query builder', () => {
   });
 
   it('basic select with schema', () => {
-    const result = sqb().select('*').from('users').schema('spine').toDB();
+    const result = sqb().select('*').from('users').database('spine').toDB();
     expect(result.expression).to.equal('SELECT * FROM `spine`.`users`');
   });
 

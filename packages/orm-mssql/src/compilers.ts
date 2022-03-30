@@ -1,6 +1,7 @@
+import { Configuration } from '@spinajs/configuration';
 import { OrmException } from './../../orm/src/exceptions';
-import { NewInstance } from '@spinajs/di';
-import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, IWhereBuilder, ILimitBuilder } from '@spinajs/orm';
+import { Inject, NewInstance } from '@spinajs/di';
+import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, IWhereBuilder, ILimitBuilder, TableAliasCompiler, IQueryBuilder } from '@spinajs/orm';
 import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler } from '@spinajs/orm-sql';
 
 @NewInstance()
@@ -30,8 +31,8 @@ export class MsSqlTableExistsCompiler implements TableExistsCompiler {
     const bindings = [this.builder.Table];
     let expression = '';
 
-    if (this.builder.Schema) {
-      bindings.push(this.builder.Schema);
+    if (this.builder.Database) {
+      bindings.push(this.builder.Database);
       expression = `SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? AND TABLE_CATALOG=? ORDER BY TABLE_NAME OFFSET 0 ROWS FETCH FIRST 1 ROWS ONLY`;
     } else {
       expression = `SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? ORDER BY TABLE_NAME OFFSET 0 ROWS FETCH FIRST 1 ROWS ONLY`;
@@ -114,7 +115,7 @@ export class MsSqlTableQueryCompiler extends SqlTableQueryCompiler {
   }
 
   protected _table() {
-    return `CREATE${this.builder.Temporary ? ' TEMPORARY ' : ' '}TABLE ${this.builder.CheckExists ? 'IF NOT EXISTS ' : ''}${this.tableAliasCompiler(this.builder)}`;
+    return `CREATE${this.builder.Temporary ? ' TEMPORARY ' : ' '}TABLE ${this.builder.CheckExists ? 'IF NOT EXISTS ' : ''}${this.container.resolve(TableAliasCompiler).compile(this.builder)}`;
   }
 }
 
@@ -138,7 +139,7 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
     let _expression = '';
 
     if (this._builder.Truncate) {
-      _expression = `TRUNCATE TABLE ${this.tableAliasCompiler(this._builder)}`;
+      _expression = `TRUNCATE TABLE ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
     } else {
       _expression = _from + (_where.expression ? ` WHERE ${_where.expression}` : '');
     }
@@ -155,6 +156,29 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
     const lBuilder = this._builder as ILimitBuilder;
     const limits = lBuilder.getLimits();
 
-    return `DELETE ${limits.limit > 0 ? `TOP ${limits.limit} ` : ''}FROM ${this.tableAliasCompiler(this._builder)}`;
+    return `DELETE ${limits.limit > 0 ? `TOP ${limits.limit} ` : ''}FROM ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
+  }
+}
+
+@Inject(Configuration)
+export class MsSqlTableAliasCompiler implements TableAliasCompiler {
+  public compile(builder: IQueryBuilder, tbl?: string) {
+    let table = '';
+
+    if (builder.Database) {
+      table += `\`${builder.Database}\`.`;
+    }
+
+    if (builder.Driver.Options.Options?.Schema) {
+      table += `\`${builder.Driver.Options.Options?.Schema}\`.`;
+    }
+
+    table += `\`${tbl ? tbl : builder.Table}\``;
+
+    if (builder.TableAlias) {
+      table += ` as \`${builder.TableAlias}\``;
+    }
+
+    return table;
   }
 }

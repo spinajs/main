@@ -30,7 +30,7 @@ export abstract class OrmRelation implements IOrmRelation {
     this._relationQuery = cnt.resolve<SelectQueryBuilder>(SelectQueryBuilder, [driver, this._targetModel, this]);
 
     if (driver.Options.Database) {
-      this._relationQuery.schema(driver.Options.Database);
+      this._relationQuery.database(driver.Options.Database);
     }
   }
 
@@ -412,7 +412,7 @@ export class ManyToManyRelation extends OrmRelation {
     this._joinQuery = cnt.resolve<SelectQueryBuilder>(SelectQueryBuilder, [driver, this._targetModel, this]);
 
     if (driver.Options.Database) {
-      this._joinQuery.schema(driver.Options.Database);
+      this._joinQuery.database(driver.Options.Database);
     }
 
     this._joinQuery.from(this._joinModelDescriptor.TableName, `$${this._joinModelDescriptor.TableName}$`);

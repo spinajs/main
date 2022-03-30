@@ -52,6 +52,7 @@ export class ConnectionConf extends FrameworkConfiguration {
               Database: 'test',
               Options: {
                 TrustServerCertificate: true,
+                Schema: 'dbo',
               },
               Migration: {
                 Table: TEST_MIGRATION_TABLE_NAME,
