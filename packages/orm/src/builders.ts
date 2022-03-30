@@ -1020,7 +1020,7 @@ export class OnDuplicateQueryBuilder {
   }
 }
 
-export class UpdateQueryBuilder extends QueryBuilder {
+export class UpdateQueryBuilder extends QueryBuilder<IUpdateResult> {
   /**
    * where query props
    */

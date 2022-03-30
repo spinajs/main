@@ -164,22 +164,23 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
 
   it('should update', async () => {
     await db().migrateUp();
-    await db().Connections.get('mssql').insert().into('user_test').values({
+    const iResult = await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
     });
 
-    await db()
+    const uResult = await db()
       .Connections.get('mssql')
       .update()
       .in('user_test')
       .update({
         Name: 'test updated',
       })
-      .where('id', 1);
+      .where('id', iResult.LastInsertId);
 
     const result: User = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
+    expect(uResult.RowsAffected).to.eq(1);
     expect(result).to.be.not.null;
     expect(result.Name).to.eq('test updated');
   });

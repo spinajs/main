@@ -301,7 +301,7 @@ export interface SqlUpdateQueryCompiler extends IWhereCompiler, ITableAliasCompi
 export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder> {
   @use(SqlWhereCompiler, TableAliasCompiler) this: this;
 
-  constructor(builder: UpdateQueryBuilder) {
+  constructor(_: IContainer, builder: UpdateQueryBuilder) {
     super(builder);
   }
 

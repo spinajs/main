@@ -90,7 +90,6 @@ export function Injectable(as?: Class<unknown> | string) {
 export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
   return AddDependency((descriptor: IInjectDescriptor<unknown>) => {
     for (const a of args) {
-      
       // avoid injecting duplicates
       if (
         !descriptor.inject.find((i) => {
