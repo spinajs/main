@@ -157,7 +157,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
     });
 
     await db().Connections.get('mssql').del().from('user_test').where('id', '!=', 0);
-    
+
     const result = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
     expect(result).to.be.undefined;
   });

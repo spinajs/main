@@ -38,7 +38,7 @@ export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQue
     super();
 
     if (builder === null && builder === undefined) {
-      throw new InvalidOperation('builder cannot be null or undefined');
+      throw new InvalidArgument('builder cannot be null or undefined');
     }
 
     this._builder = builder;
@@ -610,7 +610,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
     if (!this.builder.Shallow) {
       const fOut =
         this.builder.Filter !== undefined
-          ? (this.builder.Filter.toDB() as ICompilerOutput)
+          ? (this.builder.Filter.toDB())
           : {
               bindings: [],
 
