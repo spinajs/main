@@ -5,7 +5,7 @@
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { LimitBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler } from '@spinajs/orm';
 import { use } from 'typescript-mix';
-import { NewInstance, Inject, Container, Autoinject, IContainer } from '@spinajs/di';
+import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 
 interface ITableAliasCompiler {
@@ -228,13 +228,12 @@ export class SqlJoinCompiler implements IJoinCompiler {
 export interface SqlSelectQueryCompiler extends IWhereCompiler, IColumnsCompiler, ITableAliasCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler {}
 
 @NewInstance()
+@Inject(Container)
 export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder> {
   @use(SqlWhereCompiler, SqlColumnsCompiler, TableAliasCompiler, SqlJoinCompiler, SqlWithRecursiveCompiler, SqlGroupByCompiler) this: this;
+ 
 
-  @Autoinject()
-  private Container: Container;
-
-  constructor(builder: SelectQueryBuilder) {
+  constructor(protected _container : IContainer, builder: SelectQueryBuilder) {
     super(builder);
   }
 
@@ -267,12 +266,12 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
   }
 
   protected limit() {
-    const compiler = this.Container.resolve<LimitQueryCompiler>(LimitQueryCompiler, [this._builder as ILimitBuilder]);
+    const compiler = this._container.resolve<LimitQueryCompiler>(LimitQueryCompiler, [this._builder as ILimitBuilder]);
     return compiler.compile();
   }
 
   protected sort() {
-    const compiler = this.Container.resolve<OrderByQueryCompiler>(OrderByQueryCompiler, [this._builder as IOrderByBuilder]);
+    const compiler = this._container.resolve<OrderByQueryCompiler>(OrderByQueryCompiler, [this._builder as IOrderByBuilder]);
     return compiler.compile();
   }
 

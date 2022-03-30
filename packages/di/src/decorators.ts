@@ -3,6 +3,7 @@ import { IInjectDescriptor } from './interfaces';
 import { Class } from './types';
 import { TypedArray } from './array';
 import * as DI from './root';
+import { isTypedArray } from './helpers';
 
 export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
 
@@ -89,11 +90,27 @@ export function Injectable(as?: Class<unknown> | string) {
 export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
   return AddDependency((descriptor: IInjectDescriptor<unknown>) => {
     for (const a of args) {
-      descriptor.inject.push({
-        autoinject: false,
-        autoinjectKey: '',
-        inject: a,
-      });
+      
+      // avoid injecting duplicates
+      if (
+        !descriptor.inject.find((i) => {
+          if (isTypedArray(i)) {
+            if (isTypedArray(a)) {
+              return i.Type === a.Type;
+            } else {
+              return i.Type === a;
+            }
+          } else {
+            return i.inject === a;
+          }
+        })
+      ) {
+        descriptor.inject.push({
+          autoinject: false,
+          autoinjectKey: '',
+          inject: a,
+        });
+      }
     }
   });
 }
