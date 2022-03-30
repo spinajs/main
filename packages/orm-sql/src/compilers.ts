@@ -350,6 +350,9 @@ export interface SqlDeleteQueryCompiler extends IWhereCompiler, ITableAliasCompi
 export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder> {
   @use(SqlWhereCompiler, TableAliasCompiler) this: this;
 
+  @Autoinject()
+  private Container: Container;
+
   public compile() {
     const _bindings = [];
     const _from = this.from();
@@ -374,19 +377,8 @@ export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder>
   }
 
   protected limit() {
-    const _limits = this._builder.getLimits();
-    const _bindings = [];
-    let _stmt = ' ';
-
-    if (_limits.limit > 0) {
-      _stmt += `LIMIT ?`;
-      _bindings.push(_limits.limit);
-    }
-
-    return {
-      bindings: _bindings,
-      expression: _stmt,
-    };
+    const compiler = this.Container.resolve<LimitQueryCompiler>(LimitQueryCompiler, [this._builder as ILimitBuilder]);
+    return compiler.compile();
   }
 
   protected from() {
