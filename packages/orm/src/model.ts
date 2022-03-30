@@ -4,7 +4,7 @@ import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
 import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult } from './interfaces';
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
-import { SqlOperator } from './enums';
+import { Op, SqlOperator } from './enums';
 import { DI, isConstructor, Class } from '@spinajs/di';
 import { Orm } from './orm';
 import { ModelHydrator } from './hydrators';
@@ -437,7 +437,7 @@ export const MODEL_STATIC_MIXINS = {
     return query;
   },
 
-  where(column: string | boolean | WhereFunction | RawQuery | {}, operator?: SqlOperator | any, value?: any): SelectQueryBuilder {
+  where(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): SelectQueryBuilder {
     const { query } = _createQuery(this, SelectQueryBuilder);
     query.select('*');
 
