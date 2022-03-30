@@ -1,3 +1,4 @@
+import { WhereOperators } from './enums';
 /* eslint-disable prettier/prettier */
 import { RawQuery } from './builders';
 import { SORT_ORDER, WhereBoolean } from './enums';
@@ -22,7 +23,7 @@ export enum ColumnAlterationType {
   Modify,
   Rename,
 }
- 
+
 export enum InsertBehaviour {
   /**
    * On duplicate entry ignore & fetch only model primary key
@@ -541,9 +542,27 @@ export interface IWhereBuilder {
 
   Op: WhereBoolean;
 
-  where(column: string | boolean | {} | WhereFunction | WrapStatement, operator?: any, value?: any): this;
-  orWhere(column: string | boolean | {} | WhereFunction | WrapStatement, operator?: any, value?: any): this;
-  andWhere(column: string | boolean | {} | WhereFunction | WrapStatement, operator?: any, value?: any): this;
+  where(val: boolean): this;
+  where(val: {}): this;
+  where(func: WhereFunction): this;
+  where(column: string, operator: WhereOperators, value: any): this;
+  where(column: string, value: any) : this;
+  where(statement: WrapStatement) : this;
+
+  orWhere(val: boolean): this;
+  orWhere(val: {}): this;
+  orWhere(func: WhereFunction): this;
+  orWhere(column: string, operator: WhereOperators, value: any): this;
+  orWhere(column: string, value: any) : this;
+  orWhere(statement: WrapStatement) : this;
+
+  andWhere(val: boolean): this;
+  andWhere(val: {}): this;
+  andWhere(func: WhereFunction): this;
+  andWhere(column: string, operator: WhereOperators, value: any): this;
+  andWhere(column: string, value: any) : this;
+  andWhere(statement: WrapStatement) : this;
+ 
   whereObject(obj: any): this;
   whereNotNull(column: string): this;
   whereNull(column: string): this;

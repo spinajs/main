@@ -156,7 +156,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
       CreatedAt: '2019-10-18',
     });
 
-    await db().Connections.get('mssql').del().from('user_test').where('id', 1);
+    await db().Connections.get('mssql').del().from('user_test').where('id', 'ss');
 
     const result = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
     expect(result).to.be.undefined;
