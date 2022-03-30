@@ -277,6 +277,15 @@ export class LimitBuilder implements ILimitBuilder {
     return this.firstOrThrow(new OrmException('not found'));
   }
 
+  public async orThrow(error: Error) {
+    const result = (await this) as any;
+    if (result === undefined || (Array.isArray(result) && result.length === 0)) {
+      throw error;
+    }
+
+    return result;
+  }
+
   public async firstOrThrow(error: Error) {
     const result = await this.first();
     if (result === undefined) {

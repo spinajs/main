@@ -484,6 +484,7 @@ export interface ILimitBuilder {
   first<T>(): Promise<T>;
   firstOrFail<T>(): Promise<T>;
   firstOrThrow<T>(error: Error): Promise<T>;
+  orThrow<T>(error: Error) : Promise<T>;
   getLimits(): IQueryLimit;
 }
 
