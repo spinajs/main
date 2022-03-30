@@ -1,4 +1,4 @@
-import { WhereOperators } from './enums';
+import { Op, SqlOperator } from './enums';
 /* eslint-disable prettier/prettier */
 import { RawQuery } from './builders';
 import { SORT_ORDER, WhereBoolean } from './enums';
@@ -545,21 +545,21 @@ export interface IWhereBuilder {
   where(val: boolean): this;
   where(val: {}): this;
   where(func: WhereFunction): this;
-  where(column: string, operator: WhereOperators, value: any): this;
+  where(column: string, operator: Op, value: any): this;
   where(column: string, value: any) : this;
   where(statement: WrapStatement) : this;
 
   orWhere(val: boolean): this;
   orWhere(val: {}): this;
   orWhere(func: WhereFunction): this;
-  orWhere(column: string, operator: WhereOperators, value: any): this;
+  orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any) : this;
   orWhere(statement: WrapStatement) : this;
 
   andWhere(val: boolean): this;
   andWhere(val: {}): this;
   andWhere(func: WhereFunction): this;
-  andWhere(column: string, operator: WhereOperators, value: any): this;
+  andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any) : this;
   andWhere(statement: WrapStatement) : this;
  

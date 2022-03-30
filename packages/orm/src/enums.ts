@@ -44,7 +44,7 @@ export enum WhereBoolean {
 /**
  * Allowed operators in queries
  */
-export enum WhereOperators {
+export enum SqlOperator {
   LT = '<',
   LTE = '<=',
   GT = '>',
@@ -61,6 +61,8 @@ export enum WhereOperators {
   NOT_BETWEEN = 'not between',
   LIKE = 'like',
 }
+
+export type Op = '<' | '>' | '!=' | '<=>' | '>=' | '<=' | '<>' | 'like';
 
 /**
  * Allowed join methods in queries

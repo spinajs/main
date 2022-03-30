@@ -4,7 +4,7 @@ import { Container, Inject, NewInstance, Constructor } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
 import * as _ from 'lodash';
 import { use } from 'typescript-mix';
-import { ColumnMethods, ColumnType, QueryMethod, SORT_ORDER, WhereBoolean, WhereOperators, JoinMethod } from './enums';
+import { ColumnMethods, ColumnType, QueryMethod, SORT_ORDER, WhereBoolean, SqlOperator, JoinMethod } from './enums';
 import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder } from './interfaces';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, WrapStatement, Wrap } from './statements';
 import { WhereFunction } from './types';
@@ -27,7 +27,7 @@ export interface UpdateQueryBuilder extends IColumnsBuilder, IWhereBuilder {}
 export interface SelectQueryBuilder extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder, IWhereBuilder, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {}
 
 function isWhereOperator(val: any) {
-  return _.isString(val) && Object.values(WhereOperators).includes((val as any).toLowerCase());
+  return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
 }
 
 @NewInstance()
@@ -549,7 +549,7 @@ export class WhereBuilder implements IWhereBuilder {
     this._tableAlias = tableAlias;
   }
 
-  public where(column: string | boolean | WhereFunction | RawQuery | WrapStatement | {}, operator?: WhereOperators | any, value?: any): this {
+  public where(column: string | boolean | WhereFunction | RawQuery | WrapStatement | {}, operator?: SqlOperator | any, value?: any): this {
     const self = this;
 
     // Support "where true || where false"
@@ -599,7 +599,7 @@ export class WhereBuilder implements IWhereBuilder {
         return this.whereNull(c);
       }
 
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, WhereOperators.EQ, v, self._tableAlias, this._container]));
+      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, v, self._tableAlias, this._container]));
 
       return self;
     }
@@ -622,7 +622,7 @@ export class WhereBuilder implements IWhereBuilder {
       }
 
       if (v === null) {
-        return o === WhereOperators.NOT_NULL ? this.whereNotNull(c) : this.whereNull(c);
+        return o === SqlOperator.NOT_NULL ? this.whereNotNull(c) : this.whereNull(c);
       }
 
       self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, v, self._tableAlias, this._container]));
@@ -643,25 +643,25 @@ export class WhereBuilder implements IWhereBuilder {
 
   public whereObject(obj: any) {
     for (const key of Object.keys(obj)) {
-      this.andWhere(key, WhereOperators.EQ, obj[key]);
+      this.andWhere(key, SqlOperator.EQ, obj[key]);
     }
 
     return this;
   }
 
   public whereNotNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, WhereOperators.NOT_NULL, null, this._tableAlias]));
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this._tableAlias]));
 
     return this;
   }
 
   public whereNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, WhereOperators.NULL, null, this._tableAlias]));
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this._tableAlias]));
     return this;
   }
 
   public whereNot(column: string, val: any): this {
-    return this.where(column, WhereOperators.NOT, val);
+    return this.where(column, SqlOperator.NOT, val);
   }
 
   public whereIn(column: string, val: any[]): this {

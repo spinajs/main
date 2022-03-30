@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders';
-import { ColumnMethods, WhereOperators, JoinMethod } from './enums';
+import { ColumnMethods, SqlOperator, JoinMethod } from './enums';
 import { NewInstance, Container, Class } from '@spinajs/di';
 import * as _ from 'lodash';
 import { IColumnDescriptor } from './interfaces';
@@ -102,11 +102,11 @@ export abstract class WhereQueryStatement extends QueryStatement {
 @NewInstance()
 export abstract class WhereStatement extends QueryStatement {
   protected _column: string | Wrap;
-  protected _operator: WhereOperators;
+  protected _operator: SqlOperator;
   protected _value: any;
   protected _container: Container;
 
-  constructor(column: string, operator: WhereOperators, value: any, tableAlias: string, container: Container) {
+  constructor(column: string, operator: SqlOperator, value: any, tableAlias: string, container: Container) {
     super(tableAlias);
     this._column = column;
     this._operator = operator;

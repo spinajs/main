@@ -4,7 +4,7 @@ import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
 import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult } from './interfaces';
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
-import { WhereOperators } from './enums';
+import { SqlOperator } from './enums';
 import { DI, isConstructor, Class } from '@spinajs/di';
 import { Orm } from './orm';
 import { ModelHydrator } from './hydrators';
@@ -110,7 +110,7 @@ export class ModelBase {
    * @param operator - boolean operator
    * @param value - value to compare
    */
-  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction | RawQuery | object, _operator?: WhereOperators | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
+  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction | RawQuery | object, _operator?: SqlOperator | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
     throw Error('Not implemented');
   }
 
@@ -437,7 +437,7 @@ export const MODEL_STATIC_MIXINS = {
     return query;
   },
 
-  where(column: string | boolean | WhereFunction | RawQuery | {}, operator?: WhereOperators | any, value?: any): SelectQueryBuilder {
+  where(column: string | boolean | WhereFunction | RawQuery | {}, operator?: SqlOperator | any, value?: any): SelectQueryBuilder {
     const { query } = _createQuery(this, SelectQueryBuilder);
     query.select('*');
 

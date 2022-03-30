@@ -9,6 +9,7 @@ import { IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { User } from './models/User';
 import { DateTime } from 'luxon';
+import { SqlOperator } from 'orm/src/enums';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -156,7 +157,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
       CreatedAt: '2019-10-18',
     });
 
-    await db().Connections.get('mssql').del().from('user_test').where('id', 'ss');
+    await db().Connections.get('mssql').del().from('user_test').where('id', '!=', 0);
 
     const result = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
     expect(result).to.be.undefined;
