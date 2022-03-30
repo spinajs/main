@@ -932,7 +932,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 }
 
-export class DeleteQueryBuilder extends QueryBuilder {
+export class DeleteQueryBuilder extends QueryBuilder<IUpdateResult> {
   /**
    * where query props
    */

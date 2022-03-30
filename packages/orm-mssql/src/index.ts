@@ -1,3 +1,4 @@
+import { DeleteQueryCompiler } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
@@ -5,7 +6,7 @@ import { OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQu
 import { SqlDriver } from '@spinajs/orm-sql';
 import { connect, ConnectionPool, Request } from 'mssql';
 import { IIndexInfo, ITableInfo } from './types';
-import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler } from './compilers';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler } from './compilers';
 
 @Injectable('orm-driver-mssql')
 export class MsSqlOrmDriver extends SqlDriver {
@@ -119,6 +120,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlTableQueryCompiler).as(TableQueryCompiler);
     this.Container.register(MsSqlColumnQueryCompiler).as(ColumnQueryCompiler);
     this.Container.register(MsSqlInsertQueryCompiler).as(InsertQueryCompiler);
+    this.Container.register(MsSqlDeleteQueryCompiler).as(DeleteQueryCompiler);
   }
 
   public async disconnect(): Promise<OrmDriver> {

@@ -1,7 +1,7 @@
 import { OrmException } from './../../orm/src/exceptions';
 import { NewInstance } from '@spinajs/di';
-import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler } from '@spinajs/orm-sql';
+import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, IWhereBuilder, ILimitBuilder } from '@spinajs/orm';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler } from '@spinajs/orm-sql';
 
 @NewInstance()
 export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
@@ -125,5 +125,36 @@ export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
 
     // MSSQL usess this expression for AUTO_INCREMENT
     this._statementsMappings.autoincrement = () => `IDENTITY(1,1)`;
+  }
+}
+
+@NewInstance()
+export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
+  public compile() {
+    const _bindings = [];
+    const _from = this.from();
+    const _where = this.where(this._builder as IWhereBuilder);
+
+    let _expression = '';
+
+    if (this._builder.Truncate) {
+      _expression = `TRUNCATE TABLE ${this.tableAliasCompiler(this._builder)}`;
+    } else {
+      _expression = _from + (_where.expression ? ` WHERE ${_where.expression}` : '');
+    }
+
+    _bindings.push(..._where.bindings);
+
+    return {
+      bindings: _bindings,
+      expression: _expression.trim(),
+    };
+  }
+
+  protected from() {
+    const lBuilder = this._builder as ILimitBuilder;
+    const limits = lBuilder.getLimits();
+
+    return `DELETE ${limits.limit > 0 ? `TOP ${limits.limit} ` : ''}FROM ${this.tableAliasCompiler(this._builder)}`;
   }
 }
