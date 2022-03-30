@@ -1,4 +1,4 @@
-import { Op, SqlOperator } from './enums';
+import { Op } from './enums';
 /* eslint-disable prettier/prettier */
 import { RawQuery } from './builders';
 import { SORT_ORDER, WhereBoolean } from './enums';

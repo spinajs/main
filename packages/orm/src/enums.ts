@@ -62,7 +62,7 @@ export enum SqlOperator {
   LIKE = 'like',
 }
 
-export type Op = '<' | '>' | '!=' | '<=>' | '>=' | '<=' | '<>' | 'like';
+export type Op = '<' | '>' | '!=' | '<=>' | '>=' | '<=' | '<>' | 'like' | '=';
 
 /**
  * Allowed join methods in queries
