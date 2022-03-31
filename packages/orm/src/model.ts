@@ -1,13 +1,11 @@
-import { ISelectQueryBuilder } from './../../orm-sql/lib/orm/src/interfaces.d';
-import { IOrderByBuilder, WrapStatement } from '@spinajs/orm';
-
+import { SORT_ORDER } from './enums';
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation } from './relations';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
-import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult } from './interfaces';
+import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder } from './interfaces';
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
-import { Op, SqlOperator } from './enums';
+import { Op } from './enums';
 import { DI, isConstructor, Class, IContainer } from '@spinajs/di';
 import { Orm } from './orm';
 import { ModelHydrator } from './hydrators';
@@ -15,6 +13,7 @@ import * as _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { OrmException } from './exceptions';
 import { ModelDehydrator } from './dehydrators';
+import { WrapStatement } from './statements';
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescrtiptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
@@ -163,6 +162,45 @@ export class ModelBase {
    * Tries to find all models with given primary keys
    */
   public static find<T extends typeof ModelBase>(this: T, _pks: any[]): Promise<Array<InstanceType<T>>> {
+    throw Error('Not implemented');
+  }
+
+  /**
+   * Tries to get first result from db
+   *
+   * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
+   */
+  public static first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+    throw Error('Not implemented');
+  }
+
+  /**
+   * Tries to get first result from db
+   *
+   * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
+   */
+  public static last<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+    throw Error('Not implemented');
+  }
+
+  /**
+   * Tries to get newest result from db. It throws if model dont have CreatedAt decorated property
+   */
+  public static newest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+    throw Error('Not implemented');
+  }
+
+  /**
+   * Tries to get oldest result from db. It throws if model dont have CreatedAt decorated property
+   */
+  public static oldest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+    throw Error('Not implemented');
+  }
+
+  /**
+   * Returns total count of entries in db for this model
+   */
+  public static count<T extends typeof ModelBase>(this: T): Promise<number> {
     throw Error('Not implemented');
   }
 
@@ -428,17 +466,17 @@ function _preparePkWhere(description: IModelDescrtiptor, query: ISelectQueryBuil
   }
 }
 
-function _prepareOrderBy(description: IModelDescrtiptor, query: IOrderByBuilder) {
+function _prepareOrderBy(description: IModelDescrtiptor, query: IOrderByBuilder, order?: SORT_ORDER) {
   if (description.PrimaryKey) {
-    query.orderByDescending(description.PrimaryKey);
+    query.order(description.PrimaryKey, order ?? SORT_ORDER.DESC);
   } else {
     const unique = description.Columns.filter((c) => c.Unique);
     if (unique.length !== 0) {
-      unique.forEach((c) => query.orderByDescending(c.Name));
+      unique.forEach((c) => query.order(c.Name, order ?? SORT_ORDER.DESC));
     } else if (description.Timestamps?.CreatedAt) {
-      query.orderByDescending(description.Timestamps.CreatedAt);
+      query.order(description.Timestamps.CreatedAt, order ?? SORT_ORDER.DESC);
     } else if (description.Timestamps?.UpdatedAt) {
-      query.orderByDescending(description.Timestamps.UpdatedAt);
+      query.order(description.Timestamps.UpdatedAt, order ?? SORT_ORDER.DESC);
     }
   }
 }
@@ -664,5 +702,53 @@ export const MODEL_STATIC_MIXINS = {
     }
 
     return entity;
+  },
+
+  async first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    _prepareOrderBy(description, query, SORT_ORDER.ASC);
+
+    return await query.first();
+  },
+
+  async last<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    _prepareOrderBy(description, query, SORT_ORDER.DESC);
+
+    return await query.first();
+  },
+
+  async newest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+
+    if (description.Timestamps?.CreatedAt) {
+      query.order(description.Timestamps.CreatedAt, SORT_ORDER.DESC);
+    } else {
+      throw new OrmException('cannot fetch newest entity - CreateAt column not exists in model/db');
+    }
+
+    return await query.first();
+  },
+
+  async oldest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+
+    if (description.Timestamps?.CreatedAt) {
+      query.order(description.Timestamps.CreatedAt, SORT_ORDER.ASC);
+    } else {
+      throw new OrmException('cannot fetch oldest entity - CreateAt column not exists in model/db');
+    }
+
+    return await query.first();
+  },
+
+  async count<T extends typeof ModelBase>(this: T): Promise<number> {
+    const { query } = _createQuery(this as any, SelectQueryBuilder);
+
+    query.count('*', 'count');
+
+    return await (
+      await query.asRaw<{ count: number }>()
+    ).count;
   },
 };

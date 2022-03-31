@@ -262,7 +262,7 @@ describe('MsSql queries', () => {
     const user = await User.get(result.LastInsertId);
 
     expect(user).instanceOf(User);
-    expect(user.Id).to.eq(1);
+    expect(user.Id).to.gt(0);
     expect(user.Name).to.eq('test');
   });
 
@@ -273,7 +273,7 @@ describe('MsSql queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    const user = await User.get(1);
+    const user = await User.last();
 
     expect(user).instanceOf(User);
     expect(user.CreatedAt).instanceof(DateTime);
