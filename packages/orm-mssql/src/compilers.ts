@@ -11,10 +11,16 @@ export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
       throw new OrmException(`mssql insert or ignore is not supported`);
     }
 
-    const result = super.compile();
+    const iResult = super.compile();
+
+
+    if (this._builder.DuplicateQueryBuilder) {
+        return `MERGE INTO ${this.}`
+    }
+
     return {
-      bindings: result.bindings,
-      expression: result.expression + ' SELECT SCOPE_IDENTITY() as ID',
+      bindings: iResult.bindings,
+      expression: iResult.expression + ' SELECT SCOPE_IDENTITY() as ID',
     };
   }
 }
