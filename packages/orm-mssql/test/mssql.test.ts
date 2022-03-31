@@ -276,6 +276,7 @@ describe('MsSql queries', () => {
     const user = await User.last();
 
     expect(user).instanceOf(User);
+    expect(user.Name).to.eq('test');
     expect(user.CreatedAt).instanceof(DateTime);
   });
 

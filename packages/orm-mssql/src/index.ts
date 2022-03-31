@@ -1,4 +1,4 @@
-import { DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler } from '@spinajs/orm';
+import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
@@ -8,6 +8,7 @@ import { connect, ConnectionPool, Request } from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler } from './compilers';
 import { MssqlModelDehydrator } from './dehydrator';
+import { MsSqlDatetimeValueConverter } from './converters';
 
 @Injectable('orm-driver-mssql')
 export class MsSqlOrmDriver extends SqlDriver {
@@ -124,6 +125,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlDeleteQueryCompiler).as(DeleteQueryCompiler);
     this.Container.register(MssqlModelDehydrator).as(ModelDehydrator);
     this.Container.register(MsSqlTableAliasCompiler).as(TableAliasCompiler);
+    this.Container.register(MsSqlDatetimeValueConverter).as(DatetimeValueConverter);
   }
 
   public async disconnect(): Promise<OrmDriver> {
