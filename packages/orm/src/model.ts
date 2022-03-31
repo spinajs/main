@@ -1,3 +1,5 @@
+import { IOrderByBuilder } from '@spinajs/orm';
+
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation } from './relations';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
@@ -326,7 +328,7 @@ export class ModelBase {
    * If there is no unique columns or primary key, throws error
    */
   public async fresh(): Promise<this> {
-    const { query } = _createQuery(this.constructor, SelectQueryBuilder);
+    const { query, description } = _createQuery(this.constructor, SelectQueryBuilder);
     query.select('*');
 
     if (this.PrimaryKeyValue) {
@@ -341,6 +343,8 @@ export class ModelBase {
         throw new OrmException('Model dont have primary key set or columns with unique constraint, cannot fetch model from database');
       }
     }
+
+    _prepareOrderBy(description, query);
 
     return await query.firstOrFail();
   }
@@ -353,7 +357,7 @@ export class ModelBase {
    */
   public async refresh(): Promise<void> {
     let model: this = null;
-    const { query } = _createQuery(this.constructor, SelectQueryBuilder);
+    const { query, description } = _createQuery(this.constructor, SelectQueryBuilder);
     query.select('*');
 
     if (this.PrimaryKeyValue) {
@@ -368,6 +372,8 @@ export class ModelBase {
         throw new OrmException('Model dont have primary key set or columns with unique constraint, cannot fetch model from database');
       }
     }
+
+    _prepareOrderBy(description, query);
 
     model = await query.firstOrFail();
 
@@ -406,6 +412,21 @@ export class ModelBase {
 
 function _descriptor(model: Class<any>) {
   return (model as any)[MODEL_DESCTRIPTION_SYMBOL] as IModelDescrtiptor;
+}
+
+function _prepareOrderBy(description: IModelDescrtiptor, query: IOrderByBuilder) {
+  if (description.PrimaryKey) {
+    query.orderByDescending(description.PrimaryKey);
+  } else {
+    const unique = description.Columns.filter((c) => c.Unique);
+    if (unique.length !== 0) {
+      unique.forEach((c) => query.orderByDescending(c.Name));
+    } else if (description.Timestamps?.CreatedAt) {
+      query.orderByDescending(description.Timestamps.CreatedAt);
+    } else if (description.Timestamps?.UpdatedAt) {
+      query.orderByDescending(description.Timestamps.UpdatedAt);
+    }
+  }
 }
 
 function _createQuery<T extends QueryBuilder>(model: Class<any>, query: Class<T>, injectModel = true) {
@@ -537,6 +558,8 @@ export const MODEL_STATIC_MIXINS = {
     query.select('*');
     query.where(pkey, pk);
 
+    _prepareOrderBy(description, query);
+
     return await query.first();
   },
 
@@ -547,12 +570,14 @@ export const MODEL_STATIC_MIXINS = {
     query.select('*');
     query.where(pkey, pk);
 
+    _prepareOrderBy(description, query);
+
     return await query.firstOrFail();
   },
 
   async destroy(pks: any | any[]): Promise<void> {
     const description = _descriptor(this);
-   
+
     const data = Array.isArray(pks) ? pks : [pks];
 
     if (description.SoftDelete?.DeletedAt) {
@@ -589,6 +614,8 @@ export const MODEL_STATIC_MIXINS = {
       query.andWhere(c, (data as any)[c.Name]);
     });
 
+    _prepareOrderBy(description, query);
+
     let entity = (await query.first()) as any;
 
     if (!entity) {
@@ -612,6 +639,8 @@ export const MODEL_STATIC_MIXINS = {
     description.Columns.filter((c) => c.Unique).forEach((c) => {
       query.andWhere(c, (data as any)[c.Name]);
     });
+
+    _prepareOrderBy(description, query);
 
     let entity = (await query.first()) as any;
 
