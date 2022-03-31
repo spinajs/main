@@ -487,12 +487,12 @@ export const MODEL_STATIC_MIXINS = {
     return query.where(column, operator, value);
   },
 
-  update<T extends typeof ModelBase>(data: Partial<InstanceType<T>>): UpdateQueryBuilder {
+  async update<T extends typeof ModelBase>(data: Partial<InstanceType<T>>) {
     const { query } = _createQuery(this, UpdateQueryBuilder);
-    return query.update(data);
+    return await query.update(data);
   },
 
-  all(page: number, perPage: number): SelectQueryBuilder {
+  async all(page: number, perPage: number) {
     const { query } = _createQuery(this, SelectQueryBuilder);
 
     query.select('*');
@@ -500,13 +500,13 @@ export const MODEL_STATIC_MIXINS = {
       query.take(perPage).skip(page * perPage);
     }
 
-    return query;
+    return await query;
   },
 
   /**
    * Try to insert new value
    */
-  insert<T extends typeof ModelBase>(this: T, data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>) {
+  async insert<T extends typeof ModelBase>(this: T, data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>) {
     const { query } = _createQuery(this, InsertQueryBuilder);
 
     if (Array.isArray(data)) {
@@ -526,7 +526,7 @@ export const MODEL_STATIC_MIXINS = {
       }
     }
 
-    return query;
+    return await query;
   },
 
   async find<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
