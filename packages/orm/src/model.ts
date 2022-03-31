@@ -288,6 +288,21 @@ export class ModelBase {
     await (this.constructor as any).destroy(this.PrimaryKeyValue);
   }
 
+  /**
+   * If model can be in achived state - sets archived at date and saves it to db
+   */
+  public async archive(){
+    const { query } = _createQuery(this.constructor, UpdateQueryBuilder);
+
+    if (this.ModelDescriptor.Archived) {
+      (this as any)[this.ModelDescriptor.Archived.ArchivedAt] = new Date();
+    }else{
+      throw new OrmException('archived at column not exists in model');
+    }
+
+    await query.update(this.dehydrate()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+  }
+
   public async update() {
     const { query } = _createQuery(this.constructor, UpdateQueryBuilder);
 
