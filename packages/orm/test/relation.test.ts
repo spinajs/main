@@ -13,7 +13,7 @@ import 'mocha';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler } from './misc';
 import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, RelationType, TableQueryCompiler } from '../src/interfaces';
 import * as sinon from 'sinon';
-import * as chaiAsPromised from 'chai-as-promised';
+import chaiAsPromised from 'chai-as-promised';
 import { extractModelDescriptor } from './../src/model';
 import { RelationModel1 } from './mocks/models/RelationModel1';
 import { BelongsToRelation, OneToManyRelation } from '../src/relations';

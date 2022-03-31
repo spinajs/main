@@ -12,7 +12,8 @@ import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
 import { Model2 } from './Models/Model2';
-import * as chaiAsPromised from 'chai-as-promised';
+import chaiAsPromised from 'chai-as-promised';
+
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);

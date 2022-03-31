@@ -4,7 +4,7 @@ import 'mocha';
 
 import * as chai from 'chai';
 import { expect } from 'chai';
-import * as chaiAsPromised from 'chai-as-promised';
+import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import { format } from '@spinajs/configuration-common';
 import { DateTime } from 'luxon';

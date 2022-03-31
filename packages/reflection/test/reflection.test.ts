@@ -4,8 +4,8 @@ import { ReflectionException, ResolveFromFiles, ListFromFiles } from './../src/i
 import { FrameworkConfiguration, Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
-import * as chaiAsPromised from 'chai-as-promised';
-import * as chaiSubset from 'chai-subset';
+import chaiAsPromised from 'chai-as-promised';
+import  chaiSubset from 'chai-subset';
 import _ = require('lodash');
 import 'mocha';
 import { join, normalize, resolve } from 'path';

@@ -1,6 +1,7 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import * as chai from 'chai';
-import * as chaiAsPromised from 'chai-as-promised';
+import chaiAsPromised from 'chai-as-promised';
+
 import 'mocha';
 import { AsyncModule, Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, SyncModule, Singleton } from '../src';
 
