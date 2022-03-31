@@ -253,13 +253,13 @@ describe('MsSql queries', () => {
   });
 
   it('should select to model', async () => {
-    await db().Connections.get('mssql').insert().into('user_test').values({
+    const result = await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
     });
 
-    const user = await User.get(1);
+    const user = await User.get(result.LastInsertId);
 
     expect(user).instanceOf(User);
     expect(user.Id).to.eq(1);

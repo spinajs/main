@@ -579,7 +579,15 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = _createQuery(this as any, SelectQueryBuilder);
 
     // pk constrain
-    query.where(description.PrimaryKey, pk);
+    if (description.PrimaryKey) {
+      query.where(description.PrimaryKey, pk);
+    }
+
+    // check for all unique columns ( unique constrain )
+    description.Columns.filter((c) => c.Unique).forEach((c) => {
+      query.andWhere(c, (data as any)[c.Name]);
+    });
+    
     let entity = (await query.first()) as any;
 
     if (!entity) {
@@ -595,7 +603,9 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = _createQuery(this as any, SelectQueryBuilder);
 
     // pk constrain
-    query.where(description.PrimaryKey, pk);
+    if (description.PrimaryKey) {
+      query.where(description.PrimaryKey, pk);
+    }
 
     // check for all unique columns ( unique constrain )
     description.Columns.filter((c) => c.Unique).forEach((c) => {
