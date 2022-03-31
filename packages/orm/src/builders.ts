@@ -52,6 +52,10 @@ export class Builder<T = any> {
     return this._container;
   }
 
+  public get Model(): Constructor<ModelBase> | undefined {
+    return this._model;
+  }
+
   constructor(container: IContainer, driver: OrmDriver, model?: Constructor<ModelBase>) {
     this._driver = driver;
     this._container = container;
@@ -1140,7 +1144,7 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
 
   public onDuplicate(column?: string | string[]): OnDuplicateQueryBuilder {
     let columnToCheck = column;
-    if (!columnToCheck && this.this._model) {
+    if (!columnToCheck && this._model) {
       columnToCheck = extractModelDescriptor(this._model)
         .Columns.filter((c) => c.Unique && !c.PrimaryKey)
         .map((c) => c.Name);

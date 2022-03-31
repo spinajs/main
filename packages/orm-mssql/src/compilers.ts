@@ -1,27 +1,86 @@
 import { Configuration } from '@spinajs/configuration';
 import { OrmException } from './../../orm/src/exceptions';
-import { Inject, NewInstance } from '@spinajs/di';
-import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, IWhereBuilder, ILimitBuilder, TableAliasCompiler, IQueryBuilder } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler } from '@spinajs/orm-sql';
+import { IContainer, Inject, NewInstance } from '@spinajs/di';
+import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, IWhereBuilder, ILimitBuilder, TableAliasCompiler, IQueryBuilder, OnDuplicateQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder } from '@spinajs/orm';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler } from '@spinajs/orm-sql';
+import _ from 'lodash';
+
+@NewInstance()
+export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
+  protected _builder: OnDuplicateQueryBuilder;
+
+  public compile() {
+    const table = this._builder.getParent().Container.resolve(TableAliasCompiler).compile(this._builder.getParent());
+    const descriptor = extractModelDescriptor(this._builder.getParent().Model);
+
+    const columns = this._builder
+      .getColumnsToUpdate()
+      .map((c: string | RawQuery): string => {
+        if (_.isString(c)) {
+          return `\`${c}\` = ?`;
+        } else {
+          return c.Query;
+        }
+      })
+      .join(',');
+
+    const valueMap = this._builder
+      .getParent()
+      .getColumns()
+      .map((c: ColumnStatement) => c.Column);
+    const bindings = this._builder.getColumnsToUpdate().map((c: string | RawQuery): any => {
+      if (_.isString(c)) {
+        return this._builder.getParent().Values[0][valueMap.indexOf(c)];
+      } else {
+        return c.Bindings;
+      }
+    });
+
+    return {
+      bindings: [this._builder.getParent().Values[0][valueMap.indexOf(descriptor.PrimaryKey)]].concat(bindings),
+      expression: `MERGE INTO ${table} WITH (HOLDLOCK) AS target
+      USING (SELECT * FROM ${table}) as source
+      ON (target.${descriptor.PrimaryKey} = source.${descriptor.PrimaryKey}) AND target.${descriptor.PrimaryKey} = ?
+      WHEN MATCHED
+        THEN UPDATE
+            SET ${columns}
+      WHEN NOT MATCHED
+        THEN `.replace(/(\r\n|\n|\r)/gm, ''),
+    };
+  }
+}
 
 @NewInstance()
 export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
+  protected isDuplicate = false;
+
+  constructor(container: IContainer, builder: InsertQueryBuilder) {
+    super(container, builder);
+
+    this.isDuplicate = this._builder.DuplicateQueryBuilder !== null && this._builder.DuplicateQueryBuilder !== undefined;
+  }
+
   public compile() {
     if (this._builder.Ignore) {
       throw new OrmException(`mssql insert or ignore is not supported`);
     }
 
-    const iResult = super.compile();
+    const into = this.into();
+    const columns = this.columns();
+    const values = this.values();
 
-
-    if (this._builder.DuplicateQueryBuilder) {
-        return `MERGE INTO ${this.}`
-    }
+    const iBindings = values.bindings;
+    const iExpression = `${into} ${columns} ${values.data}`;
+    const dResult = super.onDuplicate();
 
     return {
-      bindings: iResult.bindings,
-      expression: iResult.expression + ' SELECT SCOPE_IDENTITY() as ID',
+      bindings: dResult.bindings.concat(iBindings),
+      expression: dResult.expression + iExpression + '; SELECT SCOPE_IDENTITY() as ID;',
     };
+  }
+
+  protected into() {
+    return `INSERT ${this.isDuplicate ? '' : `INTO ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`} `;
   }
 }
 

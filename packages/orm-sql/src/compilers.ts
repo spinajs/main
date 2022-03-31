@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler } from '@spinajs/orm';
+import { LimitBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, extractModelDescriptor } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
@@ -442,7 +442,6 @@ export class SqlIndexQueryCompiler extends IndexQueryCompiler {
 @NewInstance()
 @Inject(Container)
 export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder> {
-  
   @use(TableAliasCompiler) this: this;
 
   constructor(protected _container: IContainer, builder: InsertQueryBuilder) {
@@ -481,25 +480,30 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
     let data = 'VALUES ';
 
     data += this._builder.Values.map((val) => {
-      const toInsert = val.map((v, i) => {
-        // eslint-disable-next-line security/detect-object-injection
-        const descriptor = (this._builder.getColumns()[i] as ColumnStatement).Descriptor;
+      const toInsert = val
+        .filter((v, i) => {
+          // eslint-disable-next-line security/detect-object-injection
+          const descriptor = (this._builder.getColumns()[i] as ColumnStatement).Descriptor;
+          if (descriptor && !descriptor.Nullable && (v === null || v === undefined) && !descriptor.AutoIncrement) {
+            throw new InvalidArgument(`value column ${descriptor.Name} cannot be null`);
+          }
 
-        if (descriptor && !descriptor.Nullable && (v === null || v === undefined) && !descriptor.AutoIncrement) {
-          throw new InvalidArgument(`value column ${descriptor.Name} cannot be null`);
-        }
+          if (descriptor.AutoIncrement && descriptor.PrimaryKey) return false;
 
-        if (v === undefined) {
-          return 'DEFAULT';
-        }
+          return true;
+        })
+        .map((v) => {
+          if (v === undefined) {
+            return 'DEFAULT';
+          }
 
-        if (v === null) {
-          return 'NULL';
-        }
+          if (v === null) {
+            return 'NULL';
+          }
 
-        bindings.push(v);
-        return '?';
-      });
+          bindings.push(v);
+          return '?';
+        });
       return `(` + toInsert.join(',') + ')';
     }).join(',');
 
@@ -512,6 +516,11 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
   protected columns() {
     const columns = this._builder
       .getColumns()
+      .filter((c) => {
+        const descriptor = (c as ColumnStatement).Descriptor;
+        if (descriptor.AutoIncrement && descriptor.PrimaryKey) return false;
+        return true;
+      })
       .map((c) => {
         return (c as ColumnStatement).Column;
       })
@@ -536,7 +545,6 @@ export interface SqlAlterTableQueryCompiler {}
 @NewInstance()
 @Inject(Container)
 export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
-
   constructor(protected container: Container, protected builder: AlterTableQueryBuilder) {
     super();
   }

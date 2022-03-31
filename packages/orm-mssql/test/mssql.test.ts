@@ -5,7 +5,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { MsSqlOrmDriver } from './../src/index';
 import { dir, mergeArrays } from './util';
-import { IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { User } from './models/User';
 import { DateTime } from 'luxon';
@@ -281,13 +281,13 @@ describe('MsSql queries', () => {
   });
 
   it('should run on duplicate', async () => {
-    await db().Connections.get('mssql').insert().into('user_test').values({
+    const iResult = await db().Connections.get('mssql').insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
     });
 
-    await User.insert(new User({ Id: 1, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }))
+    await User.insert(new User({ Id: iResult.LastInsertId, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.OnDuplicateUpdate);
 
     const all = await User.all();
     const user = await User.get(1);

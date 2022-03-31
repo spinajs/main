@@ -1,4 +1,4 @@
-import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler } from '@spinajs/orm';
+import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
@@ -6,7 +6,7 @@ import { OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQu
 import { SqlDriver } from '@spinajs/orm-sql';
 import { connect, ConnectionPool, Request } from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types';
-import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler } from './compilers';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler } from './compilers';
 import { MssqlModelDehydrator } from './dehydrator';
 import { MsSqlDatetimeValueConverter } from './converters';
 
@@ -126,6 +126,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MssqlModelDehydrator).as(ModelDehydrator);
     this.Container.register(MsSqlTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(MsSqlDatetimeValueConverter).as(DatetimeValueConverter);
+    this.Container.register(MsSqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
   }
 
   public async disconnect(): Promise<OrmDriver> {
