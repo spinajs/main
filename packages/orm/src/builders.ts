@@ -33,7 +33,7 @@ function isWhereOperator(val: any) {
 
 @NewInstance()
 @Inject(Container)
-export class Builder<T = any> {
+export class Builder<T = any> implements PromiseLike<T> {
   protected _driver: OrmDriver;
   protected _container: IContainer;
   protected _model?: Constructor<ModelBase>;
@@ -64,26 +64,14 @@ export class Builder<T = any> {
     this._asRaw = false;
   }
 
-  public middleware(middleware: IBuilderMiddleware<T>) {
-    this._middlewares.push(middleware);
-    return this;
-  }
-
-  /**
-   * Builds query that is ready to use in DB
-   */
-  public toDB(): ICompilerOutput | ICompilerOutput[] {
-    throw new MethodNotImplemented();
-  }
-
-  public then(resolve: (r: T) => void, reject: (err: Error) => void): Promise<T> {
+  then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
     const execute = (compiled: ICompilerOutput) => {
       return this._driver
         .execute(compiled.expression, compiled.bindings, this.QueryContext)
         .then((result: T) => {
           try {
             if (this._asRaw) {
-              resolve(result);
+              onfulfilled(result);
               return;
             }
             if (this._model && !this._nonSelect) {
@@ -119,20 +107,20 @@ export class Builder<T = any> {
 
               if (this._middlewares.length > 0) {
                 Promise.all(afterMiddlewarePromises).then(() => {
-                  resolve(models as unknown as T);
-                }, reject);
+                  onfulfilled(models as unknown as T);
+                }, onrejected);
               } else {
-                resolve(models as unknown as T);
+                onfulfilled(models as unknown as T);
               }
             } else {
-              resolve(result);
+              onfulfilled(result);
             }
           } catch (err) {
-            reject(err);
+            onrejected(err);
           }
         })
         .catch((err) => {
-          reject(err);
+          onrejected(err);
         }) as Promise<any>;
     };
 
@@ -140,10 +128,22 @@ export class Builder<T = any> {
 
     if (Array.isArray(compiled)) {
       // TODO: rethink this cast
-      return Promise.all(compiled.map((c) => execute(c))) as unknown as Promise<T>;
+      return Promise.all(compiled.map((c) => execute(c))) as any;
     } else {
       return execute(compiled);
     }
+  }
+
+  public middleware(middleware: IBuilderMiddleware<T>) {
+    this._middlewares.push(middleware);
+    return this;
+  }
+
+  /**
+   * Builds query that is ready to use in DB
+   */
+  public toDB(): ICompilerOutput | ICompilerOutput[] {
+    throw new MethodNotImplemented();
   }
 }
 
@@ -921,18 +921,20 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return compiler.compile();
   }
 
-  public then(resolve: (rows: any) => void, reject: (err: Error) => void): Promise<T> {
-    return super.then((result: any) => {
+  public then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
+    return super.then((result: T) => {
       if (this._first) {
-        if (result.length !== 0) {
-          resolve(result ? result[0] : null);
-        } else {
-          resolve(undefined);
+        if (Array.isArray(result)) {
+          if (result.length !== 0) {
+            return onfulfilled(result ? result[0] : null);
+          } else {
+            return onfulfilled(undefined);
+          }
         }
       } else {
-        resolve(result);
+        return onfulfilled(result);
       }
-    }, reject);
+    }, onrejected);
   }
 
   public async execute(): Promise<T> {
@@ -1019,8 +1021,8 @@ export class OnDuplicateQueryBuilder {
     return this;
   }
 
-  public then(resolve: (rows: IUpdateResult) => void, reject: (err: Error) => void): Promise<any> {
-    return this._parent.then(resolve, reject);
+  public then<TResult1, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
+    return this._parent.then(onfulfilled, onrejected);
   }
 
   public toDB(): ICompilerOutput {

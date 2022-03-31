@@ -669,7 +669,6 @@ describe('General model tests', () => {
   });
 
   it('Model should refresh', async () => {
-
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
 
     tableInfoStub.withArgs('TestTable2', undefined).returns(
@@ -715,12 +714,14 @@ describe('General model tests', () => {
 
     await db();
 
-    sinon.stub(FakeSqliteDriver.prototype, 'execute')
+    sinon
+      .stub(FakeSqliteDriver.prototype, 'execute')
       .onCall(0)
       .returns(
         new Promise((res) => {
           res({
-            LastInsertId: 0, RowsAffected: 0
+            LastInsertId: 0,
+            RowsAffected: 0,
           });
         }),
       )
@@ -1057,4 +1058,4 @@ describe('Model discrimination tests', () => {
     expect(result[1]).instanceOf(ModelDisc2);
     expect(result[2]).instanceOf(ModelDisc1);
   });
-});
+}); 

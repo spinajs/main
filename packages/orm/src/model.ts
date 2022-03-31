@@ -154,7 +154,7 @@ export class ModelBase {
    *
    * @param _data - data to set
    */
-  public static update<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): Promise<IUpdateResult> {
+  public static update<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): UpdateQueryBuilder {
     throw Error('Not implemented');
   }
 
@@ -525,12 +525,12 @@ export const MODEL_STATIC_MIXINS = {
     return query.where(column, operator, value);
   },
 
-  async update<T extends typeof ModelBase>(data: Partial<InstanceType<T>>) {
+  update<T extends typeof ModelBase>(data: Partial<InstanceType<T>>) {
     const { query } = _createQuery(this, UpdateQueryBuilder);
-    return await query.update(data);
+    return query.update(data);
   },
 
-  async all(page: number, perPage: number) {
+  all(page?: number, perPage?: number) {
     const { query } = _createQuery(this, SelectQueryBuilder);
 
     query.select('*');
@@ -538,7 +538,7 @@ export const MODEL_STATIC_MIXINS = {
       query.take(perPage).skip(page * perPage);
     }
 
-    return await query;
+    return query;
   },
 
   /**

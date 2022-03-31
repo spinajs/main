@@ -538,7 +538,7 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
   }
 
   protected into() {
-    return `INSERT${this._builder.Ignore ? ' IGNORE' : ''} INTO \`${this._container.resolve(TableAliasCompiler).compile(this._builder)}\``;
+    return `INSERT${this._builder.Ignore ? ' IGNORE' : ''} INTO ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
   }
 }
 

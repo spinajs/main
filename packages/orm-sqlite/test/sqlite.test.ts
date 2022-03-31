@@ -8,10 +8,10 @@ import { TestMigration_2022_02_08_01_13_00 } from './migrations/TestMigration_20
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from './../src/index';
 import { DI } from '@spinajs/di';
-import { Orm, IWhereBuilder, MigrationTransactionMode, Migration, OrmDriver, OrmMigration, QueryContext } from '@spinajs/orm';
+import { Orm, IWhereBuilder, MigrationTransactionMode, Migration, OrmDriver, OrmMigration, QueryContext, InsertBehaviour } from '@spinajs/orm';
 import * as _ from 'lodash';
 import * as chai from 'chai';
-import chaiAsPromised  from 'chai-as-promised';
+import chaiAsPromised from 'chai-as-promised';
 import { User } from './models/User';
 import * as sinon from 'sinon';
 import { DateTime } from 'luxon';
@@ -133,11 +133,10 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
   });
 
   it('Should check if table exists', async () => {
-
     await db().migrateUp();
 
-    const exists = await db().Connections.get('sqlite').schema().tableExists("user");
-    const notExists = await db().Connections.get('sqlite').schema().tableExists("user2");
+    const exists = await db().Connections.get('sqlite').schema().tableExists('user');
+    const notExists = await db().Connections.get('sqlite').schema().tableExists('user2');
 
     expect(exists).to.eq(true);
     expect(notExists).to.eq(false);
@@ -357,12 +356,12 @@ describe('Sqlite queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    await User.insert(new User({ Id: 1, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }))
-      .onDuplicate('Id')
-      .update(['Name', 'Password']);
+    await User.insert(new User({ Id: 1, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.OnDuplicateUpdate);
 
     const all = await User.all();
     const user = await User.get(1);
+
+    const ddd = User.where(true);
 
     expect(user).instanceOf(User);
     expect(user.CreatedAt).instanceof(DateTime);
