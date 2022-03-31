@@ -553,7 +553,7 @@ export interface IWhereBuilder {
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
   where(statement: WrapStatement): this;
-  where(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): this;
+  where(column: string | boolean | WhereFunction | RawQuery | {} | WrapStatement, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
   orWhere(val: {}): this;

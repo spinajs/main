@@ -1,5 +1,5 @@
 import { ISelectQueryBuilder } from './../../orm-sql/lib/orm/src/interfaces.d';
-import { IOrderByBuilder } from '@spinajs/orm';
+import { IOrderByBuilder, WrapStatement } from '@spinajs/orm';
 
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation } from './relations';
@@ -139,7 +139,14 @@ export class ModelBase {
    * @param operator - boolean operator
    * @param value - value to compare
    */
-  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction | RawQuery | object, _operator?: SqlOperator | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
+  public static where<T extends typeof ModelBase>(val: boolean): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(val: {}): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(func: WhereFunction): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(column: string, operator: Op, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(column: string, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(statement: WrapStatement): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction | RawQuery | object | WrapStatement, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
     throw Error('Not implemented');
   }
 
@@ -292,12 +299,12 @@ export class ModelBase {
   /**
    * If model can be in achived state - sets archived at date and saves it to db
    */
-  public async archive(){
+  public async archive() {
     const { query } = _createQuery(this.constructor, UpdateQueryBuilder);
 
     if (this.ModelDescriptor.Archived) {
       (this as any)[this.ModelDescriptor.Archived.ArchivedAt] = new Date();
-    }else{
+    } else {
       throw new OrmException('archived at column not exists in model');
     }
 
@@ -347,7 +354,6 @@ export class ModelBase {
     const { query, description } = _createQuery(this.constructor, SelectQueryBuilder);
     query.select('*');
 
-    
     _preparePkWhere(description, query, this);
     _prepareOrderBy(description, query);
 
@@ -407,8 +413,7 @@ function _descriptor(model: Class<any>) {
   return (model as any)[MODEL_DESCTRIPTION_SYMBOL] as IModelDescrtiptor;
 }
 
-function _preparePkWhere(description: IModelDescrtiptor, query: ISelectQueryBuilder, model : ModelBase)
-{
+function _preparePkWhere(description: IModelDescrtiptor, query: ISelectQueryBuilder, model: ModelBase) {
   if (description.PrimaryKey) {
     query.where(description.PrimaryKey, model.PrimaryKeyValue);
   } else {
