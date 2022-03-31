@@ -36,11 +36,13 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
       }
     });
 
+    const pId = this._builder.getParent().Values[0][valueMap.indexOf(descriptor.PrimaryKey)];
+
     return {
-      bindings: [this._builder.getParent().Values[0][valueMap.indexOf(descriptor.PrimaryKey)]].concat(bindings),
+      bindings: [pId].concat(bindings),
       expression: `MERGE INTO ${table} WITH (HOLDLOCK) AS target
-      USING (SELECT * FROM ${table}) as source
-      ON (target.${descriptor.PrimaryKey} = source.${descriptor.PrimaryKey}) AND target.${descriptor.PrimaryKey} = ?
+      USING (SELECT * FROM ${table} WHERE ${descriptor.PrimaryKey} = ?) as source
+      ON (target.${descriptor.PrimaryKey} = source.${descriptor.PrimaryKey})
       WHEN MATCHED
         THEN UPDATE
             SET ${columns}

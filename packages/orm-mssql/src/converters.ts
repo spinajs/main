@@ -9,7 +9,7 @@ export class MsSqlDatetimeValueConverter extends DatetimeValueConverter {
     }
 
     if (value instanceof DateTime) {
-      return value.toISO();
+      return value.toISO({ includeOffset: false });
     }
 
     return null;

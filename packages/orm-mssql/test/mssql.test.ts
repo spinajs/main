@@ -282,20 +282,18 @@ describe('MsSql queries', () => {
 
   it('should run on duplicate', async () => {
     const iResult = await db().Connections.get('mssql').insert().into('user_test').values({
-      Name: 'test',
+      Name: 'test not duplicated',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
     });
 
-    await User.insert(new User({ Id: iResult.LastInsertId, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.OnDuplicateUpdate);
+    await User.insert(new User({ Id: iResult.LastInsertId, Name: 'test duplicated', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.OnDuplicateUpdate);
 
-    const all = await User.all();
-    const user = await User.get(1);
+    const user = await User.get(iResult.LastInsertId);
 
     expect(user).instanceOf(User);
     expect(user.CreatedAt).instanceof(DateTime);
-    expect(user.Name).to.eq('test2');
+    expect(user.Name).to.eq('test duplicated');
     expect(user.Password).to.eq('test_password_2');
-    expect(all.length).to.eq(1);
   });
 });
