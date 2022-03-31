@@ -288,8 +288,6 @@ describe('MsSql queries', () => {
     });
 
     await User.insert(new User({ Id: 1, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }))
-      .onDuplicate('Id')
-      .update(['Name', 'Password']);
 
     const all = await User.all();
     const user = await User.get(1);

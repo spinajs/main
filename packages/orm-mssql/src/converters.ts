@@ -15,11 +15,11 @@ export class MsSqlDatetimeValueConverter extends DatetimeValueConverter {
     return null;
   }
 
-  public fromDB(value: string) {
+  public fromDB(value: Date) {
     if (!value) {
       return null;
     }
 
-    return DateTime.fromISO(value);
+    return DateTime.fromJSDate(value);
   }
 }

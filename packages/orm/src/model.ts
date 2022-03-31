@@ -127,7 +127,7 @@ export class ModelBase {
    *
    * @param _data - data to insert
    */
-  public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>): InsertQueryBuilder {
+  public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, _insertBehaviour: InsertBehaviour = InsertBehaviour.None): Promise<IUpdateResult> {
     throw Error('Not implemented');
   }
 
@@ -154,7 +154,7 @@ export class ModelBase {
    *
    * @param _data - data to set
    */
-  public static update<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): UpdateQueryBuilder {
+  public static update<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): Promise<IUpdateResult> {
     throw Error('Not implemented');
   }
 
@@ -544,10 +544,15 @@ export const MODEL_STATIC_MIXINS = {
   /**
    * Try to insert new value
    */
-  async insert<T extends typeof ModelBase>(this: T, data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>) {
-    const { query } = _createQuery(this, InsertQueryBuilder);
+  async insert<T extends typeof ModelBase>(this: T, data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
+    const { query, description } = _createQuery(this, InsertQueryBuilder);
 
     if (Array.isArray(data)) {
+
+      if (insertBehaviour !== InsertBehaviour.None) {
+        throw new OrmException(`insert behaviour is not supported with arrays`);
+      }
+
       query.values(
         (data as Array<InstanceType<T>>).map((d) => {
           if (d instanceof ModelBase) {
@@ -557,6 +562,15 @@ export const MODEL_STATIC_MIXINS = {
         }),
       );
     } else {
+      switch (insertBehaviour) {
+        case InsertBehaviour.OnDuplicateIgnore:
+          query.ignore();
+          break;
+        case InsertBehaviour.OnDuplicateUpdate:
+          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey).map((c) => c.Name));
+          break;
+      }
+
       if (data instanceof ModelBase) {
         query.values(data.dehydrate());
       } else {

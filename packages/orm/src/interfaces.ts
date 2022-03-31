@@ -36,11 +36,6 @@ export enum InsertBehaviour {
    */
   OnDuplicateUpdate,
 
-  /**
-   * Throw error if model hits constraint ( primary or unique keys )
-   */
-  OnDuplicateThrow,
-
   None,
 }
 
