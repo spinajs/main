@@ -1,3 +1,4 @@
+import { ISelectQueryBuilder } from './../../orm-sql/lib/orm/src/interfaces.d';
 import { IOrderByBuilder } from '@spinajs/orm';
 
 /* eslint-disable prettier/prettier */
@@ -346,19 +347,8 @@ export class ModelBase {
     const { query, description } = _createQuery(this.constructor, SelectQueryBuilder);
     query.select('*');
 
-    if (this.PrimaryKeyValue) {
-      query.where(this.PrimaryKeyName, this.PrimaryKeyValue);
-    } else {
-      const unique = this.ModelDescriptor.Columns.filter((x) => x.Unique);
-      if (unique.length !== 0) {
-        for (const c of unique) {
-          query.where(c.Name, '=', (this as any)[c.Name]);
-        }
-      } else {
-        throw new OrmException('Model dont have primary key set or columns with unique constraint, cannot fetch model from database');
-      }
-    }
-
+    
+    _preparePkWhere(description, query, this);
     _prepareOrderBy(description, query);
 
     return await query.firstOrFail();
@@ -375,19 +365,7 @@ export class ModelBase {
     const { query, description } = _createQuery(this.constructor, SelectQueryBuilder);
     query.select('*');
 
-    if (this.PrimaryKeyValue) {
-      query.where(this.PrimaryKeyName, this.PrimaryKeyValue);
-    } else {
-      const unique = this.ModelDescriptor.Columns.filter((x) => x.Unique);
-      if (unique.length !== 0) {
-        for (const c of unique) {
-          query.where(c.Name, '=', (this as any)[c.Name]);
-        }
-      } else {
-        throw new OrmException('Model dont have primary key set or columns with unique constraint, cannot fetch model from database');
-      }
-    }
-
+    _preparePkWhere(description, query, this);
     _prepareOrderBy(description, query);
 
     model = await query.firstOrFail();
@@ -427,6 +405,22 @@ export class ModelBase {
 
 function _descriptor(model: Class<any>) {
   return (model as any)[MODEL_DESCTRIPTION_SYMBOL] as IModelDescrtiptor;
+}
+
+function _preparePkWhere(description: IModelDescrtiptor, query: ISelectQueryBuilder, model : ModelBase)
+{
+  if (description.PrimaryKey) {
+    query.where(description.PrimaryKey, model.PrimaryKeyValue);
+  } else {
+    const unique = description.Columns.filter((x) => x.Unique);
+    if (unique.length !== 0) {
+      for (const c of unique) {
+        query.where(c.Name, '=', (model as any)[c.Name]);
+      }
+    } else {
+      throw new OrmException('Model dont have primary key set or columns with unique constraint, cannot fetch model from database');
+    }
+  }
 }
 
 function _prepareOrderBy(description: IModelDescrtiptor, query: IOrderByBuilder) {
