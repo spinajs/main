@@ -442,6 +442,9 @@ export class SqlIndexQueryCompiler extends IndexQueryCompiler {
 @NewInstance()
 @Inject(Container)
 export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder> {
+  
+  @use(TableAliasCompiler) this: this;
+
   constructor(protected _container: IContainer, builder: InsertQueryBuilder) {
     super(builder);
   }
@@ -524,7 +527,7 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
   }
 
   protected into() {
-    return `INSERT${this._builder.Ignore ? ' IGNORE' : ''} INTO \`${this._builder.Table}\``;
+    return `INSERT${this._builder.Ignore ? ' IGNORE' : ''} INTO \`${this._container.resolve(TableAliasCompiler).compile(this._builder)}\``;
   }
 }
 
@@ -533,7 +536,6 @@ export interface SqlAlterTableQueryCompiler {}
 @NewInstance()
 @Inject(Container)
 export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
-  @use(TableAliasCompiler) this: this;
 
   constructor(protected container: Container, protected builder: AlterTableQueryBuilder) {
     super();
