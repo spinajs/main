@@ -552,13 +552,14 @@ export const MODEL_STATIC_MIXINS = {
 
   async destroy(pks: any | any[]): Promise<void> {
     const description = _descriptor(this);
-    const orm = DI.get<Orm>(Orm);
-    const driver = orm.Connections.get(description.Connection);
-    const converter = driver.Container.resolve(DatetimeValueConverter);
+   
     const data = Array.isArray(pks) ? pks : [pks];
 
     if (description.SoftDelete?.DeletedAt) {
       const { query } = _createQuery(this, UpdateQueryBuilder);
+      const orm = DI.get<Orm>(Orm);
+      const driver = orm.Connections.get(description.Connection);
+      const converter = driver.Container.resolve(DatetimeValueConverter);
 
       await query.whereIn(description.PrimaryKey, data).update({
         [description.SoftDelete.DeletedAt]: converter.toDB(new Date()),
@@ -587,7 +588,7 @@ export const MODEL_STATIC_MIXINS = {
     description.Columns.filter((c) => c.Unique).forEach((c) => {
       query.andWhere(c, (data as any)[c.Name]);
     });
-    
+
     let entity = (await query.first()) as any;
 
     if (!entity) {
