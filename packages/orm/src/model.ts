@@ -550,7 +550,7 @@ export const MODEL_STATIC_MIXINS = {
    * Try to insert new value
    */
   async insert<T extends typeof ModelBase>(this: T, data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
-    const { query, description } = _createQuery(this, InsertQueryBuilder);
+    const { query } = _createQuery(this, InsertQueryBuilder);
 
     if (Array.isArray(data)) {
       if (insertBehaviour !== InsertBehaviour.None) {
