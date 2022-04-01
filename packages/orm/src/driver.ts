@@ -101,10 +101,10 @@ export abstract class OrmDriver extends SyncModule {
   /**
    * Truncates given table
    */
-  public async truncate(table: string) {
+  public truncate(table: string): TruncateTableQueryBuilder {
     const b = this.Container.resolve(TruncateTableQueryBuilder, [this]);
     b.setTable(table);
-    return await b;
+    return b;
   }
 
   /**

@@ -40,11 +40,11 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
     });
 
     const wBindings = this._builder.getColumn().map((c) => {
-      this._builder.getParent().Values[0][valueMap.indexOf(c)];
+      return this._builder.getParent().Values[0][valueMap.indexOf(c)];
     });
 
     return {
-      bindings: [wBindings].concat(bindings),
+      bindings: wBindings.concat(bindings),
       expression: `MERGE INTO ${table} WITH (HOLDLOCK) AS target
       USING (SELECT * FROM ${table} WHERE ${this._builder.getColumn().map((c) => {
         return `${c} = ?`;
@@ -210,14 +210,7 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
     const _bindings = [];
     const _from = this.from();
     const _where = this.where(this._builder as IWhereBuilder);
-
-    let _expression = '';
-
-    if (this._builder.Truncate) {
-      _expression = `TRUNCATE TABLE ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
-    } else {
-      _expression = _from + (_where.expression ? ` WHERE ${_where.expression}` : '');
-    }
+    const _expression = _from + (_where.expression ? ` WHERE ${_where.expression}` : '');
 
     _bindings.push(..._where.bindings);
 

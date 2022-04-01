@@ -79,8 +79,7 @@ describe('MsSql connection test', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MsSqlOrmDriver).as('orm-driver-mssql');
     await DI.resolve(Orm);
-
-    await db().Connections.get('mssql')
+    await db().Connections.get('mssql').truncate('user_test');
   });
 
   it('Should connect', async () => {
@@ -95,6 +94,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MsSqlOrmDriver).as('orm-driver-mssql');
     await DI.resolve(Orm);
+    await db().Connections.get('mssql').truncate('user_test');
   });
 
   it('Should migrate', async () => {
@@ -225,6 +225,7 @@ describe('MsSql queries', () => {
     DI.register(MsSqlOrmDriver).as('orm-driver-mssql');
     await DI.resolve(Orm);
 
+    await db().Connections.get('mssql').truncate('user_test');
     await db().migrateUp();
     await db().reloadTableInfo();
   });
@@ -288,13 +289,15 @@ describe('MsSql queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    await User.insert(new User({ Id: iResult.LastInsertId, Name: 'test duplicated', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.InsertOrUpdate);
+    await User.insert(new User({ Name: 'test not duplicated', Password: 'test_password_duplicated', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.InsertOrUpdate);
 
     const user = await User.get(iResult.LastInsertId);
+    const all = await User.all();
 
+    expect(all.length).to.eq(1);
     expect(user).instanceOf(User);
     expect(user.CreatedAt).instanceof(DateTime);
-    expect(user.Name).to.eq('test duplicated');
-    expect(user.Password).to.eq('test_password_2');
+    expect(user.Name).to.eq('test not duplicated');
+    expect(user.Password).to.eq('test_password_duplicated');
   });
 });

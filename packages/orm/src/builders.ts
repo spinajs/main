@@ -1,4 +1,3 @@
-import { TruncateTableQueryCompiler } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 
 import { Container, Inject, NewInstance, Constructor, IContainer } from '@spinajs/di';
@@ -7,7 +6,7 @@ import { OrmException } from './exceptions';
 import * as _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SORT_ORDER, WhereBoolean, SqlOperator, JoinMethod } from './enums';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder } from './interfaces';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder } from './interfaces';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, WrapStatement, Wrap } from './statements';
 import { WhereFunction } from './types';
 import { OrmDriver } from './driver';
@@ -951,10 +950,6 @@ export class DeleteQueryBuilder extends QueryBuilder<IUpdateResult> {
   protected _boolean: WhereBoolean;
 
   protected _limit: IQueryLimit;
-
-  public get Truncate() {
-    return this._truncate;
-  }
 
   @use(WhereBuilder, LimitBuilder)
   /// @ts-ignore

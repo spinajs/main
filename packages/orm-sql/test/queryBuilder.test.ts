@@ -294,7 +294,8 @@ describe('Delete query builder', () => {
   });
 
   it('Simple truncate', () => {
-    const result = dqb().from('users').database('spine').truncate().toDB();
+    
+    const result = db().Connections.get('sqlite').truncate('users').database('spine').toDB();
     expect(result.expression).to.equal('TRUNCATE TABLE `spine`.`users`');
   });
 });
@@ -1136,7 +1137,7 @@ describe('schema building', () => {
   it('Should rename column', () => {
     const result = schqb()
       .alterTable('test', (table) => {
-        table.string('Id2').rename("Id3");
+        table.string('Id2').rename('Id3');
       })
       .toDB();
 
