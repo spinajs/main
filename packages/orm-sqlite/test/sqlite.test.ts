@@ -144,7 +144,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
 
   it('should insert query', async () => {
     await db().migrateUp();
-    const id = await db().Connections.get('sqlite').insert().into('user').values({
+    const iResult = await db().Connections.get('sqlite').insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -152,7 +152,8 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
 
     const result: User = await db().Connections.get('sqlite').select().from('user').first();
 
-    expect(id).to.eq(1);
+    expect(iResult.LastInsertId).to.eq(1);
+    expect(iResult.RowsAffected).to.eq(1);
     expect(result).to.be.not.null;
     expect(result.Id).to.eq(1);
     expect(result.Name).to.eq('test');
@@ -168,7 +169,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
         Password: 'test_password',
         CreatedAt: '2019-10-18',
       })
-      .ignore()
+      .orIgnore()
       .toDB();
 
     expect(result.expression).to.eq('INSERT OR IGNORE INTO `user` (`Name`,`Password`,`CreatedAt`) VALUES (?,?,?)');
@@ -356,12 +357,10 @@ describe('Sqlite queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    await User.insert(new User({ Id: 1, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.OnDuplicateUpdate);
+    await User.insert(new User({ Id: 1, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.InsertOrUpdate);
 
     const all = await User.all();
     const user = await User.get(1);
-
-    const ddd = User.where(true);
 
     expect(user).instanceOf(User);
     expect(user.CreatedAt).instanceof(DateTime);

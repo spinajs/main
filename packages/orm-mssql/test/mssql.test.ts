@@ -130,7 +130,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
     expect(result.Name).to.eq('test');
   });
 
-  it('should throw insert or ignore  query', async () => {
+  it('should throw insert or ignore  query', () => {
     const compile = () => {
       db()
         .Connections.get('mssql')
@@ -141,7 +141,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
           Password: 'test_password',
           CreatedAt: '2019-10-18',
         })
-        .ignore()
+        .orIgnore()
         .toDB();
     };
     expect(() => {
@@ -287,7 +287,7 @@ describe('MsSql queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    await User.insert(new User({ Id: iResult.LastInsertId, Name: 'test duplicated', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.OnDuplicateUpdate);
+    await User.insert(new User({ Id: iResult.LastInsertId, Name: 'test duplicated', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.InsertOrUpdate);
 
     const user = await User.get(iResult.LastInsertId);
 

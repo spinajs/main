@@ -867,7 +867,7 @@ describe('insert query builder', () => {
         active: true,
         email: 'spine@spine.pl',
       })
-      .ignore()
+      .orIgnore()
       .toDB();
 
     expect(result.expression).to.equal('INSERT IGNORE INTO `users` (`id`,`active`,`email`) VALUES (?,?,?)');

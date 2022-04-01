@@ -745,7 +745,7 @@ describe('General model tests', () => {
       Bar: 'test',
     });
 
-    await model.insert(InsertBehaviour.OnDuplicateIgnore);
+    await model.insert(InsertBehaviour.InsertOrIgnore);
     await model.refresh();
 
     expect(model.Id).to.eq(666);
@@ -1051,7 +1051,7 @@ describe('Model discrimination tests', () => {
       }),
     );
 
-    const result = await ModelDiscBase.where(true);
+    const result = await ModelDiscBase.all();
 
     expect(result).to.be.not.null;
     expect(result[0]).instanceOf(ModelDiscBase);
