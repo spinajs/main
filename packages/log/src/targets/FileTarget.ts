@@ -1,5 +1,5 @@
 /* eslint security/detect-non-literal-fs-filename:0 -- Safe as no value holds user input */
-import {  Injectable, NewInstance } from "@spinajs/di";
+import { Injectable, NewInstance } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
 import { IFileTargetOptions, ILogEntry } from "@spinajs/log-common";
 import * as fs from "fs";
@@ -10,6 +10,7 @@ import { EOL } from "os";
 import * as glob from "glob";
 import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";
+import { assert } from "console";
 
 @NewInstance()
 @Injectable("FileTarget")
@@ -24,11 +25,15 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
   protected RotateJob: Job;
   protected ArchiveJob: Job;
- 
+
   protected CurrentFileSize: number;
   protected BufferSize = 0;
 
+  protected FlushTimeout: NodeJS.Timeout;
+
   protected Buffer: any[] = [];
+
+  protected WriteStream: fs.WriteStream;
 
   public resolve() {
     this.Options.options = Object.assign(
@@ -44,11 +49,6 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
     this.initialize();
     this.rotate();
-
-    process.on("exit", () => {
-      this.flush();
-    });
-
     super.resolve();
   }
 
@@ -58,16 +58,24 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     }
 
     const result = format(data.Variables, this.Options.layout) + EOL;
-    const bytes = Buffer.byteLength(result);
+    this.CurrentFileSize += Buffer.byteLength(result);
 
-    this.BufferSize += bytes;
-    this.Buffer.push(result);
+    assert(this.WriteStream, "write stream is not created");
 
-    if (this.BufferSize > this.Options.options.bufferSize) {
-      this.flush();
+    const ok = this.WriteStream.write(result, (err) => {
+      if (err) {
+        console.debug(`Cannot write to log stream at path ${this.LogPath}`);
+      }
+    });
+
+    if (!ok) {
+      this.WriteStream.once("drain", () => {
+        void this.write(data);
+      });
     }
 
     if (this.CurrentFileSize > this.Options.options.maxSize) {
+      
       this.archive();
     }
   }
@@ -86,8 +94,6 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     const newestFile = files.length !== 0 ? files[files.length - 1].name : undefined;
     const fIndex = newestFile ? parseInt(newestFile.substring(newestFile.lastIndexOf("_") + 1, newestFile.lastIndexOf("_") + 2), 10) + 1 : 1;
     const archPath = path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}`);
-
-    this.flush();
 
     if (!fs.existsSync(this.LogPath)) {
       return;
@@ -123,22 +129,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     }
   }
 
-  protected flush() {
-    if (this.HasError || this.BufferSize === 0) {
-      return;
-    }
-
-    const fd = fs.openSync(this.LogPath, "a");
-    fs.writeFileSync(fd, this.Buffer.join());
-    fs.closeSync(fd);
-
-    this.CurrentFileSize += this.BufferSize;
-    this.Buffer = [];
-    this.BufferSize = 0;
-  }
-
   private rotate() {
-
     if (this.Options.options.rotate) {
       this.RotateJob = scheduleJob(`LogScheduleJob`, this.Options.options.rotate, () => {
         this.archive();
@@ -147,9 +138,6 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
   }
 
   private initialize() {
-    this.flush();
-
-  
     this.CurrentFileSize = 0;
     this.LogDirPath = path.dirname(path.resolve(format(null, this.Options.options.path)));
     this.ArchiveDirPath = this.Options.options.archivePath ? path.resolve(format(null, this.Options.options.archivePath)) : this.LogDirPath;
@@ -174,20 +162,36 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       }
     }
 
-    if (fs.existsSync(this.LogPath)) {
-      const { size } = fs.statSync(this.LogPath);
-      this.CurrentFileSize = size;
+    this.reopenStream();
+  }
+
+  private reopenStream() {
+    if (this.WriteStream) {
+      this.WriteStream.removeAllListeners();
+      this.WriteStream.close((err) => {
+        console.debug(`Cannot close log write stream ${this.LogPath}, reason: ${err.message}`);
+      });
+
+      this.WriteStream = null;
     }
 
-   
+    this.WriteStream = fs.createWriteStream(this.LogPath, {
+      flags: "a",
+      encoding: "utf-8",
+    });
 
-    if (this.Options.options.flushTimeout !== 0) {
-      setTimeout(() => {
-        this.flush();
-      }, this.Options.options.flushTimeout);
-    }
+    this.WriteStream.on("open", () => {
+      console.debug(`Opend log write stream at ${this.LogPath}`);
+    });
 
-    this.HasError = false;
-    this.Error = null;
+    this.WriteStream.on("error", (err) => {
+      console.debug(`Cannot create log file write steram at path ${this.LogPath}, reason: ${err.message}`);
+
+      this.reopenStream();
+    });
+
+    this.WriteStream.on("close", () => {
+      console.debug(`Closed log write stream at ${this.LogPath}`);
+    });
   }
 }

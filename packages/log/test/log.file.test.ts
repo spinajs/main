@@ -34,39 +34,34 @@ describe("file target tests", function () {
     sinon.restore();
   });
 
-  it("Should write to file",  () => {
-    const mk = sinon.stub(fs, "writeFileSync");
-    const log = logger("file");
+  // it("Should write to file", () => {
+  //   const mk = sinon.stub(fs, "writeFileSync");
+  //   const log = logger("file");
 
-    log.info("Hello world");
+  //   log.info("Hello world");
 
-    expect(mk.calledOnce).to.be.true;
-    expect(mk.args[0][1])
-      .to.be.a("string")
-      .and.satisfy((msg: string) => msg.includes("INFO Hello world"));
-  });
+  //   expect(mk.calledOnce).to.be.true;
+  //   expect(mk.args[0][1])
+  //     .to.be.a("string")
+  //     .and.satisfy((msg: string) => msg.includes("INFO Hello world"));
+  // });
 
-  it("Should resolve file name with variables", () => {
+  // it("Should resolve file name with variables", () => {
+  //   const sSpy = sinon.spy(fs, "openSync");
+  //   const log = logger("file");
+  //   log.warn("test");
 
-    const sSpy = sinon.spy(fs, "openSync");
-    const log = logger("file");
-    log.warn("test");
-
-    expect(sSpy.getCall(0).args[0]).to.satisfy((name :string) => name.includes(`log_${DateTime.now().toFormat("dd_MM_yyyy")}.txt`))
-  });
+  //   expect(sSpy.getCall(0).args[0]).to.satisfy((name: string) => name.includes(`log_${DateTime.now().toFormat("dd_MM_yyyy")}.txt`));
+  // });
 
   it("Should rotate log files when size is exceeded", async () => {});
 
   it("Should clean log files when criteria are met", async () => {});
 
   it("should create file logger per creation", () => {
-
     // const sSpy = sinon.spy(fs, "openSync");
-
     // const loggers =  logger("file");
     // const loggers =  logger("file2");
-
     // expect(sSpy.callCount).to.eq(2);
-
   });
 });
