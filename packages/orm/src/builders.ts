@@ -1,3 +1,4 @@
+import { TruncateTableQueryCompiler } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 
 import { Container, Inject, NewInstance, Constructor, IContainer } from '@spinajs/di';
@@ -949,8 +950,6 @@ export class DeleteQueryBuilder extends QueryBuilder<IUpdateResult> {
   protected _statements: IQueryStatement[];
   protected _boolean: WhereBoolean;
 
-  protected _truncate: boolean;
-
   protected _limit: IQueryLimit;
 
   public get Truncate() {
@@ -964,7 +963,6 @@ export class DeleteQueryBuilder extends QueryBuilder<IUpdateResult> {
   constructor(container: Container, driver: OrmDriver, model: Constructor<any>) {
     super(container, driver, model);
 
-    this._truncate = false;
     this._method = QueryMethod.DELETE;
     this._statements = [];
     this._boolean = WhereBoolean.AND;
@@ -979,12 +977,6 @@ export class DeleteQueryBuilder extends QueryBuilder<IUpdateResult> {
 
   public toDB(): ICompilerOutput {
     return this._container.resolve<DeleteQueryCompiler>(DeleteQueryCompiler, [this]).compile();
-  }
-
-  public truncate() {
-    this._truncate = true;
-
-    return this;
   }
 }
 
@@ -1616,6 +1608,18 @@ export class TableQueryBuilder extends QueryBuilder {
 
   public toDB(): ICompilerOutput {
     return this._container.resolve<TableQueryCompiler>(TableQueryCompiler, [this]).compile();
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class TruncateTableQueryBuilder extends QueryBuilder {
+  constructor(protected container: Container, protected driver: OrmDriver) {
+    super(container, driver);
+  }
+
+  public toDB(): ICompilerOutput {
+    return this._container.resolve<TruncateTableQueryCompiler>(TruncateTableQueryCompiler, [this]).compile();
   }
 }
 

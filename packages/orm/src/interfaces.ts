@@ -742,6 +742,12 @@ export abstract class TableQueryCompiler implements IQueryCompiler {
 }
 
 @NewInstance()
+export abstract class TruncateTableQueryCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
+
+@NewInstance()
 export abstract class TableCloneQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput[];
 }

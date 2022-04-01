@@ -2,7 +2,7 @@ import { Log } from '@spinajs/log';
 /* eslint-disable prettier/prettier */
 import { QueryContext } from './interfaces';
 import { SyncModule, IContainer, DI, Container, Autoinject } from '@spinajs/di';
-import { IDriverOptions, IColumnDescriptor } from '.';
+import { IDriverOptions, IColumnDescriptor, TruncateTableQueryBuilder } from '.';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder } from './builders';
 import { ModelHydrator, DbPropertyHydrator, OneToOneRelationHydrator, NonDbPropertyHydrator, JunctionModelPropertyHydrator } from './hydrators';
 import { ModelDehydrator, StandardModelDehydrator } from './dehydrators';
@@ -96,6 +96,15 @@ export abstract class OrmDriver extends SyncModule {
    */
   public insert(): InsertQueryBuilder {
     return this.Container.resolve(InsertQueryBuilder, [this]);
+  }
+
+  /**
+   * Truncates given table
+   */
+  public async truncate(table: string) {
+    const b = this.Container.resolve(TruncateTableQueryBuilder, [this]);
+    b.setTable(table);
+    return await b;
   }
 
   /**

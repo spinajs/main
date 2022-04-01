@@ -357,11 +357,7 @@ export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder>
 
     let _expression = '';
 
-    if (this._builder.Truncate) {
-      _expression = `TRUNCATE TABLE ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
-    } else {
-      _expression = _from + (_where.expression ? ` WHERE ${_where.expression}` : '') + _limit.expression;
-    }
+    _expression = _from + (_where.expression ? ` WHERE ${_where.expression}` : '') + _limit.expression;
 
     _bindings.push(..._where.bindings);
     _bindings.push(..._limit.bindings);
@@ -644,13 +640,25 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
   }
 }
 
+export interface SqlTruncateTableQueryCompiler {}
+export class SqlTruncateTableQueryCompiler extends TableQueryCompiler {
+  constructor(protected container: Container, protected builder: TableQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    return {
+      bindings: [],
+      expression: `TRUNCATE TABLE ${this.container.resolve(TableAliasCompiler).compile(this.builder)}`,
+    };
+  }
+}
+
 export interface SqlTableQueryCompiler {}
 
 @NewInstance()
 @Inject(Container)
 export class SqlTableQueryCompiler extends TableQueryCompiler {
-  @use(TableAliasCompiler) this: this;
-
   constructor(protected container: Container, protected builder: TableQueryBuilder) {
     super();
   }

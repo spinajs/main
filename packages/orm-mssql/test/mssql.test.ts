@@ -1,11 +1,10 @@
-import { OrmException } from './../../orm/src/exceptions';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import * as _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { MsSqlOrmDriver } from './../src/index';
 import { dir, mergeArrays } from './util';
-import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm, OrmException } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { User } from './models/User';
 import { DateTime } from 'luxon';
@@ -80,6 +79,8 @@ describe('MsSql connection test', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MsSqlOrmDriver).as('orm-driver-mssql');
     await DI.resolve(Orm);
+
+    await db().Connections.get('mssql')
   });
 
   it('Should connect', async () => {
@@ -124,9 +125,9 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
     const result: User = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
 
     expect(iResult.RowsAffected).to.eq(1);
-    expect(iResult.LastInsertId).to.gt(1);
+    expect(iResult.LastInsertId).to.gt(0);
     expect(result).to.be.not.null;
-    expect(result.Id).to.gt(1);
+    expect(result.Id).to.gt(0);
     expect(result.Name).to.eq('test');
   });
 
