@@ -1051,7 +1051,7 @@ describe('Model discrimination tests', () => {
       }),
     );
 
-    const result = await ModelDiscBase.all();
+    const result = await ModelDiscBase.where(true);
 
     expect(result).to.be.not.null;
     expect(result[0]).instanceOf(ModelDiscBase);

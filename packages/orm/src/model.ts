@@ -138,13 +138,13 @@ export class ModelBase {
    * @param operator - boolean operator
    * @param value - value to compare
    */
-  public static where<T extends typeof ModelBase>(val: boolean): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(val: {}): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(func: WhereFunction): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(column: string, operator: Op, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(column: string, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(statement: WrapStatement): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, val: boolean): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, val: {}): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, func: WhereFunction): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, column: string, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, statement: WrapStatement): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction | RawQuery | object | WrapStatement, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
     throw Error('Not implemented');
   }
@@ -548,7 +548,6 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = _createQuery(this, InsertQueryBuilder);
 
     if (Array.isArray(data)) {
-
       if (insertBehaviour !== InsertBehaviour.None) {
         throw new OrmException(`insert behaviour is not supported with arrays`);
       }
@@ -586,7 +585,7 @@ export const MODEL_STATIC_MIXINS = {
     const pkey = description.PrimaryKey;
     query.select('*');
     query.whereIn(pkey, pks);
-    return await query;
+    return await (query as SelectQueryBuilder<Array<InstanceType<T>>>);
   },
 
   async findOrFail<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
@@ -614,7 +613,7 @@ export const MODEL_STATIC_MIXINS = {
     query.whereIn(pkey, pks);
     query.middleware(middleware);
 
-    return await query;
+    return await (query as SelectQueryBuilder<Array<InstanceType<T>>>);
   },
 
   async get<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
