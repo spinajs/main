@@ -35,14 +35,13 @@ describe("file target tests", function () {
   });
 
   it("Should write to file",  () => {
-    const mk = sinon.mock(fs);
+    const mk = sinon.stub(fs, "writeFileSync");
     const log = logger("file");
-    const s2 = mk.expects("writeFileSync");
 
     log.info("Hello world");
 
-    expect(s2.calledOnce).to.be.true;
-    expect(s2.args[0][1])
+    expect(mk.calledOnce).to.be.true;
+    expect(mk.args[0][1])
       .to.be.a("string")
       .and.satisfy((msg: string) => msg.includes("INFO Hello world"));
   });

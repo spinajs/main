@@ -50,5 +50,6 @@
     "@spinajs/orm": "^1.2.78",
     "@spinajs/orm-sql": "^1.2.78",
     "mssql": "^8.0.2"
-  }
+  },
+  "gitHead": "d0222a46d2627016f905e4a55c8f84a66f63a55b"
 }
