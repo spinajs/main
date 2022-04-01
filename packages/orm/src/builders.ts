@@ -1,8 +1,8 @@
-import { OrmException } from './exceptions';
 /* eslint-disable prettier/prettier */
 
 import { Container, Inject, NewInstance, Constructor, IContainer } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
+import { OrmException } from './exceptions';
 import * as _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SORT_ORDER, WhereBoolean, SqlOperator, JoinMethod } from './enums';
