@@ -1021,7 +1021,7 @@ export class OnDuplicateQueryBuilder {
     return this;
   }
 
-  public then<TResult1, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
+  public then<TResult1, TResult2 = never>(onfulfilled?: (value: any) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
     return this._parent.then(onfulfilled, onrejected);
   }
 

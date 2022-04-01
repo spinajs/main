@@ -1,3 +1,4 @@
+import { IWhereBuilder } from '@spinajs/orm';
 import { SORT_ORDER } from './enums';
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation } from './relations';
@@ -170,6 +171,7 @@ export class ModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
+  public static first<T extends typeof ModelBase>(this: T, callback: (builder: IWhereBuilder) => void): Promise<number>;
   public static first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -179,6 +181,7 @@ export class ModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
+  public static last<T extends typeof ModelBase>(this: T, callback: (builder: IWhereBuilder) => void): Promise<number>;
   public static last<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -186,6 +189,7 @@ export class ModelBase {
   /**
    * Tries to get newest result from db. It throws if model dont have CreatedAt decorated property
    */
+  public static newest<T extends typeof ModelBase>(this: T, callback: (builder: IWhereBuilder) => void): Promise<number>;
   public static newest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -193,6 +197,7 @@ export class ModelBase {
   /**
    * Tries to get oldest result from db. It throws if model dont have CreatedAt decorated property
    */
+  public static oldest<T extends typeof ModelBase>(this: T, callback: (builder: IWhereBuilder) => void): Promise<number>;
   public static oldest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -200,6 +205,7 @@ export class ModelBase {
   /**
    * Returns total count of entries in db for this model
    */
+  public static count<T extends typeof ModelBase>(this: T, callback: (builder: IWhereBuilder) => void): Promise<number>;
   public static count<T extends typeof ModelBase>(this: T): Promise<number> {
     throw Error('Not implemented');
   }
@@ -717,21 +723,29 @@ export const MODEL_STATIC_MIXINS = {
     return entity;
   },
 
-  async first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+  async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>> {
     const { query, description } = _createQuery(this as any, SelectQueryBuilder);
     _prepareOrderBy(description, query, SORT_ORDER.ASC);
 
+    if (callback) {
+      callback(query);
+    }
+
     return await query.first();
   },
 
-  async last<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+  async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>> {
     const { query, description } = _createQuery(this as any, SelectQueryBuilder);
     _prepareOrderBy(description, query, SORT_ORDER.DESC);
 
+    if (callback) {
+      callback(query);
+    }
+
     return await query.first();
   },
 
-  async newest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+  async newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>> {
     const { query, description } = _createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
@@ -740,10 +754,14 @@ export const MODEL_STATIC_MIXINS = {
       throw new OrmException('cannot fetch newest entity - CreateAt column not exists in model/db');
     }
 
+    if (callback) {
+      callback(query);
+    }
+
     return await query.first();
   },
 
-  async oldest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
+  async oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>> {
     const { query, description } = _createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
@@ -752,13 +770,21 @@ export const MODEL_STATIC_MIXINS = {
       throw new OrmException('cannot fetch oldest entity - CreateAt column not exists in model/db');
     }
 
+    if (callback) {
+      callback(query);
+    }
+
     return await query.first();
   },
 
-  async count<T extends typeof ModelBase>(this: T): Promise<number> {
+  async count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<number> {
     const { query } = _createQuery(this as any, SelectQueryBuilder);
 
     query.count('*', 'count');
+
+    if (callback) {
+      callback(query);
+    }
 
     return await (
       await query.asRaw<{ count: number }>()
