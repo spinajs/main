@@ -10,8 +10,7 @@ import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from './decor
 import { OrmDriver } from './driver';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions';
-import { DateTime } from "luxon";
-
+import { DateTime } from 'luxon';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -302,7 +301,7 @@ export class Orm extends AsyncModule {
       const cn = this.Connections.get(md.Connection);
       const migrationTableName = cn.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
 
-      const exists = await cn.select().from(migrationTableName).where({ Migration: m.name }).orderByDescending("CreatedAt").first();
+      const exists = await cn.select().from(migrationTableName).where({ Migration: m.name }).orderByDescending('CreatedAt').first();
 
       if (!exists) {
         const migration = await this.Container.resolve<OrmMigration>(m.type, [cn]);

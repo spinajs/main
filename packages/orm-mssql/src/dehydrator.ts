@@ -1,5 +1,5 @@
 import { ModelBase, StandardModelDehydrator } from '@spinajs/orm';
- 
+
 export class MssqlModelDehydrator extends StandardModelDehydrator {
   public dehydrate(model: ModelBase) {
     const obj = super.dehydrate(model);

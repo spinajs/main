@@ -38,7 +38,7 @@ export enum InsertBehaviour {
   /**
    * Replaces entry if pk exists
    */
-   InsertOrReplace,
+  InsertOrReplace,
 
   None,
 }
@@ -477,7 +477,7 @@ export interface IQueryBuilder {
   setAlias(alias: string): this;
 
   Driver: OrmDriver;
-  Container : IContainer;
+  Container: IContainer;
 }
 
 export interface ILimitBuilder {
@@ -745,7 +745,6 @@ export abstract class TableQueryCompiler implements IQueryCompiler {
 export abstract class TruncateTableQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
-
 
 @NewInstance()
 export abstract class TableCloneQueryCompiler implements IQueryCompiler {
