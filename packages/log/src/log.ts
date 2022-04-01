@@ -198,7 +198,7 @@ export class Log extends SyncModule implements ILog {
       const g = GlobToRegExp(r.name);
 
       // BUG: g.test throws vscode err ?
-      return (g as RegExp).test(this.Name);
+      return g.test(this.Name);
     });
   }
 }
