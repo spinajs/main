@@ -73,7 +73,7 @@ export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
 
     const iBindings = values.bindings;
     const iExpression = `${into} ${columns} ${values.data}`;
-    const dResult = super.onDuplicate();
+    const dResult = super.upsort();
 
     return {
       bindings: dResult.bindings.concat(iBindings),

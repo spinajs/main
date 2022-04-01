@@ -40,7 +40,7 @@ export abstract class OrmRelation implements IOrmRelation {
 class HasManyRelationMiddleware implements IBuilderMiddleware {
   constructor(protected _relationQuery: SelectQueryBuilder, protected _description: IRelationDescriptor, protected _path: string) {}
 
-  public afterData(data: any[]): any[] {
+  public afterQuery(data: any[]): any[] {
     return data;
   }
 
@@ -58,7 +58,7 @@ class HasManyRelationMiddleware implements IBuilderMiddleware {
       }
     });
     const hydrateMiddleware = {
-      afterData(data: any[]) {
+      afterQuery(data: any[]) {
         return data;
       },
       modelCreation(): ModelBase {
@@ -96,7 +96,7 @@ class HasManyRelationMiddleware implements IBuilderMiddleware {
 class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
   constructor(protected _relationQuery: SelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescrtiptor) {}
 
-  public afterData(data: any[]): any[] {
+  public afterQuery(data: any[]): any[] {
     return data;
   }
 
@@ -108,7 +108,7 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
     const self = this;
     const pks = data.map((d) => (d as any)[this._description.PrimaryKey]);
     const hydrateMiddleware = {
-      afterData(data: any[]) {
+      afterQuery(data: any[]) {
         return data;
       },
       modelCreation(_: any): ModelBase {
@@ -146,7 +146,7 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
 class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
   constructor(protected _relationQuery: SelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescrtiptor) {}
 
-  public afterData(data: any[]): any[] {
+  public afterQuery(data: any[]): any[] {
     return data;
   }
 
@@ -158,7 +158,7 @@ class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
     const self = this;
     const pks = data.map((d) => (d as any)[this._description.PrimaryKey]);
     const hydrateMiddleware = {
-      afterData(data: any[]) {
+      afterQuery(data: any[]) {
         return data.map((d) => Object.assign({}, d[self._description.Name], { JunctionModel: self.pickProps(d, [self._description.Name]) }));
       },
       modelCreation(_: any): ModelBase {
@@ -198,7 +198,7 @@ class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 }
 
 class BelongsToRelationResultTransformMiddleware implements IBuilderMiddleware {
-  public afterData(data: any[]): any[] {
+  public afterQuery(data: any[]): any[] {
     return data.map((d) => {
       const transformedData = Object.assign(d);
       for (const key in transformedData) {
@@ -257,7 +257,7 @@ class BelongsToRelationResultTransformOneToManyMiddleware extends BelongsToRelat
 export class DiscriminationMapMiddleware implements IBuilderMiddleware {
   constructor(protected _description: IModelDescrtiptor) {}
 
-  public afterData(data: any[]): any[] {
+  public afterQuery(data: any[]): any[] {
     return data;
   }
 

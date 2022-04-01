@@ -116,16 +116,16 @@ export class SqliteInsertQueryCompiler extends SqlInsertQueryCompiler {
     const into = this.into();
     const columns = this.columns();
     const values = this.values();
-    const onDuplicate = this.onDuplicate();
+    const upsort = this.upsort();
 
     return {
-      bindings: values.bindings.concat(onDuplicate.bindings),
-      expression: `${into} ${columns} ${values.data}`.trim(),
+      bindings: values.bindings.concat(upsort.bindings),
+      expression: `${into} ${columns} ${values.data} ${upsort.expression}`.trim(),
     };
   }
 
   protected into() {
-    return `INSERT${this._builder.Ignore ? ' OR IGNORE' : ''}${this._builder.Update ? ' OR UPDATE' : ''} INTO \`${this._builder.Table}\``;
+    return `INSERT${this._builder.Ignore ? ' OR IGNORE' : ''}${this._builder.Replace ? ' OR REPLACE' : ''} INTO \`${this._builder.Table}\``;
   }
 }
 

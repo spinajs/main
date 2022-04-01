@@ -79,7 +79,7 @@ export class Builder<T = any> implements PromiseLike<T> {
 
               if (this._middlewares.length > 0) {
                 transformedResult = this._middlewares.reduce((_: any, current) => {
-                  return current.afterData(result);
+                  return current.afterQuery(result);
                 }, []);
               }
 
@@ -1080,6 +1080,9 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
 
   protected _update: boolean;
 
+  protected _replace: boolean;
+
+
 
   @use(ColumnsBuilder) this: this;
 
@@ -1093,6 +1096,10 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
 
   public get Update() {
     return this._update;
+  }
+
+  public get Replace() {
+    return this._replace;
   }
 
   constructor(container: Container, driver: OrmDriver, model: Constructor<any>) {
@@ -1115,6 +1122,12 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   }
 
   public orUpdate() {
+    this._update = true;
+
+    return this;
+  }
+
+  public orReplace() {
     this._update = true;
 
     return this;

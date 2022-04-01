@@ -452,16 +452,16 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
     const into = this.into();
     const columns = this.columns();
     const values = this.values();
-    const onDuplicate = this.onDuplicate();
+    const upsort = this.upsort();
 
     return {
-      bindings: values.bindings.concat(onDuplicate.bindings),
-      expression: `${into} ${columns} ${values.data} ${onDuplicate.expression}`.trim(),
+      bindings: values.bindings.concat(upsort.bindings),
+      expression: `${into} ${columns} ${values.data} ${upsort.expression}`.trim(),
     };
   }
 
-  protected onDuplicate() {
-    if (this._builder.DuplicateQueryBuilder !== null && this._builder.DuplicateQueryBuilder !== undefined) {
+  protected upsort() {
+    if (this._builder.Update) {
       return this._container.resolve(OnDuplicateQueryCompiler, [this._builder.DuplicateQueryBuilder]).compile();
     }
 

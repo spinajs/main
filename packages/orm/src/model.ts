@@ -127,7 +127,7 @@ export class ModelBase {
    *
    * @param _data - data to insert
    */
-  public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, _insertBehaviour: InsertBehaviour = InsertBehaviour.None): Promise<IUpdateResult> {
+  public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, _insertBehaviour: InsertBehaviour = InsertBehaviour.None): InsertQueryBuilder {
     throw Error('Not implemented');
   }
 
@@ -378,13 +378,23 @@ export class ModelBase {
       case InsertBehaviour.InsertOrUpdate:
         query.orUpdate();
         break;
+      case InsertBehaviour.InsertOrReplace:
+        query.orReplace();
+        break;
     }
 
-    const { LastInsertId, RowsAffected } = (await query.values(this.dehydrate())) as unknown as IUpdateResult;
+    const iMidleware = {
+      afterQuery: (data: IUpdateResult) => {
+        this.PrimaryKeyValue = this.PrimaryKeyValue ?? data.LastInsertId;
+        return data;
+      },
+      modelCreation: (): any => null,
+      afterHydration: (): any => null,
+    };
 
-    if (RowsAffected !== 0) {
-      this.PrimaryKeyValue = this.PrimaryKeyValue ?? LastInsertId;
-    }
+    query.middleware(iMidleware);
+
+    return query.values(this.dehydrate());
   }
 
   /**
@@ -573,6 +583,9 @@ export const MODEL_STATIC_MIXINS = {
         case InsertBehaviour.InsertOrUpdate:
           query.orUpdate();
           break;
+        case InsertBehaviour.InsertOrReplace:
+          query.orReplace();
+          break;
       }
 
       if (data instanceof ModelBase) {
@@ -582,7 +595,24 @@ export const MODEL_STATIC_MIXINS = {
       }
     }
 
-    return await query;
+    const iMidleware = {
+      afterQuery: (data: IUpdateResult) => {
+        if (Array.isArray(data)) {
+          (data as Array<InstanceType<T>>).forEach((v, idx) => {
+            v.PrimaryKeyValue =  v.PrimaryKeyValue  ?? data.LastInsertId - data.length + idx;
+          });
+        } else {
+          (data as InstanceType<T>).PrimaryKeyValue = (data as InstanceType<T>).PrimaryKeyValue ?? data.LastInsertId;
+        }
+        return data;
+      },
+      modelCreation: (): any => null,
+      afterHydration: (): any => null,
+    };
+
+    query.middleware(iMidleware);
+
+    return query;
   },
 
   async find<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
@@ -598,7 +628,7 @@ export const MODEL_STATIC_MIXINS = {
     const pkey = description.PrimaryKey;
 
     const middleware = {
-      afterData(data: any[]) {
+      afterQuery(data: any[]) {
         if (data.length !== pks.length) {
           throw new Error(`could not find all of pkeys in model ${this.model.name}`);
         }

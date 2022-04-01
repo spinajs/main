@@ -923,7 +923,7 @@ describe('General model tests', () => {
     await db();
     const middleware = {
       // tslint:disable-next-line: no-empty
-      afterData(data: any[]) {
+      afterQuery(data: any[]) {
         return data;
       },
       modelCreation(_: any): ModelBase {
@@ -933,7 +933,7 @@ describe('General model tests', () => {
       // tslint:disable-next-line: no-empty
       async afterHydration(_data: ModelBase[]) {},
     };
-    const spy = sinon.spy(middleware, 'afterData');
+    const spy = sinon.spy(middleware, 'afterQuery');
     const spy2 = sinon.spy(middleware, 'afterHydration');
     const spy3 = sinon.spy(middleware, 'modelCreation');
 
