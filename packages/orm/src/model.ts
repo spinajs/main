@@ -571,7 +571,7 @@ export const MODEL_STATIC_MIXINS = {
           query.orIgnore();
           break;
         case InsertBehaviour.InsertOrUpdate:
-          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey).map((c) => c.Name));
+          query.orUpdate();
           break;
       }
 
