@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/internal-logger",
-  "version": "1.2.78",
+  "version": "1.2.79",
   "description": "internal logger used by some packages. do not use it in production environment",
   "homepage": "https://github.com/spinajs/main#readme",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "url": "git+https://github.com/spinajs/main.git"
   },
   "dependencies": {
-    "@spinajs/di": "^1.2.78"
+    "@spinajs/di": "^1.2.79"
   },
   "scripts": {
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
