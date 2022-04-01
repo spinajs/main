@@ -1119,12 +1119,6 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     return this;
   }
 
-  public orUpdate() {
-    this._update = true;
-
-    return this;
-  }
-
   public orReplace() {
     this._update = true;
 
@@ -1172,10 +1166,11 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     let columnToCheck = column;
     if (!columnToCheck && this._model) {
       columnToCheck = extractModelDescriptor(this._model)
-        .Columns.filter((c) => c.Unique && !c.PrimaryKey)
+        .Columns.filter((c) => c.Unique)
         .map((c) => c.Name);
     }
 
+    this._update = true;
     this.DuplicateQueryBuilder = new OnDuplicateQueryBuilder(this._container, this, columnToCheck);
     return this.DuplicateQueryBuilder;
   }

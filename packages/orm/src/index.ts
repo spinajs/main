@@ -12,3 +12,4 @@ export * from './dehydrators';
 export * from './driver';
 export * from './converters';
 export * from './wrappers';
+export * from './exceptions';

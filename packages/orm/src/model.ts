@@ -369,14 +369,14 @@ export class ModelBase {
    * primary key exists
    */
   public async insert(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
-    const { query } = _createQuery(this.constructor, InsertQueryBuilder);
+    const { query, description } = _createQuery(this.constructor, InsertQueryBuilder);
 
     switch (insertBehaviour) {
       case InsertBehaviour.InsertOrIgnore:
         query.orIgnore();
         break;
       case InsertBehaviour.InsertOrUpdate:
-        query.orUpdate();
+        query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey).map((c) => c.Name));
         break;
       case InsertBehaviour.InsertOrReplace:
         query.orReplace();
@@ -560,7 +560,7 @@ export const MODEL_STATIC_MIXINS = {
    * Try to insert new value
    */
   async insert<T extends typeof ModelBase>(this: T, data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
-    const { query } = _createQuery(this, InsertQueryBuilder);
+    const { query, description } = _createQuery(this, InsertQueryBuilder);
 
     if (Array.isArray(data)) {
       if (insertBehaviour !== InsertBehaviour.None) {
@@ -581,7 +581,7 @@ export const MODEL_STATIC_MIXINS = {
           query.orIgnore();
           break;
         case InsertBehaviour.InsertOrUpdate:
-          query.orUpdate();
+          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey).map((c) => c.Name));
           break;
         case InsertBehaviour.InsertOrReplace:
           query.orReplace();
@@ -596,15 +596,18 @@ export const MODEL_STATIC_MIXINS = {
     }
 
     const iMidleware = {
-      afterQuery: (data: IUpdateResult) => {
+      afterQuery: (result: IUpdateResult) => {
         if (Array.isArray(data)) {
           (data as Array<InstanceType<T>>).forEach((v, idx) => {
-            v.PrimaryKeyValue =  v.PrimaryKeyValue  ?? data.LastInsertId - data.length + idx;
+            if (v instanceof ModelBase) {
+              v.PrimaryKeyValue = v.PrimaryKeyValue ?? result.LastInsertId - data.length + idx;
+            }
           });
-        } else {
-          (data as InstanceType<T>).PrimaryKeyValue = (data as InstanceType<T>).PrimaryKeyValue ?? data.LastInsertId;
+        } else if (data instanceof ModelBase) {
+          (data as InstanceType<T>).PrimaryKeyValue = (data as InstanceType<T>).PrimaryKeyValue ?? result.LastInsertId;
         }
-        return data;
+
+        return result;
       },
       modelCreation: (): any => null,
       afterHydration: (): any => null,

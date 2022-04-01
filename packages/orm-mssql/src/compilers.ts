@@ -1,7 +1,6 @@
 import { Configuration } from '@spinajs/configuration';
-import { OrmException } from './../../orm/src/exceptions';
 import { IContainer, Inject, NewInstance } from '@spinajs/di';
-import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, IWhereBuilder, ILimitBuilder, TableAliasCompiler, IQueryBuilder, OnDuplicateQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder } from '@spinajs/orm';
+import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, IWhereBuilder, ILimitBuilder, TableAliasCompiler, IQueryBuilder, OnDuplicateQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException } from '@spinajs/orm';
 import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
@@ -12,6 +11,10 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
   public compile() {
     const table = this._builder.getParent().Container.resolve(TableAliasCompiler).compile(this._builder.getParent());
     const descriptor = extractModelDescriptor(this._builder.getParent().Model);
+
+    if (this._builder.getColumn().length === 0) {
+      throw new OrmException(`no unique columns defined in table ${this._builder.getParent().Table}`);
+    }
 
     const columns = this._builder
       .getColumnsToUpdate()
@@ -36,12 +39,16 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
       }
     });
 
-    const pId = this._builder.getParent().Values[0][valueMap.indexOf(descriptor.PrimaryKey)];
+    const wBindings = this._builder.getColumn().map((c) => {
+      this._builder.getParent().Values[0][valueMap.indexOf(c)];
+    });
 
     return {
-      bindings: [pId].concat(bindings),
+      bindings: [wBindings].concat(bindings),
       expression: `MERGE INTO ${table} WITH (HOLDLOCK) AS target
-      USING (SELECT * FROM ${table} WHERE ${descriptor.PrimaryKey} = ?) as source
+      USING (SELECT * FROM ${table} WHERE ${this._builder.getColumn().map((c) => {
+        return `${c} = ?`;
+      })}) as source
       ON (target.${descriptor.PrimaryKey} = source.${descriptor.PrimaryKey})
       WHEN MATCHED
         THEN UPDATE

@@ -357,14 +357,14 @@ describe('Sqlite queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    await User.insert(new User({ Id: 1, Name: 'test2', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.InsertOrUpdate);
+    await User.insert(new User({ Name: 'test', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.InsertOrUpdate);
 
     const all = await User.all();
     const user = await User.get(1);
 
     expect(user).instanceOf(User);
     expect(user.CreatedAt).instanceof(DateTime);
-    expect(user.Name).to.eq('test2');
+    expect(user.Name).to.eq('test');
     expect(user.Password).to.eq('test_password_2');
     expect(all.length).to.eq(1);
   });
