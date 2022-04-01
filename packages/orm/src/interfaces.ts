@@ -35,6 +35,11 @@ export enum InsertBehaviour {
    */
   InsertOrUpdate,
 
+  /**
+   * Replaces entry if pk exists
+   */
+   InsertOrReplace,
+
   None,
 }
 
@@ -786,7 +791,7 @@ export interface IBuilderMiddleware<T = any[]> {
    *
    * @param data - raw data fetched from DB
    */
-  afterData(data: T): T;
+  afterQuery(data: T): T;
 
   /**
    * Executed when model is about to create. Use it to
