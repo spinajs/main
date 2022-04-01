@@ -74,19 +74,17 @@ export class Builder<T = any> implements PromiseLike<T> {
               onfulfilled(result);
               return;
             }
+
+            let transformedResult = result;
+            this._middlewares.forEach((m) => {
+              Object.assign(transformedResult, m.afterQuery(transformedResult));
+            });
+
             if (this._model && !this._nonSelect) {
-              let transformedResult = result;
-
-              if (this._middlewares.length > 0) {
-                transformedResult = this._middlewares.reduce((_: any, current) => {
-                  return current.afterQuery(result);
-                }, []);
-              }
-
               // TODO: rething this casting
               const models = (transformedResult as unknown as any[]).map((r) => {
                 let model = null;
-                for (const middleware of this._middlewares) {
+                for (const middleware of this._middlewares.reverse()) {
                   model = middleware.modelCreation(r);
                   if (model !== null) {
                     break;
@@ -113,7 +111,7 @@ export class Builder<T = any> implements PromiseLike<T> {
                 onfulfilled(models as unknown as T);
               }
             } else {
-              onfulfilled(result);
+              onfulfilled(transformedResult);
             }
           } catch (err) {
             onrejected(err);
@@ -930,6 +928,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
           } else {
             return onfulfilled(undefined);
           }
+        } else {
+          return onfulfilled(result);
         }
       } else {
         return onfulfilled(result);
@@ -1081,8 +1081,6 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   protected _update: boolean;
 
   protected _replace: boolean;
-
-
 
   @use(ColumnsBuilder) this: this;
 

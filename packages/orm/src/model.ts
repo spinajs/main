@@ -624,31 +624,19 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async findOrFail<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
-    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description, model } = _createQuery(this as any, SelectQueryBuilder);
     const pkey = description.PrimaryKey;
-
-    const middleware = {
-      afterQuery(data: any[]) {
-        if (data.length !== pks.length) {
-          throw new Error(`could not find all of pkeys in model ${this.model.name}`);
-        }
-
-        return data;
-      },
-
-      modelCreation(_: any): ModelBase {
-        return null;
-      },
-
-      // tslint:disable-next-line: no-empty
-      async afterHydration(_data: ModelBase[]) {},
-    };
 
     query.select('*');
     query.whereIn(pkey, pks);
-    query.middleware(middleware);
 
-    return await (query as SelectQueryBuilder<Array<InstanceType<T>>>);
+    const result = await (query as SelectQueryBuilder<Array<InstanceType<T>>>);
+
+    if (result.length !== pks.length) {
+      throw new Error(`could not find all results for model ${model.name}`);
+    }
+
+    return result;
   },
 
   async get<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {

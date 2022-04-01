@@ -69,7 +69,7 @@ export class ConnectionConf extends FrameworkConfiguration {
 
 export class FakeSqliteDriver extends OrmDriver {
   public async execute(_stmt: string | object, _params?: any[]): Promise<any[] | any> {
-    return true;
+    return false;
   }
 
   public async ping(): Promise<boolean> {

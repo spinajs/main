@@ -52,6 +52,15 @@ describe('Orm migrations', () => {
 
   it('ORM should run migration by name', async () => {
     const orm = await db();
+    //const executeStub = sinon.stub(FakeSqliteDriver.prototype, 'execute');
+    // executeStub.onCall(0).returns(new Promise((res) => {
+    //   res(true);
+    // }),);
+    // executeStub.onCall(4).returns(
+    //   new Promise((res) => {
+    //     res(false);
+    //   }),
+    // );
 
     const up = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'up');
     await orm.migrateUp('Migration1_2021_12_01_12_00_00');
@@ -124,6 +133,7 @@ describe('Orm migrations', () => {
 
     const up = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'up');
     const up2 = sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'up');
+
     await orm.migrateUp();
 
     expect(up.calledOnceWith(orm.Connections.get('sqlite'))).to.be.true;
