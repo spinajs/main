@@ -26,15 +26,14 @@ export enum ColumnAlterationType {
 
 export enum InsertBehaviour {
   /**
-   * On duplicate entry ignore & fetch only model primary key
-   * On duplicate check not only for pkeys but also for unique constrain
+   * Ignores if primary key exists in db
    */
-  OnDuplicateIgnore,
+  InsertOrIgnore,
 
   /**
-   * On duplicate update entry ( when unique constraint is hit update db from model data)
+   * Updates entry if pk exists
    */
-  OnDuplicateUpdate,
+  InsertOrUpdate,
 
   None,
 }

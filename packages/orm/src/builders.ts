@@ -1078,6 +1078,9 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
 
   protected _ignore: boolean;
 
+  protected _update: boolean;
+
+
   @use(ColumnsBuilder) this: this;
 
   public get Values() {
@@ -1086,6 +1089,10 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
 
   public get Ignore() {
     return this._ignore;
+  }
+
+  public get Update() {
+    return this._update;
   }
 
   constructor(container: Container, driver: OrmDriver, model: Constructor<any>) {
@@ -1101,8 +1108,14 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   /**
    * Sets insert to ignore on duplicate
    */
-  public ignore() {
+  public orIgnore() {
     this._ignore = true;
+
+    return this;
+  }
+
+  public orUpdate() {
+    this._update = true;
 
     return this;
   }

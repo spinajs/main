@@ -171,7 +171,7 @@ export class ModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
-  public static first<T extends typeof ModelBase>(this: T, callback: (builder: IWhereBuilder) => void): Promise<number>;
+  public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<number>;
   public static first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -181,7 +181,7 @@ export class ModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
-  public static last<T extends typeof ModelBase>(this: T, callback: (builder: IWhereBuilder) => void): Promise<number>;
+  public static last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>>;
   public static last<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -189,7 +189,7 @@ export class ModelBase {
   /**
    * Tries to get newest result from db. It throws if model dont have CreatedAt decorated property
    */
-  public static newest<T extends typeof ModelBase>(this: T, callback: (builder: IWhereBuilder) => void): Promise<number>;
+  public static newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>>;
   public static newest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -197,7 +197,7 @@ export class ModelBase {
   /**
    * Tries to get oldest result from db. It throws if model dont have CreatedAt decorated property
    */
-  public static oldest<T extends typeof ModelBase>(this: T, callback: (builder: IWhereBuilder) => void): Promise<number>;
+  public static oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>>;
   public static oldest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -205,7 +205,7 @@ export class ModelBase {
   /**
    * Returns total count of entries in db for this model
    */
-  public static count<T extends typeof ModelBase>(this: T, callback: (builder: IWhereBuilder) => void): Promise<number>;
+  public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>>;
   public static count<T extends typeof ModelBase>(this: T): Promise<number> {
     throw Error('Not implemented');
   }
@@ -370,14 +370,14 @@ export class ModelBase {
    * primary key exists
    */
   public async insert(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
-    const { query, description } = _createQuery(this.constructor, InsertQueryBuilder);
+    const { query } = _createQuery(this.constructor, InsertQueryBuilder);
 
     switch (insertBehaviour) {
-      case InsertBehaviour.OnDuplicateIgnore:
-        query.ignore();
+      case InsertBehaviour.InsertOrIgnore:
+        query.orIgnore();
         break;
-      case InsertBehaviour.OnDuplicateUpdate:
-        query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey).map((c) => c.Name));
+      case InsertBehaviour.InsertOrUpdate:
+        query.orUpdate();
         break;
     }
 
@@ -568,10 +568,10 @@ export const MODEL_STATIC_MIXINS = {
       );
     } else {
       switch (insertBehaviour) {
-        case InsertBehaviour.OnDuplicateIgnore:
-          query.ignore();
+        case InsertBehaviour.InsertOrIgnore:
+          query.orIgnore();
           break;
-        case InsertBehaviour.OnDuplicateUpdate:
+        case InsertBehaviour.InsertOrUpdate:
           query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey).map((c) => c.Name));
           break;
       }

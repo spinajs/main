@@ -2,8 +2,8 @@
 /* eslint-disable prettier/prettier */
 
 import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
-import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder } from '@spinajs/orm';
-import { NewInstance, Inject, Container, Autoinject, IContainer } from '@spinajs/di';
+import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, extractModelDescriptor } from '@spinajs/orm';
+import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 
 @NewInstance()
@@ -43,6 +43,9 @@ export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler 
   }
 
   public compile() {
+
+    const mDescription = extractModelDescriptor(this._builder.getParent().Model);
+
     const columns = this._builder.getColumnsToUpdate().map((c: string | RawQuery): string => {
       if (_.isString(c)) {
         return `${c} = ?`;
@@ -65,7 +68,7 @@ export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler 
 
     return {
       bindings,
-      expression: `ON CONFLICT(${this._builder.getColumn().join(',')}) DO UPDATE SET ${columns.join(',')}`,
+      expression: `ON CONFLICT(${mDescription.PrimaryKey}) DO UPDATE SET ${columns.join(',')}`,
     };
   }
 }
@@ -104,7 +107,7 @@ export class SqliteTableQueryCompiler extends SqlTableQueryCompiler {
 @NewInstance()
 @Inject(Container)
 export class SqliteInsertQueryCompiler extends SqlInsertQueryCompiler {
-  
+
   constructor(container: IContainer, builder: InsertQueryBuilder) {
     super(container, builder);
   }
@@ -117,12 +120,12 @@ export class SqliteInsertQueryCompiler extends SqlInsertQueryCompiler {
 
     return {
       bindings: values.bindings.concat(onDuplicate.bindings),
-      expression: `${into} ${columns} ${values.data} ${onDuplicate.expression}`.trim(),
+      expression: `${into} ${columns} ${values.data}`.trim(),
     };
   }
 
   protected into() {
-    return `INSERT${this._builder.Ignore ? ' OR IGNORE' : ''} INTO \`${this._builder.Table}\``;
+    return `INSERT${this._builder.Ignore ? ' OR IGNORE' : ''}${this._builder.Update ? ' OR UPDATE' : ''} INTO \`${this._builder.Table}\``;
   }
 }
 
