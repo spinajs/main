@@ -99,7 +99,7 @@ export function unregister<T>(type: Class<T> | Factory<T> | ResolvableObject): v
   RootContainer.unregister(type);
 }
 
-export function uncashe<T>(type: string | Class<T> | TypedArray<T>, parent?: boolean): void {
+export function uncache<T>(type: string | Class<T> | TypedArray<T>, parent?: boolean): void {
   RootContainer.uncache(type, parent);
 }
 
