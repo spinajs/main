@@ -1,3 +1,5 @@
+import { SyncModule } from '@spinajs/di';
+import _ from "lodash";
 import * as util from "util";
 
 export enum LogLevel {
@@ -148,19 +150,6 @@ export interface IFileTargetOptions extends ICommonTargetOptions {
      * Eg. to store max 5 archive files, set it to 5. Oldest by modification time are deleted.
      */
     maxArchiveFiles: number;
-
-    /**
-     * Buffer size for incoming log messages. Messages are stored in buffer before write to file.
-     *
-     * Default is 8kb
-     */
-    bufferSize: number;
-
-    /**
-     * Time in ms after whitch flush will be forced. If set to 0 feature is disabled ( any data hangin in temp buffer will not be saved before it reaches bufferSize)
-     * Default time is 10s.
-     */
-    flushTimeout: number;
   };
 }
 
@@ -180,7 +169,37 @@ export interface ILogEntry {
   Variables: LogVariables;
 }
 
+export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModule {
+  public HasError = false;
+  public Error: Error | null | unknown = null;
+  public Options: T;
+
+  constructor(options: T) {
+    super();
+
+    if (options) {
+      this.Options = _.merge(
+        _.merge(this.Options, {
+          enabled: true,
+          layout: "${datetime} ${level} ${message} ${error} (${logger})",
+        }),
+        options
+      );
+    }
+  }
+
+  public abstract write(data: ILogEntry): void;
+}
+
+
+export interface ILogTargetDesc {
+  instance: LogTarget<ICommonTargetOptions>;
+  options?: ITargetsOption;
+  rule: ILogRule;
+}
 export interface ILog {
+
+  Targets: ILogTargetDesc[];
 
   trace(message: string, ...args: any[]): void;
   trace(err: Error, message: string, ...args: any[]): void;

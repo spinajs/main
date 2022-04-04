@@ -3,8 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
 import { Autoinject, Container, DI, IContainer, NewInstance, SyncModule } from "@spinajs/di";
-import { ILogTargetDesc, LogTarget } from "./targets/LogTarget";
-import { ICommonTargetOptions, LogLevel, ILogOptions, ILogRule, ILogEntry, StrToLogLevel, LogVariables, createLogMessageObject, ILog } from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogRule, ILogEntry, StrToLogLevel, LogVariables, createLogMessageObject, ILog, ILogTargetDesc, LogTarget } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOption } from "@spinajs/exceptions";
 
@@ -35,6 +34,7 @@ export class Log extends SyncModule implements ILog {
    */
   public static Loggers: Map<string, Log> = new Map();
   public Timers: Map<string, Date> = new Map<string, Date>();
+  public Targets: ILogTargetDesc[];
 
   public static clearLoggers() {
     Log.Loggers.clear();
@@ -45,8 +45,6 @@ export class Log extends SyncModule implements ILog {
   protected Options: ILogOptions;
 
   protected Rules: ILogRule[];
-
-  protected Targets: ILogTargetDesc[];
 
   protected Variables: Record<string, any> = {};
 

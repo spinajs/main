@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { ICommonTargetOptions, ILogEntry } from "@spinajs/log-common";
+import { ICommonTargetOptions, ILogEntry, LogTarget } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
-import { LogTarget } from "../../src/targets";
 import { format } from "@spinajs/configuration-common";
 
 /**

@@ -2,7 +2,7 @@
   "name": "@spinajs/orm-sql",
   "version": "1.2.79",
   "description": "framework orm sql language module",
-  "exports": "lib/index.js",
+  "main": "lib/index.js",
   "private": false,
   "scripts": {
     "build": "npm run clean && npm run compile",

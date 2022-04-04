@@ -48,11 +48,24 @@ export class TestConfiguration extends FrameworkConfiguration {
                     name: "File",
                     type: "FileTarget",
                     options: {
-                        path: dir("./logs/log_${date:dd_MM_yyyy}.txt"),
+                        path: dir("./logs/log_${logger}.txt"),
                         archivePath: dir("./logs/archive"),
                         compress: true,
                         maxArchiveFiles: 2,
-                        bufferSize: 1
+                        bufferSize: 1,
+                        maxSize: 100
+                    }
+                },
+                {
+                    name: "file-speed",
+                    type: "FileTarget",
+                    options: {
+                        path: dir("./logs/log_${logger}.txt"),
+                        archivePath: dir("./logs/archive"),
+                        compress: true,
+                        maxArchiveFiles: 2,
+                        bufferSize: 1,
+                        maxSize: 100 * 1000
                     }
                 },
                 {
@@ -78,6 +91,8 @@ export class TestConfiguration extends FrameworkConfiguration {
                     { name: "multiple-targets", level: "info", target: ["Format", "Level"]},
                     { name: "file", level: "trace", target: "File" },
                     { name: "file2", level: "trace", target: "File2" },
+                    { name: "file-speed", level: "trace", target: "file-speed" },
+
                 ],
             }
         },mergeArrays)

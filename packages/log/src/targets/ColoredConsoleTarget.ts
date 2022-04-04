@@ -1,8 +1,7 @@
-import { IColoredConsoleTargetOptions, LogLevelStrings, ILogEntry } from "@spinajs/log-common";
+import { IColoredConsoleTargetOptions, LogLevelStrings, ILogEntry, LogTarget } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
-import { LogTarget } from "./LogTarget";
 import { LogLevel } from "..";
-import chalk, { ChalkInstance } from "chalk";
+import chalk, { Chalk } from "chalk";
 import { format } from "@spinajs/configuration";
 
 export const DEFAULT_THEME = {
@@ -19,7 +18,7 @@ export const DEFAULT_THEME = {
 @Singleton()
 @Injectable("ConsoleTarget")
 export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions> {
-  protected theme : ChalkInstance[] = [];
+  protected theme : Chalk[] = [];
 
   protected StdConsoleCallbackMap = {
     [LogLevel.Error]: console.error,

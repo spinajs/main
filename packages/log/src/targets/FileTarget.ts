@@ -1,8 +1,8 @@
+import { EOL } from "os";
 import { LogLevel } from "./../../../log-common/src/index";
 /* eslint security/detect-non-literal-fs-filename:0 -- Safe as no value holds user input */
 import { Injectable, NewInstance } from "@spinajs/di";
-import { LogTarget } from "./LogTarget";
-import { createLogMessageObject, IFileTargetOptions, ILogEntry } from "@spinajs/log-common";
+import { createLogMessageObject, IFileTargetOptions, ILogEntry, LogTarget } from "@spinajs/log-common";
 import * as fs from "fs";
 import * as path from "path";
 import { Job, scheduleJob } from "node-schedule";
@@ -10,60 +10,41 @@ import { InvalidOption } from "@spinajs/exceptions";
 import * as glob from "glob";
 import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";
-import { Readable, Transform, TransformCallback, TransformOptions } from "stream";
-class FormatStream extends Transform {
-  constructor(protected layout: string, opts?: TransformOptions) {
-    super(opts);
-  }
-
-  _transform(chunk: ILogEntry, _: BufferEncoding, callback: TransformCallback) {
-    callback(null, format(chunk.Variables, this.layout));
-  }
-}
+import { pipeline, Readable } from "stream";
 
 @NewInstance()
 @Injectable("FileTarget")
 export class FileTarget extends LogTarget<IFileTargetOptions> {
-  protected LogDirPath: string;
-  protected LogFileName: string;
-  protected LogPath: string;
-  protected LogFileExt: string;
-  protected LogBaseName: string;
+  public LogDirPath: string;
+  public LogFileName: string;
+  public LogPath: string;
+  public LogFileExt: string;
+  public LogBaseName: string;
 
-  protected ArchiveDirPath: string;
+  public ArchiveDirPath: string;
 
   protected RotateJob: Job;
-  protected ArchiveJob: Job;
-
   protected CurrentFileSize: number;
-  protected BufferSize = 0;
-
-  protected FlushTimeout: NodeJS.Timeout;
-
-  protected Buffer: any[] = [];
+  protected IsArchiving = false;
 
   protected WriteStream: fs.WriteStream;
-
   protected ReadStream: Readable;
 
-  protected FormatStream: FormatStream;
-
-  public async resolveAsync() {
+  public async resolve() {
     this.Options.options = Object.assign(
       {
         compress: true,
         maxSize: 1024 * 1024,
         maxArchiveFiles: 5,
-        bufferSize: 8 * 1024,
-        flushTimeout: 10 * 1000,
-        layout: "${datetime} [ ${level} ] ${message} ${logger}",
       },
       this.Options.options
     );
 
-    this.FormatStream = new FormatStream(this.Options.layout);
-    this.ReadStream = new Readable({ encoding: "utf-8" });
-    this.ReadStream.pipe(this.FormatStream);
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    this.ReadStream = new Readable({ encoding: "utf-8", read: () => {} });
+    this.ReadStream.on("data", (chunk: string) => {
+      this.CurrentFileSize += chunk.length;
+    });
 
     this.initialize();
     this.rotate();
@@ -75,17 +56,22 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       return;
     }
 
-    this.ReadStream.push(data);
+    const result = this.ReadStream.push(format(data.Variables, this.Options.layout) + EOL);
+    if(!result){
+      throw new Error();
+    }
 
-    if (this.CurrentFileSize + this.WriteStream.bytesWritten >= this.Options.options.maxSize) {
+    if (this.CurrentFileSize >= this.Options.options.maxSize && !this.IsArchiving) {
       this.archive();
     }
   }
 
   protected archive() {
+    this.IsArchiving = true;
+
     const files = glob
       .sync(path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}*{${this.LogFileExt},.gzip}`))
-      .map((f) => {
+      .map((f: string) => {
         return {
           name: f,
           stat: fs.statSync(f),
@@ -107,7 +93,11 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
         if (!err) {
           fs.copyFile(renPath, archPath, (err) => {
             if (!err) {
-              fs.unlink(renPath, null);
+              fs.unlink(this.LogPath, () => {
+                this.initialize();
+              });
+            } else {
+              return;
             }
 
             if (this.Options.options.compress) {
@@ -116,15 +106,25 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
               const read = fs.createReadStream(archPath);
               const write = fs.createWriteStream(zippedPath);
 
+              pipeline(read, zip, write, (err) => {
+                if (err) {
+                  this.ReadStream.push(format(createLogMessageObject(err, `Cannot compress log file at ${this.LogPath}`, LogLevel.Trace, "log-file-target", {}).Variables, this.Options.layout) + EOL);
+                  fs.unlink(zippedPath, () => {
+                    return;
+                  });
+                }
+                fs.unlink(renPath, () => {
+                  return;
+                });
+                fs.unlink(archPath, () => {
+                  return;
+                });
+              });
               read.pipe(zip).pipe(write);
-
               write.on("finish", () => {
                 read.close();
                 zip.close();
                 write.close();
-                fs.unlink(archPath, () => {
-                  return;
-                });
               });
             }
 
@@ -134,9 +134,9 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
               });
             }
           });
+        } else {
+          this.initialize();
         }
-
-        this.initialize();
       });
     });
     this.close();
@@ -152,17 +152,15 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
   private initialize() {
     this.CurrentFileSize = 0;
+    this.IsArchiving = false;
     this.LogDirPath = path.dirname(path.resolve(format(null, this.Options.options.path)));
     this.ArchiveDirPath = this.Options.options.archivePath ? path.resolve(format(null, this.Options.options.archivePath)) : this.LogDirPath;
-    this.LogFileName = format(null, path.basename(this.Options.options.path));
+    this.LogFileName = format({ logger: this.Options.name }, path.basename(this.Options.options.path));
     this.LogPath = path.join(this.LogDirPath, this.LogFileName);
 
     const { name, ext } = path.parse(this.LogFileName);
     this.LogFileExt = ext;
     this.LogBaseName = name;
-
-    const { size } = fs.statSync(this.LogPath);
-    this.CurrentFileSize = size;
 
     if (!this.LogDirPath) {
       throw new InvalidOption("Missing LogDirPath log option");
@@ -178,11 +176,16 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       }
     }
 
+    try {
+      const { size } = fs.statSync(this.LogPath);
+      this.CurrentFileSize = size;
+    } catch {}
+
     this.open();
   }
 
   private close() {
-    this.FormatStream.unpipe(this.WriteStream);
+    this.ReadStream.unpipe(this.WriteStream);
     this.WriteStream.end();
     this.WriteStream = null;
   }
@@ -192,15 +195,19 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       flags: "a",
       encoding: "utf-8",
     });
-    this.FormatStream.pipe(this.WriteStream);
+    this.ReadStream.pipe(this.WriteStream);
 
     this.WriteStream.once("open", () => {
-      this.ReadStream.push(createLogMessageObject(null, `Log file opened at ${this.LogPath}`, LogLevel.Trace, "log-file-target", {}));
+      this.ReadStream.push(format(createLogMessageObject(`Log file opened at ${this.LogPath}`, [], LogLevel.Trace, "log-file-target", {}).Variables, this.Options.layout) + EOL);
+    });
+
+    this.WriteStream.once("close", () => {
+      this.ReadStream.push(format(createLogMessageObject(`Log file closed at ${this.LogPath}`, [], LogLevel.Trace, "log-file-target", {}).Variables, this.Options.layout) + EOL);
     });
 
     this.WriteStream.once("error", (err: Error) => {
-      this.FormatStream.unpipe(this.WriteStream);
-      this.ReadStream.push(createLogMessageObject(err, `Cannot write to log file at ${this.LogPath}`, LogLevel.Error, "log-file-target", {}));
+      this.ReadStream.unpipe(this.WriteStream);
+      this.ReadStream.push(format(createLogMessageObject(err, `Cannot write to log file at ${this.LogPath}`, LogLevel.Error, "log-file-target", {}).Variables, this.Options.layout) + EOL);
 
       setTimeout(() => {
         this.initialize();
