@@ -27,7 +27,7 @@ describe("file target tests", function () {
   beforeEach(() => {
     Log.clearLoggers();
 
-    DI.uncashe("__log_file_targets__");
+    DI.uncache("__log_file_targets__");
   });
 
   afterEach(() => {
