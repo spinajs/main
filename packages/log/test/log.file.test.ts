@@ -3,12 +3,9 @@ import "mocha";
 import { DI } from "@spinajs/di";
 import { Configuration } from "@spinajs/configuration";
 import * as sinon from "sinon";
-import * as fs from "fs";
 import { Log, LogBotstrapper } from "../src";
 import * as _ from "lodash";
-import { expect } from "chai";
 import { TestConfiguration } from "./conf";
-import { DateTime } from "luxon";
 
 function logger(name?: string) {
   DI.resolve(LogBotstrapper).bootstrap();
@@ -26,7 +23,6 @@ describe("file target tests", function () {
 
   beforeEach(() => {
     Log.clearLoggers();
-
     DI.uncache("__log_file_targets__");
   });
 
@@ -34,17 +30,10 @@ describe("file target tests", function () {
     sinon.restore();
   });
 
-  // it("Should write to file", () => {
-  //   const mk = sinon.stub(fs, "writeFileSync");
-  //   const log = logger("file");
-
-  //   log.info("Hello world");
-
-  //   expect(mk.calledOnce).to.be.true;
-  //   expect(mk.args[0][1])
-  //     .to.be.a("string")
-  //     .and.satisfy((msg: string) => msg.includes("INFO Hello world"));
-  // });
+  it("Should write to file", () => {
+    const log = logger("file");
+    log.info("Hello world");
+  });
 
   // it("Should resolve file name with variables", () => {
   //   const sSpy = sinon.spy(fs, "openSync");

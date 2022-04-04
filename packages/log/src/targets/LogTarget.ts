@@ -27,5 +27,5 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModu
     }
   }
 
-  public abstract write(data: ILogEntry): Promise<void>;
+  public abstract write(data: ILogEntry): void;
 }

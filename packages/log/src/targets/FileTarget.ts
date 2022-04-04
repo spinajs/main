@@ -1,15 +1,25 @@
+import { LogLevel } from "./../../../log-common/src/index";
 /* eslint security/detect-non-literal-fs-filename:0 -- Safe as no value holds user input */
 import { Injectable, NewInstance } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
-import { IFileTargetOptions, ILogEntry } from "@spinajs/log-common";
+import { createLogMessageObject, IFileTargetOptions, ILogEntry } from "@spinajs/log-common";
 import * as fs from "fs";
 import * as path from "path";
 import { Job, scheduleJob } from "node-schedule";
 import { InvalidOption } from "@spinajs/exceptions";
-import { EOL } from "os";
 import * as glob from "glob";
 import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";
+import { Readable, Transform, TransformCallback, TransformOptions } from "stream";
+class FormatStream extends Transform {
+  constructor(protected layout: string, opts?: TransformOptions) {
+    super(opts);
+  }
+
+  _transform(chunk: ILogEntry, _: BufferEncoding, callback: TransformCallback) {
+    callback(null, format(chunk.Variables, this.layout));
+  }
+}
 
 @NewInstance()
 @Injectable("FileTarget")
@@ -34,6 +44,10 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
   protected WriteStream: fs.WriteStream;
 
+  protected ReadStream: Readable;
+
+  protected FormatStream: FormatStream;
+
   public async resolveAsync() {
     this.Options.options = Object.assign(
       {
@@ -42,31 +56,29 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
         maxArchiveFiles: 5,
         bufferSize: 8 * 1024,
         flushTimeout: 10 * 1000,
+        layout: "${datetime} [ ${level} ] ${message} ${logger}",
       },
       this.Options.options
     );
+
+    this.FormatStream = new FormatStream(this.Options.layout);
+    this.ReadStream = new Readable({ encoding: "utf-8" });
+    this.ReadStream.pipe(this.FormatStream);
 
     this.initialize();
     this.rotate();
     super.resolve();
   }
 
-  public async write(data: ILogEntry): Promise<void> {
-    if (!this.Options.enabled || !this.WriteStream) {
+  public async write(data: ILogEntry) {
+    if (!this.Options.enabled) {
       return;
     }
 
-    const result = format(data.Variables, this.Options.layout) + EOL;
-    this.CurrentFileSize += Buffer.byteLength(result);
+    this.ReadStream.push(data);
 
-    if (!this.WriteStream.write(result)) {
-      this.WriteStream.once("drain", () => {
-        void this.write(data);
-      });
-    } else {
-      if (this.CurrentFileSize > this.Options.options.maxSize) {
-        this.archive();
-      }
+    if (this.CurrentFileSize + this.WriteStream.bytesWritten >= this.Options.options.maxSize) {
+      this.archive();
     }
   }
 
@@ -170,8 +182,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
   }
 
   private close() {
-    this.WriteStream.removeAllListeners();
-    this.WriteStream.close();
+    this.FormatStream.unpipe(this.WriteStream);
+    this.WriteStream.end();
     this.WriteStream = null;
   }
 
@@ -179,6 +191,20 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     this.WriteStream = fs.createWriteStream(this.LogPath, {
       flags: "a",
       encoding: "utf-8",
+    });
+    this.FormatStream.pipe(this.WriteStream);
+
+    this.WriteStream.once("open", () => {
+      this.ReadStream.push(createLogMessageObject(null, `Log file opened at ${this.LogPath}`, LogLevel.Trace, "log-file-target", {}));
+    });
+
+    this.WriteStream.once("error", (err: Error) => {
+      this.FormatStream.unpipe(this.WriteStream);
+      this.ReadStream.push(createLogMessageObject(err, `Cannot write to log file at ${this.LogPath}`, LogLevel.Error, "log-file-target", {}));
+
+      setTimeout(() => {
+        this.initialize();
+      }, 1000);
     });
   }
 }

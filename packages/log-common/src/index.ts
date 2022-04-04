@@ -181,6 +181,7 @@ export interface ILogEntry {
 }
 
 export interface ILog {
+
   trace(message: string, ...args: any[]): void;
   trace(err: Error, message: string, ...args: any[]): void;
   trace(err: Error | string, message: string | any[], ...args: any[]): void;
