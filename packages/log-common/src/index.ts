@@ -1,4 +1,4 @@
-import { SyncModule } from '@spinajs/di';
+import { SyncModule } from "@spinajs/di";
 import _ from "lodash";
 import * as util from "util";
 
@@ -169,7 +169,9 @@ export interface ILogEntry {
   Variables: LogVariables;
 }
 
-export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModule {
+export abstract class LogTarget<
+  T extends ICommonTargetOptions
+> extends SyncModule {
   public HasError = false;
   public Error: Error | null | unknown = null;
   public Options: T;
@@ -191,14 +193,12 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncModu
   public abstract write(data: ILogEntry): void;
 }
 
-
 export interface ILogTargetDesc {
   instance: LogTarget<ICommonTargetOptions>;
   options?: ITargetsOption;
   rule: ILogRule;
 }
 export interface ILog {
-
   Targets: ILogTargetDesc[];
 
   trace(message: string, ...args: any[]): void;
