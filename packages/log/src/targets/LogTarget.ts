@@ -1,4 +1,4 @@
-import { SyncModule } from "@spinajs/di";
+import {  SyncModule } from "@spinajs/di";
 import * as _ from "lodash";
 import { ILogEntry, ICommonTargetOptions, ILogRule, ITargetsOption } from "@spinajs/log-common";
 

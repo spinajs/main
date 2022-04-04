@@ -26,12 +26,13 @@
   },
   "homepage": "https://github.com/spinajs/log#readme",
   "dependencies": {
+    "@colors/colors": "^1.5.0",
     "@spinajs/configuration": "^1.2.79",
     "@spinajs/di": "^1.2.79",
     "@spinajs/exceptions": "^1.2.79",
     "@spinajs/log-common": "^1.2.79",
     "ajv": "^8.8.2",
-    "colors": "^1.4.0",
+    "chalk": "^5.0.1",
     "glob": "^7.2.0",
     "glob-to-regexp": "^0.4.1",
     "lodash": "^4.17.14",
@@ -41,5 +42,5 @@
   "devDependencies": {
     "@types/color": "^3.0.3"
   },
-  "gitHead": "d0222a46d2627016f905e4a55c8f84a66f63a55b"
+  "gitHead": "ae595f5daffb88372496b6e5bf38973f07e33683"
 }

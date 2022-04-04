@@ -22,35 +22,6 @@ const CONFIGURATION_SCHEMA = {
           type: {
             type: "string",
           },
-          theme: {
-            type: "object",
-            properties: {
-              security: {
-                type: "string",
-              },
-              fatal: {
-                type: "string",
-              },
-              error: {
-                type: "string",
-              },
-              warn: {
-                type: "string",
-              },
-              success: {
-                type: "string",
-              },
-              info: {
-                type: "string",
-              },
-              debug: {
-                type: "string",
-              },
-              trace: {
-                type: "string",
-              },
-            },
-          },
           enabled: {
             type: "boolean",
           },

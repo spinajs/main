@@ -1,12 +1,8 @@
-import {
-  IColoredConsoleTargetOptions,
-  LogLevelStrings,
-  ILogEntry,
-} from "@spinajs/log-common";
+import { IColoredConsoleTargetOptions, LogLevelStrings, ILogEntry } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 import { LogTarget } from "./LogTarget";
 import { LogLevel } from "..";
-import * as colors from "colors/safe";
+import chalk, { ChalkInstance } from "chalk";
 import { format } from "@spinajs/configuration";
 
 export const DEFAULT_THEME = {
@@ -23,6 +19,8 @@ export const DEFAULT_THEME = {
 @Singleton()
 @Injectable("ConsoleTarget")
 export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions> {
+  protected theme : ChalkInstance[] = [];
+
   protected StdConsoleCallbackMap = {
     [LogLevel.Error]: console.error,
     [LogLevel.Fatal]: console.error,
@@ -37,8 +35,17 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
     [LogLevel.Warn]: console.warn,
   };
 
-  public resolve() {
-    colors.setTheme(this.Options.theme ?? DEFAULT_THEME);
+  public async resolve() {
+
+    this.theme[LogLevel.Trace] = chalk.gray;
+    this.theme[LogLevel.Debug] = chalk.gray;
+    this.theme[LogLevel.Info] = chalk.white;
+    this.theme[LogLevel.Success] = chalk.white.bgGreen;
+    this.theme[LogLevel.Warn] = chalk.yellow;
+    this.theme[LogLevel.Error] = chalk.red;
+    this.theme[LogLevel.Fatal] = chalk.white.bgRed;
+    this.theme[LogLevel.Security] = chalk.yellow.bgRed;
+
     super.resolve();
   }
 
@@ -52,9 +59,7 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
        * we are safe to call, disable eslint
        */
       /* eslint-disable */
-      (colors as any)[LogLevelStrings[data.Level]](
-        format(data.Variables, this.Options.layout)
-      )
+      (this.theme as any)[LogLevelStrings[data.Level]](format(data.Variables, this.Options.layout))
     );
   }
 }
