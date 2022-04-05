@@ -116,7 +116,7 @@ export abstract class OrmDriver extends SyncModule {
    * This can be used to execute raw queries to db without orm model layer
    */
   public update<T>(): UpdateQueryBuilder<T> {
-    return this.Container.resolve(UpdateQueryBuilder, [this]) ;
+    return this.Container.resolve(UpdateQueryBuilder, [this]);
   }
 
   /**
