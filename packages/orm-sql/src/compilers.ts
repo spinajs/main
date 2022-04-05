@@ -115,9 +115,9 @@ export class SqlForeignKeyQueryCompiler implements ForeignKeyQueryCompiler {
 
 @NewInstance()
 export class SqlLimitQueryCompiler extends LimitQueryCompiler {
-  protected _builder: LimitBuilder;
+  protected _builder: LimitBuilder<unknown>;
 
-  constructor(builder: LimitBuilder) {
+  constructor(builder: LimitBuilder<unknown>) {
     super();
 
     if (!builder) {
@@ -187,7 +187,7 @@ export class SqlColumnsCompiler implements IColumnsCompiler {
 
 @NewInstance()
 export class SqlWhereCompiler implements IWhereCompiler {
-  public where(builder: IWhereBuilder) {
+  public where(builder: IWhereBuilder<unknown>) {
     const where: string[] = [];
     const bindings: any[] = [];
 
@@ -241,7 +241,7 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
     const from = this.from();
     const limit = this.limit();
     const sort = this.sort();
-    const where = this.where(this._builder as IWhereBuilder);
+    const where = this.where(this._builder as IWhereBuilder<unknown>);
     const join = this.join(this._builder as IJoinBuilder);
     const group = this.group(this._builder as IGroupByBuilder);
 
@@ -261,7 +261,7 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
   }
 
   protected limit() {
-    const compiler = this._container.resolve<LimitQueryCompiler>(LimitQueryCompiler, [this._builder as ILimitBuilder]);
+    const compiler = this._container.resolve<LimitQueryCompiler>(LimitQueryCompiler, [this._builder as ILimitBuilder<unknown>]);
     return compiler.compile();
   }
 
@@ -293,10 +293,10 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
 export interface SqlUpdateQueryCompiler extends IWhereCompiler {}
 
 @NewInstance()
-export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder> {
+export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<unknown>> {
   @use(SqlWhereCompiler, TableAliasCompiler) this: this;
 
-  constructor(protected _container: IContainer, builder: UpdateQueryBuilder) {
+  constructor(protected _container: IContainer, builder: UpdateQueryBuilder<unknown>) {
     super(builder);
   }
 
@@ -342,10 +342,10 @@ export interface SqlDeleteQueryCompiler extends IWhereCompiler {}
 
 @NewInstance()
 @Inject(Container)
-export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder> {
+export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder<unknown>> {
   @use(SqlWhereCompiler, TableAliasCompiler) this: this;
 
-  constructor(protected _container: IContainer, builder: DeleteQueryBuilder) {
+  constructor(protected _container: IContainer, builder: DeleteQueryBuilder<unknown>) {
     super(builder);
   }
 
