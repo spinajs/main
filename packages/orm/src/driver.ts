@@ -25,7 +25,7 @@ export abstract class OrmDriver extends SyncModule {
   constructor(options: IDriverOptions) {
     super();
 
-    this.Options = options;
+    this.Options = Object.assign({}, options);
 
     if (!options.AliasSeparator) {
       this.Options.AliasSeparator = '$';
