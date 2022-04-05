@@ -129,6 +129,12 @@ export interface IDriverOptions {
   Options: any;
 
   Migration?: {
+
+    /**
+     * Should run migration on startup
+     */
+    OnStartup?: boolean;
+
     /**
      * Migration table name, if not set default is spinajs_orm_migrations
      */

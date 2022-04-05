@@ -40,14 +40,15 @@ export class ConnectionConf extends FrameworkConfiguration {
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
         db: {
-          Migration: {
-            Startup: false,
-          },
+         
           Connections: [
             {
               Driver: 'sqlite',
               Filename: 'foo.sqlite',
               Name: 'sqlite',
+              Migration: {
+                OnStartup: false,
+              },
             },
             {
               Driver: 'mysql',
@@ -57,6 +58,9 @@ export class ConnectionConf extends FrameworkConfiguration {
               Host: 'localhost',
               Port: 1234,
               Name: 'main_connection',
+              Migration: {
+                OnStartup: false,
+              },
             },
           ],
         },

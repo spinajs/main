@@ -52,16 +52,6 @@ describe('Orm migrations', () => {
 
   it('ORM should run migration by name', async () => {
     const orm = await db();
-    //const executeStub = sinon.stub(FakeSqliteDriver.prototype, 'execute');
-    // executeStub.onCall(0).returns(new Promise((res) => {
-    //   res(true);
-    // }),);
-    // executeStub.onCall(4).returns(
-    //   new Promise((res) => {
-    //     res(false);
-    //   }),
-    // );
-
     const up = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'up');
     await orm.migrateUp('Migration1_2021_12_01_12_00_00');
 
@@ -93,15 +83,15 @@ describe('Orm migrations', () => {
               rules: [{ name: '*', level: 'trace', target: 'Empty' }],
             },
             db: {
-              Migration: {
-                Startup: true,
-              },
               Connections: [
                 {
                   Driver: 'sqlite',
                   Filename: 'foo.sqlite',
                   Name: 'sqlite',
                   Migration: {
+                    Migration: {
+                      Startup: true,
+                    },
                     Transaction: {
                       Mode: MigrationTransactionMode.PerMigration,
                     },
@@ -193,15 +183,14 @@ describe('Orm migrations', () => {
               rules: [{ name: '*', level: 'trace', target: 'Empty' }],
             },
             db: {
-              Migration: {
-                Startup: true,
-              },
+             
               Connections: [
                 {
                   Driver: 'sqlite',
                   Filename: 'foo.sqlite',
                   Name: 'sqlite',
                   Migration: {
+                    OnStartup: true,
                     Transaction: {
                       Mode: MigrationTransactionMode.None,
                     },

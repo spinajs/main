@@ -43,8 +43,8 @@ export class Orm extends AsyncModule {
    *
    * @param name - migration file name
    */
-  public async migrateUp(name?: string): Promise<void> {
-    await this.prepareMigrations();
+  public async migrateUp(name?: string, force: boolean = true): Promise<void> {
+  
 
     this.Log.info('DB migration UP started ...');
 
@@ -72,6 +72,7 @@ export class Orm extends AsyncModule {
         }
       },
       false,
+      force
     );
 
     this.Log.info('DB migration ended ...');
@@ -83,8 +84,7 @@ export class Orm extends AsyncModule {
    *
    * @param name - migration file name
    */
-  public async migrateDown(name?: string): Promise<void> {
-    await this.prepareMigrations();
+  public async migrateDown(name?: string, force : boolean = true): Promise<void> {
 
     this.Log.info('DB migration DOWN started ...');
 
@@ -111,6 +111,7 @@ export class Orm extends AsyncModule {
         }
       },
       true,
+      force
     );
 
     this.Log.info('DB migration ended ...');
@@ -148,8 +149,6 @@ export class Orm extends AsyncModule {
   }
 
   public async resolveAsync(): Promise<void> {
-    const migrateOnStartup = this.Configuration.get<boolean>('db.Migration.Startup', false);
-
     await this.createConnections();
 
     // add all registered migrations via DI
@@ -161,9 +160,7 @@ export class Orm extends AsyncModule {
       this.registerModel(m);
     });
 
-    if (migrateOnStartup) {
-      await this.migrateUp();
-    }
+    await this.migrateUp(undefined, false);
 
     await this.reloadTableInfo();
     this.applyModelMixins();
@@ -268,7 +265,7 @@ export class Orm extends AsyncModule {
     return created;
   }
 
-  private async executeAvaibleMigrations(name: string, callback: (migration: OrmMigration, driver: OrmDriver) => Promise<void>, down: boolean) {
+  private async executeAvaibleMigrations(name: string, callback: (migration: OrmMigration, driver: OrmDriver) => Promise<void>, down: boolean, force: boolean) {
     const toMigrate = name ? this.Migrations.filter((m) => m.name === name) : this.Migrations;
 
     let migrations = toMigrate
@@ -297,9 +294,35 @@ export class Orm extends AsyncModule {
     }
 
     for (const m of migrations) {
+
       const md = m.type[MIGRATION_DESCRIPTION_SYMBOL] as IMigrationDescriptor;
       const cn = this.Connections.get(md.Connection);
+
+      if(!cn){
+        this.Log.warn(`Connection ${md.Connection} not exists for migration ${m.name} at file ${m.file}`);
+        continue;
+      }
+
       const migrationTableName = cn.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
+      if(!cn.Options.Migration?.OnStartup){
+        if(!force){
+          continue;
+        }
+      }
+
+      // if there is no info on migraiton table
+      const migrationTableExists = await cn.schema().tableExists(migrationTableName, cn.Options.Database);
+
+      if (!migrationTableExists) {
+        this.Log.info(`No migration table in database, recreating migration information ...`);
+
+        await cn.schema().createTable(migrationTableName, (table) => {
+          table.string('Migration').unique().notNull();
+          table.dateTime('CreatedAt').notNull();
+        });
+      }
+
+      
 
       const exists = await cn.select().from(migrationTableName).where({ Migration: m.name }).orderByDescending('CreatedAt').first();
 
@@ -313,21 +336,5 @@ export class Orm extends AsyncModule {
     }
   }
 
-  private async prepareMigrations() {
-    for (const [_, connection] of this.Connections) {
-      const migrationTableName = connection.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
-
-      // if there is no info on migraiton table
-      const migrationTableExists = await connection.schema().tableExists(migrationTableName, connection.Options.Database);
-
-      if (!migrationTableExists) {
-        this.Log.info(`No migration table in database, recreating migration information ...`);
-
-        await connection.schema().createTable(migrationTableName, (table) => {
-          table.string('Migration').unique().notNull();
-          table.dateTime('CreatedAt').notNull();
-        });
-      }
-    }
-  }
+  
 }
