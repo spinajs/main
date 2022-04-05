@@ -1,4 +1,4 @@
-import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, LimitQueryCompiler } from '@spinajs/orm';
+import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, LimitQueryCompiler, IDriverOptions } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
@@ -15,7 +15,14 @@ export class MsSqlOrmDriver extends SqlDriver {
   protected _connectionPool: ConnectionPool = null;
   protected _executionId = 0;
   protected _transactionRequest: Request = null;
-  protected _aliasSeparator = '#';
+
+  constructor(options: IDriverOptions) {
+    super(options);
+
+    if (!options.AliasSeparator) {
+      this.Options.AliasSeparator = '#';
+    }
+  }
 
   public async execute(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const tName = `query-${this._executionId++}`;
