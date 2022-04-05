@@ -3,7 +3,7 @@ import { Op } from './enums';
 import { QueryBuilder, RawQuery } from './builders';
 import { SORT_ORDER, WhereBoolean } from './enums';
 import { IQueryStatement, WrapStatement } from './statements';
-import { WhereFunction } from './types';
+import { Unbox, WhereFunction } from './types';
 import { OrmDriver } from './driver';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
 import { ModelBase } from './model';
@@ -499,13 +499,13 @@ export interface IQueryBuilder {
   Container: IContainer;
 }
 
-export interface ILimitBuilder {
+export interface ILimitBuilder<T> {
   take(count: number): this;
   skip(count: number): this;
-  first<T>(): Promise<T>;
-  firstOrFail<T>(): Promise<T>;
-  firstOrThrow<T>(error: Error): Promise<T>;
-  orThrow<T>(error: Error): Promise<T>;
+  first(): Promise<Unbox<T>>;
+  firstOrFail(): Promise<Unbox<T>>;
+  firstOrThrow(error: Error): Promise<Unbox<T>>;
+  orThrow(error: Error): Promise<Unbox<T>>;
   getLimits(): IQueryLimit;
 }
 
@@ -560,7 +560,7 @@ export interface IColumnsBuilder {
   select(columns: Map<string, string>): this;
 }
 
-export interface IWhereBuilder {
+export interface IWhereBuilder<T> {
   Statements: IQueryStatement[];
 
   Op: WhereBoolean;
@@ -595,8 +595,8 @@ export interface IWhereBuilder {
   whereNot(column: string, val: any): this;
   whereIn(column: string, val: any[]): this;
   whereNotIn(column: string, val: any[]): this;
-  whereExist(query: ISelectQueryBuilder): this;
-  whereNotExists(query: ISelectQueryBuilder): this;
+  whereExist(query: ISelectQueryBuilder<T>): this;
+  whereNotExists(query: ISelectQueryBuilder<T>): this;
   whereBetween(column: string, val: any[]): this;
   whereNotBetween(column: string, val: any[]): this;
   whereInSet(column: string, val: any[]): this;
@@ -659,7 +659,7 @@ export interface IJoinBuilder {
   crossJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
 }
 
-export interface ISelectQueryBuilder extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder, IWhereBuilder, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {
+export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {
   min(column: string, as?: string): this;
   max(column: string, as?: string): this;
   count(column: string, as?: string): this;
@@ -679,7 +679,7 @@ export interface IQueryCompiler {
 }
 
 export interface ILimitCompiler {
-  limit(builder: ILimitBuilder): ICompilerOutput;
+  limit(builder: ILimitBuilder<any>): ICompilerOutput;
 }
 
 export interface IGroupByCompiler {
@@ -695,7 +695,7 @@ export interface IColumnsCompiler {
 }
 
 export interface IWhereCompiler {
-  where(builder: IWhereBuilder): ICompilerOutput;
+  where(builder: IWhereBuilder<any>): ICompilerOutput;
 }
 
 export interface IJoinCompiler {

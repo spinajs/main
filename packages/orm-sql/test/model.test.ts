@@ -124,6 +124,8 @@ describe('model generated queries', () => {
 
     expect(model.insert()).to.be.rejected;
 
+    Model2.where({dd: 1}).first();
+
     const model2 = new Model2({
       Far: 'hello',
     });

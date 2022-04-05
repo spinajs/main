@@ -521,7 +521,7 @@ describe('General model tests', () => {
 
     const model = new Model1();
     model.PrimaryKeyValue = 1;
-
+ 
     await model.update();
 
     expect(model.UpdatedAt).to.be.not.null;

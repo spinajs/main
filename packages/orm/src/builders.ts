@@ -23,9 +23,9 @@ import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUp
  *  and so on...
  */
 export interface InsertQueryBuilder extends IColumnsBuilder {}
-export interface DeleteQueryBuilder extends IWhereBuilder, ILimitBuilder {}
-export interface UpdateQueryBuilder extends IColumnsBuilder, IWhereBuilder {}
-export interface SelectQueryBuilder extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder, IWhereBuilder, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {}
+export interface DeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
+export interface UpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {}
+export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {}
 
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
@@ -242,7 +242,7 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
 }
 
 @NewInstance()
-export class LimitBuilder implements ILimitBuilder {
+export class LimitBuilder<T> implements ILimitBuilder<T> {
   protected _first: boolean;
   protected _limit: IQueryLimit;
 
@@ -547,7 +547,7 @@ export class WithRecursiveBuilder implements IWithRecursiveBuilder {
 }
 
 @NewInstance()
-export class WhereBuilder implements IWhereBuilder {
+export class WhereBuilder<T> implements IWhereBuilder<T> {
   protected _statements: IQueryStatement[] = [];
 
   protected _boolean: WhereBoolean = WhereBoolean.AND;
@@ -942,7 +942,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 }
 
-export class DeleteQueryBuilder extends QueryBuilder<IUpdateResult> {
+export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
   /**
    * where query props
    */
@@ -1017,7 +1017,7 @@ export class OnDuplicateQueryBuilder {
   }
 }
 
-export class UpdateQueryBuilder extends QueryBuilder<IUpdateResult> {
+export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
   /**
    * where query props
    */
