@@ -17,11 +17,7 @@ export class MsSqlOrmDriver extends SqlDriver {
   protected _transactionRequest: Request = null;
 
   constructor(options: IDriverOptions) {
-    super(options);
-
-    if (!options.AliasSeparator) {
-      this.Options.AliasSeparator = '#';
-    }
+    super(Object.assign({ AliasSeparator: '#' }, options));
   }
 
   public async execute(stmt: string, params: any[], context: QueryContext): Promise<any> {

@@ -13,23 +13,23 @@ export abstract class OrmDriver extends SyncModule {
   /**
    * Connection options
    */
-  public Options: IDriverOptions;
+  public Options: IDriverOptions = {
+    AliasSeparator: '$',
+    Driver: 'unknown',
+    Name: 'orm-driver',
+    DefaultConnection: false,
+  };
+  
+  public Container: IContainer;
 
   @Autoinject()
   protected RootContainer: Container;
 
   protected Log: Log;
 
-  public Container: IContainer;
-
   constructor(options: IDriverOptions) {
     super();
-
-    this.Options = Object.assign({}, options);
-
-    if (!options.AliasSeparator) {
-      this.Options.AliasSeparator = '$';
-    }
+    this.Options = Object.assign(this.Options, options);
   }
 
   /**

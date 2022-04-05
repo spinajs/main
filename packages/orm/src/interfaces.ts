@@ -76,7 +76,7 @@ export interface IDriverOptions {
   /**
    * Max connections limit
    */
-  PoolLimit: number;
+  PoolLimit?: number;
 
   /**
    * Database name associated with this connection
@@ -126,7 +126,7 @@ export interface IDriverOptions {
   /**
    * Additional driver-specific options
    */
-  Options: any;
+  Options?: any;
 
   Migration?: {
     /**
@@ -155,10 +155,16 @@ export interface IDriverOptions {
    * we wrap them in special caharacter eg. $
    * Different sql engines allows different characters,
    * SQLITE & MYSQL allow to use $ in queries, but MSSQL its special characted used to create pseudocolumn
+   * 
+   * Example: SELECT $users$.Name FROM users as $users$
    */
   AliasSeparator?: string;
 
-  DefaultConnection: boolean;
+  /**
+   * Is this connection default. Later can be referenced under 'default' name
+   * eg. @Connection('default')
+   */
+  DefaultConnection?: boolean;
 }
 
 export interface IMigrationDescriptor {
