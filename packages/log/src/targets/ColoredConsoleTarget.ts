@@ -1,4 +1,4 @@
-import { IColoredConsoleTargetOptions, LogLevelStrings, ILogEntry, LogTarget } from "@spinajs/log-common";
+import { IColoredConsoleTargetOptions, ILogEntry, LogTarget } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 import { LogLevel } from "..";
 import chalk, { Chalk } from "chalk";

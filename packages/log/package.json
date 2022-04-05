@@ -43,5 +43,5 @@
     "@types/mock-fs": "^4.13.1",
     "mock-fs": "^5.1.2"
   },
-  "gitHead": "35e862291a3f497c28d2bd54da6810437d04125e"
+  "gitHead": "4de0c26c00f23689dfdadcd99d5b12bf0043ecd2"
 }
