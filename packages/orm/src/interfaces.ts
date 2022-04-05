@@ -152,7 +152,7 @@ export interface IDriverOptions {
 
   /**
    * When building queries with auto generated tables & fields
-   * we wrap them in special caharacter eg. $ 
+   * we wrap them in special caharacter eg. $
    * Different sql engines allows different characters,
    * SQLITE & MYSQL allow to use $ in queries, but MSSQL its special characted used to create pseudocolumn
    */

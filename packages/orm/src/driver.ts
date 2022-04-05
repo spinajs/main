@@ -20,7 +20,7 @@ export abstract class OrmDriver extends SyncModule {
 
   protected Log: Log;
 
-  protected _aliasSeparator  = "$";
+  protected _aliasSeparator = '$';
 
   public Container: IContainer;
 
@@ -28,8 +28,8 @@ export abstract class OrmDriver extends SyncModule {
     super();
 
     this.Options = options;
-    
-    if(!this.Options.AliasSeparator){
+
+    if (!this.Options.AliasSeparator) {
       this.Options.AliasSeparator = this._aliasSeparator;
     }
   }
