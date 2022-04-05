@@ -129,7 +129,6 @@ export interface IDriverOptions {
   Options: any;
 
   Migration?: {
-
     /**
      * Should run migration on startup
      */

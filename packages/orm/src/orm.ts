@@ -44,8 +44,6 @@ export class Orm extends AsyncModule {
    * @param name - migration file name
    */
   public async migrateUp(name?: string, force: boolean = true): Promise<void> {
-  
-
     this.Log.info('DB migration UP started ...');
 
     await this.executeAvaibleMigrations(
@@ -72,7 +70,7 @@ export class Orm extends AsyncModule {
         }
       },
       false,
-      force
+      force,
     );
 
     this.Log.info('DB migration ended ...');
@@ -84,8 +82,7 @@ export class Orm extends AsyncModule {
    *
    * @param name - migration file name
    */
-  public async migrateDown(name?: string, force : boolean = true): Promise<void> {
-
+  public async migrateDown(name?: string, force: boolean = true): Promise<void> {
     this.Log.info('DB migration DOWN started ...');
 
     await this.executeAvaibleMigrations(
@@ -111,7 +108,7 @@ export class Orm extends AsyncModule {
         }
       },
       true,
-      force
+      force,
     );
 
     this.Log.info('DB migration ended ...');
@@ -294,18 +291,17 @@ export class Orm extends AsyncModule {
     }
 
     for (const m of migrations) {
-
       const md = m.type[MIGRATION_DESCRIPTION_SYMBOL] as IMigrationDescriptor;
       const cn = this.Connections.get(md.Connection);
 
-      if(!cn){
+      if (!cn) {
         this.Log.warn(`Connection ${md.Connection} not exists for migration ${m.name} at file ${m.file}`);
         continue;
       }
 
       const migrationTableName = cn.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
-      if(!cn.Options.Migration?.OnStartup){
-        if(!force){
+      if (!cn.Options.Migration?.OnStartup) {
+        if (!force) {
           continue;
         }
       }
@@ -322,8 +318,6 @@ export class Orm extends AsyncModule {
         });
       }
 
-      
-
       const exists = await cn.select().from(migrationTableName).where({ Migration: m.name }).orderByDescending('CreatedAt').first();
 
       if (!exists) {
@@ -335,6 +329,4 @@ export class Orm extends AsyncModule {
       }
     }
   }
-
-  
 }
