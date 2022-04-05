@@ -15,9 +15,10 @@ export abstract class OrmRelation implements IOrmRelation {
   protected _targetModel: Constructor<ModelBase> | ForwardRefFunction;
   protected _targetModelDescriptor: IModelDescrtiptor;
   protected _relationQuery: SelectQueryBuilder;
+  protected _separator: string;
 
   get Alias(): string {
-    return this.parentRelation ? `${this.parentRelation.Alias}.$${this._description.Name}$` : `$${this._description.Name}$`;
+    return this.parentRelation ? `${this.parentRelation.Alias}.${this._separator}${this._description.Name}${this._separator}` : `${this._separator}${this._description.Name}${this._separator}`;
   }
 
   constructor(protected _orm: Orm, protected _query: SelectQueryBuilder<any>, public _description: IRelationDescriptor, public parentRelation?: OrmRelation) {
@@ -28,6 +29,7 @@ export abstract class OrmRelation implements IOrmRelation {
     const driver = this._orm.Connections.get(this._targetModelDescriptor.Connection);
     const cnt = driver.Container;
     this._relationQuery = cnt.resolve<SelectQueryBuilder>(SelectQueryBuilder, [driver, this._targetModel, this]);
+    this._separator = driver.Options.AliasSeparator;
 
     if (driver.Options.Database) {
       this._relationQuery.database(driver.Options.Database);
@@ -296,7 +298,7 @@ export class BelongsToRelation extends OrmRelation {
 
   public execute(callback: (this: SelectQueryBuilder, relation: OrmRelation) => void) {
     if (!this.parentRelation && !this._query.TableAlias) {
-      this._query.setAlias(`$${this._description.SourceModel.name}$`);
+      this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
     }
 
     this._query.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.ForeignKey, `${this._description.PrimaryKey}`);
@@ -361,7 +363,7 @@ export class OneToManyRelation extends OrmRelation {
 
   public execute(callback?: (this: SelectQueryBuilder<any>, relation: OrmRelation) => void): void {
     if (!this.parentRelation && !this._query.TableAlias) {
-      this._query.setAlias(`$${this._description.SourceModel.name}$`);
+      this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
     }
 
     const path = [];
@@ -415,7 +417,7 @@ export class ManyToManyRelation extends OrmRelation {
       this._joinQuery.database(driver.Options.Database);
     }
 
-    this._joinQuery.from(this._joinModelDescriptor.TableName, `$${this._joinModelDescriptor.TableName}$`);
+    this._joinQuery.from(this._joinModelDescriptor.TableName, `${this._separator}${this._joinModelDescriptor.TableName}${this._separator}`);
     this._joinQuery.columns(
       this._joinModelDescriptor.Columns.map((c) => {
         return c.Name;
