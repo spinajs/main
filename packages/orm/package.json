@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm",
-  "version": "1.2.87",
+  "version": "1.2.88",
   "description": "framework orm module",
   "main": "lib/index.js",
   "private": false,
@@ -44,8 +44,8 @@
     "@spinajs/di": "^1.2.81",
     "@spinajs/exceptions": "^1.2.81",
     "@spinajs/internal-logger": "^1.2.81",
-    "@spinajs/log": "^1.2.85",
-    "@spinajs/reflection": "^1.2.85",
+    "@spinajs/log": "^1.2.88",
+    "@spinajs/reflection": "^1.2.88",
     "lodash": "^4.17.14",
     "luxon": "^2.3.0",
     "typescript-mix": "^3.1.3",

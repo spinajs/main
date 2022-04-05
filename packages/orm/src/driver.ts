@@ -19,7 +19,7 @@ export abstract class OrmDriver extends SyncModule {
     Name: 'orm-driver',
     DefaultConnection: false,
   };
-  
+
   public Container: IContainer;
 
   @Autoinject()
