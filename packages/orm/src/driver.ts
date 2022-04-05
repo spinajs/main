@@ -20,12 +20,18 @@ export abstract class OrmDriver extends SyncModule {
 
   protected Log: Log;
 
+  protected AliasSeparator  = "$";
+
   public Container: IContainer;
 
   constructor(options: IDriverOptions) {
     super();
 
     this.Options = options;
+    
+    if(!this.Options.AliasSeparator){
+      this.Options.AliasSeparator = this.AliasSeparator;
+    }
   }
 
   /**

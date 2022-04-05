@@ -96,6 +96,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
                 this.initialize();
               });
             } else {
+              this.initialize();
               return;
             }
 

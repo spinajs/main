@@ -15,6 +15,7 @@ export class MsSqlOrmDriver extends SqlDriver {
   protected _connectionPool: ConnectionPool = null;
   protected _executionId = 0;
   protected _transactionRequest: Request = null;
+  protected AliasSeparator = '#';
 
   public async execute(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const tName = `query-${this._executionId++}`;
