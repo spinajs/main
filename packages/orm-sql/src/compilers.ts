@@ -303,7 +303,7 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder>
   public compile(): ICompilerOutput {
     const table = this.table();
     const set = this.set();
-    const where = this.where(this._builder as IWhereBuilder);
+    const where = this.where(this._builder);
 
     const bindings = [];
     bindings.push(...set.bindings);
@@ -353,7 +353,7 @@ export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder>
     const _bindings = [];
     const _from = this.from();
     const _limit = this.limit();
-    const _where = this.where(this._builder as IWhereBuilder);
+    const _where = this.where(this._builder);
 
     let _expression = '';
 
@@ -369,7 +369,7 @@ export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder>
   }
 
   protected limit() {
-    const compiler = this._container.resolve<LimitQueryCompiler>(LimitQueryCompiler, [this._builder as ILimitBuilder]);
+    const compiler = this._container.resolve<LimitQueryCompiler>(LimitQueryCompiler, [this._builder]);
     return compiler.compile();
   }
 

@@ -209,7 +209,7 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
   public compile() {
     const _bindings = [];
     const _from = this.from();
-    const _where = this.where(this._builder as IWhereBuilder);
+    const _where = this.where(this._builder);
     const _expression = _from + (_where.expression ? ` WHERE ${_where.expression}` : '');
 
     _bindings.push(..._where.bindings);
@@ -221,7 +221,7 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
   }
 
   protected from() {
-    const lBuilder = this._builder as ILimitBuilder;
+    const lBuilder = this._builder;
     const limits = lBuilder.getLimits();
 
     return `DELETE ${limits.limit > 0 ? `TOP ${limits.limit} ` : ''}FROM ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
