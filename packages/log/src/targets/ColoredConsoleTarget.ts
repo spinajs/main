@@ -58,7 +58,7 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
        * we are safe to call, disable eslint
        */
       /* eslint-disable */
-      (this.theme as any)[LogLevelStrings[data.Level]](format(data.Variables, this.Options.layout))
+      (this.theme as any)[data.Level](format(data.Variables, this.Options.layout))
     );
   }
 }
