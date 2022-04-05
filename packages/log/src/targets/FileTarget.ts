@@ -1,8 +1,7 @@
 import { EOL } from "os";
-import { LogLevel } from "./../../../log-common/src/index";
 /* eslint security/detect-non-literal-fs-filename:0 -- Safe as no value holds user input */
 import { Injectable, NewInstance } from "@spinajs/di";
-import { createLogMessageObject, IFileTargetOptions, ILogEntry, LogTarget } from "@spinajs/log-common";
+import { createLogMessageObject, IFileTargetOptions, ILogEntry, LogLevel, LogTarget } from "@spinajs/log-common";
 import * as fs from "fs";
 import * as path from "path";
 import { Job, scheduleJob } from "node-schedule";
