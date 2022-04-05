@@ -11,6 +11,25 @@ import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";
 import { pipeline, Readable } from "stream";
 
+class FileLogStream extends Readable {
+  protected LogQueue: string[] = [];
+
+  public enqueue(entry: string) {
+    this.LogQueue.push(entry);
+  }
+
+  public _read(): void {
+    let ok = true;
+    let val = null;
+    do {
+      val = this.LogQueue.shift();
+      if (val) {
+        ok = this.push(val);
+      }
+    } while (ok && val);
+  }
+}
+
 @NewInstance()
 @Injectable("FileTarget")
 export class FileTarget extends LogTarget<IFileTargetOptions> {
@@ -27,7 +46,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
   protected IsArchiving = false;
 
   protected WriteStream: fs.WriteStream;
-  protected ReadStream: Readable;
+  protected LogStream: FileLogStream;
 
   public async resolve() {
     this.Options.options = Object.assign(
@@ -39,11 +58,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       this.Options.options
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    this.ReadStream = new Readable({ encoding: "utf-8", read: () => {} });
-    this.ReadStream.on("data", (chunk: string) => {
-      this.CurrentFileSize += chunk.length;
-    });
+    this.LogStream = new FileLogStream();
 
     this.initialize();
     this.rotate();
@@ -55,12 +70,10 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       return;
     }
 
-    const result = this.ReadStream.push(format(data.Variables, this.Options.layout) + EOL);
-    if(!result){
-      throw new Error();
-    }
+    const lEntry = format(data.Variables, this.Options.layout) + EOL;
+    this.LogStream.enqueue(lEntry);
 
-    if (this.CurrentFileSize >= this.Options.options.maxSize && !this.IsArchiving) {
+    if (this.CurrentFileSize + this.WriteStream.bytesWritten >= this.Options.options.maxSize && !this.IsArchiving) {
       this.archive();
     }
   }
@@ -80,7 +93,6 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
     const newestFile = files.length !== 0 ? files[files.length - 1].name : undefined;
     const fIndex = newestFile ? parseInt(newestFile.substring(newestFile.lastIndexOf("_") + 1, newestFile.lastIndexOf("_") + 2), 10) + 1 : 1;
-    const renPath = this.LogPath + ".bck";
     const archPath = path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}`);
 
     if (!fs.existsSync(this.LogPath)) {
@@ -88,54 +100,34 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     }
 
     this.WriteStream.once("close", () => {
-      fs.rename(this.LogPath, renPath, (err) => {
+      fs.rename(this.LogPath, archPath, (err) => {
+        this.initialize();
+
         if (!err) {
-          fs.copyFile(renPath, archPath, (err) => {
-            if (!err) {
-              fs.unlink(this.LogPath, () => {
-                this.initialize();
-              });
-            } else {
-              this.initialize();
-              return;
-            }
+          if (this.Options.options.compress) {
+            const zippedPath = path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}.gzip`);
+            const zip = zlib.createGzip();
+            const read = fs.createReadStream(archPath);
+            const write = fs.createWriteStream(zippedPath);
 
-            if (this.Options.options.compress) {
-              const zippedPath = path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}.gzip`);
-              const zip = zlib.createGzip();
-              const read = fs.createReadStream(archPath);
-              const write = fs.createWriteStream(zippedPath);
-
-              pipeline(read, zip, write, (err) => {
-                if (err) {
-                  this.ReadStream.push(format(createLogMessageObject(err, `Cannot compress log file at ${this.LogPath}`, LogLevel.Trace, "log-file-target", {}).Variables, this.Options.layout) + EOL);
-                  fs.unlink(zippedPath, () => {
-                    return;
-                  });
-                }
-                fs.unlink(renPath, () => {
+            pipeline(read, zip, write, (err) => {
+              if (err) {
+                void this.write(createLogMessageObject(err, `Cannot compress log file at ${this.LogPath}`, LogLevel.Trace, "log-file-target", {}));
+                fs.unlink(zippedPath, () => {
                   return;
                 });
-                fs.unlink(archPath, () => {
-                  return;
-                });
-              });
-              read.pipe(zip).pipe(write);
-              write.on("finish", () => {
-                read.close();
-                zip.close();
-                write.close();
-              });
-            }
-
-            if (files.length >= this.Options.options.maxArchiveFiles) {
-              fs.unlink(files[0].name, () => {
+              }
+              fs.unlink(archPath, () => {
                 return;
               });
-            }
-          });
-        } else {
-          this.initialize();
+            });
+          }
+
+          if (files.length >= this.Options.options.maxArchiveFiles) {
+            fs.unlink(files[0].name, () => {
+              return;
+            });
+          }
         }
       });
     });
@@ -185,7 +177,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
   }
 
   private close() {
-    this.ReadStream.unpipe(this.WriteStream);
+    this.LogStream.unpipe(this.WriteStream);
     this.WriteStream.end();
     this.WriteStream = null;
   }
@@ -195,19 +187,22 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       flags: "a",
       encoding: "utf-8",
     });
-    this.ReadStream.pipe(this.WriteStream);
 
     this.WriteStream.once("open", () => {
-      this.ReadStream.push(format(createLogMessageObject(`Log file opened at ${this.LogPath}`, [], LogLevel.Trace, "log-file-target", {}).Variables, this.Options.layout) + EOL);
+      void this.write(createLogMessageObject(`Log file opened at ${this.LogPath}`, [], LogLevel.Trace, "log-file-target", {}));
+
+      if (this.WriteStream) {
+        this.LogStream.pipe(this.WriteStream);
+      }
     });
 
     this.WriteStream.once("close", () => {
-      this.ReadStream.push(format(createLogMessageObject(`Log file closed at ${this.LogPath}`, [], LogLevel.Trace, "log-file-target", {}).Variables, this.Options.layout) + EOL);
+      void this.write(createLogMessageObject(`Log file closed at ${this.LogPath}`, [], LogLevel.Trace, "log-file-target", {}));
     });
 
     this.WriteStream.once("error", (err: Error) => {
-      this.ReadStream.unpipe(this.WriteStream);
-      this.ReadStream.push(format(createLogMessageObject(err, `Cannot write to log file at ${this.LogPath}`, LogLevel.Error, "log-file-target", {}).Variables, this.Options.layout) + EOL);
+      this.LogStream.unpipe(this.WriteStream);
+      void this.write(createLogMessageObject(err, `Cannot write to log file at ${this.LogPath}`, LogLevel.Error, "log-file-target", {}));
 
       setTimeout(() => {
         this.initialize();

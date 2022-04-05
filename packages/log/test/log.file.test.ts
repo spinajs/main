@@ -52,18 +52,12 @@ describe("file target tests", function () {
     log.info("Hello world");
   });
 
-  // it("Performance test", () => {
-  //   const log = logger("file-speed");
-
-  //   let i = 0;
-  //   const interval = setInterval(() => {
-  //     log.info("more speed");
-  //     i++;
-  //     if ((i == 10000)) {
-  //       clearInterval(interval);
-  //     }
-  //   }, 10);
-  // });
+  it("Performance test", () => {
+    const log = logger("file-speed");
+    for (let i = 0; i < 50000; i++) {
+      log.info(`more speed line line ${i}`);
+    }
+  });
 
   // it("Should resolve file name with variables", () => {
   //   const sSpy = sinon.spy(fs, "openSync");
