@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-mssql",
-  "version": "1.2.80",
+  "version": "1.2.81",
   "description": "orm mssql integration",
   "main": "lib/index.js",
   "private": false,
@@ -45,10 +45,10 @@
     "chai-as-promised": "^7.1.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "^1.2.80",
-    "@spinajs/di": "^1.2.80",
-    "@spinajs/orm": "^1.2.80",
-    "@spinajs/orm-sql": "^1.2.80",
+    "@spinajs/configuration": "^1.2.81",
+    "@spinajs/di": "^1.2.81",
+    "@spinajs/orm": "^1.2.81",
+    "@spinajs/orm-sql": "^1.2.81",
     "mssql": "^8.0.2"
   },
   "gitHead": "35e862291a3f497c28d2bd54da6810437d04125e"
