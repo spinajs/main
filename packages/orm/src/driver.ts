@@ -90,8 +90,8 @@ export abstract class OrmDriver extends SyncModule {
    * Creates delete query builder associated with this connection.
    * This can be used to execute raw queries to db without orm model layer
    */
-  public del(): DeleteQueryBuilder {
-    return this.Container.resolve(DeleteQueryBuilder, [this]);
+  public del<T>(): DeleteQueryBuilder<T> {
+    return this.Container.resolve(DeleteQueryBuilder, [this]) as DeleteQueryBuilder<T>;
   }
 
   /**
@@ -115,8 +115,8 @@ export abstract class OrmDriver extends SyncModule {
    * Creates update query builder associated with this connection.
    * This can be used to execute raw queries to db without orm model layer
    */
-  public update(): UpdateQueryBuilder {
-    return this.Container.resolve(UpdateQueryBuilder, [this]);
+  public update<T>(): UpdateQueryBuilder<T> {
+    return this.Container.resolve(UpdateQueryBuilder, [this]) ;
   }
 
   /**

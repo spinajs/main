@@ -526,7 +526,7 @@ export class ManyToManyRelationList<T extends ModelBase> extends Relation<T> {
       throw new InvalidArgument(`connection ${this.TargetModelDescriptor.Connection} not exists`);
     }
 
-    const query = driver.Container.resolve<DeleteQueryBuilder>(DeleteQueryBuilder, [driver, this.Relation.JunctionModel])
+    const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.JunctionModel])
       .from(jmodelDescriptor.TableName)
       .where(function () {
         this.whereIn(self.Relation.JunctionModelTargetModelFKey_Name, data);
@@ -565,7 +565,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
       throw new InvalidArgument(`connection ${this.TargetModelDescriptor.Connection} not exists`);
     }
 
-    const query = driver.Container.resolve<DeleteQueryBuilder>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereIn(this.Relation.ForeignKey, data);
+    const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereIn(this.Relation.ForeignKey, data);
     await query;
 
     _.remove(this, (o) => data.indexOf(o.PrimaryKeyValue) !== -1);

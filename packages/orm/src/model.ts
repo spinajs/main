@@ -154,7 +154,7 @@ export class ModelBase {
    *
    * @param _data - data to set
    */
-  public static update<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): UpdateQueryBuilder {
+  public static update<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): UpdateQueryBuilder<T> {
     throw Error('Not implemented');
   }
 
@@ -170,7 +170,7 @@ export class ModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
-  public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<number>;
+  public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<number>;
   public static first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -180,7 +180,7 @@ export class ModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
-  public static last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>>;
+  public static last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>>;
   public static last<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -188,7 +188,7 @@ export class ModelBase {
   /**
    * Tries to get newest result from db. It throws if model dont have CreatedAt decorated property
    */
-  public static newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>>;
+  public static newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>>;
   public static newest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -196,7 +196,7 @@ export class ModelBase {
   /**
    * Tries to get oldest result from db. It throws if model dont have CreatedAt decorated property
    */
-  public static oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>>;
+  public static oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>>;
   public static oldest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw Error('Not implemented');
   }
@@ -204,7 +204,7 @@ export class ModelBase {
   /**
    * Returns total count of entries in db for this model
    */
-  public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>>;
+  public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>>;
   public static count<T extends typeof ModelBase>(this: T): Promise<number> {
     throw Error('Not implemented');
   }
@@ -410,7 +410,8 @@ export class ModelBase {
     _preparePkWhere(description, query, this);
     _prepareOrderBy(description, query);
 
-    return await query.firstOrFail();
+    // TODO: rethink all cast of this type?
+    return await query.firstOrFail() as unknown as Promise<this>;
   }
 
   /**
@@ -427,7 +428,7 @@ export class ModelBase {
     _preparePkWhere(description, query, this);
     _prepareOrderBy(description, query);
 
-    model = await query.firstOrFail();
+    model = await query.firstOrFail() as this;
 
     for (const c of this.ModelDescriptor.Columns) {
       (this as any)[c.Name] = (model as any)[c.Name];
@@ -466,7 +467,7 @@ function _descriptor(model: Class<any>) {
   return (model as any)[MODEL_DESCTRIPTION_SYMBOL] as IModelDescrtiptor;
 }
 
-function _preparePkWhere(description: IModelDescrtiptor, query: ISelectQueryBuilder, model: ModelBase) {
+function _preparePkWhere(description: IModelDescrtiptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
   if (description.PrimaryKey) {
     query.where(description.PrimaryKey, model.PrimaryKeyValue);
   } else {
@@ -651,7 +652,7 @@ export const MODEL_STATIC_MIXINS = {
 
     _prepareOrderBy(description, query);
 
-    return await query.first();
+    return await query.first() as unknown as Promise<InstanceType<T>>;;
   },
 
   async getOrFail<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
@@ -663,7 +664,7 @@ export const MODEL_STATIC_MIXINS = {
 
     _prepareOrderBy(description, query);
 
-    return await query.firstOrFail();
+    return await query.firstOrFail() as unknown as Promise<InstanceType<T>>;
   },
 
   async destroy(pks: any | any[]): Promise<void> {
@@ -743,7 +744,7 @@ export const MODEL_STATIC_MIXINS = {
     return entity;
   },
 
-  async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>> {
+  async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
     const { query, description } = _createQuery(this as any, SelectQueryBuilder);
     _prepareOrderBy(description, query, SORT_ORDER.ASC);
 
@@ -751,10 +752,10 @@ export const MODEL_STATIC_MIXINS = {
       callback(query);
     }
 
-    return await query.first();
+    return await query.first() as unknown as Promise<InstanceType<T>>;
   },
 
-  async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>> {
+  async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
     const { query, description } = _createQuery(this as any, SelectQueryBuilder);
     _prepareOrderBy(description, query, SORT_ORDER.DESC);
 
@@ -762,10 +763,10 @@ export const MODEL_STATIC_MIXINS = {
       callback(query);
     }
 
-    return await query.first();
+    return await query.first() as unknown as Promise<InstanceType<T>>;
   },
 
-  async newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>> {
+  async newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
     const { query, description } = _createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
@@ -778,10 +779,10 @@ export const MODEL_STATIC_MIXINS = {
       callback(query);
     }
 
-    return await query.first();
+    return await query.first() as unknown as Promise<InstanceType<T>>;
   },
 
-  async oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<InstanceType<T>> {
+  async oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
     const { query, description } = _createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
@@ -794,10 +795,10 @@ export const MODEL_STATIC_MIXINS = {
       callback(query);
     }
 
-    return await query.first();
+    return await query.first() as unknown as Promise<InstanceType<T>>;
   },
 
-  async count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder) => void): Promise<number> {
+  async count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<number> {
     const { query } = _createQuery(this as any, SelectQueryBuilder);
 
     query.count('*', 'count');

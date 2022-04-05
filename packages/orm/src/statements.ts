@@ -89,9 +89,9 @@ export abstract class BetweenStatement extends QueryStatement {
 }
 @NewInstance()
 export abstract class WhereQueryStatement extends QueryStatement {
-  protected _builder: WhereBuilder;
+  protected _builder: WhereBuilder<any>;
 
-  constructor(builder: WhereBuilder, tableAlias: string) {
+  constructor(builder: WhereBuilder<any>, tableAlias: string) {
     super(tableAlias);
     this._builder = builder;
   }
