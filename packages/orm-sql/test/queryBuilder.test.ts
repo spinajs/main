@@ -723,7 +723,7 @@ describe('Select query builder', () => {
       .from('users')
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       // eslint-disable-next-line @typescript-eslint/no-empty-function
-      .where(function (_builder: IWhereBuilder) {})
+      .where(function (_builder: IWhereBuilder<unknown>) {})
       .toDB();
 
     expect(result.expression).to.eq('SELECT * FROM `users`');

@@ -603,7 +603,7 @@ describe('Orm relations tests', () => {
       .populate('HasMany1', function () {
         this.populate('HasMany2');
       })
-      .first<ModelNested1>();
+      .first();
 
     console.log(eStub.callCount);
     expect(callback.calledTwice).to.be.true;
@@ -653,7 +653,7 @@ describe('Orm relations tests', () => {
       .populate('Owner', function () {
         this.populate('Owner');
       })
-      .first<RelationModel1>();
+      .first();
 
     expect(result).to.be.not.null;
     expect(result.Owner).to.be.not.null;
@@ -683,7 +683,7 @@ describe('Orm relations tests', () => {
       }),
     );
 
-    const result = await RelationModel1.where({ Id: 1 }).populate('Owner').first<RelationModel1>();
+    const result = await RelationModel1.where({ Id: 1 }).populate('Owner').first();
     const dehydrated = result.dehydrate() as any;
 
     expect(dehydrated).to.be.not.null;
@@ -730,7 +730,7 @@ describe('Orm relations tests', () => {
         }),
       );
 
-    const result = await RelationRecursive.where({ Id: 3 }).populate('Parent').first<RelationRecursive>();
+    const result = await RelationRecursive.where({ Id: 3 }).populate('Parent').first();
 
     expect(result).to.be.not.null;
     expect(result.Id).to.eq(3);
@@ -788,7 +788,7 @@ describe('Orm relations tests', () => {
         }),
       );
 
-    const result = await RelationModel2.where({ Id: 1 }).first<RelationModel2>();
+    const result = await RelationModel2.where({ Id: 1 }).first();
 
     expect(result.Many.length).to.eq(0);
 
@@ -832,7 +832,7 @@ describe('Orm relations tests', () => {
       );
 
     const callback = sinon.spy(OneToManyRelation.prototype, 'execute');
-    const query = RelationModel2.where({ Id: 1 }).populate('Many').first<RelationModel2>();
+    const query = RelationModel2.where({ Id: 1 }).populate('Many').first();
 
     expect(callback.calledOnce).to.be.true;
     expect(query).to.be.not.null;
@@ -886,7 +886,7 @@ describe('Orm relations tests', () => {
       .populate('Many', function () {
         this.populate('Owner');
       })
-      .first<RelationModel2>();
+      .first();
 
     const result = await query;
 
@@ -958,7 +958,7 @@ describe('Orm relations tests', () => {
       );
 
     const callback = sinon.spy(ManyToManyRelation.prototype, 'execute');
-    const query = Model4.where({ Id: 1 }).populate('ManyOwners').first<Model4>();
+    const query = Model4.where({ Id: 1 }).populate('ManyOwners').first();
 
     expect(callback.calledOnce).to.be.true;
     expect(query).to.be.not.null;

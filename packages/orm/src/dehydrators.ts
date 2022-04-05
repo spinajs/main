@@ -12,7 +12,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
 
     model.ModelDescriptor.Columns?.forEach((c) => {
       const val = (model as any)[c.Name];
-      if (c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
+      if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
       (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val) : val;
