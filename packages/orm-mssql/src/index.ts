@@ -104,7 +104,7 @@ export class MsSqlOrmDriver extends SqlDriver {
       server: this.Options.Host,
       options: {
         trustServerCertificate: (this.Options.Options?.TrustServerCertificate as boolean) ?? true,
-        cryptoCredentialsDetails: this.Options.Options?.CryptoCredentialsDetails ? this.Options.Options?.CryptoCredentialsDetails : null,
+        cryptoCredentialsDetails: this.Options.Options?.CryptoCredentialsDetails ? this.Options.Options?.CryptoCredentialsDetails : {},
       },
       pool: {
         max: this.Options.PoolLimit ?? 10,
