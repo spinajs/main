@@ -571,7 +571,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._tableAlias = tableAlias;
   }
 
-  public where(column: string | boolean | WhereFunction | RawQuery | WrapStatement | Partial<T>, operator?: SqlOperator | any, value?: any): this {
+  public where(column: string | boolean | WhereFunction<T> | RawQuery | WrapStatement | Partial<T>, operator?: SqlOperator | any, value?: any): this {
     const self = this;
 
     // Support "where true || where false"
@@ -665,12 +665,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
   }
 
-  public orWhere(column: string | boolean | WhereFunction | {}, ..._args: any[]) {
+  public orWhere(column: string | boolean | WhereFunction<T> | {}, ..._args: any[]) {
     this._boolean = WhereBoolean.OR;
     return this.where(column, ...Array.from(arguments).slice(1));
   }
 
-  public andWhere(column: string | boolean | WhereFunction | {}, ..._args: any[]) {
+  public andWhere(column: string | boolean | WhereFunction<T> | {}, ..._args: any[]) {
     this._boolean = WhereBoolean.AND;
     return this.where(column, ...Array.from(arguments).slice(1));
   }
