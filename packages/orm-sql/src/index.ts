@@ -46,6 +46,5 @@ export abstract class SqlDriver extends OrmDriver {
     this.Container.register(SqlLimitQueryCompiler).as(LimitQueryCompiler);
     this.Container.register(SqlTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(SqlDatetimeValueConverter).as(DatetimeValueConverter);
-
   }
 }

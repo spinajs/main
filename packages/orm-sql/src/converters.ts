@@ -1,5 +1,5 @@
 import { DatetimeValueConverter, IValueConverter } from '@spinajs/orm';
-import { DateTime } from "luxon";
+import { DateTime } from 'luxon';
 export class SqlSetConverter implements IValueConverter {
   public toDB(value: unknown[]) {
     if (value) {
