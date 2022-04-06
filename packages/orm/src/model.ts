@@ -154,7 +154,7 @@ export class ModelBase {
    *
    * @param _data - data to set
    */
-  public static update<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): UpdateQueryBuilder<T> {
+  public static update<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): UpdateQueryBuilder<InstanceType<T>> {
     throw Error('Not implemented');
   }
 
