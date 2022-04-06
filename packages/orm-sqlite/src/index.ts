@@ -15,7 +15,6 @@ import { Database, RunResult } from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable } from '@spinajs/di';
 import { SqlLiteJoinStatement } from './statements';
-import { SqliteDatetimeValueConverter } from './converters';
 import { ResourceDuplicated } from '@spinajs/exceptions';
 import { IIndexInfo, IIndexInfoList, ITableInfo } from './types';
 import { format } from '@spinajs/configuration';
@@ -165,7 +164,6 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqlLiteJoinStatement).as(JoinStatement);
     this.Container.register(SqliteOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(SqliteInsertQueryCompiler).as(InsertQueryCompiler);
-    this.Container.register(SqliteDatetimeValueConverter).as(DatetimeValueConverter);
     this.Container.register(SqliteTableExistsCompiler).as(TableExistsCompiler);
   }
 

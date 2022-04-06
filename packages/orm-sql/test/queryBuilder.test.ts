@@ -10,6 +10,7 @@ import { ConnectionConf, FakeSqliteDriver } from './fixture';
 import { RelationModel } from './Models/RelationModel';
 import * as sinon from 'sinon';
 import { RelationModel3 } from './Models/RelationModel3';
+import { DateTime } from "luxon";
 
 function sqb() {
   const connection = db().Connections.get('sqlite');
@@ -223,6 +224,17 @@ describe('Where query builder', () => {
 
     result = sqb().select('*').from('users').where(false).toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+  });
+
+  it("Should convert date to sql", () =>{ 
+    let result = sqb().select('*').from('users').where("CreatedAt", new Date("2022-07-21T09:35:31.820Z")).toDB();
+
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
+    expect(result.bindings[0]).to.equal('2022-07-21T09:35:31.820Z');
+
+    result = sqb().select('*').from('users').where("CreatedAt", DateTime.fromISO("2022-07-21T09:35:31.820Z")).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
+    expect(result.bindings[0]).to.equal('2022-07-21T11:35:31.820+02:00');
   });
 
   it('where with nested expressions', () => {

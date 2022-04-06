@@ -82,7 +82,7 @@ export abstract class OrmDriver extends SyncModule {
    * Creates select query builder associated with this connection.
    * This can be used to execute raw queries to db without orm model layer
    */
-  public select(): SelectQueryBuilder {
+  public select<T>(): SelectQueryBuilder {
     return this.Container.resolve(SelectQueryBuilder, [this]);
   }
 
