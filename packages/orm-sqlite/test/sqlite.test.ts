@@ -150,7 +150,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
       CreatedAt: '2019-10-18',
     });
 
-    const result: User = await db().Connections.get('sqlite').select().from('user').first();
+    const result: User = await db().Connections.get('sqlite').select<User>().from('user').first();
 
     expect(iResult.LastInsertId).to.eq(1);
     expect(iResult.RowsAffected).to.eq(1);
@@ -206,7 +206,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
       })
       .where('id', 1);
 
-    const result: User = await db().Connections.get('sqlite').select().from('user').first();
+    const result: User = await db().Connections.get('sqlite').select<User>().from('user').first();
     expect(result).to.be.not.null;
     expect(result.Name).to.eq('test updated');
   });
@@ -275,7 +275,7 @@ describe('Sqlite model functions', () => {
       Password: 'test_password',
     });
 
-    const result: User = await db().Connections.get('sqlite').select().from('user').first();
+    const result: User = await db().Connections.get('sqlite').select<User>().from('user').first();
 
     expect(result).to.be.not.null;
     expect(result.Id).to.eq(1);
@@ -316,7 +316,7 @@ describe('Sqlite queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    const userQuery = User.where(function (this: IWhereBuilder) {
+    const userQuery = User.where(function () {
       this.where({ Name: 'a' });
     }).orderBy('Name');
 

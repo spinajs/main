@@ -567,27 +567,27 @@ export interface IWhereBuilder<T> {
 
   where(val: boolean): this;
   where(val: Partial<T>): this;
-  where(func: WhereFunction): this;
+  where(func: WhereFunction<T>): this;
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
   where(statement: WrapStatement): this;
-  where(column: string | boolean | WhereFunction | RawQuery | {} | WrapStatement, operator?: Op | any, value?: any): this;
+  where(column: string | boolean | WhereFunction<T> | RawQuery | Partial<T> | WrapStatement, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
   orWhere(val: Partial<T>): this;
-  orWhere(func: WhereFunction): this;
+  orWhere(func: WhereFunction<T>): this;
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
   orWhere(statement: WrapStatement): this;
-  orWhere(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): this;
+  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Partial<T>, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
   andWhere(val: Partial<T>): this;
-  andWhere(func: WhereFunction): this;
+  andWhere(func: WhereFunction<T>): this;
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
   andWhere(statement: WrapStatement): this;
-  andWhere(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): this;
+  andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Partial<T>, operator?: Op | any, value?: any): this;
 
   whereObject(obj: any): this;
   whereNotNull(column: string): this;

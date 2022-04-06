@@ -140,12 +140,12 @@ export class ModelBase {
    */
   public static where<T extends typeof ModelBase>(this: T, val: boolean): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, val: Partial<InstanceType<T>>): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(this: T, func: WhereFunction): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, func: WhereFunction<InstanceType<T>>): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, column: string, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, statement: WrapStatement): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction | RawQuery | Partial<InstanceType<T>>, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction | RawQuery | Partial<InstanceType<T>> | WrapStatement, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
+  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>>, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | WrapStatement, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
     throw Error('Not implemented');
   }
 
@@ -534,7 +534,7 @@ export const MODEL_STATIC_MIXINS = {
     return query;
   },
 
-  where(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): SelectQueryBuilder {
+  where(column: string | boolean | WhereFunction<any> | RawQuery | {}, operator?: Op | any, value?: any): SelectQueryBuilder {
     const { query } = _createQuery(this, SelectQueryBuilder);
     query.select('*');
 
