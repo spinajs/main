@@ -566,7 +566,7 @@ export interface IWhereBuilder<T> {
   Op: WhereBoolean;
 
   where(val: boolean): this;
-  where(val: {}): this;
+  where(val: Partial<T>): this;
   where(func: WhereFunction): this;
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
@@ -574,7 +574,7 @@ export interface IWhereBuilder<T> {
   where(column: string | boolean | WhereFunction | RawQuery | {} | WrapStatement, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
-  orWhere(val: {}): this;
+  orWhere(val: Partial<T>): this;
   orWhere(func: WhereFunction): this;
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
@@ -582,7 +582,7 @@ export interface IWhereBuilder<T> {
   orWhere(column: string | boolean | WhereFunction | RawQuery | {}, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
-  andWhere(val: {}): this;
+  andWhere(val: Partial<T>): this;
   andWhere(func: WhereFunction): this;
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
