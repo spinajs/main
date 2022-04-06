@@ -694,16 +694,16 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNot(column: string, val: any): this {
-    return this.where(column, SqlOperator.NOT, val);
+    return this.where(column, SqlOperator.NOT, this.mapValues(val));
   }
 
   public whereIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, this.mapValues(val), false, this._tableAlias]));
     return this;
   }
 
   public whereNotIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, this.mapValues(val), true, this._tableAlias]));
     return this;
   }
 
@@ -718,28 +718,46 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereBetween(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, false, this._tableAlias]));
+    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, this.mapValues(val), false, this._tableAlias]));
     return this;
   }
 
   public whereNotBetween(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, true, this._tableAlias]));
+    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, this.mapValues(val), true, this._tableAlias]));
     return this;
   }
 
   public whereInSet(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this._tableAlias]));
+    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, this.mapValues(val), false, this._tableAlias]));
     return this;
   }
 
   public whereNotInSet(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this._tableAlias]));
+    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, this.mapValues(val), true, this._tableAlias]));
     return this;
   }
 
   public clearWhere() {
     this._statements = [];
     return this;
+  }
+
+  protected mapValues(val: unknown | unknown[]) {
+    const dConverter = this._container.resolve(DatetimeValueConverter);
+
+    const mapVal = (d: unknown) => {
+      if (d instanceof DateTime || d instanceof Date) {
+        return dConverter.toDB(d);
+      }
+
+      return d;
+    };
+
+    if (Array.isArray(val)) {
+      return val.map(mapVal);
+    } else {
+      return mapVal(val);
+    }
   }
 }
 export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
