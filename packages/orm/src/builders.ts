@@ -1,3 +1,5 @@
+import { DatetimeValueConverter } from '@spinajs/orm';
+import { DateTime } from 'luxon';
 /* eslint-disable prettier/prettier */
 
 import { Container, Inject, NewInstance, Constructor, IContainer } from '@spinajs/di';
@@ -608,7 +610,9 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
      * it produces WHERE foo = 1
      */
     function _handleForTwo(c: any, v: any) {
-      if (v === undefined) {
+      let sVal = v;
+
+      if (sVal === undefined) {
         throw new InvalidArgument(`value cannot be undefined`);
       }
 
@@ -616,11 +620,15 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         throw new InvalidArgument(`column is not of type string or wrapped.`);
       }
 
-      if (v === null) {
+      if (sVal === null) {
         return this.whereNull(c);
       }
 
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, v, self._tableAlias, this._container]));
+      if (sVal instanceof DateTime || sVal instanceof Date) {
+        sVal = self._container.resolve(DatetimeValueConverter).toDB(sVal);
+      }
+
+      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, self._tableAlias, this._container]));
 
       return self;
     }
@@ -630,6 +638,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
      * it produces WHERE foo != 1
      */
     function _handleForThree(c: any, o: any, v: any) {
+      let sVal = v;
+
       if (!isWhereOperator(o)) {
         throw new InvalidArgument(`operator ${o} is invalid`);
       }
@@ -638,15 +648,19 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         throw new InvalidArgument(`column is not of type string or wrapped.`);
       }
 
-      if (v === null) {
+      if (sVal === null) {
         return this.whereNull(c);
       }
 
-      if (v === null) {
+      if (sVal === null) {
         return o === SqlOperator.NOT_NULL ? this.whereNotNull(c) : this.whereNull(c);
       }
 
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, v, self._tableAlias, this._container]));
+      if (sVal instanceof DateTime || sVal instanceof Date) {
+        sVal = self._container.resolve(DatetimeValueConverter).toDB(sVal);
+      }
+
+      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self._tableAlias, this._container]));
 
       return this;
     }
