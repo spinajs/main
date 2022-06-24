@@ -18,7 +18,7 @@ export const DEFAULT_THEME = {
 @Singleton()
 @Injectable("ConsoleTarget")
 export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions> {
-  protected theme : Chalk[] = [];
+  protected theme: Chalk[] = [];
 
   protected StdConsoleCallbackMap = {
     [LogLevel.Error]: console.error,
@@ -35,7 +35,6 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
   };
 
   public async resolve() {
-
     this.theme[LogLevel.Trace] = chalk.gray;
     this.theme[LogLevel.Debug] = chalk.gray;
     this.theme[LogLevel.Info] = chalk.white;
