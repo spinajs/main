@@ -1,0 +1,11 @@
+{
+    "hello": "witaj",
+    "world": "świecie",
+    "hello %s": "witaj %s",
+    "%d cats": {
+        "one": "%d kot",
+        "two": "%d koty",
+        "few": "%d koty",
+        "other": "%d kotów"
+    }
+}

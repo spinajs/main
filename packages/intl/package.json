@@ -1,0 +1,52 @@
+{
+  "name": "@spinajs/intl",
+  "version": "1.2.99",
+  "description": "internationalization for spinajs framework",
+  "main": "lib/index.js",
+  "private": false,
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -p tsconfig.build.json",
+    "clean": "",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "types": "lib",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "intl"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/configuration": "^1.2.81",
+    "@spinajs/di": "^1.2.81",
+    "@spinajs/exceptions": "^1.2.81",
+    "@spinajs/log": "^1.2.88",
+    "@spinajs/reflection": "^1.2.88",
+    "glob": "^7.1.6",
+    "lodash": "^4.17.15",
+    "make-plural": "^6.0.1",
+    "math-interval-parser": "^2.0.1"
+  },
+  "gitHead": "c176212950faa701149fa49b7717dde1c84809c3"
+}
