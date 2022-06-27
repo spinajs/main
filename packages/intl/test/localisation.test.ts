@@ -50,15 +50,15 @@ describe('Internationalization tests', () => {
   it('Should load multiple json files', async () => {
     const intl = await DI.resolve<Intl>(Intl);
 
-    expect(intl.Locales.has('en'));
-    expect(intl.Locales.has('pl'));
+    expect((intl.Locales as any)['en']);
+    expect((intl.Locales as any)['pl']);
 
-    expect(intl.Locales.get('en')).to.eql({
+    expect((intl.Locales as any)['en']).to.eql({
       hello: 'hello',
       'hello %s': 'hello %s',
     });
 
-    expect(intl.Locales.get('pl')).to.eql({
+    expect((intl.Locales as any)['pl']).to.eql({
       hello: 'witaj',
       world: 'świecie',
       'hello %s': 'witaj %s',
@@ -100,6 +100,15 @@ describe('Internationalization tests', () => {
 
   it('shoudl get avaible translations', async () => {
     const intl = await DI.resolve<Intl>(Intl);
-    expect(intl.__l('hello')).to.be.an('array').with.length(2);
+    expect(intl.__l('hello')).to.be.an('array').with.length(3);
+  });
+
+  it('should load js files', async () => {
+    const intl = await DI.resolve<Intl>(Intl);
+    expect((intl.Locales as any)['de']);
+
+    expect((intl.Locales as any)['de']).to.eql({
+      hello: 'Backpfeifengesicht',
+    });
   });
 });

@@ -1,15 +1,12 @@
-import { Injectable, SyncModule, Autoinject, DI } from '@spinajs/di';
+import { Injectable, AsyncModule, Autoinject, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { InvalidArgument } from '@spinajs/exceptions';
-
-import * as fs from 'fs';
-import * as glob from 'glob';
 import * as _ from 'lodash';
-import { normalize, resolve, basename } from 'path';
 import * as util from 'util';
 import * as MakePlural from 'make-plural';
 import * as InvervalParser from 'math-interval-parser';
+import * as TranslatioSources from './sources';
 
 const globalAny: any = global;
 
@@ -18,7 +15,7 @@ export interface IPhraseWithOptions {
   locale: string;
 }
 
-export abstract class Intl extends SyncModule {
+export abstract class Intl extends AsyncModule {
   private _currentLocale: string;
 
   /**
@@ -42,7 +39,7 @@ export abstract class Intl extends SyncModule {
   /**
    * Map with avaible translations, keyed by locale name
    */
-  public Locales = new Map<string, any>();
+  public Locales = {};
 
   /**
    * I18n localization function. Returns localized string.
@@ -88,7 +85,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
   /**
    * Map with avaible translations, keyed by locale name
    */
-  public Locales = new Map<string, any>();
+  public Locales = {};
 
   /**
    * Logger for this module
@@ -100,40 +97,15 @@ export class SpineJsInternationalizationFromJson extends Intl {
   protected Configuration: Configuration;
 
   // tslint:disable-next-line: variable-name
-  public resolve(): void {
+  public async resolveAsync() {
     this.CurrentLocale = this.Configuration.get('intl.defaultLocale', 'en');
 
-    const localeDirs = this.Configuration.get('system.dirs.locales', []);
+    const sources = await DI.resolve(Array.ofType(TranslatioSources.TranslationSource));
 
-    localeDirs
-      .filter((d) => fs.existsSync(d))
-      .map((d) => glob.sync(`${d}/**/*.json`))
-      .reduce((prev, current) => {
-        return prev.concat(_.flattenDeep(current));
-      }, [])
-      .map((f) => normalize(resolve(f)))
-      .map((f) => {
-        this.Log.trace(`Found localisation file at ${f}`);
-        return f;
-      })
-      .forEach((f) => {
-        const lang = basename(f, '.json');
-        let data;
-
-        try {
-          data = JSON.parse(fs.readFileSync(f, 'utf-8'));
-        } catch (ex) {
-          this.Log.warn(ex, `Cannot load localisation data from file ${f} for lang ${lang}`);
-          return;
-        }
-
-        if (!data) {
-          this.Log.warn(`No localisation data at ${f} for lang ${lang}`);
-          return;
-        }
-
-        this.Locales.set(lang, _.merge(data, this.Locales.get(lang) && {}));
-      });
+    for (const s of sources) {
+      const translations = await s.load();
+      this.Locales = _.merge(translations, this.Locales);
+    }
   }
 
   /**
@@ -151,10 +123,10 @@ export class SpineJsInternationalizationFromJson extends Intl {
     if (!text) return '';
 
     if (_.isString(text)) {
-      locTable = this.Locales.get(this.CurrentLocale);
+      locTable = (this.Locales as any)[this.CurrentLocale];
       toLocalize = text;
     } else {
-      locTable = this.Locales.get(text.locale) ?? this.Locales.get(this.CurrentLocale);
+      locTable = (this.Locales as any)[text.locale] ?? (this.Locales as any)[this.CurrentLocale];
       toLocalize = text.phrase;
     }
 
@@ -182,15 +154,15 @@ export class SpineJsInternationalizationFromJson extends Intl {
 
     if (_.isString(text)) {
       locale = this.CurrentLocale;
-      locTable = this.Locales.get(this.CurrentLocale);
+      locTable = (this.Locales as any)[this.CurrentLocale];
       toLocalize = text;
     } else {
       locale = text.locale ?? this.CurrentLocale;
-      locTable = this.Locales.get(text.locale) ?? this.Locales.get(this.CurrentLocale);
+      locTable = (this.Locales as any)[text.locale] ?? (this.Locales as any)[this.CurrentLocale];
       toLocalize = text.phrase;
     }
 
-    if (/%/.test(toLocalize) && this.Locales.has(locale)) {
+    if (/%/.test(toLocalize) && (this.Locales as any)[locale]) {
       const phrase = locTable[toLocalize];
       const pluralVerb = (MakePlural as any)[locale](count);
 
@@ -259,7 +231,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
 
     const extract = _.property(text);
 
-    return Array.from(this.Locales.values()).map((v) => {
+    return Array.from(Object.values(this.Locales)).map((v) => {
       return extract(v) as string;
     });
   }
@@ -274,7 +246,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
 
     const extract = _.property(text);
 
-    return Array.from(this.Locales.values()).map((v, locale) => {
+    return Array.from(Object.values(this.Locales)).map((v, locale) => {
       return { [locale]: extract(v) };
     });
   }
