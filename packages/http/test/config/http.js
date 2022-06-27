@@ -57,7 +57,7 @@ module.exports = {
         /**
          * virtual prefix in url eg. http://localhost:3000/static/images/kitten.jpg
          */
-        Route: '/responses',
+        Route: '/static',
 
         /**
          * full path to folder with static content
@@ -68,7 +68,7 @@ module.exports = {
         /**
          * virtual prefix in url eg. http://localhost:3000/static/images/kitten.jpg
          */
-        Route: '/static',
+        Route: '/public',
 
         /**
          * full path to folder with static content

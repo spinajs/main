@@ -19,6 +19,12 @@ export function dir(path: string) {
 }
 
 export class TestConfiguration extends FrameworkConfiguration {
+  constructor() {
+    super({
+      cfgCustomPaths: [dir('./config')],
+    });
+  }
+
   public async resolveAsync(): Promise<void> {
     await super.resolveAsync();
 
