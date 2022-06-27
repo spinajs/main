@@ -60,6 +60,20 @@
         {
             "type": "node",
             "request": "launch",
+            "name": "HTTP test",
+            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+            "args": [
+                "-r",
+                "ts-node/register",
+                "--timeout",
+                "999999",
+                "--colors",
+                "${workspaceFolder}/packages/http/test/**/*.ts",
+            ],
+        },
+        {
+            "type": "node",
+            "request": "launch",
             "name": "ORM_SQLITE test",
             "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
             "args": [

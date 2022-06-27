@@ -1,7 +1,6 @@
 export class SomeService {
-
-    public SomeValue = "";
-    constructor() {
-        this.SomeValue = "constructed";
-    }
+  public SomeValue = '';
+  constructor() {
+    this.SomeValue = 'constructed';
+  }
 }

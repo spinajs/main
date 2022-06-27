@@ -1,16 +1,14 @@
-import { BasePolicy, IController, IRoute } from "../../src";
-import { Request } from "express";
+import { BasePolicy, IController, IRoute } from '../../src';
+import { Request } from 'express';
 
-export class SamplePolicy2 extends BasePolicy
-{
-    public static Called = false;
+export class SamplePolicy2 extends BasePolicy {
+  public static Called = false;
 
-    public isEnabled(_action: IRoute, _instance: IController): boolean {
-        return true;
-    }   
-    
-    public async execute(_req: Request): Promise<void> {
+  public isEnabled(_action: IRoute, _instance: IController): boolean {
+    return true;
+  }
 
-        SamplePolicy2.Called = true;
-    }
+  public async execute(_req: Request): Promise<void> {
+    SamplePolicy2.Called = true;
+  }
 }
