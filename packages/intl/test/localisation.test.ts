@@ -18,6 +18,16 @@ export class ConnectionConf extends FrameworkConfiguration {
     await super.resolveAsync();
 
     _.merge(this.Config, {
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+          },
+        ],
+
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
       system: {
         dirs: {
           locales: [dir('./locales')],
