@@ -1,5 +1,5 @@
 import * as express from 'express';
-import { Response, ResponseFunction, httpResponse } from '../responses';
+import { Response, httpResponse } from '../responses';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as cs from 'cookie-signature';
@@ -16,7 +16,7 @@ export class CookieResponse extends Response {
   }
 
   public async execute(_req: express.Request, res: express.Response) {
-    const cfg: Configuration = DI.resolve(Configuration);
+    const cfg: Configuration = DI.get(Configuration);
     const cookieOpt = this.cookieLifetime ? { maxAge: this.cookieLifetime } : cfg.get<CookieOptions>('http.cookie.options');
 
     if (!this.responseData) {

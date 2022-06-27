@@ -2,7 +2,7 @@ import { BasePath, BaseController, Get, Ok, Param, PKey } from '../../../src';
 import { SampleModelWithHydrator } from '../../dto';
 
 @BasePath('params/v1/urlparams')
-export class QueryParams extends BaseController {
+export class UrlParamParams extends BaseController {
   @Get('/:id')
   public param(@Param() id: number) {
     return new Ok({ id });

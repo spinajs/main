@@ -1,6 +1,6 @@
 import { BaseController, Get, Post, Head, Patch, Del, Put, Ok } from '../../src';
 
-export class Test2 extends BaseController {
+export class TestMethods extends BaseController {
   @Get()
   public testGet() {
     return new Ok();

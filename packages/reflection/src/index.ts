@@ -69,7 +69,10 @@ export class TypescriptCompiler {
       this.walkClassNode(
         className,
         this.walkMemberNode((method: ts.MethodDeclaration) => {
-          members.set(method.name.getText(), method);
+          // method.name.getText() returns null ?
+          // UGLY HACK FOR THIS
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+          members.set((method.name as any).text, method);
         }),
       ),
     );

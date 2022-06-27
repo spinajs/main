@@ -3,7 +3,7 @@ import { SampleObject } from '../../dto';
 import { SampleModel, SampleModelWithSchema, SampleModelWithHydrator } from '../../dto';
 
 @BasePath('params/v1/json')
-export class JsonParams extends BaseController {
+export class CvsFileParams extends BaseController {
   @Post()
   public objectsFromCvs(@CsvFile() objects: SampleObject) {
     return new Ok({ objects });

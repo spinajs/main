@@ -11,11 +11,11 @@ export class FileSystemSource extends SchemaSource {
   public SchemaDirs: string[];
 
   public Load(): ISchema[] {
+    if (!this.SchemaDirs) return [];
+
     return this.SchemaDirs.filter((dir) => fs.existsSync(dir))
       .flatMap((d: string) => glob.sync(path.join(d, '/**/*.+(json|js)')))
       .map((f) => {
-        //Log.trace(`Found schema at: ${f}`, 'validation');
-
         return {
           schema: require(f) as ISchemaObject,
           file: path.basename(f),
