@@ -1,0 +1,15 @@
+body {
+    font-family: "Lucida Console", Monaco, monospace;
+}
+
+.container {
+    display: flex;
+    justify-content: center;
+    height: 100%;
+}
+
+.container > .item {
+    height: 100%;
+    display: flex;
+    align-items: center;
+}

@@ -1,0 +1,10 @@
+{
+    "Not found": "Resource not found",
+    "Server error": "Critital server error",
+    "Forbidden" : "Access forbidden",
+    "Route not found": "Route not found",
+    "Unauthorized": "Access denied",
+    "No content" : "No content",
+    "Bad request" : "Bad request",
+    "You do not have access to this resource." : "You do not have access to this resource"
+}

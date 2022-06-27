@@ -1,0 +1,10 @@
+{
+    "Not found": "Nie znaleziono zasobu",
+    "Server error": "Błąd serwera",
+    "Forbidden" : "Zabroniony dostęp",
+    "Route not found": "Ścieżka nie odnaleziona",
+    "Unauthorized": "Brak uprawnień",
+    "No content" : "Brak zawartości",
+    "Bad request" : "Złe żądanie",
+    "You do not have access to this resource." : "Nie posiadasz uprawnień do tego zasobu."
+}
