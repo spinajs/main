@@ -14,6 +14,6 @@ export class Forbidden extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    await httpResponse(this.responseData, HTTP_STATUS_CODE.FORBIDDEN, 'responses/forbidden');
+    return await httpResponse(this.responseData, HTTP_STATUS_CODE.FORBIDDEN, 'responses/forbidden');
   }
 }

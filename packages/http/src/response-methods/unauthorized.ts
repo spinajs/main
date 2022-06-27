@@ -14,6 +14,6 @@ export class Unauthorized extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    httpResponse(this.responseData, HTTP_STATUS_CODE.UNAUTHORIZED, 'responses/unauthorized');
+    return await httpResponse(this.responseData, HTTP_STATUS_CODE.UNAUTHORIZED, 'responses/unauthorized');
   }
 }

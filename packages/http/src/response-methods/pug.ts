@@ -17,6 +17,6 @@ export class PugResponse extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    pugResponse(this.file, this.responseData, this.status ? this.status : HTTP_STATUS_CODE.OK);
+    return await pugResponse(this.file, this.responseData, this.status ? this.status : HTTP_STATUS_CODE.OK);
   }
 }

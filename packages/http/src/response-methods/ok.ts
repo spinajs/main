@@ -13,6 +13,6 @@ export class Ok extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    httpResponse(this.responseData, HTTP_STATUS_CODE.OK, 'responses/ok');
+    return await httpResponse(this.responseData, HTTP_STATUS_CODE.OK, 'responses/ok');
   }
 }

@@ -20,7 +20,7 @@ export abstract class Response {
     this.responseData = responseData;
   }
 
-  public abstract execute(req: express.Request, res: express.Response, next?: express.NextFunction): Promise<void>;
+  public abstract execute(req: express.Request, res: express.Response, next?: express.NextFunction): Promise<ResponseFunction | void>;
 }
 
 /**

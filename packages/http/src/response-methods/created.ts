@@ -13,6 +13,6 @@ export class Created extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    await httpResponse(this.responseData, HTTP_STATUS_CODE.CREATED, 'responses/created');
+    return await httpResponse(this.responseData, HTTP_STATUS_CODE.CREATED, 'responses/created');
   }
 }

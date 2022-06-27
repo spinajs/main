@@ -28,6 +28,6 @@ export class CookieResponse extends Response {
       res.cookie(this.name, signed, cookieOpt as any);
     }
 
-    await httpResponse(this.data, HTTP_STATUS_CODE.OK, 'responses/ok');
+    return await httpResponse(this.data, HTTP_STATUS_CODE.OK, 'responses/ok');
   }
 }

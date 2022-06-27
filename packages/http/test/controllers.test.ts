@@ -39,16 +39,16 @@ describe('http & controller tests', function () {
 
   it('should load controllers from dir', async () => {
     const controllers = await ctr().Controllers;
-    expect(controllers.length).to.eq(7);
+    expect(controllers.length).to.eq(16);
   });
 
   it('should server static files', async () => {
-    const response = await req().get('static/index.html');
+    const response = await req().get('public/index.html');
     expect(response).to.have.status(200);
   });
 
   it('non existing static file should return 404', async () => {
-    const response = await req().get('static/non-exists.html');
+    const response = await req().get('public/non-exists.html');
     expect(response).to.have.status(404);
   });
 

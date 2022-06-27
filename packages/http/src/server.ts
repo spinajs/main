@@ -143,7 +143,7 @@ export class HttpServer extends AsyncModule {
       this.Log.error(`Route error: ${err}, stack: ${err.stack}`, err.parameter);
 
       const error = {
-        ...err,
+        message: err.message,
         stack: {},
       };
 
@@ -181,8 +181,10 @@ export class HttpServer extends AsyncModule {
           break;
       }
 
-      response.execute(req, res).then(() => {
-        next(err);
+      response.execute(req, res).then((callback?: ResponseFunction | void) => {
+        if (callback) {
+          callback(req, res);
+        }
       });
     };
 
