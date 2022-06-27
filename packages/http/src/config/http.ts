@@ -103,7 +103,7 @@ module.exports = {
                         <div>
                           Go back to the previous page and try again. If you think something is broken, report a problem with fallowing ticket number:
                         </div>
-                        <h3> Ticker no. {ticket}</h3>
+                        <h3> Ticket no. {ticket}</h3>
                       </body>
                     </html>`,
   },
