@@ -2,11 +2,16 @@ import { join } from 'lodash';
 import { normalize, resolve } from 'path';
 import { BasePath, BaseController, Get, PugResponse, ServerError, Ok, FileResponse } from '../../src';
 
-@BasePath('sample-controller/v1/responses')
+@BasePath('responses')
 export class TestResponses extends BaseController {
   @Get()
+  public data() {
+    return new Ok({ message: 'hello world' });
+  }
+
+  @Get()
   public testError() {
-    return new ServerError({ error: true, message: 'sample error message' });
+    return new ServerError({ message: 'sample error message' });
   }
 
   @Get()
@@ -17,11 +22,6 @@ export class TestResponses extends BaseController {
   @Get()
   public testPugIntl() {
     return new PugResponse('test-view-intl.pug', { sampleText: 'witaj świecie' });
-  }
-
-  @Get()
-  public testJsonResponse() {
-    return new Ok({ message: 'hello world' });
   }
 
   @Get()

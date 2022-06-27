@@ -1,3 +1,4 @@
+import { TestTransformer } from './transformers/TestTransformer';
 import { SamplePolicy } from './policies/SamplePolicy';
 import { SampleMiddleware } from './middlewares/SampleMiddleware';
 import 'mocha';
@@ -19,8 +20,29 @@ function ctr() {
 describe('http & controller tests', function () {
   this.timeout(15000);
 
+  const middlewareSandbox = sinon.createSandbox();
+  let middlewareOnBeforeSpy: sinon.SinonSpy<any, any> = null;
+  let middlewareOnAfterSpy: sinon.SinonSpy<any, any> = null;
+
+  let middleware2OnBeforeSpy: sinon.SinonSpy<any, any> = null;
+  let middleware2OnAfterSpy: sinon.SinonSpy<any, any> = null;
+
+  let samplePolicyExecuteSpy: sinon.SinonSpy<any, any> = null;
+  let samplePolicy2ExecuteSpy: sinon.SinonSpy<any, any> = null;
+
   before(async () => {
+    middlewareOnAfterSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onAfterAction');
+    middlewareOnBeforeSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onBeforeAction');
+
+    middleware2OnAfterSpy = middlewareSandbox.spy(SampleMiddleware2.prototype, 'onAfterAction');
+    middleware2OnBeforeSpy = middlewareSandbox.spy(SampleMiddleware2.prototype, 'onBeforeAction');
+
+    samplePolicyExecuteSpy = middlewareSandbox.spy(SamplePolicy.prototype, 'execute');
+    samplePolicy2ExecuteSpy = middlewareSandbox.spy(SamplePolicy2.prototype, 'execute');
+
     DI.register(TestConfiguration).as(Configuration);
+    DI.register(TestTransformer).as('test-transform');
+
     await DI.resolve(Intl);
     await DI.resolve(Controllers);
     const server = await DI.resolve(HttpServer);
@@ -31,6 +53,8 @@ describe('http & controller tests', function () {
   after(async () => {
     const server = await DI.resolve(HttpServer);
     server.stop();
+
+    middlewareSandbox.restore();
   });
 
   afterEach(() => {
@@ -39,7 +63,7 @@ describe('http & controller tests', function () {
 
   it('should load controllers from dir', async () => {
     const controllers = await ctr().Controllers;
-    expect(controllers.length).to.eq(16);
+    expect(controllers.length).to.eq(17);
   });
 
   it('should server static files', async () => {
@@ -53,100 +77,166 @@ describe('http & controller tests', function () {
   });
 
   it('should add routes', async () => {
-    let response = await req().get('test2/testGet');
+    let response = await req().get('testmethods/testGet');
     expect(response).to.have.status(200);
 
-    response = await req().post('test2/testPost');
+    response = await req().post('testmethods/testPost');
     expect(response).to.have.status(200);
 
-    response = await req().head('test2/testHead');
+    response = await req().head('testmethods/testHead');
     expect(response).to.have.status(200);
 
-    response = await req().patch('test2/testPatch');
+    response = await req().patch('testmethods/testPatch');
     expect(response).to.have.status(200);
 
-    response = await req().del('test2/testDel');
+    response = await req().del('testmethods/testDel');
     expect(response).to.have.status(200);
 
-    response = await req().put('test2/testPut');
+    response = await req().put('testmethods/testPut');
     expect(response).to.have.status(200);
   });
 
   it('should add routes with base path', async () => {
-    let response = await req().get('sample-controller/v1/testGet');
+    let response = await req().get('test-base-path/testGet');
     expect(response).to.have.status(200);
 
-    response = await req().post('sample-controller/v1/testPost');
+    response = await req().post('test-base-path/testPost');
     expect(response).to.have.status(200);
 
-    response = await req().head('sample-controller/v1/testHead');
+    response = await req().head('test-base-path/testHead');
     expect(response).to.have.status(200);
 
-    response = await req().patch('sample-controller/v1/testPatch');
+    response = await req().patch('test-base-path/testPatch');
     expect(response).to.have.status(200);
 
-    response = await req().del('sample-controller/v1/testDel');
+    response = await req().del('test-base-path/testDel');
     expect(response).to.have.status(200);
 
-    response = await req().put('sample-controller/v1/testPut');
+    response = await req().put('test-base-path/testPut');
     expect(response).to.have.status(200);
   });
 
   it('middleware should run on controller', async () => {
-    const onBeforeSpy = sinon.spy(SampleMiddleware.prototype, 'onBeforeAction');
-    const onAfterSpy = sinon.spy(SampleMiddleware.prototype, 'onAfterAction');
-
-    const response = await req().get('testmiddleware/testGet');
+    let response = await req().get('testmiddleware/testGet');
     expect(response).to.have.status(200);
 
-    expect(onBeforeSpy.called).to.be.true;
-    expect(onAfterSpy.called).to.be.true;
+    expect(middlewareOnAfterSpy.calledOnce).to.be.true;
+    expect(middlewareOnBeforeSpy.calledOnce).to.be.true;
+
+    response = await req().get('testmiddleware/testGet2');
+    expect(response).to.have.status(200);
+
+    expect(middlewareOnAfterSpy.calledTwice).to.be.true;
+    expect(middlewareOnBeforeSpy.calledTwice).to.be.true;
   });
 
   it('middleware should run on specific path', async () => {
     let response = await req().get('testmiddlewarepath/testGet2');
     expect(response).to.have.status(200);
-    expect(SampleMiddleware2.CalledAfter).to.be.false;
-    expect(SampleMiddleware2.CalledBefore).to.be.false;
+    expect(middleware2OnAfterSpy.calledOnce).to.be.false;
+    expect(middleware2OnBeforeSpy.calledOnce).to.be.false;
 
     response = await req().get('testmiddlewarepath/testGet');
     expect(response).to.have.status(200);
 
-    expect(SampleMiddleware2.CalledAfter).to.be.true;
-    expect(SampleMiddleware2.CalledBefore).to.be.true;
+    expect(middleware2OnAfterSpy.calledOnce).to.be.true;
+    expect(middleware2OnBeforeSpy.calledOnce).to.be.true;
   });
 
   it('policy should run on controller', async () => {
-    const response = await req().get('testpolicy/testGet');
+    let response = await req().get('testpolicy/testGet');
     expect(response).to.have.status(200);
-    expect(SamplePolicy.Called).to.be.true;
+    expect(samplePolicyExecuteSpy.calledOnce).to.be.true;
+
+    response = await req().get('testpolicy/testGet2');
+    expect(response).to.have.status(200);
+    expect(samplePolicyExecuteSpy.calledTwice).to.be.true;
   });
 
   it('policy should run on specific path', async () => {
-    let response = await req().get('testpolicy2/testGet2');
+    let response = await req().get('testpolicypath/testGet2');
     expect(response).to.have.status(200);
-    expect(SamplePolicy2.Called).to.be.false;
+    expect(samplePolicy2ExecuteSpy.called).to.be.false;
 
-    response = await req().get('testpolicy2/testGet');
+    response = await req().get('testpolicypath/testGet');
+    expect(response).to.have.status(200);
+
+    expect(samplePolicy2ExecuteSpy.called).to.be.true;
+  });
+
+  it('Policy should forbidden specific path', async () => {
+    let response = await req().get('testpolicypath/testGet3');
     expect(response).to.have.status(403);
-
-    expect(SamplePolicy2.Called).to.be.true;
   });
 
   it('html response should work', async () => {
-    const response = await req().get('sample-controller/v1/testGet').set('Accept', 'text/html').send();
+    const response = await req().get('responses/data').set('Accept', 'text/html').send();
     expect(response).to.have.status(200);
     expect(response).to.be.html;
     expect(response.text).to.eq('<html><head><link rel="icon" type="image/x-icon" href="/static/favicon.png"/><title> All ok</title><link href="/static/style.css" rel="stylesheet"/></head><body>   <div class="container"><div class="item"><div class="entry"><h1>200 - All ok</h1></div></div></div></body></html>');
   });
 
   it('json response should work', async () => {
-    const response = await req().get('sample-controller/v1/testGet').set('Accept', 'application/json').send();
+    const response = await req().get('responses/data').set('Accept', 'application/json').send();
     expect(response).to.have.status(200);
     expect(response).to.be.json;
     expect(response.body).to.be.not.null;
     expect(response.body).to.include({
-      hello: 'world',
+      message: 'hello world',
+    });
+  });
+
+  it('Pug resposne should work', async () => {
+    const response = await req().get('responses/testPug').set('Accept', 'text/html').send();
+    expect(response).to.have.status(200);
+    expect(response).to.be.html;
+    expect(response.text).to.eq('<html><head><title> Sample view</title></head><body>   <p>sample view</p><p>hello world</p></body></html>');
+  });
+
+  it('Pug resposne should fail on request as non text/html', async () => {
+    const response = await req().get('responses/testPug').set('Accept', 'application/json').send();
+    expect(response).to.have.status(400);
+    expect(response).to.be.json;
+    expect(response.body).to.be.not.null;
+    expect(response.body).to.deep.equal({
+      error: {
+        code: 400,
+        message: 'invalid request content type',
+      },
+    });
+  });
+
+  it('Pug resposne should be internationalized', async () => {
+    let response = await req().get('responses/testPugIntl?lang=en').set('Accept', 'text/html').send();
+    expect(response).to.have.status(200);
+    expect(response).to.be.html;
+    expect(response.text).to.eq('<html><head><title> Sample view</title></head><body>   <p>sample view</p><p>hello world</p></body></html>');
+
+    response = await req().get('responses/testPugIntl?lang=pl').set('Accept', 'text/html').send();
+    expect(response).to.have.status(200);
+    expect(response).to.be.html;
+    expect(response.text).to.eq('<html><head><title> Sample view</title></head><body>   <p>sample view</p><p>witaj świecie</p></body></html>');
+  });
+
+  it('Should return error 500', async () => {
+    const response = await req().get('responses/testError').set('Accept', 'application/json').send();
+    expect(response).to.have.status(500);
+    expect(response).to.be.json;
+    expect(response.body).to.be.not.null;
+    expect(response.body).to.deep.equal({
+      error: {
+        message: 'sample error message',
+      },
+    });
+  });
+
+  it('Should transform data', async () => {
+    const response = await req().get('responses/testDataTransformer').set('Accept', 'application/json').set('x-data-transform', 'test-transform').send();
+    expect(response).to.have.status(200);
+    expect(response).to.be.json;
+    expect(response.body).to.be.not.null;
+    expect(response.body).to.deep.equal({
+      message: 'hello world transformed',
     });
   });
 

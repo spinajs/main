@@ -85,7 +85,7 @@ export abstract class BaseController extends AsyncModule implements IController 
       );
       const enabledMiddlewares = middlewares.filter((m) => m.isEnabled(route, this));
 
-      this._log.trace(`Registering route ${route.Method}:${path}`);
+      this._log.trace(`Registering route ${route.Type.toUpperCase()} ${this.constructor.name}::${route.Method} at ${path}`);
 
       handlers.push(...policies.filter((p) => p.isEnabled(route, this)).map((p) => _invokePolicyAction(p, p.execute.bind(p), route)));
       handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBeforeAction.bind(m))));

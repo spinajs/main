@@ -112,6 +112,20 @@ export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE)
   const cfg: Configuration = DI.get(Configuration);
 
   return (req: express.Request, res: express.Response) => {
+    if (!req.accepts('html')) {
+      httpResponse(
+        {
+          error: {
+            message: 'invalid request content type',
+            code: 400,
+          },
+        },
+        HTTP_STATUS_CODE.BAD_REQUEST,
+        'responses/serverError.pug',
+      )(req, res);
+      return;
+    }
+
     res.set('Content-Type', 'text/html');
 
     try {
@@ -184,18 +198,25 @@ export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE)
 export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: string) {
   const cfg: Configuration = DI.get(Configuration);
   const acceptedHeaders = cfg.get<HttpAcceptHeaders>('http.AcceptHeaders');
-  const transformers = DI.resolve(Array.ofType(DataTransformer));
 
   return (req: express.Request, res: express.Response) => {
     if (req.accepts('html') && (acceptedHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
       pugResponse(`${template}.pug`, model, code)(req, res);
     } else if (req.accepts('json') && (acceptedHeaders & HttpAcceptHeaders.JSON) === HttpAcceptHeaders.JSON) {
       if (req.headers['x-data-transform']) {
-        const transformer = transformers.find((x) => x.Type === req.headers['x-data-transform']);
+        const transformer = DI.resolve<DataTransformer>(req.headers['x-data-transform'] as string);
         if (transformer) {
           jsonResponse(transformer.transform(model, req), code)(req, res);
         } else {
-          jsonResponse(transformer.transform(model, req), code)(req, res);
+          jsonResponse(
+            {
+              error: {
+                message: "invalid data transformer, remove header 'x-data-transform' to return raw data or set proper data transformer",
+                code: 400,
+              },
+            },
+            HTTP_STATUS_CODE.BAD_REQUEST,
+          )(req, res);
         }
       } else {
         jsonResponse(model, code)(req, res);

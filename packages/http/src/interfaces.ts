@@ -496,7 +496,7 @@ export interface IControllerDescriptor {
  * to easily transform data for some client
  * eg. plain array to format that datatables.net can easily read
  */
-export abstract class DataTransformer<T, U> {
+export abstract class DataTransformer<T = any, U = any> {
   /**
    * Transforms data from one format to another
    *

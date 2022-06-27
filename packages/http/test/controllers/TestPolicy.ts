@@ -7,4 +7,9 @@ export class TestPolicy extends BaseController {
   public testGet() {
     return new Ok();
   }
+
+  @Get()
+  public testGet2() {
+    return new Ok();
+  }
 }

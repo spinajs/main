@@ -14,6 +14,6 @@ export class ServerError extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    return await httpResponse(this.responseData, HTTP_STATUS_CODE.INTERNAL_ERROR, 'responses/serverError');
+    return await httpResponse({ error: this.responseData }, HTTP_STATUS_CODE.INTERNAL_ERROR, 'responses/serverError');
   }
 }
