@@ -8,6 +8,8 @@ import * as MakePlural from 'make-plural';
 import * as InvervalParser from 'math-interval-parser';
 import * as TranslatioSources from './sources';
 
+export { TranslationSource } from './sources';
+
 const globalAny: any = global;
 
 export interface IPhraseWithOptions {
