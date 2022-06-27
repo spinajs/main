@@ -14,7 +14,6 @@
                 "--colors",
                 "${workspaceFolder}/packages/di/test/**/*.ts",
             ],
-            "protocol": "inspector"
         },
         {
             "type": "node",
@@ -29,7 +28,6 @@
                 "--colors",
                 "${workspaceFolder}/packages/configuration-common/test/**/*.ts",
             ],
-            "protocol": "inspector"
         },
         {
             "type": "node",
@@ -44,7 +42,20 @@
                 "--colors",
                 "${workspaceFolder}/packages/orm-sql/test/**/*.ts",
             ],
-            "protocol": "inspector"
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "INTL test",
+            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+            "args": [
+                "-r",
+                "ts-node/register",
+                "--timeout",
+                "999999",
+                "--colors",
+                "${workspaceFolder}/packages/intl/test/**/*.ts",
+            ],
         },
         {
             "type": "node",
@@ -59,7 +70,6 @@
                 "--colors",
                 "${workspaceFolder}/packages/orm-sqlite/test/**/*.ts",
             ],
-            "protocol": "inspector"
         },
         {
             "type": "node",
@@ -74,7 +84,6 @@
                 "--colors",
                 "${workspaceFolder}/packages/orm-mssql/test/**/*.ts",
             ],
-            "protocol": "inspector"
         },
         {
             "type": "node",
@@ -89,7 +98,6 @@
                 "--colors",
                 "${workspaceFolder}/packages/orm/test/**/*.ts",
             ],
-            "protocol": "inspector"
         },
         {
             "type": "node",
@@ -105,7 +113,6 @@
                 "--colors",
                 "${workspaceFolder}/exceptions/spine/test"
             ],
-            "port": 9229,
             "internalConsoleOptions": "openOnSessionStart"
         },
         {
@@ -121,7 +128,6 @@
                 "--colors",
                 "${workspaceFolder}/packages/configuration/test/**/*.ts",
             ],
-            "protocol": "inspector"
         },
         {
             "type": "node",
@@ -136,7 +142,6 @@
                 "--colors",
                 "${workspaceFolder}/packages/log/test/**/*.ts",
             ],
-            "protocol": "inspector",
             "env": {
                 "NODE_ENV": "development"
             }
@@ -154,7 +159,6 @@
                 "--colors",
                 "${workspaceFolder}/packages/reflection/test/**/*.ts",
             ],
-            "protocol": "inspector"
         },
         {
             "type": "node",
@@ -169,7 +173,6 @@
                 "--colors",
                 "${workspaceFolder}/packages/validation/test/**/*.ts",
             ],
-            "protocol": "inspector",
             "env": {
                 "NODE_ENV": "development"
             }

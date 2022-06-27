@@ -1,7 +1,6 @@
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { join, normalize, resolve } from 'path';
-import { DI, IContainer } from '@spinajs/di';
-import { SpinaJsDefaultLog, LogModule } from '@spinajs/log';
+import { DI } from '@spinajs/di';
 import * as _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -14,46 +13,42 @@ export function dir(path: string) {
   return resolve(normalize(join(__dirname, path)));
 }
 
-export class ConnectionConf extends Configuration {
-  protected conf = {
-    system: {
-      dirs: {
-        locales: [dir('./locales')],
+export class ConnectionConf extends FrameworkConfiguration {
+  public async resolveAsync(): Promise<void> {
+    await super.resolveAsync();
+
+    _.merge(this.Config, {
+      system: {
+        dirs: {
+          locales: [dir('./locales')],
+        },
       },
-    },
-    intl: {
-      defaultLocale: 'pl',
-    },
-  };
-
-  // tslint:disable-next-line: no-empty
-  public resolve(_container: IContainer) {}
-
-  public get(path: string[], defaultValue?: any): any {
-    return _.get(this.conf, path, defaultValue);
+      intl: {
+        defaultLocale: 'pl',
+      },
+    });
   }
 }
 
 describe('Internationalization tests', () => {
   beforeEach(async () => {
     DI.register(ConnectionConf).as(Configuration);
-    DI.register(SpinaJsDefaultLog).as(LogModule);
     DI.register(SpineJsInternationalizationFromJson).as(Intl);
-
-    DI.resolve(LogModule);
   });
 
   afterEach(async () => {
-    DI.clear();
+    DI.clearCache();
   });
 
-  it('Should autoregister in DI', () => {
+  it('Should autoregister in DI', async () => {
     expect(DI.check(Intl)).to.be.true;
-    expect(DI.resolve(Intl).constructor.name).to.eq('SpineJsInternationalizationFromJson');
+
+    const intl = await DI.resolve(Intl);
+    expect(intl.constructor.name).to.eq('SpineJsInternationalizationFromJson');
   });
 
-  it('Should load multiple json files', () => {
-    const intl = DI.resolve<Intl>(Intl);
+  it('Should load multiple json files', async () => {
+    const intl = await DI.resolve<Intl>(Intl);
 
     expect(intl.Locales.has('en'));
     expect(intl.Locales.has('pl'));
@@ -76,26 +71,26 @@ describe('Internationalization tests', () => {
     });
   });
 
-  it('should translate simple', () => {
-    const intl = DI.resolve<Intl>(Intl);
+  it('should translate simple', async () => {
+    const intl = await DI.resolve<Intl>(Intl);
 
     expect(intl.__('hello %s', 'bemon')).to.eq('witaj bemon');
   });
 
-  it('should translate with specified locale', () => {
-    const intl = DI.resolve<Intl>(Intl);
+  it('should translate with specified locale', async () => {
+    const intl = await DI.resolve<Intl>(Intl);
 
     expect(intl.__({ phrase: 'hello %s', locale: 'en' }, 'bemon')).to.eq('hello bemon');
   });
 
-  it('should return original if not exists', () => {
-    const intl = DI.resolve<Intl>(Intl);
+  it('should return original if not exists', async () => {
+    const intl = await DI.resolve<Intl>(Intl);
 
     expect(intl.__('hello from other side')).to.eq('hello from other side');
   });
 
-  it('should translate plural', () => {
-    const intl = DI.resolve<Intl>(Intl);
+  it('should translate plural', async () => {
+    const intl = await DI.resolve<Intl>(Intl);
 
     expect(intl.__n('%d cats', 3)).to.eq('3 koty');
     expect(intl.__n('%d cats', 1)).to.eq('1 kot');
@@ -103,8 +98,8 @@ describe('Internationalization tests', () => {
     expect(intl.__n('%d cats', 10)).to.eq('10 kotów');
   });
 
-  it('shoudl get avaible translations', () => {
-    const intl = DI.resolve<Intl>(Intl);
+  it('shoudl get avaible translations', async () => {
+    const intl = await DI.resolve<Intl>(Intl);
     expect(intl.__l('hello')).to.be.an('array').with.length(2);
   });
 });

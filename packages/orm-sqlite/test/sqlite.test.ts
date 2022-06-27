@@ -8,7 +8,7 @@ import { TestMigration_2022_02_08_01_13_00 } from './migrations/TestMigration_20
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from './../src/index';
 import { DI } from '@spinajs/di';
-import { Orm, IWhereBuilder, MigrationTransactionMode, Migration, OrmDriver, OrmMigration, QueryContext, InsertBehaviour } from '@spinajs/orm';
+import { Orm, MigrationTransactionMode, Migration, OrmDriver, OrmMigration, QueryContext, InsertBehaviour } from '@spinajs/orm';
 import * as _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';

@@ -1,4 +1,4 @@
-import { IContainer, Injectable, SyncModule, Autoinject, DI } from '@spinajs/di';
+import { Injectable, SyncModule, Autoinject, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -19,57 +19,8 @@ export interface IPhraseWithOptions {
 }
 
 export abstract class Intl extends SyncModule {
-  /**
-   * Currently selected locale
-   */
-  public CurrentLocale: string;
+  private _currentLocale: string;
 
-  /**
-   * Map with avaible translations, keyed by locale name
-   */
-  public Locales = new Map<string, any>();
-
-  /**
-   * I18n localization function. Returns localized string.
-   * If no translation is avaible at current selected language, then fallback to
-   * default language, if still no translation exists, original text is returned
-   *
-   * @param text { string | IPhraseWithOptions } - text to localize.
-   * @param args { any[] } - argument passed to formatted text
-   */
-  public abstract __(text: string | IPhraseWithOptions, ...args: any[]): string;
-
-  /**
-   * Plurals translation of a single phrase. Singular and plural forms will get added to locales if unknown.
-   * Returns translated parsed and substituted string based on last count parameter.
-   *
-   * @param text { string } - text to localize
-   * @param count { number } - number of items/things
-   * @example use like `__n("%s cats", 1) returns `1 cat`
-   */
-  public abstract __n(text: string | IPhraseWithOptions, count: number): string;
-
-  /**
-   * Returns a list of translations for a given phrase in each language.
-   *
-   * @param text { string } - text to translate
-   */
-  public abstract __l(text: string): string[];
-
-  /**
-   * Returns a hashed list of translations for a given phrase in each language.
-   *
-   * @param text { string } - text to translate
-   */
-  public abstract __h(text: string): any[];
-}
-
-/**
- * Basic internationalization support. Text phrases are read from json files specified
- * in system.dirs.locales
- */
-@Injectable(Intl)
-export class SpineJsInternationalizationFromJson extends Intl {
   /**
    * Currently selected locale
    */
@@ -94,19 +45,62 @@ export class SpineJsInternationalizationFromJson extends Intl {
   public Locales = new Map<string, any>();
 
   /**
+   * I18n localization function. Returns localized string.
+   * If no translation is avaible at current selected language, then fallback to
+   * default language, if still no translation exists, original text is returned
+   *
+   * @param text - text to localize.
+   * @param args - argument passed to formatted text
+   */
+  public abstract __(text: string | IPhraseWithOptions, ...args: any[]): string;
+
+  /**
+   * Plurals translation of a single phrase. Singular and plural forms will get added to locales if unknown.
+   * Returns translated parsed and substituted string based on last count parameter.
+   *
+   * @param text  - text to localize
+   * @param count - number of items/things
+   * @example use like `__n("%s cats", 1) returns `1 cat`
+   */
+  public abstract __n(text: string | IPhraseWithOptions, count: number): string;
+
+  /**
+   * Returns a list of translations for a given phrase in each language.
+   *
+   * @param text  - text to translate
+   */
+  public abstract __l(text: string): string[];
+
+  /**
+   * Returns a hashed list of translations for a given phrase in each language.
+   *
+   * @param text  - text to translate
+   */
+  public abstract __h(text: string): any[];
+}
+
+/**
+ * Basic internationalization support. Text phrases are read from json files specified
+ * in system.dirs.locales
+ */
+@Injectable(Intl)
+export class SpineJsInternationalizationFromJson extends Intl {
+  /**
+   * Map with avaible translations, keyed by locale name
+   */
+  public Locales = new Map<string, any>();
+
+  /**
    * Logger for this module
    */
-  @Logger({ module: 'Locales' })
+  @Logger('Intl')
   protected Log: Log;
 
   @Autoinject()
   protected Configuration: Configuration;
 
   // tslint:disable-next-line: variable-name
-  private _currentLocale: string;
-
-  // tslint:disable-next-line: variable-name
-  public resolve(_c: IContainer): void {
+  public resolve(): void {
     this.CurrentLocale = this.Configuration.get('intl.defaultLocale', 'en');
 
     const localeDirs = this.Configuration.get('system.dirs.locales', []);
@@ -147,8 +141,8 @@ export class SpineJsInternationalizationFromJson extends Intl {
    * If no translation is avaible at current selected language, then fallback to
    * default language, if still no translation exists, original text is returned
    *
-   * @param text { string | IPhraseWithOptions } - text to localize.
-   * @param args { any[] } - argument passed to formatted text
+   * @param text  - text to localize.
+   * @param args  - argument passed to formatted text
    */
   public __(text: string | IPhraseWithOptions, ...args: any[]): string {
     let locTable;
@@ -175,9 +169,9 @@ export class SpineJsInternationalizationFromJson extends Intl {
    * Plurals translation of a single phrase.
    * Returns translated, parsed and substituted string based on count parameter.
    *
-   * @param text { string } - text to localize
-   * @param count { number } - number of items/things
-   * @example use like `__n("%s cats", 1) returns `1 cat`
+   * @param text  - text to localize
+   * @param count - number of items/things
+   * @example use like `__n("%s cats", 1) returns '1 cat'`
    */
   public __n(text: string | IPhraseWithOptions, count: number): string {
     let locTable;
@@ -198,7 +192,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
 
     if (/%/.test(toLocalize) && this.Locales.has(locale)) {
       const phrase = locTable[toLocalize];
-      const pluralVerb = MakePlural[locale](count);
+      const pluralVerb = (MakePlural as any)[locale](count);
 
       if (phrase[pluralVerb]) {
         return util.format(phrase[pluralVerb], count);
@@ -258,7 +252,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
   /**
    * Returns a list of translations for a given phrase in each language.
    *
-   * @param text { string } - text to translate
+   * @param text - text to translate
    */
   public __l(text: string): string[] {
     if (!text) return [];
@@ -273,7 +267,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
   /**
    * Returns a hashed list of translations for a given phrase in each language.
    *
-   * @param text { string } - text to translate
+   * @param text - text to translate
    */
   public __h(text: string): any[] {
     if (!text) return [];
@@ -291,8 +285,8 @@ export class SpineJsInternationalizationFromJson extends Intl {
  * If no translation is avaible at current selected language, then fallback to
  * default language, if still no translation exists, original text is returned
  *
- * @param text { string } - text to localize.
- * @param locale { string } - selected locale, if not specified - default locale is selected
+ * @param text  - text to localize.
+ * @param locale  - selected locale, if not specified - default locale is selected
  */
 globalAny.__ = (text: string | IPhraseWithOptions, ...args: any[]) => {
   return DI.get<Intl>(Intl).__(text, ...args);
@@ -302,8 +296,8 @@ globalAny.__ = (text: string | IPhraseWithOptions, ...args: any[]) => {
  * Plurals translation of a single phrase. Singular and plural forms will get added to locales if unknown.
  * Returns translated parsed and substituted string based on last count parameter.
  *
- * @param text { string } - text to localize
- * @param count { number } - number of items/things
+ * @param text  - text to localize
+ * @param count  - number of items/things
  * @example use like `__n("%s cats", 1) returns `1 cat`
  */
 globalAny.__n = (text: string | IPhraseWithOptions, count: number) => {
@@ -313,7 +307,7 @@ globalAny.__n = (text: string | IPhraseWithOptions, count: number) => {
 /**
  * Returns a list of translations for a given phrase in each language.
  *
- * @param text { string } - text to translate
+ * @param text  - text to translate
  */
 globalAny.__l = (text: string) => {
   return DI.get<Intl>(Intl).__l(text);
@@ -322,7 +316,7 @@ globalAny.__l = (text: string) => {
 /**
  * Returns a hashed list of translations for a given phrase in each language.
  *
- * @param text { string } - text to translate
+ * @param text  - text to translate
  */
 globalAny.__h = (text: string) => {
   return DI.get<Intl>(Intl).__h(text);
