@@ -2,7 +2,7 @@ import * as express from 'express';
 import { HTTP_STATUS_CODE, HttpAcceptHeaders, DataTransformer } from './interfaces';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { LogModule, Log } from '@spinajs/log';
+import { ILog, Log } from '@spinajs/log';
 import * as pugTemplate from 'pug';
 import { join, normalize } from 'path';
 import * as fs from 'fs';
@@ -109,7 +109,7 @@ const __translateH = (text: string) => {
  * @param status - optional status code
  */
 export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE) {
-  const cfg: Configuration = DI.resolve(Configuration);
+  const cfg: Configuration = DI.get(Configuration);
 
   return (req: express.Request, res: express.Response) => {
     res.set('Content-Type', 'text/html');
@@ -118,7 +118,7 @@ export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE)
       try {
         _render(file, model, status);
       } catch (err) {
-        const log: Log = DI.get<LogModule>(LogModule).getLogger();
+        const log: ILog = DI.resolve(Log, ['http']);
 
         log.warn(`Cannot render pug file ${file}, error: ${err.message}:${err.stack}`, err);
 
@@ -126,7 +126,7 @@ export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE)
         _render('responses/serverError.pug', { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR);
       }
     } catch (err) {
-      const log: Log = DI.resolve<LogModule>(LogModule).getLogger();
+      const log: ILog = DI.resolve(Log, ['http']);
 
       // final fallback rendering error fails, we render embedded html error page
       const ticketNo = randomstring.generate(7);
@@ -182,7 +182,7 @@ export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE)
  *                  to `Accept` header
  */
 export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: string) {
-  const cfg: Configuration = DI.resolve(Configuration);
+  const cfg: Configuration = DI.get(Configuration);
   const acceptedHeaders = cfg.get<HttpAcceptHeaders>('http.AcceptHeaders');
   const transformers = DI.resolve(Array.ofType(DataTransformer));
 
