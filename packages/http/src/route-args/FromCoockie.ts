@@ -30,7 +30,7 @@ export class FromCoockie extends RouteArgs {
         return { CallData: callData, Args: null };
       }
 
-      const [hydrated, hValue] = await this.tryHydrate(arg, param);
+      const [hydrated, hValue] = await this.tryHydrateObject(arg, param);
       if (hydrated) {
         result = hValue;
       }

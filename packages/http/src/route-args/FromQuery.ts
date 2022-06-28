@@ -11,16 +11,6 @@ export class FromQuery extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
-    const arg = req.query[param.Name];
-    let result = null;
-
-    const [hydrated, hValue] = await this.tryHydrate(arg, param);
-    if (hydrated) {
-      result = hValue;
-    } else {
-      result = this.fromRuntimeType(param, arg);
-    }
-
-    return { CallData: callData, Args: result };
+    return { CallData: callData, Args: await this.tryHydrateParam(req.query[param.Name], param) };
   }
 }

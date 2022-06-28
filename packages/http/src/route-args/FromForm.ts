@@ -227,7 +227,7 @@ export class FromForm extends FromFormBase {
     }
 
     let result = this.Data.Fields;
-    const [hydrated, hValue] = await this.tryHydrate(this.Data.Fields, param);
+    const [hydrated, hValue] = await this.tryHydrateObject(this.Data.Fields, param);
     if (hydrated) {
       result = hValue;
     }

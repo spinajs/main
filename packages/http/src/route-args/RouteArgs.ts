@@ -1,7 +1,7 @@
 import { ParameterType, IRouteParameter, IRouteCall, IRoute } from './../interfaces';
 import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator';
-import { DI } from '@spinajs/di';
+import { DI, isConstructor } from '@spinajs/di';
 import _ from 'lodash';
 
 export interface IRouteArgsResult {
@@ -20,7 +20,24 @@ export abstract class RouteArgs implements IRouteArgs {
 
   public abstract extract(callData: IRouteCall, routeParameter: IRouteParameter, req: express.Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
 
-  protected async tryHydrate(arg: any, param: IRouteParameter) {
+  protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter) {
+    let result = null;
+
+    const [hydrated, hValue] = await this.tryHydrateObject(arg, routeParameter);
+    if (hydrated) {
+      result = hValue;
+    } else {
+      result = this.fromRuntimeType(routeParameter, arg);
+    }
+
+    return result;
+  }
+
+  protected async tryHydrateObject(arg: any, param: IRouteParameter) {
+    if (!isConstructor(param.RuntimeType)) {
+      return [false, null];
+    }
+
     const hydrator = Reflect.getMetadata('custom:arg_hydrator', param.RuntimeType);
     if (hydrator) {
       const hInstance = await DI.resolve<ArgHydrator>(hydrator.hydrator, hydrator.options);

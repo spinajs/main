@@ -13,7 +13,7 @@ export class FromBody extends RouteArgs {
     const arg = req.body[param.Name] ? req.body[param.Name] : route.Parameters.size === 1 ? req.body : null;
     let result = null;
 
-    const [hydrated, hValue] = await this.tryHydrate(arg, param);
+    const [hydrated, hValue] = await this.tryHydrateObject(arg, param);
     if (hydrated) {
       result = hValue;
     } else {
