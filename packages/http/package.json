@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http",
-  "version": "1.2.99",
+  "version": "1.2.100",
   "description": "framework HTTP module base on express.js",
   "main": "lib/index.js",
   "private": false,
@@ -42,11 +42,8 @@
     "@spinajs/di": "^1.2.81",
     "@spinajs/exceptions": "^1.2.81",
     "@spinajs/internal-logger": "^1.2.81",
-    "@spinajs/log": "^1.2.88",
-    "@spinajs/reflection": "^1.2.88",
-    "lodash": "^4.17.14",
-    "luxon": "^2.3.0",
-    "uuid": "^8.3.2",
+    "@spinajs/log": "^1.2.100",
+    "@spinajs/reflection": "^1.2.100",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.5",
     "cookie-signature": "^1.1.0",
@@ -56,10 +53,13 @@
     "formidable": "^2.0.1",
     "glob": "^7.1.4",
     "helmet": "^3.23.0",
+    "lodash": "^4.17.14",
+    "luxon": "^2.3.0",
     "mime": "^2.4.6",
     "pug": "^3.0.0",
     "randomstring": "^1.1.5",
-    "tempfile": "3.0.0"
+    "tempfile": "3.0.0",
+    "uuid": "^8.3.2"
   },
   "gitHead": "c176212950faa701149fa49b7717dde1c84809c3"
 }
