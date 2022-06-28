@@ -72,6 +72,7 @@
     "@spinajs/orm-sqlite": "file:packages\\orm-sqlite",
     "@spinajs/electron": "file:packages\\electron",
     "@spinajs/orm-mssql": "file:packages\\orm-mssql",
-    "@spinajs/intl": "file:packages\\intl"
+    "@spinajs/intl": "file:packages\\intl",
+    "@spinajs/rbac": "file:packages\\rbac"
   }
 }
