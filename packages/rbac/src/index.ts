@@ -11,6 +11,7 @@ export * from './password';
 export * from './session';
 export * from './models/User';
 export * from './models/UserMetadata';
+export { AccessControl } from 'accesscontrol';
 
 @Injectable(Bootstrapper)
 export class RbacBootstrapper extends Bootstrapper {

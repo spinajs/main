@@ -1,10 +1,11 @@
-import { SessionProvider, Session, User } from '@spinajs/rbac';
+import { SessionProvider, Session, User, UserSession } from '@spinajs/rbac';
 import { DI } from '@spinajs/di';
 import 'reflect-metadata';
 import * as express from 'express';
 import { Configuration } from '@spinajs/configuration';
 import * as cs from 'cookie-signature';
 import { assert } from 'console';
+import { DateTime } from 'luxon';
 
 /**
  * global express middleware that loads user from session
@@ -16,7 +17,6 @@ export function UserFromSession() {
 
       if (!secureKey) {
         next();
-
         assert(secureKey, 'coockie secure key should be set');
         return;
       }
@@ -24,11 +24,11 @@ export function UserFromSession() {
       const ssid: string | false = cs.unsign(req.cookies.ssid, secureKey);
       if (ssid) {
         const sessionProvider = DI.has(SessionProvider) ? DI.get(SessionProvider) : await DI.resolve(SessionProvider);
-        const session = await sessionProvider.restoreSession(ssid);
+        const session = (await sessionProvider.restoreSession(ssid)) as UserSession;
         if (session) {
           req.User = new User(session.Data);
-          const liveTimeDiff = session.Expiration.getTime() - new Date().getTime();
-          if (liveTimeDiff < 60 * 1000) {
+          const liveTimeDiff = session.Expiration.diff(DateTime.now());
+          if (liveTimeDiff.minutes < 30) {
             await sessionProvider.refreshSession(session);
           }
         }

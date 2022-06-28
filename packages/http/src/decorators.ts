@@ -25,7 +25,7 @@ function Controller(callback: (controller: IControllerDescriptor, target: any, p
   };
 }
 
-function Route(callback: (controller: IControllerDescriptor, route: IRoute, target: any, propertyKey?: string, indexOrDescriptor?: number | PropertyDescriptor) => void) {
+export function Route(callback: (controller: IControllerDescriptor, route: IRoute, target: any, propertyKey?: string, indexOrDescriptor?: number | PropertyDescriptor) => void) {
   return Controller((metadata: IControllerDescriptor, target: any, propertyKey: string, indexOrDescriptor: number | PropertyDescriptor) => {
     let route: IRoute = null;
     if (propertyKey) {
@@ -53,7 +53,7 @@ function Route(callback: (controller: IControllerDescriptor, route: IRoute, targ
   });
 }
 
-function Parameter(type: ParameterType, schema?: any, options?: any) {
+export function Parameter(type: ParameterType | string, schema?: any, options?: any) {
   return (_: IControllerDescriptor, route: IRoute, target: any, propertyKey: string, index: number) => {
     const rType = Reflect.getMetadata('design:paramtypes', target.prototype || target, propertyKey)[index];
 
