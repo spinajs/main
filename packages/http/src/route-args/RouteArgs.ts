@@ -3,6 +3,7 @@ import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator';
 import { DI, isConstructor } from '@spinajs/di';
 import _ from 'lodash';
+import { DateTime } from 'luxon';
 
 export interface IRouteArgsResult {
   CallData: IRouteCall;
@@ -19,6 +20,19 @@ export abstract class RouteArgs implements IRouteArgs {
   abstract get SupportedType(): ParameterType | string;
 
   public abstract extract(callData: IRouteCall, routeParameter: IRouteParameter, req: express.Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
+
+  protected handleDate(arg: any): DateTime {
+    const milis = Number(arg);
+    if (!isNaN(milis)) {
+      return DateTime.fromSeconds(milis);
+    }
+
+    if (_.isString(arg)) {
+      return DateTime.fromISO(arg as string);
+    }
+
+    return DateTime.invalid('no iso or unix timestamp');
+  }
 
   protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter) {
     let result = null;
@@ -61,6 +75,8 @@ export abstract class RouteArgs implements IRouteArgs {
         return (arg as string).toLowerCase() === 'true' ? true : false;
       case 'Object':
         return _.isString(arg) ? JSON.parse(arg) : arg;
+      case 'DateTime':
+        return this.handleDate(arg);
       default:
         return new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg);
     }

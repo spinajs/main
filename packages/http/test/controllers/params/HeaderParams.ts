@@ -1,6 +1,6 @@
 import { BasePath, BaseController, Get, Header, Ok } from '../../../src';
-import { DateTime } from '../../../src';
 import { SampleObject, SampleModel, SampleModelWithHydrator, SampleObjectSchema } from '../../dto';
+import { DateTime } from 'luxon';
 
 @BasePath('params/headers')
 export class HeaderParams extends BaseController {
@@ -35,7 +35,7 @@ export class HeaderParams extends BaseController {
   }
 
   @Get()
-  public headerDate(@Header('x-custom-header') val: DateTime.FromHTTP) {
+  public headerDate(@Header('x-custom-header') val: DateTime) {
     return new Ok({ val });
   }
 }

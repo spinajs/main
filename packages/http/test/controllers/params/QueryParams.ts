@@ -1,4 +1,4 @@
-import { DateTime } from './../../../src';
+import { DateTime } from 'luxon';
 import { ParameterType } from '../../../src/interfaces';
 import { BasePath, BaseController, Get, Query, Ok, Uuid, PKey } from '../../../src';
 import { SampleObject, SampleModel, SampleObjectSchema, SampleModelWithSchema } from '../../dto';
@@ -36,12 +36,12 @@ export class QueryParams extends BaseController {
   }
 
   @Get()
-  public queryDate(@Query() a: DateTime.FromISO) {
+  public queryDate(@Query() a: DateTime) {
     return new Ok({ a });
   }
 
   @Get()
-  public queryDateFromUnixtime(@Query() a: DateTime.FromUnix) {
+  public queryDateFromUnixtime(@Query() a: DateTime) {
     return new Ok({ a });
   }
 

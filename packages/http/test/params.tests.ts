@@ -478,12 +478,14 @@ describe('controller action test params', function () {
         .field({
           id: 1,
           name: 'test',
-          'args[]': 1,
+          'args[0]': 1,
+          'args[1]': 2,
+          'args[2]': 3,
         })
         .type('form');
       expect(spy.args[0][0].id).to.eq('1');
       expect(spy.args[0][0].name).to.eq('test');
-      expect(spy.args[0][0].args).to.include.members([1, 2, 3]);
+      expect(spy.args[0][0].args).to.include.members(['1', '2', '3']);
     });
   });
 
