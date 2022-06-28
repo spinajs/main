@@ -231,7 +231,7 @@ export function JsonFile(options?: IUploadOptions, schema?: any) {
  * @param options - upload options
  */
 export function Form(schema?: any, options?: IFormOptions) {
-  return Route(Parameter(ParameterType.FromForm, schema,options));
+  return Route(Parameter(ParameterType.FromForm, schema, options));
 }
 
 /**

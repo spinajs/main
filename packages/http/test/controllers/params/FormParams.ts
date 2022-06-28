@@ -1,6 +1,6 @@
 import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFile } from '../../../src';
-import { SampleObject } from '../../dto';
-import { SampleModel, SampleModelWithHydrator } from '../../dto';
+import { SampleModelWithHydrator3, SampleObject } from '../../dto';
+import { SampleModel } from '../../dto';
 
 @BasePath('params/forms')
 export class FormParams extends BaseController {
@@ -20,22 +20,22 @@ export class FormParams extends BaseController {
   }
 
   @Post()
-  public formModel(@Form(null, { multiples: true }) model: SampleModel) {
+  public formModel(@Form() model: SampleModel) {
     return new Ok({ model });
   }
 
   @Post()
-  public formModelWithHydrator(@Form() model: SampleModelWithHydrator) {
+  public formModelWithHydrator(@Form() model: SampleModelWithHydrator3) {
     return new Ok({ model });
   }
 
   @Post()
-  public formWithFile(@Form() _contact: any, @File() _index: IUploadedFile) {
-    return new Ok();
+  public formWithFile(@Form() contact: SampleObject, @File() file: IUploadedFile) {
+    return new Ok({ contact, file });
   }
 
   @Post()
-  public fileArray(@File() _files: IUploadedFile[]) {
-    return new Ok();
+  public fileArray(@File() files: IUploadedFile[]) {
+    return new Ok(files);
   }
 }

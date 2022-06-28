@@ -5,13 +5,14 @@ import { Configuration } from '@spinajs/configuration';
 import { Controllers, HttpServer } from '../src';
 import { Intl } from '@spinajs/intl';
 import sinon, { assert } from 'sinon';
-import { req, TestConfiguration } from './common';
+import { dir, req, TestConfiguration } from './common';
 import { expect } from 'chai';
 import { SampleModel, SampleObject } from './dto';
 import { HeaderParams } from './controllers/params/HeaderParams';
 import { UrlParams } from './controllers/params/UrlParams';
 import { BodyParams } from './controllers/params/BodyParams';
 import { FormParams } from './controllers/params/FormParams';
+import * as fs from 'fs';
 
 describe('controller action test params', function () {
   this.timeout(15000);
@@ -486,6 +487,52 @@ describe('controller action test params', function () {
       expect(spy.args[0][0].id).to.eq('1');
       expect(spy.args[0][0].name).to.eq('test');
       expect(spy.args[0][0].args).to.include.members(['1', '2', '3']);
+    });
+
+    it('formModelWithHydrator', async () => {
+      const spy = DI.get(FormParams).formModelWithHydrator as sinon.SinonSpy;
+      await req()
+        .post('params/forms/formModelWithHydrator')
+        .field({
+          id: 1,
+          name: 'test',
+          'args[0]': 1,
+          'args[1]': 2,
+          'args[2]': 3,
+        })
+        .type('form');
+
+      expect(spy.args[0][0].constructor.name).to.eq('SampleModelWithHydrator3');
+      expect(spy.args[0][0].id).to.eq('1');
+      expect(spy.args[0][0].name).to.eq('test');
+      expect(spy.args[0][0].args).to.include.members([1, 2, 3]);
+    });
+
+    it('formWithFile', async () => {
+      const spy = DI.get(FormParams).formWithFile as sinon.SinonSpy;
+      await req()
+        .post('params/forms/formWithFile')
+        .field({
+          id: 1,
+          name: 'test',
+        })
+        .attach('file', fs.readFileSync(dir('./files') + '/test.txt'), { filename: 'test.txt' })
+        .type('form');
+
+      expect(spy.args[0][0].id).to.eq('1');
+      expect(spy.args[0][0].name).to.eq('test');
+      expect(spy.args[0][1].Name).to.eq('test.txt');
+    });
+
+    it('fileArray', async () => {
+      const spy = DI.get(FormParams).fileArray as sinon.SinonSpy;
+      await req()
+        .post('params/forms/fileArray')
+        .attach('files', fs.readFileSync(dir('./files') + '/test.txt'), { filename: 'test.txt' })
+        .attach('files', fs.readFileSync(dir('./files') + '/test2.txt'), { filename: 'test2.txt' })
+        .type('form');
+
+      expect(spy.args[0][0].id).to.be.an('array');
     });
   });
 

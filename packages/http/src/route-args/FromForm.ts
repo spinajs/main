@@ -28,7 +28,7 @@ export interface FormOptions {
 }
 
 export abstract class FromFormBase extends RouteArgs {
-  protected Data: FormData;
+  public Data: FormData;
 
   protected async parseForm(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
     if (callData && callData.Payload && callData.Payload.Form) {
@@ -42,7 +42,7 @@ export abstract class FromFormBase extends RouteArgs {
 
   protected async parse(req: express.Request, options: FormOptions | FormOptionsCallback) {
     if (!this.Data) {
-      let opts: any = options;
+      let opts: any = options || { multiples: true };
 
       if (options && isFunction(options)) {
         opts = await options(DI.get(Configuration));
@@ -72,6 +72,11 @@ export abstract class FromFormBase extends RouteArgs {
 export class FromFile extends FromFormBase {
   public get SupportedType(): ParameterType {
     return ParameterType.FromFile;
+  }
+
+  constructor(data: any) {
+    super();
+    this.Data = data;
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request): Promise<any> {
@@ -130,6 +135,10 @@ export class JsonFileRouteArgs extends FromFile {
     return ParameterType.FromJSONFile;
   }
 
+  constructor(data: any) {
+    super(data);
+  }
+
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
     if (!this.Data) {
       await this.parseForm(callData, param, req);
@@ -159,6 +168,10 @@ export class JsonFileRouteArgs extends FromFile {
 export class CsvFileRouteArgs extends FromFile {
   public get SupportedType(): ParameterType {
     return ParameterType.FromCSV;
+  }
+
+  constructor(data: any) {
+    super(data);
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
@@ -203,6 +216,11 @@ export class FromFormField extends FromFormBase {
     return ParameterType.FormField;
   }
 
+  constructor(data: any) {
+    super();
+    this.Data = data;
+  }
+
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
     if (!this.Data) {
       await this.parseForm(callData, param, req);
@@ -224,6 +242,11 @@ export class FromFormField extends FromFormBase {
 export class FromForm extends FromFormBase {
   public get SupportedType(): ParameterType {
     return ParameterType.FromForm;
+  }
+
+  constructor(data: any) {
+    super();
+    this.Data = data;
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {

@@ -7,7 +7,7 @@ import { ClassInfo, TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflec
 import { HttpServer } from './server';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
-import { RouteArgs } from './route-args';
+import { RouteArgs, FromFormBase } from './route-args';
 
 export abstract class BaseController extends AsyncModule implements IController {
   /**
@@ -151,10 +151,16 @@ export abstract class BaseController extends AsyncModule implements IController 
       };
 
       const argsCache = new Map<ParameterType, RouteArgs>();
+      let formCache: FromFormBase = null;
 
       for (const [, param] of route.Parameters) {
         if (!argsCache.has(param.Type)) {
-          argsCache.set(param.Type, await DI.resolve<RouteArgs>(param.Type));
+          const fArg = await DI.resolve<RouteArgs>(param.Type, formCache ? [formCache.Data] : []);
+          argsCache.set(param.Type, fArg);
+
+          if (!formCache && (param.Type === ParameterType.FormField || param.Type === ParameterType.FromCSV || param.Type === ParameterType.FromJSONFile || param.Type === ParameterType.FromForm || param.Type === ParameterType.FromFile)) {
+            formCache = fArg as any as FromFormBase;
+          }
         }
 
         const extractor = argsCache.get(param.Type);

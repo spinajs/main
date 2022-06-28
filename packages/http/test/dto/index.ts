@@ -58,6 +58,15 @@ export class ModelArgHydrator2 extends ArgHydrator {
   }
 }
 
+export class ModelArgHydrator3 extends ArgHydrator {
+  public async hydrate(input: any): Promise<any> {
+    return new SampleModelWithHydrator3({
+      ...input,
+      args: input.args.map((x: string) => Number(x)),
+    });
+  }
+}
+
 @Hydrator(ModelArgHydrator)
 export class SampleModelWithHydrator {
   public id: number;
@@ -75,5 +84,16 @@ export class SampleModelWithHydrator2 {
 
   constructor(data: string) {
     this.id = Number(data);
+  }
+}
+
+@Hydrator(ModelArgHydrator3)
+export class SampleModelWithHydrator3 {
+  public id: number;
+  public name: string;
+  public args: number[];
+
+  constructor(data: any) {
+    Object.assign(this, data);
   }
 }
