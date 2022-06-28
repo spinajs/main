@@ -13,6 +13,7 @@ import { UrlParams } from './controllers/params/UrlParams';
 import { BodyParams } from './controllers/params/BodyParams';
 import { FormParams } from './controllers/params/FormParams';
 import * as fs from 'fs';
+import { CoockieParams } from './controllers/params/CoockieParams';
 
 describe('controller action test params', function () {
   this.timeout(15000);
@@ -24,6 +25,7 @@ describe('controller action test params', function () {
     sb.spy(UrlParams.prototype as any);
     sb.spy(BodyParams.prototype as any);
     sb.spy(FormParams.prototype as any);
+    sb.spy(CoockieParams.prototype as any);
 
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Intl);
@@ -532,11 +534,17 @@ describe('controller action test params', function () {
         .attach('files', fs.readFileSync(dir('./files') + '/test2.txt'), { filename: 'test2.txt' })
         .type('form');
 
-      expect(spy.args[0][0].id).to.be.an('array');
+      expect(spy.args[0][0]).to.be.an('array');
     });
   });
 
-  describe('coockie params', function () {});
+  describe('coockie params', function () {
+    it('simple', async () => {
+      const spy = DI.get(CoockieParams).simple as sinon.SinonSpy;
+      await req().get('params/coockie/simple').set('Cookie', 'name=hello');
+      expect(spy.args[0][0]).to.eq('hello');
+    });
+  });
 
   describe('from cvs file', function () {});
 

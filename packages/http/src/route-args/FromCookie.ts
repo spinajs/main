@@ -6,8 +6,8 @@ import { Configuration } from '@spinajs/configuration';
 import * as cs from 'cookie-signature';
 
 @Inject(Configuration)
-@Injectable(RouteArgs)
-export class FromCoockie extends RouteArgs {
+@Injectable()
+export class FromCookie extends RouteArgs {
   protected _coockieSecret: string;
 
   constructor(cfg: Configuration) {
@@ -25,7 +25,7 @@ export class FromCoockie extends RouteArgs {
 
     if (arg !== null) {
       let result = null;
-      if (param.Options.secure) {
+      if (param.Options?.secure) {
         result = cs.unsign(arg, this._coockieSecret);
         if (result === false) {
           return { CallData: callData, Args: null };
@@ -34,12 +34,7 @@ export class FromCoockie extends RouteArgs {
         result = arg;
       }
 
-      const [hydrated, hValue] = await this.tryHydrateParam(result, param);
-      if (hydrated) {
-        result = hValue;
-      }
-
-      return { CallData: callData, Args: result };
+      return { CallData: callData, Args: await this.tryHydrateParam(result, param) };
     }
 
     return { CallData: callData, Args: null };
