@@ -2,7 +2,7 @@ import { BasePath, BaseController, Get, Header, Ok } from '../../../src';
 import { DateTime } from '../../../src';
 import { SampleObject, SampleModel, SampleModelWithHydrator, SampleObjectSchema } from '../../dto';
 
-@BasePath('params/v1/headers')
+@BasePath('params/headers')
 export class HeaderParams extends BaseController {
   @Get()
   public headerParamObject(@Header('x-custom-header') val: SampleObject) {

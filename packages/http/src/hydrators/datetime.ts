@@ -19,7 +19,7 @@ export namespace DateTime {
 
   class DateFromHttpHydrator extends ArgHydrator {
     public async hydrate(input: any): Promise<any> {
-      return lDateTime.fromHTTP(input);
+      return lDateTime.fromHTTP(input.startsWith('Date:') ? input.substring(5).trim() : input.trim());
     }
   }
 

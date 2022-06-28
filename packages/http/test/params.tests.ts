@@ -8,6 +8,7 @@ import sinon, { assert } from 'sinon';
 import { req, TestConfiguration } from './common';
 import { expect } from 'chai';
 import { SampleModel, SampleObject } from './dto';
+import { HeaderParams } from './controllers/params/HeaderParams';
 
 describe('controller action test params', function () {
   this.timeout(15000);
@@ -15,6 +16,7 @@ describe('controller action test params', function () {
 
   before(async () => {
     sb.spy(QueryParams.prototype as any);
+    sb.spy(HeaderParams.prototype as any);
 
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Intl);
@@ -123,7 +125,55 @@ describe('controller action test params', function () {
     });
   });
 
-  describe('headers params', function () {});
+  describe('headers params', function () {
+    it('headerParam', async () => {
+      await req().get('params/headers/headerParam').set('x-custom-header', 'hello world');
+      assert.calledWith(DI.get(HeaderParams).headerParam as sinon.SinonSpy, 'hello world');
+    });
+
+    it('headerDate', async () => {
+      const spy = DI.get(HeaderParams).headerDate as sinon.SinonSpy;
+
+      await req().get('params/headers/headerDate').set('x-custom-header', 'Date: Wed, 21 Oct 2015 07:28:00 GMT');
+      expect(spy.args[0][0].constructor.name).to.eq('DateTime');
+      expect(spy.args[0][0].toFormat('dd-MM-yyyy HH:mm:ss')).to.eq('21-10-2015 09:28:00');
+    });
+
+    it('headerParamNoName', async () => {
+      const spy = DI.get(HeaderParams).headerParamNoName as sinon.SinonSpy;
+
+      await req().get('params/headers/headerParamNoName').set('customHeaderName', 'hello world');
+      expect(spy.args[0][0]).to.eq('hello world');
+    });
+
+    it('headerParamObject', async () => {
+      await req().get('params/headers/headerParamObject').set('x-custom-header', '{"id":1,"name":"test"}');
+      assert.calledWith(DI.get(HeaderParams).headerParamObject as sinon.SinonSpy, {
+        id: 1,
+        name: 'test',
+      });
+    });
+    it('headerParamModel', async () => {
+      const spy = DI.get(HeaderParams).headerParamModel as sinon.SinonSpy;
+      await req().get('params/headers/headerParamModel').set('x-custom-header', '{"id":1,"name":"test","args":[1,2,3]}');
+
+      expect(spy.args[0][0].constructor.name).to.eq('SampleModel');
+      expect((spy.args[0][0] as SampleModel).id).to.eq(1);
+      expect((spy.args[0][0] as SampleModel).name).to.eq('test');
+      expect((spy.args[0][0] as SampleModel).args).to.include.members([1, 2, 3]);
+    });
+    it('headerParamObjectWithSchema', async () => {
+      await req().get('params/headers/headerParamObjectWithSchema').set('x-custom-header', '{"id":1,"name":"test"}');
+      assert.calledWith(DI.get(HeaderParams).headerParamObjectWithSchema as sinon.SinonSpy, {
+        id: 1,
+        name: 'test',
+      });
+      const badResult = await req().get('params/headers/headerParamObjectWithSchema').set('x-custom-header', '{"id":"ddd","name":"test"}').set('Accept', 'application/json');
+      expect(badResult).to.have.status(400);
+      expect(badResult).to.be.json;
+      expect(badResult.body).to.be.not.null;
+    });
+  });
 
   describe('url params', function () {});
 
