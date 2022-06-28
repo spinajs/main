@@ -14,6 +14,7 @@ import { BodyParams } from './controllers/params/BodyParams';
 import { FormParams } from './controllers/params/FormParams';
 import * as fs from 'fs';
 import { CoockieParams } from './controllers/params/CoockieParams';
+import { MixedParams } from './controllers/params/MixedParams';
 
 describe('controller action test params', function () {
   this.timeout(15000);
@@ -26,6 +27,7 @@ describe('controller action test params', function () {
     sb.spy(BodyParams.prototype as any);
     sb.spy(FormParams.prototype as any);
     sb.spy(CoockieParams.prototype as any);
+    sb.spy(MixedParams.prototype as any);
 
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Intl);
@@ -543,6 +545,25 @@ describe('controller action test params', function () {
       const spy = DI.get(CoockieParams).simple as sinon.SinonSpy;
       await req().get('params/coockie/simple').set('Cookie', 'name=hello');
       expect(spy.args[0][0]).to.eq('hello');
+    });
+  });
+
+  describe('mixed params', function () {
+    it('mixedArgs', async () => {
+      const spy = DI.get(MixedParams).mixedArgs as sinon.SinonSpy;
+      await req()
+        .post('params/mixed/mixedArgs/1?queryString=queryhello')
+        .set('x-header', 'header')
+        .send({
+          model: {
+            name: 'test',
+          },
+        });
+
+      expect(spy.args[0][0].name).to.eq('test');
+      expect(spy.args[0][1]).to.eq(1);
+      expect(spy.args[0][2]).to.eq('header');
+      expect(spy.args[0][3]).to.eq('queryhello');
     });
   });
 
