@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl",
-  "version": "1.2.102",
+  "version": "1.2.103",
   "description": "internationalization for spinajs framework",
   "main": "lib/index.js",
   "private": false,
@@ -41,8 +41,8 @@
     "@spinajs/configuration": "^1.2.81",
     "@spinajs/di": "^1.2.81",
     "@spinajs/exceptions": "^1.2.81",
-    "@spinajs/log": "^1.2.102",
-    "@spinajs/reflection": "^1.2.102",
+    "@spinajs/log": "^1.2.103",
+    "@spinajs/reflection": "^1.2.103",
     "glob": "^7.1.6",
     "lodash": "^4.17.15",
     "make-plural": "^6.0.1",

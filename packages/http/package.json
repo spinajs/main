@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http",
-  "version": "1.2.102",
+  "version": "1.2.103",
   "description": "framework HTTP module base on express.js",
   "main": "lib/index.js",
   "private": false,
@@ -42,8 +42,8 @@
     "@spinajs/di": "^1.2.81",
     "@spinajs/exceptions": "^1.2.81",
     "@spinajs/internal-logger": "^1.2.81",
-    "@spinajs/log": "^1.2.102",
-    "@spinajs/reflection": "^1.2.102",
+    "@spinajs/log": "^1.2.103",
+    "@spinajs/reflection": "^1.2.103",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.5",
     "cookie-signature": "^1.1.0",
