@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon';
 import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation } from '@spinajs/orm';
 import { UserMetadata } from './UserMetadata';
-import _ = require('lodash');
 
 /**
  * Base modele for users used by ACL

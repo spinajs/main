@@ -1,4 +1,3 @@
-import { DI } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
 import { join, normalize, resolve } from 'path';
@@ -48,9 +47,7 @@ export class TestConfiguration extends FrameworkConfiguration {
       },
       db: {
         DefaultConnection: 'sqlite',
-        Migration: {
-          Startup: true,
-        },
+
         Connections: [
           {
             Debug: {
@@ -61,6 +58,7 @@ export class TestConfiguration extends FrameworkConfiguration {
             Name: 'sqlite',
             Migration: {
               Table: 'orm_migrations',
+              OnStartup: true,
             },
           },
         ],

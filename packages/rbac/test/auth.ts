@@ -4,11 +4,12 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User } from '../src';
 import { expect } from 'chai';
-import { FrameworkConfiguration, Configuration } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration';
 
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
+import { TestConfiguration } from './common';
 
 chai.use(chaiAsPromised);
 
@@ -19,7 +20,7 @@ function dir(path: string) {
 describe('Authorization provider tests', () => {
   before(async () => {
     DI.register(SimpleDbAuthProvider).as(AuthProvider);
-    DI.register(FrameworkConfiguration).as(Configuration);
+    DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     DI.register(BasicPasswordProvider).as(PasswordProvider);
   });
@@ -35,9 +36,10 @@ describe('Authorization provider tests', () => {
       Login: 'test',
       Password: await provider.hash('bbbb'),
       RegisteredAt: new Date(),
+      Role: 'admin',
     });
 
-    await user.insert();
+    await User.insert(user);
   });
 
   afterEach(async () => {

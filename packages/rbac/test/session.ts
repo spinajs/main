@@ -1,17 +1,15 @@
 import { DI } from '@spinajs/di';
-import chaiAsPromised from 'chai-as-promised';
-import * as chai from 'chai';
 import { MemorySessionProvider, SessionProvider, Session } from '../src';
 import { expect } from 'chai';
-import { FrameworkConfiguration, Configuration } from '@spinajs/configuration';
-import { SpinaJsDefaultLog, LogModule } from '@spinajs/log';
-
-chai.use(chaiAsPromised);
+import { Configuration } from '@spinajs/configuration';
+import { TestConfiguration } from './common';
 
 describe('Session provider tests', () => {
   before(async () => {
     DI.register(MemorySessionProvider).as(SessionProvider);
-    DI.register(FrameworkConfiguration).as(Configuration);
+    DI.register(TestConfiguration).as(Configuration);
+
+    await DI.resolve(Configuration);
   });
 
   afterEach(async () => {

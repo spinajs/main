@@ -1,4 +1,4 @@
-import { BasicPasswordProvider } from './../src/password';
+import { BasicPasswordProvider } from '../src/password';
 import { DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -8,13 +8,12 @@ import { expect } from 'chai';
 chai.use(chaiAsPromised);
 
 describe('Password provider tests', () => {
-  beforeEach(async () => {
-    DI.clear();
+  before(async () => {
     DI.register(BasicPasswordProvider).as(PasswordProvider);
   });
 
   afterEach(async () => {
-    DI.clear();
+    DI.clearCache();
   });
 
   it('Should hash password', async () => {

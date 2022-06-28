@@ -2,7 +2,7 @@
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 
 @Migration('default')
-export class RBAC_Initial_2022_28_06_01_13_00 extends OrmMigration {
+export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('users', (table) => {
       table.int('Id').autoIncrement().primaryKey();
