@@ -24,13 +24,17 @@ export class FromCoockie extends RouteArgs {
     const arg = req.cookies[param.Name];
 
     if (arg !== null) {
-      let result = cs.unsign(arg, this._coockieSecret);
-
-      if (result === false) {
-        return { CallData: callData, Args: null };
+      let result = null;
+      if (param.Options.secure) {
+        result = cs.unsign(arg, this._coockieSecret);
+        if (result === false) {
+          return { CallData: callData, Args: null };
+        }
+      } else {
+        result = arg;
       }
 
-      const [hydrated, hValue] = await this.tryHydrateObject(arg, param);
+      const [hydrated, hValue] = await this.tryHydrateParam(result, param);
       if (hydrated) {
         result = hValue;
       }

@@ -541,8 +541,4 @@ describe('controller action test params', function () {
   describe('from cvs file', function () {});
 
   describe('from json files', function () {});
-
-  describe('custom types', function () {});
-
-  describe('date types', function () {});
 });
