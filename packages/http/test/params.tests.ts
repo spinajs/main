@@ -368,6 +368,72 @@ describe('controller action test params', function () {
         },
       ]);
     });
+
+    it('bodyModelWithHydrator', async () => {
+      const spy = DI.get(BodyParams).bodyModelWithHydrator as sinon.SinonSpy;
+      await req()
+        .post('params/body/bodyModelWithHydrator')
+        .send({
+          id: 1,
+          name: 'test',
+          args: [1, 2, 3],
+        });
+
+      expect(spy.args[0][0].constructor.name).to.eq('SampleModelWithHydrator');
+      expect(spy.args[0][0].id).to.eq(1);
+      expect(spy.args[0][0].name).to.eq('test');
+      expect(spy.args[0][0].args).to.include.members([1, 2, 3]);
+    });
+
+    it('bodyObjectWithSchema', async () => {
+      const spy = DI.get(BodyParams).bodyObjectWithSchema as sinon.SinonSpy;
+      await req().post('params/body/bodyObjectWithSchema').send({
+        id: 1,
+        name: 'test',
+      });
+
+      expect(spy.args[0][0].id).to.eq(1);
+      expect(spy.args[0][0].name).to.eq('test');
+
+      const result = await req()
+        .post('params/body/bodyObjectWithSchema')
+        .send({
+          id: 'hello',
+          name: 'test',
+        })
+        .set('Accept', 'application/json');
+
+      expect(result).to.have.status(400);
+      expect(result).to.be.json;
+      expect(result.body).to.be.not.null;
+    });
+
+    it('bodyModelWithSchema', async () => {
+      const spy = DI.get(BodyParams).bodyModelWithSchema as sinon.SinonSpy;
+      await req()
+        .post('params/body/bodyModelWithSchema')
+        .send({
+          id: 1,
+          name: 'test',
+          args: [1, 2, 3],
+        });
+
+      expect(spy.args[0][0].id).to.eq(1);
+      expect(spy.args[0][0].name).to.eq('test');
+      expect(spy.args[0][0].args).to.include.members([1, 2, 3]);
+
+      const result = await req()
+        .post('params/body/bodyModelWithSchema')
+        .send({
+          id: 'hello',
+          name: 'test',
+        })
+        .set('Accept', 'application/json');
+
+      expect(result).to.have.status(400);
+      expect(result).to.be.json;
+      expect(result.body).to.be.not.null;
+    });
   });
 
   describe('form params', function () {});

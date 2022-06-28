@@ -47,25 +47,4 @@ export class BodyParams extends BaseController {
   public bodyModelWithSchema(@Body() object: SampleModelWithSchema) {
     return new Ok({ object });
   }
-
-  @Post()
-  public objectWithSchema(@Body() model: SampleModelWithSchema) {
-    return new Ok({ model });
-  }
-
-  @Post()
-  public objectWithCustomSchema(
-    @Body({
-      type: 'object',
-      properties: {
-        id: { type: 'number' },
-        name: { type: 'string' },
-        args: { type: 'array', items: { type: 'number' } },
-      },
-      required: ['id', 'name', 'args'],
-    })
-    model: SampleModel,
-  ) {
-    return new Ok({ model });
-  }
 }

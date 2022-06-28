@@ -25,7 +25,7 @@ export class FromBody extends RouteArgs {
           result = arg;
           break;
         default:
-          result = new param.RuntimeType(arg);
+          result = param.RuntimeType.name === 'Array' ? arg : new param.RuntimeType(arg);
           break;
       }
     }
