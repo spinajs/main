@@ -9,6 +9,7 @@ import { req, TestConfiguration } from './common';
 import { expect } from 'chai';
 import { SampleModel, SampleObject } from './dto';
 import { HeaderParams } from './controllers/params/HeaderParams';
+import { UrlParams } from './controllers/params/UrlParams';
 
 describe('controller action test params', function () {
   this.timeout(15000);
@@ -17,6 +18,8 @@ describe('controller action test params', function () {
   before(async () => {
     sb.spy(QueryParams.prototype as any);
     sb.spy(HeaderParams.prototype as any);
+    sb.spy(UrlParams.prototype as any);
+
 
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Intl);
@@ -175,7 +178,84 @@ describe('controller action test params', function () {
     });
   });
 
-  describe('url params', function () {});
+  describe('url params', function () {
+    it('simple', async () => {
+      const spy = DI.get(UrlParams).simple as sinon.SinonSpy;
+      await req().get('params/url/simple/1');
+
+      expect(spy.args[0][0]).to.eq(1);
+    });
+
+    it('simple should fail on invalid arg type', async () => {
+      const result = await req().get('params/url/simple/hello').set('Accept', 'application/json');
+
+      expect(result).to.have.status(400);
+      expect(result).to.be.json;
+      expect(result.body).to.be.not.null;
+    });
+
+    it('paramWithHydrator', async () => {
+      const spy = DI.get(UrlParams).paramWithHydrator as sinon.SinonSpy;
+      await req().get('params/url/paramWithHydrator/1111');
+
+      expect(spy.args[0][0].constructor.name).to.eq('SampleModelWithHydrator2');
+      expect(spy.args[0][0].id).to.eq(1111);
+    });
+
+    it('paramWithSchema', async () => {
+      const spy = DI.get(UrlParams).paramWithSchema as sinon.SinonSpy;
+      await req().get('params/url/paramWithSchema/1');
+
+      expect(spy.args[0][0]).to.eq(1);
+
+      const result = await req().get('params/url/paramWithSchema/11111').set('Accept', 'application/json');
+
+      expect(result).to.have.status(400);
+      expect(result).to.be.json;
+      expect(result.body).to.be.not.null;
+    });
+
+    it('multipleParam', async () => {
+      const spy = DI.get(UrlParams).multipleParam as sinon.SinonSpy;
+      await req().get('params/url/multipleParam/1/test/true');
+
+      expect(spy.args[0][0]).to.eq(1);
+      expect(spy.args[0][1]).to.eq('test');
+      expect(spy.args[0][2]).to.eq(true);
+    });
+
+    it('pkey', async () => {
+      const spy = DI.get(UrlParams).pkey as sinon.SinonSpy;
+      await req().get('params/url/pkey/1');
+
+      expect(spy.args[0][0]).to.eq(1);
+
+      const result = await req().get('params/url/pkey/hello').set('Accept', 'application/json');
+
+      expect(result).to.have.status(400);
+      expect(result).to.be.json;
+      expect(result.body).to.be.not.null;
+    });
+
+    it('uuid', async () => {
+      const spy = DI.get(UrlParams).uuid as sinon.SinonSpy;
+      await req().get('params/url/uuid/eb05fc27-77d1-4807-a00a-8a4c86f9680f');
+
+      expect(spy.args[0][0]).to.eq('eb05fc27-77d1-4807-a00a-8a4c86f9680f');
+
+      let result = await req().get('params/url/uuid/eb05fc27-77d1-4807-a00a-0f').set('Accept', 'application/json');
+
+      expect(result).to.have.status(400);
+      expect(result).to.be.json;
+      expect(result.body).to.be.not.null;
+
+      result = await req().get('params/url/uuid/1').set('Accept', 'application/json');
+
+      expect(result).to.have.status(400);
+      expect(result).to.be.json;
+      expect(result.body).to.be.not.null;
+    });
+  });
 
   describe('body params', function () {});
 

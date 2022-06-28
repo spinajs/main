@@ -109,7 +109,7 @@ export class DataValidator extends SyncModule {
   public tryValidate(schemaOrData: object | string, data?: object): [boolean, IValidationError[] | null] {
     let schema: ISchemaObject = null;
 
-    if (!data) {
+    if (data === null || data === undefined) {
       schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject;
     } else {
       if (typeof schemaOrData === 'object') {
