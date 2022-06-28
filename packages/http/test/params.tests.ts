@@ -10,6 +10,7 @@ import { expect } from 'chai';
 import { SampleModel, SampleObject } from './dto';
 import { HeaderParams } from './controllers/params/HeaderParams';
 import { UrlParams } from './controllers/params/UrlParams';
+import { BodyParams } from './controllers/params/BodyParams';
 
 describe('controller action test params', function () {
   this.timeout(15000);
@@ -19,7 +20,7 @@ describe('controller action test params', function () {
     sb.spy(QueryParams.prototype as any);
     sb.spy(HeaderParams.prototype as any);
     sb.spy(UrlParams.prototype as any);
-
+    sb.spy(BodyParams.prototype as any);
 
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Intl);
@@ -257,7 +258,117 @@ describe('controller action test params', function () {
     });
   });
 
-  describe('body params', function () {});
+  describe('body params', function () {
+    it('simple', async () => {
+      const spy = DI.get(BodyParams).simple as sinon.SinonSpy;
+      await req().post('params/body/simple').send({
+        id: 1,
+      });
+
+      expect(spy.args[0][0]).to.eq(1);
+    });
+
+    it('bodyObject', async () => {
+      const spy = DI.get(BodyParams).bodyObject as sinon.SinonSpy;
+      await req().post('params/body/bodyObject').send({
+        id: 1,
+        name: 'test',
+      });
+
+      expect(spy.args[0][0].id).to.eq(1);
+      expect(spy.args[0][0].name).to.eq('test');
+    });
+
+    it('multipleBodyObjects', async () => {
+      const spy = DI.get(BodyParams).multipleBodyObjects as sinon.SinonSpy;
+      await req()
+        .post('params/body/multipleBodyObjects')
+        .send({
+          object1: { id: 1, name: 'test' },
+          object2: { id: 2, name: 'test2' },
+        });
+
+      expect(spy.args[0][0].id).to.eq(1);
+      expect(spy.args[0][0].name).to.eq('test');
+
+      expect(spy.args[0][1].id).to.eq(2);
+      expect(spy.args[0][1].name).to.eq('test2');
+    });
+
+    it('bodyModel', async () => {
+      const spy = DI.get(BodyParams).bodyModel as sinon.SinonSpy;
+      await req()
+        .post('params/body/bodyModel')
+        .send({
+          id: 1,
+          name: 'test',
+          args: [1, 2, 3],
+        });
+
+      expect(spy.args[0][0].id).to.eq(1);
+      expect(spy.args[0][0].name).to.eq('test');
+      expect(spy.args[0][0].args).to.include.members([1, 2, 3]);
+    });
+
+    it('multipleBodyModel', async () => {
+      const spy = DI.get(BodyParams).multipleBodyModel as sinon.SinonSpy;
+      await req()
+        .post('params/body/multipleBodyModel')
+        .send({
+          object1: {
+            id: 1,
+            name: 'test',
+            args: [1, 2, 3],
+          },
+
+          object2: {
+            id: 2,
+            name: 'test2',
+            args: [4, 5, 6],
+          },
+        });
+
+      expect(spy.args[0][0].id).to.eq(1);
+      expect(spy.args[0][0].name).to.eq('test');
+      expect(spy.args[0][0].args).to.include.members([1, 2, 3]);
+
+      expect(spy.args[0][1].id).to.eq(2);
+      expect(spy.args[0][1].name).to.eq('test2');
+      expect(spy.args[0][1].args).to.include.members([4, 5, 6]);
+    });
+
+    it('bodyArray', async () => {
+      const spy = DI.get(BodyParams).bodyArray as sinon.SinonSpy;
+      await req()
+        .post('params/body/bodyArray')
+        .send([
+          {
+            id: 1,
+            name: 'test',
+            args: [1, 2, 3],
+          },
+          {
+            id: 2,
+            name: 'test2',
+            args: [4, 5, 6],
+          },
+        ]);
+
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0]).containSubset([
+        {
+          id: 1,
+          name: 'test',
+          args: [1, 2, 3],
+        },
+        {
+          id: 2,
+          name: 'test2',
+          args: [4, 5, 6],
+        },
+      ]);
+    });
+  });
 
   describe('form params', function () {});
 

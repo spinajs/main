@@ -1,10 +1,10 @@
 import { BaseController, BasePath, Body, Ok, Post } from '../../../src';
 import { SampleModel, SampleModelWithHydrator, SampleModelWithSchema, SampleObject, SampleObjectSchema } from '../../dto';
 
-@BasePath('params/v1/body')
+@BasePath('params/body')
 export class BodyParams extends BaseController {
   @Post()
-  public body(@Body() id: number) {
+  public simple(@Body() id: number) {
     return new Ok({ id });
   }
 

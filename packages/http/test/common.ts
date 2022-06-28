@@ -10,6 +10,10 @@ import chaiAsPromised from 'chai-as-promised';
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
 
+chai.use(require('chai-subset'));
+chai.use(require('chai-like'));
+chai.use(require('chai-things'));
+
 export function req() {
   return chai.request('http://localhost:8888/');
 }
