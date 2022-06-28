@@ -4,7 +4,7 @@ import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import _ from 'lodash';
 
-@Injectable(RouteArgs)
+@Injectable()
 export class FromQuery extends RouteArgs {
   public get SupportedType(): ParameterType {
     return ParameterType.FromQuery;

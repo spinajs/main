@@ -3,7 +3,7 @@ import { IRouteParameter, ParameterType, IRouteCall, IRoute } from '../interface
 import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 
-@Injectable(RouteArgs)
+@Injectable()
 export class FromBody extends RouteArgs {
   public get SupportedType(): ParameterType {
     return ParameterType.FromBody;

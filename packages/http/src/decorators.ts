@@ -376,7 +376,7 @@ export function Get(path?: string) {
  */
 export function Post(path?: string) {
   return Route((_, route: IRoute) => {
-    route.Type = RouteType.GET;
+    route.Type = RouteType.POST;
     route.InternalType = RouteType.POST;
     route.Path = path;
   });

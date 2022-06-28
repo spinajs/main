@@ -1,4 +1,4 @@
-import { IController, IControllerDescriptor, IPolicyDescriptor, BaseMiddleware, ParameterType, IRoute, IMiddlewareDescriptor, BasePolicy } from './interfaces';
+import { IController, IControllerDescriptor, IPolicyDescriptor, BaseMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType } from './interfaces';
 import { AsyncModule, IContainer, Autoinject, DI, Container } from '@spinajs/di';
 import * as express from 'express';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators';
@@ -6,8 +6,8 @@ import { UnexpectedServerError } from '@spinajs/exceptions';
 import { ClassInfo, TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
 import { HttpServer } from './server';
 import { Logger, Log } from '@spinajs/log';
-import { RouteArgs } from './route-args/RouteArgs';
 import { DataValidator } from '@spinajs/validation';
+import { RouteArgs } from './route-args';
 
 export abstract class BaseController extends AsyncModule implements IController {
   /**
@@ -22,11 +22,6 @@ export abstract class BaseController extends AsyncModule implements IController 
 
   @Autoinject()
   protected _validator: DataValidator;
-
-  @Autoinject(RouteArgs)
-  protected _routeArgsExtraction: RouteArgs[];
-
-  protected _routeArgsMap: Map<ParameterType | string, RouteArgs> = new Map();
 
   @Logger('http')
   protected _log: Log;
@@ -110,11 +105,6 @@ export abstract class BaseController extends AsyncModule implements IController 
 
       // register to express router
       (this._router as any)[route.InternalType as string](path, handlers);
-
-      // register route args as map for O(1) lookup
-      this._routeArgsExtraction.forEach((x) => {
-        this._routeArgsMap.set(x.SupportedType, x);
-      });
     }
 
     function _invokeAction(source: any, action: any) {
@@ -160,8 +150,14 @@ export abstract class BaseController extends AsyncModule implements IController 
         Payload: {},
       };
 
+      const argsCache = new Map<ParameterType, RouteArgs>();
+
       for (const [, param] of route.Parameters) {
-        const extractor = self._routeArgsMap.get(param.Type);
+        if (!argsCache.has(param.Type)) {
+          argsCache.set(param.Type, await DI.resolve<RouteArgs>(param.Type));
+        }
+
+        const extractor = argsCache.get(param.Type);
         if (!extractor) {
           throw new UnexpectedServerError('invalid route parameter type for param: ' + param.Name);
         }

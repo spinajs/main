@@ -4,8 +4,8 @@ import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import _ from 'lodash';
 
-@Injectable(RouteArgs)
-export class FromHeaderArg extends RouteArgs {
+@Injectable()
+export class FromHeader extends RouteArgs {
   public get SupportedType(): ParameterType {
     return ParameterType.FromHeader;
   }

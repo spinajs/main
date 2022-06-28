@@ -187,70 +187,70 @@ export enum ParameterType {
   /**
    * Parameter is injected from DI container & resolved
    */
-  FromDi,
+  FromDi = 'FromDi',
 
   /**
    * Parameter value is taken from query string eg. `?name=flavio`
    */
-  FromQuery,
+  FromQuery = 'FromQuery',
 
   /**
    * From message body, eg. POST json object
    */
-  FromBody,
+  FromBody = 'FromBody',
 
   /**
    * From url params eg: `/:id`
    */
-  FromParams,
+  FromParams = 'FromParams',
 
   /**
    * From form file field
    */
-  FromFile,
+  FromFile = 'FromFile',
 
   /**
    * From form
    */
-  FromForm,
+  FromForm = 'FromForm',
 
   /**
    * From cvs file
    */
-  FromCSV,
+  FromCSV = 'FromCSV',
 
   /**
    * From JSON file
    */
-  FromJSONFile,
+  FromJSONFile = 'FromJSONFile',
 
   /**
    * From form field
    */
-  FormField,
+  FormField = 'FromFormField',
 
   /**
    * From model object
    */
-  FromModel,
+  FromModel = 'FromModel',
 
   /**
    * Data from coockie
    */
-  FromCookie,
+  FromCookie = 'FromCookie',
 
   /**
    * From http header
    */
-  FromHeader,
+  FromHeader = 'FromHeader',
 
   /**
    * Req from express
    */
-  Req,
+  Req = 'Req',
 
   // Res from express
-  Res,
+  Res = 'Res',
 }
 
 export interface IFormOptions {

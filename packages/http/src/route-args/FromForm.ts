@@ -4,7 +4,7 @@ import * as express from 'express';
 import { Fields, Files, File, IncomingForm } from 'formidable';
 import { Configuration } from '@spinajs/configuration';
 import { isFunction } from 'lodash';
-import { DI, Injectable } from '@spinajs/di';
+import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from '@fast-csv/parse';
 import * as fs from 'fs';
 
@@ -67,7 +67,8 @@ export abstract class FromFormBase extends RouteArgs {
   }
 }
 
-@Injectable(RouteArgs)
+@Injectable()
+@NewInstance()
 export class FromFile extends FromFormBase {
   public get SupportedType(): ParameterType {
     return ParameterType.FromFile;
@@ -122,7 +123,8 @@ export class FromFile extends FromFormBase {
   }
 }
 
-@Injectable(RouteArgs)
+@Injectable()
+@NewInstance()
 export class JsonFileRouteArgs extends FromFile {
   public get SupportedType(): ParameterType {
     return ParameterType.FromJSONFile;
@@ -152,7 +154,8 @@ export class JsonFileRouteArgs extends FromFile {
   }
 }
 
-@Injectable(RouteArgs)
+@Injectable()
+@NewInstance()
 export class CsvFileRouteArgs extends FromFile {
   public get SupportedType(): ParameterType {
     return ParameterType.FromCSV;
@@ -193,10 +196,11 @@ export class CsvFileRouteArgs extends FromFile {
   }
 }
 
-@Injectable(RouteArgs)
+@Injectable()
+@NewInstance()
 export class FromFormField extends FromFormBase {
   public get SupportedType(): ParameterType {
-    return ParameterType.FromForm;
+    return ParameterType.FormField;
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
@@ -215,7 +219,8 @@ export class FromFormField extends FromFormBase {
     };
   }
 }
-@Injectable(RouteArgs)
+@Injectable()
+@NewInstance()
 export class FromForm extends FromFormBase {
   public get SupportedType(): ParameterType {
     return ParameterType.FromForm;

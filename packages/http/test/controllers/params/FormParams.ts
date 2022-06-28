@@ -2,7 +2,7 @@ import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFil
 import { SampleObject } from '../../dto';
 import { SampleModel, SampleModelWithHydrator } from '../../dto';
 
-@BasePath('params/v1/forms')
+@BasePath('params/forms')
 export class FormParams extends BaseController {
   @Post()
   public formField(@FormField() name: string) {

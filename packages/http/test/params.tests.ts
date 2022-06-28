@@ -11,6 +11,7 @@ import { SampleModel, SampleObject } from './dto';
 import { HeaderParams } from './controllers/params/HeaderParams';
 import { UrlParams } from './controllers/params/UrlParams';
 import { BodyParams } from './controllers/params/BodyParams';
+import { FormParams } from './controllers/params/FormParams';
 
 describe('controller action test params', function () {
   this.timeout(15000);
@@ -21,6 +22,7 @@ describe('controller action test params', function () {
     sb.spy(HeaderParams.prototype as any);
     sb.spy(UrlParams.prototype as any);
     sb.spy(BodyParams.prototype as any);
+    sb.spy(FormParams.prototype as any);
 
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Intl);
@@ -436,7 +438,26 @@ describe('controller action test params', function () {
     });
   });
 
-  describe('form params', function () {});
+  describe('form params', function () {
+    it('formField', async () => {
+      const spy = DI.get(FormParams).formField as sinon.SinonSpy;
+      await req().post('params/forms/formField').field('name', 'test').type('form');
+      expect(spy.args[0][0]).to.eq('test');
+    });
+
+    it('multipleFormField', async () => {
+      const spy = DI.get(FormParams).multipleFormField as sinon.SinonSpy;
+      await req()
+        .post('params/forms/multipleFormField')
+        .field({
+          name: 'test',
+          name2: 'test2',
+        })
+        .type('form');
+      expect(spy.args[0][0]).to.eq('test');
+      expect(spy.args[0][1]).to.eq('test2');
+    });
+  });
 
   describe('coockie params', function () {});
 
