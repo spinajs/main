@@ -18,7 +18,7 @@ export class FromQuery extends RouteArgs {
     if (hydrated) {
       result = hValue;
     } else {
-      return this.fromRuntimeType(param, arg);
+      result = this.fromRuntimeType(param, arg);
     }
 
     return { CallData: callData, Args: result };
