@@ -20,7 +20,7 @@ export class Session implements UserSession {
 
   public Creation: DateTime;
 
-  constructor(data: UserSessionData) {
+  constructor(data?: UserSessionData) {
     if (data) {
       Object.assign(this, data);
     }

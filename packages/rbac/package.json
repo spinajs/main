@@ -51,5 +51,8 @@
     "uuid": "^8.1.0",
     "luxon": "^2.4.0"
   },
+  "devDependencies": {
+    "@spinajs/orm-sqlite": "1.2.103"
+  },
   "gitHead": "67b73bfdbf9636d3cf10812d59fafb43cc860965"
 }

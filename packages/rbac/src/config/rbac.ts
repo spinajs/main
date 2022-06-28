@@ -13,6 +13,16 @@ module.exports = {
   },
   rbac: {
     // default roles to manage users & guest account
+    roles: [
+      {
+        Name: 'Admin',
+        Description: 'Administrator',
+      },
+      {
+        Name: 'User',
+        Description: 'Simple account without any privlidge',
+      },
+    ],
     defaultRole: 'guest',
     session: {
       // 2h session expiration  time
