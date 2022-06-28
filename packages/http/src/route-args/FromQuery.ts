@@ -18,25 +18,7 @@ export class FromQuery extends RouteArgs {
     if (hydrated) {
       result = hValue;
     } else {
-      switch (param.RuntimeType.name) {
-        // query params are always sent as strings, even numbers,
-        // we must try to parse them as integers / booleans / objects
-        case 'String':
-          result = arg;
-          break;
-        case 'Number':
-          result = Number(arg);
-          break;
-        case 'Boolean':
-          result = (arg as string).toLowerCase() === 'true' ? true : false;
-          break;
-        case 'Object':
-          result = _.isString(arg) ? JSON.parse(arg) : arg;
-          break;
-        default:
-          result = new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg);
-          break;
-      }
+      return this.fromRuntimeType(param, arg);
     }
 
     return { CallData: callData, Args: result };

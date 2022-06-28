@@ -2,6 +2,7 @@ import { ParameterType, IRouteParameter, IRouteCall, IRoute } from './../interfa
 import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator';
 import { DI } from '@spinajs/di';
+import _ from 'lodash';
 
 export interface IRouteArgsResult {
   CallData: IRouteCall;
@@ -29,5 +30,22 @@ export abstract class RouteArgs implements IRouteArgs {
     }
 
     return [false, null];
+  }
+
+  protected fromRuntimeType(param: IRouteParameter, arg: any) {
+    switch (param.RuntimeType.name) {
+      // query params are always sent as strings, even numbers,
+      // we must try to parse them as integers / booleans / objects
+      case 'String':
+        return arg;
+      case 'Number':
+        return Number(arg);
+      case 'Boolean':
+        return (arg as string).toLowerCase() === 'true' ? true : false;
+      case 'Object':
+        return _.isString(arg) ? JSON.parse(arg) : arg;
+      default:
+        return new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg);
+    }
   }
 }
