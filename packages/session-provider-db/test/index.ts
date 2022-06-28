@@ -1,0 +1,1 @@
+describe('Authorization provider tests', () => {});
