@@ -1,26 +1,54 @@
 {
-  "name": "rbac-http",
+  "name": "@spinajs/rbac-http",
   "version": "1.2.103",
-  "description": "> TODO: description",
-  "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
-  "homepage": "https://github.com/spinajs/main#readme",
-  "license": "ISC",
-  "main": "lib/rbac-http.js",
-  "directories": {
-    "lib": "lib",
-    "test": "__tests__"
+  "description": "HTTP API for user session & permissions",
+  "main": "lib/index.js",
+  "private": false,
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -p tsconfig.build.json",
+    "clean": "",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
   },
   "files": [
-    "lib"
+    "lib/**/*"
   ],
+  "types": "lib",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
   },
-  "scripts": {
-    "test": "echo \"Error: run tests from root\" && exit 1"
-  },
+  "keywords": [
+    "spinajs",
+    "rbac"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/spinajs/main/issues"
-  }
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/configuration": "^1.2.81",
+    "@spinajs/di": "^1.2.81",
+    "@spinajs/exceptions": "^1.2.81",
+    "@spinajs/log": "^1.2.103",
+    "@spinajs/reflection": "^1.2.103",
+    "@spinajs/orm": "^1.2.103",
+    "@spinajs/rbac": "^1.2.103",
+    "luxon": "^2.4.0"
+  },
+  "devDependencies": {
+    "@spinajs/orm-sqlite": "1.2.103"
+  },
+  "gitHead": "67b73bfdbf9636d3cf10812d59fafb43cc860965"
 }

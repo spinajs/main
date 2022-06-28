@@ -21,6 +21,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
       Email: email,
     })
       .andWhere('DeletedAt', null)
+      .populate('Metadata')
       .first();
 
     if (!result) {
@@ -28,11 +29,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
     }
 
     const valid = await pwd.verify(result.Password, password);
-    if (valid) {
-      await result.Metadata.populate();
-      return result;
-    }
 
-    return null;
+    return result;
   }
 }

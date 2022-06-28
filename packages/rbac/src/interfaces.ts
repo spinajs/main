@@ -6,7 +6,7 @@ export interface UserSessionData {
   /**
    * Session identifier
    */
-  SessionId: string;
+  SessionId?: string;
 
   /**
    * Expiration date. After that date session is invalid
@@ -16,7 +16,7 @@ export interface UserSessionData {
   /**
    * Session creation date. After that date session is invalid
    */
-  Creation: DateTime;
+  Creation?: DateTime;
 
   /**
    * Data holds by session
