@@ -1,5 +1,5 @@
 import { Constructor } from '@spinajs/di';
-import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, BaseMiddleware, IRoute, IUploadOptions, UuidVersion } from './interfaces';
+import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, BaseMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions } from './interfaces';
 import { ArgHydrator } from './route-args/ArgHydrator';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas';
 
@@ -230,8 +230,8 @@ export function JsonFile(options?: IUploadOptions, schema?: any) {
  *
  * @param options - upload options
  */
-export function Form(schema?: any) {
-  return Route(Parameter(ParameterType.FromForm, schema));
+export function Form(schema?: any, options?: IFormOptions) {
+  return Route(Parameter(ParameterType.FromForm, schema,options));
 }
 
 /**
@@ -240,8 +240,8 @@ export function Form(schema?: any) {
  *
  * @param options - upload options
  */
-export function FormField(schema?: any) {
-  return Route(Parameter(ParameterType.FormField, schema));
+export function FormField(schema?: any, options?: IFormOptions) {
+  return Route(Parameter(ParameterType.FormField, schema, options));
 }
 
 /**

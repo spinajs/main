@@ -20,7 +20,7 @@ export class FormParams extends BaseController {
   }
 
   @Post()
-  public formModel(@Form() model: SampleModel) {
+  public formModel(@Form(null, { multiples: true }) model: SampleModel) {
     return new Ok({ model });
   }
 

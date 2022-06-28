@@ -457,6 +457,34 @@ describe('controller action test params', function () {
       expect(spy.args[0][0]).to.eq('test');
       expect(spy.args[0][1]).to.eq('test2');
     });
+
+    it('formObject', async () => {
+      const spy = DI.get(FormParams).formObject as sinon.SinonSpy;
+      await req()
+        .post('params/forms/formObject')
+        .field({
+          id: 1,
+          name: 'test',
+        })
+        .type('form');
+      expect(spy.args[0][0].id).to.eq('1');
+      expect(spy.args[0][0].name).to.eq('test');
+    });
+
+    it('formModel', async () => {
+      const spy = DI.get(FormParams).formModel as sinon.SinonSpy;
+      await req()
+        .post('params/forms/formModel')
+        .field({
+          id: 1,
+          name: 'test',
+          'args[]': 1,
+        })
+        .type('form');
+      expect(spy.args[0][0].id).to.eq('1');
+      expect(spy.args[0][0].name).to.eq('test');
+      expect(spy.args[0][0].args).to.include.members([1, 2, 3]);
+    });
   });
 
   describe('coockie params', function () {});

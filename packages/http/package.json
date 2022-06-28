@@ -46,7 +46,20 @@
     "@spinajs/reflection": "^1.2.88",
     "lodash": "^4.17.14",
     "luxon": "^2.3.0",
-    "uuid": "^8.3.2"
+    "uuid": "^8.3.2",
+    "compression": "^1.7.4",
+    "cookie-parser": "^1.4.5",
+    "cookie-signature": "^1.1.0",
+    "cors": "^2.8.5",
+    "express": "^4.17.1",
+    "fast-csv": "^4.3.6",
+    "formidable": "^2.0.1",
+    "glob": "^7.1.4",
+    "helmet": "^3.23.0",
+    "mime": "^2.4.6",
+    "pug": "^3.0.0",
+    "randomstring": "^1.1.5",
+    "tempfile": "3.0.0"
   },
   "gitHead": "c176212950faa701149fa49b7717dde1c84809c3"
 }

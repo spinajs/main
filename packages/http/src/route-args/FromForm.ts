@@ -94,10 +94,10 @@ export class FromFile extends FromFormBase {
         Args: formFiles.map((f: File) => {
           return {
             Size: f.size,
-            Path: f.path,
-            Name: f.name,
-            Type: f.type,
-            LastModifiedDate: f.lastModifiedDate,
+            Path: f.filepath,
+            Name: f.originalFilename,
+            Type: f.mimetype,
+            LastModifiedDate: f.mtime,
             Hash: f.hash,
           };
         }),
@@ -112,10 +112,10 @@ export class FromFile extends FromFormBase {
         },
         Args: {
           Size: formFiles.size,
-          Path: formFiles.path,
-          Name: formFiles.name,
-          Type: formFiles.type,
-          LastModifiedDate: formFiles.lastModifiedDate,
+          Path: formFiles.filepath,
+          Name: formFiles.originalFilename,
+          Type: formFiles.mimetype,
+          LastModifiedDate: formFiles.mtime,
           Hash: formFiles.hash,
         },
       };
@@ -135,7 +135,7 @@ export class JsonFileRouteArgs extends FromFile {
       await this.parseForm(callData, param, req);
     }
 
-    const sourceFile = (this.Data.Files[param.Name] as File).path;
+    const sourceFile = (this.Data.Files[param.Name] as File).filepath;
     const content = await fs.promises.readFile(sourceFile, { encoding: param.Options.Encoding ?? 'utf-8', flag: 'r' });
 
     if (param.Options.DeleteFile) {
@@ -166,7 +166,7 @@ export class CsvFileRouteArgs extends FromFile {
       await this.parseForm(callData, param, req);
     }
 
-    const sourceFile = (this.Data.Files[param.Name] as File).path;
+    const sourceFile = (this.Data.Files[param.Name] as File).filepath;
     if (param.Options.DeleteFile) {
       fs.promises.unlink(sourceFile);
     }

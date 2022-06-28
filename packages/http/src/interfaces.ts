@@ -254,6 +254,10 @@ export enum ParameterType {
 }
 
 export interface IFormOptions {
+  multiples: boolean;
+}
+
+export interface IFormOptions {
   /**
    * default 1000; limit the number of fields that the Querystring parser will decode, set 0 for unlimited
    */
