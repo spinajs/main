@@ -167,7 +167,7 @@ export abstract class BaseController extends AsyncModule implements IController 
         }
 
         const { Args } = await extractor.extract(callData, param, req, res, route);
-        self._validator.validate(Args);
+        param.Schema ? self._validator.validate(param.Schema, Args) : self._validator.validate(Args);
         args[param.Index] = Args;
       }
 

@@ -2,6 +2,7 @@ import { RouteArgs } from './RouteArgs';
 import { IRouteParameter, ParameterType, IRouteCall } from '../interfaces';
 import * as express from 'express';
 import { Injectable } from '@spinajs/di';
+import _ from 'lodash';
 
 @Injectable(RouteArgs)
 export class FromQuery extends RouteArgs {
@@ -13,7 +14,7 @@ export class FromQuery extends RouteArgs {
     const arg = req.query[param.Name];
     let result = null;
 
-    const [hydrated, hValue] = await this.tryHydrate(result, param);
+    const [hydrated, hValue] = await this.tryHydrate(arg, param);
     if (hydrated) {
       result = hValue;
     } else {
@@ -30,10 +31,10 @@ export class FromQuery extends RouteArgs {
           result = (arg as string).toLowerCase() === 'true' ? true : false;
           break;
         case 'Object':
-          result = arg;
+          result = _.isString(arg) ? JSON.parse(arg) : arg;
           break;
         default:
-          result = new param.RuntimeType(arg);
+          result = new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg);
           break;
       }
     }

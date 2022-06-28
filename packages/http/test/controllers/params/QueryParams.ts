@@ -3,10 +3,10 @@ import { ParameterType } from '../../../src/interfaces';
 import { BasePath, BaseController, Get, Query, Ok, Uuid, PKey } from '../../../src';
 import { SampleObject, SampleModel, SampleObjectSchema, SampleModelWithSchema } from '../../dto';
 
-@BasePath('params/v1/query')
+@BasePath('params/query')
 export class QueryParams extends BaseController {
   @Get()
-  public query(@Query() a: string, @Query() b: boolean, @Query() c: number) {
+  public simple(@Query() a: string, @Query() b: boolean, @Query() c: number) {
     return new Ok({ a, b, c });
   }
 

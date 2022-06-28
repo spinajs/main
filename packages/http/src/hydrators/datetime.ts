@@ -1,4 +1,5 @@
 import { Schema } from '@spinajs/validation';
+import _ from 'lodash';
 import { DateTime as lDateTime } from 'luxon';
 import { Hydrator } from '../decorators';
 import { ArgHydrator } from '../route-args/ArgHydrator';
@@ -6,11 +7,17 @@ import { ArgHydrator } from '../route-args/ArgHydrator';
 export namespace DateTime {
   class DateFromUnixHydrator extends ArgHydrator {
     public async hydrate(input: any): Promise<any> {
-      return lDateTime.fromSeconds(input);
+      return lDateTime.fromSeconds(_.isString(input) ? Number(input) : input);
     }
   }
 
-  class DateFromHTTPHydrator extends ArgHydrator {
+  class DateFromIsoHydrator extends ArgHydrator {
+    public async hydrate(input: any): Promise<any> {
+      return lDateTime.fromISO(input);
+    }
+  }
+
+  class DateFromHttpHydrator extends ArgHydrator {
     public async hydrate(input: any): Promise<any> {
       return lDateTime.fromHTTP(input);
     }
@@ -24,13 +31,13 @@ export namespace DateTime {
   @Hydrator(DateFromUnixHydrator)
   export class FromUnix extends lDateTime {}
 
-  @Hydrator(DateFromHTTPHydrator)
+  @Hydrator(DateFromHttpHydrator)
   export class FromHTTP extends lDateTime {}
 
   @Schema({
     type: 'string',
     format: 'iso-date-time',
   })
-  @Hydrator(DateFromHTTPHydrator)
+  @Hydrator(DateFromIsoHydrator)
   export class FromISO extends lDateTime {}
 }

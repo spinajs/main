@@ -122,25 +122,22 @@ export class DataValidator extends SyncModule {
       }
     }
 
-    if (!schema) {
-      if (!schema) {
-        return [
-          false,
-          [
-            {
-              keyword: 'empty_schema',
-              instancePath: './',
-              schemaPath: '',
-              params: { data: '' },
-            },
-          ],
-        ];
+    if (schema) {
+      // return [
+      //   false,
+      //   [
+      //     {
+      //       keyword: 'empty_schema',
+      //       instancePath: './',
+      //       schemaPath: '',
+      //       params: { data: '' },
+      //     },
+      //   ],
+      // ];
+      const result = this.Validator.validate(schema, data ? data : schemaOrData);
+      if (!result) {
+        return [false, this.Validator.errors ?? null];
       }
-    }
-
-    const result = this.Validator.validate(schema, data ? data : schemaOrData);
-    if (!result) {
-      return [false, this.Validator.errors ?? null];
     }
 
     return [true, null];

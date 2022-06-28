@@ -1,6 +1,7 @@
 import { Constructor } from '@spinajs/di';
 import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, BaseMiddleware, IRoute, IUploadOptions, UuidVersion } from './interfaces';
 import { ArgHydrator } from './route-args/ArgHydrator';
+import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas';
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
 
@@ -54,11 +55,27 @@ function Route(callback: (controller: IControllerDescriptor, route: IRoute, targ
 
 function Parameter(type: ParameterType, schema?: any, options?: any) {
   return (_: IControllerDescriptor, route: IRoute, target: any, propertyKey: string, index: number) => {
+    const rType = Reflect.getMetadata('design:paramtypes', target.prototype || target, propertyKey)[index];
+
+    let tSchema = null;
+    if (!schema) {
+      switch (rType.name) {
+        case 'Number':
+          tSchema = ROUTE_ARG_SCHEMA.Number;
+          break;
+        case 'String':
+          tSchema = ROUTE_ARG_SCHEMA.String;
+          break;
+        case 'Boolean':
+          tSchema = ROUTE_ARG_SCHEMA.Boolean;
+      }
+    }
+
     const param: IRouteParameter = {
       Index: index,
       Name: '',
-      RuntimeType: Reflect.getMetadata('design:paramtypes', target.prototype || target, propertyKey)[index],
-      Schema: schema,
+      RuntimeType: rType,
+      Schema: schema ?? tSchema,
       Options: options,
       Type: type,
     };
@@ -245,7 +262,7 @@ export function Uuid(type?: ParameterType, version?: UuidVersion) {
   return Route(
     Parameter(
       type ? type : ParameterType.FromParams,
-      { type: 'string', minLength: 32, maxLength: 32 },
+      { type: 'string', minLength: 36, maxLength: 36, pattern: '^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$' },
       {
         version: version ?? UuidVersion.v4,
       },

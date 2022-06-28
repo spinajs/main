@@ -143,14 +143,13 @@ export class HttpServer extends AsyncModule {
       this.Log.error(`Route error: ${err}, stack: ${err.stack}`, err.parameter);
 
       const error = {
-        error: {
-          message: err.message,
-          stack: {},
-        },
+        ...err,
+        message: err.message,
+        stack: {},
       };
 
       if (process.env.NODE_ENV === 'development') {
-        error.error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
+        error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
       }
 
       let response = null;
