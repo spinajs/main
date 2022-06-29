@@ -9,7 +9,6 @@ import { Orm } from '@spinajs/orm';
 import { TestConfiguration } from './common';
 import { Test } from './models/Test';
 import '../src/index';
-//import { IntlOrm } from '../src/index';
 
 chai.use(chaiAsPromised);
 
@@ -17,9 +16,6 @@ describe('ORM intl tests', () => {
   before(async () => {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-
-    // const b = await DI.resolve(IntlOrm);
-    // b.bootstrap();
   });
 
   beforeEach(async () => {

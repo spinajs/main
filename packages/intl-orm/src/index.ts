@@ -183,13 +183,3 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
   this._relations.push(relInstance);
   return this;
 };
-
-// @Injectable(Bootstrapper)
-// export class IntlOrm extends Bootstrapper {
-//   public bootstrap(): void {
-//     DI.register(IntlBelongsToRelation).as(BelongsToRelation);
-//     DI.register(IntlBelongsToRecursiveRelation).as(BelongsToRecursiveRelation);
-//     DI.register(IntlOneToManyRelation).as(OneToManyRelation);
-//     DI.register(IntlManyToManyRelation).as(ManyToManyRelation);
-//   }
-// }
