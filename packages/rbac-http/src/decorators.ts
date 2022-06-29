@@ -1,10 +1,8 @@
-import { IAclDescriptor, IAclRoutePermissionDescriptor } from './interfaces';
+import { IAclDescriptor, IAclRoutePermissionDescriptor, PermissionType } from './interfaces';
 import { Parameter, Policy, Route } from '@spinajs/http';
 import { AclPolicy } from './policies';
 
 export const ACL_CONTROLLER_DESCRIPTOR = Symbol('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
-
-export type Permission = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
 
 function descriptor(callback: (controller: IAclDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
@@ -31,7 +29,7 @@ function descriptor(callback: (controller: IAclDescriptor, target: any, property
  * @param resource - name of resource
  * @param permission - default permission
  */
-export function Resource(resource: string, permission: Permission = 'readOwn') {
+export function Resource(resource: string, permission: PermissionType = 'readOwn') {
   return descriptor((metadata: IAclDescriptor, target: any) => {
     Policy(AclPolicy)(target, null, null);
 
@@ -46,7 +44,7 @@ export function Resource(resource: string, permission: Permission = 'readOwn') {
  *
  * @param permission - permission to set
  */
-export function Permission(permission: Permission = 'readOwn') {
+export function Permission(permission: PermissionType = 'readOwn') {
   return descriptor((metadata: IAclDescriptor, target: any, propertyKey: string) => {
     let route: IAclRoutePermissionDescriptor = null;
 
