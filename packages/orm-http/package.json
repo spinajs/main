@@ -48,6 +48,8 @@
     "luxon": "^2.4.0"
   },
   "devDependencies": {
+    "@spinajs/http": "1.2.108",
+    "@spinajs/orm": "1.2.108",
     "@spinajs/orm-sqlite": "^1.2.108"
   },
   "gitHead": "ff85a9c2820de1a256204b2e1a7fed3a84c5da88"

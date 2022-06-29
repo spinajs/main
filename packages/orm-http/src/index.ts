@@ -18,7 +18,6 @@ export class FromDbModel extends AsyncModule implements IRouteArgs {
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
-    const model = this.Orm.Models.find((m) => m.name === param.RuntimeType);
     let p: any = null;
 
     switch (param.Options.type) {
@@ -37,11 +36,11 @@ export class FromDbModel extends AsyncModule implements IRouteArgs {
         break;
     }
 
-    const result = await model.type['findOrFail'](p);
+    const result = await param.RuntimeType['getOrFail'](p);
     return { CallData: callData, Args: result };
   }
 }
 
-export function FromModel(field?: string, type?: ParameterType) {
+export function FromDB(field?: string, type?: ParameterType) {
   return Route(Parameter('FromDbModel', null, { field, type }));
 }

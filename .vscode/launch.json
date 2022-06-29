@@ -32,6 +32,20 @@
         {
             "type": "node",
             "request": "launch",
+            "name": "ORM HTTP test",
+            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+            "args": [
+                "-r",
+                "ts-node/register",
+                "--timeout",
+                "999999",
+                "--colors",
+                "${workspaceFolder}/packages/orm-http/test/**/*.ts",
+            ],
+        },
+        {
+            "type": "node",
+            "request": "launch",
             "name": "INTL-ORM test",
             "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
             "args": [

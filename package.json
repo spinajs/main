@@ -76,6 +76,7 @@
     "@spinajs/rbac": "file:packages\\rbac",
     "@spinajs/rbac-html": "file:packages\\rbac-html",
     "@spinajs/session-provider-db": "file:packages\\session-provider-db",
-    "@spinajs/intl-orm": "file:packages\\intl-orm"
+    "@spinajs/intl-orm": "file:packages\\intl-orm",
+    "@spinajs/orm-http": "file:packages\\orm-http"
   }
 }
