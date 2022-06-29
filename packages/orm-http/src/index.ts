@@ -1,6 +1,6 @@
-import { Orm } from '@spinajs/orm';
-import { IRouteArgs, IRouteParameter, IRouteCall, Parameter, Route, ParameterType } from '@spinajs/http';
-import { AsyncModule, IContainer, Injectable, Container, Autoinject } from '@spinajs/di';
+import { Orm, ModelBase } from '@spinajs/orm';
+import { IRouteArgs, IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator } from '@spinajs/http';
+import { AsyncModule, IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
 import * as express from 'express';
 
 @Injectable()
@@ -41,6 +41,26 @@ export class FromDbModel extends AsyncModule implements IRouteArgs {
   }
 }
 
+export class DbModelHydrator extends ArgHydrator {
+  public async hydrate(input: any, parameter: IRouteParameter): Promise<any> {
+    const model: ModelBase = new parameter.RuntimeType();
+    model.hydrate(input);
+    return model;
+  }
+}
+
 export function FromDB(field?: string, type?: ParameterType) {
   return Route(Parameter('FromDbModel', null, { field, type }));
+}
+
+@Injectable(Bootstrapper)
+export class OrmHttpBootstrapper extends Bootstrapper {
+  public async bootstrap(): Promise<void> {
+    const orm = await DI.resolve(Orm);
+
+    // set default route parameter hydrator for all loaded models
+    orm.Models.forEach((m) => {
+      Reflect.defineMetadata('custom:arg_hydrator', { hydrator: DbModelHydrator }, m.type);
+    });
+  }
 }

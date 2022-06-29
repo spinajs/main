@@ -11,6 +11,7 @@ import 'mocha';
 import sinon from 'sinon';
 import { expect } from 'chai';
 import chaiHttp from 'chai-http';
+import { OrmHttpBootstrapper } from './../src/index';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -33,6 +34,9 @@ describe('Http orm tests', () => {
     const server = await DI.resolve(HttpServer);
 
     server.start();
+
+    const b = await DI.resolve(OrmHttpBootstrapper);
+    b.bootstrap();
   });
 
   after(async () => {
@@ -53,6 +57,20 @@ describe('Http orm tests', () => {
 
       expect(spy.args[0][0].constructor.name).to.eq('Test');
       expect(spy.args[0][0].Text).to.equal('witaj');
+    });
+
+    it('should hydrate data to model', async () => {
+      const spy = DI.get(Simple).testHydrate as sinon.SinonSpy;
+      await req()
+        .post('simple/testHydrate')
+        .send({
+          model: {
+            Text: 'hydrated',
+          },
+        });
+
+      expect(spy.args[0][0].constructor.name).to.eq('Test');
+      expect(spy.args[0][0].Text).to.eq('hydrated');
     });
   });
 });

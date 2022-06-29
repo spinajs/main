@@ -55,7 +55,7 @@ export abstract class RouteArgs implements IRouteArgs {
     const hydrator = Reflect.getMetadata('custom:arg_hydrator', param.RuntimeType);
     if (hydrator) {
       const hInstance = await DI.resolve<ArgHydrator>(hydrator.hydrator, hydrator.options);
-      const result = await hInstance.hydrate(arg);
+      const result = await hInstance.hydrate(arg, param);
 
       return [true, result];
     }

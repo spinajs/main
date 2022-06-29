@@ -4,6 +4,7 @@ import { join, normalize, resolve } from 'path';
 import * as _ from 'lodash';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
+const express = require('express');
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -27,6 +28,16 @@ export class TestConfiguration extends FrameworkConfiguration {
           models: [dir('./models')],
           controllers: [dir('./controllers')],
         },
+      },
+      http: {
+        middlewares: [
+          express.json({
+            limit: '5mb',
+          }),
+          express.urlencoded({
+            extended: true,
+          }),
+        ],
       },
       db: {
         DefaultConnection: 'sqlite',
