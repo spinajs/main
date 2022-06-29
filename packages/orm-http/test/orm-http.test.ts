@@ -11,7 +11,9 @@ import { Controllers, HttpServer } from '@spinajs/http';
 import 'mocha';
 import sinon from 'sinon';
 import { expect } from 'chai';
+import chaiHttp from 'chai-http';
 
+chai.use(chaiHttp);
 chai.use(chaiAsPromised);
 
 export function req() {
