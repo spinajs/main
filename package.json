@@ -73,6 +73,9 @@
     "@spinajs/electron": "file:packages\\electron",
     "@spinajs/orm-mssql": "file:packages\\orm-mssql",
     "@spinajs/intl": "file:packages\\intl",
-    "@spinajs/rbac": "file:packages\\rbac"
+    "@spinajs/rbac": "file:packages\\rbac",
+    "@spinajs/rbac-html": "file:packages\\rbac-html",
+    "@spinajs/session-provider-db": "file:packages\\session-provider-db",
+    "@spinajs/intl-orm": "file:packages\\intl-orm"
   }
 }

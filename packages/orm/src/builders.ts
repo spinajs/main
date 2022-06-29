@@ -13,7 +13,7 @@ import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
-import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUpdateResult } from '.';
+import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUpdateResult, ISelectBuilderExtensions } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -25,7 +25,7 @@ import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUp
 export interface InsertQueryBuilder extends IColumnsBuilder {}
 export interface DeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
 export interface UpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {}
-export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {}
+export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, ISelectBuilderExtensions {}
 
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());

@@ -1,4 +1,4 @@
-import { SessionProvider, Session, User, UserSession } from '@spinajs/rbac';
+import { SessionProvider, User, UserSession } from '@spinajs/rbac';
 import { DI } from '@spinajs/di';
 import 'reflect-metadata';
 import * as express from 'express';

@@ -617,6 +617,11 @@ export interface IGroupByBuilder {
   groupBy(expression: RawQuery | string): this;
 }
 
+/**
+ * Dummy interface for allowing to add extensions for builder via declaration merging & mixins
+ */
+export interface ISelectBuilderExtensions {}
+
 export interface IJoinBuilder {
   JoinStatements: IQueryStatement[];
 
