@@ -1,8 +1,7 @@
 import { DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
-import * as chai from 'chai';
+import chai from 'chai';
 import { Configuration } from '@spinajs/configuration';
-
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { TestConfiguration } from './common';

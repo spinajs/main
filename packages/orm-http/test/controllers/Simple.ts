@@ -6,6 +6,6 @@ import { Test } from '../models/Test';
 export class Simple extends BaseController {
   @Get(':model')
   public testGet(@FromDB() model: Test) {
-    return new Ok(model);
+    return new Ok({ Text: model.Text });
   }
 }
