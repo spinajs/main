@@ -54,7 +54,7 @@ export function Route(callback: (controller: IControllerDescriptor, route: IRout
 }
 
 /**
- * Ugly hack to specify type for route args. Mostly used to define type of array, becouse typescript does not 
+ * Ugly hack to specify type for route args. Mostly used to define type of array, becouse typescript does not
  * have information about this.
  */
 export function Type(type: any) {
