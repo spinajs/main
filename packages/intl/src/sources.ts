@@ -1,4 +1,4 @@
-import { ILog } from './../../log-common/src/index';
+import { ILog } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { Autoinject, Injectable } from '@spinajs/di';
 import glob from 'glob';

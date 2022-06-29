@@ -1,5 +1,6 @@
 import { TestRelOneToMany } from './TestRelOneToMany';
-import { IntlModelBase, Translate } from './../../src/index';
+import { IntlModelBase } from './../../src/model';
+import { Translate } from './../../src/decorators';
 import { Primary, Connection, Model, HasMany } from '@spinajs/orm';
 
 /**

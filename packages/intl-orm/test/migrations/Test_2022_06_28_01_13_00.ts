@@ -26,6 +26,9 @@ export class Test_2022_06_28_01_13_00 extends OrmMigration {
 
     await connection.insert().into('intl_resources').values({ ResourceId: 1, Resource: 'TestRelOneToMany', Column: 'Text', Lang: 'en_GB', Value: 'one' });
     await connection.insert().into('intl_resources').values({ ResourceId: 2, Resource: 'TestRelOneToMany', Column: 'Text', Lang: 'en_GB', Value: 'two' });
+
+    await connection.insert().into('intl_translations').values({ Key: 'hello world', Value: 'bla bla', Lang: 'en_US' });
+    await connection.insert().into('intl_translations').values({ Key: 'hello world', Value: 'bla bla german', Lang: 'de_DE' });
   }
 
   // tslint:disable-next-line: no-empty

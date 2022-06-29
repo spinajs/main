@@ -1,5 +1,6 @@
-import { Translate } from '../../src/index';
-import { ModelBase, Primary, Connection, Model } from '@spinajs/orm';
+import { Translate } from './../../src/decorators';
+import { Primary, Connection, Model } from '@spinajs/orm';
+import { IntlModelBase } from './../../src/model';
 
 /**
  * Base modele for users used by ACL
@@ -8,7 +9,7 @@ import { ModelBase, Primary, Connection, Model } from '@spinajs/orm';
  */
 @Connection('default')
 @Model('test_rel_many')
-export class TestRelOneToMany extends ModelBase {
+export class TestRelOneToMany extends IntlModelBase {
   @Primary()
   public Id: number;
 

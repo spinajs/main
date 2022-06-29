@@ -7,8 +7,7 @@ import * as util from 'util';
 import * as MakePlural from 'make-plural';
 import * as InvervalParser from 'math-interval-parser';
 import * as TranslatioSources from './sources';
-
-export { TranslationSource } from './sources';
+export * from './sources';
 
 const globalAny: any = global;
 

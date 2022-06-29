@@ -9,6 +9,7 @@ import { Orm } from '@spinajs/orm';
 import { TestConfiguration } from './common';
 import { Test } from './models/Test';
 import '../src/index';
+import { DbTranslationSource } from '../src/index';
 
 chai.use(chaiAsPromised);
 
@@ -76,5 +77,14 @@ describe('ORM intl tests', () => {
     await result.translate('en_GB');
 
     expect(result.Text).to.eq('hello');
+  });
+
+  it('Should load from translations source', async () => {
+    const source = DI.resolve(DbTranslationSource);
+    const result = await source.load();
+
+    expect(result['en_US']['hello world']).to.be.eq('bla bla');
+    expect(result['de_DE']['hello world']).to.be.eq('bla bla german');
+
   });
 });
