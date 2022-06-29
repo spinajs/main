@@ -1,4 +1,4 @@
-import { UserSessionData } from './../../rbac/src/interfaces';
+import { UserSessionData } from '@spinajs/rbac';
 import { SessionProvider, Session } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
