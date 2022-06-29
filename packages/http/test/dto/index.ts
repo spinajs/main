@@ -1,5 +1,6 @@
 import { ArgHydrator, Hydrator } from '../../src';
 import { Schema } from '@spinajs/validation';
+import _ from 'lodash';
 
 export const SampleObjectSchema = {
   type: 'object',
@@ -48,6 +49,9 @@ export class SampleModelWithSchema {
 
 export class ModelArgHydrator extends ArgHydrator {
   public async hydrate(input: any): Promise<any> {
+    if (Array.isArray(input)) {
+      return input.map((x) => new SampleModelWithHydrator(x));
+    }
     return new SampleModelWithHydrator(input);
   }
 }

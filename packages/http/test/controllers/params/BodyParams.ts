@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Body, Ok, Post } from '../../../src';
+import { BaseController, BasePath, Body, Ok, Post, Type } from '../../../src';
 import { SampleModel, SampleModelWithHydrator, SampleModelWithSchema, SampleObject, SampleObjectSchema } from '../../dto';
 
 @BasePath('params/body')
@@ -46,5 +46,14 @@ export class BodyParams extends BaseController {
   @Post()
   public bodyModelWithSchema(@Body() object: SampleModelWithSchema) {
     return new Ok({ object });
+  }
+
+  @Post()
+  public arrayOfHydratedModels(
+    @Body()
+    @Type(Array.ofType(SampleModelWithHydrator))
+    objects: SampleModelWithHydrator[],
+  ) {
+    return new Ok({ objects });
   }
 }

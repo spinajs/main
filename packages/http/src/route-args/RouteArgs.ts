@@ -1,7 +1,8 @@
+import { TypedArray } from '@spinajs/di';
 import { ParameterType, IRouteParameter, IRouteCall, IRoute } from './../interfaces';
 import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator';
-import { DI, isConstructor } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import _ from 'lodash';
 import { DateTime } from 'luxon';
 
@@ -48,11 +49,13 @@ export abstract class RouteArgs implements IRouteArgs {
   }
 
   protected async tryHydrateObject(arg: any, param: IRouteParameter) {
-    if (!isConstructor(param.RuntimeType)) {
-      return [false, null];
+    let hydrator = null;
+    if (param.RuntimeType instanceof TypedArray) {
+      hydrator = Reflect.getMetadata('custom:arg_hydrator', (param.RuntimeType as TypedArray<any>).Type);
+    } else {
+      hydrator = Reflect.getMetadata('custom:arg_hydrator', param.RuntimeType);
     }
 
-    const hydrator = Reflect.getMetadata('custom:arg_hydrator', param.RuntimeType);
     if (hydrator) {
       const hInstance = await DI.resolve<ArgHydrator>(hydrator.hydrator, hydrator.options);
       const result = await hInstance.hydrate(arg, param);
@@ -77,6 +80,9 @@ export abstract class RouteArgs implements IRouteArgs {
         return _.isString(arg) ? JSON.parse(arg) : arg;
       case 'DateTime':
         return this.handleDate(arg);
+      case 'TypedArray':
+        const type = (param.RuntimeType as TypedArray<any>).Type as any;
+        return new type(_.isString(arg) ? JSON.parse(arg) : arg);
       default:
         return new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg);
     }

@@ -344,6 +344,40 @@ describe('controller action test params', function () {
       expect(spy.args[0][1].args).to.include.members([4, 5, 6]);
     });
 
+    it('arrayOfHydratedModels', async () => {
+      const spy = DI.get(BodyParams).arrayOfHydratedModels as sinon.SinonSpy;
+      await req()
+        .post('params/body/arrayOfHydratedModels')
+        .send([
+          {
+            id: 1,
+            name: 'test',
+            args: [1, 2, 3],
+          },
+          {
+            id: 2,
+            name: 'test2',
+            args: [4, 5, 6],
+          },
+        ]);
+
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0][0].constructor.name).to.be.eq('SampleModelWithHydrator');
+
+      expect(spy.args[0][0]).containSubset([
+        {
+          id: 1,
+          name: 'test',
+          args: [1, 2, 3],
+        },
+        {
+          id: 2,
+          name: 'test2',
+          args: [4, 5, 6],
+        },
+      ]);
+    });
+
     it('bodyArray', async () => {
       const spy = DI.get(BodyParams).bodyArray as sinon.SinonSpy;
       await req()

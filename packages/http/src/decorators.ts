@@ -53,6 +53,29 @@ export function Route(callback: (controller: IControllerDescriptor, route: IRout
   });
 }
 
+/**
+ * Ugly hack to specify type for route args. Mostly used to define type of array, becouse typescript does not 
+ * have information about this.
+ */
+export function Type(type: any) {
+  return Route((_: IControllerDescriptor, route: IRoute, _target: any, _propertyKey: string, index: number) => {
+    if (route.Parameters.has(index)) {
+      route.Parameters.get(index).RuntimeType = type;
+    } else {
+      const param: IRouteParameter = {
+        Index: index,
+        Name: '',
+        RuntimeType: type,
+        Schema: '',
+        Options: null,
+        Type: null,
+      };
+
+      route.Parameters.set(index, param);
+    }
+  });
+}
+
 export function Parameter(type: ParameterType | string, schema?: any, options?: any) {
   return (_: IControllerDescriptor, route: IRoute, target: any, propertyKey: string, index: number) => {
     const rType = Reflect.getMetadata('design:paramtypes', target.prototype || target, propertyKey)[index];
@@ -71,16 +94,23 @@ export function Parameter(type: ParameterType | string, schema?: any, options?: 
       }
     }
 
-    const param: IRouteParameter = {
-      Index: index,
-      Name: '',
-      RuntimeType: rType,
-      Schema: schema ?? tSchema,
-      Options: options,
-      Type: type,
-    };
+    if (route.Parameters.has(index)) {
+      const p = route.Parameters.get(index);
+      p.Type = type;
+      p.Options = options;
+      p.Schema = schema;
+    } else {
+      const param: IRouteParameter = {
+        Index: index,
+        Name: '',
+        RuntimeType: rType,
+        Schema: schema ?? tSchema,
+        Options: options,
+        Type: type,
+      };
 
-    route.Parameters.set(index, param);
+      route.Parameters.set(index, param);
+    }
   };
 }
 
