@@ -29,7 +29,10 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
     }
 
     const valid = await pwd.verify(result.Password, password);
+    if (valid) {
+      return result;
+    }
 
-    return result;
+    return null;
   }
 }
