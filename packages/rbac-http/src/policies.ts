@@ -4,7 +4,7 @@ import * as express from 'express';
 import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { ACL_CONTROLLER_DESCRIPTOR } from './decorators';
 import { IAclDescriptor } from './interfaces';
-import { Autoinject, DI, Inject } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 
 export class AclPolicy extends BasePolicy {
   protected Ac: AccessControl;

@@ -8,7 +8,7 @@ export class UserArg extends RouteArgs {
     return ParameterType.Res;
   }
 
-  public async extract(callData: IRouteCall, _param: IRouteParameter, req: express.Request, res: express.Response) {
+  public async extract(callData: IRouteCall, _param: IRouteParameter, req: express.Request) {
     return { CallData: callData, Args: req.User };
   }
 }
