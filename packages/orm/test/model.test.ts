@@ -24,6 +24,7 @@ import { ModelDiscBase } from './mocks/models/ModelDiscBase';
 import { ModelDisc1 } from './mocks/models/ModelDisc1';
 import { ModelDisc2 } from './mocks/models/ModelDisc2';
 import { Model6 } from './mocks/models/Model6';
+import { Wrapper } from './../src/wrappers';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -521,7 +522,7 @@ describe('General model tests', () => {
 
     const model = new Model1();
     model.PrimaryKeyValue = 1;
- 
+
     await model.update();
 
     expect(model.UpdatedAt).to.be.not.null;
@@ -1029,7 +1030,7 @@ describe('Model discrimination tests', () => {
     sinon.restore();
   });
 
-  it('should create models base on discrimination map', async () => {
+  it('should create models base onkw discrimination map', async () => {
     await db();
 
     sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
@@ -1058,4 +1059,4 @@ describe('Model discrimination tests', () => {
     expect(result[1]).instanceOf(ModelDisc2);
     expect(result[2]).instanceOf(ModelDisc1);
   });
-}); 
+});
