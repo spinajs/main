@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/session-provider-db",
-  "version": "1.2.108",
+  "version": "1.2.114",
   "description": "Simple session provider based on relational db. Usefull for testing or small projects",
   "main": "lib/index.js",
   "private": false,
