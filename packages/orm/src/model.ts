@@ -542,7 +542,7 @@ export const MODEL_STATIC_MIXINS = {
     return query;
   },
 
-  where(column: string | boolean | WhereFunction<any> | RawQuery | {}, operator?: Op | any, value?: any): SelectQueryBuilder {
+  where(column: string | boolean | WhereFunction<any> | RawQuery | WrapStatement | {}, operator?: Op | any, value?: any): SelectQueryBuilder {
     const { query } = _createQuery(this, SelectQueryBuilder);
     query.select('*');
 
