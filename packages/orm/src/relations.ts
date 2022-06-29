@@ -8,7 +8,19 @@ import { Orm } from './orm';
 import * as _ from 'lodash';
 
 export interface IOrmRelation {
+  /**
+   * Executes relation, should be called only once.
+   *
+   * @param callback - optional callback to perform actions on relations eg. populate more, filter relational data etc.
+   */
   execute(callback?: (this: SelectQueryBuilder, relation: OrmRelation) => void): void;
+
+  /**
+   * Execute actions on relation query, does not initialize relation. Use it only AFTER execute was called.
+   *
+   * @param callback - execute callback to perform actions on relations eg. populate more, filter relational data etc.
+   */
+  executeOnQuery(callback: (this: SelectQueryBuilder, relation: OrmRelation) => void): void;
 }
 
 export abstract class OrmRelation implements IOrmRelation {
@@ -22,7 +34,9 @@ export abstract class OrmRelation implements IOrmRelation {
   }
 
   constructor(protected _orm: Orm, protected _query: SelectQueryBuilder<any>, public _description: IRelationDescriptor, public parentRelation?: OrmRelation) {
-    this._targetModel = this._description.TargetModel ?? undefined;
+    if (this._description) {
+      this._targetModel = this._description.TargetModel ?? undefined;
+    }
 
     this._targetModelDescriptor = extractModelDescriptor(this._targetModel);
 
@@ -37,6 +51,10 @@ export abstract class OrmRelation implements IOrmRelation {
   }
 
   public abstract execute(callback?: (this: SelectQueryBuilder, relation: OrmRelation) => void): void;
+
+  public executeOnQuery(callback: (this: SelectQueryBuilder<any>, relation: OrmRelation) => void): void {
+    callback.call(this._relationQuery, [this]);
+  }
 }
 
 class HasManyRelationMiddleware implements IBuilderMiddleware {

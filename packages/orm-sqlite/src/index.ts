@@ -206,14 +206,12 @@ export class SqliteOrmDriver extends SqlDriver {
 
     // get all indices for table
     const indexList = (await this.execute(`PRAGMA index_list("${name}")`, null, QueryContext.Select)) as IIndexInfoList[];
-    const uIndices: string[] = [];
+    let uIndices: string[] = [];
 
     // get all unique & fetch for whitch column
     for (const idx of indexList.filter((i) => i.unique === 1)) {
       const iInfo = (await this.execute(`PRAGMA index_info("${idx.name}")`, null, QueryContext.Select)) as IIndexInfo[];
-      if (iInfo && iInfo.length === 1) {
-        uIndices.push(iInfo[0].name);
-      }
+      uIndices = iInfo.map((x) => x.name);
     }
 
     return tblInfo.map((r: ITableInfo) => {

@@ -1,5 +1,6 @@
-import { Translate } from '@spinajs/intl-orm';
-import { ModelBase, Primary, Connection, Model } from '@spinajs/orm';
+import { TestRelOneToMany } from './TestRelOneToMany';
+import { IntlModelBase, Translate } from './../../src/index';
+import { Primary, Connection, Model, HasMany } from '@spinajs/orm';
 
 /**
  * Base modele for users used by ACL
@@ -8,10 +9,13 @@ import { ModelBase, Primary, Connection, Model } from '@spinajs/orm';
  */
 @Connection('default')
 @Model('test')
-export class Test extends ModelBase {
+export class Test extends IntlModelBase {
   @Primary()
   public Id: number;
 
   @Translate()
   public Text: string;
+
+  @HasMany(TestRelOneToMany)
+  public Data: TestRelOneToMany[];
 }

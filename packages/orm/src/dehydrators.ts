@@ -3,14 +3,18 @@ import { RelationType } from './interfaces';
 import { ModelBase } from './model';
 
 export abstract class ModelDehydrator {
-  public abstract dehydrate(model: ModelBase): any;
+  public abstract dehydrate(model: ModelBase, omit?: string[]): any;
 }
 
 export class StandardModelDehydrator extends ModelDehydrator {
-  public dehydrate(model: ModelBase) {
+  public dehydrate(model: ModelBase, omit?: string[]) {
     const obj = {};
 
     model.ModelDescriptor.Columns?.forEach((c) => {
+      if (omit && omit.indexOf(c.Name) !== -1) {
+        return;
+      }
+
       const val = (model as any)[c.Name];
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);

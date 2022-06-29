@@ -1,27 +1,25 @@
-import { BasicPasswordProvider } from '../src/password';
 import { DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User } from '../src';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
-import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common';
 import { Test } from './models/Test';
+import '../src/index';
+//import { IntlOrm } from '../src/index';
 
 chai.use(chaiAsPromised);
-
-function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
-}
 
 describe('ORM intl tests', () => {
   before(async () => {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+
+    // const b = await DI.resolve(IntlOrm);
+    // b.bootstrap();
   });
 
   beforeEach(async () => {
@@ -33,7 +31,54 @@ describe('ORM intl tests', () => {
   });
 
   it('Should load translation for model', async () => {
-    const result = await Test.query().where('Id', 1).translate('en_GB').first();
+    const result = await Test.where('Id', 1).translate('en_GB').first();
     expect(result).to.be.not.null;
+    expect(result.Text).to.eq('hello');
+  });
+
+  it('Should load translation for multiple models', async () => {
+    const result = await Test.where('Id', '>', 0).translate('en_GB');
+    expect(result).to.be.not.null;
+    expect(result).to.be.an('array');
+    expect(result[0].Text).to.eq('hello');
+    expect(result[1].Text).to.eq('world');
+  });
+
+  it('Should translate populated one to many data', async () => {
+    const result = await Test.where('Id', '>', 0).populate('Data').translate('en_GB');
+
+    expect(result).to.be.not.null;
+    expect(result).to.be.an('array');
+    expect(result[0].Text).to.eq('hello');
+    expect(result[1].Text).to.eq('world');
+
+    expect(result[0].Data[0].Text).to.eq('one');
+    expect(result[1].Data[0].Text).to.eq('two');
+  });
+
+  it('Should save translations', async () => {
+    let result = await Test.where('Id', 1).first();
+
+    result.Language = 'en_US';
+    result.Text = 'hello from us';
+
+    await result.update();
+
+    result.Text = 'hello from us 1';
+    await result.update();
+
+    result = await Test.where('Id', 1).translate('en_US').first();
+
+    expect(result.Text).to.eq('hello from us 1');
+
+    result = await Test.where('Id', 1).first();
+    expect(result.Text).to.eq('witaj');
+  });
+
+  it('Should load translations for entity', async () => {
+    const result = await Test.where('Id', 1).first();
+    await result.translate('en_GB');
+
+    expect(result.Text).to.eq('hello');
   });
 });

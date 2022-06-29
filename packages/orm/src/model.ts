@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { OrmException } from './exceptions';
 import { ModelDehydrator } from './dehydrators';
 import { WrapStatement } from './statements';
+import { DateTime } from 'luxon';
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescrtiptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
@@ -53,7 +54,6 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescrtiptor 
 }
 
 export class ModelBase {
-  private _descriptor: IModelDescrtiptor;
   private _container: IContainer;
 
   /**
@@ -61,11 +61,7 @@ export class ModelBase {
    * db table attached, column information and others.
    */
   public get ModelDescriptor() {
-    if (!this._descriptor) {
-      this._descriptor = extractModelDescriptor(this.constructor);
-    }
-
-    return this._descriptor;
+    return  extractModelDescriptor(this.constructor);
   }
 
   /**
@@ -325,8 +321,8 @@ export class ModelBase {
   /**
    * Extracts all data from model. It takes only properties that exists in DB
    */
-  public dehydrate(): Partial<this> {
-    return this.Container.resolve(ModelDehydrator).dehydrate(this);
+  public dehydrate(omit?: string[]): Partial<this> {
+    return this.Container.resolve(ModelDehydrator).dehydrate(this, omit);
   }
 
   /**
@@ -343,10 +339,10 @@ export class ModelBase {
    * If model can be in achived state - sets archived at date and saves it to db
    */
   public async archive() {
-    const { query } = _createQuery(this.constructor, UpdateQueryBuilder);
+    const { query } = this.createUpdateQuery();
 
     if (this.ModelDescriptor.Archived) {
-      (this as any)[this.ModelDescriptor.Archived.ArchivedAt] = new Date();
+      (this as any)[this.ModelDescriptor.Archived.ArchivedAt] = DateTime.now();
     } else {
       throw new OrmException('archived at column not exists in model');
     }
@@ -355,10 +351,10 @@ export class ModelBase {
   }
 
   public async update() {
-    const { query } = _createQuery(this.constructor, UpdateQueryBuilder);
+    const { query } = this.createUpdateQuery();
 
     if (this.ModelDescriptor.Timestamps.UpdatedAt) {
-      (this as any)[this.ModelDescriptor.Timestamps.UpdatedAt] = new Date();
+      (this as any)[this.ModelDescriptor.Timestamps.UpdatedAt] = DateTime.now();
     }
 
     await query.update(this.dehydrate()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
@@ -369,7 +365,7 @@ export class ModelBase {
    * primary key exists
    */
   public async insert(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
-    const { query, description } = _createQuery(this.constructor, InsertQueryBuilder);
+    const { query, description } = this.createInsertQuery();
 
     switch (insertBehaviour) {
       case InsertBehaviour.InsertOrIgnore:
@@ -404,7 +400,7 @@ export class ModelBase {
    * If there is no unique columns or primary key, throws error
    */
   public async fresh(): Promise<this> {
-    const { query, description } = _createQuery(this.constructor, SelectQueryBuilder);
+    const { query, description } = this.createSelectQuery();
     query.select('*');
 
     _preparePkWhere(description, query, this);
@@ -422,7 +418,7 @@ export class ModelBase {
    */
   public async refresh(): Promise<void> {
     let model: this = null;
-    const { query, description } = _createQuery(this.constructor, SelectQueryBuilder);
+    const { query, description } = this.createSelectQuery();
     query.select('*');
 
     _preparePkWhere(description, query, this);
@@ -460,6 +456,18 @@ export class ModelBase {
         (this as any)[rel.Name] = null;
       }
     }
+  }
+
+  protected createSelectQuery() {
+    return _createQuery(this.constructor, SelectQueryBuilder);
+  }
+
+  protected createUpdateQuery() {
+    return _createQuery(this.constructor, UpdateQueryBuilder);
+  }
+
+  protected createInsertQuery() {
+    return _createQuery(this.constructor, InsertQueryBuilder);
   }
 }
 
