@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac",
-  "version": "1.2.103",
+  "version": "1.2.104",
   "description": "Role and Attribute based Access Control for SpinaJS framework",
   "main": "lib/index.js",
   "private": false,
@@ -42,17 +42,17 @@
     "@spinajs/di": "^1.2.81",
     "@spinajs/exceptions": "^1.2.81",
     "@spinajs/log": "^1.2.103",
+    "@spinajs/orm": "^1.2.104",
     "@spinajs/reflection": "^1.2.103",
-    "@spinajs/orm": "^1.2.103",
     "accesscontrol": "^2.2.1",
     "argon2": "^0.28.5",
     "entropy-string": "^4.2.0",
     "lodash": "^4.17.21",
-    "uuid": "^8.1.0",
-    "luxon": "^2.4.0"
+    "luxon": "^2.4.0",
+    "uuid": "^8.1.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "1.2.103"
+    "@spinajs/orm-sqlite": "^1.2.104"
   },
   "gitHead": "67b73bfdbf9636d3cf10812d59fafb43cc860965"
 }

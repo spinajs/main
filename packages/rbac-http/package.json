@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac-http",
-  "version": "1.2.103",
+  "version": "1.2.104",
   "description": "HTTP API for user session & permissions",
   "main": "lib/index.js",
   "private": false,
@@ -42,13 +42,13 @@
     "@spinajs/di": "^1.2.81",
     "@spinajs/exceptions": "^1.2.81",
     "@spinajs/log": "^1.2.103",
+    "@spinajs/orm": "^1.2.104",
+    "@spinajs/rbac": "^1.2.104",
     "@spinajs/reflection": "^1.2.103",
-    "@spinajs/orm": "^1.2.103",
-    "@spinajs/rbac": "^1.2.103",
     "luxon": "^2.4.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "1.2.103"
+    "@spinajs/orm-sqlite": "^1.2.104"
   },
   "gitHead": "67b73bfdbf9636d3cf10812d59fafb43cc860965"
 }

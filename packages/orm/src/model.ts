@@ -61,7 +61,7 @@ export class ModelBase {
    * db table attached, column information and others.
    */
   public get ModelDescriptor() {
-    return  extractModelDescriptor(this.constructor);
+    return extractModelDescriptor(this.constructor);
   }
 
   /**
