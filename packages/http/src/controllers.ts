@@ -150,7 +150,7 @@ export abstract class BaseController extends AsyncModule implements IController 
         Payload: {},
       };
 
-      const argsCache = new Map<ParameterType, RouteArgs>();
+      const argsCache = new Map<ParameterType | string, RouteArgs>();
       let formCache: FromFormBase = null;
 
       for (const [, param] of route.Parameters) {

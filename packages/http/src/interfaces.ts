@@ -314,7 +314,7 @@ export interface IRouteParameter {
   /**
    * Is value taken from query string, url params or message body
    */
-  Type: ParameterType;
+  Type: ParameterType | string;
 
   /**
    * Schema for validation
