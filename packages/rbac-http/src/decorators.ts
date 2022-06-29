@@ -4,6 +4,8 @@ import { AclPolicy } from './policies';
 
 export const ACL_CONTROLLER_DESCRIPTOR = Symbol('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
 
+export type Permission = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
+
 function descriptor(callback: (controller: IAclDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
     let metadata: IAclDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, target.prototype || target);
@@ -29,7 +31,7 @@ function descriptor(callback: (controller: IAclDescriptor, target: any, property
  * @param resource - name of resource
  * @param permission - default permission
  */
-export function Resource(resource: string, permission: 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn' = 'readOwn') {
+export function Resource(resource: string, permission: Permission = 'readOwn') {
   return descriptor((metadata: IAclDescriptor, target: any) => {
     Policy(AclPolicy)(target, null, null);
 
@@ -44,7 +46,7 @@ export function Resource(resource: string, permission: 'readAny' | 'readOwn' | '
  *
  * @param permission - permission to set
  */
-export function Permission(permission: string) {
+export function Permission(permission: Permission = 'readOwn') {
   return descriptor((metadata: IAclDescriptor, target: any, propertyKey: string) => {
     let route: IAclRoutePermissionDescriptor = null;
 
