@@ -606,7 +606,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
 
     await driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereNotIn(
       this.Relation.PrimaryKey,
-      result.map((x) => x.PrimaryKeyValue),
+      result.filter( x=> x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
     );
 
     this.empty();
@@ -618,7 +618,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
     await driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereNotIn(
       this.Relation.PrimaryKey,
-      obj.map((x) => x.PrimaryKeyValue),
+      obj.filter( x=> x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
     );
 
     this.empty();
@@ -632,7 +632,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
 
     await driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereNotIn(
       this.Relation.PrimaryKey,
-      result.map((x) => x.PrimaryKeyValue),
+      result.filter( x=> x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
     );
 
     this.empty();
