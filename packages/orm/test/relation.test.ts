@@ -742,6 +742,8 @@ describe('Orm relations tests', () => {
       Value: 'Root',
     });
     expect(result.Parent.Parent.Parent).to.be.null;
+
+    
   });
 
   it('populate should load missing relation data', async () => {
@@ -974,29 +976,29 @@ describe('Orm relations tests', () => {
     await db();
 
     const setA = new OneToManyRelationList(
-      new Model1(),
+      new Model1({Id: 1}),
       Model1,
       {
         TargetModel: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
-        ForeignKey: '',
-        PrimaryKey: '',
+        ForeignKey: 'IdA',
+        PrimaryKey: 'Id',
         Recursive: false,
       },
       [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
     );
     const setB = new OneToManyRelationList(
-      new Model1(),
+      new Model1({Id: 1}),
       Model1,
       {
         TargetModel: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
-        ForeignKey: '',
-        PrimaryKey: '',
+        ForeignKey: 'IdA',
+        PrimaryKey: 'Id',
         Recursive: false,
       },
       [new Model1({ Id: 1 }), new Model1({ Id: 3 }), new Model1({ Id: 4 })],
@@ -1011,29 +1013,29 @@ describe('Orm relations tests', () => {
     await db();
 
     const setA = new OneToManyRelationList(
-      new Model1(),
+      new Model1({Id: 1}),
       Model1,
       {
         TargetModel: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
-        ForeignKey: '',
-        PrimaryKey: '',
+        ForeignKey: 'IdA',
+        PrimaryKey: 'Id',
         Recursive: false,
       },
       [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
     );
     const setB = new OneToManyRelationList(
-      new Model1(),
+      new Model1({Id: 1}),
       Model1,
       {
         TargetModel: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
-        ForeignKey: '',
-        PrimaryKey: '',
+        ForeignKey: 'IdA',
+        PrimaryKey: 'Id',
         Recursive: false,
       },
       [new Model1({ Id: 1 }), new Model1({ Id: 3 }), new Model1({ Id: 4 })],
@@ -1050,29 +1052,29 @@ describe('Orm relations tests', () => {
     await db();
 
     const setA = new OneToManyRelationList(
-      new Model1(),
+      new Model1({Id: 1}),
       Model1,
       {
         TargetModel: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
-        ForeignKey: '',
-        PrimaryKey: '',
+        ForeignKey: 'IdA',
+        PrimaryKey: 'Id',
         Recursive: false,
       },
       [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
     );
     const setB = new OneToManyRelationList(
-      new Model1(),
+      new Model1( { Id: 1}),
       Model1,
       {
         TargetModel: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
-        ForeignKey: '',
-        PrimaryKey: '',
+        ForeignKey: 'IdA',
+        PrimaryKey: 'Id',
         Recursive: false,
       },
       [new Model1({ Id: 1 }), new Model1({ Id: 3 })],
