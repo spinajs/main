@@ -2,6 +2,7 @@
 import { ForwardRefFunction } from './interfaces';
 import { ModelBase } from './model';
 import { isConstructor } from '@spinajs/di';
+import { SingleRelation } from './relations';
 
 export abstract class ModelHydrator {
   public abstract hydrate(target: any, values: any): void;
@@ -17,9 +18,23 @@ export class OneToOneRelationHydrator extends ModelHydrator {
     for (const [key, val] of descriptor.Relations) {
       if (values[key] != null) {
         const entity = target as any;
-        entity[key] = !isConstructor(val.TargetModel) ? new ((val.TargetModel as ForwardRefFunction)())() : new (val.TargetModel as any)();
-        entity[key].hydrate(values[key]);
+        const tEntity = !isConstructor(val.TargetModel) ? new ((val.TargetModel as ForwardRefFunction)())() : new (val.TargetModel as any)();
+        tEntity.hydrate(values[key]);
+        (tEntity as any)['__relationKey__'] = key;
+        const rel = new SingleRelation(target, val.TargetModel, val, tEntity);
+        entity[key] = new Proxy(rel, {
+          get: function (target, name) {
+            return name in target.UnderlyingValue ? target.UnderlyingValue[name] : (target as any)[name];
+          },
+          set: function (obj, prop, newVal) {
+            if (prop in obj.UnderlyingValue) {
+              obj.UnderlyingValue[prop] = newVal;
+              return true;
+            }
 
+            return false;
+          },
+        });
         delete (target as any)[val.ForeignKey];
       }
     }

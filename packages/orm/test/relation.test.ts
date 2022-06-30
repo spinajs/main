@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { ModelNested1 } from './mocks/models/ModelNested1';
 import { RelationRecursive } from './mocks/models/RelationRecursive';
-import { ManyToManyRelation, OneToManyRelationList } from './../src/relations';
+import { ManyToManyRelation, OneToManyRelationList, SingleRelation } from './../src/relations';
 import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator } from './../src/hydrators';
 import { Model1 } from './mocks/models/Model1';
 import { MODEL_DESCTRIPTION_SYMBOL } from './../src/decorators';
@@ -544,6 +544,72 @@ describe('Orm relations tests', () => {
     callback.restore();
   });
 
+  it('Should return all relational models', async () => {
+    const eStub = sinon
+      .stub(FakeSqliteDriver.prototype, 'execute')
+      .onCall(0)
+      .returns(
+        new Promise((res) => {
+          res([
+            {
+              Id: 1,
+              Property1: 'Property1',
+            },
+          ]);
+        }),
+      )
+      .onCall(1)
+      .returns(
+        new Promise((res) => {
+          res([
+            {
+              Id: 2,
+              Property2: 'property2',
+              rel_1: 1,
+            },
+          ]);
+        }),
+      )
+      .onCall(2)
+      .returns(
+        new Promise((res) => {
+          res([
+            {
+              Id: 3,
+              Property3: 'property3',
+              rel_2: 2,
+            },
+          ]);
+        }),
+      )
+      .onCall(3)
+      .returns(
+        new Promise((res) => {
+          res([
+            {
+              Id: 3,
+              Property3: 'property3',
+              rel_2: 2,
+            },
+          ]);
+        }),
+      );
+
+    await db();
+
+    const result = await ModelNested1.where({ Id: 1 })
+      .populate('HasMany1', function () {
+        this.populate('HasMany2');
+      })
+      .first();
+
+    const models = result.getFlattenRelationModels();
+
+    expect(models).to.be.an('array');
+    eStub.restore();
+
+  });
+
   it('HasMany nested relation is executed', async () => {
     const eStub = sinon
       .stub(FakeSqliteDriver.prototype, 'execute')
@@ -603,14 +669,14 @@ describe('Orm relations tests', () => {
         this.populate('HasMany2');
       })
       .first();
-
-    console.log(eStub.callCount);
+ 
     expect(callback.calledTwice).to.be.true;
     expect(result).to.be.not.null;
     expect(result.HasMany1.length).to.eq(1);
     expect(result.HasMany1[0].HasMany2.length).to.eq(1);
 
     callback.restore();
+    eStub.restore();
   });
 
   it('Belongs to nested relation is executed', async () => {
@@ -658,8 +724,8 @@ describe('Orm relations tests', () => {
     expect(result.Owner).to.be.not.null;
     expect(result.Owner.Owner).to.be.not.null;
 
-    expect(result.Owner instanceof RelationModel2).to.be.true;
-    expect(result.Owner.Owner instanceof Model1).to.be.true;
+    expect(result.Owner instanceof SingleRelation).to.be.true;
+    expect(result.Owner.Owner instanceof SingleRelation).to.be.true;
   });
 
   it('OneToOneRelation should be dehydrated', async () => {
@@ -733,17 +799,10 @@ describe('Orm relations tests', () => {
 
     expect(result).to.be.not.null;
     expect(result.Id).to.eq(3);
-    expect(result.Parent).to.include({
-      Id: 2,
-      Value: 'Child1',
-    });
-    expect(result.Parent.Parent).to.include({
-      Id: 1,
-      Value: 'Root',
-    });
-    expect(result.Parent.Parent.Parent).to.be.null;
-
-    
+    expect(result.Parent.Id).to.eq(2);
+    expect(result.Parent.Value).to.eq('Child1');
+    expect(result.Parent.Parent.Id).to.eq(1);
+    expect(result.Parent.Parent.Value).to.eq('Root');
   });
 
   it('populate should load missing relation data', async () => {
@@ -768,22 +827,7 @@ describe('Orm relations tests', () => {
           res([
             {
               Id: 1,
-              Property2: 'property2',
-            },
-          ]);
-        }),
-      )
-      .onThirdCall()
-      .returns(
-        new Promise((res) => {
-          res([
-            {
-              Id: 1,
-              RelId2: 1,
-            },
-            {
-              Id: 2,
-              RelId2: 1,
+              Bar: 'property2',
             },
           ]);
         }),
@@ -797,7 +841,7 @@ describe('Orm relations tests', () => {
 
     expect(result.Many.length).to.be.gt(0);
     expect(result.Many[0]).instanceOf(Model1);
-    expect(result.Many[0]).to.include({ Id: 1, RelId2: 1 });
+    expect(result.Many[0]).to.include({ Id: 1 });
   });
 
   it('HasMany relation should be executed', async () => {
@@ -976,7 +1020,7 @@ describe('Orm relations tests', () => {
     await db();
 
     const setA = new OneToManyRelationList(
-      new Model1({Id: 1}),
+      new Model1({ Id: 1 }),
       Model1,
       {
         TargetModel: Model1,
@@ -990,7 +1034,7 @@ describe('Orm relations tests', () => {
       [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
     );
     const setB = new OneToManyRelationList(
-      new Model1({Id: 1}),
+      new Model1({ Id: 1 }),
       Model1,
       {
         TargetModel: Model1,
@@ -1013,7 +1057,7 @@ describe('Orm relations tests', () => {
     await db();
 
     const setA = new OneToManyRelationList(
-      new Model1({Id: 1}),
+      new Model1({ Id: 1 }),
       Model1,
       {
         TargetModel: Model1,
@@ -1027,7 +1071,7 @@ describe('Orm relations tests', () => {
       [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
     );
     const setB = new OneToManyRelationList(
-      new Model1({Id: 1}),
+      new Model1({ Id: 1 }),
       Model1,
       {
         TargetModel: Model1,
@@ -1052,7 +1096,7 @@ describe('Orm relations tests', () => {
     await db();
 
     const setA = new OneToManyRelationList(
-      new Model1({Id: 1}),
+      new Model1({ Id: 1 }),
       Model1,
       {
         TargetModel: Model1,
@@ -1066,7 +1110,7 @@ describe('Orm relations tests', () => {
       [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
     );
     const setB = new OneToManyRelationList(
-      new Model1( { Id: 1}),
+      new Model1({ Id: 1 }),
       Model1,
       {
         TargetModel: Model1,

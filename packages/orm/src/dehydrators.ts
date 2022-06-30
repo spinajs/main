@@ -3,11 +3,11 @@ import { RelationType } from './interfaces';
 import { ModelBase } from './model';
 
 export abstract class ModelDehydrator {
-  public abstract dehydrate(model: ModelBase, omit?: string[]): any;
+  public abstract dehydrate(model: ModelBase, includeRelations?: boolean, omit?: string[]): any;
 }
 
 export class StandardModelDehydrator extends ModelDehydrator {
-  public dehydrate(model: ModelBase, omit?: string[]) {
+  public dehydrate(model: ModelBase, includeRelations?: boolean, omit?: string[]) {
     const obj = {};
 
     model.ModelDescriptor.Columns?.forEach((c) => {
@@ -22,10 +22,12 @@ export class StandardModelDehydrator extends ModelDehydrator {
       (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val) : val;
     });
 
-    for (const [, val] of model.ModelDescriptor.Relations) {
-      if (val.Type === RelationType.One) {
-        if ((model as any)[val.Name]) {
-          (obj as any)[val.ForeignKey] = (model as any)[val.Name].PrimaryKeyValue;
+    if (includeRelations) {
+      for (const [, val] of model.ModelDescriptor.Relations) {
+        if (val.Type === RelationType.One) {
+          if ((model as any)[val.Name]) {
+            (obj as any)[val.ForeignKey] = (model as any)[val.Name].PrimaryKeyValue;
+          }
         }
       }
     }

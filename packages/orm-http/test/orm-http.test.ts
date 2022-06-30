@@ -1,24 +1,14 @@
 import { DI } from '@spinajs/di';
-import chaiAsPromised from 'chai-as-promised';
-import chai from 'chai';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
-import { TestConfiguration } from './common';
+import { TestConfiguration, req } from './common';
 import { Simple } from './controllers/Simple';
 import { Controllers, HttpServer } from '@spinajs/http';
 import 'mocha';
 import sinon from 'sinon';
 import { expect } from 'chai';
-import chaiHttp from 'chai-http';
 import { OrmHttpBootstrapper } from './../src/index';
-
-chai.use(chaiHttp);
-chai.use(chaiAsPromised);
-
-export function req() {
-  return chai.request('http://localhost:1337/');
-}
 
 describe('Http orm tests', () => {
   const sb = sinon.createSandbox();

@@ -1,4 +1,6 @@
-import { Primary, Connection, Model, ModelBase } from '@spinajs/orm';
+import { Belongs } from './Belongs';
+import { Primary, Connection, Model, ModelBase, BelongsTo, Relation, HasMany } from '@spinajs/orm';
+import { Test2 } from './Test2';
 
 /**
  * Base modele for users used by ACL
@@ -12,4 +14,10 @@ export class Test extends ModelBase {
   public Id: number;
 
   public Text: string;
+
+  @BelongsTo()
+  public Belongs: Belongs;
+
+  @HasMany(Test2, 'test_id', 'Id')
+  public TestsTwos: Relation<Test2>;
 }

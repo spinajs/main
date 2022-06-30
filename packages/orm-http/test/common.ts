@@ -17,6 +17,10 @@ export function dir(path: string) {
   return resolve(normalize(join(__dirname, path)));
 }
 
+export function req() {
+  return chai.request('http://localhost:1337/');
+}
+
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolveAsync(): Promise<void> {
     await super.resolveAsync();
@@ -38,6 +42,7 @@ export class TestConfiguration extends FrameworkConfiguration {
             extended: true,
           }),
         ],
+        AcceptHeaders: 1 | 2,
       },
       db: {
         DefaultConnection: 'sqlite',

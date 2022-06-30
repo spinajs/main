@@ -21,6 +21,11 @@ export interface IOrmRelation {
    * @param callback - execute callback to perform actions on relations eg. populate more, filter relational data etc.
    */
   executeOnQuery(callback: (this: SelectQueryBuilder, relation: OrmRelation) => void): void;
+
+  /**
+   * Relation name
+   */
+  Name: string;
 }
 
 export abstract class OrmRelation implements IOrmRelation {
@@ -28,6 +33,8 @@ export abstract class OrmRelation implements IOrmRelation {
   protected _targetModelDescriptor: IModelDescrtiptor;
   protected _relationQuery: SelectQueryBuilder;
   protected _separator: string;
+
+  public Name: string;
 
   get Alias(): string {
     return this.parentRelation ? `${this.parentRelation.Alias}.${this._separator}${this._description.Name}${this._separator}` : `${this._separator}${this._description.Name}${this._separator}`;
@@ -85,6 +92,7 @@ class HasManyRelationMiddleware implements IBuilderMiddleware {
         return null;
       },
       async afterHydration(relationData: ModelBase[]) {
+        relationData.forEach((d) => ((d as any).__relationKey__ = self._description.Name));
         data.forEach((d) => {
           const relData = relationData.filter((rd) => {
             if (self._path) {
@@ -135,6 +143,8 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
         return null;
       },
       async afterHydration(relationData: ModelBase[]) {
+        relationData.forEach((d) => ((d as any).__relationKey__ = self._description.Name));
+
         const roots = relationData.filter((rd) => (rd as any)[self._description.ForeignKey] === 0 || (rd as any)[self._description.ForeignKey] === null);
         const leafs = roots.map((r) => {
           return fillRecursive(r);
@@ -151,7 +161,22 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
         });
 
         data.forEach((d) => {
-          (d as any)[self._description.Name] = leafs.find((l) => l[self._description.PrimaryKey] === (d as any)[self._description.PrimaryKey])[self._description.Name];
+          const val = leafs.find((l) => l[self._description.PrimaryKey] === (d as any)[self._description.PrimaryKey])[self._description.Name];
+          const rel = new SingleRelation(d, self._description.TargetModel, self._description, val);
+          const proxy = new Proxy(rel, {
+            get: function (target, name) {
+              return name in target.UnderlyingValue ? target.UnderlyingValue[name] : (target as any)[name];
+            },
+            set: function (obj, prop, newVal) {
+              if (prop in obj.UnderlyingValue) {
+                obj.UnderlyingValue[prop] = newVal;
+                return true;
+              }
+
+              return false;
+            },
+          });
+          (d as any)[self._description.Name] = proxy;
         });
       },
     };
@@ -185,9 +210,11 @@ class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
         return null;
       },
       async afterHydration(relationData: ModelBase[]) {
+        relationData.forEach((d) => ((d as any).__relationKey__ = self._description.Name));
+
         data.forEach((d) => {
           const relData = relationData.filter((rd) => (rd as any).JunctionModel[self._description.ForeignKey] === (d as any)[self._description.PrimaryKey]);
-          (d as any)[self._description.Name] = new OneToManyRelationList(d, self._description.TargetModel, self._description, relData);
+          (d as any)[self._description.Name] = new ManyToManyRelationList(d, self._description.TargetModel, self._description, relData);
         });
 
         relationData.forEach((d) => delete (d as any).JunctionModel);
@@ -196,7 +223,7 @@ class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 
     if (pks.length !== 0) {
       this._relationQuery.whereIn(this._description.ForeignKey, pks);
-      this._relationQuery.middleware(new BelongsToRelationResultTransformMiddleware());
+      this._relationQuery.middleware(new BelongsToRelationResultTransformMiddleware(this._description));
       this._relationQuery.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
       this._relationQuery.middleware(hydrateMiddleware);
       return await this._relationQuery;
@@ -218,6 +245,8 @@ class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 }
 
 class BelongsToRelationResultTransformMiddleware implements IBuilderMiddleware {
+  constructor(protected _description: IRelationDescriptor) {}
+
   public afterQuery(data: any[]): any[] {
     return data.map((d) => {
       const transformedData = Object.assign(d);
@@ -332,12 +361,12 @@ export class BelongsToRelation extends OrmRelation {
       // add transform middleware
       // we do this becouse belongsTo modifies query (not creating new like oneToMany and manyToMany)
       // and we only need to run transform once
-      this._query.middleware(new BelongsToRelationResultTransformMiddleware());
+      this._query.middleware(new BelongsToRelationResultTransformMiddleware(this._description));
     } else if (!this.parentRelation.parentRelation && this.parentRelation instanceof OneToManyRelation) {
       // if we called populate from OneToMany relation
       // we must use different path transform ( couse onetomany is separate query)
       // otherwise we would fill invalid property on entity
-      this._query.middleware(new BelongsToRelationResultTransformOneToManyMiddleware());
+      this._query.middleware(new BelongsToRelationResultTransformOneToManyMiddleware(this._description));
     }
   }
 }
@@ -471,13 +500,69 @@ export class ManyToManyRelation extends OrmRelation {
   }
 }
 
+export interface IRelation {
+  TargetModelDescriptor: IModelDescrtiptor;
+}
+
+export class SingleRelation<R extends ModelBase> implements IRelation {
+  public TargetModelDescriptor: IModelDescrtiptor;
+
+  protected Orm: Orm;
+
+  protected _value: R;
+
+  public get UnderlyingValue() {
+    return this._value;
+  }
+
+  constructor(protected _owner: ModelBase, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
+    this.TargetModelDescriptor = extractModelDescriptor(model);
+    this.Orm = DI.get(Orm);
+
+    this._value = object;
+  }
+
+  public async set(obj: R) {
+    this._value = obj;
+    await this._owner.update();
+  }
+
+  public attach(obj: R) {
+    this._value = obj;
+  }
+
+  public detach() {
+    this._value = null;
+  }
+
+  public async remove() {
+    this._value = null;
+    await this._value.destroy();
+    await this._owner.update();
+  }
+
+  public async populate(callback?: (this: SelectQueryBuilder<this>, relation: OrmRelation) => void): Promise<void> {
+    /**
+     * Do little cheat - we construct query that loads initial model with given relation.
+     * Then we only assign relation property.
+     *
+     * TODO: create only relation query without loading its owner.
+     */
+    const result = await (this._owner.constructor as any).where(this._owner.PrimaryKeyName, this._owner.PrimaryKeyValue).populate(this.Relation.Name, callback).firstOrFail();
+
+    if (result) {
+      this._value = result;
+    }
+  }
+}
+
 /**
  * Iterable list of populated relation entities
  *
  * It allows to add / remove objects to relation
  */
-export abstract class Relation<R extends ModelBase> extends Array<R> {
-  protected TargetModelDescriptor: IModelDescrtiptor;
+export abstract class Relation<R extends ModelBase> extends Array<R> implements IRelation {
+  public TargetModelDescriptor: IModelDescrtiptor;
 
   protected Orm: Orm;
 
@@ -526,18 +611,22 @@ export abstract class Relation<R extends ModelBase> extends Array<R> {
   /**
    * Populates this relation
    */
-  public async populate(callback?: (this: SelectQueryBuilder<this>, relation: OrmRelation) => void): Promise<void> {
+  public async populate(callback?: (this: SelectQueryBuilder<this>) => void): Promise<void> {
     /**
      * Do little cheat - we construct query that loads initial model with given relation.
      * Then we only assign relation property.
      *
      * TODO: create only relation query without loading its owner.
      */
-    const result = await (this.owner.constructor as any).where(this.owner.PrimaryKeyName, this.owner.PrimaryKeyValue).populate(this.Relation.Name, callback).firstOrFail();
+    const query = (this.Relation.TargetModel as any).where(this.Relation.ForeignKey, this.owner.PrimaryKeyValue);
+    if (callback) {
+      callback.apply(query);
+    }
+    const result = await query;
 
     if (result) {
-      this.splice(0, this.length);
-      this.push(...result[this.Relation.Name]);
+      this.length = 0;
+      this.push(...result);
     }
   }
 }

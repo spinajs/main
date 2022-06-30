@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation } from './relations';
+import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
 import { SORT_ORDER } from './enums';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
 import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder } from './interfaces';
@@ -109,6 +109,32 @@ export class ModelBase {
           break;
       }
     });
+  }
+
+  /**
+   * Recursivelly takes all relation data and returns as single array
+   */
+  public getFlattenRelationModels(recursive?: boolean): ModelBase[] {
+    const reduceRelations = function (m: ModelBase): ModelBase[] {
+      const relations = [...m.ModelDescriptor.Relations.values()];
+      const models = _.flatMap(relations, (r) => {
+        if (r.Type === RelationType.Many || r.Type === RelationType.ManyToMany) {
+          return (m as any)[r.Name];
+        }
+
+        if (((m as any)[r.Name] as SingleRelation<any>).UnderlyingValue) {
+          return [(m as any)[r.Name].UnderlyingValue];
+        }
+      }).filter((x) => x !== undefined);
+
+      if (recursive) {
+        return [...models, ..._.flatMap(models, reduceRelations)];
+      }
+
+      return models;
+    };
+
+    return reduceRelations(this);
   }
 
   /**
@@ -321,8 +347,8 @@ export class ModelBase {
   /**
    * Extracts all data from model. It takes only properties that exists in DB
    */
-  public dehydrate(omit?: string[]): Partial<this> {
-    return this.Container.resolve(ModelDehydrator).dehydrate(this, omit);
+  public dehydrate(includeRelations?: boolean, omit?: string[]): Partial<this> {
+    return this.Container.resolve(ModelDehydrator).dehydrate(this, includeRelations ?? true, omit);
   }
 
   /**
@@ -453,7 +479,7 @@ export class ModelBase {
       } else if (rel.Type === RelationType.ManyToMany) {
         (this as any)[rel.Name] = new ManyToManyRelationList(this, rel.TargetModel, rel, []);
       } else {
-        (this as any)[rel.Name] = null;
+        (this as any)[rel.Name] = new SingleRelation(this, rel.TargetModel, rel, null);
       }
     }
   }

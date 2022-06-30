@@ -867,6 +867,14 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public populate<R = this>(relation: string, callback?: (this: SelectQueryBuilder<R>, relation: OrmRelation) => void) {
+    
+    // if relation was already populated, just call callback on it
+    const fRelation = this._relations.find((r) => r.Name === relation);
+    if (fRelation) {
+      fRelation.executeOnQuery(callback);
+      return;
+    }
+
     let relInstance: OrmRelation = null;
     const descriptor = extractModelDescriptor(this._model);
 
@@ -896,6 +904,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
 
     relInstance.execute(callback);
+    relInstance.Name = relation;
 
     this._relations.push(relInstance);
 
