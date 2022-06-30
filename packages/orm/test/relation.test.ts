@@ -1044,45 +1044,6 @@ describe('Orm relations tests', () => {
     expect(setA[0].Id).to.eq(1);
     expect(setA[1].Id).to.eq(3);
     expect(setA[2].Id).to.eq(4);
-
-  });
-
-
-  it('should find complement', async () => {
-    await db();
-
-    const setA = new OneToManyRelationList(
-      new Model1(),
-      Model1,
-      {
-        TargetModel: Model1,
-        Name: 'Translations',
-        Type: RelationType.Many,
-        SourceModel: null,
-        ForeignKey: '',
-        PrimaryKey: '',
-        Recursive: false,
-      },
-      [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
-    );
-    const setB = new OneToManyRelationList(
-      new Model1(),
-      Model1,
-      {
-        TargetModel: Model1,
-        Name: 'Translations',
-        Type: RelationType.Many,
-        SourceModel: null,
-        ForeignKey: '',
-        PrimaryKey: '',
-        Recursive: false,
-      },
-      [new Model1({ Id: 1 }), new Model1({ Id: 3 }), new Model1({ Id: 4 })],
-    );
-
-    await setB.complement(setA);
-    expect(setA.length).to.eq(2);
-    expect(setA[0].Id).to.eq(3);
   });
 
   it('should find intersection', async () => {
