@@ -48,7 +48,7 @@ export abstract class BaseController extends AsyncModule implements IController 
   public get BasePath(): string {
     return this.Descriptor.BasePath ? this.Descriptor.BasePath : this.constructor.name.toLowerCase();
   }
- 
+
   public async resolveAsync() {
     const self = this;
 

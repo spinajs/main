@@ -42,7 +42,7 @@ export class IntlModelBase extends ModelBase {
 
       // update only non translated
       const cToDehydrate = [this.PrimaryKeyName, ...tColumns.map((c) => c.Name)];
-      const dToUpdate = this.dehydrate(false,cToDehydrate);
+      const dToUpdate = this.dehydrate(false, cToDehydrate);
 
       if (Object.keys(dToUpdate).length !== 0) {
         await query.update(dToUpdate).where(this.PrimaryKeyName, this.PrimaryKeyValue);
