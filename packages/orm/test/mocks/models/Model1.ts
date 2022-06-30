@@ -23,8 +23,10 @@ export class Model1 extends ModelBase {
   @SoftDelete()
   public DeletedAt: lDateTime;
 
-  public Bar: string;
-
   @BelongsTo('OwnerId')
   public Owner: Model4;
+  
+  public Bar: string;
+
+  
 }
