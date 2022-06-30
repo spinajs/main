@@ -1,5 +1,5 @@
 import { AccessControl } from '@spinajs/rbac';
-import { Constructor } from '@spinajs/di';
+import { Constructor, Inject } from '@spinajs/di';
 import { BaseController, ArgHydrator, Hydrator, Ok, Del, Post, Query, Forbidden, Req } from '@spinajs/http';
 import { BasePath, Get, Param, Body, Patch } from '@spinajs/http';
 import { extractModelDescriptor, ModelBase, SelectQueryBuilder, Orm } from '@spinajs/orm';
@@ -76,25 +76,26 @@ interface JsonApiIncomingObject {
 }
 
 @BasePath('repository')
+@Inject(Orm, AccessControl)
 export class Repository extends BaseController {
   constructor(protected Orm: Orm, protected Ac: AccessControl) {
     super();
   }
 
   protected getModel(model: string): Constructor<ModelBase> {
-    return this.Orm.Models.find((x) => x.name === model).type;
+    return this.Orm.Models.find((x) => x.name.toLowerCase() === model).type;
   }
 
   private checkPolicy(model: Constructor<ModelBase>, permission: string, req: express.Request) {
     const p = checkRoutePermission(req, model.name.toLowerCase(), permission);
 
-    if (!p.granted) {
+    if (!p || !p.granted) {
       throw new Forbidden(`current user does not have permission to access resource ${model.name} with ${permission} grant`);
     }
   }
 
-  @Get('/:model/:id')
-  public async get(@Param() model: string, @Param('id') id: string, @Query() includes: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
+  @Get(':model/:id')
+  public async get(@Param() model: string, @Param('id') id: string, @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
     const mClass = this.getModel(model);
 
     this.checkPolicy(mClass, 'readAny', req);
@@ -102,15 +103,15 @@ export class Repository extends BaseController {
     const mDesc = extractModelDescriptor(mClass);
     const query = (mClass as any)['where'](mDesc.PrimaryKey, id);
 
-    applyQueryIncludes(includes, query);
+    applyQueryIncludes(include, query);
 
     const result = await query.firstOrFail();
 
     return new Ok(modelToJsonApi(result));
   }
 
-  @Get('/:model')
-  public async getAll(@Param() model: string, @Query() page: number, @Query() perPage: number, @Query() order: string, @Query() orderDirection: string, @Query() includes: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
+  @Get(':model')
+  public async getAll(@Param() model: string, @Query() page: number, @Query() perPage: number, @Query() order: string, @Query() orderDirection: string, @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
     const mClass = this.getModel(model);
 
     this.checkPolicy(mClass, 'readAny', req);
@@ -120,14 +121,14 @@ export class Repository extends BaseController {
       query.order(order, orderDirection ?? 'asc');
     }
 
-    applyQueryIncludes(includes, query);
+    applyQueryIncludes(include, query);
 
     const result = await query;
 
     return new Ok(modelToJsonApi(result));
   }
 
-  @Del('/:model/:id')
+  @Del(':model/:id')
   public async del(@Param() model: string, @Param() id: string, @Req() req: express.Request) {
     const mClass = this.getModel(model);
 
@@ -137,7 +138,7 @@ export class Repository extends BaseController {
     return new Ok();
   }
 
-  @Patch('/:model/:id')
+  @Patch(':model/:id')
   public async patch(@Param() model: string, @Param() id: string, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
     const mClass = this.getModel(model);
 
@@ -151,7 +152,7 @@ export class Repository extends BaseController {
     return new Ok(entity.dehydrate());
   }
 
-  @Post('/:model')
+  @Post(':model')
   public async insert(@Param() model: string, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
     const mClass = this.getModel(model);
 

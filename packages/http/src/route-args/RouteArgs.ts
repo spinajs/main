@@ -73,9 +73,9 @@ export abstract class RouteArgs implements IRouteArgs {
       case 'String':
         return arg;
       case 'Number':
-        return Number(arg);
+        return arg ? Number(arg) : null;
       case 'Boolean':
-        return (arg as string).toLowerCase() === 'true' ? true : false;
+        return arg ? (arg === 1 ? true : (arg as string).toLowerCase() === 'true' ? true : false) : false;
       case 'Object':
         return _.isString(arg) ? JSON.parse(arg) : arg;
       case 'DateTime':

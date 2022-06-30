@@ -3,13 +3,13 @@
  */
 export const ROUTE_ARG_SCHEMA = {
   Number: {
-    type: 'number',
+    type: ['number', 'null'],
   },
   String: {
-    type: 'string',
+    type: ['string', 'null'],
     maxLength: 512,
   },
   Boolean: {
-    type: 'boolean',
+    type: ['boolean', 'null'],
   },
 };

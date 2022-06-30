@@ -247,10 +247,10 @@ export enum ParameterType {
   /**
    * Req from express
    */
-  Req = 'Req',
+  Req = 'ArgAsRequest',
 
   // Res from express
-  Res = 'Res',
+  Res = 'ArgAsResponse',
 }
 
 export interface IFormOptions {

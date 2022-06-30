@@ -1,3 +1,4 @@
+import { AccessControl } from '@spinajs/rbac';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -22,6 +23,8 @@ describe('Http orm tests', () => {
     const b = await DI.resolve(OrmHttpBootstrapper);
     b.bootstrap();
 
+    const ac = await DI.resolve<AccessControl>('AccessControl');
+    ac.grant('admin').createAny('test').readAny('test').deleteAny('test').updateAny('test');
     server.start();
   });
 

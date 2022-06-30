@@ -51,10 +51,18 @@ export function checkRbacPermission(role: string | string[], resource: string, p
 
 export function checkUserPermission(user: User, resource: string, permission: string): Permission {
   const ac = DI.get<AccessControl>('AccessControl');
+
+  if (!user) {
+    return null;
+  }
+
   return (ac.can(user.Role.split(',')) as any)[permission](resource);
 }
 
 export function checkRoutePermission(req: express.Request, resource: string, permission: string): Permission {
-  const ac = DI.get<AccessControl>('AccessControl');
-  return (ac.can(req.User.Role.split(',')) as any)[permission](resource);
+  if (!req.User) {
+    return null;
+  }
+
+  return checkUserPermission(req.User, resource, permission);
 }

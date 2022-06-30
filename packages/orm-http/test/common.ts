@@ -41,6 +41,12 @@ export class TestConfiguration extends FrameworkConfiguration {
           express.urlencoded({
             extended: true,
           }),
+          (req: any, _res: any, next: any) => {
+            req.User = {
+              Role: 'admin',
+            };
+            next();
+          },
         ],
         AcceptHeaders: 1 | 2,
       },
