@@ -20,54 +20,48 @@ export class ConnectionConf extends FrameworkConfiguration {
   public async resolveAsync(): Promise<void> {
     await super.resolveAsync();
 
-    _.mergeWith(
-      this.Config,
-      {
-        system: {
-          dirs: {
-            migrations: [dir('./mocks/migrations')],
-            models: [dir('./mocks/models')],
-          },
-        },
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-            },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
-        db: {
-         
-          Connections: [
-            {
-              Driver: 'sqlite',
-              Filename: 'foo.sqlite',
-              Name: 'sqlite',
-              Migration: {
-                OnStartup: false,
-              },
-            },
-            {
-              Driver: 'mysql',
-              Database: 'foo',
-              User: 'root',
-              Password: 'root',
-              Host: 'localhost',
-              Port: 1234,
-              Name: 'main_connection',
-              Migration: {
-                OnStartup: false,
-              },
-            },
-          ],
+    this.Config = {
+      system: {
+        dirs: {
+          migrations: [dir('./mocks/migrations')],
+          models: [dir('./mocks/models')],
         },
       },
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+          },
+        ],
 
-      mergeArrays,
-    );
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
+      db: {
+        Connections: [
+          {
+            Driver: 'sqlite',
+            Filename: 'foo.sqlite',
+            Name: 'sqlite',
+            Migration: {
+              OnStartup: false,
+            },
+          },
+          {
+            Driver: 'mysql',
+            Database: 'foo',
+            User: 'root',
+            Password: 'root',
+            Host: 'localhost',
+            Port: 1234,
+            Name: 'main_connection',
+            Migration: {
+              OnStartup: false,
+            },
+          },
+        ],
+      },
+    };
   }
 }
 
@@ -158,7 +152,6 @@ export class FakeDeleteQueryCompiler extends DeleteQueryCompiler {
     };
   }
 }
-
 
 export class FakeTableExistsCompiler extends TableExistsCompiler {
   public compile(): ICompilerOutput {

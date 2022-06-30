@@ -501,7 +501,7 @@ export abstract class Relation<R extends ModelBase> extends Array<R> {
 
   /**
    *
-   * Add to relation & saves to db
+   * Add to relation & saves to db, alias for union, except it can add single element also
    *
    * @param obj - data to add
    */
@@ -513,6 +513,15 @@ export abstract class Relation<R extends ModelBase> extends Array<R> {
   public async clear(): Promise<void> {
     await this.remove(this);
   }
+
+  public empty() {
+    this.length = 0;
+  }
+
+  public abstract intersection(obj: R[], callback?: (a: R, b: R) => boolean): Promise<void>;
+  public abstract union(obj: R[], mode?: InsertBehaviour): Promise<void>;
+  public abstract diff(obj: R[], callback?: (a: R, b: R) => boolean): Promise<void>;
+  public abstract set(obj: R[]): Promise<void>;
 
   /**
    * Populates this relation
@@ -534,6 +543,22 @@ export abstract class Relation<R extends ModelBase> extends Array<R> {
 }
 
 export class ManyToManyRelationList<T extends ModelBase> extends Relation<T> {
+  public intersection(_obj: T[], _callback?: (a: T, b: T) => boolean): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+
+  public union(_obj: T[], _mode?: InsertBehaviour): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+
+  public diff(_obj: T[], _callback?: (a: T, b: T) => boolean): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+
+  public set(_obj: T[], _callback?: (a: T, b: T) => boolean): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+
   public async remove(obj: T | T[]): Promise<void> {
     const self = this;
     const data = (Array.isArray(obj) ? obj : [obj]).map((d) => (d as ModelBase).PrimaryKeyValue);
@@ -575,6 +600,50 @@ export class ManyToManyRelationList<T extends ModelBase> extends Relation<T> {
 }
 
 export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
+  public async diff(obj: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
+    const result = callback ? _.differenceWith(this, obj, callback) : _.differenceBy(this, obj, this.TargetModelDescriptor.PrimaryKey);
+    const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
+
+    await driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereNotIn(
+      this.Relation.PrimaryKey,
+      result.map((x) => x.PrimaryKeyValue),
+    );
+
+    this.empty();
+
+    await this.add(result);
+  }
+
+  public async set(obj: T[]): Promise<void> {
+    const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
+    await driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereNotIn(
+      this.Relation.PrimaryKey,
+      obj.map((x) => x.PrimaryKeyValue),
+    );
+
+    this.empty();
+
+    await this.add(obj);
+  }
+
+  public async intersection(obj: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
+    const result = callback ? _.intersectionWith(this, obj, callback) : _.intersectionBy(this, obj, this.TargetModelDescriptor.PrimaryKey);
+    const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
+
+    await driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereNotIn(
+      this.Relation.PrimaryKey,
+      result.map((x) => x.PrimaryKeyValue),
+    );
+
+    this.empty();
+
+    await this.add(result);
+  }
+
+  public async union(obj: T[], mode?: InsertBehaviour): Promise<void> {
+    await this.add(obj, mode);
+  }
+
   public async remove(obj: T | T[]): Promise<void> {
     const data = (Array.isArray(obj) ? obj : [obj]).map((d) => (d as ModelBase).PrimaryKeyValue);
     const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);

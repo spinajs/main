@@ -587,7 +587,7 @@ export interface IWhereBuilder<T> {
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
   andWhere(statement: Wrap): this;
-  andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<T>, operator?: Op | any, value?: any): this;
+  andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap| Partial<T>, operator?: Op | any, value?: any): this;
 
   whereObject(obj: any): this;
   whereNotNull(column: string): this;

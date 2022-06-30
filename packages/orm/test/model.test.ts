@@ -24,7 +24,6 @@ import { ModelDiscBase } from './mocks/models/ModelDiscBase';
 import { ModelDisc1 } from './mocks/models/ModelDisc1';
 import { ModelDisc2 } from './mocks/models/ModelDisc2';
 import { Model6 } from './mocks/models/Model6';
-import { Wrapper } from './../src/wrappers';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);

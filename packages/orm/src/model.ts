@@ -687,7 +687,7 @@ export const MODEL_STATIC_MIXINS = {
       const converter = driver.Container.resolve(DatetimeValueConverter);
 
       await query.whereIn(description.PrimaryKey, data).update({
-        [description.SoftDelete.DeletedAt]: converter.toDB(new Date()),
+        [description.SoftDelete.DeletedAt]: converter.toDB(DateTime.now()),
       });
     } else {
       const { query } = _createQuery(this, DeleteQueryBuilder);

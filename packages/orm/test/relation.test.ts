@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { ModelNested1 } from './mocks/models/ModelNested1';
 import { RelationRecursive } from './mocks/models/RelationRecursive';
-import { ManyToManyRelation } from './../src/relations';
+import { ManyToManyRelation, OneToManyRelationList } from './../src/relations';
 import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator } from './../src/hydrators';
 import { Model1 } from './mocks/models/Model1';
 import { MODEL_DESCTRIPTION_SYMBOL } from './../src/decorators';
@@ -594,7 +594,6 @@ describe('Orm relations tests', () => {
           ]);
         }),
       );
-     
 
     await db();
     const callback = sinon.spy(OneToManyRelation.prototype, 'execute');
@@ -896,24 +895,24 @@ describe('Orm relations tests', () => {
     callback.restore();
   });
 
-  it('Setting Id for relation owner should set foreign key', () =>{ 
+  it('Setting Id for relation owner should set foreign key', () => {
     const m = new ModelNested1();
     const m2 = new ModelNested2();
     m.HasMany1.push(m2);
     m.PrimaryKeyValue = 666;
 
-    expect((m2 as any)["rel_1"]).to.eq(666);
+    expect((m2 as any)['rel_1']).to.eq(666);
   });
 
-  it("Should attach model to relation and fill foreign key", () =>{ 
+  it('Should attach model to relation and fill foreign key', () => {
     const m = new ModelNested1({
-      Id: 777
+      Id: 777,
     });
     const m2 = new ModelNested2();
-    
+
     m.attach(m2);
 
-    expect((m2 as any)["rel_1"]).to.eq(777);
+    expect((m2 as any)['rel_1']).to.eq(777);
     expect(m.HasMany1.length).to.eq(1);
   });
 
@@ -969,5 +968,157 @@ describe('Orm relations tests', () => {
     expect(result.ManyOwners.length).to.eq(2);
 
     callback.restore();
+  });
+
+  it('should find diff', async () => {
+    await db();
+
+    const setA = new OneToManyRelationList(
+      new Model1(),
+      Model1,
+      {
+        TargetModel: Model1,
+        Name: 'Translations',
+        Type: RelationType.Many,
+        SourceModel: null,
+        ForeignKey: '',
+        PrimaryKey: '',
+        Recursive: false,
+      },
+      [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
+    );
+    const setB = new OneToManyRelationList(
+      new Model1(),
+      Model1,
+      {
+        TargetModel: Model1,
+        Name: 'Translations',
+        Type: RelationType.Many,
+        SourceModel: null,
+        ForeignKey: '',
+        PrimaryKey: '',
+        Recursive: false,
+      },
+      [new Model1({ Id: 1 }), new Model1({ Id: 3 }), new Model1({ Id: 4 })],
+    );
+
+    await setA.diff(setB);
+    expect(setA.length).to.eq(1);
+    expect(setA[0].Id).to.eq(2);
+  });
+
+  it('should set', async () => {
+    await db();
+
+    const setA = new OneToManyRelationList(
+      new Model1(),
+      Model1,
+      {
+        TargetModel: Model1,
+        Name: 'Translations',
+        Type: RelationType.Many,
+        SourceModel: null,
+        ForeignKey: '',
+        PrimaryKey: '',
+        Recursive: false,
+      },
+      [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
+    );
+    const setB = new OneToManyRelationList(
+      new Model1(),
+      Model1,
+      {
+        TargetModel: Model1,
+        Name: 'Translations',
+        Type: RelationType.Many,
+        SourceModel: null,
+        ForeignKey: '',
+        PrimaryKey: '',
+        Recursive: false,
+      },
+      [new Model1({ Id: 1 }), new Model1({ Id: 3 }), new Model1({ Id: 4 })],
+    );
+
+    await setA.set(setB);
+    expect(setA.length).to.eq(3);
+    expect(setA[0].Id).to.eq(1);
+    expect(setA[1].Id).to.eq(3);
+    expect(setA[2].Id).to.eq(4);
+
+  });
+
+
+  it('should find complement', async () => {
+    await db();
+
+    const setA = new OneToManyRelationList(
+      new Model1(),
+      Model1,
+      {
+        TargetModel: Model1,
+        Name: 'Translations',
+        Type: RelationType.Many,
+        SourceModel: null,
+        ForeignKey: '',
+        PrimaryKey: '',
+        Recursive: false,
+      },
+      [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
+    );
+    const setB = new OneToManyRelationList(
+      new Model1(),
+      Model1,
+      {
+        TargetModel: Model1,
+        Name: 'Translations',
+        Type: RelationType.Many,
+        SourceModel: null,
+        ForeignKey: '',
+        PrimaryKey: '',
+        Recursive: false,
+      },
+      [new Model1({ Id: 1 }), new Model1({ Id: 3 }), new Model1({ Id: 4 })],
+    );
+
+    await setB.complement(setA);
+    expect(setA.length).to.eq(2);
+    expect(setA[0].Id).to.eq(3);
+  });
+
+  it('should find intersection', async () => {
+    await db();
+
+    const setA = new OneToManyRelationList(
+      new Model1(),
+      Model1,
+      {
+        TargetModel: Model1,
+        Name: 'Translations',
+        Type: RelationType.Many,
+        SourceModel: null,
+        ForeignKey: '',
+        PrimaryKey: '',
+        Recursive: false,
+      },
+      [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
+    );
+    const setB = new OneToManyRelationList(
+      new Model1(),
+      Model1,
+      {
+        TargetModel: Model1,
+        Name: 'Translations',
+        Type: RelationType.Many,
+        SourceModel: null,
+        ForeignKey: '',
+        PrimaryKey: '',
+        Recursive: false,
+      },
+      [new Model1({ Id: 1 }), new Model1({ Id: 3 })],
+    );
+
+    await setA.intersection(setB);
+    expect(setA.length).to.eq(1);
+    expect(setA[0].Id).to.eq(1);
   });
 });
