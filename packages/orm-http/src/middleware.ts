@@ -3,11 +3,11 @@ import { DeleteQueryBuilder, InsertQueryBuilder, ModelBase, SelectQueryBuilder, 
 import * as express from 'express';
 
 export abstract class RepositoryMiddleware extends AsyncModule {
-  public onGetMiddlewareStart(_req: express.Request): void {}
-  public onGetAllMiddlewareStart(_req: express.Request): void {}
-  public onUpdateMiddlewareStart(_req: express.Request): void {}
-  public onInsertMiddlewareStart(_req: express.Request): void {}
-  public onDeleteMiddlewareStart(_req: express.Request): void {}
+  public async onGetMiddlewareStart(_req: express.Request): Promise<void> {}
+  public async onGetAllMiddlewareStart(_req: express.Request): Promise<void> {}
+  public async onUpdateMiddlewareStart(_req: express.Request): Promise<void> {}
+  public async onInsertMiddlewareStart(_req: express.Request): Promise<void> {}
+  public async onDeleteMiddlewareStart(_req: express.Request): Promise<void> {}
 
   public onGetMiddlewareQuery(_query: SelectQueryBuilder<any>, _model: Constructor<ModelBase>, _req: express.Request): void {}
   public onGetAllMiddlewareQuery(_query: SelectQueryBuilder<any>, _model: Constructor<ModelBase>, _req: express.Request): void {}

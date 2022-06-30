@@ -106,7 +106,7 @@ export class Repository extends BaseController {
   public async get(@Param() model: string, @Param('id') id: string, @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
     const mClass = this.getModel(model);
 
-    this.Middlewares.forEach((m) => m.onGetMiddlewareStart(req));
+    await Promise.all(this.Middlewares.map((m) => m.onGetMiddlewareStart(req)));
 
     const mDesc = extractModelDescriptor(mClass);
     const query = (mClass as any)['where'](mDesc.PrimaryKey, id);
@@ -127,7 +127,7 @@ export class Repository extends BaseController {
 
   @Get(':model')
   public async getAll(@Param() model: string, @Query() page: number, @Query() perPage: number, @Query() order: string, @Query() orderDirection: string, @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
-    this.Middlewares.forEach((m) => m.onGetAllMiddlewareStart(req));
+    await Promise.all(this.Middlewares.map((m) => m.onGetAllMiddlewareStart(req)));
 
     const mClass = this.getModel(model);
     const query = (mClass as any)['all'](page ?? 0, perPage ?? 15);
@@ -151,7 +151,7 @@ export class Repository extends BaseController {
 
   @Del(':model/:id')
   public async del(@Param() model: string, @Param() id: string, @Req() req: express.Request) {
-    this.Middlewares.forEach((m) => m.onDeleteMiddlewareStart(req));
+    await Promise.all(this.Middlewares.map((m) => m.onDeleteMiddlewareStart(req)));
 
     const mClass = this.getModel(model);
 
@@ -169,7 +169,7 @@ export class Repository extends BaseController {
 
   @Patch(':model/:id')
   public async patch(@Param() model: string, @Param() id: string, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
-    this.Middlewares.forEach((m) => m.onUpdateMiddlewareStart(req));
+    await Promise.all(this.Middlewares.map((m) => m.onUpdateMiddlewareStart(req)));
 
     const mClass = this.getModel(model);
 
@@ -194,12 +194,11 @@ export class Repository extends BaseController {
 
   @Post(':model')
   public async insert(@Param() model: string, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
-    const mClass = this.getModel(model);
+    await Promise.all(this.Middlewares.map((m) => m.onInsertMiddlewareStart(req)));
 
+    const mClass = this.getModel(model);
     const entity: ModelBase = new mClass();
     entity.hydrate(incoming.data.attributes);
-
-    this.Middlewares.forEach((m) => m.onInsertMiddlewareStart(req));
 
     const { query } = createQuery(mClass, InsertQueryBuilder);
     let pKey = null;
