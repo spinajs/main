@@ -12,7 +12,7 @@ import * as _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/orm';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler } from './misc';
-import { IModelDescrtiptor, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, InsertBehaviour, DatetimeValueConverter, TableQueryCompiler } from '../src/interfaces';
+import { IModelDescriptor, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, InsertBehaviour, DatetimeValueConverter, TableQueryCompiler } from '../src/interfaces';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
@@ -838,7 +838,7 @@ describe('General model tests', () => {
     const models = await orm.Models;
 
     let toCheck = models[1];
-    let descriptor = toCheck.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescrtiptor;
+    let descriptor = toCheck.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor;
 
     expect(descriptor).to.deep.include({
       Connection: 'sqlite',
@@ -859,7 +859,7 @@ describe('General model tests', () => {
     });
 
     toCheck = models[2];
-    descriptor = toCheck.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescrtiptor;
+    descriptor = toCheck.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor;
 
     expect(descriptor).to.deep.include({
       Connection: 'SampleConnection1',

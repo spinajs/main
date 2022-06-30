@@ -1,5 +1,5 @@
 import { Injectable, NewInstance } from '@spinajs/di';
-import { extractModelDescriptor, IBuilderMiddleware, IModelDescrtiptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder } from '@spinajs/orm';
+import { extractModelDescriptor, IBuilderMiddleware, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder } from '@spinajs/orm';
 import { TranslationSource } from '@spinajs/intl';
 import _ from 'lodash';
 import { IntlTranslation } from './models/IntlTranslation';
@@ -17,7 +17,7 @@ declare module '@spinajs/orm' {
 
 @NewInstance()
 export class IntlModelRelation extends OrmRelation {
-  constructor(protected _lang: string, _orm: Orm, _query: SelectQueryBuilder<any>, protected _mDescriptor: IModelDescrtiptor, _parentRelation?: OrmRelation) {
+  constructor(protected _lang: string, _orm: Orm, _query: SelectQueryBuilder<any>, protected _mDescriptor: IModelDescriptor, _parentRelation?: OrmRelation) {
     super(
       _orm,
       _query,
@@ -46,7 +46,7 @@ export class IntlModelRelation extends OrmRelation {
 }
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
-  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescrtiptor) {}
+  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;

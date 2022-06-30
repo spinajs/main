@@ -3,7 +3,7 @@ import { BasePolicy, IController, IRoute } from '@spinajs/http';
 import * as express from 'express';
 import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { ACL_CONTROLLER_DESCRIPTOR } from './decorators';
-import { IAclDescriptor } from './interfaces';
+import { IRbacDescriptor } from './interfaces';
 import { DI } from '@spinajs/di';
 import { User } from '@spinajs/rbac';
 
@@ -22,7 +22,7 @@ export class RbacPolicy extends BasePolicy {
   }
 
   public async execute(req: express.Request, action: IRoute, instance: IController) {
-    const descriptor: IAclDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance);
+    const descriptor: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance);
     let permission = descriptor.Permission ?? '';
 
     // check if route has its own permission

@@ -48,7 +48,7 @@ export abstract class BaseController extends AsyncModule implements IController 
   public get BasePath(): string {
     return this.Descriptor.BasePath ? this.Descriptor.BasePath : this.constructor.name.toLowerCase();
   }
-
+ 
   public async resolveAsync() {
     const self = this;
 
@@ -194,6 +194,30 @@ export class Controllers extends AsyncModule {
   @Autoinject()
   protected Server: HttpServer;
 
+  public async register(controller: ClassInfo<BaseController>) {
+    this.Log.trace(`Loading controller: ${controller.name}`);
+
+    const compiler = new TypescriptCompiler(controller.file.replace('.js', '.d.ts'));
+    const members = compiler.getClassMembers(controller.name);
+
+    for (const [name, route] of controller.instance.Descriptor.Routes) {
+      if (members.has(name as string)) {
+        const member = members.get(name as string);
+
+        for (const [index, rParam] of route.Parameters) {
+          const parameterInfo = member.parameters[index];
+          if (parameterInfo) {
+            rParam.Name = (parameterInfo.name as any).text;
+          }
+        }
+      } else {
+        this.Log.error(`Controller ${controller.name} does not have member ${name as string} for route ${route.Path}`);
+      }
+    }
+
+    this.Server.use(controller.instance.Router);
+  }
+
   public async resolveAsync(): Promise<void> {
     /**
      * globally register controller validator, we use ajv lib
@@ -204,27 +228,7 @@ export class Controllers extends AsyncModule {
 
     // extract parameters info from controllers source code & register in http server
     for (const controller of await this.Controllers) {
-      this.Log.trace(`Loading controller: ${controller.name}`);
-
-      const compiler = new TypescriptCompiler(controller.file.replace('.js', '.d.ts'));
-      const members = compiler.getClassMembers(controller.name);
-
-      for (const [name, route] of controller.instance.Descriptor.Routes) {
-        if (members.has(name as string)) {
-          const member = members.get(name as string);
-
-          for (const [index, rParam] of route.Parameters) {
-            const parameterInfo = member.parameters[index];
-            if (parameterInfo) {
-              rParam.Name = (parameterInfo.name as any).text;
-            }
-          }
-        } else {
-          this.Log.error(`Controller ${controller.name} does not have member ${name as string} for route ${route.Path}`);
-        }
-      }
-
-      this.Server.use(controller.instance.Router);
+      this.register(controller);
     }
   }
 }

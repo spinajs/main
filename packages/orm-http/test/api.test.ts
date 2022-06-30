@@ -8,7 +8,6 @@ import 'mocha';
 import sinon from 'sinon';
 
 import { OrmHttpBootstrapper } from './../src/index';
-import { OrmJsonApiBootsrapper } from './../src/api';
 import { expect } from 'chai';
 
 describe('Http orm tests', () => {
@@ -22,9 +21,6 @@ describe('Http orm tests', () => {
 
     const b = await DI.resolve(OrmHttpBootstrapper);
     b.bootstrap();
-
-    const ab = await DI.resolve(OrmJsonApiBootsrapper);
-    ab.bootstrap();
 
     server.start();
   });

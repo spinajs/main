@@ -177,7 +177,7 @@ export interface IMigrationDescriptor {
 /**
  * Describes model, used internally
  */
-export interface IModelDescrtiptor {
+export interface IModelDescriptor {
   /**
    * Primary key name
    */

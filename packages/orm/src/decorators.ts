@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { UuidConverter } from './converters';
 import { Constructor } from '@spinajs/di';
-import { IModelDescrtiptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, ValueConverter, SetValueConverter } from './interfaces';
+import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, ValueConverter, SetValueConverter } from './interfaces';
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
@@ -12,9 +12,9 @@ export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
 /**
  * Helper func to create model metadata
  */
-export function extractDecoratorDescriptor(callback: (model: IModelDescrtiptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void, base = false): any {
+export function extractDecoratorDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void, base = false): any {
   return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
-    let metadata: IModelDescrtiptor = null;
+    let metadata: IModelDescriptor = null;
     if (!base) {
       metadata = target.constructor[MODEL_DESCTRIPTION_SYMBOL];
     } else {
@@ -87,7 +87,7 @@ export function Migration(connection: string) {
  * @param name - connection name, must be avaible in db config
  */
 export function Connection(name: string) {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor) => {
     model.Connection = name;
   }, true);
 }
@@ -98,7 +98,7 @@ export function Connection(name: string) {
  * @param name - table name in database that is referred by this model
  */
 export function Model(tableName: string) {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor) => {
     model.TableName = tableName;
   }, true);
 }
@@ -108,7 +108,7 @@ export function Model(tableName: string) {
  * It allow to track creation times & changes to model
  */
 export function CreatedAt() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
     if (type.name !== 'DateTime') {
       throw Error('Proprety CreatedAt must be DateTime type');
@@ -126,7 +126,7 @@ export function CreatedAt() {
  * It allow to track creation times & changes to model
  */
 export function UpdatedAt() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
     if (type.name !== 'DateTime') {
       throw Error('Proprety UpdatedAt must be DateTime type');
@@ -144,7 +144,7 @@ export function UpdatedAt() {
  * select result by default.
  */
 export function SoftDelete() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
     if (type.name !== 'DateTime') {
       throw Error('Proprety DeletedAt must be DateTime type');
@@ -163,7 +163,7 @@ export function SoftDelete() {
  *
  */
 export function Archived() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
     if (type.name !== 'DateTime') {
       throw Error('Proprety DeletedAt must be Date type');
@@ -180,7 +180,7 @@ export function Archived() {
  * Makrs field as primary key
  */
 export function Primary() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, _target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     model.PrimaryKey = propertyKey;
   });
 }
@@ -189,7 +189,7 @@ export function Primary() {
  * Marks columns as UUID. Column will be generated ad creation
  */
 export function Ignore() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, _target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
@@ -204,7 +204,7 @@ export function Ignore() {
  * Marks columns as UUID. Column will be generated ad creation
  */
 export function Uuid() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, _target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
@@ -218,7 +218,7 @@ export function Uuid() {
 }
 
 export function JunctionTable() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.JunctionModelProperties.push({
       Name: propertyKey,
       Model: Reflect.getMetadata('design:type', target, propertyKey),
@@ -234,7 +234,7 @@ export function JunctionTable() {
  * @param discriminationMap - field - model mapping
  */
 export function DiscriminationMap(fieldName: string, discriminationMap: IDiscriminationEntry[]) {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, _target: any, _propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, _propertyKey: string) => {
     model.DiscriminationMap.Field = fieldName;
     model.DiscriminationMap.Models = new Map<string, Constructor<ModelBase>>();
 
@@ -249,7 +249,7 @@ export function DiscriminationMap(fieldName: string, discriminationMap: IDiscrim
  *
  */
 export function Recursive() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, _target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     if (!model.Relations.has(propertyKey)) {
       throw new InvalidOperation(`cannot set recursive on not existing relation ( relation ${propertyKey} on model ${model.Name} )`);
     }
@@ -279,7 +279,7 @@ export const forwardRef = (fn: () => any): IForwardReference => ({
  * @param primaryKey - primary key in related model, defaults to primary key taken from db
  */
 export function BelongsTo(foreignKey?: string, primaryKey?: string) {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.One,
@@ -299,7 +299,7 @@ export function BelongsTo(foreignKey?: string, primaryKey?: string) {
  * @param primaryKey - primary key in related model, defaults to primary key taken from db
  */
 export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: string, primaryKey?: string) {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.One,
@@ -321,7 +321,7 @@ export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: str
  *
  */
 export function HasMany(targetModel: Constructor<ModelBase>, foreignKey?: string, primaryKey?: string) {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Many,
@@ -345,7 +345,7 @@ export function HasMany(targetModel: Constructor<ModelBase>, foreignKey?: string
  * @param junctionModelSourcePk - junction table source primary key name ( foreign key for source model )
  */
 export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase>, targetModelPKey?: string, sourceModelPKey?: string, junctionModelTargetPk?: string, junctionModelSourcePk?: string) {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const targetModelDescriptor = extractModelDescriptor(targetModel);
 
     model.Relations.set(propertyKey, {
@@ -368,7 +368,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
  * saves datetime as TEXT and ISO8601 strings
  */
 export function DateTime() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
     if (type.name !== 'DateTime') {
       throw Error(`Proprety  ${propertyKey} must be DateTime type`);
@@ -386,7 +386,7 @@ export function DateTime() {
  * Mark field as SET type. It will ensure that conversion to & from DB is valid, eg. to emulate field type SET in sqlite
  */
 export function Set() {
-  return extractDecoratorDescriptor((model: IModelDescrtiptor, target: any, propertyKey: string) => {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
     if (type.name !== 'Array') {
       throw Error(`Proprety  ${propertyKey} must be an array type`);

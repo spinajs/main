@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { IRelationDescriptor, IModelDescrtiptor, IBuilderMiddleware, RelationType, InsertBehaviour, ForwardRefFunction } from './interfaces';
+import { IRelationDescriptor, IModelDescriptor, IBuilderMiddleware, RelationType, InsertBehaviour, ForwardRefFunction } from './interfaces';
 import { NewInstance, DI, Constructor } from '@spinajs/di';
 import { SelectQueryBuilder, DeleteQueryBuilder } from './builders';
 import { extractModelDescriptor, ModelBase } from './model';
@@ -30,7 +30,7 @@ export interface IOrmRelation {
 
 export abstract class OrmRelation implements IOrmRelation {
   protected _targetModel: Constructor<ModelBase> | ForwardRefFunction;
-  protected _targetModelDescriptor: IModelDescrtiptor;
+  protected _targetModelDescriptor: IModelDescriptor;
   protected _relationQuery: SelectQueryBuilder;
   protected _separator: string;
 
@@ -122,7 +122,7 @@ class HasManyRelationMiddleware implements IBuilderMiddleware {
 }
 
 class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
-  constructor(protected _relationQuery: SelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescrtiptor) {}
+  constructor(protected _relationQuery: SelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -189,7 +189,7 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
 }
 
 class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected _relationQuery: SelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescrtiptor) {}
+  constructor(protected _relationQuery: SelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -304,7 +304,7 @@ class BelongsToRelationResultTransformOneToManyMiddleware extends BelongsToRelat
 }
 
 export class DiscriminationMapMiddleware implements IBuilderMiddleware {
-  constructor(protected _description: IModelDescrtiptor) {}
+  constructor(protected _description: IModelDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -331,7 +331,7 @@ export class DiscriminationMapMiddleware implements IBuilderMiddleware {
 @NewInstance()
 export class BelongsToRelation extends OrmRelation {
   protected _targetModel: Constructor<ModelBase>;
-  protected _targetModelDescriptor: IModelDescrtiptor;
+  protected _targetModelDescriptor: IModelDescriptor;
   protected _relationQuery: SelectQueryBuilder;
 
   constructor(_orm: Orm, _query: SelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: OrmRelation) {
@@ -374,7 +374,7 @@ export class BelongsToRelation extends OrmRelation {
 @NewInstance()
 export class BelongsToRecursiveRelation extends OrmRelation {
   protected _targetModel: Constructor<ModelBase>;
-  protected _targetModelDescriptor: IModelDescrtiptor;
+  protected _targetModelDescriptor: IModelDescriptor;
   protected _relationQuery: SelectQueryBuilder;
 
   constructor(_orm: Orm, _query: SelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: OrmRelation) {
@@ -432,7 +432,7 @@ export class OneToManyRelation extends OrmRelation {
 @NewInstance()
 export class ManyToManyRelation extends OrmRelation {
   protected _joinModel: Constructor<ModelBase>;
-  protected _joinModelDescriptor: IModelDescrtiptor;
+  protected _joinModelDescriptor: IModelDescriptor;
   protected _joinQuery: SelectQueryBuilder;
 
   public get TableJoinQuery() {
@@ -501,11 +501,11 @@ export class ManyToManyRelation extends OrmRelation {
 }
 
 export interface IRelation {
-  TargetModelDescriptor: IModelDescrtiptor;
+  TargetModelDescriptor: IModelDescriptor;
 }
 
 export class SingleRelation<R extends ModelBase> implements IRelation {
-  public TargetModelDescriptor: IModelDescrtiptor;
+  public TargetModelDescriptor: IModelDescriptor;
 
   protected Orm: Orm;
 
@@ -562,7 +562,7 @@ export class SingleRelation<R extends ModelBase> implements IRelation {
  * It allows to add / remove objects to relation
  */
 export abstract class Relation<R extends ModelBase> extends Array<R> implements IRelation {
-  public TargetModelDescriptor: IModelDescrtiptor;
+  public TargetModelDescriptor: IModelDescriptor;
 
   protected Orm: Orm;
 

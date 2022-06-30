@@ -1,6 +1,6 @@
 export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
 
-export interface IAclDescriptor {
+export interface IRbacDescriptor {
   /**
    * Resource name
    */
@@ -16,10 +16,10 @@ export interface IAclDescriptor {
   /**
    * Per routes permissions
    */
-  Routes: Map<string, IAclRoutePermissionDescriptor>;
+  Routes: Map<string, IRbacRoutePermissionDescriptor>;
 }
 
-export interface IAclRoutePermissionDescriptor {
+export interface IRbacRoutePermissionDescriptor {
   /**
    * controller route permission. It overrides acl descriptor options
    */

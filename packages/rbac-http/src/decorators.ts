@@ -1,16 +1,33 @@
-import { IAclDescriptor, IAclRoutePermissionDescriptor, PermissionType } from './interfaces';
+import { IRbacDescriptor, IRbacRoutePermissionDescriptor, PermissionType } from './interfaces';
 import { Parameter, Policy, Route } from '@spinajs/http';
 import { RbacPolicy } from './policies';
 
 export const ACL_CONTROLLER_DESCRIPTOR = Symbol('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
 
-function descriptor(callback: (controller: IAclDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
+export function setRbacMetadata(target: any, callback: (meta: IRbacDescriptor) => void) {
+  let metadata: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, target.prototype || target);
+  if (!metadata) {
+    metadata = {
+      Resource: '',
+      Routes: new Map<string, IRbacRoutePermissionDescriptor>(),
+      Permission: 'readOwn',
+    };
+
+    Reflect.defineMetadata(ACL_CONTROLLER_DESCRIPTOR, metadata, target.prototype || target);
+  }
+
+  if (callback) {
+    callback(metadata);
+  }
+}
+
+function descriptor(callback: (controller: IRbacDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
-    let metadata: IAclDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, target.prototype || target);
+    let metadata: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, target.prototype || target);
     if (!metadata) {
       metadata = {
         Resource: '',
-        Routes: new Map<string, IAclRoutePermissionDescriptor>(),
+        Routes: new Map<string, IRbacRoutePermissionDescriptor>(),
         Permission: 'readOwn',
       };
 
@@ -30,7 +47,7 @@ function descriptor(callback: (controller: IAclDescriptor, target: any, property
  * @param permission - default permission
  */
 export function Resource(resource: string, permission: PermissionType = 'readOwn') {
-  return descriptor((metadata: IAclDescriptor, target: any) => {
+  return descriptor((metadata: IRbacDescriptor, target: any) => {
     Policy(RbacPolicy)(target, null, null);
 
     metadata.Resource = resource;
@@ -45,8 +62,8 @@ export function Resource(resource: string, permission: PermissionType = 'readOwn
  * @param permission - permission to set
  */
 export function Permission(permission: PermissionType = 'readOwn') {
-  return descriptor((metadata: IAclDescriptor, target: any, propertyKey: string) => {
-    let route: IAclRoutePermissionDescriptor = null;
+  return descriptor((metadata: IRbacDescriptor, target: any, propertyKey: string) => {
+    let route: IRbacRoutePermissionDescriptor = null;
 
     if (propertyKey) {
       if (metadata.Routes.has(propertyKey)) {

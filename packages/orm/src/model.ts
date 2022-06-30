@@ -2,7 +2,7 @@
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
 import { SORT_ORDER } from './enums';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
-import { IModelDescrtiptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder } from './interfaces';
+import { IModelDescriptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder } from './interfaces';
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
 import { Op } from './enums';
@@ -16,7 +16,7 @@ import { ModelDehydrator } from './dehydrators';
 import { Wrap } from './statements';
 import { DateTime } from 'luxon';
 
-export function extractModelDescriptor(targetOrForward: any): IModelDescrtiptor {
+export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
 
   if (!target) {
@@ -498,10 +498,10 @@ export class ModelBase {
 }
 
 function _descriptor(model: Class<any>) {
-  return (model as any)[MODEL_DESCTRIPTION_SYMBOL] as IModelDescrtiptor;
+  return (model as any)[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor;
 }
 
-function _preparePkWhere(description: IModelDescrtiptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
+function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
   if (description.PrimaryKey) {
     query.where(description.PrimaryKey, model.PrimaryKeyValue);
   } else {
@@ -516,7 +516,7 @@ function _preparePkWhere(description: IModelDescrtiptor, query: ISelectQueryBuil
   }
 }
 
-function _prepareOrderBy(description: IModelDescrtiptor, query: IOrderByBuilder, order?: SORT_ORDER) {
+function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, order?: SORT_ORDER) {
   if (description.PrimaryKey) {
     query.order(description.PrimaryKey, order ?? SORT_ORDER.DESC);
   } else {
