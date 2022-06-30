@@ -30,7 +30,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         dirs: {
           migrations: [dir('./migrations')],
           models: [dir('./models')],
-          controllers: [dir('./../src/controllers')],
+          controllers: [dir('./../src/controllers'), dir('./controllers')],
         },
       },
       http: {

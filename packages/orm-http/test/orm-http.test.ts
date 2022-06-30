@@ -43,7 +43,7 @@ describe('Http orm tests', () => {
     it('simple query', async () => {
       const spy = DI.get(Simple).testGet as sinon.SinonSpy;
 
-      await req().get('simple/1');
+      await req().get('simple/1').set('Accept', 'application/json');
 
       expect(spy.args[0][0].constructor.name).to.eq('Test');
       expect(spy.args[0][0].Text).to.equal('witaj');
@@ -57,7 +57,8 @@ describe('Http orm tests', () => {
           model: {
             Text: 'hydrated',
           },
-        });
+        })
+        .set('Accept', 'application/json');
 
       expect(spy.args[0][0].constructor.name).to.eq('Test');
       expect(spy.args[0][0].Text).to.eq('hydrated');
