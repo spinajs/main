@@ -97,7 +97,7 @@ export class Repository extends BaseController {
     }
   }
 
-  @Get('*')
+  @Get(':model/:id')
   public async get(@Param() model: string, @Param('id') id: string, @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
     const mClass = this.getModel(model);
 
