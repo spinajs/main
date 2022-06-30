@@ -485,15 +485,15 @@ export class ModelBase {
   }
 
   protected createSelectQuery() {
-    return _createQuery(this.constructor, SelectQueryBuilder);
+    return createQuery(this.constructor, SelectQueryBuilder);
   }
 
   protected createUpdateQuery() {
-    return _createQuery(this.constructor, UpdateQueryBuilder);
+    return createQuery(this.constructor, UpdateQueryBuilder);
   }
 
   protected createInsertQuery() {
-    return _createQuery(this.constructor, InsertQueryBuilder);
+    return createQuery(this.constructor, InsertQueryBuilder);
   }
 }
 
@@ -531,7 +531,16 @@ function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, 
   }
 }
 
-function _createQuery<T extends QueryBuilder>(model: Class<any>, query: Class<T>, injectModel = true) {
+/**
+ * Helper function to create query based on model
+ *
+ * @param model - source model for query
+ * @param query - query class
+ * @param injectModel - should inject model information into query, if not, query will return raw data
+ *
+ * @returns
+ */
+export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Class<T>, injectModel = true) {
   const dsc = _descriptor(model);
 
   if (!dsc) {
@@ -564,24 +573,24 @@ function _createQuery<T extends QueryBuilder>(model: Class<any>, query: Class<T>
 
 export const MODEL_STATIC_MIXINS = {
   query(): SelectQueryBuilder {
-    const { query } = _createQuery(this, SelectQueryBuilder, false);
+    const { query } = createQuery(this, SelectQueryBuilder, false);
     return query;
   },
 
   where(column: string | boolean | WhereFunction<any> | RawQuery | Wrap | {}, operator?: Op | any, value?: any): SelectQueryBuilder {
-    const { query } = _createQuery(this, SelectQueryBuilder);
+    const { query } = createQuery(this, SelectQueryBuilder);
     query.select('*');
 
     return query.where(column, operator, value);
   },
 
   update<T extends typeof ModelBase>(data: Partial<InstanceType<T>>) {
-    const { query } = _createQuery(this, UpdateQueryBuilder);
+    const { query } = createQuery(this, UpdateQueryBuilder);
     return query.update(data);
   },
 
   all(page?: number, perPage?: number) {
-    const { query } = _createQuery(this, SelectQueryBuilder);
+    const { query } = createQuery(this, SelectQueryBuilder);
 
     query.select('*');
     if (page >= 0 && perPage > 0) {
@@ -595,7 +604,7 @@ export const MODEL_STATIC_MIXINS = {
    * Try to insert new value
    */
   async insert<T extends typeof ModelBase>(this: T, data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
-    const { query, description } = _createQuery(this, InsertQueryBuilder);
+    const { query, description } = createQuery(this, InsertQueryBuilder);
 
     if (Array.isArray(data)) {
       if (insertBehaviour !== InsertBehaviour.None) {
@@ -654,7 +663,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async find<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
-    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
     const pkey = description.PrimaryKey;
     query.select('*');
     query.whereIn(pkey, pks);
@@ -662,7 +671,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async findOrFail<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
-    const { query, description, model } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description, model } = createQuery(this as any, SelectQueryBuilder);
     const pkey = description.PrimaryKey;
 
     query.select('*');
@@ -678,7 +687,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async get<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
-    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
     const pkey = description.PrimaryKey;
 
     query.select('*');
@@ -690,7 +699,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async getOrFail<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
-    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
     const pkey = description.PrimaryKey;
 
     query.select('*');
@@ -707,7 +716,7 @@ export const MODEL_STATIC_MIXINS = {
     const data = Array.isArray(pks) ? pks : [pks];
 
     if (description.SoftDelete?.DeletedAt) {
-      const { query } = _createQuery(this, UpdateQueryBuilder);
+      const { query } = createQuery(this, UpdateQueryBuilder);
       const orm = DI.get<Orm>(Orm);
       const driver = orm.Connections.get(description.Connection);
       const converter = driver.Container.resolve(DatetimeValueConverter);
@@ -716,7 +725,7 @@ export const MODEL_STATIC_MIXINS = {
         [description.SoftDelete.DeletedAt]: converter.toDB(DateTime.now()),
       });
     } else {
-      const { query } = _createQuery(this, DeleteQueryBuilder);
+      const { query } = createQuery(this, DeleteQueryBuilder);
       await query.whereIn(description.PrimaryKey, data);
     }
   },
@@ -728,7 +737,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async getOrCreate<T extends typeof ModelBase>(this: T, pk: any, data: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
-    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     // pk constrain
     if (description.PrimaryKey) {
@@ -754,7 +763,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async getOrNew<T extends typeof ModelBase>(this: T, pk: any, data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
-    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     // pk constrain
     if (description.PrimaryKey) {
@@ -779,7 +788,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
-    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
     _prepareOrderBy(description, query, SORT_ORDER.ASC);
 
     if (callback) {
@@ -790,7 +799,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
-    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
     _prepareOrderBy(description, query, SORT_ORDER.DESC);
 
     if (callback) {
@@ -801,7 +810,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
-    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
       query.order(description.Timestamps.CreatedAt, SORT_ORDER.DESC);
@@ -817,7 +826,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
-    const { query, description } = _createQuery(this as any, SelectQueryBuilder);
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
       query.order(description.Timestamps.CreatedAt, SORT_ORDER.ASC);
@@ -833,7 +842,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<number> {
-    const { query } = _createQuery(this as any, SelectQueryBuilder);
+    const { query } = createQuery(this as any, SelectQueryBuilder);
 
     query.count('*', 'count');
 
