@@ -45,6 +45,7 @@
     "@spinajs/orm": "^1.2.125",
     "@spinajs/rbac": "^1.2.125",
     "@spinajs/reflection": "^1.2.103",
+    "accesscontrol": "^2.2.1",
     "luxon": "^2.4.0"
   },
   "devDependencies": {

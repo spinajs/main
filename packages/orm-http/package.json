@@ -44,6 +44,8 @@
     "@spinajs/http": "^1.2.119",
     "@spinajs/log": "^1.2.103",
     "@spinajs/orm": "^1.2.125",
+    "@spinajs/rbac-http": "^1.2.125",
+    "@spinajs/intl-orm": "^1.2.125",
     "lodash": "^4.17.21",
     "luxon": "^2.4.0"
   },

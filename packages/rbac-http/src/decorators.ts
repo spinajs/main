@@ -1,6 +1,6 @@
 import { IAclDescriptor, IAclRoutePermissionDescriptor, PermissionType } from './interfaces';
 import { Parameter, Policy, Route } from '@spinajs/http';
-import { AclPolicy } from './policies';
+import { RbacPolicy } from './policies';
 
 export const ACL_CONTROLLER_DESCRIPTOR = Symbol('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
 
@@ -31,7 +31,7 @@ function descriptor(callback: (controller: IAclDescriptor, target: any, property
  */
 export function Resource(resource: string, permission: PermissionType = 'readOwn') {
   return descriptor((metadata: IAclDescriptor, target: any) => {
-    Policy(AclPolicy)(target, null, null);
+    Policy(RbacPolicy)(target, null, null);
 
     metadata.Resource = resource;
     metadata.Permission = permission;
@@ -60,7 +60,7 @@ export function Permission(permission: PermissionType = 'readOwn') {
       metadata.Routes.set(propertyKey, route);
     }
 
-    Policy(AclPolicy)(target, propertyKey, null);
+    Policy(RbacPolicy)(target, propertyKey, null);
   });
 }
 
