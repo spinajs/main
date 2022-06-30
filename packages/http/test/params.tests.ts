@@ -48,6 +48,8 @@ describe('controller action test params', function () {
   });
 
   describe('query params', function () {
+    this.timeout(25000);
+
     it('simple query', async () => {
       await req().get('params/query/simple?a=hello&b=true&c=666');
       assert.calledWith(DI.get(QueryParams).simple as sinon.SinonSpy, 'hello', true, 666);
