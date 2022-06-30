@@ -7,6 +7,7 @@ import _ from 'lodash';
 import * as express from 'express';
 import { checkRoutePermission } from '@spinajs/rbac-http';
 import { RepositoryMiddleware } from './../middleware';
+import { JsonApiIncomingObject } from '../interfaces';
 
 class IncludesHydrator extends ArgHydrator {
   public async hydrate(input: any): Promise<any> {
@@ -70,12 +71,6 @@ class Filters {
   constructor(public Param: any) {}
 }
 
-interface JsonApiIncomingObject {
-  data: {
-    attributes: {};
-  };
-}
-
 @BasePath('repository')
 @Inject(Orm, AccessControl)
 export class Repository extends BaseController {
@@ -102,11 +97,11 @@ export class Repository extends BaseController {
     }
   }
 
-  @Get(':model/:id')
+  @Get('*')
   public async get(@Param() model: string, @Param('id') id: string, @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
     const mClass = this.getModel(model);
 
-    await Promise.all(this.Middlewares.map((m) => m.onGetMiddlewareStart(req)));
+    await Promise.all(this.Middlewares.map((m) => m.onGetMiddlewareStart(id, req)));
 
     const mDesc = extractModelDescriptor(mClass);
     const query = (mClass as any)['where'](mDesc.PrimaryKey, id);
@@ -151,7 +146,7 @@ export class Repository extends BaseController {
 
   @Del(':model/:id')
   public async del(@Param() model: string, @Param() id: string, @Req() req: express.Request) {
-    await Promise.all(this.Middlewares.map((m) => m.onDeleteMiddlewareStart(req)));
+    await Promise.all(this.Middlewares.map((m) => m.onDeleteMiddlewareStart(id, req)));
 
     const mClass = this.getModel(model);
 
@@ -169,7 +164,7 @@ export class Repository extends BaseController {
 
   @Patch(':model/:id')
   public async patch(@Param() model: string, @Param() id: string, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
-    await Promise.all(this.Middlewares.map((m) => m.onUpdateMiddlewareStart(req)));
+    await Promise.all(this.Middlewares.map((m) => m.onUpdateMiddlewareStart(id, incoming, req)));
 
     const mClass = this.getModel(model);
 
@@ -194,7 +189,7 @@ export class Repository extends BaseController {
 
   @Post(':model')
   public async insert(@Param() model: string, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
-    await Promise.all(this.Middlewares.map((m) => m.onInsertMiddlewareStart(req)));
+    await Promise.all(this.Middlewares.map((m) => m.onInsertMiddlewareStart(incoming, req)));
 
     const mClass = this.getModel(model);
     const entity: ModelBase = new mClass();
