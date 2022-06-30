@@ -74,7 +74,7 @@
     "@spinajs/orm-mssql": "file:packages\\orm-mssql",
     "@spinajs/intl": "file:packages\\intl",
     "@spinajs/rbac": "file:packages\\rbac",
-    "@spinajs/rbac-http": "file:packages\\rbac-html",
+    "@spinajs/rbac-http": "file:packages\\rbac-http",
     "@spinajs/session-provider-db": "file:packages\\session-provider-db",
     "@spinajs/intl-orm": "file:packages\\intl-orm",
     "@spinajs/orm-http": "file:packages\\orm-http"

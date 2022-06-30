@@ -50,8 +50,8 @@
     "luxon": "^2.4.0"
   },
   "devDependencies": {
-    "@spinajs/http": "1.2.108",
-    "@spinajs/orm": "1.2.108",
+    "@spinajs/http": "1.2.119",
+    "@spinajs/orm": "1.2.125",
     "@spinajs/orm-sqlite": "^1.2.125"
   },
   "gitHead": "cd2b559af67529b61757d888d50aa763f70c2bfb"
