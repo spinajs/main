@@ -1,5 +1,5 @@
 import { BasePath, BaseController, Get, Header, Ok } from '../../../src';
-import { SampleObject, SampleModel, SampleModelWithHydrator, SampleObjectSchema } from '../../dto';
+import { SampleObject, SampleModel, SampleModelWithHydrator, SampleObjectWithSchema } from '../../dto';
 import { DateTime } from 'luxon';
 
 @BasePath('params/headers')
@@ -20,7 +20,7 @@ export class HeaderParams extends BaseController {
   }
 
   @Get()
-  public headerParamObjectWithSchema(@Header('x-custom-header', SampleObjectSchema) a: SampleObject) {
+  public headerParamObjectWithSchema(@Header('x-custom-header') a: SampleObjectWithSchema) {
     return new Ok({ a });
   }
 

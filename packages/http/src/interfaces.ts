@@ -317,7 +317,12 @@ export interface IRouteParameter {
   Type: ParameterType | string;
 
   /**
-   * Schema for validation
+   * Schema for validation parameter ( raw value eg. to check if matches string / number constrain)
+   */
+  RouteParamSchema?: any;
+
+  /**
+   * Schema for paramater
    */
   Schema?: any;
 

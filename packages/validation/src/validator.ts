@@ -123,17 +123,6 @@ export class DataValidator extends SyncModule {
     }
 
     if (schema) {
-      // return [
-      //   false,
-      //   [
-      //     {
-      //       keyword: 'empty_schema',
-      //       instancePath: './',
-      //       schemaPath: '',
-      //       params: { data: '' },
-      //     },
-      //   ],
-      // ];
       const result = this.Validator.validate(schema, data ? data : schemaOrData);
       if (!result) {
         return [false, this.Validator.errors ?? null];
@@ -145,7 +134,7 @@ export class DataValidator extends SyncModule {
 
   /**
    * Validate given data. When failed, exception is thrown
-   *
+   *s
    * @param data - data to validate. Function will try to extract schema attached to object via `@Schema` decorator
    * @throws {@link InvalidArgument | ValidationFailed }
    */

@@ -48,6 +48,15 @@ export class TestConfiguration extends FrameworkConfiguration {
         // query parameter to switch locale (ie. /home?lang=ch) - defaults to NULL
         queryParameter: 'lang',
       },
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+          },
+        ],
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
       http: {
         port: 8888,
         middlewares: [

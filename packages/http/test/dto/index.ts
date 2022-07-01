@@ -26,6 +26,16 @@ export interface SampleObject {
   name: string;
 }
 
+@Schema(SampleObjectSchema)
+export class SampleObjectWithSchema {
+  id: number;
+  name: string;
+
+  constructor(data: any) {
+    Object.assign(this, data);
+  }
+}
+
 export class SampleModel {
   public id: number;
   public name: string;

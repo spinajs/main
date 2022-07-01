@@ -1,12 +1,12 @@
 import { AccessControl } from '@spinajs/rbac';
-import { Constructor, DI, Inject } from '@spinajs/di';
+import { Autoinject, Constructor, DI, Inject } from '@spinajs/di';
 import { BaseController, ArgHydrator, Hydrator, Ok, Del, Post, Query, Forbidden, Req } from '@spinajs/http';
 import { BasePath, Get, Param, Body, Patch } from '@spinajs/http';
-import { extractModelDescriptor, ModelBase, SelectQueryBuilder, Orm, DeleteQueryBuilder, createQuery, UpdateQueryBuilder, InsertQueryBuilder, IUpdateResult } from '@spinajs/orm';
+import { extractModelDescriptor, ModelBase, SelectQueryBuilder, Orm, DeleteQueryBuilder, createQuery, UpdateQueryBuilder, InsertQueryBuilder, IUpdateResult, IModelDescriptor } from '@spinajs/orm';
 import _ from 'lodash';
 import * as express from 'express';
 import { checkRoutePermission } from '@spinajs/rbac-http';
-import { RepositoryMiddleware } from './../middleware';
+import { RepositoryMiddleware } from '../middleware';
 import { JsonApiIncomingObject } from '../interfaces';
 
 class IncludesHydrator extends ArgHydrator {
@@ -18,6 +18,22 @@ class IncludesHydrator extends ArgHydrator {
 class FiltersHydrator extends ArgHydrator {
   public async hydrate(input: any): Promise<any> {
     return new Filters(input ? JSON.parse(input) : []);
+  }
+}
+
+class ModelParamHydrator extends ArgHydrator {
+  @Autoinject(Orm)
+  protected Orm: Orm;
+
+  public async hydrate(input: string): Promise<any> {
+    const model = this.Orm.Models.find((x) => x.name.toLowerCase() === input.toLowerCase()).type;
+    const desc = extractModelDescriptor(model);
+
+    const param = new Model();
+    param.Descriptor = desc;
+    param.Type = model;
+
+    return param;
   }
 }
 
@@ -71,9 +87,57 @@ class Filters {
   constructor(public Param: any) {}
 }
 
+@Hydrator(ModelParamHydrator)
+class Model {
+  public Type: Constructor<ModelBase>;
+  public Descriptor: IModelDescriptor;
+
+  public get SelectQuery() {
+    return createQuery(this.constructor, SelectQueryBuilder).query;
+  }
+
+  public get InserQuery() {
+    return createQuery(this.constructor, InsertQueryBuilder).query;
+  }
+
+  public get DeleteQuery() {
+    return createQuery(this.constructor, DeleteQueryBuilder).query;
+  }
+
+  public get UpdateQueryBuilder() {
+    return createQuery(this.constructor, UpdateQueryBuilder).query;
+  }
+}
+
+const PrimaryKeySchema = {
+  $id: 'JsonApiPrimaryKeySchema',
+  title: 'Json api primary key schema for id parameter',
+  anyOf: [
+    { type: 'string', minLength: 0, maxLength: 10 },
+    { type: 'number', minimum: 0 },
+    { type: 'string', pattern: '^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$', minLength: 32, maxLength: 36 },
+  ],
+};
+
+const modelSchema = {
+  $id: 'JsonApiModelSchema',
+  title: 'Json api modele/resource schema',
+  type: 'string',
+  minLength: 0,
+  maxLength: 32,
+};
+
+const genericStringSchema = {
+  $id: 'JsonApiIncludeSchema',
+  title: 'Json api modele/resource schema',
+  type: 'string',
+  minLength: 0,
+  maxLength: 256,
+};
+
 @BasePath('repository')
 @Inject(Orm, AccessControl)
-export class Repository extends BaseController {
+export class JsonApi extends BaseController {
   protected Middlewares: RepositoryMiddleware[];
 
   constructor(protected Orm: Orm, protected Ac: AccessControl) {
@@ -85,26 +149,11 @@ export class Repository extends BaseController {
     this.Middlewares = await DI.resolve(Array.ofType(RepositoryMiddleware));
   }
 
-  protected getModel(model: string): Constructor<ModelBase> {
-    return this.Orm.Models.find((x) => x.name.toLowerCase() === model).type;
-  }
-
-  private checkPolicy(model: Constructor<ModelBase>, permission: string, req: express.Request) {
-    const p = checkRoutePermission(req, model.name.toLowerCase(), permission);
-
-    if (!p || !p.granted) {
-      throw new Forbidden(`current user does not have permission to access resource ${model.name} with ${permission} grant`);
-    }
-  }
-
   @Get(':model/:id')
-  public async get(@Param() model: string, @Param('id') id: string, @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
-    const mClass = this.getModel(model);
-
+  public async get(@Param(modelSchema) model: Model, @Param(PrimaryKeySchema) id: string | number, @Query(genericStringSchema) include: Includes, @Query(genericStringSchema) _filters: Filters, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onGetMiddlewareStart(id, req)));
 
-    const mDesc = extractModelDescriptor(mClass);
-    const query = (mClass as any)['where'](mDesc.PrimaryKey, id);
+    const query = model.SelectQuery.where(model.Descriptor.PrimaryKey, id);
 
     this.Middlewares.forEach((m) => m.onGetMiddlewareQuery(query, mClass, req));
 

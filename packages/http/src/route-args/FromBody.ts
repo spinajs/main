@@ -11,25 +11,7 @@ export class FromBody extends RouteArgs {
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     const arg = req.body[param.Name] ? req.body[param.Name] : route.Parameters.size === 1 ? req.body : null;
-    let result = null;
-
-    const [hydrated, hValue] = await this.tryHydrateObject(arg, param);
-    if (hydrated) {
-      result = hValue;
-    } else {
-      switch (param.RuntimeType.name) {
-        case 'String':
-        case 'Number':
-        case 'Boolean':
-        case 'Object':
-          result = arg;
-          break;
-        default:
-          result = param.RuntimeType.name === 'Array' ? arg : new param.RuntimeType(arg);
-          break;
-      }
-    }
-
+    let result = await this.tryHydrateParam(arg, param);
     return { CallData: callData, Args: result };
   }
 }

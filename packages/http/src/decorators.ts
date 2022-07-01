@@ -66,7 +66,7 @@ export function Type(type: any) {
         Index: index,
         Name: '',
         RuntimeType: type,
-        Schema: '',
+        RouteParamSchema: '',
         Options: null,
         Type: null,
       };
@@ -81,30 +81,31 @@ export function Parameter(type: ParameterType | string, schema?: any, options?: 
     const rType = Reflect.getMetadata('design:paramtypes', target.prototype || target, propertyKey)[index];
 
     let tSchema = null;
-    if (!schema) {
-      switch (rType.name) {
-        case 'Number':
-          tSchema = ROUTE_ARG_SCHEMA.Number;
-          break;
-        case 'String':
-          tSchema = ROUTE_ARG_SCHEMA.String;
-          break;
-        case 'Boolean':
-          tSchema = ROUTE_ARG_SCHEMA.Boolean;
-      }
+
+    switch (rType.name) {
+      case 'Number':
+        tSchema = ROUTE_ARG_SCHEMA.Number;
+        break;
+      case 'String':
+        tSchema = ROUTE_ARG_SCHEMA.String;
+        break;
+      case 'Boolean':
+        tSchema = ROUTE_ARG_SCHEMA.Boolean;
     }
 
     if (route.Parameters.has(index)) {
       const p = route.Parameters.get(index);
       p.Type = type;
       p.Options = options;
+      p.RouteParamSchema = tSchema;
       p.Schema = schema;
     } else {
       const param: IRouteParameter = {
         Index: index,
         Name: '',
         RuntimeType: rType,
-        Schema: schema ?? tSchema,
+        RouteParamSchema: tSchema,
+        Schema: schema,
         Options: options,
         Type: type,
       };

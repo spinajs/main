@@ -7,7 +7,7 @@ import { Intl } from '@spinajs/intl';
 import sinon, { assert } from 'sinon';
 import { dir, req, TestConfiguration } from './common';
 import { expect } from 'chai';
-import { SampleModel, SampleObject } from './dto';
+import { SampleModel, SampleObject, SampleObjectWithSchema } from './dto';
 import { HeaderParams } from './controllers/params/HeaderParams';
 import { UrlParams } from './controllers/params/UrlParams';
 import { BodyParams } from './controllers/params/BodyParams';
@@ -176,11 +176,12 @@ describe('controller action test params', function () {
       expect((spy.args[0][0] as SampleModel).args).to.include.members([1, 2, 3]);
     });
     it('headerParamObjectWithSchema', async () => {
+      const spy = DI.get(HeaderParams).headerParamObjectWithSchema as sinon.SinonSpy;
+
       await req().get('params/headers/headerParamObjectWithSchema').set('x-custom-header', '{"id":1,"name":"test"}');
-      assert.calledWith(DI.get(HeaderParams).headerParamObjectWithSchema as sinon.SinonSpy, {
-        id: 1,
-        name: 'test',
-      });
+      expect(spy.args[0][0].constructor.name).to.eq('SampleObjectWithSchema');
+      expect((spy.args[0][0] as SampleObjectWithSchema).id).to.eq(1);
+
       const badResult = await req().get('params/headers/headerParamObjectWithSchema').set('x-custom-header', '{"id":"ddd","name":"test"}').set('Accept', 'application/json');
       expect(badResult).to.have.status(400);
       expect(badResult).to.be.json;

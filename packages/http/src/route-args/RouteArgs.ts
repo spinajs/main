@@ -1,10 +1,11 @@
-import { TypedArray } from '@spinajs/di';
+import { Autoinject, TypedArray } from '@spinajs/di';
 import { ParameterType, IRouteParameter, IRouteCall, IRoute } from './../interfaces';
 import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator';
 import { DI } from '@spinajs/di';
 import _ from 'lodash';
 import { DateTime } from 'luxon';
+import { DataValidator } from '@spinajs/validation';
 
 export interface IRouteArgsResult {
   CallData: IRouteCall;
@@ -18,6 +19,9 @@ export interface IRouteArgs {
 }
 
 export abstract class RouteArgs implements IRouteArgs {
+  @Autoinject()
+  protected Validator: DataValidator;
+
   abstract get SupportedType(): ParameterType | string;
 
   public abstract extract(callData: IRouteCall, routeParameter: IRouteParameter, req: express.Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
@@ -38,11 +42,24 @@ export abstract class RouteArgs implements IRouteArgs {
   protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter) {
     let result = null;
 
+    // first validate route parameter / body params etc
+    if (routeParameter.RouteParamSchema) {
+      this.Validator.validate(routeParameter.RouteParamSchema, arg);
+    }
+
     const [hydrated, hValue] = await this.tryHydrateObject(arg, routeParameter);
     if (hydrated) {
       result = hValue;
     } else {
       result = this.fromRuntimeType(routeParameter, arg);
+    }
+
+    // if we have complex object,
+    // validate hydrated result
+    if (routeParameter.Schema) {
+      this.Validator.validate(routeParameter.Schema, result);
+    } else if (_.isObject(result)) {
+      this.Validator.validate(result);
     }
 
     return result;
@@ -58,9 +75,18 @@ export abstract class RouteArgs implements IRouteArgs {
 
     if (hydrator) {
       const hInstance = await DI.resolve<ArgHydrator>(hydrator.hydrator, hydrator.options);
-      const result = await hInstance.hydrate(arg, param);
+      const result = await hInstance.hydrate(_.isString(arg) ? JSON.parse(arg) : arg, param);
 
       return [true, result];
+    } else if (param.RuntimeType.name === 'Object' || param.RuntimeType.name === 'Array') {
+      return [true, _.isString(arg) ? JSON.parse(arg) : arg];
+    } else if (param.RuntimeType.name === 'DateTime') {
+      return [true, this.handleDate(arg)];
+    } else if (param.RuntimeType.name === 'TypedArray') {
+      const type = (param.RuntimeType as TypedArray<any>).Type as any;
+      return [true, new type(_.isString(arg) ? JSON.parse(arg) : arg)];
+    } else if (['Number', 'String', 'Boolean', 'Null', 'Undefined', 'BigInt', 'Symbol'].indexOf(param.RuntimeType.name) === -1) {
+      return [true, new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg)];
     }
 
     return [false, null];
@@ -73,16 +99,9 @@ export abstract class RouteArgs implements IRouteArgs {
       case 'String':
         return arg;
       case 'Number':
-        return arg ? Number(arg) : null;
+        return arg ? Number(arg) : undefined;
       case 'Boolean':
         return arg ? (arg === 1 ? true : (arg as string).toLowerCase() === 'true' ? true : false) : false;
-      case 'Object':
-        return _.isString(arg) ? JSON.parse(arg) : arg;
-      case 'DateTime':
-        return this.handleDate(arg);
-      case 'TypedArray':
-        const type = (param.RuntimeType as TypedArray<any>).Type as any;
-        return new type(_.isString(arg) ? JSON.parse(arg) : arg);
       default:
         return new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg);
     }
