@@ -1,5 +1,5 @@
 import { RouteArgs } from './RouteArgs';
-import { IRouteParameter, ParameterType, IRouteCall } from '../interfaces';
+import { IRouteParameter, ParameterType, IRouteCall, IRoute } from '../interfaces';
 import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import _ from 'lodash';
@@ -11,9 +11,9 @@ export class FromHeader extends RouteArgs {
     return ParameterType.FromHeader;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     let arg = param.Options && param.Options.key ? req.headers[param.Options.key] : req.headers[param.Name.toLowerCase()];
-    return { CallData: callData, Args: await this.tryHydrateParam(arg, param) };
+    return { CallData: callData, Args: await this.tryHydrateParam(arg, param, route) };
   }
 
   protected handleDate(arg: any): DateTime {

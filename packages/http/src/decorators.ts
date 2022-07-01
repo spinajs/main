@@ -343,11 +343,12 @@ export function Cookie() {
  * Creates HEAD http request method
  * @param path - url path to method eg. /foo/bar/:id
  */
-export function Head(path?: string) {
+export function Head(path?: string, schema?: any) {
   return Route((_, route: IRoute) => {
     route.Type = RouteType.HEAD;
     route.InternalType = RouteType.HEAD;
     route.Path = path;
+    route.Schema = schema;
   });
 }
 
@@ -355,11 +356,12 @@ export function Head(path?: string) {
  * Creates PATCH http request method
  * @param path - url path to method eg. /foo/bar/:id
  */
-export function Patch(path?: string) {
+export function Patch(path?: string, schema?: any) {
   return Route((_, route: IRoute) => {
     route.Type = RouteType.PATCH;
     route.InternalType = RouteType.PATCH;
     route.Path = path;
+    route.Schema = schema;
   });
 }
 
@@ -368,11 +370,12 @@ export function Patch(path?: string) {
  * @param path - url path to method eg. /foo/bar/:id
  * @param routeName - route name visible in api. If undefined, method name is taken
  */
-export function Del(path?: string) {
+export function Del(path?: string, schema?: any) {
   return Route((_, route: IRoute) => {
     route.Type = RouteType.DELETE;
     route.InternalType = RouteType.DELETE;
     route.Path = path;
+    route.Schema = schema;
   });
 }
 
@@ -380,11 +383,12 @@ export function Del(path?: string) {
  * Creates PUT http request method
  * @param path - url path to method eg. /foo/bar/:id
  */
-export function Put(path?: string) {
+export function Put(path?: string, schema?: any) {
   return Route((_, route: IRoute) => {
     route.Type = RouteType.PUT;
     route.InternalType = RouteType.PUT;
     route.Path = path;
+    route.Schema = schema;
   });
 }
 
@@ -392,11 +396,12 @@ export function Put(path?: string) {
  * Creates GET http request method
  * @param path - url path to method eg. /foo/bar/:id
  */
-export function Get(path?: string) {
+export function Get(path?: string, schema?: any) {
   return Route((_, route: IRoute) => {
     route.Type = RouteType.GET;
     route.InternalType = RouteType.GET;
     route.Path = path;
+    route.Schema = schema;
   });
 }
 
@@ -405,10 +410,11 @@ export function Get(path?: string) {
  *
  * @param path - url path to method eg. /foo/bar
  */
-export function Post(path?: string) {
+export function Post(path?: string, schema?: any) {
   return Route((_, route: IRoute) => {
     route.Type = RouteType.POST;
     route.InternalType = RouteType.POST;
     route.Path = path;
+    route.Schema = schema;
   });
 }

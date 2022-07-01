@@ -39,12 +39,16 @@ export abstract class RouteArgs implements IRouteArgs {
     return DateTime.invalid('no iso or unix timestamp');
   }
 
-  protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter) {
+  protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter, route: IRoute) {
     let result = null;
 
     // first validate route parameter / body params etc
-    if (routeParameter.RouteParamSchema) {
-      this.Validator.validate(routeParameter.RouteParamSchema, arg);
+    if (route.Schema && route.Schema[routeParameter.Name]) {
+      this.Validator.validate(route.Schema[routeParameter.Name], arg);
+    } else {
+      if (routeParameter.RouteParamSchema) {
+        this.Validator.validate(routeParameter.RouteParamSchema, arg);
+      }
     }
 
     const [hydrated, hValue] = await this.tryHydrateObject(arg, routeParameter);

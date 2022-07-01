@@ -392,6 +392,8 @@ export interface IRoute {
    * Additional route options eg. file size etc.
    */
   Options: any;
+
+  Schema: any;
 }
 
 export interface IMiddlewareDescriptor {
