@@ -41,6 +41,7 @@ export function Route(callback: (controller: IControllerDescriptor, route: IRout
           Policies: [],
           Type: RouteType.UNKNOWN,
           Options: null,
+          Schema: null,
         };
       }
 
