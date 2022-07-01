@@ -97,8 +97,7 @@ export function Parameter(type: ParameterType | string, schema?: any, options?: 
       const p = route.Parameters.get(index);
       p.Type = type;
       p.Options = options;
-      p.RouteParamSchema = tSchema;
-      p.Schema = schema;
+      p.RouteParamSchema = schema ?? tSchema;
     } else {
       const param: IRouteParameter = {
         Index: index,
@@ -190,8 +189,8 @@ export function Query(schema?: any) {
  *
  * @param schema - parameter json schema for optional validation
  */
-export function Body(schema?: any) {
-  return Route(Parameter(ParameterType.FromBody, schema));
+export function Body() {
+  return Route(Parameter(ParameterType.FromBody, null));
 }
 
 /**
@@ -203,8 +202,8 @@ export function Param(schema?: any) {
   return Route(Parameter(ParameterType.FromParams, schema));
 }
 
-export function FromModel(schema?: any) {
-  return Route(Parameter(ParameterType.FromModel, schema));
+export function FromModel() {
+  return Route(Parameter(ParameterType.FromModel, null));
 }
 
 /**
@@ -236,9 +235,9 @@ export function File(options?: IUploadOptions) {
  * @param cvsParseOptions - cvs parser options
  * @param schema - optional schema for data validation
  */
-export function CsvFile(options?: IUploadOptions, cvsParseOptions?: any, schema?: any) {
+export function CsvFile(options?: IUploadOptions, cvsParseOptions?: any) {
   return Route(
-    Parameter(ParameterType.FromCSV, schema, {
+    Parameter(ParameterType.FromCSV, null, {
       uploadOptions: options,
       cvsOptions: cvsParseOptions,
     }),
@@ -251,8 +250,8 @@ export function CsvFile(options?: IUploadOptions, cvsParseOptions?: any, schema?
  * @param options - upload options
  * @param schema - optional schema for data validation
  */
-export function JsonFile(options?: IUploadOptions, schema?: any) {
-  return Route(Parameter(ParameterType.FromJSONFile, schema, options));
+export function JsonFile(options?: IUploadOptions) {
+  return Route(Parameter(ParameterType.FromJSONFile, null, options));
 }
 
 /**
@@ -261,8 +260,8 @@ export function JsonFile(options?: IUploadOptions, schema?: any) {
  *
  * @param options - upload options
  */
-export function Form(schema?: any, options?: IFormOptions) {
-  return Route(Parameter(ParameterType.FromForm, schema, options));
+export function Form(options?: IFormOptions) {
+  return Route(Parameter(ParameterType.FromForm, options));
 }
 
 /**

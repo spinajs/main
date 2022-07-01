@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
 import { ParameterType } from '../../../src/interfaces';
 import { BasePath, BaseController, Get, Query, Ok, Uuid, PKey } from '../../../src';
-import { SampleObject, SampleModel, SampleObjectSchema, SampleModelWithSchema } from '../../dto';
+import { SampleObject, SampleModel, SampleModelWithSchema } from '../../dto';
 
 @BasePath('params/query')
 export class QueryParams extends BaseController {
@@ -23,11 +23,6 @@ export class QueryParams extends BaseController {
   @Get()
   public queryMixedData(@Query() a: SampleModel, @Query() b: SampleObject, @Query() c: string) {
     return new Ok({ a, b, c });
-  }
-
-  @Get()
-  public queryObjectWithSchema(@Query(SampleObjectSchema) a: SampleObject) {
-    return new Ok({ a });
   }
 
   @Get()

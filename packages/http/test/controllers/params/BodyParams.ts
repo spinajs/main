@@ -1,5 +1,5 @@
 import { BaseController, BasePath, Body, Ok, Post, Type } from '../../../src';
-import { SampleModel, SampleModelWithHydrator, SampleModelWithSchema, SampleObject, SampleObjectSchema } from '../../dto';
+import { SampleModel, SampleModelWithHydrator, SampleModelWithSchema, SampleObject } from '../../dto';
 
 @BasePath('params/body')
 export class BodyParams extends BaseController {
@@ -35,11 +35,6 @@ export class BodyParams extends BaseController {
 
   @Post()
   public bodyModelWithHydrator(@Body() object: SampleModelWithHydrator) {
-    return new Ok({ object });
-  }
-
-  @Post()
-  public bodyObjectWithSchema(@Body(SampleObjectSchema) object: SampleObject) {
     return new Ok({ object });
   }
 
