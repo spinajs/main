@@ -1,11 +1,10 @@
 import { AccessControl } from '@spinajs/rbac';
 import { Autoinject, Constructor, DI, Inject } from '@spinajs/di';
-import { BaseController, ArgHydrator, Hydrator, Ok, Del, Post, Query, Forbidden, Req } from '@spinajs/http';
+import { BaseController, ArgHydrator, Hydrator, Ok, Del, Post, Query, Req } from '@spinajs/http';
 import { BasePath, Get, Param, Body, Patch } from '@spinajs/http';
 import { extractModelDescriptor, ModelBase, SelectQueryBuilder, Orm, DeleteQueryBuilder, createQuery, UpdateQueryBuilder, InsertQueryBuilder, IUpdateResult, IModelDescriptor } from '@spinajs/orm';
 import _ from 'lodash';
 import * as express from 'express';
-import { checkRoutePermission } from '@spinajs/rbac-http';
 import { RepositoryMiddleware } from '../middleware';
 import { JsonApiIncomingObject } from '../interfaces';
 
@@ -93,7 +92,7 @@ class Model {
   public Descriptor: IModelDescriptor;
 
   public get SelectQuery() {
-    return createQuery(this.constructor, SelectQueryBuilder).query;
+    return createQuery(this.constructor, SelectQueryBuilder).query as SelectQueryBuilder<ModelBase>;
   }
 
   public get InserQuery() {
@@ -113,7 +112,7 @@ const PrimaryKeySchema = {
   $id: 'JsonApiPrimaryKeySchema',
   title: 'Json api primary key schema for id parameter',
   anyOf: [
-    { type: 'string', minLength: 0, maxLength: 10 },
+    { type: 'string', minLength: 0, maxLength: 16 },
     { type: 'number', minimum: 0 },
     { type: 'string', pattern: '^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$', minLength: 32, maxLength: 36 },
   ],
@@ -154,10 +153,9 @@ export class JsonApi extends BaseController {
     await Promise.all(this.Middlewares.map((m) => m.onGetMiddlewareStart(id, req)));
 
     const query = model.SelectQuery.where(model.Descriptor.PrimaryKey, id);
-
-    this.Middlewares.forEach((m) => m.onGetMiddlewareQuery(query, mClass, req));
-
     applyQueryIncludes(include, query);
+
+    this.Middlewares.forEach((m) => m.onGetMiddlewareQuery(query, model.Type, req));
 
     const result = await query.firstOrFail();
     let jResult = modelToJsonApi(result);
@@ -170,18 +168,17 @@ export class JsonApi extends BaseController {
   }
 
   @Get(':model')
-  public async getAll(@Param() model: string, @Query() page: number, @Query() perPage: number, @Query() order: string, @Query() orderDirection: string, @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
+  public async getAll(@Param(modelSchema) model: Model, @Query() page: number, @Query() perPage: number, @Query() order: string, @Query() orderDirection: 'ASC' | 'DESC', @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onGetAllMiddlewareStart(req)));
 
-    const mClass = this.getModel(model);
-    const query = (mClass as any)['all'](page ?? 0, perPage ?? 15);
+    const query = model.SelectQuery.take(perPage).skip(page * perPage);
     if (order) {
-      query.order(order, orderDirection ?? 'asc');
+      query.order(order, orderDirection ?? 'ASC');
     }
 
     applyQueryIncludes(include, query);
 
-    this.Middlewares.forEach((m) => m.onGetAllMiddlewareQuery(query, mClass, req));
+    this.Middlewares.forEach((m) => m.onGetAllMiddlewareQuery(query, model.Type, req));
 
     const result = await query;
     let jResult = modelToJsonApi(result);
@@ -194,41 +191,33 @@ export class JsonApi extends BaseController {
   }
 
   @Del(':model/:id')
-  public async del(@Param() model: string, @Param() id: string, @Req() req: express.Request) {
+  public async del(@Param(modelSchema) model: Model, @Param() id: string, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onDeleteMiddlewareStart(id, req)));
 
-    const mClass = this.getModel(model);
-
-    const { query, description } = createQuery(mClass, DeleteQueryBuilder);
-    query.where(description.PrimaryKey, id);
-
-    this.Middlewares.forEach((m) => m.onDeleteMiddlewareQuery(query, mClass, req));
+    const query = model.DeleteQuery.where(model.Descriptor.PrimaryKey, id);
+    this.Middlewares.forEach((m) => m.onDeleteMiddlewareQuery(query, model.Type, req));
 
     await query;
-
     this.Middlewares.forEach((m) => m.onDeleteMiddlewareResult(req));
 
     return new Ok();
   }
 
   @Patch(':model/:id')
-  public async patch(@Param() model: string, @Param() id: string, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
+  public async patch(@Param(modelSchema) model: Model, @Param() id: string, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onUpdateMiddlewareStart(id, incoming, req)));
 
-    const mClass = this.getModel(model);
-
-    this.checkPolicy(mClass, 'updateAny', req);
-
-    const entity: ModelBase = await (mClass as any)['getOrFail'](id);
+    const entity: ModelBase = await model.SelectQuery.where(model.Descriptor.PrimaryKey, id).firstOrFail();
     entity.hydrate(incoming.data.attributes);
 
-    const { query, description } = createQuery(mClass, UpdateQueryBuilder);
-    query.update(this.dehydrate()).where(description.PrimaryKey, id);
+    // create query, so we can pass to middleware
+    const query = model.UpdateQueryBuilder.update(entity.dehydrate()).where(entity.PrimaryKeyName, entity.PrimaryKeyValue);
 
-    this.Middlewares.forEach((m) => m.onUpdateMiddlewareQuery(query, mClass, req));
-
+    this.Middlewares.forEach((m) => m.onUpdateMiddlewareQuery(entity.PrimaryKeyValue, query, model.Type, req));
     await query;
+
     let jResult = modelToJsonApi(entity);
+
     this.Middlewares.forEach((m) => {
       jResult = m.onUpdateMiddlewareResult(jResult, req);
     });
@@ -237,14 +226,11 @@ export class JsonApi extends BaseController {
   }
 
   @Post(':model')
-  public async insert(@Param() model: string, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
+  public async insert(@Param(modelSchema) model: Model, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onInsertMiddlewareStart(incoming, req)));
 
-    const mClass = this.getModel(model);
-    const entity: ModelBase = new mClass();
+    const entity: ModelBase = new model.Type();
     entity.hydrate(incoming.data.attributes);
-
-    const { query } = createQuery(mClass, InsertQueryBuilder);
     let pKey = null;
     const iMidleware = {
       afterQuery: (data: IUpdateResult) => {
@@ -255,10 +241,9 @@ export class JsonApi extends BaseController {
       afterHydration: (): any => null,
     };
 
-    query.middleware(iMidleware);
-    query.values(this.dehydrate());
+    const query = model.InserQuery.middleware(iMidleware).values(entity.dehydrate());
 
-    this.Middlewares.forEach((m) => m.onInsertMiddlewareQuery(query, mClass, req));
+    this.Middlewares.forEach((m) => m.onInsertMiddlewareQuery(query, model.Type, req));
 
     await query;
 

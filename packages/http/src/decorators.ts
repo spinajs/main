@@ -97,7 +97,8 @@ export function Parameter(type: ParameterType | string, schema?: any, options?: 
       const p = route.Parameters.get(index);
       p.Type = type;
       p.Options = options;
-      p.RouteParamSchema = schema ?? tSchema;
+      p.RouteParamSchema = tSchema;
+      p.Schema = schema;
     } else {
       const param: IRouteParameter = {
         Index: index,

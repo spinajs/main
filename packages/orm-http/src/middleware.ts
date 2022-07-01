@@ -12,7 +12,7 @@ export abstract class RepositoryMiddleware extends AsyncModule {
 
   public onGetMiddlewareQuery(_query: SelectQueryBuilder<any>, _model: Constructor<ModelBase>, _req: express.Request): void {}
   public onGetAllMiddlewareQuery(_query: SelectQueryBuilder<any>, _model: Constructor<ModelBase>, _req: express.Request): void {}
-  public onUpdateMiddlewareQuery(_query: UpdateQueryBuilder<any>, _model: Constructor<ModelBase>, _req: express.Request): void {}
+  public onUpdateMiddlewareQuery(_resource: any, _query: UpdateQueryBuilder<any>, _model: Constructor<ModelBase>, _req: express.Request): void {}
   public onInsertMiddlewareQuery(_query: InsertQueryBuilder, _model: Constructor<ModelBase>, _req: express.Request): void {}
   public onDeleteMiddlewareQuery(_query: DeleteQueryBuilder<any>, _model: Constructor<ModelBase>, _req: express.Request): void {}
 

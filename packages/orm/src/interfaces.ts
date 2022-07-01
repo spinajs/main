@@ -512,7 +512,7 @@ export interface ILimitBuilder<T> {
 export interface IOrderByBuilder {
   orderBy(column: string): this;
   orderByDescending(column: string): this;
-  order(column: string, direction: SORT_ORDER): this;
+  order(column: string, direction: 'ASC' | 'DESC'): this;
   getSort(): ISort;
 }
 
