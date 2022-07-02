@@ -1,4 +1,4 @@
-import { Orm, ModelBase } from '@spinajs/orm';
+import { Orm, ModelBase, OrmException } from '@spinajs/orm';
 import { IRouteArgs, IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator } from '@spinajs/http';
 import { AsyncModule, IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
 import * as express from 'express';
@@ -43,6 +43,10 @@ export class FromDbModel extends AsyncModule implements IRouteArgs {
 
 export class DbModelHydrator extends ArgHydrator {
   public async hydrate(input: any, parameter: IRouteParameter): Promise<any> {
+    if (input === null) {
+      throw new OrmException('primary key cannot be null');
+    }
+
     const model: ModelBase = new parameter.RuntimeType();
     model.hydrate(input);
     return model;
