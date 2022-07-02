@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import { SessionProvider, UserSession, UserSessionData } from './interfaces';
-import { Autoinject, NewInstance } from '@spinajs/di';
+import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -52,7 +52,8 @@ export class Session implements UserSession {
 /**
  * Simple session storage in memory
  */
-export class MemorySessionProvider<T = UserSession> extends SessionProvider<T> {
+@Injectable(SessionProvider)
+export class MemorySessionStore<T = UserSession> extends SessionProvider<T> {
   @Autoinject()
   protected Configuration: Configuration;
 

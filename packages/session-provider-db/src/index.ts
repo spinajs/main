@@ -1,12 +1,13 @@
 import { UserSessionData } from '@spinajs/rbac';
 import { SessionProvider, Session } from '@spinajs/rbac';
-import { Autoinject } from '@spinajs/di';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/Session';
 import { InsertBehaviour } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
+@Injectable(SessionProvider)
 export class DbSessionStore extends SessionProvider {
   @Logger('db-session-store')
   protected Log: Log;

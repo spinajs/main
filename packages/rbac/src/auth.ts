@@ -1,7 +1,8 @@
 import { AuthProvider, PasswordProvider } from './interfaces';
 import { User } from './models/User';
-import { Autoinject, Container, IContainer } from '@spinajs/di';
+import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
 
+@Injectable(AuthProvider)
 export class SimpleDbAuthProvider implements AuthProvider<User> {
   @Autoinject(Container)
   protected Container: IContainer;

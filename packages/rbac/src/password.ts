@@ -3,10 +3,12 @@ import { PasswordProvider } from './interfaces';
 // tslint:disable-next-line: no-var-requires
 const { Entropy, charset32 } = require('entropy-string');
 import * as argon from 'argon2';
+import { Injectable } from '@spinajs/di';
 
 /**
  * Simple password service that use argon2 hash alghoritm and entropy-string to generate password
  */
+@Injectable(PasswordProvider)
 export class BasicPasswordProvider implements PasswordProvider {
   public async hash(input: string): Promise<string> {
     // uses default argon settings, no need to tweak

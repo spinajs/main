@@ -1,12 +1,12 @@
 import { DI } from '@spinajs/di';
-import { MemorySessionProvider, SessionProvider, Session } from '../src';
+import { MemorySessionStore, SessionProvider, Session } from '../src';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 import { TestConfiguration } from './common';
 
 describe('Session provider tests', () => {
   before(async () => {
-    DI.register(MemorySessionProvider).as(SessionProvider);
+    DI.register(MemorySessionStore).as(SessionProvider);
     DI.register(TestConfiguration).as(Configuration);
 
     await DI.resolve(Configuration);
