@@ -22,21 +22,26 @@ export class UserFromSessionMiddleware extends ServerMiddleware {
   }
 
   public before(): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
-    return async (req: sRequest, _res: express.Response, _next: express.NextFunction) => {
-      if (req.cookies.ssid) {
-        const ssid: string | false = cs.unsign(req.cookies.ssid, this.CoockieSecret);
-        if (ssid) {
-          const session = (await this.SessionProvider.restoreSession(ssid)) as UserSession;
-          if (session) {
-            req.storage.user = new User(session.Data);
-            const liveTimeDiff = session.Expiration.diff(DateTime.now());
-            if (liveTimeDiff.minutes < 30) {
-              await this.SessionProvider.refreshSession(session);
+    return async (req: sRequest, _res: express.Response, next: express.NextFunction) => {
+      try {
+        if (req.cookies.ssid) {
+          const ssid: string | false = cs.unsign(req.cookies.ssid, this.CoockieSecret);
+          if (ssid) {
+            const session = (await this.SessionProvider.restoreSession(ssid)) as UserSession;
+            if (session) {
+              req.storage.user = new User(session.Data);
+              const liveTimeDiff = session.Expiration.diff(DateTime.now());
+              if (liveTimeDiff.minutes < 30) {
+                await this.SessionProvider.refreshSession(session);
+              }
             }
+          } else {
+            req.storage.user = null;
           }
-        } else {
-          req.storage.user = null;
         }
+        next();
+      } catch (err) {
+        next(err);
       }
     };
   }
