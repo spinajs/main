@@ -4,8 +4,7 @@ import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
 export class UserSessionDBSqlMigration_2022_06_28_01_01_01 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('user_sessions', (table) => {
-      table.int('Id').primaryKey().autoIncrement();
-      table.string('SessionId', 255).notNull();
+      table.string('SessionId', 255).primaryKey().notNull();
       table.date('CreatedAt').notNull();
       table.date('Expiration').notNull();
       table.text('Data').notNull();
