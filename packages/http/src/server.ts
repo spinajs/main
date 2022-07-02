@@ -54,6 +54,9 @@ export class HttpServer extends AsyncModule {
       this.use(m);
     });
 
+    // create storage prop in req
+    this.use((req: any) => (req.storage = {}));
+
     this.Middlewares = this.Middlewares.sort((a, b) => {
       return a.Order - b.Order;
     });
