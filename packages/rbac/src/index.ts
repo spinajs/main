@@ -1,8 +1,9 @@
-import { Injectable, Bootstrapper, DI } from '@spinajs/di';
+import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import './auth';
 import './password';
 import './session';
 import { AccessControl } from 'accesscontrol';
+import { Configuration } from '@spinajs/configuration';
 
 export * from './interfaces';
 export * from './auth';
@@ -17,9 +18,12 @@ export class RbacBootstrapper extends Bootstrapper {
   public bootstrap(): void {
     const ac = new AccessControl();
     DI.register(ac).asValue('AccessControl');
-
-    ac.grant('admin.users').createAny('users').updateAny('users').deleteAny('users').readAny('users');
-    ac.grant('user').updateOwn('users', ['Email', 'Login', 'Password', 'NiceName']);
-    ac.grant('admin').extend('admin.users');
+    DI.once('di.resolved.Configuration', (container: IContainer, configuration: Configuration) => {
+      const ac = container.get<AccessControl>('AccessControl');
+      const grants = configuration.get('rbac.grants');
+      if (grants) {
+        ac.setGrants(grants);
+      }
+    });
   }
 }
