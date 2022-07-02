@@ -16,4 +16,8 @@ export class LoginDto {
   public Login: string;
 
   public Password: string;
+
+  constructor(data: any) {
+    Object.assign(this, data);
+  }
 }
