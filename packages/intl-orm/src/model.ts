@@ -1,31 +1,52 @@
+import { DI } from '@spinajs/di';
 import { InsertBehaviour, ModelBase } from '@spinajs/orm';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import _ from 'lodash';
 import { IntlResource } from './models/IntlResource';
-
-export class IntlModelBase extends ModelBase {
+import { IIntlAsyncStorage } from '@spinajs/intl';
+import { Configuration } from '@spinajs/configuration';
+export class Translatable extends ModelBase {
   public Language: string;
+
+  protected guessLanguage(lang?: string) {
+    let selectedLang = lang;
+    if (!selectedLang) {
+      const storage = DI.get(AsyncLocalStorage).getStore() as IIntlAsyncStorage;
+      if (!storage || !storage.language) {
+        selectedLang = DI.get(Configuration).get<string>('intl.defaultLocale');
+      } else {
+        selectedLang = storage.language;
+      }
+    }
+
+    return selectedLang;
+  }
 
   /**
    * Reloads entity with proper translation
    *
    * @param lang - language to load
    */
-  public async translate(lang: string) {
+  public async translate(lang?: string) {
+    const selectedLang = this.guessLanguage(lang);
+
     const translations = await IntlResource.where({
       ResourceId: this.PrimaryKeyValue,
       Resource: this.constructor.name,
-      Lang: lang,
+      Lang: selectedLang,
     });
 
     translations.forEach((rd) => {
       (this as any)[(rd as any).Column] = (rd as any).Value;
     });
 
-    this.Language = lang;
+    this.Language = selectedLang;
   }
 
   public async update(): Promise<void> {
-    if (!this.Language) {
+    const selectedLang = this.guessLanguage(this.Language);
+    const defaultLanguage = DI.get(Configuration).get<string>('intl.defaultLocale');
+    if (!selectedLang || defaultLanguage === selectedLang) {
       await super.update();
     } else {
       // TODO: temporaty use uniqyBy, pls FIX model descriptor proper handling in ORM module

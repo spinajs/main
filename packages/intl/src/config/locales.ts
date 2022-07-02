@@ -3,7 +3,7 @@
  * https://github.com/mashpie/i18n-node
  */
 const config = {
-  validation: {
+  intl: {
     defaultLocale: 'en',
 
     // supported locales

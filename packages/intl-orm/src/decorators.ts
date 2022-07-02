@@ -9,5 +9,7 @@ export function Translate() {
     } else {
       columnDesc.Translate = true;
     }
+
+    (model as any).Translatable = true;
   }, true);
 }

@@ -1,7 +1,10 @@
 import { TestRelOneToMany } from './TestRelOneToMany';
-import { IntlModelBase } from './../../src/model';
+import { Translatable } from './../../src/model';
 import { Translate } from './../../src/decorators';
-import { Primary, Connection, Model, HasMany } from '@spinajs/orm';
+import { Primary, Connection, Model, HasMany, ModelBase } from '@spinajs/orm';
+import { use } from 'typescript-mix';
+
+export interface Test extends Translatable {}
 
 /**
  * Base modele for users used by ACL
@@ -10,7 +13,9 @@ import { Primary, Connection, Model, HasMany } from '@spinajs/orm';
  */
 @Connection('default')
 @Model('test')
-export class Test extends IntlModelBase {
+export class Test extends ModelBase {
+  @use(Translatable) this: any;
+
   @Primary()
   public Id: number;
 

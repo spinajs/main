@@ -85,6 +85,5 @@ describe('ORM intl tests', () => {
 
     expect(result['en_US']['hello world']).to.be.eq('bla bla');
     expect(result['de_DE']['hello world']).to.be.eq('bla bla german');
-
   });
 });

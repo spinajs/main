@@ -16,6 +16,10 @@ export interface IPhraseWithOptions {
   locale: string;
 }
 
+export interface IIntlAsyncStorage {
+  language?: string;
+}
+
 export abstract class Intl extends AsyncModule {
   private _currentLocale: string;
 
