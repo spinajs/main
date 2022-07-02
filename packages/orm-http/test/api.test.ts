@@ -13,7 +13,7 @@ import { expect } from 'chai';
 
 describe('Http orm tests', function () {
   this.timeout(15000);
-  
+
   before(async () => {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -24,9 +24,6 @@ describe('Http orm tests', function () {
 
     const b = await DI.resolve(OrmHttpBootstrapper);
     b.bootstrap();
-
-    const ac = await DI.resolve<AccessControl>('AccessControl');
-    ac.grant('admin').createAny('test').readAny('test').deleteAny('test').updateAny('test');
     server.start();
   });
 
