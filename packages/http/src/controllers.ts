@@ -57,7 +57,7 @@ export abstract class BaseController extends AsyncModule implements IController 
     const self = this;
 
     this._router = express.Router();
-    this._actionLocalStorage = new AsyncLocalStorage();
+    this._actionLocalStorage = DI.get(AsyncLocalStorage<IActionLocalStoregeContext>);
 
     for (const [, route] of this.Descriptor.Routes) {
       const handlers: express.RequestHandler[] = [];
