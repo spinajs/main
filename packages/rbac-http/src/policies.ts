@@ -5,7 +5,6 @@ import { ACL_CONTROLLER_DESCRIPTOR } from './decorators';
 import { IRbacDescriptor } from './interfaces';
 import { DI } from '@spinajs/di';
 import { User } from '@spinajs/rbac';
- 
 
 export class RbacPolicy extends BasePolicy {
   protected Ac: AccessControl;
