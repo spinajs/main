@@ -1,13 +1,16 @@
-import { Injectable, NewInstance } from '@spinajs/di';
-import { extractModelDescriptor, IBuilderMiddleware, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder } from '@spinajs/orm';
+import { DI, Injectable, NewInstance } from '@spinajs/di';
+import { extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware } from '@spinajs/orm';
 import { TranslationSource } from '@spinajs/intl';
 import _ from 'lodash';
 import { IntlTranslation } from './models/IntlTranslation';
 import { IntlResource } from './models/IntlResource';
+import { guessLanguage } from './language';
+import { Configuration } from '@spinajs/configuration';
 
 declare module '@spinajs/orm' {
   interface ISelectBuilderExtensions<T = any> {
     translate(lang: string): this;
+    translated: boolean;
   }
 
   interface IColumnDescriptor {
@@ -47,6 +50,8 @@ export class IntlModelRelation extends OrmRelation {
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
   constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor) {}
+
+  public afterQueryCreation(_query: QueryBuilder<any>): void {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -95,6 +100,14 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
 }
 
 (SelectQueryBuilder.prototype as any)['translate'] = function (this: SelectQueryBuilder, lang: string) {
+  /**
+   * Cannot translate query that cames from translation middleware  !
+   */
+  if (this.Owner !== null && this.Owner instanceof IntlModelRelation) {
+    return;
+  }
+
+  this.translated = true;
   const descriptor = extractModelDescriptor(this._model);
   const relInstance = this._container.resolve(IntlModelRelation, [lang, this._container.get(Orm), this, descriptor, this._owner]);
   relInstance.execute();
@@ -109,6 +122,20 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
   this._relations.push(relInstance);
   return this;
 };
+
+@Injectable(QueryMiddleware)
+export class IntlQueryMiddleware extends QueryMiddleware {
+  afterQueryCreation(builder: QueryBuilder) {
+    if (builder instanceof SelectQueryBuilder && !builder.translated) {
+      const lang = guessLanguage();
+      const defaultLanguage = DI.get(Configuration).get<string>('intl.defaultLocale');
+
+      if (lang && defaultLanguage !== lang) {
+        builder.translate(lang);
+      }
+    }
+  }
+}
 
 @Injectable(TranslationSource)
 export class DbTranslationSource extends TranslationSource {

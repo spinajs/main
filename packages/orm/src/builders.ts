@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { DateTime } from 'luxon';
-import { Container, Inject, NewInstance, Constructor, IContainer } from '@spinajs/di';
+import { Container, Inject, NewInstance, Constructor, IContainer, DI } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions';
 import * as _ from 'lodash';
@@ -13,7 +13,7 @@ import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
-import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUpdateResult, ISelectBuilderExtensions } from '.';
+import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUpdateResult, ISelectBuilderExtensions, QueryMiddleware } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -40,6 +40,8 @@ export class Builder<T = any> implements PromiseLike<T> {
 
   protected _nonSelect: boolean;
   protected _middlewares: IBuilderMiddleware<T>[] = [];
+  protected _queryMiddlewares: QueryMiddleware[] = [];
+
   protected _asRaw: boolean;
 
   public QueryContext: QueryContext;
@@ -62,6 +64,8 @@ export class Builder<T = any> implements PromiseLike<T> {
     this._model = model;
     this._nonSelect = true;
     this._asRaw = false;
+
+    this._queryMiddlewares = DI.resolve(Array.ofType(QueryMiddleware));
   }
 
   then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
@@ -76,9 +80,13 @@ export class Builder<T = any> implements PromiseLike<T> {
             }
 
             let transformedResult = result;
-            this._middlewares.forEach((m) => {
-              Object.assign(transformedResult, m.afterQuery(transformedResult));
-            });
+
+            // if we have something to transform ...
+            if (transformedResult) {
+              this._middlewares.forEach((m) => {
+                Object.assign(transformedResult, m.afterQuery(transformedResult));
+              });
+            }
 
             if (this._model && !this._nonSelect) {
               // TODO: rething this casting
@@ -792,19 +800,19 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   protected _cteStatement: IQueryStatement;
 
+  protected _relations: IOrmRelation[] = [];
+
   protected _owner: IOrmRelation;
 
-  protected _relations: IOrmRelation[] = [];
+  public get Owner(): IOrmRelation {
+    return this._owner;
+  }
 
   @use(WhereBuilder, LimitBuilder, OrderByBuilder, ColumnsBuilder, JoinBuilder, WithRecursiveBuilder, GroupByBuilder)
   this: this;
 
   public get IsDistinct() {
     return this._distinct;
-  }
-
-  public get Owner(): IOrmRelation {
-    return this._owner;
   }
 
   public get Relations(): IOrmRelation[] {
@@ -814,6 +822,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation) {
     super(container, driver, model);
 
+    this._owner = owner;
     this._distinct = false;
     this._method = QueryMethod.SELECT;
 
@@ -832,7 +841,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     this._nonSelect = false;
     this.QueryContext = QueryContext.Select;
-    this._owner = owner;
+
+    this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
   }
 
   public async asRaw<T>(): Promise<T> {

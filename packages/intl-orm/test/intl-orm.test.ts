@@ -10,6 +10,7 @@ import { TestConfiguration } from './common';
 import { Test } from './models/Test';
 import '../src/index';
 import { DbTranslationSource } from '../src/index';
+import { AsyncLocalStorage } from 'async_hooks';
 
 chai.use(chaiAsPromised);
 
@@ -43,6 +44,26 @@ describe('ORM intl tests', () => {
 
   it('Should translate populated one to many data', async () => {
     const result = await Test.where('Id', '>', 0).populate('Data').translate('en_GB');
+
+    expect(result).to.be.not.null;
+    expect(result).to.be.an('array');
+    expect(result[0].Text).to.eq('hello');
+    expect(result[1].Text).to.eq('world');
+
+    expect(result[0].Data[0].Text).to.eq('one');
+    expect(result[1].Data[0].Text).to.eq('two');
+  });
+
+  it('Should translate when using async storage', async () => {
+    const store = DI.resolve(AsyncLocalStorage);
+    const result = await store.run(
+      {
+        language: 'en_GB',
+      },
+      async () => {
+        return await Test.where('Id', '>', 0).populate('Data');
+      },
+    );
 
     expect(result).to.be.not.null;
     expect(result).to.be.an('array');

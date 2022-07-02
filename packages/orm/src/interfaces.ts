@@ -813,6 +813,7 @@ export abstract class GroupByQueryCompiler implements IQueryCompiler {
  * Middlewares for query builders
  */
 export interface IBuilderMiddleware<T = any[]> {
+
   /**
    *
    * Executed AFTER query is executed in DB and raw data is fetched
@@ -837,6 +838,10 @@ export interface IBuilderMiddleware<T = any[]> {
    * @param data - hydrated data. Models are created and hydrated with data
    */
   afterHydration(data: ModelBase[]): Promise<any[] | void>;
+}
+
+export abstract class QueryMiddleware {
+  abstract afterQueryCreation(query: QueryBuilder): void;
 }
 
 export class ValueConverter implements IValueConverter {

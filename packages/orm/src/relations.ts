@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { IRelationDescriptor, IModelDescriptor, IBuilderMiddleware, RelationType, InsertBehaviour, ForwardRefFunction } from './interfaces';
+import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, ForwardRefFunction, IBuilderMiddleware } from './interfaces';
 import { NewInstance, DI, Constructor } from '@spinajs/di';
 import { SelectQueryBuilder, DeleteQueryBuilder } from './builders';
 import { extractModelDescriptor, ModelBase } from './model';
