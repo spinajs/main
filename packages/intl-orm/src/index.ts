@@ -7,6 +7,8 @@ import { IntlResource } from './models/IntlResource';
 import { guessLanguage } from './language';
 import { Configuration } from '@spinajs/configuration';
 
+export * from './decorators';
+
 declare module '@spinajs/orm' {
   interface ISelectBuilderExtensions<T = any> {
     translate(lang: string): this;

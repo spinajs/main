@@ -48,7 +48,7 @@ export class Translatable extends ModelBase {
       }
 
       // update only non translated
-      const cToDehydrate = [this.PrimaryKeyName, ...tColumns.map((c) => c.Name)];
+      const cToDehydrate = [...tColumns.map((c) => c.Name)];
       const dToUpdate = this.dehydrate(false, cToDehydrate);
 
       if (Object.keys(dToUpdate).length !== 0) {
