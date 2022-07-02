@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl-orm",
-  "version": "1.2.130",
+  "version": "1.2.131",
   "description": "Internationalization support for ORM module",
   "main": "lib/index.js",
   "private": false,
@@ -43,13 +43,13 @@
     "@spinajs/exceptions": "^1.2.127",
     "@spinajs/intl": "^1.2.127",
     "@spinajs/log": "^1.2.127",
-    "@spinajs/orm": "^1.2.130",
+    "@spinajs/orm": "^1.2.131",
     "@spinajs/reflection": "^1.2.127",
     "luxon": "^2.4.0",
     "typescript-mix": "^3.1.3"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^1.2.130"
+    "@spinajs/orm-sqlite": "^1.2.131"
   },
   "gitHead": "8194e9ff4cc74fcd0924c8042161c568f750649b"
 }
