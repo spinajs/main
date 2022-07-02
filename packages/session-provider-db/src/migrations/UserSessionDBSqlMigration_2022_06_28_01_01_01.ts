@@ -12,7 +12,7 @@ export class UserSessionDBSqlMigration_2022_06_28_01_01_01 extends OrmMigration 
     });
 
     // create index explicit, otherwise sqlite driver cannot extract unique index from sqlite_master
-    await connection.index().table('acl_sessions').name('session_id_acl_session_idx').columns(['SessionId']).unique();
+    await connection.index().table('user_sessions').name('session_id_user_session_idx').columns(['SessionId']).unique();
   }
 
   // tslint:disable-next-line: no-empty
