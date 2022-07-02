@@ -49,5 +49,5 @@
   "devDependencies": {
     "@spinajs/orm-sqlite": "^1.2.140"
   },
-  "gitHead": "18f11d8d994dbcc634d1a9a836654c0d20d51f5a"
+  "gitHead": "4b969728ca3da92b1c6ff1ca61519fdb39774167"
 }

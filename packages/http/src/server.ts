@@ -5,7 +5,7 @@ import { AsyncModule, IContainer, Autoinject, Injectable, Container } from '@spi
 import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { Server } from 'http';
-import { RequestHandler } from 'express';
+import { RequestHandler, NextFunction } from 'express';
 import { IHttpStaticFileConfiguration, DataTransformer, ServerMiddleware } from './interfaces';
 import * as fs from 'fs';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
@@ -55,7 +55,10 @@ export class HttpServer extends AsyncModule {
     });
 
     // create storage prop in req
-    this.use((req: any) => (req.storage = {}));
+    this.use((req: any, res: any, next: Express.NextFunction) => {
+      req.storage = {};
+      next();
+    });
 
     this.Middlewares = this.Middlewares.sort((a, b) => {
       return a.Order - b.Order;
