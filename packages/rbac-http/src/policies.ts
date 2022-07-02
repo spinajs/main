@@ -1,6 +1,5 @@
 import { AccessControl, Permission } from 'accesscontrol';
 import { BasePolicy, IController, IRoute } from '@spinajs/http';
-import * as express from 'express';
 import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { ACL_CONTROLLER_DESCRIPTOR } from './decorators';
 import { IRbacDescriptor } from './interfaces';
