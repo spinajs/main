@@ -8,6 +8,7 @@ import { guessLanguage } from './language';
 import { Configuration } from '@spinajs/configuration';
 
 export * from './decorators';
+export * from './model';
 
 declare module '@spinajs/orm' {
   interface ISelectBuilderExtensions<T = any> {

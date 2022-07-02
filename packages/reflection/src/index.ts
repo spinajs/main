@@ -7,6 +7,8 @@ import { AsyncModule, Class, DI } from '@spinajs/di';
 import { InvalidArgument, Exception } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
 
+export * from 'typescript-mix';
+
 /**
  * Class info structure
  */

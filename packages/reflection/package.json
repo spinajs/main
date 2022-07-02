@@ -33,7 +33,8 @@
     "@spinajs/di": "^1.2.127",
     "@spinajs/exceptions": "^1.2.127",
     "@spinajs/log": "^1.2.137",
-    "lodash": "^4.17.21"
+    "lodash": "^4.17.21",
+    "typescript-mix": "^3.1.3"
   },
   "gitHead": "b5006e8fe511860940e87103eb3f63e672491178"
 }
