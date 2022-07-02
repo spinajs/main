@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl-http",
-  "version": "1.2.134",
+  "version": "1.2.135",
   "description": "Internationalization support for http module",
   "main": "lib/index.js",
   "private": false,
@@ -41,13 +41,13 @@
     "@spinajs/configuration": "^1.2.127",
     "@spinajs/di": "^1.2.127",
     "@spinajs/exceptions": "^1.2.127",
-    "@spinajs/http": "^1.2.134",
-    "@spinajs/intl": "^1.2.134",
+    "@spinajs/http": "^1.2.135",
+    "@spinajs/intl": "^1.2.135",
     "@spinajs/log": "^1.2.127",
     "@spinajs/reflection": "^1.2.127"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^1.2.134"
+    "@spinajs/orm-sqlite": "^1.2.135"
   },
   "gitHead": "18f11d8d994dbcc634d1a9a836654c0d20d51f5a"
 }
