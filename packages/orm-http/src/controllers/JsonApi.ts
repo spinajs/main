@@ -1,4 +1,3 @@
-import { AccessControl } from '@spinajs/rbac';
 import { Autoinject, Constructor, DI, Inject } from '@spinajs/di';
 import { BaseController, ArgHydrator, Hydrator, Ok, Del, Post, Query, Req } from '@spinajs/http';
 import { BasePath, Get, Param, Body, Patch } from '@spinajs/http';
@@ -135,11 +134,11 @@ const genericStringSchema = {
 };
 
 @BasePath('repository')
-@Inject(Orm, AccessControl)
+@Inject(Orm)
 export class JsonApi extends BaseController {
   protected Middlewares: RepositoryMiddleware[];
 
-  constructor(protected Orm: Orm, protected Ac: AccessControl) {
+  constructor(protected Orm: Orm) {
     super();
   }
 
