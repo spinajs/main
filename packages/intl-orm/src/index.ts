@@ -62,6 +62,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
   public async afterHydration(data: ModelBase[]): Promise<any[]> {
     const self = this;
     const pks = data.map((d) => {
+      // do this as one pass
       return (d as any)[this._description.PrimaryKey];
     });
 
@@ -82,7 +83,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
             (d as any)[(rd as any).Column] = (rd as any).Value;
           });
 
-          (d as any).Language = this._lang;
+          (d as any).Language = self._lang;
         });
       },
     };

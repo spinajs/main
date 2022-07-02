@@ -34,6 +34,7 @@ export class Translatable extends ModelBase {
     if (!selectedLang || defaultLanguage === selectedLang) {
       await super.update();
     } else {
+      this.Language = selectedLang;
       // TODO: temporaty use uniqyBy, pls FIX model descriptor proper handling in ORM module
       const tColumns = _.uniqBy(
         this.ModelDescriptor.Columns.filter((c) => c.Translate),

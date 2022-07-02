@@ -93,6 +93,31 @@ describe('ORM intl tests', () => {
     expect(result.Text).to.eq('witaj');
   });
 
+  it('Should save translations automatically', async () => {
+    let result = await Test.where('Id', 1).first();
+
+    const store = DI.resolve(AsyncLocalStorage);
+    await store.run(
+      {
+        language: 'en_US',
+      },
+      async () => {
+        result.Text = 'hello from us';
+        await result.update();
+
+        result.Text = 'hello from us 1';
+        await result.update();
+      },
+    );
+
+    result = await Test.where('Id', 1).translate('en_US').first();
+
+    expect(result.Text).to.eq('hello from us 1');
+
+    result = await Test.where('Id', 1).first();
+    expect(result.Text).to.eq('witaj');
+  });
+
   it('Should load translations for entity', async () => {
     const result = await Test.where('Id', 1).first();
     await result.translate('en_GB');
