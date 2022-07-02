@@ -52,6 +52,13 @@ export class DbPropertyHydrator extends ModelHydrator {
     // we handle it in later
     const keys = Object.keys(values).filter((k) => descriptor.Columns?.find((c) => c.Name === k));
     keys.forEach((k) => {
+      
+      // skip if column is primary key & is null
+      // we dont want to override pkey of target model
+      if (k === descriptor.PrimaryKey && !values[k]) {
+        return;
+      }
+
       const column = descriptor.Columns?.find((c) => c.Name === k);
       (target as any)[k] = column.Converter ? column.Converter.fromDB(values[k]) : values[k];
     });
