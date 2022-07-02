@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm",
-  "version": "1.2.131",
+  "version": "1.2.132",
   "description": "framework orm module",
   "main": "lib/index.js",
   "private": false,

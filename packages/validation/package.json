@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/validation",
-  "version": "1.2.131",
+  "version": "1.2.132",
   "description": "validation library for spinajs framework",
   "main": "lib/index.js",
   "private": false,

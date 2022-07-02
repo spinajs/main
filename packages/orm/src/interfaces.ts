@@ -813,7 +813,6 @@ export abstract class GroupByQueryCompiler implements IQueryCompiler {
  * Middlewares for query builders
  */
 export interface IBuilderMiddleware<T = any[]> {
-
   /**
    *
    * Executed AFTER query is executed in DB and raw data is fetched
