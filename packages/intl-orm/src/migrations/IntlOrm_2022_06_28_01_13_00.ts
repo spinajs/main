@@ -2,7 +2,7 @@
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 
 @Migration('default')
-export class IntOrm_2022_06_28_01_13_00 extends OrmMigration {
+export class IntlOrm_2022_06_28_01_13_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('intl_resources', (table) => {
       table.int('ResourceId').notNull();

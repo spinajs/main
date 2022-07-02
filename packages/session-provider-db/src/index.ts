@@ -16,7 +16,7 @@ export class DbSessionStore extends SessionProvider {
   protected Configuration: Configuration;
 
   // tslint:disable-next-line: no-empty
-  public async resolveAsync() {}
+public async resolveAsync() {}
 
   public async restoreSession(sessionId: string): Promise<Session> {
     const session = await DbSession.where({
