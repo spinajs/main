@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-http",
-  "version": "1.2.135",
+  "version": "1.2.136",
   "description": "Orm extensions for HTTP module",
   "main": "lib/index.js",
   "private": false,
@@ -45,7 +45,7 @@
     "@spinajs/intl-orm": "^1.2.135",
     "@spinajs/log": "^1.2.127",
     "@spinajs/orm": "^1.2.135",
-    "@spinajs/rbac-http": "^1.2.135",
+    "@spinajs/rbac-http": "^1.2.136",
     "lodash": "^4.17.21",
     "luxon": "^2.4.0"
   },
