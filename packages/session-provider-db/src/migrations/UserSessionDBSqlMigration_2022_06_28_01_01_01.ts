@@ -3,7 +3,7 @@ import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
 @Migration('default')
 export class AclSessionDBSqlMigration_2022_06_28_01_01_01 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
-    await connection.schema().createTable('acl_sessions', (table) => {
+    await connection.schema().createTable('user_sessions', (table) => {
       table.int('Id').primaryKey().autoIncrement();
       table.string('SessionId', 255).notNull();
       table.date('CreatedAt').notNull();

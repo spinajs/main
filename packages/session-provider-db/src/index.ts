@@ -3,7 +3,7 @@ import { SessionProvider, Session } from '@spinajs/rbac';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
-import { DbSession } from './models/Session';
+import { DbSession } from './models/DbSession';
 import { InsertBehaviour } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
