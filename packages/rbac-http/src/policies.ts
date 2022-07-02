@@ -34,7 +34,7 @@ export class RbacPolicy extends BasePolicy {
     }
 
     if (!req.storage || !req.storage.user) {
-      throw new AuthenticationFailed();
+      throw new AuthenticationFailed('user not logger or session expired');
     }
 
     if (!checkRoutePermission(req, descriptor.Resource, permission).granted) {

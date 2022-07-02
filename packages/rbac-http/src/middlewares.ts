@@ -34,6 +34,8 @@ export class UserFromSessionMiddleware extends ServerMiddleware {
               if (liveTimeDiff.minutes < 30) {
                 await this.SessionProvider.refreshSession(session);
               }
+            } else {
+              req.storage.user = null;
             }
           } else {
             req.storage.user = null;
