@@ -100,14 +100,17 @@ export class JsFileSource extends BaseFileSource {
     }
 
     function _load(file: string) {
-      //Log.trace(`Trying to load file ${file}`, 'Configuration');
+      try {
+        uncache(file);
 
-      uncache(file);
+        InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
 
-      InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
-
-      // eslint-disable-next-line security/detect-non-literal-require
-      return require(file);
+        // eslint-disable-next-line security/detect-non-literal-require
+        return require(file);
+      } catch (err) {
+        console.error(`error loading configuration file ${file}, reasoun: ${(err as Error).message}`);
+        return null;
+      }
     }
   }
 }
@@ -131,6 +134,7 @@ export class JsonFileSource extends BaseFileSource {
 
         return JSON.parse(fs.readFileSync(file, 'utf-8'));
       } catch (err) {
+        console.error(`error loading configuration file ${file}, reasoun: ${(err as Error).message}`);
         return null;
       }
     }
