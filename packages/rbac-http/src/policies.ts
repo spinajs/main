@@ -6,6 +6,7 @@ import { ACL_CONTROLLER_DESCRIPTOR } from './decorators';
 import { IRbacDescriptor } from './interfaces';
 import { DI } from '@spinajs/di';
 import { User } from '@spinajs/rbac';
+import { Request as sRequest } from '@spinajs/http';
 
 export class RbacPolicy extends BasePolicy {
   protected Ac: AccessControl;
@@ -21,7 +22,7 @@ export class RbacPolicy extends BasePolicy {
     return true;
   }
 
-  public async execute(req: express.Request, action: IRoute, instance: IController) {
+  public async execute(req: sRequest, action: IRoute, instance: IController) {
     const descriptor: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance);
     let permission = descriptor.Permission ?? '';
 
@@ -34,7 +35,7 @@ export class RbacPolicy extends BasePolicy {
       throw new Forbidden(`no route permission or resources assigned`);
     }
 
-    if (!req.User) {
+    if (!req.storage || !req.storage.user) {
       throw new AuthenticationFailed();
     }
 
@@ -59,10 +60,10 @@ export function checkUserPermission(user: User, resource: string, permission: st
   return (ac.can(user.Role.split(',')) as any)[permission](resource);
 }
 
-export function checkRoutePermission(req: express.Request, resource: string, permission: string): Permission {
-  if (!req.User) {
+export function checkRoutePermission(req: sRequest, resource: string, permission: string): Permission {
+  if (!req.storage || !req.storage.user) {
     return null;
   }
 
-  return checkUserPermission(req.User, resource, permission);
+  return checkUserPermission(req.storage.user, resource, permission);
 }

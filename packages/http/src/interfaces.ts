@@ -54,6 +54,10 @@ export interface IUploadedFile {
   Hash?: string;
 }
 
+export interface Request extends express.Request {
+  storage: IActionLocalStoregeContext;
+}
+
 export interface IActionLocalStoregeContext {
   requestId: string;
   responseStart: Date;

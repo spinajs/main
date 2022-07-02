@@ -1,4 +1,4 @@
-import { IController, IControllerDescriptor, IPolicyDescriptor, BaseMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext } from './interfaces';
+import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, BaseMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext } from './interfaces';
 import { AsyncModule, IContainer, Autoinject, DI, Container } from '@spinajs/di';
 import * as express from 'express';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators';
@@ -27,6 +27,7 @@ export abstract class BaseController extends AsyncModule implements IController 
   @Logger('http')
   protected _log: Log;
 
+  @Autoinject()
   protected _actionLocalStorage: AsyncLocalStorage<IActionLocalStoregeContext>;
 
   /**
@@ -89,13 +90,14 @@ export abstract class BaseController extends AsyncModule implements IController 
       handlers.push(...policies.filter((p) => p.isEnabled(route, this)).map((p) => _invokePolicyAction(p, p.execute.bind(p), route)));
       handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBeforeAction.bind(m))));
 
-      const acionWrapper = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const acionWrapper = async (req: sRequest, res: express.Response, next: express.NextFunction) => {
         try {
           const args = (await _extractRouteArgs(route, req, res)).concat([req, res, next]);
-          this._actionLocalStorage.run(req.storage, async () => {
-            res.locals.response = await this[route.Method].call(this, ...args);
+          const response = await this._actionLocalStorage.run(req.storage, () => {
+            return this[route.Method].call(this, ...args);
           });
 
+          res.locals.response = response;
           next();
         } catch (err) {
           next(err);
