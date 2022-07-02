@@ -11,7 +11,9 @@ import sinon from 'sinon';
 import { OrmHttpBootstrapper } from './../src/index';
 import { expect } from 'chai';
 
-describe('Http orm tests', () => {
+describe('Http orm tests', function () {
+  this.timeout(15000);
+  
   before(async () => {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
