@@ -60,7 +60,8 @@ export class HttpServer extends AsyncModule {
 
     // register other server middlewares
     this.Middlewares.forEach((m) => {
-      this.use(m.before());
+      const f = m.before();
+      if (f) this.use(f);
     });
 
     /**
@@ -91,7 +92,8 @@ export class HttpServer extends AsyncModule {
 
       // add all middlewares to execute after
       this.Middlewares.reverse().forEach((m) => {
-        this.use(m.after());
+        const f = m.after();
+        if (f) this.use(f);
       });
 
       this.Server = this.Express.listen(port, () => {

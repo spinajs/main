@@ -3,7 +3,6 @@ import { ParamsDictionary } from 'express-serve-static-core';
 import { ParsedQs } from 'qs';
 import { ServerMiddleware } from '../interfaces';
 import * as express from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { Injectable } from '@spinajs/di';
 
 @Injectable(ServerMiddleware)

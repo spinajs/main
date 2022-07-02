@@ -62,8 +62,8 @@ export interface IActionLocalStoregeContext {
 export abstract class ServerMiddleware extends AsyncModule {
   public Order: number;
 
-  public abstract before(): (req: express.Request, res: express.Response, next: express.NextFunction) => void;
-  public abstract after(): (req: express.Request, res: express.Response, next: express.NextFunction) => void;
+  public abstract before(): (req: express.Request, res: express.Response, next: express.NextFunction) => void | null;
+  public abstract after(): (req: express.Request, res: express.Response, next: express.NextFunction) => void | null;
 }
 
 /**
