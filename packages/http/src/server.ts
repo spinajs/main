@@ -5,7 +5,7 @@ import { AsyncModule, IContainer, Autoinject, Injectable, Container } from '@spi
 import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { Server } from 'http';
-import { RequestHandler, NextFunction } from 'express';
+import { RequestHandler } from 'express';
 import { IHttpStaticFileConfiguration, DataTransformer, ServerMiddleware } from './interfaces';
 import * as fs from 'fs';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
