@@ -1,4 +1,4 @@
-import { IController, IControllerDescriptor, IPolicyDescriptor, BaseMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType } from './interfaces';
+import { IController, IControllerDescriptor, IPolicyDescriptor, BaseMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext } from './interfaces';
 import { AsyncModule, IContainer, Autoinject, DI, Container } from '@spinajs/di';
 import * as express from 'express';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators';
@@ -8,6 +8,7 @@ import { HttpServer } from './server';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { RouteArgs, FromFormBase } from './route-args';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 export abstract class BaseController extends AsyncModule implements IController {
   /**
@@ -25,6 +26,8 @@ export abstract class BaseController extends AsyncModule implements IController 
 
   @Logger('http')
   protected _log: Log;
+
+  protected _actionLocalStorage: AsyncLocalStorage<IActionLocalStoregeContext>;
 
   /**
    * Express router with middleware stack
@@ -53,6 +56,7 @@ export abstract class BaseController extends AsyncModule implements IController 
     const self = this;
 
     this._router = express.Router();
+    this._actionLocalStorage = new AsyncLocalStorage();
 
     for (const [, route] of this.Descriptor.Routes) {
       const handlers: express.RequestHandler[] = [];
@@ -88,7 +92,10 @@ export abstract class BaseController extends AsyncModule implements IController 
       const acionWrapper = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
         try {
           const args = (await _extractRouteArgs(route, req, res)).concat([req, res, next]);
-          res.locals.response = await this[route.Method].call(this, ...args);
+          this._actionLocalStorage.run(req.storage, async () => {
+            res.locals.response = await this[route.Method].call(this, ...args);
+          });
+
           next();
         } catch (err) {
           next(err);

@@ -1,5 +1,5 @@
 import * as express from 'express';
-import { Constructor } from '@spinajs/di';
+import { Constructor, AsyncModule } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 
 /**
@@ -52,6 +52,18 @@ export interface IUploadedFile {
   Type: string;
   LastModifiedDate?: Date;
   Hash?: string;
+}
+
+export interface IActionLocalStoregeContext {
+  requestId: string;
+  responseStart: Date;
+}
+
+export abstract class ServerMiddleware extends AsyncModule {
+  public Order: number;
+
+  public abstract before(): (req: express.Request, res: express.Response, next: express.NextFunction) => void;
+  public abstract after(): (req: express.Request, res: express.Response, next: express.NextFunction) => void;
 }
 
 /**

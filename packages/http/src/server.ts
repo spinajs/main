@@ -6,7 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { Server } from 'http';
 import { RequestHandler } from 'express';
-import { IHttpStaticFileConfiguration, DataTransformer } from './interfaces';
+import { IHttpStaticFileConfiguration, DataTransformer, ServerMiddleware } from './interfaces';
 import * as fs from 'fs';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods';
@@ -20,6 +20,9 @@ export class HttpServer extends AsyncModule {
 
   @Autoinject(Container)
   protected Container: IContainer;
+
+  @Autoinject(ServerMiddleware)
+  protected Middlewares: ServerMiddleware[];
 
   /**
    * Express app instance
@@ -51,6 +54,15 @@ export class HttpServer extends AsyncModule {
       this.use(m);
     });
 
+    this.Middlewares = this.Middlewares.sort((a, b) => {
+      return a.Order - b.Order;
+    });
+
+    // register other server middlewares
+    this.Middlewares.forEach((m) => {
+      this.use(m.before());
+    });
+
     /**
      * Server static files
      */
@@ -76,6 +88,11 @@ export class HttpServer extends AsyncModule {
     return new Promise<void>((res, rej) => {
       this.handleResponse();
       this.handleErrors();
+
+      // add all middlewares to execute after
+      this.Middlewares.reverse().forEach((m) => {
+        this.use(m.after());
+      });
 
       this.Server = this.Express.listen(port, () => {
         this.Log.info(`Http server started at port ${port}`);
