@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl",
-  "version": "1.2.133",
+  "version": "1.2.134",
   "description": "internationalization for spinajs framework",
   "main": "lib/index.js",
   "private": false,
