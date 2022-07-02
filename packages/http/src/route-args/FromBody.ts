@@ -1,4 +1,3 @@
-import { ParameterType } from '@spinajs/http';
 import { RouteArgs } from './RouteArgs';
 import { IRouteParameter, ParameterType, IRouteCall, IRoute } from '../interfaces';
 import * as express from 'express';
