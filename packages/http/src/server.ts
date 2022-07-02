@@ -55,7 +55,7 @@ export class HttpServer extends AsyncModule {
     });
 
     // create storage prop in req
-    this.use((req: any, res: any, next: Express.NextFunction) => {
+    this.use((req: any, _res: any, next: Express.NextFunction) => {
       req.storage = {};
       next();
     });
