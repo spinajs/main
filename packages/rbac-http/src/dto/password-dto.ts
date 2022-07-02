@@ -16,4 +16,8 @@ export class PasswordDto {
   public Password: string;
 
   public ConfirmPassword: string;
+
+  constructor(data: any) {
+    Object.assign(this, data);
+  }
 }

@@ -27,4 +27,8 @@ export class UserDto {
   public ConfirmPassword: string;
 
   public NiceName: string;
+
+  constructor(data: any) {
+    Object.assign(this, data);
+  }
 }
