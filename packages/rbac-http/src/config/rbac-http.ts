@@ -1,4 +1,3 @@
-import { UserFromSession } from '../middlewares';
 import { join, normalize, resolve } from 'path';
 
 function dir(path: string) {
@@ -15,7 +14,6 @@ module.exports = {
   http: {
     middlewares: [
       // add global user from session middleware
-      UserFromSession(),
     ],
   },
 };
