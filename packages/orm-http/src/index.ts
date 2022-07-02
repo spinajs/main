@@ -60,11 +60,11 @@ export function FromDB(field?: string, type?: ParameterType) {
 @Injectable(Bootstrapper)
 export class OrmHttpBootstrapper extends Bootstrapper {
   public async bootstrap(): Promise<void> {
-    const orm = await DI.resolve(Orm);
-
-    // set default route parameter hydrator for all loaded models
-    orm.Models.forEach((m) => {
-      Reflect.defineMetadata('custom:arg_hydrator', { hydrator: DbModelHydrator }, m.type);
+    DI.once('di.resolved.Orm', (_, orm: Orm) => {
+      // set default route parameter hydrator for all loaded models
+      orm.Models.forEach((m) => {
+        Reflect.defineMetadata('custom:arg_hydrator', { hydrator: DbModelHydrator }, m.type);
+      });
     });
   }
 }
