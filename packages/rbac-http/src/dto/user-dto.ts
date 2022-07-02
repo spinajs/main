@@ -16,7 +16,7 @@ export const UserDtoSchema = {
 
 @Schema(UserDtoSchema)
 export class UserDto {
-  public Id?: number;
+  public Idsss?: number;
 
   public Email: string;
 

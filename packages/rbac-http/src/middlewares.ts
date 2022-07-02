@@ -1,4 +1,3 @@
-import { ServerMiddleware } from './../../http/src/interfaces';
 import { SessionProvider, User, UserSession } from '@spinajs/rbac';
 import { Autoinject, Injectable } from '@spinajs/di';
 import 'reflect-metadata';
@@ -6,7 +5,7 @@ import * as express from 'express';
 import { Config } from '@spinajs/configuration';
 import * as cs from 'cookie-signature';
 import { DateTime } from 'luxon';
-import { Request as sRequest } from '@spinajs/http';
+import { Request as sRequest, ServerMiddleware } from '@spinajs/http';
 
 @Injectable(ServerMiddleware)
 export class UserFromSessionMiddleware extends ServerMiddleware {
