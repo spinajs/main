@@ -444,17 +444,16 @@ export class ModelBase {
    */
   public async refresh(): Promise<void> {
     let model: this = null;
-    const { query, description } = this.createSelectQuery();
-    query.select('*');
 
-    _preparePkWhere(description, query, this);
-    _prepareOrderBy(description, query);
-
-    model = (await query.firstOrFail()) as this;
+    model = await this.fresh();
 
     for (const c of this.ModelDescriptor.Columns) {
       (this as any)[c.Name] = (model as any)[c.Name];
     }
+  }
+
+  public toJSON() {
+    return this.dehydrate();
   }
 
   /**
