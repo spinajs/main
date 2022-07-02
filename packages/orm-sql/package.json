@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-sql",
-  "version": "1.2.161",
+  "version": "1.2.165",
   "description": "framework orm sql language module",
   "main": "lib/index.js",
   "private": false,
@@ -42,7 +42,7 @@
   "dependencies": {
     "@spinajs/configuration": "^1.2.137",
     "@spinajs/di": "^1.2.127",
-    "@spinajs/orm": "^1.2.161",
+    "@spinajs/orm": "^1.2.165",
     "luxon": "^2.3.0",
     "typescript-mix": "^3.1.3"
   },
