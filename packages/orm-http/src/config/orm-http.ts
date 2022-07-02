@@ -8,6 +8,7 @@ module.exports = {
   system: {
     dirs: {
       controllers: [dir('./../controllers')],
+      schemas: [dir('./../schemas')],
     },
   },
 };

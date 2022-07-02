@@ -92,19 +92,19 @@ class Model {
   public Descriptor: IModelDescriptor;
 
   public get SelectQuery() {
-    return createQuery(this.constructor, SelectQueryBuilder).query as SelectQueryBuilder<ModelBase>;
+    return createQuery(this.Type, SelectQueryBuilder).query as SelectQueryBuilder<ModelBase>;
   }
 
   public get InserQuery() {
-    return createQuery(this.constructor, InsertQueryBuilder).query;
+    return createQuery(this.Type, InsertQueryBuilder).query;
   }
 
   public get DeleteQuery() {
-    return createQuery(this.constructor, DeleteQueryBuilder).query;
+    return createQuery(this.Type, DeleteQueryBuilder).query;
   }
 
   public get UpdateQueryBuilder() {
-    return createQuery(this.constructor, UpdateQueryBuilder).query;
+    return createQuery(this.Type, UpdateQueryBuilder).query;
   }
 }
 
@@ -148,11 +148,16 @@ export class JsonApi extends BaseController {
     this.Middlewares = await DI.resolve(Array.ofType(RepositoryMiddleware));
   }
 
-  @Get(':model/:id')
-  public async get(@Param(modelSchema) model: Model, @Param(PrimaryKeySchema) id: string | number, @Query(genericStringSchema) include: Includes, @Query(genericStringSchema) _filters: Filters, @Req() req: express.Request) {
+  @Get(':model/:id', {
+    model: modelSchema,
+    id: PrimaryKeySchema,
+    include: genericStringSchema,
+    _filters: genericStringSchema,
+  })
+  public async get(@Param() model: Model, @Param() id: string | number, @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onGetMiddlewareStart(id, req)));
 
-    const query = model.SelectQuery.where(model.Descriptor.PrimaryKey, id);
+    const query = model.SelectQuery.select('*').where(model.Descriptor.PrimaryKey, id);
     applyQueryIncludes(include, query);
 
     this.Middlewares.forEach((m) => m.onGetMiddlewareQuery(query, model.Type, req));
@@ -167,11 +172,17 @@ export class JsonApi extends BaseController {
     return new Ok(jResult);
   }
 
-  @Get(':model')
-  public async getAll(@Param(modelSchema) model: Model, @Query() page: number, @Query() perPage: number, @Query() order: string, @Query() orderDirection: 'ASC' | 'DESC', @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
+  @Get(':model', {
+    model: modelSchema,
+    include: genericStringSchema,
+    _filters: genericStringSchema,
+  })
+  public async getAll(@Param() model: Model, @Query() page: number, @Query() perPage: number, @Query() order: string, @Query() orderDirection: 'ASC' | 'DESC', @Query() include: Includes, @Query() _filters: Filters, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onGetAllMiddlewareStart(req)));
 
-    const query = model.SelectQuery.take(perPage).skip(page * perPage);
+    const query = model.SelectQuery.select('*')
+      .take(perPage)
+      .skip(page * perPage);
     if (order) {
       query.order(order, orderDirection ?? 'ASC');
     }
@@ -190,8 +201,11 @@ export class JsonApi extends BaseController {
     return new Ok(jResult);
   }
 
-  @Del(':model/:id')
-  public async del(@Param(modelSchema) model: Model, @Param() id: string, @Req() req: express.Request) {
+  @Del(':model/:id', {
+    model: modelSchema,
+    id: PrimaryKeySchema,
+  })
+  public async del(@Param() model: Model, @Param() id: string | number, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onDeleteMiddlewareStart(id, req)));
 
     const query = model.DeleteQuery.where(model.Descriptor.PrimaryKey, id);
@@ -203,8 +217,11 @@ export class JsonApi extends BaseController {
     return new Ok();
   }
 
-  @Patch(':model/:id')
-  public async patch(@Param(modelSchema) model: Model, @Param() id: string, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
+  @Patch(':model/:id', {
+    model: modelSchema,
+    id: PrimaryKeySchema,
+  })
+  public async patch(@Param() model: Model, @Param() id: string | number, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onUpdateMiddlewareStart(id, incoming, req)));
 
     const entity: ModelBase = await model.SelectQuery.where(model.Descriptor.PrimaryKey, id).firstOrFail();
@@ -225,8 +242,10 @@ export class JsonApi extends BaseController {
     return new Ok(jResult);
   }
 
-  @Post(':model')
-  public async insert(@Param(modelSchema) model: Model, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
+  @Post(':model', {
+    model: modelSchema,
+  })
+  public async insert(@Param() model: Model, @Body() incoming: JsonApiIncomingObject, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onInsertMiddlewareStart(incoming, req)));
 
     const entity: ModelBase = new model.Type();
