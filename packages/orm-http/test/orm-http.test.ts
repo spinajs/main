@@ -10,7 +10,9 @@ import sinon from 'sinon';
 import { expect } from 'chai';
 import { OrmHttpBootstrapper } from './../src/index';
 
-describe('Http orm tests', () => {
+describe('Http orm tests', function () {
+  this.timeout(15000);
+
   const sb = sinon.createSandbox();
 
   before(async () => {
