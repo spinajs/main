@@ -16,7 +16,7 @@ export { AccessControl } from 'accesscontrol';
 export class RbacBootstrapper extends Bootstrapper {
   public bootstrap(): void {
     const ac = new AccessControl();
-    DI.register(ac).as('AccessControl');
+    DI.register(ac).asValue('AccessControl');
 
     ac.grant('admin.users').createAny('users').updateAny('users').deleteAny('users').readAny('users');
     ac.grant('user').updateOwn('users', ['Email', 'Login', 'Password', 'NiceName']);

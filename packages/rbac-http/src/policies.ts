@@ -38,7 +38,7 @@ export class RbacPolicy extends BasePolicy {
     }
 
     if (!checkRoutePermission(req, descriptor.Resource, permission).granted) {
-      throw new Forbidden(`role(s) ${req.User.Role} does not have permission ${permission} for resource ${descriptor.Resource}`);
+      throw new Forbidden(`role(s) ${req.storage.user.Role} does not have permission ${permission} for resource ${descriptor.Resource}`);
     }
   }
 }

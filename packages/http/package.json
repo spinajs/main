@@ -5,7 +5,7 @@
   "main": "lib/index.js",
   "private": false,
   "scripts": {
-    "build": "npm run clean && npm run compile",
+    "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views",
     "compile": "tsc -p tsconfig.build.json",
     "clean": "",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
