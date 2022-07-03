@@ -694,7 +694,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     const self = this;
     const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
 
-    await driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
+    const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
       this.whereNotIn(
         self.Relation.PrimaryKey,
         result.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
@@ -702,6 +702,14 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
       this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
     });
 
+    
+    query.setTable(this.TargetModelDescriptor.TableName);
+
+    if (driver.Options.Database) {
+      query.database(driver.Options.Database);
+    }
+
+    await query;
     this.empty();
 
     await this.add(result);
@@ -710,13 +718,21 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
   public async set(obj: T[]): Promise<void> {
     const self = this;
     const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
-    await driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
+    const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
       this.whereNotIn(
         self.Relation.PrimaryKey,
         obj.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
       );
       this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
     });
+
+    query.setTable(this.TargetModelDescriptor.TableName);
+
+    if (driver.Options.Database) {
+      query.database(driver.Options.Database);
+    }
+
+    await query;
 
     this.empty();
 
@@ -728,7 +744,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     const result = callback ? _.intersectionWith(this, obj, callback) : _.intersectionBy(this, obj, this.TargetModelDescriptor.PrimaryKey);
     const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
 
-    await driver.Container.resolve(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
+    const query = driver.Container.resolve(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
       this.whereNotIn(
         self.Relation.PrimaryKey,
         result.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
@@ -736,6 +752,13 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
       this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
     });
 
+    query.setTable(this.TargetModelDescriptor.TableName);
+
+    if (driver.Options.Database) {
+      query.database(driver.Options.Database);
+    }
+
+    await query;
     this.empty();
 
     await this.add(result);
@@ -754,6 +777,13 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     }
 
     const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereIn(this.Relation.ForeignKey, data);
+    
+    query.setTable(this.TargetModelDescriptor.TableName);
+
+    if (driver.Options.Database) {
+      query.database(driver.Options.Database);
+    }
+
     await query;
 
     _.remove(this, (o) => data.indexOf(o.PrimaryKeyValue) !== -1);
