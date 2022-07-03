@@ -8,7 +8,7 @@ import * as express from 'express';
 @Singleton()
 export class TestTransformer<T> extends DataTransformer<T, any> {
   public get Type(): string {
-    return 'pure';
+    return 'test-transform';
   }
 
   public transform(_: T, _request: express.Request) {

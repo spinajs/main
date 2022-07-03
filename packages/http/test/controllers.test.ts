@@ -1,3 +1,4 @@
+import { DataTransformer } from './../src/interfaces';
 import { TestTransformer } from './transformers/TestTransformer';
 import { SamplePolicy } from './policies/SamplePolicy';
 import { SampleMiddleware } from './middlewares/SampleMiddleware';
@@ -41,7 +42,7 @@ describe('http & controller tests', function () {
     samplePolicy2ExecuteSpy = middlewareSandbox.spy(SamplePolicy2.prototype, 'execute');
 
     DI.register(TestConfiguration).as(Configuration);
-    DI.register(TestTransformer).as('test-transform');
+    DI.register(TestTransformer).as(DataTransformer);
 
     await DI.resolve(Intl);
     await DI.resolve(Controllers);
