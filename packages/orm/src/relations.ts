@@ -712,7 +712,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     await query;
     this.empty();
 
-    await this.add(result);
+    await this.add(result), InsertBehaviour.InsertOrUpdate;
   }
 
   public async set(obj: T[]): Promise<void> {
@@ -737,7 +737,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
 
     this.empty();
 
-    await this.add(obj);
+    await this.add(obj, InsertBehaviour.InsertOrUpdate);
   }
 
   public async intersection(obj: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
@@ -763,7 +763,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     await query;
     this.empty();
 
-    await this.add(result);
+    await this.add(result, InsertBehaviour.InsertOrUpdate);
   }
 
   public async union(obj: T[], mode?: InsertBehaviour): Promise<void> {
