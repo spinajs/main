@@ -198,7 +198,7 @@ export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE)
 export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: string) {
   const cfg: Configuration = DI.get(Configuration);
   const acceptedHeaders = cfg.get<HttpAcceptHeaders>('http.AcceptHeaders');
-  const transformers = DI.resolve<>(Array.ofType(DataTransformer));
+  const transformers = DI.resolve(Array.ofType(DataTransformer));
   return (req: express.Request, res: express.Response) => {
     if (req.accepts('html') && (acceptedHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
       pugResponse(`${template}.pug`, model, code)(req, res);
