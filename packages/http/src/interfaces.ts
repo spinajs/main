@@ -368,7 +368,14 @@ export interface IRouteCall {
 }
 
 export interface ICookieOptions {
-  HttpOnly: boolean;
+  maxAge?: number | undefined;
+  signed?: boolean | undefined;
+  expires?: Date | undefined;
+  httpOnly?: boolean | undefined;
+  path?: string | undefined;
+  domain?: string | undefined;
+  secure?: boolean | undefined;
+  sameSite?: boolean | 'lax' | 'strict' | 'none' | undefined;
 }
 
 export interface IRoute {

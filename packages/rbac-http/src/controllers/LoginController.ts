@@ -48,7 +48,7 @@ export class LoginController extends BaseController {
 
     await this.SessionProvider.updateSession(session);
 
-    return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime, uObject);
+    return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime, uObject, { httpOnly: true });
   }
 
   @Get()
