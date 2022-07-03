@@ -3,7 +3,7 @@
  */
 export const ROUTE_ARG_SCHEMA = {
   Number: {
-    oneOf: [
+    anyOf: [
       {
         type: ['number'],
       },
@@ -18,6 +18,6 @@ export const ROUTE_ARG_SCHEMA = {
     maxLength: 512,
   },
   Boolean: {
-    oneOf: [{ type: 'boolean' }, { type: 'string', pattern: '^true|false|0|1$' }, { type: 'integer', minimum: 0, maximum: 1 }],
+    anyOf: [{ type: 'boolean' }, { type: 'string', pattern: '^true|false|0|1$' }, { type: 'integer', minimum: 0, maximum: 1 }],
   },
 };
