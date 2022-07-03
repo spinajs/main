@@ -13,16 +13,18 @@ function dir(path: string) {
 }
 
 const corsPath = resolve(normalize(join(process.cwd(), 'cors.json')));
-const origins = require(corsPath);
+const cOptions = require(corsPath);
 
 const corsOptions = {
   origin(origin: any, callback: any) {
-    if (!origins || origins.length === 0 || origins.indexOf(origin) !== -1) {
+    if (!cOptions || cOptions.origins.length === 0 || cOptions.origins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
       callback(new Error('cors not allowed'));
     }
   },
+  exposedHeaders: cOptions.exposedHeaders,
+  allowedHeaders: cOptions.allowedHeaders,
   credentials: true,
 };
 
