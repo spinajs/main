@@ -26,7 +26,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
       for (const [, val] of model.ModelDescriptor.Relations) {
         if (val.Type === RelationType.One) {
           if ((model as any)[val.Name]) {
-            (obj as any)[val.ForeignKey] = val.ForeignKey ?? (model as any)[val.Name].PrimaryKeyValue;
+            (obj as any)[val.ForeignKey] = (obj as any)[val.ForeignKey] ?? (model as any)[val.Name].PrimaryKeyValue;
           }
         }
       }
