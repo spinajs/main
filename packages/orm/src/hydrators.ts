@@ -1,11 +1,40 @@
 /* eslint-disable prettier/prettier */
-import { ForwardRefFunction } from './interfaces';
+import { ForwardRefFunction, RelationType } from './interfaces';
 import { ModelBase } from './model';
 import { isConstructor } from '@spinajs/di';
-import { SingleRelation } from './relations';
+import { OneToManyRelationList, SingleRelation } from './relations';
 
 export abstract class ModelHydrator {
   public abstract hydrate(target: any, values: any): void;
+}
+
+export class OneToManyRelationHydrator extends ModelHydrator {
+  public hydrate(target: ModelBase, values: any): void {
+    const descriptor = target.ModelDescriptor;
+    if (!descriptor) {
+      throw new Error(`cannot hydrate model ${target.constructor.name}, no model descriptor found`);
+    }
+
+    for (const [key, val] of descriptor.Relations) {
+      if (val.Type !== RelationType.Many) {
+        continue;
+      }
+
+      if (values[key] != null) {
+        const entity = target as any;
+
+        const mapRel = values[key].map((x: any) => {
+          const tEntity = !isConstructor(val.TargetModel) ? new ((val.TargetModel as ForwardRefFunction)())() : new (val.TargetModel as any)();
+          (tEntity as any)['__relationKey__'] = key;
+          return tEntity.hydrate(x);
+        });
+
+        const rel = new OneToManyRelationList(target, val.TargetModel, val, mapRel);
+        entity[key] = rel;
+        delete (target as any)[val.ForeignKey];
+      }
+    }
+  }
 }
 
 export class OneToOneRelationHydrator extends ModelHydrator {
@@ -16,6 +45,10 @@ export class OneToOneRelationHydrator extends ModelHydrator {
     }
 
     for (const [key, val] of descriptor.Relations) {
+      if (val.Type !== RelationType.One) {
+        continue;
+      }
+
       if (values[key] != null) {
         const entity = target as any;
         const tEntity = !isConstructor(val.TargetModel) ? new ((val.TargetModel as ForwardRefFunction)())() : new (val.TargetModel as any)();
