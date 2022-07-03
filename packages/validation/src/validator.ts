@@ -123,7 +123,7 @@ export class DataValidator extends SyncModule {
     }
 
     if (schema) {
-      const result = this.Validator.validate(schema, data ? data : schemaOrData);
+      const result = this.Validator.validate(schema, data !== null && data !== undefined ? data : schemaOrData);
       if (!result) {
         return [false, this.Validator.errors ?? null];
       }

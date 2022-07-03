@@ -5,7 +5,7 @@ export const ROUTE_ARG_SCHEMA = {
   Number: {
     anyOf: [
       {
-        type: ['number'],
+        type: 'number',
       },
       {
         type: 'string',
@@ -14,7 +14,7 @@ export const ROUTE_ARG_SCHEMA = {
     ],
   },
   String: {
-    type: ['string'],
+    type: 'string',
     maxLength: 512,
   },
   Boolean: {
