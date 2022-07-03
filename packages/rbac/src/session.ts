@@ -32,7 +32,7 @@ export class Session implements UserSession {
     /**
      * always extend session time
      */
-    this.Expiration =  DateTime.now().plus({ minutes: this.SessionExpirationTime });
+    this.Expiration = DateTime.now().plus({ minutes: this.SessionExpirationTime });
 
     if (!this.Creation) {
       this.Creation = DateTime.now();
