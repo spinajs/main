@@ -702,7 +702,6 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
       this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
     });
 
-    
     query.setTable(this.TargetModelDescriptor.TableName);
 
     if (driver.Options.Database) {
@@ -777,7 +776,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     }
 
     const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereIn(this.Relation.ForeignKey, data);
-    
+
     query.setTable(this.TargetModelDescriptor.TableName);
 
     if (driver.Options.Database) {
