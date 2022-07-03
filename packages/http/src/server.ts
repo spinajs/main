@@ -1,17 +1,16 @@
-import { PureDataTransformer } from './transformers/PureTransformer';
 import { ResponseFunction } from './responses';
-
 import { AsyncModule, IContainer, Autoinject, Injectable, Container } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { Server } from 'http';
 import { RequestHandler } from 'express';
-import { IHttpStaticFileConfiguration, DataTransformer, ServerMiddleware } from './interfaces';
+import { IHttpStaticFileConfiguration, ServerMiddleware } from './interfaces';
 import * as fs from 'fs';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods';
 import Express = require('express');
 import { ValidationFailed } from '@spinajs/validation';
+import './transformers';
 
 @Injectable()
 export class HttpServer extends AsyncModule {
@@ -81,8 +80,6 @@ export class HttpServer extends AsyncModule {
 
       this.Log.info(`Serving static content from: ${s.Path} at prefix: ${s.Route}`);
       this.Express.use(s.Route, Express.static(s.Path));
-
-      this.Container.register(PureDataTransformer).as(DataTransformer);
     });
   }
 

@@ -198,13 +198,13 @@ export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE)
 export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: string) {
   const cfg: Configuration = DI.get(Configuration);
   const acceptedHeaders = cfg.get<HttpAcceptHeaders>('http.AcceptHeaders');
-
+  const transformers = DI.resolve<>(Array.ofType(DataTransformer));
   return (req: express.Request, res: express.Response) => {
     if (req.accepts('html') && (acceptedHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
       pugResponse(`${template}.pug`, model, code)(req, res);
     } else if (req.accepts('json') && (acceptedHeaders & HttpAcceptHeaders.JSON) === HttpAcceptHeaders.JSON) {
       if (req.headers['x-data-transform']) {
-        const transformer = DI.resolve<DataTransformer>(req.headers['x-data-transform'] as string);
+        const transformer = transformers.find((t) => t.Type === req.headers['x-data-transform']);
         if (transformer) {
           jsonResponse(transformer.transform(model, req), code)(req, res);
         } else {
