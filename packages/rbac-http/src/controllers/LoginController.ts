@@ -16,7 +16,7 @@ export class LoginController extends BaseController {
   @Autoinject()
   protected SessionProvider: SessionProvider;
 
-  @Config('acl.session.expiration', 10)
+  @Config('rbac.session.expiration', 10)
   protected SessionExpirationTime: number;
 
   @Post()
@@ -30,6 +30,7 @@ export class LoginController extends BaseController {
         },
       });
     }
+
     const lifetime = DateTime.now().plus({ minutes: this.SessionExpirationTime });
 
     const uObject = {
@@ -48,7 +49,9 @@ export class LoginController extends BaseController {
 
     await this.SessionProvider.updateSession(session);
 
-    return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime, uObject, { httpOnly: true });
+    // sessionExpiration time is in minutes
+    // coockie maxAge is in seconds
+    return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime * 60, uObject, { httpOnly: true });
   }
 
   @Get()

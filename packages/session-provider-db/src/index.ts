@@ -63,7 +63,7 @@ export class DbSessionStore extends SessionProvider {
       sInstance = new Session(session);
     }
 
-    sInstance.extend(this.Configuration.get<number>('acl.session.expiration', 10));
+    sInstance.extend(this.Configuration.get<number>('rbac.session.expiration', 10));
     await this.updateSession(sInstance);
   }
 }
