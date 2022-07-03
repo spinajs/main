@@ -9,6 +9,8 @@ import { CookieOptions } from 'express';
 /**
  * Simpel wrapper for coockie response for api consistency.
  * It also signs cookie with coockie-secure
+ *
+ * @param cookieLifetime - cookie max age in seconds
  */
 export class CookieResponse extends Response {
   constructor(protected name: string, protected value: string, protected cookieLifetime: number, protected data?: any, protected options?: ICookieOptions) {
@@ -24,7 +26,7 @@ export class CookieResponse extends Response {
     }
 
     if (this.cookieLifetime) {
-      Object.assign(opt, { maxAge: this.cookieLifetime });
+      Object.assign(opt, { maxAge: this.cookieLifetime * 1000 });
     }
 
     if (!this.responseData) {
