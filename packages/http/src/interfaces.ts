@@ -367,6 +367,10 @@ export interface IRouteCall {
   Payload: any;
 }
 
+export interface ICookieOptions {
+  HttpOnly: boolean;
+}
+
 export interface IRoute {
   /**
    * url path eg. /foo/bar/:id
