@@ -693,12 +693,13 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     const result = callback ? _.differenceWith(this, obj, callback) : _.differenceBy(this, obj, this.TargetModelDescriptor.PrimaryKey);
     const self = this;
     const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
+    const relData = result.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
 
     const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
-      this.whereNotIn(
-        self.Relation.PrimaryKey,
-        result.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
-      );
+      if (relData.length !== 0) {
+        this.whereNotIn(self.Relation.PrimaryKey, relData);
+      }
+
       this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
     });
 
@@ -718,10 +719,11 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     const self = this;
     const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
     const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
-      this.whereNotIn(
-        self.Relation.PrimaryKey,
-        obj.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
-      );
+      const relData = obj.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
+
+      if (relData.length !== 0) {
+        this.whereNotIn(self.Relation.PrimaryKey, relData);
+      }
       this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
     });
 
@@ -744,10 +746,11 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
 
     const query = driver.Container.resolve(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
-      this.whereNotIn(
-        self.Relation.PrimaryKey,
-        result.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
-      );
+      const relData = result.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
+      if (relData.length !== 0) {
+        this.whereNotIn(self.Relation.PrimaryKey, relData);
+      }
+
       this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
     });
 
