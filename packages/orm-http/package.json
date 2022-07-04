@@ -54,5 +54,5 @@
     "@spinajs/orm": "1.2.125",
     "@spinajs/orm-sqlite": "^1.2.191"
   },
-  "gitHead": "372464cfb9803ac44a9a50e498787b0b7918ccc9"
+  "gitHead": "2bb2b820533fb61bc56ec6b2ff9f200e0a9a4f25"
 }

@@ -580,7 +580,7 @@ describe('Relations query builder', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty3` as `$Relation$.$Relation3$.RelationProperty3` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$Relation$`.Id = `$RelationModel$`.relation_id LEFT JOIN `RelationTable3` as `$Relation$.$Relation3$` ON `$Relation$.$Relation3$`.Id = `$Relation$`.relation3_id WHERE `$RelationModel$`.Id = ?');
+    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$Relation$`.Id = `$RelationModel$`.relation_id LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$.$Relation3$`.Id = `$Relation$`.relation3_id WHERE `$RelationModel$`.Id = ?');
   });
 
   it('belongsTo with custom keys', () => {
