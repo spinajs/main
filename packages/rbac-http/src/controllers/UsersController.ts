@@ -68,7 +68,6 @@ export class UsersController extends BaseController {
     })
       .whereNull('DeletedAt')
       .populate('Metadata')
-      .populate('Roles')
       .firstOrFail();
 
     return new Ok(user);
