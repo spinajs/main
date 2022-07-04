@@ -1,7 +1,7 @@
 import { Autoinject, Constructor, DI, Inject } from '@spinajs/di';
 import { BaseController, ArgHydrator, Hydrator, Ok, Del, Post, Query, Req } from '@spinajs/http';
 import { BasePath, Get, Param, Body, Patch } from '@spinajs/http';
-import { extractModelDescriptor, ModelBase, SelectQueryBuilder, Orm, DeleteQueryBuilder, createQuery, UpdateQueryBuilder, InsertQueryBuilder, IUpdateResult, IModelDescriptor, RelationType } from '@spinajs/orm';
+import { extractModelDescriptor, ModelBase, SelectQueryBuilder, Orm, DeleteQueryBuilder, createQuery, UpdateQueryBuilder, InsertQueryBuilder, IModelDescriptor, RelationType } from '@spinajs/orm';
 import _ from 'lodash';
 import * as express from 'express';
 import { RepositoryMiddleware } from '../middleware';
