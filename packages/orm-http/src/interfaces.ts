@@ -1,6 +1,6 @@
 import { Schema } from '@spinajs/validation';
 
-@Schema('http://json-schema.org/draft-06/schema#')
+@Schema('http://json-schema.org/draft-07/schema#')
 export class JsonApiIncomingObject {
   public data: {
     type: string;
@@ -8,4 +8,8 @@ export class JsonApiIncomingObject {
     attributes: any;
     relationships: any;
   } = null;
+
+  constructor(data: any) {
+    Object.assign(this, data);
+  }
 }
