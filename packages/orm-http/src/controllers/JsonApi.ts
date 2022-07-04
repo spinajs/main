@@ -228,12 +228,14 @@ export class JsonApi extends BaseController {
 
     const entity: ModelBase = await model.SelectQuery.where(model.Descriptor.PrimaryKey, id).firstOrFail();
 
+    await this.updateOneToOneRelations(incoming, model, entity);
+
     if (incoming.data.attributes) {
       entity.hydrate(incoming.data.attributes);
-      await entity.update();
     }
 
-    await this.updateRelations(incoming, model, entity);
+    await entity.update();
+    await this.updateOneToMany(incoming, model, entity);
 
     let jResult = modelToJsonApi(entity);
     this.Middlewares.forEach((m) => {
@@ -252,8 +254,9 @@ export class JsonApi extends BaseController {
     const entity: ModelBase = new model.Type();
     entity.hydrate(incoming.data.attributes);
 
+    await this.updateOneToOneRelations(incoming, model, entity);
     await entity.insert();
-    await this.updateRelations(incoming, model, entity);
+    await this.updateOneToMany(incoming, model, entity);
 
     let jResult = modelToJsonApi(entity);
     this.Middlewares.forEach((m) => {
@@ -263,30 +266,32 @@ export class JsonApi extends BaseController {
     return new Ok(jResult);
   }
 
-  protected async updateRelations(incoming: JsonApiIncomingObject, model: Model, entity: ModelBase) {
+  protected async updateOneToOneRelations(incoming: JsonApiIncomingObject, model: Model, entity: ModelBase) {
+    // fillout one to one relations if possible
     if (incoming.data.relationships) {
-      const relations = Object.keys(incoming.data.relationships)
-        .filter((x) => [...model.Descriptor.Relations.keys()].find((r) => r === x))
-        .map((r) => model.Descriptor.Relations.get(r));
+      for (const [key, val] of incoming.data.relationships) {
+        const relation = model.Descriptor.Relations.get(key);
+        if (relation.Type === RelationType.One) {
+          (entity as any)[relation.ForeignKey] = val.data.id;
+        }
+      }
+    }
+  }
 
-      for (const rel of relations) {
-        switch (rel.Type) {
-          case RelationType.One:
-            await model.UpdateQueryBuilder.update({
-              [rel.ForeignKey]: incoming.data.relationships[rel.Name].data.id,
-            }).where(entity.PrimaryKeyName, entity.PrimaryKeyValue);
-            break;
-          case RelationType.Many:
-            const rQuery = createQuery(rel.TargetModel, UpdateQueryBuilder).query;
-            await rQuery
-              .update({
-                [rel.ForeignKey]: entity.PrimaryKeyValue,
-              })
-              .whereIn(
-                rel.PrimaryKey,
-                incoming.data.relationships[rel.Name].map((x: any) => x.data.id),
-              );
-            break;
+  protected async updateOneToMany(incoming: JsonApiIncomingObject, model: Model, entity: ModelBase) {
+    if (incoming.data.relationships) {
+      for (const [key, val] of incoming.data.relationships) {
+        const relation = model.Descriptor.Relations.get(key);
+        if (relation.Type === RelationType.Many) {
+          const rQuery = createQuery(relation.TargetModel, UpdateQueryBuilder).query;
+          await rQuery
+            .update({
+              [relation.ForeignKey]: entity.PrimaryKeyValue,
+            })
+            .whereIn(
+              relation.PrimaryKey,
+              val.map((x: any) => x.data.id),
+            );
         }
       }
     }
