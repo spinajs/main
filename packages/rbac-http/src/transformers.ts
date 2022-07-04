@@ -1,11 +1,10 @@
 import { DataTransformer } from '@spinajs/http';
 import _ from 'lodash';
-import { User } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import * as express from 'express';
 
 export interface IUserResult {
-  Data: User[] | User;
+  Data: any;
   Total: number;
 }
 

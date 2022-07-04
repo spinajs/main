@@ -53,7 +53,7 @@ export class UsersController extends BaseController {
     return new Ok(
       this.DataTransformer.transform(
         {
-          Data: r,
+          Data: r.map((u) => u.dehydrate()),
           Total: c[0].count,
         },
         request,
