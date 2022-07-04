@@ -29,7 +29,6 @@ export class UsersController extends BaseController {
       .skip((page - 1) * perPage)
       .take(perPage)
       .order(order, orderDirection)
-      .populate('Roles')
       .populate('Metadata');
     const countQuery = User.query().select(new RawQuery('count(*) as count')).whereNull('DeletedAt');
 
