@@ -28,7 +28,7 @@ export class UserDto {
 
   public NiceName: string;
 
-  public Role : string;
+  public Role: string;
 
   constructor(data: any) {
     Object.assign(this, data);

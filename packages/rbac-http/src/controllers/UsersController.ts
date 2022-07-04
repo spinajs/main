@@ -91,8 +91,8 @@ export class UsersController extends BaseController {
       Login: user.Login,
       NiceName: user.NiceName,
       Password: hashedPassword,
-      CreatedAt:  DateTime.now(),
-      Role: user.Role
+      CreatedAt: DateTime.now(),
+      Role: user.Role,
     });
 
     await entity.insert();
