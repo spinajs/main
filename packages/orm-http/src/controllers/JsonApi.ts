@@ -213,7 +213,7 @@ export class JsonApi extends BaseController {
     const entity: ModelBase = await model.SelectQuery.where(model.Descriptor.PrimaryKey, id).firstOrFail();
 
     await entity.destroy();
- 
+
     this.Middlewares.forEach((m) => m.onDeleteMiddlewareResult(req));
 
     return new Ok();
