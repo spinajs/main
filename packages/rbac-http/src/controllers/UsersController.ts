@@ -124,7 +124,7 @@ export class UsersController extends BaseController {
     }
 
     const entity = await User.getOrFail(id);
-    const password = this.Container.resolve<PasswordProvider>(PasswordProvider);
+    const password = this._container.resolve<PasswordProvider>(PasswordProvider);
     const hashedPassword = await password.hash(pwd.Password);
     entity.Password = hashedPassword;
     await entity.update();
