@@ -23,7 +23,7 @@ export class UsersController extends BaseController {
   protected Container: IContainer;
 
   @Get('/')
-  public async listUsers(@Query() search: string, @Query({ type: 'number', minimum: 1, default: 0 }) page: number, @Query({ type: 'number', minimum: 1, default: 30 }) perPage: number, @Query() order: string, @Query(OrderSchema) orderDirection: SORT_ORDER, @Req() request: express.Request) {
+  public async listUsers(@Query() search: string, @Query({ type: 'number', minimum: 1 }) page: number, @Query({ type: 'number', minimum: 1 }) perPage: number, @Query() order: string, @Query(OrderSchema) orderDirection: SORT_ORDER, @Req() request: express.Request) {
     const query = User.all()
       .whereNull('DeletedAt')
       .skip((page - 1) * perPage)
