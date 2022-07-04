@@ -269,10 +269,10 @@ export class JsonApi extends BaseController {
   protected async updateOneToOneRelations(incoming: JsonApiIncomingObject, model: Model, entity: ModelBase) {
     // fillout one to one relations if possible
     if (incoming.data.relationships) {
-      for (const [key, val] of incoming.data.relationships) {
+      for (const key in incoming.data.relationships) {
         const relation = model.Descriptor.Relations.get(key);
         if (relation.Type === RelationType.One) {
-          (entity as any)[relation.ForeignKey] = val.data.id;
+          (entity as any)[relation.ForeignKey] = incoming.data.relationships[key].data.id;
         }
       }
     }
@@ -280,7 +280,7 @@ export class JsonApi extends BaseController {
 
   protected async updateOneToMany(incoming: JsonApiIncomingObject, model: Model, entity: ModelBase) {
     if (incoming.data.relationships) {
-      for (const [key, val] of incoming.data.relationships) {
+      for (const key in incoming.data.relationships) {
         const relation = model.Descriptor.Relations.get(key);
         if (relation.Type === RelationType.Many) {
           const rQuery = createQuery(relation.TargetModel, UpdateQueryBuilder).query;
@@ -290,7 +290,7 @@ export class JsonApi extends BaseController {
             })
             .whereIn(
               relation.PrimaryKey,
-              val.map((x: any) => x.data.id),
+              incoming.data.relationships[key].data.map((x: any) => x.id),
             );
         }
       }

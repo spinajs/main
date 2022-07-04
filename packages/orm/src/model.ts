@@ -395,7 +395,7 @@ export class ModelBase implements IModelBase {
 
         switch (v.Type) {
           case RelationType.One:
-            (this as any)[v.Name] = data;
+            ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
             break;
           case RelationType.Many:
           case RelationType.ManyToMany:
