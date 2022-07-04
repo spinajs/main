@@ -89,7 +89,7 @@ export abstract class RouteArgs implements IRouteArgs {
     } else if (param.RuntimeType instanceof TypedArray) {
       const type = (param.RuntimeType as TypedArray<any>).Type as any;
       const arrData = _.isString(arg) ? JSON.parse(arg) : arg;
-      return [true, arrData.map((x: any) => new type(x))];
+      return [true, arrData ? arrData.map((x: any) => new type(x)) : []];
     } else if (['Number', 'String', 'Boolean', 'Null', 'Undefined', 'BigInt', 'Symbol'].indexOf(param.RuntimeType.name) === -1) {
       return [true, new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg)];
     }
