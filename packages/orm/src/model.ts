@@ -454,7 +454,7 @@ export class ModelBase {
 
   public toJSON() {
     const object = this.dehydrate(false);
-    
+
     for (const [, val] of this.ModelDescriptor.Relations) {
       if (val.Type === RelationType.One) {
         if ((this as any)[val.Name]) {

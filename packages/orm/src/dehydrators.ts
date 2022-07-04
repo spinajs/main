@@ -4,7 +4,6 @@ import { ModelBase } from './model';
 
 export abstract class ModelDehydrator {
   public abstract dehydrate(model: ModelBase, includeRelations?: boolean, omit?: string[]): any;
-  
 }
 
 export class StandardModelDehydrator extends ModelDehydrator {
