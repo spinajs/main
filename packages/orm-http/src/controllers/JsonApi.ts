@@ -1,7 +1,7 @@
 import { Autoinject, Constructor, DI, Inject } from '@spinajs/di';
 import { BaseController, ArgHydrator, Hydrator, Ok, Del, Post, Query, Req } from '@spinajs/http';
 import { BasePath, Get, Param, Body, Patch } from '@spinajs/http';
-import { extractModelDescriptor, ModelBase, SelectQueryBuilder, Orm, DeleteQueryBuilder, createQuery, UpdateQueryBuilder, InsertQueryBuilder, IUpdateResult, IModelDescriptor } from '@spinajs/orm';
+import { extractModelDescriptor, ModelBase, SelectQueryBuilder, Orm, DeleteQueryBuilder, createQuery, UpdateQueryBuilder, InsertQueryBuilder, IUpdateResult, IModelDescriptor, RelationType } from '@spinajs/orm';
 import _ from 'lodash';
 import * as express from 'express';
 import { RepositoryMiddleware } from '../middleware';
@@ -24,12 +24,16 @@ class ModelParamHydrator extends ArgHydrator {
   protected Orm: Orm;
 
   public async hydrate(input: string): Promise<any> {
-    const model = this.Orm.Models.find((x) => x.name.toLowerCase() === input.toLowerCase()).type;
+    const model = this.Orm.Models.find((x) => x.name.toLowerCase() === input.toLowerCase());
+    if (!model) {
+      return null;
+    }
+
     const desc = extractModelDescriptor(model);
 
     const param = new Model();
     param.Descriptor = desc;
-    param.Type = model;
+    param.Type = model.type;
 
     return param;
   }
@@ -224,16 +228,20 @@ export class JsonApi extends BaseController {
     await Promise.all(this.Middlewares.map((m) => m.onUpdateMiddlewareStart(id, incoming, req)));
 
     const entity: ModelBase = await model.SelectQuery.where(model.Descriptor.PrimaryKey, id).firstOrFail();
-    entity.hydrate(incoming.data.attributes);
 
-    // create query, so we can pass to middleware
-    const query = model.UpdateQueryBuilder.update(entity.dehydrate()).where(entity.PrimaryKeyName, entity.PrimaryKeyValue);
+    if (incoming.data.attributes) {
+      const columns = Object.keys(incoming.data.attributes).filter((x) => model.Descriptor.Columns.find((c) => c.Name === x));
 
-    this.Middlewares.forEach((m) => m.onUpdateMiddlewareQuery(entity.PrimaryKeyValue, query, model.Type, req));
-    await query;
+      // create query, so we can pass to middleware
+      const query = model.UpdateQueryBuilder.update(_.pick(incoming.data.attributes, columns)).where(entity.PrimaryKeyName, entity.PrimaryKeyValue);
+
+      this.Middlewares.forEach((m) => m.onUpdateMiddlewareQuery(entity.PrimaryKeyValue, query, model.Type, req));
+      await query;
+    }
+
+    await this.updateRelations(incoming, model, entity);
 
     let jResult = modelToJsonApi(entity);
-
     this.Middlewares.forEach((m) => {
       jResult = m.onUpdateMiddlewareResult(jResult, req);
     });
@@ -267,11 +275,42 @@ export class JsonApi extends BaseController {
 
     entity.PrimaryKeyValue = pKey;
 
+    await this.updateRelations(incoming, model, entity);
+
     let jResult = modelToJsonApi(entity);
     this.Middlewares.forEach((m) => {
       jResult = m.onInsertMiddlewareResult(jResult, req);
     });
 
     return new Ok(jResult);
+  }
+
+  protected async updateRelations(incoming: JsonApiIncomingObject, model: Model, entity: ModelBase) {
+    if (incoming.data.relationships) {
+      const relations = Object.keys(incoming.data.relationships)
+        .filter((x) => [...model.Descriptor.Relations.keys()].find((r) => r === x))
+        .map((r) => model.Descriptor.Relations.get(r));
+
+      for (const rel of relations) {
+        switch (rel.Type) {
+          case RelationType.One:
+            await model.UpdateQueryBuilder.update({
+              [rel.ForeignKey]: incoming.data.relationships[rel.Name].id,
+            }).where(entity.PrimaryKeyName, entity.PrimaryKeyValue);
+            break;
+          case RelationType.Many:
+            const rQuery = createQuery(rel.TargetModel, UpdateQueryBuilder).query;
+            await rQuery
+              .update({
+                [rel.ForeignKey]: entity.PrimaryKeyValue,
+              })
+              .whereIn(
+                rel.PrimaryKey,
+                incoming.data.relationships[rel.Name].map((x: any) => x.id),
+              );
+            break;
+        }
+      }
+    }
   }
 }
