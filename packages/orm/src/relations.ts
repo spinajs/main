@@ -3,7 +3,7 @@ import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, ForwardRefFunction, IBuilderMiddleware } from './interfaces';
 import { NewInstance, DI, Constructor } from '@spinajs/di';
 import { SelectQueryBuilder, DeleteQueryBuilder } from './builders';
-import { extractModelDescriptor, IModelBase, ModelBase } from './model';
+import { createQuery, extractModelDescriptor, IModelBase, ModelBase } from './model';
 import { Orm } from './orm';
 import * as _ from 'lodash';
 
@@ -524,14 +524,22 @@ export class SingleRelation<R extends IModelBase> implements IRelation {
     await this._owner.update();
   }
 
-  public async populate(callback?: (this: SelectQueryBuilder<this>, relation: OrmRelation) => void): Promise<void> {
+  public async populate(callback?: (this: SelectQueryBuilder<this>) => void): Promise<void> {
     /**
      * Do little cheat - we construct query that loads initial model with given relation.
      * Then we only assign relation property.
      *
      * TODO: create only relation query without loading its owner.
      */
-    const result = await (this._owner.constructor as any).where(this._owner.PrimaryKeyName, this._owner.PrimaryKeyValue).populate(this.Relation.Name, callback).firstOrFail();
+
+    const query = createQuery(this.Relation.TargetModel, SelectQueryBuilder<ModelBase>).query;
+    query.where({ [this.Relation.ForeignKey]: this._owner.PrimaryKeyValue });
+
+    if (callback) {
+      callback.apply(query);
+    }
+
+    const result = await query.firstOrFail();
 
     if (result) {
       this.Value = result;
