@@ -230,13 +230,7 @@ export class JsonApi extends BaseController {
     const entity: ModelBase = await model.SelectQuery.where(model.Descriptor.PrimaryKey, id).firstOrFail();
 
     if (incoming.data.attributes) {
-      const columns = Object.keys(incoming.data.attributes).filter((x) => model.Descriptor.Columns.find((c) => c.Name === x));
-
-      // create query, so we can pass to middleware
-      const query = model.UpdateQueryBuilder.update(_.pick(incoming.data.attributes, columns)).where(entity.PrimaryKeyName, entity.PrimaryKeyValue);
-
-      this.Middlewares.forEach((m) => m.onUpdateMiddlewareQuery(entity.PrimaryKeyValue, query, model.Type, req));
-      await query;
+      await entity.hydrate(incoming.data.attributes);
     }
 
     await this.updateRelations(incoming, model, entity);
@@ -257,24 +251,8 @@ export class JsonApi extends BaseController {
 
     const entity: ModelBase = new model.Type();
     entity.hydrate(incoming.data.attributes);
-    let pKey = null;
-    const iMidleware = {
-      afterQuery: (data: IUpdateResult) => {
-        pKey = data.LastInsertId;
-        return data;
-      },
-      modelCreation: (): any => null,
-      afterHydration: (): any => null,
-    };
 
-    const query = model.InserQuery.middleware(iMidleware).values(entity.dehydrate());
-
-    this.Middlewares.forEach((m) => m.onInsertMiddlewareQuery(query, model.Type, req));
-
-    await query;
-
-    entity.PrimaryKeyValue = pKey;
-
+    await entity.insert();
     await this.updateRelations(incoming, model, entity);
 
     let jResult = modelToJsonApi(entity);
