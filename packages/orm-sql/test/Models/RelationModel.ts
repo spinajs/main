@@ -1,4 +1,4 @@
-import { Connection, ModelBase, Model, Primary, BelongsTo } from '@spinajs/orm';
+import { Connection, ModelBase, Model, Primary, BelongsTo, SingleRelation } from '@spinajs/orm';
 import { RelationModel2 } from './RelationModel2';
 
 @Connection('sqlite')
@@ -7,9 +7,9 @@ export class RelationModel extends ModelBase {
   @Primary()
   public Id: number;
 
-  @BelongsTo()
-  public Relation: RelationModel2;
+  @BelongsTo(RelationModel2)
+  public Relation: SingleRelation<RelationModel2>;
 
-  @BelongsTo('pK_Id', 'fK_Id')
-  public Relation2: RelationModel2;
+  @BelongsTo(RelationModel2, 'pK_Id', 'fK_Id')
+  public Relation2: SingleRelation<RelationModel2>;
 }

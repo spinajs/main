@@ -1,5 +1,5 @@
 import { Belongs } from './Belongs';
-import { Primary, Connection, Model, ModelBase, BelongsTo, Relation, HasMany } from '@spinajs/orm';
+import { Primary, Connection, Model, ModelBase, BelongsTo, Relation, HasMany, SingleRelation } from '@spinajs/orm';
 import { Test2 } from './Test2';
 
 /**
@@ -15,8 +15,8 @@ export class Test extends ModelBase {
 
   public Text: string;
 
-  @BelongsTo()
-  public Belongs: Belongs;
+  @BelongsTo(Belongs)
+  public Belongs: SingleRelation<Belongs>;
 
   @HasMany(Test2, 'test_id', 'Id')
   public TestsTwos: Relation<Test2>;

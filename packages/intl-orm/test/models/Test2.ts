@@ -1,6 +1,6 @@
 import { Translatable } from '../../src/model';
 import { Translate } from '../../src/decorators';
-import { Primary, Connection, Model, ModelBase, BelongsTo } from '@spinajs/orm';
+import { Primary, Connection, Model, ModelBase, BelongsTo, SingleRelation } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { Owner } from './Owner';
 
@@ -22,6 +22,6 @@ export class Test2 extends ModelBase {
   @Translate()
   public Text: string;
 
-  @BelongsTo()
-  public Owner: Owner;
+  @BelongsTo(Owner)
+  public Owner: SingleRelation<Owner>;
 }
