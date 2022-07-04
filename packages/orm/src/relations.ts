@@ -533,7 +533,8 @@ export class SingleRelation<R extends IModelBase> implements IRelation {
      */
 
     const query = createQuery(this.Relation.TargetModel, SelectQueryBuilder<ModelBase>).query;
-    query.where({ [this.Relation.ForeignKey]: this._owner.PrimaryKeyValue });
+    const desc = extractModelDescriptor(this.Relation.TargetModel);
+    query.where({ [desc.PrimaryKey]: (this._owner as any)[this.Relation.ForeignKey] });
 
     if (callback) {
       callback.apply(query);
