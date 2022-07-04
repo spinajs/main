@@ -607,7 +607,6 @@ describe('Orm relations tests', () => {
 
     expect(models).to.be.an('array');
     eStub.restore();
-
   });
 
   it('HasMany nested relation is executed', async () => {
@@ -669,7 +668,7 @@ describe('Orm relations tests', () => {
         this.populate('HasMany2');
       })
       .first();
- 
+
     expect(callback.calledTwice).to.be.true;
     expect(result).to.be.not.null;
     expect(result.HasMany1.length).to.eq(1);
@@ -721,11 +720,11 @@ describe('Orm relations tests', () => {
       .first();
 
     expect(result).to.be.not.null;
-    expect(result.Owner).to.be.not.null;
-    expect(result.Owner.Owner).to.be.not.null;
+    expect(result.Owner.Value).to.be.not.null;
+    expect(result.Owner.Value.Owner).to.be.not.null;
 
     expect(result.Owner instanceof SingleRelation).to.be.true;
-    expect(result.Owner.Owner instanceof SingleRelation).to.be.true;
+    expect(result.Owner.Value.Owner instanceof SingleRelation).to.be.true;
   });
 
   it('OneToOneRelation should be dehydrated', async () => {
@@ -799,10 +798,10 @@ describe('Orm relations tests', () => {
 
     expect(result).to.be.not.null;
     expect(result.Id).to.eq(3);
-    expect(result.Parent.Id).to.eq(2);
-    expect(result.Parent.Value).to.eq('Child1');
-    expect(result.Parent.Parent.Id).to.eq(1);
-    expect(result.Parent.Parent.Value).to.eq('Root');
+    expect(result.Parent.Value.Id).to.eq(2);
+    expect(result.Parent.Value.Value).to.eq('Child1');
+    expect(result.Parent.Value.Parent.Value.Id).to.eq(1);
+    expect(result.Parent.Value.Parent.Value.Value).to.eq('Root');
   });
 
   it('populate should load missing relation data', async () => {

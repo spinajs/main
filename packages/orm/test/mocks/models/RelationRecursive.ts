@@ -1,5 +1,6 @@
 import { Connection, Primary, Model, BelongsTo, Recursive } from '../../../src/decorators';
 import { ModelBase } from '../../../src/model';
+import { SingleRelation } from '../../../src/relations';
 
 @Connection('sqlite')
 @Model('RelationRecursive')
@@ -9,8 +10,8 @@ export class RelationRecursive extends ModelBase {
   public Id: number;
 
   @Recursive()
-  @BelongsTo()
-  public Parent: RelationRecursive;
+  @BelongsTo(RelationRecursive)
+  public Parent: SingleRelation<RelationRecursive>;
 
   public Value: string;
 }

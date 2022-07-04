@@ -5,7 +5,7 @@ import { IntlResource } from './models/IntlResource';
 import { Configuration } from '@spinajs/configuration';
 import { guessLanguage } from './language';
 export class Translatable extends ModelBase {
-  public Language: string;
+  protected Language: string;
 
   /**
    * Reloads entity with proper translation
@@ -26,6 +26,10 @@ export class Translatable extends ModelBase {
     });
 
     this.Language = selectedLang;
+  }
+
+  public setLanguage(lang: string) {
+    this.Language = lang;
   }
 
   public async update(): Promise<void> {

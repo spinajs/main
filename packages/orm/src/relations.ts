@@ -155,28 +155,15 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
               return parent;
             }
 
-            (child as any)[self._description.Name] = parent;
+            (child as any)[self._description.Name] = new SingleRelation(child, self._description.TargetModel, self._description, parent);
             return fillRecursive(child);
           }
         });
 
         data.forEach((d) => {
           const val = leafs.find((l) => l[self._description.PrimaryKey] === (d as any)[self._description.PrimaryKey])[self._description.Name];
-          const rel = new SingleRelation(d, self._description.TargetModel, self._description, val);
-          const proxy = new Proxy(rel, {
-            get: function (target, name) {
-              return name in target.UnderlyingValue ? target.UnderlyingValue[name] : (target as any)[name];
-            },
-            set: function (obj, prop, newVal) {
-              if (prop in obj.UnderlyingValue) {
-                obj.UnderlyingValue[prop] = newVal;
-                return true;
-              }
-
-              return false;
-            },
-          });
-          (d as any)[self._description.Name] = proxy;
+          const rel = val;
+          (d as any)[self._description.Name] = rel;
         });
       },
     };
@@ -509,35 +496,32 @@ export class SingleRelation<R extends ModelBase> implements IRelation {
 
   protected Orm: Orm;
 
-  protected _value: R;
 
-  public get UnderlyingValue() {
-    return this._value;
-  }
+  public Value: R;
 
   constructor(protected _owner: ModelBase, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
     this.TargetModelDescriptor = extractModelDescriptor(model);
     this.Orm = DI.get(Orm);
 
-    this._value = object;
+    this.Value = object;
   }
 
   public async set(obj: R) {
-    this._value = obj;
+    this.Value = obj;
     await this._owner.update();
   }
 
   public attach(obj: R) {
-    this._value = obj;
+    this.Value = obj;
   }
 
   public detach() {
-    this._value = null;
+    this.Value = null;
   }
 
   public async remove() {
-    this._value = null;
-    await this._value.destroy();
+    this.Value = null;
+    await this.Value.destroy();
     await this._owner.update();
   }
 
@@ -551,7 +535,7 @@ export class SingleRelation<R extends ModelBase> implements IRelation {
     const result = await (this._owner.constructor as any).where(this._owner.PrimaryKeyName, this._owner.PrimaryKeyValue).populate(this.Relation.Name, callback).firstOrFail();
 
     if (result) {
-      this._value = result;
+      this.Value = result;
     }
   }
 }

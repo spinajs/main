@@ -1,5 +1,5 @@
 import { DI, Injectable, NewInstance } from '@spinajs/di';
-import { extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware } from '@spinajs/orm';
+import { extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation } from '@spinajs/orm';
 import { TranslationSource } from '@spinajs/intl';
 import _ from 'lodash';
 import { IntlTranslation } from './models/IntlTranslation';
@@ -43,7 +43,7 @@ export class IntlModelRelation extends OrmRelation {
   }
 
   public execute(): void {
-    this._query.middleware(new IntlModelMiddleware(this._lang, this._relationQuery, this._mDescriptor));
+    this._query.middleware(new IntlModelMiddleware(this._lang, this._relationQuery, this._mDescriptor, this.parentRelation));
   }
 
   public translate(_lang: string) {
@@ -52,7 +52,7 @@ export class IntlModelRelation extends OrmRelation {
 }
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
-  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor) {}
+  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) {}
 
   public afterQueryCreation(_query: QueryBuilder<any>): void {}
 
@@ -83,7 +83,12 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
           });
 
           relData.forEach((rd) => {
-            (d as any)[(rd as any).Column] = (rd as any).Value;
+            if (self._owner && self._owner instanceof BelongsToRelation) {
+              (d as any)[self._owner.Name].Value[(rd as any).Column] = (rd as any).Value;
+              (d as any)[self._owner.Name].Value.setLanguage(self._lang);
+            } else {
+              (d as any)[(rd as any).Column] = (rd as any).Value;
+            }
           });
 
           (d as any).Language = self._lang;

@@ -56,19 +56,7 @@ export class OneToOneRelationHydrator extends ModelHydrator {
         tEntity.hydrate(values[key]);
         (tEntity as any)['__relationKey__'] = key;
         const rel = new SingleRelation(target, val.TargetModel, val, tEntity);
-        entity[key] = new Proxy(rel, {
-          get: function (target, name) {
-            return name in target.UnderlyingValue ? target.UnderlyingValue[name] : (target as any)[name];
-          },
-          set: function (obj, prop, newVal) {
-            if (prop in obj.UnderlyingValue) {
-              obj.UnderlyingValue[prop] = newVal;
-              return true;
-            }
-
-            return false;
-          },
-        });
+        entity[key] = rel;
         delete (target as any)[val.ForeignKey];
       }
     }

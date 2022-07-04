@@ -278,13 +278,13 @@ export const forwardRef = (fn: () => any): IForwardReference => ({
  * @param foreignKey - foreign key name in db, defaults to lowercase property name with _id suffix eg. owner_id
  * @param primaryKey - primary key in related model, defaults to primary key taken from db
  */
-export function BelongsTo(foreignKey?: string, primaryKey?: string) {
+export function BelongsTo(targetModel: Constructor<ModelBase>, foreignKey?: string, primaryKey?: string) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.One,
       SourceModel: target.constructor,
-      TargetModel: Reflect.getMetadata('design:type', target, propertyKey),
+      TargetModel: targetModel,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
       PrimaryKey: primaryKey ?? model.PrimaryKey,
       Recursive: false,

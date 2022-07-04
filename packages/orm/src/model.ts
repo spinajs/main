@@ -122,8 +122,8 @@ export class ModelBase {
           return (m as any)[r.Name];
         }
 
-        if (((m as any)[r.Name] as SingleRelation<any>).UnderlyingValue) {
-          return [(m as any)[r.Name].UnderlyingValue];
+        if (((m as any)[r.Name] as SingleRelation<any>).Value) {
+          return [(m as any)[r.Name].Value];
         }
       }).filter((x) => x !== undefined);
 
@@ -458,7 +458,7 @@ export class ModelBase {
     for (const [, val] of this.ModelDescriptor.Relations) {
       if (val.Type === RelationType.One) {
         if ((this as any)[val.Name]) {
-          (object as any)[val.Name] = (this as any)[val.Name].UnderlyingValue ? (this as any)[val.Name].toJSON() : undefined;
+          (object as any)[val.Name] = (this as any)[val.Name].Value ? (this as any)[val.Name].Value.toJSON() : undefined;
         }
       }
 
