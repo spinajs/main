@@ -496,7 +496,6 @@ export class SingleRelation<R extends ModelBase> implements IRelation {
 
   protected Orm: Orm;
 
-
   public Value: R;
 
   constructor(protected _owner: ModelBase, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
