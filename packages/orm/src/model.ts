@@ -53,7 +53,69 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
   }
 }
 
-export class ModelBase {
+export interface IModelBase {
+  ModelDescriptor: IModelDescriptor;
+  Container: IContainer;
+  PrimaryKeyName: string;
+  PrimaryKeyValue: any;
+  getFlattenRelationModels(): IModelBase[];
+
+  /**
+   * Fills model with data. It only fills properties that exists in database
+   *
+   * @param data - data to fill
+   */
+  hydrate(data: Partial<this>): void;
+
+  /**
+   *
+   * Attachess model to proper relation an sets foreign key
+   *
+   * @param data - model to attach
+   */
+  attach(data: ModelBase): void;
+
+  /**
+   * Extracts all data from model. It takes only properties that exists in DB
+   */
+  dehydrate(includeRelations?: boolean, omit?: string[]): Partial<this>;
+  /**
+   * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
+   */
+  destroy(): Promise<void>;
+  /**
+   * If model can be in achived state - sets archived at date and saves it to db
+   */
+  archive(): Promise<void>;
+
+  update(): Promise<void>;
+
+  /**
+   * Save all changes to db. It creates new entry id db or updates existing one if
+   * primary key exists
+   */
+  insert(insertBehaviour: InsertBehaviour): Promise<IUpdateResult>;
+
+  /**
+   * Gets model data from database and returns as fresh instance.
+   *
+   * If primary key is not fetched, tries to load by columns with unique constraint.
+   * If there is no unique columns or primary key, throws error
+   */
+  fresh(): Promise<this>;
+
+  /**
+   * Refresh model from database.
+   *
+   * If no primary key is set, tries to fetch data base on columns
+   * with unique constraints. If none exists, throws exception
+   */
+  refresh(): Promise<void>;
+
+  toJSON(): any;
+}
+
+export class ModelBase implements IModelBase {
   private _container: IContainer;
 
   /**
@@ -114,7 +176,7 @@ export class ModelBase {
   /**
    * Recursivelly takes all relation data and returns as single array
    */
-  public getFlattenRelationModels(recursive?: boolean): ModelBase[] {
+  public getFlattenRelationModels(recursive?: boolean): IModelBase[] {
     const reduceRelations = function (m: ModelBase): ModelBase[] {
       const relations = [...m.ModelDescriptor.Relations.values()];
       const models = _.flatMap(relations, (r) => {
@@ -134,7 +196,7 @@ export class ModelBase {
       return models;
     };
 
-    return reduceRelations(this);
+    return reduceRelations(this) as any as IModelBase[];
   }
 
   /**

@@ -3,7 +3,7 @@ import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, ForwardRefFunction, IBuilderMiddleware } from './interfaces';
 import { NewInstance, DI, Constructor } from '@spinajs/di';
 import { SelectQueryBuilder, DeleteQueryBuilder } from './builders';
-import { extractModelDescriptor, ModelBase } from './model';
+import { extractModelDescriptor, IModelBase, ModelBase } from './model';
 import { Orm } from './orm';
 import * as _ from 'lodash';
 
@@ -491,7 +491,7 @@ export interface IRelation {
   TargetModelDescriptor: IModelDescriptor;
 }
 
-export class SingleRelation<R extends ModelBase> implements IRelation {
+export class SingleRelation<R extends IModelBase> implements IRelation {
   public TargetModelDescriptor: IModelDescriptor;
 
   protected Orm: Orm;
