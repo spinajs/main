@@ -210,11 +210,10 @@ export class JsonApi extends BaseController {
   })
   public async del(@Param() model: Model, @Param() id: string | number, @Req() req: express.Request) {
     await Promise.all(this.Middlewares.map((m) => m.onDeleteMiddlewareStart(id, req)));
+    const entity: ModelBase = await model.SelectQuery.where(model.Descriptor.PrimaryKey, id).firstOrFail();
 
-    const query = model.DeleteQuery.where(model.Descriptor.PrimaryKey, id);
-    this.Middlewares.forEach((m) => m.onDeleteMiddlewareQuery(query, model.Type, req));
-
-    await query;
+    await entity.destroy();
+ 
     this.Middlewares.forEach((m) => m.onDeleteMiddlewareResult(req));
 
     return new Ok();
@@ -230,7 +229,8 @@ export class JsonApi extends BaseController {
     const entity: ModelBase = await model.SelectQuery.where(model.Descriptor.PrimaryKey, id).firstOrFail();
 
     if (incoming.data.attributes) {
-      await entity.hydrate(incoming.data.attributes);
+      entity.hydrate(incoming.data.attributes);
+      await entity.update();
     }
 
     await this.updateRelations(incoming, model, entity);
