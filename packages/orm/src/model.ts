@@ -176,7 +176,7 @@ export class ModelBase implements IModelBase {
   /**
    * Recursivelly takes all relation data and returns as single array
    */
-  public getFlattenRelationModels(recursive?: boolean): IModelBase[] {
+  public getFlattenRelationModels(recursive?: boolean): ModelBase[] {
     const reduceRelations = function (m: ModelBase): ModelBase[] {
       const relations = [...m.ModelDescriptor.Relations.values()];
       const models = _.flatMap(relations, (r) => {
@@ -196,7 +196,7 @@ export class ModelBase implements IModelBase {
       return models;
     };
 
-    return reduceRelations(this) as any as IModelBase[];
+    return reduceRelations(this);
   }
 
   /**
