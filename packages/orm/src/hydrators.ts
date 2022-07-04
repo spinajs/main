@@ -26,7 +26,8 @@ export class OneToManyRelationHydrator extends ModelHydrator {
         const mapRel = values[key].map((x: any) => {
           const tEntity = !isConstructor(val.TargetModel) ? new ((val.TargetModel as ForwardRefFunction)())() : new (val.TargetModel as any)();
           (tEntity as any)['__relationKey__'] = key;
-          return tEntity.hydrate(x);
+          tEntity.hydrate(x);
+          return tEntity;
         });
 
         const rel = new OneToManyRelationList(target, val.TargetModel, val, mapRel);
