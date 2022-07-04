@@ -798,7 +798,11 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     });
 
     for (const m of data) {
-      await m.insert(mode);
+      if (m.PrimaryKeyValue) {
+        await m.update();
+      } else {
+        await m.insert(mode);
+      }
     }
 
     this.push(...data);
