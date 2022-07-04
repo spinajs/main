@@ -8,6 +8,7 @@ import { RawQuery } from '@spinajs/orm';
 import { Autoinject } from '@spinajs/di';
 import { UserDataTransformer, IUserResult } from '../transformers';
 import { SORT_ORDER } from '@spinajs/orm/lib/enums';
+import { DateTime } from 'luxon';
 
 const OrderSchema = {
   type: 'string',
@@ -90,7 +91,8 @@ export class UsersController extends BaseController {
       Login: user.Login,
       NiceName: user.NiceName,
       Password: hashedPassword,
-      CreatedAt: new Date(),
+      CreatedAt:  DateTime.now(),
+      Role: user.Role
     });
 
     await entity.insert();
@@ -112,6 +114,7 @@ export class UsersController extends BaseController {
     entity.Email = user.Email;
     entity.NiceName = user.NiceName;
     entity.Login = user.Login;
+    entity.Role = user.Role ?? entity.Role;
     await entity.update();
 
     return new Ok();
