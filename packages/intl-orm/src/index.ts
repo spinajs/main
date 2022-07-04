@@ -84,8 +84,22 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
 
           relData.forEach((rd) => {
             if (self._owner && self._owner instanceof BelongsToRelation) {
-              (d as any)[self._owner.Name].Value[(rd as any).Column] = (rd as any).Value;
-              (d as any)[self._owner.Name].Value.setLanguage(self._lang);
+              let val = d as any;
+              let rel = self._owner as OrmRelation;
+
+              let relArr = [];
+              while (rel) {
+                relArr.push(rel);
+                rel = rel.parentRelation;
+              }
+
+              relArr = relArr.reverse();
+              relArr.forEach((r) => {
+                val = val[r.Name].Value;
+              });
+
+              val[(rd as any).Column] = (rd as any).Value;
+              val.setLanguage(self._lang);
             } else {
               (d as any)[(rd as any).Column] = (rd as any).Value;
             }

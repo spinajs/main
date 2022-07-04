@@ -1,8 +1,7 @@
 import { Translatable } from '../../src/model';
 import { Translate } from '../../src/decorators';
-import { Primary, Connection, Model, ModelBase, SingleRelation, BelongsTo } from '@spinajs/orm';
+import { Primary, Connection, Model, ModelBase } from '@spinajs/orm';
 import { use } from 'typescript-mix';
-import { Owner2 } from './Owner2';
 
 export interface Test extends Translatable {}
 
@@ -12,8 +11,8 @@ export interface Test extends Translatable {}
  * To add / extend fields simply extend this model and register as default user model in ACL service
  */
 @Connection('default')
-@Model('owner')
-export class Owner extends ModelBase {
+@Model('owner2')
+export class Owner2 extends ModelBase {
   @use(Translatable) this: any;
 
   @Primary()
@@ -22,6 +21,5 @@ export class Owner extends ModelBase {
   @Translate()
   public Text: string;
 
-  @BelongsTo(Owner2)
-  public Owner: SingleRelation<Owner2>;
+  
 }

@@ -24,15 +24,24 @@ export class Test_2022_06_28_01_13_00 extends OrmMigration {
     await connection.schema().createTable('owner', (table) => {
       table.int('Id').primaryKey().notNull();
       table.string('Text', 32).notNull();
+      table.int('owner_id');
     });
 
-    await connection.insert().into('owner').values({ Text: 'owner witaj', Id: 1 });
+    await connection.schema().createTable('owner2', (table) => {
+      table.int('Id').primaryKey().notNull();
+      table.string('Text', 32).notNull();
+    });
+
+    await connection.insert().into('owner2').values({ Text: 'owner2 witaj', Id: 1 });
+
+    await connection.insert().into('owner').values({ Text: 'owner witaj', Id: 1, owner_id: 1 });
     await connection.insert().into('test2').values({ Text: 'witaj', Id: 1, owner_id: 1 });
 
     await connection.insert().into('test').values({ Text: 'witaj', Id: 1 });
     await connection.insert().into('test').values({ Text: 'swiecie', Id: 2 });
 
     await connection.insert().into('intl_resources').values({ ResourceId: 1, Resource: 'Owner', Column: 'Text', Lang: 'en_GB', Value: 'owner hello' });
+    await connection.insert().into('intl_resources').values({ ResourceId: 1, Resource: 'Owner2', Column: 'Text', Lang: 'en_GB', Value: 'owner2 hello' });
 
     await connection.insert().into('intl_resources').values({ ResourceId: 1, Resource: 'Test', Column: 'Text', Lang: 'en_GB', Value: 'hello' });
     await connection.insert().into('intl_resources').values({ ResourceId: 2, Resource: 'Test', Column: 'Text', Lang: 'en_GB', Value: 'world' });
