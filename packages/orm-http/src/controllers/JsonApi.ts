@@ -29,7 +29,7 @@ class ModelParamHydrator extends ArgHydrator {
       return null;
     }
 
-    const desc = extractModelDescriptor(model);
+    const desc = extractModelDescriptor(model.type);
 
     const param = new Model();
     param.Descriptor = desc;

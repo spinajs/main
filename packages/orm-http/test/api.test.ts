@@ -1,4 +1,3 @@
-import { AccessControl } from '@spinajs/rbac';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
