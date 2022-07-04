@@ -5,7 +5,7 @@ import * as express from 'express';
 import { BaseController, BasePath, Post, Get, Del, Put, Query, Ok, NotFound, Body, Req, PKey } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { RawQuery } from '@spinajs/orm';
-import { Autoinject, Container, IContainer } from '@spinajs/di';
+import { Autoinject } from '@spinajs/di';
 import { UserDataTransformer, IUserResult } from '../transformers';
 import { SORT_ORDER } from '@spinajs/orm/lib/enums';
 
@@ -18,9 +18,6 @@ const OrderSchema = {
 export class UsersController extends BaseController {
   @Autoinject()
   protected DataTransformer: UserDataTransformer<IUserResult>;
-
-  @Autoinject(Container)
-  protected Container: IContainer;
 
   @Get('/')
   public async listUsers(@Query() search: string, @Query({ type: 'number', minimum: 1 }) page: number, @Query({ type: 'number', minimum: 1 }) perPage: number, @Query() order: string, @Query(OrderSchema) orderDirection: SORT_ORDER, @Req() request: express.Request) {
@@ -75,7 +72,7 @@ export class UsersController extends BaseController {
 
   @Post('/')
   public async addUser(@Body() user: UserDto) {
-    const password = this.Container.resolve<PasswordProvider>(PasswordProvider);
+    const password = this._container.resolve<PasswordProvider>(PasswordProvider);
     if (user.Password !== user.ConfirmPassword) {
       throw new InvalidArgument('password does not match');
     }
