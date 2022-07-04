@@ -17,7 +17,7 @@ export type FormOptionsCallback = (conf: Configuration) => Promise<FormOptions>;
 
 export interface FormOptions {
   encoding?: string;
-  uploadDir?: string;
+  uploadDir?: string | FormOptionsCallback;
   keepExtensions?: boolean;
   maxFileSize?: number;
   maxFieldsSize?: number;
@@ -40,12 +40,12 @@ export abstract class FromFormBase extends RouteArgs {
     }
   }
 
-  protected async parse(req: express.Request, options: FormOptions | FormOptionsCallback) {
+  protected async parse(req: express.Request, options: FormOptions) {
     if (!this.Data) {
       let opts: any = options || { multiples: true };
 
-      if (options && isFunction(options)) {
-        opts = await options(DI.get(Configuration));
+      if (options && isFunction(options.uploadDir)) {
+        opts = await options.uploadDir(DI.get(Configuration));
       }
 
       this.Data = await this._parse(req, opts);
