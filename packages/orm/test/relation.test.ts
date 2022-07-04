@@ -752,7 +752,7 @@ describe('Orm relations tests', () => {
     const dehydrated = result.dehydrate() as any;
 
     expect(dehydrated).to.be.not.null;
-    expect(dehydrated.Owner.Id).to.eq(2);
+    expect(dehydrated.OwnerId).to.eq(2);
   });
 
   it('BelongsTo recursive should work', async () => {

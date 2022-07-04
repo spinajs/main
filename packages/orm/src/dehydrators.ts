@@ -4,6 +4,7 @@ import { ModelBase } from './model';
 
 export abstract class ModelDehydrator {
   public abstract dehydrate(model: ModelBase, includeRelations?: boolean, omit?: string[]): any;
+  
 }
 
 export class StandardModelDehydrator extends ModelDehydrator {
@@ -26,13 +27,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
       for (const [, val] of model.ModelDescriptor.Relations) {
         if (val.Type === RelationType.One) {
           if ((model as any)[val.Name]) {
-            (obj as any)[val.Name] = (model as any)[val.Name].UnderlyingValue ? (model as any)[val.Name].dehydrate() : undefined;
-          }
-        }
-
-        if (val.Type === RelationType.Many) {
-          if ((model as any)[val.Name]) {
-            (obj as any)[val.Name] = (model as any)[val.Name].map((x: any) => x.dehydrate());
+            (obj as any)[val.ForeignKey] = (obj as any)[val.ForeignKey] ?? (model as any)[val.Name].PrimaryKeyValue;
           }
         }
       }

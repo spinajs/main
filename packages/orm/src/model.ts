@@ -453,7 +453,23 @@ export class ModelBase {
   }
 
   public toJSON() {
-    return this.dehydrate();
+    const object = this.dehydrate(false);
+    
+    for (const [, val] of this.ModelDescriptor.Relations) {
+      if (val.Type === RelationType.One) {
+        if ((this as any)[val.Name]) {
+          (object as any)[val.Name] = (this as any)[val.Name].UnderlyingValue ? (this as any)[val.Name].toJSON() : undefined;
+        }
+      }
+
+      if (val.Type === RelationType.Many) {
+        if ((this as any)[val.Name]) {
+          (object as any)[val.Name] = (this as any)[val.Name].map((x: any) => x.toJSON());
+        }
+      }
+    }
+
+    return object;
   }
 
   /**
