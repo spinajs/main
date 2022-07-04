@@ -295,7 +295,7 @@ export class JsonApi extends BaseController {
         switch (rel.Type) {
           case RelationType.One:
             await model.UpdateQueryBuilder.update({
-              [rel.ForeignKey]: incoming.data.relationships[rel.Name].id,
+              [rel.ForeignKey]: incoming.data.relationships[rel.Name].data.id,
             }).where(entity.PrimaryKeyName, entity.PrimaryKeyValue);
             break;
           case RelationType.Many:
@@ -306,7 +306,7 @@ export class JsonApi extends BaseController {
               })
               .whereIn(
                 rel.PrimaryKey,
-                incoming.data.relationships[rel.Name].map((x: any) => x.id),
+                incoming.data.relationships[rel.Name].map((x: any) => x.data.id),
               );
             break;
         }
