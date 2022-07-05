@@ -53,7 +53,7 @@ export class Translatable extends ModelBase {
 
       // update only non translated
       const cToDehydrate = [...tColumns.map((c) => c.Name)];
-      const dToUpdate = this.dehydrate(false, cToDehydrate);
+      const dToUpdate = this.dehydrate(true, cToDehydrate);
 
       if (Object.keys(dToUpdate).length !== 0) {
         await query.update(dToUpdate).where(this.PrimaryKeyName, this.PrimaryKeyValue);
