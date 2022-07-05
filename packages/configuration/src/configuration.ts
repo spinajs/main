@@ -152,6 +152,14 @@ export class FrameworkConfiguration extends Configuration {
     }
   }
 
+  /**
+   * Reloads configuration data
+   */
+  public async reload() {
+    this.Config = {};
+    await this.loadSources();
+  }
+
   protected async loadSources() {
     this.Sources = this.Container.resolve<ConfigurationSource>(Array.ofType(ConfigurationSource), [
       this.RunApp,
