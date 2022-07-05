@@ -98,6 +98,11 @@ export abstract class Configuration extends AsyncModule {
    * @param source - configuration source to load from
    */
   public abstract mergeSource(source: Class<ConfigurationSource>): Promise<void>;
+
+  /**
+   * Reload configuration from all avaible sources
+   */
+  public abstract reload(): Promise<void>;
 }
 
 export abstract class ConfigurationSource {
