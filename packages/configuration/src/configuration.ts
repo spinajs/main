@@ -149,7 +149,7 @@ export class FrameworkConfiguration extends Configuration {
     const sCfg = await source.Load(this);
 
     this.Sources.push(source);
-    
+
     if (sCfg) {
       this.validateAndMerge(sCfg);
     }
