@@ -13,7 +13,7 @@ export class LogBotstrapper extends Bootstrapper {
     // becouse we want to create target
     // only one per target not one for every logger
     DI.register((container: IContainer, options: IFileTargetOptions) => {
-      const fileTargets = container.get(Array.ofType("__log_file_targets__"));
+      const fileTargets = container.get(Array.ofType("__log_file_targets__")) ?? [];
       let target = fileTargets.find((t: FileTarget) => t.Options.name === options.name) as FileTarget;
 
       if (!target) {

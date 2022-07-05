@@ -124,7 +124,7 @@ export class Container extends EventEmitter implements IContainer {
   public get<T>(service: string | Class<T>, parent?: boolean): T;
   public get<T>(service: string | Class<T> | TypedArray<T>, parent = true): T | T[] {
     // get value registered as TypedArray ( mean to return all created instances )
-    if (service instanceof TypedArray) {
+    if (service instanceof Array && service.constructor.name === 'TypedArray') {
       return this.cache.get(getTypeName(service.Type)) as T[];
     }
 

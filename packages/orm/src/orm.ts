@@ -149,13 +149,19 @@ export class Orm extends AsyncModule {
     await this.createConnections();
 
     // add all registered migrations via DI
-    DI.get<Class<unknown>>(Array.ofType('__migrations__')).forEach((m) => {
-      this.registerMigration(m);
-    });
+    const migrations = DI.get<Class<unknown>>(Array.ofType('__migrations__'));
+    if (migrations) {
+      migrations.forEach((m) => {
+        this.registerMigration(m);
+      });
+    }
 
-    DI.get<Class<unknown>>(Array.ofType('__models__')).forEach((m) => {
-      this.registerModel(m);
-    });
+    const models = DI.get<Class<unknown>>(Array.ofType('__models__'));
+    if (models) {
+      models.forEach((m) => {
+        this.registerModel(m);
+      });
+    }
 
     await this.migrateUp(undefined, false);
 

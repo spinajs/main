@@ -70,12 +70,15 @@ export class ConfiguratioDbSource extends ConfigurationSource {
           entry.Value = DateTime.fromISO(entry.Value as string);
           break;
       }
+
+      return entry;
     });
 
     const grouped = _.groupBy(processed, 'Group');
     const final: IConfigLike = {};
     for (const k in grouped) {
       for (const v of grouped[k]) {
+        final[k] = {};
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         (final[k] as IConfigLike)[v.Slug] = v.Value;
       }
