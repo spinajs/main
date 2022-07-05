@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl-orm",
-  "version": "1.2.206",
+  "version": "1.2.207",
   "description": "Internationalization support for ORM module",
   "main": "lib/index.js",
   "private": false,
