@@ -127,7 +127,8 @@ export class FrameworkConfiguration extends Configuration {
      * Load and validate data from cfg sources
      * in proper order
      */
-    await this.loadSources();
+    this.loadSources();
+    await this.reload();
 
     /**
      * Merge from DI container
@@ -157,10 +158,17 @@ export class FrameworkConfiguration extends Configuration {
    */
   public async reload() {
     this.Config = {};
-    await this.loadSources();
+
+    for (const source of this.Sources) {
+      const rCfg = await source.Load(this);
+
+      if (rCfg) {
+        this.validateAndMerge(rCfg);
+      }
+    }
   }
 
-  protected async loadSources() {
+  protected loadSources() {
     this.Sources = this.Container.resolve<ConfigurationSource>(Array.ofType(ConfigurationSource), [
       this.RunApp,
       this.CustomConfigPaths,
@@ -171,14 +179,6 @@ export class FrameworkConfiguration extends Configuration {
     this.Sources.sort((a, b) => {
       return a.Order < b.Order ? -1 : a.Order > b.Order ? 1 : 0;
     });
-
-    for (const source of this.Sources) {
-      const rCfg = await source.Load(this);
-
-      if (rCfg) {
-        this.validateAndMerge(rCfg);
-      }
-    }
   }
 
   protected validateAndMerge(rCfg: IConfigLike) {
