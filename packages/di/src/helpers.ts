@@ -39,7 +39,7 @@ export function isSyncModule(value: any): value is SyncModule {
 }
 
 export function isTypedArray(value: any): value is TypedArray<any> {
-  return value instanceof TypedArray;
+  return value instanceof Array && value.constructor.name === 'TypedArray';
 }
 
 export function uniqBy<T>(arr: T[], comparator: (a: T, b: T) => boolean) {
@@ -53,5 +53,5 @@ export function uniqBy<T>(arr: T[], comparator: (a: T, b: T) => boolean) {
 }
 
 export function getTypeName(type: TypedArray<any> | Class<any> | string | object): string {
-  return typeof type === 'string' ? type : type instanceof TypedArray ? getTypeName(type.Type) : isConstructor(type) ? type.name : type.constructor.name;
+  return typeof type === 'string' ? type : isTypedArray(type) ? getTypeName(type.Type) : isConstructor(type) ? type.name : type.constructor.name;
 }

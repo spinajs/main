@@ -148,6 +148,8 @@ export class FrameworkConfiguration extends Configuration {
     const source = this.Container.resolve(sType);
     const sCfg = await source.Load(this);
 
+    this.Sources.push(source);
+    
     if (sCfg) {
       this.validateAndMerge(sCfg);
     }

@@ -191,12 +191,14 @@ export class Container extends EventEmitter implements IContainer {
       throw new InvalidArgument('argument `type` cannot be null or undefined');
     }
 
-    const sourceType = type instanceof TypedArray ? type.Type : type;
+    // UGLY HACK ?
+    // on electron instanceof TypedArray not working ?
+    const sourceType = type instanceof Array && type.constructor.name === 'TypedArray' ? type.Type : type;
     const sourceName = getTypeName(type);
     const opt = typeof options === 'boolean' ? null : options;
 
     if (options === true || check === true) {
-      if (!this.hasRegistered(sourceType)) {
+      if (!this.hasRegistered(sourceType as any)) {
         throw new Error(`Type ${sourceName} is not registered at container`);
       }
     }
