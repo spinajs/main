@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
 /* eslint-disable prettier/prettier */
 import { Connection, Primary, Model, ModelBase } from '@spinajs/orm';
@@ -44,7 +47,7 @@ export class DbConfigurationModel extends ModelBase {
         case "date": 
           return DateTime.fromFormat(input, "dd-MM-YYYY");
         case "json":
-          return JSON.parse(input);
+          return JSON.parse(input) as unknown;
         break;
          
     }
