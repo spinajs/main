@@ -34,7 +34,7 @@ export class DbConfigurationModel extends ModelBase {
     } as any;
   }
 
-  private parse(input: string, type : string) {
+  private parse(input: string, type: string) {
     switch (type) {
       case 'int':
       case 'float':
