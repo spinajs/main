@@ -26,7 +26,12 @@ export class Binder<T> implements IBind {
    * @param type - name of added value
    * @returns
    */
-  asValue(type: string): this {
+  asValue(type: string, clearPrevious = false): this {
+    if (clearPrevious) {
+      if (this.container.Cache.has(type)) {
+        this.container.Cache.remove(type);
+      }
+    }
     this.container.Cache.add(type, this.implementation);
     return this;
   }
