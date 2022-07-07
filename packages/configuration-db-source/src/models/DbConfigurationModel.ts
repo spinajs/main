@@ -21,7 +21,7 @@ export class DbConfigurationModel extends ModelBase {
   public Type: 'int' | 'float' | 'string' | 'json' | 'date' | 'datetime' | 'time' | 'boolean';
 
   public hydrate(data: Partial<this>) {
-    Object.assign(this, { ...data, Value: this.parse(data.Value as string) });
+    Object.assign(this, { ...data, Value: this.parse(data.Value as string, data.Type) });
   }
 
   public dehydrate(_includeRelations?: boolean, _omit?: string[]) {
@@ -34,8 +34,8 @@ export class DbConfigurationModel extends ModelBase {
     } as any;
   }
 
-  private parse(input: string) {
-    switch (this.Type) {
+  private parse(input: string, type : string) {
+    switch (type) {
       case 'int':
       case 'float':
         return Number(input);
