@@ -9,6 +9,7 @@ import { Configuration } from '@spinajs/configuration';
 
 export * from './decorators';
 export * from './model';
+export * from './bootstrap';
 
 declare module '@spinajs/orm' {
   interface ISelectBuilderExtensions<T = any> {
