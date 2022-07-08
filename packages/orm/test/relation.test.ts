@@ -178,7 +178,24 @@ describe('Orm relations tests', () => {
             Nullable: true,
             PrimaryKey: true,
             AutoIncrement: true,
-            Name: 'RelId2',
+            Name: 'Id',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: false,
+            Ignore: false,
+          },
+          {
+            Type: 'VARCHAR',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'VARCHAR',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'Bar',
             Converter: null,
             Schema: 'sqlite',
             Unique: false,
@@ -753,7 +770,7 @@ describe('Orm relations tests', () => {
     expect(dehydrated).to.be.not.null;
     expect(dehydrated.Owner).to.be.not.null;
     expect(dehydrated.Owner.Owner).to.be.not.null;
-    expect(dehydrated.Owner.Id).to.eq({
+    expect(dehydrated.Owner).to.eq({
       Id: 2,
       Property2: 'property2',
     });

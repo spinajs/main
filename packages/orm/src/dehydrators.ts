@@ -10,9 +10,10 @@ export abstract class ModelDehydrator {
 export class StandardModelDehydrator extends ModelDehydrator {
   public dehydrate(model: ModelBase, omit?: string[]) {
     const obj = {};
-
+    const relArr = [...model.ModelDescriptor.Relations.values()];
     model.ModelDescriptor.Columns?.forEach((c) => {
-      if (omit && omit.indexOf(c.Name) !== -1) {
+      // if in omit list OR it is foreign key for relation - skip
+      if ((omit && omit.indexOf(c.Name) !== -1) || relArr.find((r) => r.ForeignKey === c.Name)) {
         return;
       }
 
@@ -23,10 +24,10 @@ export class StandardModelDehydrator extends ModelDehydrator {
       (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val) : val;
     });
 
-    for (const [, val] of model.ModelDescriptor.Relations) {
+    for (const val of relArr) {
       if (val.Type === RelationType.One) {
-        if ((model as any)[val.Name]) {
-          (obj as any)[val.Name] = model.dehydrate();
+        if ((model as any)[val.Name].Value) {
+          (obj as any)[val.Name] = (model as any)[val.Name].Value.dehydrate();
         }
       }
 
