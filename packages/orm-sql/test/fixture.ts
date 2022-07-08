@@ -1,9 +1,10 @@
+import { SqlDropTableQueryCompiler } from './../src/compilers';
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable prettier/prettier */
 
 import { SqlOnDuplicateQueryCompiler, SqlIndexQueryCompiler, SqlWithRecursiveCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlColumnQueryCompiler, SqlOrderByQueryCompiler, SqlAlterColumnQueryCompiler, SqlTableCloneQueryCompiler, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlTableAliasCompiler, SqlTruncateTableQueryCompiler } from './../src/compilers';
-import { OrmDriver, IColumnDescriptor, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, RecursiveQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByStatement, GroupByQueryCompiler, DateTimeWrapper, DateWrapper, QueryBuilder, TransactionCallback, AlterColumnQueryCompiler, TableCloneQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter } from '@spinajs/orm';
+import { OrmDriver, IColumnDescriptor, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, RecursiveQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByStatement, GroupByQueryCompiler, DateTimeWrapper, DateWrapper, QueryBuilder, TransactionCallback, AlterColumnQueryCompiler, TableCloneQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter, DropTableCompiler } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper } from '../src/statements';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import * as _ from 'lodash';
@@ -72,6 +73,7 @@ export class FakeSqliteDriver extends OrmDriver {
     this.Container.register(SqlInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(SqlTableQueryCompiler).as(TableQueryCompiler);
     this.Container.register(SqlColumnQueryCompiler).as(ColumnQueryCompiler);
+    this.Container.register(SqlDropTableQueryCompiler).as(DropTableCompiler);
     this.Container.register(SqlOrderByQueryCompiler).as(OrderByQueryCompiler);
     this.Container.register(SqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(SqlIndexQueryCompiler).as(IndexQueryCompiler);
