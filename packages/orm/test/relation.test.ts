@@ -744,6 +744,12 @@ describe('Orm relations tests', () => {
     expect(result.Owner.Value.Owner instanceof SingleRelation).to.be.true;
   });
 
+  it('OneToMany relation should be dehydrated', async () => {
+
+    throw new Error();
+
+  });
+
   it('OneToOneRelation should be dehydrated', async () => {
     await db();
 
