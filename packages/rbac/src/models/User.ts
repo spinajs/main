@@ -30,7 +30,7 @@ export class User extends ModelBase {
   /**
    * Displayed name ( for others to see )
    */
-  public NiceName: string;
+  public NiceName: string[];
 
   /**
    * User role
@@ -54,4 +54,6 @@ export class User extends ModelBase {
    */
   @HasMany(UserMetadata)
   public Metadata: Relation<UserMetadata>;
+
+  public allowed(role: string, resource: string, permission )
 }

@@ -16,7 +16,7 @@ export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
       table.dateTime('DeletedAt');
     });
 
-    await connection.schema().createTable('user_metadatas', (table) => {
+    await connection.schema().createTable('users_metadata', (table) => {
       table.int('Id').autoIncrement().primaryKey();
       table.string('Key', 255).notNull();
       table.text('Value').notNull();
@@ -26,7 +26,7 @@ export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
 
     await connection.index().unique().table('users').name('users_email_idx').columns(['Email']);
 
-    await connection.index().unique().table('user_metadatas').name('owner_user_meta_key_idx').columns(['user_id', 'Key']);
+    await connection.index().unique().table('users_metadata').name('owner_user_meta_key_idx').columns(['user_id', 'Key']);
   }
 
   // tslint:disable-next-line: no-empty

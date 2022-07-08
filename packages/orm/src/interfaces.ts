@@ -786,6 +786,12 @@ export abstract class TableExistsCompiler implements IQueryCompiler {
 }
 
 @NewInstance()
+export abstract class DropTableCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
+
+@NewInstance()
 export abstract class ColumnQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }

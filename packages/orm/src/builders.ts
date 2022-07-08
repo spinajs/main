@@ -13,7 +13,7 @@ import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
-import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUpdateResult, ISelectBuilderExtensions, QueryMiddleware } from '.';
+import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUpdateResult, ISelectBuilderExtensions, QueryMiddleware, DropTableCompiler } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -1471,6 +1471,32 @@ export class TableExistsQueryBuilder extends QueryBuilder {
   }
 }
 
+export class DropTableQueryBuilder extends QueryBuilder {
+  public Exists: boolean;
+
+  constructor(container: Container, driver: OrmDriver, name: string, database?: string) {
+    super(container, driver, null);
+
+    this.setTable(name);
+
+    if (database) {
+      this.database(database);
+    }
+
+    this.Exists = false;
+    this.QueryContext = QueryContext.Schema;
+  }
+
+  public ifExists() {
+    this.Exists = true;
+    return this;
+  }
+
+  public toDB(): ICompilerOutput {
+    return this._container.resolve<DropTableCompiler>(DropTableCompiler, [this]).compile();
+  }
+}
+
 export class AlterTableQueryBuilder extends QueryBuilder {
   protected _columns: ColumnQueryBuilder[];
 
@@ -1763,6 +1789,10 @@ export class SchemaQueryBuilder {
     const builder = new AlterTableQueryBuilder(this.container, this.driver, name);
     callback.call(this, builder);
     return builder;
+  }
+
+  public dropTable(name: string, schema?: string) {
+    return new DropTableQueryBuilder(this.container, this.driver, name, schema);
   }
 
   public async tableExists(name: string, schema?: string) {

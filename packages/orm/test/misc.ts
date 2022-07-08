@@ -1,3 +1,4 @@
+import { DropTableCompiler } from '.';
 /* eslint-disable prettier/prettier */
 import { ValueConverter } from './../src/interfaces';
 import { join, normalize, resolve } from 'path';
@@ -143,6 +144,16 @@ export class FakeSelectQueryCompiler extends SelectQueryCompiler {
     };
   }
 }
+
+export class FakeDropTableCompiler extends DropTableCompiler {
+  public compile(): ICompilerOutput {
+    return {
+      expression: null,
+      bindings: null,
+    };
+  }
+}
+
 
 export class FakeDeleteQueryCompiler extends DeleteQueryCompiler {
   public compile(): ICompilerOutput {

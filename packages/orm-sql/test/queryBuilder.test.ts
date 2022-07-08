@@ -10,7 +10,7 @@ import { ConnectionConf, FakeSqliteDriver } from './fixture';
 import { RelationModel } from './Models/RelationModel';
 import * as sinon from 'sinon';
 import { RelationModel3 } from './Models/RelationModel3';
-import { DateTime } from "luxon";
+import { DateTime } from 'luxon';
 
 function sqb() {
   const connection = db().Connections.get('sqlite');
@@ -226,13 +226,13 @@ describe('Where query builder', () => {
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
   });
 
-  it("Should convert date to sql", () =>{ 
-    let result = sqb().select('*').from('users').where("CreatedAt", new Date("2022-07-21T09:35:31.820Z")).toDB();
+  it('Should convert date to sql', () => {
+    let result = sqb().select('*').from('users').where('CreatedAt', new Date('2022-07-21T09:35:31.820Z')).toDB();
 
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
     expect(result.bindings[0]).to.equal('2022-07-21T09:35:31.820Z');
 
-    result = sqb().select('*').from('users').where("CreatedAt", DateTime.fromISO("2022-07-21T09:35:31.820Z")).toDB();
+    result = sqb().select('*').from('users').where('CreatedAt', DateTime.fromISO('2022-07-21T09:35:31.820Z')).toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
     expect(result.bindings[0]).to.equal('2022-07-21T11:35:31.820+02:00');
   });
@@ -306,7 +306,6 @@ describe('Delete query builder', () => {
   });
 
   it('Simple truncate', () => {
-    
     const result = db().Connections.get('sqlite').truncate('users').database('spine').toDB();
     expect(result.expression).to.equal('TRUNCATE TABLE `spine`.`users`');
   });
@@ -914,6 +913,21 @@ describe('schema building', () => {
 
   afterEach(() => {
     DI.clearCache();
+  });
+
+  it('should drop table', () => {
+    const result = schqb().dropTable('users').toDB();
+    expect(result.expression).to.eq('DROP TABLE `users`');
+  });
+
+  it('should drop table with schema', () => {
+    const result = schqb().dropTable('users', 'test').toDB();
+    expect(result.expression).to.eq('DROP TABLE `test`.`users`');
+  });
+
+  it('should drop table if exists', () => {
+    const result = schqb().dropTable('users', 'test').ifExists().toDB();
+    expect(result.expression).to.eq('DROP TABLE IF EXISTS `test`.`users`');
   });
 
   it('table with one foreigk key', () => {

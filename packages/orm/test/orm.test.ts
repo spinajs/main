@@ -5,9 +5,9 @@ import * as chai from 'chai';
 import * as _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/orm';
-import { ConnectionConf, FakeSqliteDriver, FakeMysqlDriver, FakeTableQueryCompiler, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler } from './misc';
+import { ConnectionConf, FakeSqliteDriver, FakeMysqlDriver, FakeTableQueryCompiler, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, FakeDropTableCompiler } from './misc';
 import * as sinon from 'sinon';
-import { TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler } from '../src';
+import { TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, DropTableCompiler } from '../src';
 
 const expect = chai.expect;
 
@@ -25,6 +25,7 @@ describe('Orm general', () => {
     DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
     DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
     DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
+    DI.register(FakeDropTableCompiler).as(DropTableCompiler);
   });
 
   afterEach(async () => {
