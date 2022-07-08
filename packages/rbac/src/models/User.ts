@@ -28,8 +28,6 @@ export class User extends ModelBase {
 
   public Email: string;
 
-  public Login: string;
-
   /**
    * Hashed password for user
    */

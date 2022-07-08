@@ -996,7 +996,7 @@ describe('schema building', () => {
   it('column with default', () => {
     let result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
-        table.int('foo').unsigned().default(1);
+        table.int('foo').unsigned().default().value(1);
       })
       .toDB();
 
@@ -1004,7 +1004,7 @@ describe('schema building', () => {
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
-        table.string('foo').default('abc');
+        table.string('foo').default().value('abc');
       })
       .toDB();
 
@@ -1012,11 +1012,27 @@ describe('schema building', () => {
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
-        table.timestamp('foo').default(RawQuery.create('CURRENT_TIMESTAMP'));
+        table.timestamp('foo').default().raw(RawQuery.create('CURRENT_TIMESTAMP'));
       })
       .toDB();
 
     expect(result.expression).to.contain('`foo` TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+
+    result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.timestamp('foo').default().date()
+      })
+      .toDB();
+
+    expect(result.expression).to.contain('`foo` TIMESTAMP DEFAULT (CURRENT_DATE())');
+
+    result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.timestamp('foo').default().dateTime()
+      })
+      .toDB();
+
+    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` TIMESTAMP DEFAULT CURENT_TIMESTAMP )');
   });
 
   it('create index', () => {

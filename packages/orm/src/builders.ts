@@ -13,7 +13,7 @@ import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
-import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUpdateResult, ISelectBuilderExtensions, QueryMiddleware, DropTableCompiler } from '.';
+import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUpdateResult, ISelectBuilderExtensions, QueryMiddleware, DropTableCompiler, DefaultValueBuilder } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -1337,12 +1337,13 @@ export class ForeignKeyBuilder {
 }
 
 @NewInstance()
+@Inject(Container)
 export class ColumnQueryBuilder {
   public Name: string;
   public Unique: boolean;
   public Unsigned: boolean;
   public AutoIncrement: boolean;
-  public Default: string | RawQuery | number;
+  public Default: DefaultValueBuilder<ColumnQueryBuilder>;
   public PrimaryKey: boolean;
   public Comment: string;
   public Charset: string;
@@ -1351,14 +1352,13 @@ export class ColumnQueryBuilder {
   public Type: ColumnType;
   public Args: any[];
 
-  constructor(name: string, type: ColumnType, ...args: any[]) {
+  constructor(protected container: IContainer, name: string, type: ColumnType, ...args: any[]) {
     this.Name = name;
     this.Type = type;
     this.Charset = '';
     this.Args = [];
     this.AutoIncrement = false;
     this.NotNull = false;
-    this.Default = '';
     this.Collation = '';
     this.Comment = '';
     this.Unique = false;
@@ -1391,10 +1391,9 @@ export class ColumnQueryBuilder {
     return this;
   }
 
-  public default(val: string | RawQuery | number) {
-    this.Default = val;
-
-    return this;
+  public default(): DefaultValueBuilder<ColumnQueryBuilder> {
+    this.Default = this.container.resolve(DefaultValueBuilder<ColumnQueryBuilder>, [this]);
+    return this.Default;
   }
 
   public primaryKey() {
@@ -1421,13 +1420,14 @@ export class ColumnQueryBuilder {
   }
 }
 
+@Inject(Container)
 export class AlterColumnQueryBuilder extends ColumnQueryBuilder {
   public AlterType: ColumnAlterationType;
   public AfterColumn: string;
   public OldName: string;
 
-  constructor(name: string, type: ColumnType, ...args: any[]) {
-    super(name, type, ...args);
+  constructor(container: IContainer, name: string, type: ColumnType, ...args: any[]) {
+    super(container, name, type, ...args);
     this.OldName = name;
 
     // we assume add by default
@@ -1815,16 +1815,16 @@ export class SchemaQueryBuilder {
 }
 
 Object.values(ColumnType).forEach((type) => {
-  (TableQueryBuilder.prototype as any)[type] = function (name: string, ...args: any[]) {
-    const _builder = new ColumnQueryBuilder(name, type, ...args);
+  (TableQueryBuilder.prototype as any)[type] = function (this: TableQueryBuilder, name: string, ...args: any[]) {
+    const _builder = new ColumnQueryBuilder(this.Container, name, type, ...args);
     this._columns.push(_builder);
     return _builder;
   };
 });
 
 Object.values(ColumnType).forEach((type) => {
-  (AlterTableQueryBuilder.prototype as any)[type] = function (name: string, ...args: any[]) {
-    const _builder = new AlterColumnQueryBuilder(name, type, ...args);
+  (AlterTableQueryBuilder.prototype as any)[type] = function (this: AlterTableQueryBuilder, name: string, ...args: any[]) {
+    const _builder = new AlterColumnQueryBuilder(this.Container, name, type, ...args);
     this._columns.push(_builder);
     return _builder;
   };

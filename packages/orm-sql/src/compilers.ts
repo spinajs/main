@@ -809,16 +809,16 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
   protected _defaultCompiler() {
     let _stmt = '';
 
-    if (_.isNil(this.builder.Default) || (_.isString(this.builder.Default) && _.isEmpty(this.builder.Default.trim()))) {
+    if (_.isNil(this.builder.Default) || (_.isNil(this.builder.Default.Query) && _.isNil(this.builder.Default.Value))) {
       return _stmt;
     }
 
-    if (_.isString(this.builder.Default)) {
-      _stmt = `DEFAULT '${this.builder.Default.trim()}'`;
-    } else if (_.isNumber(this.builder.Default)) {
-      _stmt = `DEFAULT ${this.builder.Default}`;
-    } else if (this.builder.Default instanceof RawQuery) {
-      _stmt = `DEFAULT ${this.builder.Default.Query}`;
+    if (_.isString(this.builder.Default.Value)) {
+      _stmt = `DEFAULT '${this.builder.Default.Value.trim()}'`;
+    } else if (_.isNumber(this.builder.Default.Value)) {
+      _stmt = `DEFAULT ${this.builder.Default.Value}`;
+    } else if (this.builder.Default.Query instanceof RawQuery) {
+      _stmt = `DEFAULT ${this.builder.Default.Query.Query}`;
     }
 
     return _stmt;
