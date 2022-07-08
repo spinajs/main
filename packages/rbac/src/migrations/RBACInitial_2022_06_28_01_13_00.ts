@@ -5,7 +5,7 @@ import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('users', (table) => {
-      table.int('Id').autoIncrement().primaryKey();
+      table.string('Id').autoIncrement().primaryKey();
       table.string('Login', 64).unique().notNull();
       table.string('Email', 64).unique().notNull();
       table.string('Password', 128).notNull();

@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon';
 import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation } from '@spinajs/orm';
 import { UserMetadata } from './UserMetadata';
+import { AccessControl } from 'accesscontrol';
+import { DI } from '@spinajs/di';
 
 /**
  * Base modele for users used by ACL
@@ -55,5 +57,8 @@ export class User extends ModelBase {
   @HasMany(UserMetadata)
   public Metadata: Relation<UserMetadata>;
 
-  public allowed(role: string, resource: string, permission )
+  public can(resource: string, permission: string) {
+    const ac = DI.get<AccessControl>('AccessControl');
+    return (ac.can(this.Role) as any)[permission](resource);
+  }
 }
