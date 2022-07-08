@@ -10,7 +10,7 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 import { LogLevel } from '@spinajs/log-common';
 export * from './compilers';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder } from '@spinajs/orm';
 import { Database, RunResult } from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable } from '@spinajs/di';
@@ -18,6 +18,7 @@ import { SqlLiteJoinStatement } from './statements';
 import { ResourceDuplicated } from '@spinajs/exceptions';
 import { IIndexInfo, IIndexInfoList, ITableInfo } from './types';
 import { format } from '@spinajs/configuration';
+import { SqlLiteDefaultValueBuilder} from "./builders";
 
 @Injectable('orm-driver-sqlite')
 export class SqliteOrmDriver extends SqlDriver {
@@ -165,6 +166,7 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(SqliteInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(SqliteTableExistsCompiler).as(TableExistsCompiler);
+    this.Container.register(SqlLiteDefaultValueBuilder).as(DefaultValueBuilder);
   }
 
   public async transaction(qrOrCallback: QueryBuilder[] | TransactionCallback) {

@@ -2,7 +2,7 @@ import { NewInstance } from '@spinajs/di';
 import { DefaultValueBuilder, RawQuery } from '@spinajs/orm';
 
 @NewInstance()
-export class SqlDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
+export class SqlLiteDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
   public Query: RawQuery;
   public Value: string | number;
 
@@ -11,12 +11,15 @@ export class SqlDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
   }
 
   public date(): T {
-    this.Query = RawQuery.create("(strftime('%Y-%m-%d', 'now'))");
+    /**
+     * sqlite dont have
+     */
+    this.Query = RawQuery.create("(DATETIME('now'))");
     return this.Owner;
   }
 
   public dateTime(): T {
-    this.Query = RawQuery.create("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
+    this.Query = RawQuery.create("(DATETIME('now'))");
     return this.Owner;
   }
 
