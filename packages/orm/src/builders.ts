@@ -1582,6 +1582,13 @@ export class TableQueryBuilder extends QueryBuilder {
   public longtext: (name: string) => ColumnQueryBuilder;
   public string: (name: string, length?: number) => ColumnQueryBuilder;
 
+  /**
+   * Alias for string(name, 36 )
+   */
+  public uuid(name: string) {
+    return this.string(name, 36);
+  }
+
   public float: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;
   public double: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;
   public decimal: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;
