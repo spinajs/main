@@ -1,8 +1,7 @@
-import { DropTableCompiler } from '.';
 /* eslint-disable prettier/prettier */
 import { ValueConverter } from './../src/interfaces';
 import { join, normalize, resolve } from 'path';
-import { IColumnDescriptor, ColumnQueryCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder } from '../src';
+import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder } from '../src';
 import { OrmDriver, TransactionCallback } from './../src/driver';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import * as _ from 'lodash';

@@ -43,7 +43,7 @@ function dehydrate(model: ModelBase, omit?: string[]) {
   const dObj = {
     type: model.constructor.name,
     id: model.PrimaryKeyValue,
-    attributes: model.dehydrate(false, omit),
+    attributes: model.dehydrate(omit),
     relationships: _.mapValues(_.groupBy(model.getFlattenRelationModels(false), '__relationKey__'), (x) => {
       return x.map((xx) => {
         return {

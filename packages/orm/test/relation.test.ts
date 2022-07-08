@@ -751,7 +751,17 @@ describe('Orm relations tests', () => {
     const dehydrated = result.dehydrate() as any;
 
     expect(dehydrated).to.be.not.null;
-    expect(dehydrated.OwnerId).to.eq(2);
+    expect(dehydrated.Owner).to.be.not.null;
+    expect(dehydrated.Owner.Owner).to.be.not.null;
+    expect(dehydrated.Owner.Id).to.eq({
+      Id: 2,
+      Property2: 'property2',
+    });
+
+    expect(dehydrated.Owner.Owner).to.eq({
+      Id: 3,
+      Bar: 'bar',
+    });
   });
 
   it('BelongsTo recursive should work', async () => {
@@ -949,7 +959,9 @@ describe('Orm relations tests', () => {
     expect((m2 as any)['rel_1']).to.eq(666);
   });
 
-  it('Should attach model to relation and fill foreign key', () => {
+  it('Should attach model to one-to-many relation and fill foreign key', async () => {
+    await db();
+
     const m = new ModelNested1({
       Id: 777,
     });
@@ -959,6 +971,20 @@ describe('Orm relations tests', () => {
 
     expect((m2 as any)['rel_1']).to.eq(777);
     expect(m.HasMany1.length).to.eq(1);
+  });
+
+  it('Should attach model to one-to-one relation and fill foreign key', async () => {
+    await db();
+
+    const m = new RelationModel1();
+    const m2 = new RelationModel2({
+      Id: 777,
+    });
+
+    m.attach(m2);
+
+    expect(m.Owner.Value).to.be.not.null;
+    expect(m.Owner.Value.Id).to.eq(777);
   });
 
   it('HasManyToMany relation should be executed', async () => {
