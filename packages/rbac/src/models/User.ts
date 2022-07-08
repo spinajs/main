@@ -3,6 +3,7 @@ import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, 
 import { UserMetadata } from './UserMetadata';
 import { AccessControl } from 'accesscontrol';
 import { DI } from '@spinajs/di';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Base modele for users used by ACL
@@ -12,8 +13,18 @@ import { DI } from '@spinajs/di';
 @Connection('default')
 @Model('users')
 export class User extends ModelBase {
+  constructor(data?: any) {
+    super(data);
+
+    if (this.Uuid) {
+      this.Uuid = uuidv4();
+    }
+  }
+
   @Primary()
   public Id: number;
+
+  public Uuid: string;
 
   public Email: string;
 
