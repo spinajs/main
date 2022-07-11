@@ -19,7 +19,6 @@ import chaiSubset from 'chai-subset';
 import { RawModel } from './mocks/models/RawModel';
 import { Model, Connection } from '../src/decorators';
 import { ModelBase } from './../src/model';
-import { Model3 } from './mocks/models/Model3';
 import { ModelDiscBase } from './mocks/models/ModelDiscBase';
 import { ModelDisc1 } from './mocks/models/ModelDisc1';
 import { ModelDisc2 } from './mocks/models/ModelDisc2';
@@ -804,21 +803,6 @@ describe('General model tests', () => {
     expect(model.DeletedAt).to.be.not.null;
   });
 
-  it('hydrate should set non db properties', async () => {
-    const test = new Model3();
-    test.Id = 1;
-    test.Foo.set('bar', 'baz');
-
-    const newMap = new Map<string, string>();
-    newMap.set('zar', 'far');
-
-    const test2 = new Model3({ ...test, Foo: new Map([...test.Foo, ...newMap]) });
-
-    expect(test2.Id).to.eq(1);
-    expect(test2.Foo.size).to.eq(2);
-    expect(test2.Foo.has('bar')).to.be.true;
-    expect(test2.Foo.has('zar')).to.be.true;
-  });
 
   it('Orm should load column info for models', async () => {
     const tb = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo').returns(

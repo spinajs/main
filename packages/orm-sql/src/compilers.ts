@@ -1,9 +1,10 @@
+import { DropTableQueryBuilder } from './../../orm/src/builders';
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler } from '@spinajs/orm';
+import { LimitBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
@@ -538,6 +539,24 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
   }
 }
 
+@NewInstance()
+@Inject(Container)
+export class SqlDropTableQueryCompiler extends DropTableCompiler {
+  constructor(protected container: Container, protected builder: DropTableQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    const exists = this.builder.Exists ? ' IF EXISTS' : '';
+    const exprr = `DROP TABLE${exists} ${this.container.resolve(TableAliasCompiler).compile(this.builder)}`;
+
+    return {
+      bindings: [],
+      expression: exprr,
+    };
+  }
+}
+
 export interface SqlAlterTableQueryCompiler {}
 
 @NewInstance()
@@ -790,16 +809,16 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
   protected _defaultCompiler() {
     let _stmt = '';
 
-    if (_.isNil(this.builder.Default) || (_.isString(this.builder.Default) && _.isEmpty(this.builder.Default.trim()))) {
+    if (_.isNil(this.builder.Default) || (_.isNil(this.builder.Default.Query) && _.isNil(this.builder.Default.Value))) {
       return _stmt;
     }
 
-    if (_.isString(this.builder.Default)) {
-      _stmt = `DEFAULT '${this.builder.Default.trim()}'`;
-    } else if (_.isNumber(this.builder.Default)) {
-      _stmt = `DEFAULT ${this.builder.Default}`;
-    } else if (this.builder.Default instanceof RawQuery) {
-      _stmt = `DEFAULT ${this.builder.Default.Query}`;
+    if (_.isString(this.builder.Default.Value)) {
+      _stmt = `DEFAULT '${this.builder.Default.Value.trim()}'`;
+    } else if (_.isNumber(this.builder.Default.Value)) {
+      _stmt = `DEFAULT ${this.builder.Default.Value}`;
+    } else if (this.builder.Default.Query instanceof RawQuery) {
+      _stmt = `DEFAULT ${this.builder.Default.Query.Query}`;
     }
 
     return _stmt;

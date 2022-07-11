@@ -78,7 +78,7 @@ export interface IModelBase {
   /**
    * Extracts all data from model. It takes only properties that exists in DB
    */
-  dehydrate(includeRelations?: boolean, omit?: string[]): Partial<this>;
+  dehydrate(omit?: string[]): Partial<this>;
   /**
    * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
    */
@@ -363,11 +363,11 @@ export class ModelBase implements IModelBase {
     throw Error('Not implemented');
   }
 
-  constructor(data?: any) {
+  constructor(data?: unknown) {
     this.setDefaults();
 
     if (data) {
-      Object.assign(this, data);
+      this.hydrate(data as any);
     }
   }
 
@@ -409,8 +409,8 @@ export class ModelBase implements IModelBase {
   /**
    * Extracts all data from model. It takes only properties that exists in DB
    */
-  public dehydrate(includeRelations?: boolean, omit?: string[]): Partial<this> {
-    return this.Container.resolve(ModelDehydrator).dehydrate(this, includeRelations ?? true, omit);
+  public dehydrate(omit?: string[]): Partial<this> {
+    return this.Container.resolve(ModelDehydrator).dehydrate(this, omit);
   }
 
   /**
@@ -515,23 +515,7 @@ export class ModelBase implements IModelBase {
   }
 
   public toJSON() {
-    const object = this.dehydrate(false);
-
-    for (const [, val] of this.ModelDescriptor.Relations) {
-      if (val.Type === RelationType.One) {
-        if ((this as any)[val.Name]) {
-          (object as any)[val.Name] = (this as any)[val.Name].Value ? (this as any)[val.Name].Value.toJSON() : undefined;
-        }
-      }
-
-      if (val.Type === RelationType.Many) {
-        if ((this as any)[val.Name]) {
-          (object as any)[val.Name] = (this as any)[val.Name].map((x: any) => x.toJSON());
-        }
-      }
-    }
-
-    return object;
+   return this.dehydrate();
   }
 
   /**

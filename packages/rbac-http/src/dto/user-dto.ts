@@ -20,8 +20,6 @@ export class UserDto {
 
   public Email: string;
 
-  public Login: string;
-
   public Password: string;
 
   public ConfirmPassword: string;

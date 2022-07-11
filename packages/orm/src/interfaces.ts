@@ -24,6 +24,36 @@ export enum ColumnAlterationType {
   Rename,
 }
 
+export abstract class DefaultValueBuilder<T> {
+
+  public Query : RawQuery;
+  public Value :string | number;
+
+  /**
+   * fills by default with current date
+   */
+  public abstract date(): T;
+
+  /**
+   * fills by default with current datetime
+   */
+  public abstract dateTime(): T;
+
+  /**
+   * Fills column with default value
+   * 
+   * @param val - value to fill
+   */
+  public abstract value(val: string | number): T;
+
+  /**
+   * Fills column with result of query provided
+   * 
+   * @param query - raw query instance
+   */
+  public abstract raw(query: RawQuery): T;
+}
+
 export enum InsertBehaviour {
   /**
    * Ignores if primary key exists in db
@@ -782,6 +812,11 @@ export abstract class AlterTableQueryCompiler implements IQueryCompiler {
 
 @NewInstance()
 export abstract class TableExistsCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
+@NewInstance()
+export abstract class DropTableCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
 

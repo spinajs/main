@@ -287,6 +287,23 @@ describe('Sqlite model functions', () => {
     expect(user.Name).to.eq('test');
     expect(user.Password).to.eq('test_password');
   });
+
+  it('should model be inserted with one-to-one relation', async () => { throw new Error(); });
+
+  it('should model be updated with one-to-one relation', async () => {  throw new Error(); });
+
+  it('should model save one-to-one relation after attach', async () => {  throw new Error(); });
+
+  it('should model update one-to-one relation after attach', async () => {  throw new Error(); });
+
+  it('model should attach & set one-to many relations', async () => {  throw new Error(); });
+
+  it('model relation union should work', async () => {  throw new Error(); });
+
+  it('model relation diff should work', async () => {  throw new Error(); });
+ 
+  it('model relation intersection should work', async () => {  throw new Error(); });
+
 });
 
 describe('Sqlite queries', () => {
