@@ -41,12 +41,12 @@ export class User extends ModelBase {
   /**
    * Displayed name ( for others to see )
    */
-  public NiceName: string[];
+  public NiceName: string;
 
   /**
    * User role
    */
-  public Role: string;
+  public Role: string[];
 
   /**
    * User creation date

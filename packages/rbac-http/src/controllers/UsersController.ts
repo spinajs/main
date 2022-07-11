@@ -19,9 +19,21 @@ const OrderSchema = {
 export class UsersController extends BaseController {
   @Autoinject()
   protected DataTransformer: UserDataTransformer<IUserResult>;
+ 
+  
+
 
   @Get('/')
   public async listUsers(@Query() search: string, @Query({ type: 'number', minimum: 1 }) page: number, @Query({ type: 'number', minimum: 1 }) perPage: number, @Query() order: string, @Query(OrderSchema) orderDirection: SORT_ORDER, @Req() request: express.Request) {
+
+    /**
+     * implement include query param
+     * do not return internal id
+     * 
+     */
+
+
+
     const query = User.all()
       .whereNull('DeletedAt')
       .skip((page - 1) * perPage)
@@ -33,7 +45,6 @@ export class UsersController extends BaseController {
     if (search) {
       const searchFunc = function () {
         this.where('Email', 'like', `%${search}%`);
-        this.orWhere('Login', 'like', `${search}%`);
         this.orWhere('NiceName', 'like', `%${search}%`);
       };
 
@@ -61,6 +72,10 @@ export class UsersController extends BaseController {
 
   @Get(':id')
   public async getUser(@PKey() id: number) {
+    /**
+     * query by uuid instead id
+     */
+
     const user = await User.where({
       Id: id,
     })
@@ -113,11 +128,14 @@ export class UsersController extends BaseController {
 
     entity.Email = user.Email;
     entity.NiceName = user.NiceName;
-    entity.Login = user.Login;
     entity.Role = user.Role ?? entity.Role;
     await entity.update();
 
     return new Ok();
+  }
+
+  public async requestPasswordChange(){
+
   }
 
   @Put(':id/change-password')
