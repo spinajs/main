@@ -4,7 +4,7 @@ import { AsyncModule, Autoinject, Container, Class, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { ClassInfo, ListFromFiles } from '@spinajs/reflection';
 import * as _ from 'lodash';
-import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode, IModelDescriptor } from './interfaces';
+import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode, IModelDescriptor, IColumnDescriptor } from './interfaces';
 import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor } from './model';
 import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from './decorators';
 import { OrmDriver } from './driver';
@@ -132,6 +132,8 @@ export class Orm extends AsyncModule {
               }),
               'Name',
             );
+
+           //  m.type[MODEL_DESCTRIPTION_SYMBOL].Schema = buildJsonSchema(columns);
           }
 
           for (const [key, val] of descriptor.Converters) {
@@ -336,4 +338,4 @@ export class Orm extends AsyncModule {
       }
     }
   }
-}
+} 

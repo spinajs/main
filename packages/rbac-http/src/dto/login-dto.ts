@@ -5,10 +5,10 @@ export const LoginDtoSchema = {
   title: 'User login DTO',
   type: 'object',
   properties: {
-    Login: { type: 'string', maxLength: 32 },
+    Login: { type: 'string', format: 'email' },
     Password: { type: 'string', maxLength: 32 },
   },
-  required: ['Login', 'Password'],
+  required: ['Email', 'Password'],
 };
 
 @Schema(LoginDtoSchema)

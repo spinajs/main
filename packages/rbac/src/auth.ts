@@ -18,12 +18,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
 
   public async authenticate(email: string, password: string): Promise<User> {
     const pwd = this.Container.resolve(PasswordProvider);
-    const result = await User.where({
-      Email: email,
-    })
-      .andWhere('DeletedAt', null)
-      .populate('Metadata')
-      .first();
+    const result = await User.where({ Email: email, DeletedAt: null }).first();
 
     if (!result) {
       return null;

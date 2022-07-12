@@ -1,11 +1,12 @@
 import { LoginDto } from './../dto/login-dto';
-import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized } from '@spinajs/http';
-import { AuthProvider, Session, SessionProvider } from '@spinajs/rbac';
+import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, NotAllowed } from '@spinajs/http';
+import { AuthProvider, Session, SessionProvider, User } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
-import { DateTime } from 'luxon';
+import { FromUser } from 'rbac-http/lib';
+import _ from 'lodash';
 
-@BasePath('auth')
+@BasePath('user/auth')
 export class LoginController extends BaseController {
   @Autoinject()
   protected Configuration: Configuration;
@@ -16,11 +17,15 @@ export class LoginController extends BaseController {
   @Autoinject()
   protected SessionProvider: SessionProvider;
 
-  @Config('rbac.session.expiration', 10)
+  @Config('rbac.session.expiration', 120)
   protected SessionExpirationTime: number;
 
   @Post()
-  public async login(@Body() credentials: LoginDto) {
+  public async login(@Body() credentials: LoginDto, @FromUser() logged: User) {
+    if (logged) {
+      return new NotAllowed('User already logged in. Please logout before trying to authorize.');
+    }
+
     const user = await this.AuthProvider.authenticate(credentials.Login, credentials.Password);
 
     if (!user) {
@@ -31,27 +36,17 @@ export class LoginController extends BaseController {
       });
     }
 
-    const lifetime = DateTime.now().plus({ minutes: this.SessionExpirationTime });
+    await user.Metadata.populate();
 
-    const uObject = {
-      Login: user.Login,
-      Email: user.Email,
-      NiceName: user.NiceName,
-      Metadata: user.Metadata.map((m) => ({ Key: m.Key, Value: m.Value })),
-      Role: user.Role,
-      Id: user.Id,
-    };
+    const session = new Session();
+    const sData = user.dehydrate();
 
-    const session = new Session({
-      Data: uObject,
-      Expiration: lifetime,
-    });
+    session.Data.set('User', sData);
 
-    await this.SessionProvider.updateSession(session);
+    await this.SessionProvider.save(session);
 
-    // sessionExpiration time is in minutes
-    // coockie maxAge is in seconds
-    return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime * 60, uObject, { httpOnly: true });
+    // BEWARE: httpOnly coockie, only accesible via http method in browser
+    return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime, true, _.omit(sData, ['Id']), { httpOnly: true });
   }
 
   @Get()
@@ -60,7 +55,7 @@ export class LoginController extends BaseController {
       return new Ok();
     }
 
-    await this.SessionProvider.deleteSession(ssid);
+    await this.SessionProvider.delete(ssid);
 
     // send empty cookie to confirm session deletion
     return new CookieResponse('ssid', null, this.SessionExpirationTime);

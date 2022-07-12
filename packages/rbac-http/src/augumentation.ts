@@ -1,8 +1,9 @@
 import '@spinajs/http';
-import { User } from '@spinajs/rbac';
+import { ISession, User } from '@spinajs/rbac';
 
 declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
-    user: User;
+    user: User | null;
+    session: ISession | null;
   }
 }

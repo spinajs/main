@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
-import { SORT_ORDER } from './enums';
+import { SordOrder } from './enums';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
 import { IModelDescriptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder } from './interfaces';
 import { WhereFunction } from './types';
@@ -117,6 +117,12 @@ export interface IModelBase {
 
 export class ModelBase implements IModelBase {
   private _container: IContainer;
+
+  /**
+   * List of hidden properties from JSON / dehydratoins
+   * eg. password field of user
+   */
+  protected _hidden: string[];
 
   /**
    * Gets descriptor for this model. It contains information about relations, orm driver, connection properties,
@@ -410,7 +416,7 @@ export class ModelBase implements IModelBase {
    * Extracts all data from model. It takes only properties that exists in DB
    */
   public dehydrate(omit?: string[]): Partial<this> {
-    return this.Container.resolve(ModelDehydrator).dehydrate(this, omit);
+    return this.Container.resolve(ModelDehydrator).dehydrate(this, [...omit, ...this._hidden]);
   }
 
   /**
@@ -515,7 +521,7 @@ export class ModelBase implements IModelBase {
   }
 
   public toJSON() {
-   return this.dehydrate();
+    return this.dehydrate();
   }
 
   /**
@@ -577,17 +583,17 @@ function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuild
   }
 }
 
-function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, order?: SORT_ORDER) {
+function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, order?: SordOrder) {
   if (description.PrimaryKey) {
-    query.order(description.PrimaryKey, order ?? SORT_ORDER.DESC);
+    query.order(description.PrimaryKey, order ?? SordOrder.DESC);
   } else {
     const unique = description.Columns.filter((c) => c.Unique);
     if (unique.length !== 0) {
-      unique.forEach((c) => query.order(c.Name, order ?? SORT_ORDER.DESC));
+      unique.forEach((c) => query.order(c.Name, order ?? SordOrder.DESC));
     } else if (description.Timestamps?.CreatedAt) {
-      query.order(description.Timestamps.CreatedAt, order ?? SORT_ORDER.DESC);
+      query.order(description.Timestamps.CreatedAt, order ?? SordOrder.DESC);
     } else if (description.Timestamps?.UpdatedAt) {
-      query.order(description.Timestamps.UpdatedAt, order ?? SORT_ORDER.DESC);
+      query.order(description.Timestamps.UpdatedAt, order ?? SordOrder.DESC);
     }
   }
 }
@@ -850,7 +856,7 @@ export const MODEL_STATIC_MIXINS = {
 
   async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    _prepareOrderBy(description, query, SORT_ORDER.ASC);
+    _prepareOrderBy(description, query, SordOrder.ASC);
 
     if (callback) {
       callback(query);
@@ -861,7 +867,7 @@ export const MODEL_STATIC_MIXINS = {
 
   async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    _prepareOrderBy(description, query, SORT_ORDER.DESC);
+    _prepareOrderBy(description, query, SordOrder.DESC);
 
     if (callback) {
       callback(query);
@@ -874,7 +880,7 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
-      query.order(description.Timestamps.CreatedAt, SORT_ORDER.DESC);
+      query.order(description.Timestamps.CreatedAt, SordOrder.DESC);
     } else {
       throw new OrmException('cannot fetch newest entity - CreateAt column not exists in model/db');
     }
@@ -890,7 +896,7 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
-      query.order(description.Timestamps.CreatedAt, SORT_ORDER.ASC);
+      query.order(description.Timestamps.CreatedAt, SordOrder.ASC);
     } else {
       throw new OrmException('cannot fetch oldest entity - CreateAt column not exists in model/db');
     }

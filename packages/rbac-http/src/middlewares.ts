@@ -1,14 +1,13 @@
-import { SessionProvider, User, UserSession } from '@spinajs/rbac';
+import { SessionProvider, User } from '@spinajs/rbac';
 import { Autoinject, Injectable } from '@spinajs/di';
 import 'reflect-metadata';
 import * as express from 'express';
 import { Config } from '@spinajs/configuration';
 import * as cs from 'cookie-signature';
-import { DateTime } from 'luxon';
 import { Request as sRequest, ServerMiddleware } from '@spinajs/http';
 
 @Injectable(ServerMiddleware)
-export class UserFromSessionMiddleware extends ServerMiddleware {
+export class RbacMiddleware extends ServerMiddleware {
   @Config('http.cookie.secret')
   protected CoockieSecret: string;
 
@@ -27,13 +26,10 @@ export class UserFromSessionMiddleware extends ServerMiddleware {
         if (req.cookies.ssid) {
           const ssid: string | false = cs.unsign(req.cookies.ssid, this.CoockieSecret);
           if (ssid) {
-            const session = (await this.SessionProvider.restoreSession(ssid)) as UserSession;
+            const session = await this.SessionProvider.restore(ssid);
             if (session) {
-              req.storage.user = new User(session.Data);
-              const liveTimeDiff = session.Expiration.diff(DateTime.now());
-              if (liveTimeDiff.minutes < 30) {
-                await this.SessionProvider.refreshSession(session);
-              }
+              req.storage.user = new User(session.Data.get('User'));
+              req.storage.session = session;
             } else {
               req.storage.user = null;
             }

@@ -132,6 +132,11 @@ export enum HTTP_STATUS_CODE {
   NOT_ACCEPTABLE = 406,
 
   /**
+   * Method not allowed eg. DELETE not allowed on resource, or login second time
+   */
+  NOT_ALLOWED = 405,
+
+  /**
    * Conflict
    */
   CONFLICT = 409,
@@ -267,6 +272,11 @@ export enum ParameterType {
 
   // Res from express
   Res = 'ArgAsResponse',
+
+  /**
+   * Other custom arguments
+   */
+  Other = 'Other',
 }
 
 export interface IFormOptions {

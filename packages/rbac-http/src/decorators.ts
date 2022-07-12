@@ -81,6 +81,16 @@ export function Permission(permission: PermissionType = 'readOwn') {
   });
 }
 
-export function FromUser() {
+/**
+ * Retrieves user from session if is logged in
+ */
+export function User() {
   return Route(Parameter('UserArg'));
+}
+
+/**
+ * Extract args from user session
+ */
+export function Session() {
+  return Route(Parameter('SessionArg'));
 }

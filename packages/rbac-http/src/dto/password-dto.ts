@@ -5,14 +5,17 @@ export const PasswordDtoSchema = {
   title: 'User password DTO',
   type: 'object',
   properties: {
+    OldPassword: { type: 'string', maxLength: 32, minLength: 6 },
     Password: { type: 'string', maxLength: 32, minLength: 6 },
     ConfirmPassword: { type: 'string', maxLength: 32, minLength: 6 },
   },
-  required: ['Password', 'ConfirmPassword'],
+  required: ['OldPassword', 'Password', 'ConfirmPassword'],
 };
 
 @Schema(PasswordDtoSchema)
 export class PasswordDto {
+  public OldPassword: string;
+
   public Password: string;
 
   public ConfirmPassword: string;

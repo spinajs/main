@@ -4,6 +4,19 @@ import { AsyncModule, IContainer, Injectable, Container, Autoinject, Bootstrappe
 import * as express from 'express';
 
 @Injectable()
+export class AsDbModel implements IRouteArgs {
+  public get SupportedType(): string {
+    return 'AsDbModel';
+  }
+
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
+    const result = new param.RuntimeType() as ModelBase;
+    result.hydrate(req.body[param.Options.field ?? param.Name]);
+    return { CallData: callData, Args: result };
+  }
+}
+
+@Injectable()
 export class FromDbModel extends AsyncModule implements IRouteArgs {
   @Autoinject(Container)
   protected Container: IContainer;
@@ -53,7 +66,11 @@ export class DbModelHydrator extends ArgHydrator {
   }
 }
 
-export function FromDB(field?: string, type?: ParameterType) {
+export function AsModel(field?: string, type?: ParameterType) {
+  return Route(Parameter('AsDbModel', null, { field, type }));
+}
+
+export function FromModel(field?: string, type?: ParameterType) {
   return Route(Parameter('FromDbModel', null, { field, type }));
 }
 

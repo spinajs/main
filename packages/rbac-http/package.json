@@ -43,6 +43,7 @@
     "@spinajs/exceptions": "^1.2.127",
     "@spinajs/log": "^1.2.211",
     "@spinajs/orm": "^1.2.211",
+    "@spinajs/orm-http": "^1.2.214",
     "@spinajs/rbac": "^1.2.211",
     "@spinajs/reflection": "^1.2.211",
     "accesscontrol": "^2.2.1",

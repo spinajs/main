@@ -3,7 +3,6 @@ import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, 
 import { UserMetadata } from './UserMetadata';
 import { AccessControl } from 'accesscontrol';
 import { DI } from '@spinajs/di';
-import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Base modele for users used by ACL
@@ -13,18 +12,10 @@ import { v4 as uuidv4 } from 'uuid';
 @Connection('default')
 @Model('users')
 export class User extends ModelBase {
-  constructor(data?: any) {
-    super(data);
-
-    if (this.Uuid) {
-      this.Uuid = uuidv4();
-    }
-  }
+  protected _hidden: string[] = ['Password'];
 
   @Primary()
   public Id: number;
-
-  public Uuid: string;
 
   public Email: string;
 
@@ -34,14 +25,9 @@ export class User extends ModelBase {
   public Password: string;
 
   /**
-   * Registration date. User is registered when clicked confirmation link sended to provided email.
-   */
-  public RegisteredAt: DateTime;
-
-  /**
    * Displayed name ( for others to see )
    */
-  public NiceName: string;
+  public Login: string;
 
   /**
    * User role
@@ -53,6 +39,11 @@ export class User extends ModelBase {
    */
   @CreatedAt()
   public CreatedAt: DateTime;
+
+  /**
+   * Registration date. User is registered when clicked confirmation link sended to provided email.
+   */
+  public RegisteredAt: DateTime;
 
   /**
    * User deletion date

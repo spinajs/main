@@ -34,6 +34,7 @@ export class DataValidator extends SyncModule {
         error: (msg: string) => this.Log.error(msg),
       },
       ...this.Options,
+      $data: true,
     };
 
     this.Validator = new Ajv(ajvConfig);

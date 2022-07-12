@@ -13,8 +13,8 @@ import { CookieOptions } from 'express';
  * @param cookieLifetime - cookie max age in seconds
  */
 export class CookieResponse extends Response {
-  constructor(protected name: string, protected value: string, protected cookieLifetime: number, protected data?: any, protected options?: ICookieOptions) {
-    super(value);
+  constructor(protected name: string, protected coockieValue: string, protected cookieLifetime: number, protected signed?: boolean, protected data?: any, protected options?: ICookieOptions) {
+    super(coockieValue);
   }
 
   public async execute(_req: express.Request, res: express.Response) {
@@ -32,10 +32,14 @@ export class CookieResponse extends Response {
     if (!this.responseData) {
       res.clearCookie(this.name, opt as CookieOptions);
     } else {
-      const secureKey = cfg.get<string>('http.cookie.secret');
-      const signed = cs.sign(this.responseData, secureKey);
+      if (this.signed) {
+        const secureKey = cfg.get<string>('http.cookie.secret');
+        const signed = cs.sign(this.responseData, secureKey);
 
-      res.cookie(this.name, signed, opt as any);
+        res.cookie(this.name, signed, opt as any);
+      } else {
+        res.cookie(this.name, this.responseData, opt as any);
+      }
     }
 
     return await httpResponse(this.data, HTTP_STATUS_CODE.OK, 'responses/ok');

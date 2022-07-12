@@ -1,7 +1,7 @@
 import { Op } from './enums';
 /* eslint-disable prettier/prettier */
 import { QueryBuilder, RawQuery } from './builders';
-import { SORT_ORDER, WhereBoolean } from './enums';
+import { SordOrder, WhereBoolean } from './enums';
 import { IQueryStatement, Wrap } from './statements';
 import { Unbox, WhereFunction } from './types';
 import { OrmDriver } from './driver';
@@ -270,6 +270,11 @@ export interface IModelDescriptor {
    * Orm driver that this model
    */
   Driver: OrmDriver;
+
+  /**
+   * Json schema for validation
+   */
+  Schema: any;
 }
 
 export interface IDiscriminationMap {
@@ -514,7 +519,7 @@ export interface IQueryLimit {
 
 export interface ISort {
   column: string;
-  order: SORT_ORDER;
+  order: SordOrder;
 }
 
 export interface IQueryBuilder {

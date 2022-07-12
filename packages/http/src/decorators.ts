@@ -204,10 +204,6 @@ export function Param(schema?: any) {
   return Route(Parameter(ParameterType.FromParams, schema));
 }
 
-export function FromModel() {
-  return Route(Parameter(ParameterType.FromModel, null));
-}
-
 /**
  * Gets parameter from request header. If not keyname is provided
  * variable name is used as header key name

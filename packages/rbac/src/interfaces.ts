@@ -2,36 +2,34 @@ import { User } from './models/User';
 import { AsyncModule } from '@spinajs/di';
 import { DateTime } from 'luxon';
 
-export interface UserSessionData {
+export interface ISession {
   /**
    * Session identifier
    */
-  SessionId?: string;
+  SessionId: string;
 
   /**
    * Expiration date. After that date session is invalid
    */
-  Expiration: DateTime;
+  Expiration?: DateTime;
 
   /**
    * Session creation date. After that date session is invalid
    */
-  Creation?: DateTime;
+  Creation: DateTime;
 
   /**
    * Data holds by session
    */
-  Data: any;
-}
+  Data: Map<string, unknown>;
 
-export interface UserSession extends UserSessionData {
   /**
    *
    * Extends session lifetime
    *
-   * @param minutes  - how mutch to extend
+   * @param minutes  - how mutch to extend, if value not provided, default value from config is used
    */
-  extend(minutes: number): void;
+  extend(minutes?: number): void;
 }
 
 /**
@@ -67,14 +65,14 @@ export abstract class AuthProvider<U = User> {
   public abstract authenticate(email: string, password: string): Promise<U>;
 }
 
-export abstract class SessionProvider<T = UserSession> extends AsyncModule {
+export abstract class SessionProvider<T = ISession> extends AsyncModule {
   /**
    *
    * Load session from store. If not exists or expired returns null
    *
    * @param sessionId - session identifier
    */
-  public abstract restoreSession(sessionId: string): Promise<T>;
+  public abstract restore(sessionId: string): Promise<T>;
 
   /**
    *
@@ -82,7 +80,7 @@ export abstract class SessionProvider<T = UserSession> extends AsyncModule {
    *
    * @param sessionId - session to delete
    */
-  public abstract deleteSession(sessionId: string): Promise<void>;
+  public abstract delete(sessionId: string): Promise<void>;
 
   /**
    *
@@ -90,13 +88,5 @@ export abstract class SessionProvider<T = UserSession> extends AsyncModule {
    *
    * @param session - session to update / insert
    */
-  public abstract updateSession(session: UserSession): Promise<void>;
-
-  /**
-   *
-   * Extends session expiration time. Extension is set in acl.session.expiration (in seconds)
-   *
-   * @param sessionId - session to refres
-   */
-  public abstract refreshSession(sessionId: string | UserSession): Promise<void>;
+  public abstract save(session: ISession): Promise<void>;
 }
