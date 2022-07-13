@@ -1,5 +1,4 @@
 import { RouteArgs, IRouteParameter, ParameterType, IRouteCall } from '@spinajs/http';
-import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import { Request } from '@spinajs/http';
 

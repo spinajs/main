@@ -55,7 +55,7 @@ export function checkUserPermission(user: User, resource: string, permission: st
     return null;
   }
 
-  return (ac.can(user.Role.split(',')) as any)[permission](resource);
+  return (ac.can(user.Role) as any)[permission](resource);
 }
 
 export function checkRoutePermission(req: sRequest, resource: string, permission: string): Permission {

@@ -1,4 +1,4 @@
-import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, BaseMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext } from './interfaces';
+import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, BaseMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces';
 import { AsyncModule, IContainer, Autoinject, DI, Container } from '@spinajs/di';
 import * as express from 'express';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators';
@@ -153,7 +153,7 @@ export abstract class BaseController extends AsyncModule implements IController 
       return wrapper;
     }
 
-    async function _extractRouteArgs(route: IRoute, req: express.Request, res: express.Response) {
+    async function _extractRouteArgs(route: IRoute, req: Request, res: express.Response) {
       const args = new Array<any>(route.Parameters.size);
       let callData = {
         Payload: {},

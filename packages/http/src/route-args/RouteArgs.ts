@@ -1,5 +1,5 @@
 import { Autoinject, TypedArray } from '@spinajs/di';
-import { ParameterType, IRouteParameter, IRouteCall, IRoute } from './../interfaces';
+import { ParameterType, IRouteParameter, IRouteCall, IRoute, Request } from './../interfaces';
 import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator';
 import { DI } from '@spinajs/di';
@@ -15,7 +15,7 @@ export interface IRouteArgsResult {
 export interface IRouteArgs {
   SupportedType: ParameterType | string;
 
-  extract(callData: IRouteCall, routeParameter: IRouteParameter, req: express.Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
+  extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
 }
 
 export abstract class RouteArgs implements IRouteArgs {
@@ -24,7 +24,7 @@ export abstract class RouteArgs implements IRouteArgs {
 
   abstract get SupportedType(): ParameterType | string;
 
-  public abstract extract(callData: IRouteCall, routeParameter: IRouteParameter, req: express.Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
+  public abstract extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
 
   protected handleDate(arg: any): DateTime {
     const milis = Number(arg);
