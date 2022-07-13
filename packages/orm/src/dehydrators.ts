@@ -33,7 +33,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
 
       if (val.Type === RelationType.Many) {
         if ((model as any)[val.Name]) {
-          (obj as any)[val.Name] = ((model as any)[val.Name] as Relation<ModelBase>).map((x) => x.dehydrate());
+          (obj as any)[val.Name] = [...((model as any)[val.Name] as Relation<ModelBase>).map((x) => x.dehydrate())];
         }
       }
     }

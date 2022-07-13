@@ -745,9 +745,37 @@ describe('Orm relations tests', () => {
   });
 
   it('OneToMany relation should be dehydrated', async () => {
+    await db();
 
-    throw new Error();
+    sinon
+      .stub(FakeSqliteDriver.prototype, 'execute')
+      .returns(
+        new Promise((res) => {
+          res([
+            {
+              Id: 1,
+              Property1: 'property1',
+              OwnerId: 2,
+            },
+          ]);
+        }),
+      )
+      .onSecondCall()
+      .returns(
+        new Promise((res) => {
+          res([
+            { Id: 444, Bar: 'foo', RelId2: 1 },
+            { Id: 445, Bar: 'foo2', RelId2: 1 },
+            { Id: 446, Bar: 'foo3', RelId2: 1 },
+          ]);
+        }),
+      );
 
+    const result = await RelationModel2.where({ Id: 1 }).populate('Many').first();
+    const dehydrated = result.dehydrate() as any;
+
+    expect(dehydrated).to.be.not.null;
+    expect(dehydrated.Many.length).to.be.not.eq(0);
   });
 
   it('OneToOneRelation should be dehydrated', async () => {
@@ -776,14 +804,14 @@ describe('Orm relations tests', () => {
     expect(dehydrated).to.be.not.null;
     expect(dehydrated.Owner).to.be.not.null;
     expect(dehydrated.Owner.Owner).to.be.not.null;
-    expect(dehydrated.Owner).to.eq({
+    expect(dehydrated.Owner).to.deep.equal({
       Id: 2,
       Property2: 'property2',
-    });
-
-    expect(dehydrated.Owner.Owner).to.eq({
-      Id: 3,
-      Bar: 'bar',
+      Many: [],
+      Owner: {
+        Id: 3,
+        Bar: 'bar',
+      },
     });
   });
 

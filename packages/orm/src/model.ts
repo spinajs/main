@@ -122,7 +122,7 @@ export class ModelBase implements IModelBase {
    * List of hidden properties from JSON / dehydratoins
    * eg. password field of user
    */
-  protected _hidden: string[];
+  protected _hidden: string[] = [];
 
   /**
    * Gets descriptor for this model. It contains information about relations, orm driver, connection properties,
@@ -416,7 +416,7 @@ export class ModelBase implements IModelBase {
    * Extracts all data from model. It takes only properties that exists in DB
    */
   public dehydrate(omit?: string[]): Partial<this> {
-    return this.Container.resolve(ModelDehydrator).dehydrate(this, [...omit, ...this._hidden]);
+    return this.Container.resolve(ModelDehydrator).dehydrate(this, [...(omit ?? []), ...this._hidden]);
   }
 
   /**
