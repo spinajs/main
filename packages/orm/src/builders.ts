@@ -1201,7 +1201,7 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     let columnToCheck = column;
     if (!columnToCheck && this._model) {
       const dsc = extractModelDescriptor(this._model);
-      columnToCheck = dsc.Columns.filter((c) => c.Unique || c.PrimaryKey).map((c) => c.Name);
+      columnToCheck = dsc.Columns.filter((c) => c.Unique).map((c) => c.Name);
     }
 
     this._update = true;

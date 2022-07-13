@@ -602,7 +602,7 @@ describe('Sqlite driver migrate with transaction', () => {
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(9).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(10).args[0]).to.eq('COMMIT');
 
     expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 

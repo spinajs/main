@@ -23,10 +23,12 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
     });
 
     await connection.schema().createTable('test_many', (table) => {
-      table.int('Id').primaryKey().autoIncrement();
+      table.int('Id').primaryKey().autoIncrement().unique();
       table.string('Val');
       table.int('testmodel_id');
     });
+
+    await connection.index().unique().name('user_id_idx').columns(['Id', 'Name']).table('user');
   }
 
   // tslint:disable-next-line: no-empty
