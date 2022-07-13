@@ -474,6 +474,7 @@ export class ManyToManyRelation extends OrmRelation {
     const joinRelationDescriptor = {
       Name: this._description.Name,
       Type: RelationType.Many,
+      TargetModelType: this._description.JunctionModel,
       TargetModel: this._description.JunctionModel,
       SourceModel: this._description.SourceModel,
       ForeignKey: this._description.JunctionModelSourceModelFKey_Name,
@@ -683,9 +684,12 @@ export class ManyToManyRelationList<T extends ModelBase> extends Relation<T> {
 export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
   public async diff(obj: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
     const result = callback ? _.differenceWith(obj, [...this], callback) : _.differenceBy(obj, [...this], this.TargetModelDescriptor.PrimaryKey);
+    const result2 = callback ? _.differenceWith([...this], obj, callback) : _.differenceBy([...this], obj, this.TargetModelDescriptor.PrimaryKey);
+    const finalDiff = [...result, ...result2];
+
     const self = this;
     const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
-    const relData = result.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
+    const relData = finalDiff.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
 
     const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
       if (relData.length !== 0) {
@@ -704,7 +708,7 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     await query;
     this.empty();
 
-    await this.add(result), InsertBehaviour.InsertOrUpdate;
+    await this.add(finalDiff), InsertBehaviour.InsertOrUpdate;
   }
 
   public async set(obj: T[]): Promise<void> {

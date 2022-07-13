@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon';
 import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation } from '@spinajs/orm';
-import { UserMetadata } from './UserMetadata';
 import { AccessControl } from 'accesscontrol';
 import { DI } from '@spinajs/di';
+import { UserMetadata } from './UserMetadata';
 
 /**
  * Base modele for users used by ACL

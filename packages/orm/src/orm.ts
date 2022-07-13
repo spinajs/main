@@ -133,7 +133,7 @@ export class Orm extends AsyncModule {
               'Name',
             );
 
-           //  m.type[MODEL_DESCTRIPTION_SYMBOL].Schema = buildJsonSchema(columns);
+            //  m.type[MODEL_DESCTRIPTION_SYMBOL].Schema = buildJsonSchema(columns);
           }
 
           for (const [key, val] of descriptor.Converters) {
@@ -168,7 +168,28 @@ export class Orm extends AsyncModule {
     await this.migrateUp(undefined, false);
 
     await this.reloadTableInfo();
+    await this.wireRelations();
     this.applyModelMixins();
+  }
+
+  protected wireRelations() {
+    this.Models.forEach((x) => {
+      const desc = extractModelDescriptor(x.type);
+      if (!desc) return;
+
+      desc.Relations.forEach((rel) => {
+        const found = this.Models.find((y) => {
+          const type = _.isString(rel.TargetModelType) ? rel.TargetModelType : rel.TargetModelType.name;
+          return y.name === type;
+        });
+
+        if (!found) {
+          throw new OrmException(`type ${rel.TargetModelType} not found for relation ${rel.Name} in model ${x.name} in file ${x.file}`);
+        }
+
+        rel.TargetModel = found.type;
+      });
+    });
   }
 
   /**
@@ -338,4 +359,4 @@ export class Orm extends AsyncModule {
       }
     }
   }
-} 
+}

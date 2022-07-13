@@ -19,12 +19,15 @@ export class UserMetaController {
     return new Ok(meta);
   }
 
-  // @Patch()
-  // @Permission('updateOwn')
-  // public async updateMetadata(@Param() login: string, @Body() user: UserDto) {
-  //   const entity = await User.where({ Login: login }).firstOrFail();
-  //   entity.hydrate(user);
-  //   await entity.update();
-  //   return new Ok();
-  // }
+  @Patch('user/:user/metadata/:meta')
+  @Permission('updateOwn')
+  public async updateMetadata(@User() logged: UserModel, @FromModel() user: UserModel, @FromModel() meta: UserMetadata) {
+    if (logged.Id !== user.Id) {
+      throw new Forbidden('cannot add metadata to another user');
+    }
+
+    
+
+    return new Ok();
+  }
 }

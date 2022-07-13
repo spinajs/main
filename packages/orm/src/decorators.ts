@@ -279,13 +279,14 @@ export const forwardRef = (fn: () => any): IForwardReference => ({
  * @param foreignKey - foreign key name in db, defaults to lowercase property name with _id suffix eg. owner_id
  * @param primaryKey - primary key in related model, defaults to primary key taken from db
  */
-export function BelongsTo(targetModel: Constructor<ModelBase>, foreignKey?: string, primaryKey?: string) {
+export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignKey?: string, primaryKey?: string) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.One,
       SourceModel: target.constructor,
-      TargetModel: targetModel,
+      TargetModelType: targetModel,
+      TargetModel: null,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
       PrimaryKey: primaryKey ?? model.PrimaryKey,
       Recursive: false,
@@ -305,7 +306,8 @@ export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: str
       Name: propertyKey,
       Type: RelationType.One,
       SourceModel: target.constructor,
-      TargetModel: forwardRef.forwardRef,
+      TargetModelType: forwardRef.forwardRef,
+      TargetModel: null,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
       PrimaryKey: primaryKey ?? model.PrimaryKey,
       Recursive: false,
@@ -321,13 +323,14 @@ export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: str
  * @param primaryKey - primary key in source table defaults to lowercase property name with _id suffix eg. owner_id
  *
  */
-export function HasMany(targetModel: Constructor<ModelBase>, foreignKey?: string, primaryKey?: string) {
+export function HasMany(targetModel: Constructor<ModelBase> | string, foreignKey?: string, primaryKey?: string) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Many,
       SourceModel: target.constructor,
-      TargetModel: targetModel,
+      TargetModelType: targetModel,
+      TargetModel: null,
       ForeignKey: foreignKey ?? `${model.Name.toLowerCase()}_id`,
       PrimaryKey: primaryKey ?? model.PrimaryKey,
       Recursive: false,
@@ -345,7 +348,7 @@ export function HasMany(targetModel: Constructor<ModelBase>, foreignKey?: string
  * @param junctionModelTargetPk - junction table target primary key name ( foreign key for target model )
  * @param junctionModelSourcePk - junction table source primary key name ( foreign key for source model )
  */
-export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase>, targetModelPKey?: string, sourceModelPKey?: string, junctionModelTargetPk?: string, junctionModelSourcePk?: string) {
+export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase> | string, targetModelPKey?: string, sourceModelPKey?: string, junctionModelTargetPk?: string, junctionModelSourcePk?: string) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const targetModelDescriptor = extractModelDescriptor(targetModel);
 
@@ -354,7 +357,8 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       Recursive: false,
       Type: RelationType.ManyToMany,
       SourceModel: target.constructor,
-      TargetModel: targetModel,
+      TargetModelType: targetModel,
+      TargetModel: null,
       ForeignKey: targetModelPKey ?? targetModelDescriptor.PrimaryKey,
       PrimaryKey: sourceModelPKey ?? model.PrimaryKey,
       JunctionModel: junctionModel,

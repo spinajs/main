@@ -1100,6 +1100,7 @@ describe('Orm relations tests', () => {
       Model1,
       {
         TargetModel: Model1,
+        TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
@@ -1114,6 +1115,7 @@ describe('Orm relations tests', () => {
       Model1,
       {
         TargetModel: Model1,
+        TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
@@ -1125,8 +1127,11 @@ describe('Orm relations tests', () => {
     );
 
     await setA.diff(setB);
-    expect(setA.length).to.eq(1);
-    expect(setA[0].Id).to.eq(2);
+    expect(setA.length).to.eq(3);
+    expect(setA[0].Id).to.eq(3);
+    expect(setA[1].Id).to.eq(4);
+    expect(setA[2].Id).to.eq(2);
+
   });
 
   it('should set', async () => {
@@ -1137,6 +1142,7 @@ describe('Orm relations tests', () => {
       Model1,
       {
         TargetModel: Model1,
+        TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
@@ -1151,6 +1157,7 @@ describe('Orm relations tests', () => {
       Model1,
       {
         TargetModel: Model1,
+        TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
@@ -1176,6 +1183,7 @@ describe('Orm relations tests', () => {
       Model1,
       {
         TargetModel: Model1,
+        TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,
@@ -1190,6 +1198,7 @@ describe('Orm relations tests', () => {
       Model1,
       {
         TargetModel: Model1,
+        TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
         SourceModel: null,

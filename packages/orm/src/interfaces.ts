@@ -321,10 +321,12 @@ export interface IRelationDescriptor {
    */
   Type: RelationType;
 
+  TargetModelType :  Constructor<ModelBase> |  ForwardRefFunction | string;
+
   /**
    * Relation model (  foreign )
    */
-  TargetModel: Constructor<ModelBase> | ForwardRefFunction;
+  TargetModel: Constructor<ModelBase>;
 
   /**
    * Relation owner
