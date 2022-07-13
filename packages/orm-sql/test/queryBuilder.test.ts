@@ -1000,7 +1000,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.contain('`foo` INT UNSIGNED DEFAULT 1');
+    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` INT UNSIGNED DEFAULT 1 )');
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
@@ -1008,7 +1008,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.contain("`foo` VARCHAR(255) DEFAULT 'abc'");
+    expect(result.expression).to.eq("CREATE TABLE `users` (`foo` VARCHAR(255) DEFAULT 'abc' )");
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
@@ -1032,7 +1032,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` TIMESTAMP DEFAULT CURENT_TIMESTAMP )');
+    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` TIMESTAMP DEFAULT CURRENT_TIMESTAMP )');
   });
 
   it('create index', () => {

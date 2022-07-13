@@ -11,15 +11,12 @@ export class SqlLiteDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
   }
 
   public date(): T {
-    /**
-     * sqlite dont have
-     */
-    this.Query = RawQuery.create("(DATETIME('now'))");
+    this.Query = RawQuery.create("(strftime('%Y-%m-%d', 'now'))");
     return this.Owner;
   }
 
   public dateTime(): T {
-    this.Query = RawQuery.create("(DATETIME('now'))");
+    this.Query = RawQuery.create("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
     return this.Owner;
   }
 

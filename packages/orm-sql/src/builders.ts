@@ -11,12 +11,12 @@ export class SqlDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
   }
 
   public date(): T {
-    this.Query = RawQuery.create("(strftime('%Y-%m-%d', 'now'))");
+    this.Query = RawQuery.create('(CURRENT_DATE())');
     return this.Owner;
   }
 
   public dateTime(): T {
-    this.Query = RawQuery.create("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
+    this.Query = RawQuery.create('CURRENT_TIMESTAMP');
     return this.Owner;
   }
 
