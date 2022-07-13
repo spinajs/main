@@ -15,6 +15,20 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.int('Id').primaryKey().autoIncrement();
       table.dateTime('CreatedAt').notNull();
     });
+
+    await connection.schema().createTable('test_owned', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.int('testmodel_id');
+      table.string('Val');
+      table.dateTime('CreatedAt').notNull();
+    });
+
+    await connection.schema().createTable('test_many', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('Val');
+      table.int('testmodel_id');
+      table.dateTime('CreatedAt').notNull();
+    });
   }
 
   // tslint:disable-next-line: no-empty

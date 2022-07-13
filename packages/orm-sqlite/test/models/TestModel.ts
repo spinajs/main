@@ -1,5 +1,6 @@
-import { ModelBase, Primary, Connection, Model, CreatedAt } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, HasMany, Relation } from '@spinajs/orm';
 import { DateTime } from 'luxon';
+import { TestMany } from './TestMany';
 
 @Connection('sqlite')
 @Model('test_model')
@@ -9,4 +10,7 @@ export class TestModel extends ModelBase {
 
   @CreatedAt()
   public CreatedAt: DateTime;
+
+  @HasMany(TestMany)
+  public Many: Relation<TestMany>;
 }

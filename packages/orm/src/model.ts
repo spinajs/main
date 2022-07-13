@@ -419,6 +419,29 @@ export class ModelBase implements IModelBase {
     return this.Container.resolve(ModelDehydrator).dehydrate(this, [...(omit ?? []), ...this._hidden]);
   }
 
+  protected toSql(): Partial<this> {
+    const obj = {};
+    const relArr = [...this.ModelDescriptor.Relations.values()];
+
+    this.ModelDescriptor.Columns?.forEach((c) => {
+      const val = (this as any)[c.Name];
+      if ((c.PrimaryKey || !c.Nullable) && (val === null || val === undefined || val === '')) {
+        throw new OrmException(`Field ${c.Name} cannot be null`);
+      }
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val) : val;
+    });
+
+    for (const val of relArr) {
+      if (val.Type === RelationType.One) {
+        if ((this as any)[val.Name].Value) {
+          (obj as any)[val.ForeignKey] = (this as any)[val.Name].Value.PrimaryKeyValue;
+        }
+      }
+    }
+
+    return obj;
+  }
+
   /**
    * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
    */
@@ -441,7 +464,7 @@ export class ModelBase implements IModelBase {
       throw new OrmException('archived at column not exists in model');
     }
 
-    await query.update(this.dehydrate()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
   }
 
   public async update() {
@@ -451,7 +474,7 @@ export class ModelBase implements IModelBase {
       (this as any)[this.ModelDescriptor.Timestamps.UpdatedAt] = DateTime.now();
     }
 
-    await query.update(this.dehydrate()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
   }
 
   /**
@@ -484,7 +507,7 @@ export class ModelBase implements IModelBase {
 
     query.middleware(iMidleware);
 
-    return query.values(this.dehydrate());
+    return query.values(this.toSql());
   }
 
   /**

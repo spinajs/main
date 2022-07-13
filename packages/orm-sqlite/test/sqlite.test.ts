@@ -16,6 +16,8 @@ import { User } from './models/User';
 import * as sinon from 'sinon';
 import { DateTime } from 'luxon';
 import { dir, mergeArrays } from './util';
+import { TestModel } from './models/TestModel';
+import { TestOwned } from './models/TestOwned';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -288,22 +290,53 @@ describe('Sqlite model functions', () => {
     expect(user.Password).to.eq('test_password');
   });
 
-  it('should model be inserted with one-to-one relation', async () => { throw new Error(); });
+  it('should model be inserted with one-to-one relation', async () => {
+    const model = new TestModel();
+    await model.insert();
 
-  it('should model be updated with one-to-one relation', async () => {  throw new Error(); });
+    expect(model.Id).to.eq(1);
 
-  it('should model save one-to-one relation after attach', async () => {  throw new Error(); });
+    const owned = new TestOwned();
+    owned.attach(model);
 
-  it('should model update one-to-one relation after attach', async () => {  throw new Error(); });
+    await owned.insert();
 
-  it('model should attach & set one-to many relations', async () => {  throw new Error(); });
+    expect(owned.Id).to.eq(1);
 
-  it('model relation union should work', async () => {  throw new Error(); });
+    const check = await TestOwned.getOrFail(1);
+    await check.Owner.populate();
 
-  it('model relation diff should work', async () => {  throw new Error(); });
- 
-  it('model relation intersection should work', async () => {  throw new Error(); });
+    expect(check.Owner.Value.constructor.name).to.eq('TestModel');
+    expect(check.Owner.Value.Id).to.eq(1);
+  });
 
+  it('should model be updated with one-to-one relation', async () => {
+    throw new Error();
+  });
+
+  it('should model save one-to-one relation after attach', async () => {
+    throw new Error();
+  });
+
+  it('should model update one-to-one relation after attach', async () => {
+    throw new Error();
+  });
+
+  it('model should attach & set one-to many relations', async () => {
+    throw new Error();
+  });
+
+  it('model relation union should work', async () => {
+    throw new Error();
+  });
+
+  it('model relation diff should work', async () => {
+    throw new Error();
+  });
+
+  it('model relation intersection should work', async () => {
+    throw new Error();
+  });
 });
 
 describe('Sqlite queries', () => {
@@ -409,7 +442,7 @@ describe('Sqlite driver migrate with transaction', () => {
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(7).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(9).args[0]).to.eq('COMMIT');
 
     expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 
