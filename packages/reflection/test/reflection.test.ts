@@ -5,7 +5,7 @@ import { FrameworkConfiguration, Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import  chaiSubset from 'chai-subset';
+import chaiSubset from 'chai-subset';
 import _ = require('lodash');
 import 'mocha';
 import { join, normalize, resolve } from 'path';
@@ -43,6 +43,7 @@ export class MockCfg extends FrameworkConfiguration {
             throwasync: [dir('./test-services/throwasync')],
             empty: [dir('./test-services/empty')],
             matcher: [dir('./test-services/matcher')],
+            multiple: [dir('./test-services/multiple')],
           },
         },
         logger: {
@@ -94,8 +95,8 @@ describe('Reflection tests', () => {
       services: [] as any[],
     };
 
-    ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.matcher', (name) => {
-      return `${name}TestClass`;
+    ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.matcher', (file) => {
+      return `${file}TestClass`;
     })(target, 'services');
 
     const services = target.services;
@@ -167,7 +168,6 @@ describe('Reflection tests', () => {
       target.services;
     }).to.throw(ReflectionException);
   });
- 
 
   it('Should load service as new always', () => {
     const target = {
@@ -185,6 +185,19 @@ describe('Reflection tests', () => {
     expect(target2.services[0].instance.Counter).to.eq(1);
 
     expect(DI.RootContainer.Cache.get('FooServiceAlwaysNew')).to.be.not.null;
+  });
+
+  it('Should load multiple classes from one file', () => {
+    const target = {
+      models: [] as any[],
+    };
+
+    ListFromFiles('/**/*.{ts,js}', 'system.dirs.multiple')(target, 'models');
+
+    const models = target.models;
+    expect(models).to.be.an('array').that.have.length(2);
+    expect(target.models[0].name).to.eq('Model1');
+    expect(target.models[1].name).to.eq('Model2');
   });
 
   it('Should list class from files', () => {

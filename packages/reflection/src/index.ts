@@ -133,7 +133,7 @@ function _listOrResolveFromFiles(
   filter: string,
   configPath: string,
   resolve: boolean,
-  typeMatcher?: (fileName: string) => string,
+  typeMatcher?: (fileName: string, type: string) => string,
 ) {
   return (target: any, propertyKey: string | symbol) => {
     if (!filter) {
@@ -185,39 +185,43 @@ function _listOrResolveFromFiles(
           return exists;
         })
         .flatMap((d: string) => glob.sync(path.join(d, filter)))
-        .map((f: string) => {
+        .flatMap((f: string) => {
           logger.trace(`Loading file ${f}`);
 
-          const name = path.parse(f).name;
-          const nameToResolve = typeMatcher ? typeMatcher(name) : name;
-
           /* eslint-disable */
-          const type = require(f)[`${nameToResolve}`] as Class<any>;
+          const fTypes = require(f);
+          const types = [];
+          for (const key of Object.keys(fTypes)) {
+            const nameToResolve = typeMatcher ? typeMatcher(path.parse(f).name, key) : key;
+            const type = fTypes[`${nameToResolve}`] as Class<any>;
 
-          if (!type) {
-            throw new ReflectionException(`cannot find class ${nameToResolve} in file ${f}`);
-          }
-
-          if (resolve) {
-            if (type.prototype instanceof AsyncModule) {
-              promised = true;
-              return (DI.resolve(type) as any).then((instance: any) => {
-                return {
-                  file: f,
-                  instance,
-                  name: nameToResolve,
-                  type,
-                };
-              });
+            if (resolve) {
+              if (type.prototype instanceof AsyncModule) {
+                promised = true;
+                return (DI.resolve(type) as any).then((instance: any) => {
+                  return {
+                    file: f,
+                    instance,
+                    name: nameToResolve,
+                    type,
+                  };
+                });
+              }
             }
+
+            types.push({
+              file: f,
+              instance: resolve ? DI.resolve(type) : null,
+              name: nameToResolve,
+              type,
+            });
           }
 
-          return {
-            file: f,
-            instance: resolve ? DI.resolve(type) : null,
-            name: nameToResolve,
-            type,
-          };
+          if (types.length === 0) {
+            throw new ReflectionException(`cannot find any exported class in file ${f}`);
+          }
+
+          return types;
         });
 
       return promised && resolve ? Promise.all(result) : result;

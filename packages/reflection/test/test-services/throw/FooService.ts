@@ -1,3 +1,3 @@
-export class FooService222 {
+class FooService222 {
      
 }
