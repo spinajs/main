@@ -18,6 +18,7 @@ import { DateTime } from 'luxon';
 import { dir, mergeArrays } from './util';
 import { TestModel } from './models/TestModel';
 import { TestOwned } from './models/TestOwned';
+import { TestMany } from './models/TestMany';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -311,31 +312,190 @@ describe('Sqlite model functions', () => {
   });
 
   it('should model be updated with one-to-one relation', async () => {
-    throw new Error();
-  });
+    const model = new TestModel();
+    await model.insert();
+    const model2 = new TestModel();
+    await model2.insert();
 
-  it('should model save one-to-one relation after attach', async () => {
-    throw new Error();
-  });
+    expect(model.Id).to.eq(1);
+    expect(model2.Id).to.eq(2);
 
-  it('should model update one-to-one relation after attach', async () => {
-    throw new Error();
+    const owned = new TestOwned();
+    owned.attach(model);
+
+    await owned.insert();
+
+    expect(owned.Id).to.eq(1);
+
+    owned.attach(model2);
+    await owned.update();
+
+    const check = await TestOwned.getOrFail(1);
+    await check.Owner.populate();
+
+    expect(check.Owner.Value.constructor.name).to.eq('TestModel');
+    expect(check.Owner.Value.Id).to.eq(2);
   });
 
   it('model should attach & set one-to many relations', async () => {
-    throw new Error();
+    const model = new TestModel();
+    await model.insert();
+
+    const m1 = new TestMany();
+    const m2 = new TestMany();
+    const m3 = new TestMany();
+    const m4 = new TestMany();
+
+    model.attach(m1);
+    model.attach(m2);
+    model.attach(m3);
+    model.attach(m4);
+
+    await m1.insert();
+    await m2.insert();
+    await m3.insert();
+    await m4.insert();
+
+    const check = await TestModel.where({ Id: 1 }).populate('Many').first();
+
+    expect(check.Many.length).to.eq(4);
+    expect(check.Many[0].Id).to.eq(1);
+    expect(check.Many[1].Id).to.eq(2);
+    expect(check.Many[2].Id).to.eq(3);
+    expect(check.Many[3].Id).to.eq(4);
+
+    expect(check.Many[0].constructor.name).to.eq('TestMany');
+  });
+
+  it('model relation set should work', async () => {
+    const model = new TestModel();
+    await model.insert();
+
+    const m0 = new TestMany();
+    model.attach(m0);
+
+    await m0.insert();
+
+    const m1 = new TestMany();
+    const m2 = new TestMany();
+    const m3 = new TestMany();
+    const m4 = new TestMany();
+
+    await model.Many.set([m1, m2, m3, m4]);
+
+    const check = await TestModel.where({ Id: 1 }).populate('Many').first();
+
+    expect(check.Many.length).to.eq(4);
+    expect(check.Many[0].Id).to.eq(2);
+    expect(check.Many[1].Id).to.eq(3);
+    expect(check.Many[2].Id).to.eq(4);
+    expect(check.Many[3].Id).to.eq(5);
+
+    const c2 = await TestMany.get(m0.Id);
+    expect(c2).to.eq(undefined);
+  });
+
+  it('model relation set should update', async () => {
+    const model = new TestModel();
+    await model.insert();
+
+    const m0 = new TestMany();
+    model.attach(m0);
+
+    await m0.insert();
+
+    const m1 = new TestMany();
+    const m2 = new TestMany();
+    const m3 = new TestMany();
+    const m4 = new TestMany();
+
+    await model.Many.set([m1, m2, m3, m4]);
+
+    let check = await TestModel.where({ Id: 1 }).populate('Many').first();
+
+    expect(check.Many.length).to.eq(4);
+    expect(check.Many[0].Id).to.eq(2);
+    expect(check.Many[1].Id).to.eq(3);
+    expect(check.Many[2].Id).to.eq(4);
+    expect(check.Many[3].Id).to.eq(5);
+
+    m1.Val = 'test';
+    await model.Many.set([m1, m2, m3, m4]);
+
+    check = await TestModel.where({ Id: 1 }).populate('Many').first();
+    expect(check.Many[0].Val).to.eq('test');
+    expect(check.Many[0].Id).to.eq(2);
+    expect(check.Many[1].Id).to.eq(3);
+    expect(check.Many[2].Id).to.eq(4);
+    expect(check.Many[3].Id).to.eq(5);
   });
 
   it('model relation union should work', async () => {
-    throw new Error();
+    const model = new TestModel();
+    await model.insert();
+
+    const m0 = new TestMany();
+    model.attach(m0);
+
+    await m0.insert();
+
+    const m1 = new TestMany();
+    const m2 = new TestMany();
+    const m3 = new TestMany();
+    const m4 = new TestMany();
+
+    await model.Many.union([m1, m2, m3, m4]);
+
+    const check = await TestModel.where({ Id: 1 }).populate('Many').first();
+
+    expect(check.Many.length).to.eq(5);
+    expect(check.Many[0].Id).to.eq(1);
+    expect(check.Many[1].Id).to.eq(2);
+    expect(check.Many[2].Id).to.eq(3);
+    expect(check.Many[3].Id).to.eq(4);
+    expect(check.Many[4].Id).to.eq(5);
   });
 
   it('model relation diff should work', async () => {
-    throw new Error();
+    const model = new TestModel();
+    await model.insert();
+
+    const m0 = new TestMany();
+    model.attach(m0);
+
+    await m0.insert();
+
+    const m1 = new TestMany();
+    const m2 = new TestMany();
+
+    await model.Many.diff([m0, m1, m2]);
+
+    const check = await TestModel.where({ Id: 1 }).populate('Many').first();
+
+    expect(check.Many.length).to.eq(2);
+    expect(check.Many[0].Id).to.eq(2);
+    expect(check.Many[1].Id).to.eq(3);
+ 
   });
 
   it('model relation intersection should work', async () => {
-    throw new Error();
+    const model = new TestModel();
+    await model.insert();
+
+    const m0 = new TestMany();
+    model.attach(m0);
+
+    await m0.insert();
+
+    const m1 = new TestMany();
+    const m2 = new TestMany();
+
+    await model.Many.intersection([m0, m1, m2]);
+
+    const check = await TestModel.where({ Id: 1 }).populate('Many').first();
+
+    expect(check.Many.length).to.eq(1);
+    expect(check.Many[0].Id).to.eq(1);
   });
 });
 

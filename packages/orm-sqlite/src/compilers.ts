@@ -44,7 +44,7 @@ export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler 
 
   public compile() {
     if (this._builder.getColumn().length === 0) {
-      throw new OrmException(`no unique columns defined in table ${this._builder.getParent().Table}`);
+      throw new OrmException(`no unique or primary key columns defined in table ${this._builder.getParent().Table}`);
     }
 
     const columns = this._builder.getColumnsToUpdate().map((c: string | RawQuery): string => {

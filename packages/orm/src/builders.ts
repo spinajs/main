@@ -1200,9 +1200,8 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   public onDuplicate(column?: string | string[]): OnDuplicateQueryBuilder {
     let columnToCheck = column;
     if (!columnToCheck && this._model) {
-      columnToCheck = extractModelDescriptor(this._model)
-        .Columns.filter((c) => c.Unique)
-        .map((c) => c.Name);
+      const dsc = extractModelDescriptor(this._model);
+      columnToCheck = dsc.Columns.filter((c) => c.Unique || c.PrimaryKey).map((c) => c.Name);
     }
 
     this._update = true;
