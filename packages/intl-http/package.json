@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl-http",
-  "version": "2.0.10",
+  "version": "2.0.11",
   "description": "Internationalization support for http module",
   "main": "lib/index.js",
   "private": false,
