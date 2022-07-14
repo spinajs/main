@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/electron",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "spinajs extensions for electron",
   "license": "ISC",
   "main": "lib/index.js",
@@ -45,8 +45,8 @@
     "electron": "^17.0.0"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "^2.0.3",
-    "@spinajs/di": "^2.0.3"
+    "@spinajs/configuration-common": "^2.0.4",
+    "@spinajs/di": "^2.0.4"
   },
   "gitHead": "8322fcf31ba1dcdb57495d2eb93a88d9a6dafb39"
 }
