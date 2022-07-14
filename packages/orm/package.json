@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "framework orm module",
   "main": "lib/index.js",
   "private": false,
@@ -43,12 +43,12 @@
     "@types/node": "^16.11.44"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.0",
-    "@spinajs/di": "^2.0.0",
-    "@spinajs/exceptions": "^2.0.0",
-    "@spinajs/internal-logger": "^2.0.0",
-    "@spinajs/log": "^2.0.0",
-    "@spinajs/reflection": "^2.0.0",
+    "@spinajs/configuration": "^2.0.2",
+    "@spinajs/di": "^2.0.2",
+    "@spinajs/exceptions": "^2.0.2",
+    "@spinajs/internal-logger": "^2.0.2",
+    "@spinajs/log": "^2.0.2",
+    "@spinajs/reflection": "^2.0.2",
     "glob": "^7.1.4",
     "helmet": "^3.23.0",
     "lodash": "^4.17.14",
