@@ -78,6 +78,8 @@
     "@spinajs/rbac-http": "file:packages\\rbac-http",
     "@spinajs/reflection": "file:packages\\reflection",
     "@spinajs/session-provider-db": "file:packages\\session-provider-db",
-    "@spinajs/validation": "file:packages\\validation"
+    "@spinajs/validation": "file:packages\\validation",
+    "@spinajs/orm-mysql": "file:packages\\orm-mysql"
+
   }
 }

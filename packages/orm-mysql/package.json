@@ -1,7 +1,7 @@
 {
-  "name": "@spinajs/orm",
+  "name": "@spinajs/orm-mysql",
   "version": "1.2.211",
-  "description": "framework orm module",
+  "description": "orm mysql integration",
   "main": "lib/index.js",
   "private": false,
   "scripts": {
@@ -40,20 +40,16 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@types/node": "^16.11.44"
+    "@types/mysql": "^2.15.21",
+    "chai": "^4.3.6",
+    "chai-as-promised": "^7.1.1"
   },
   "dependencies": {
     "@spinajs/configuration": "^1.2.211",
     "@spinajs/di": "^1.2.211",
-    "@spinajs/exceptions": "^1.2.127",
-    "@spinajs/internal-logger": "^1.2.211",
-    "@spinajs/log": "^1.2.211",
-    "@spinajs/reflection": "^1.2.211",
-    "glob": "^7.1.4",
-    "helmet": "^3.23.0",
-    "lodash": "^4.17.14",
-    "luxon": "^2.2.0",
-    "uuid": "^8.3.2"
+    "@spinajs/orm": "^1.2.211",
+    "@spinajs/orm-sql": "^1.2.211",
+    "mysql": "^2.18.1"
   },
   "gitHead": "908daa49de22124b78fa68933ff714d01a2444d7"
 }

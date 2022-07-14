@@ -24,7 +24,7 @@ export class DbConfigurationModel extends ModelBase {
     Object.assign(this, { ...data, Value: this.parse(data.Value as string, data.Type) });
   }
 
-  public dehydrate(_includeRelations?: boolean, _omit?: string[]) {
+  public dehydrate(_omit?: string[]) {
     return {
       Id: this.Id,
       Slug: this.Slug,
