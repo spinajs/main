@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/session-provider-db",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "Simple session provider based on relational db. Usefull for testing or small projects",
   "main": "lib/index.js",
   "private": false,
@@ -38,17 +38,17 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.5",
-    "@spinajs/di": "^2.0.5",
-    "@spinajs/exceptions": "^2.0.5",
-    "@spinajs/log": "^2.0.5",
-    "@spinajs/orm": "^2.0.5",
-    "@spinajs/rbac": "^2.0.5",
-    "@spinajs/reflection": "^2.0.5",
+    "@spinajs/configuration": "^2.0.6",
+    "@spinajs/di": "^2.0.6",
+    "@spinajs/exceptions": "^2.0.6",
+    "@spinajs/log": "^2.0.6",
+    "@spinajs/orm": "^2.0.6",
+    "@spinajs/rbac": "^2.0.6",
+    "@spinajs/reflection": "^2.0.6",
     "luxon": "^2.4.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.5"
+    "@spinajs/orm-sqlite": "^2.0.6"
   },
   "gitHead": "5bceaeaef938cfbc9a8bd7f792d6483c5ddb71e2"
 }
