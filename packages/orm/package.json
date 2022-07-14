@@ -43,12 +43,12 @@
     "@types/node": "^16.11.44"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.6",
-    "@spinajs/di": "^2.0.6",
-    "@spinajs/exceptions": "^2.0.6",
-    "@spinajs/internal-logger": "^2.0.6",
-    "@spinajs/log": "^2.0.6",
-    "@spinajs/reflection": "^2.0.6",
+    "@spinajs/configuration": "^2.0.7",
+    "@spinajs/di": "^2.0.7",
+    "@spinajs/exceptions": "^2.0.7",
+    "@spinajs/internal-logger": "^2.0.7",
+    "@spinajs/log": "^2.0.7",
+    "@spinajs/reflection": "^2.0.7",
     "glob": "^7.1.4",
     "helmet": "^3.23.0",
     "lodash": "^4.17.14",
