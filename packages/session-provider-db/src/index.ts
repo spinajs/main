@@ -18,7 +18,7 @@ export class DbSessionStore extends SessionProvider {
 
   public async restore(sessionId: string): Promise<Session> {
     const session = await DbSession.where({
-      SessionId: sessionId,
+      Id: sessionId,
     }).first();
 
     if (!session) {
@@ -26,17 +26,15 @@ export class DbSessionStore extends SessionProvider {
     }
 
     return new Session({
-      ...session,
+      SessionId: session.Id,
       Creation: session.CreatedAt,
       Data: JSON.parse(session.Data),
+      Expiration: session.Expiration,
     });
   }
 
   public async delete(sessionId: string): Promise<void> {
-    const entry = await DbSession.where('SessionId', sessionId).first();
-    if (entry) {
-      await entry.destroy();
-    }
+    await DbSession.destroy(sessionId);
   }
 
   public async save(s: ISession): Promise<void> {
