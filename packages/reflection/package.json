@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/reflection",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "SpinaJS reflection helpers",
   "main": "lib/index.js",
   "private": false,

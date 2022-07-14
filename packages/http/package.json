@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "framework HTTP module base on express.js",
   "main": "lib/index.js",
   "private": false,

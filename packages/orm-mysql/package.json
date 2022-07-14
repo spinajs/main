@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-mysql",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "orm mysql integration",
   "main": "lib/index.js",
   "private": false,
