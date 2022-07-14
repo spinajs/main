@@ -419,7 +419,7 @@ export class ModelBase implements IModelBase {
     return this.Container.resolve(ModelDehydrator).dehydrate(this, [...(omit ?? []), ...this._hidden]);
   }
 
-  protected toSql(): Partial<this> {
+  public toSql(): Partial<this> {
     const obj = {};
     const relArr = [...this.ModelDescriptor.Relations.values()];
 
@@ -560,7 +560,7 @@ export class ModelBase implements IModelBase {
     });
 
     if (this.ModelDescriptor.Timestamps.CreatedAt) {
-      (this as any)[this.ModelDescriptor.Timestamps.CreatedAt] = new Date();
+      (this as any)[this.ModelDescriptor.Timestamps.CreatedAt] = DateTime.now();
     }
 
     for (const [, rel] of this.ModelDescriptor.Relations) {
@@ -704,7 +704,7 @@ export const MODEL_STATIC_MIXINS = {
       query.values(
         (data as Array<InstanceType<T>>).map((d) => {
           if (d instanceof ModelBase) {
-            return d.dehydrate();
+            return d.toSql();
           }
           return d;
         }),
@@ -723,7 +723,7 @@ export const MODEL_STATIC_MIXINS = {
       }
 
       if (data instanceof ModelBase) {
-        query.values(data.dehydrate());
+        query.values(data.toSql());
       } else {
         query.values(data);
       }

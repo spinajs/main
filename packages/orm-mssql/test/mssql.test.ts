@@ -122,7 +122,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
       CreatedAt: '2019-10-18',
     });
 
-    const result: User = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
+    const result: User = (await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first()) as User;
 
     expect(iResult.RowsAffected).to.eq(1);
     expect(iResult.LastInsertId).to.gt(0);
@@ -181,7 +181,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
       })
       .where('id', iResult.LastInsertId);
 
-    const result: User = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
+    const result: User = (await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first()) as User;
     expect(uResult.RowsAffected).to.eq(1);
     expect(result).to.be.not.null;
     expect(result.Name).to.eq('test updated');
@@ -205,7 +205,7 @@ describe('mssql model functions', () => {
       Password: 'test_password',
     });
 
-    const result: User = await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first();
+    const result: User = (await db().Connections.get('mssql').select().from('user_test').orderByDescending('Id').first()) as User;
 
     expect(result).to.be.not.null;
     expect(result.Id).to.gt(0);
@@ -247,7 +247,7 @@ describe('MsSql queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    const userQuery = User.where(function (this: IWhereBuilder) {
+    const userQuery = User.where(function (this: IWhereBuilder<User>) {
       this.where({ Name: 'a' });
     }).orderBy('Name');
 
@@ -289,8 +289,8 @@ describe('MsSql queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    await User.insert(new User({ Name: 'test not duplicated', Password: 'test_password_duplicated', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.InsertOrUpdate);
-
+    const u = new User({ Name: 'test not duplicated', Password: 'test_password_duplicated' });
+    await User.insert(u, InsertBehaviour.InsertOrUpdate);
     const user = await User.get(iResult.LastInsertId);
     const all = await User.all();
 
