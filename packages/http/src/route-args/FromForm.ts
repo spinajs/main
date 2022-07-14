@@ -1,5 +1,5 @@
 import { RouteArgs } from './RouteArgs';
-import { IRouteParameter, ParameterType, IRouteCall } from '../interfaces';
+import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces';
 import * as express from 'express';
 import { Fields, Files, File, IncomingForm } from 'formidable';
 import { Configuration } from '@spinajs/configuration';
@@ -30,7 +30,7 @@ export interface FormOptions {
 export abstract class FromFormBase extends RouteArgs {
   public Data: FormData;
 
-  protected async parseForm(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
+  protected async parseForm(callData: IRouteCall, param: IRouteParameter, req: Request) {
     if (callData && callData.Payload && callData.Payload.Form) {
       this.Data = callData.Payload.Form;
     }
@@ -79,7 +79,7 @@ export class FromFile extends FromFormBase {
     this.Data = data;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request): Promise<any> {
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request): Promise<any> {
     if (!this.Data) {
       await this.parseForm(callData, param, req);
     }
@@ -139,7 +139,7 @@ export class JsonFileRouteArgs extends FromFile {
     super(data);
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
     if (!this.Data) {
       await this.parseForm(callData, param, req);
     }
@@ -174,7 +174,7 @@ export class CsvFileRouteArgs extends FromFile {
     super(data);
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
     if (!this.Data) {
       await this.parseForm(callData, param, req);
     }
@@ -221,7 +221,7 @@ export class FromFormField extends FromFormBase {
     this.Data = data;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
     if (!this.Data) {
       await this.parseForm(callData, param, req);
     }
@@ -249,7 +249,7 @@ export class FromForm extends FromFormBase {
     this.Data = data;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
     if (!this.Data) {
       await this.parseForm(callData, param, req);
     }

@@ -1,4 +1,4 @@
-import { BelongsTo, Connection, Model, ModelBase, Primary } from '@spinajs/orm';
+import { BelongsTo, Connection, Model, ModelBase, Primary, SingleRelation } from '@spinajs/orm';
 import type { User } from './User';
 
 @Connection('default')
@@ -12,5 +12,5 @@ export class UserMetadata extends ModelBase {
   public Value: string;
 
   @BelongsTo('User')
-  public User: User;
+  public User: SingleRelation<User>;
 }

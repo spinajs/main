@@ -1,6 +1,5 @@
 import { IRouteArgs } from './RouteArgs';
-import { IRouteParameter, ParameterType, IRouteCall } from '../interfaces';
-import * as express from 'express';
+import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces';
 import { AsyncModule, IContainer, Inject, Injectable, Container } from '@spinajs/di';
 
 @Injectable()
@@ -20,7 +19,7 @@ export class FromDi extends AsyncModule implements IRouteArgs {
     return ParameterType.FromDi;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, _req: express.Request) {
+  public async extract(callData: IRouteCall, param: IRouteParameter, _req: Request) {
     const srv = await this.Container.resolve(param.RuntimeType, param.Options);
     return { CallData: callData, Args: srv };
   }

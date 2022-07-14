@@ -1,6 +1,5 @@
 import { RouteArgs } from './RouteArgs';
-import { IRouteParameter, ParameterType, IRouteCall } from '../interfaces';
-import * as express from 'express';
+import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces';
 import { Injectable } from '@spinajs/di';
 
 @Injectable()
@@ -9,7 +8,7 @@ export class ArgAsRequest extends RouteArgs {
     return ParameterType.Req;
   }
 
-  public async extract(callData: IRouteCall, _param: IRouteParameter, req: express.Request) {
+  public async extract(callData: IRouteCall, _param: IRouteParameter, req: Request) {
     return { CallData: callData, Args: req };
   }
 }

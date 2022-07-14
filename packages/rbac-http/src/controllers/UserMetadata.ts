@@ -26,6 +26,13 @@ export class UserMetaController {
       throw new Forbidden('cannot add metadata to another user');
     }
 
+    await meta.User.populate();
+    if (meta.User.Value.Id !== logged.Id) {
+      throw new Forbidden('cannot edit metadata that is not own by user');
+    }
+
+    await meta.update();
+
     return new Ok();
   }
 }
