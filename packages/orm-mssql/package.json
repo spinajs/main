@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-mssql",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "orm mssql integration",
   "main": "lib/index.js",
   "private": false,
