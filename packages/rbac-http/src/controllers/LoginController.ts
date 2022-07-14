@@ -1,9 +1,9 @@
 import { LoginDto } from './../dto/login-dto';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, NotAllowed } from '@spinajs/http';
-import { AuthProvider, Session, SessionProvider, User } from '@spinajs/rbac';
+import { AuthProvider, Session, SessionProvider, User as UserModel } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
-import { FromUser } from 'rbac-http/lib';
+import { User } from './../decorators';
 import _ from 'lodash';
 
 @BasePath('user/auth')
@@ -21,7 +21,7 @@ export class LoginController extends BaseController {
   protected SessionExpirationTime: number;
 
   @Post()
-  public async login(@Body() credentials: LoginDto, @FromUser() logged: User) {
+  public async login(@Body() credentials: LoginDto, @User() logged: UserModel) {
     if (logged) {
       return new NotAllowed('User already logged in. Please logout before trying to authorize.');
     }

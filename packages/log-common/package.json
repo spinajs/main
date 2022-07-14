@@ -39,7 +39,7 @@
   "bugs": {
     "url": "https://github.com/spinajs/main/issues"
   },
-  "gitHead": "5bceaeaef938cfbc9a8bd7f792d6483c5ddb71e2",
+  "gitHead": "8fcc369942c8fbf21fe06f23bdd1c36c8e7352b0",
   "dependencies": {
     "@spinajs/di": "^2.0.7"
   }

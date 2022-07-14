@@ -1,5 +1,5 @@
 import { Orm, ModelBase, OrmException } from '@spinajs/orm';
-import { IRouteArgs, IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator } from '@spinajs/http';
+import { IRouteArgs, IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest } from '@spinajs/http';
 import { AsyncModule, IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
 import * as express from 'express';
 
@@ -30,7 +30,7 @@ export class FromDbModel extends AsyncModule implements IRouteArgs {
     return 'FromDB';
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: sRequest) {
     let p: any = null;
 
     switch (param.Options.type) {

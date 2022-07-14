@@ -1,6 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
-import { ParamsDictionary } from 'express-serve-static-core';
-import { ParsedQs } from 'qs';
+import { Response, NextFunction } from 'express';
 import { ServerMiddleware, Request as sRequest } from '../interfaces';
 import * as express from 'express';
 import { v4 as uuidv4 } from 'uuid';
@@ -17,7 +15,7 @@ export class RequestId extends ServerMiddleware {
     return null;
   }
 
-  public before(): (req: Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>, res: Response<any, Record<string, any>>, next: NextFunction) => void {
+  public before(): (req: sRequest, res: Response<any, Record<string, any>>, next: NextFunction) => void {
     return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
       req.storage.requestId = uuidv4();
       next();
