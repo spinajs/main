@@ -1,4 +1,3 @@
-import { IIndexInfo } from './../../orm-sqlite/src/types';
 export interface ITableColumnInfo {
   TABLE_NAME: string;
   TABLE_SCHEMA: string;
