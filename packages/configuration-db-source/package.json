@@ -36,10 +36,10 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "^2.0.10",
-    "@spinajs/di": "^2.0.10",
-    "@spinajs/internal-logger": "^2.0.10",
-    "@spinajs/orm": "^2.0.10",
+    "@spinajs/configuration-common": "^2.0.11",
+    "@spinajs/di": "^2.0.11",
+    "@spinajs/internal-logger": "^2.0.11",
+    "@spinajs/orm": "^2.0.11",
     "lodash": "^4.17.21",
     "luxon": "^2.3.0"
   },

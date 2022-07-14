@@ -45,10 +45,10 @@
     "chai-as-promised": "^7.1.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.10",
-    "@spinajs/di": "^2.0.10",
-    "@spinajs/orm": "^2.0.10",
-    "@spinajs/orm-sql": "^2.0.10",
+    "@spinajs/configuration": "^2.0.11",
+    "@spinajs/di": "^2.0.11",
+    "@spinajs/orm": "^2.0.11",
+    "@spinajs/orm-sql": "^2.0.11",
     "mysql": "^2.18.1"
   },
   "gitHead": "56d300f552202f33b9c4ac8cb1fe28ff73122f50"

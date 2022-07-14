@@ -14,7 +14,7 @@
     "url": "git+https://github.com/spinajs/main.git"
   },
   "dependencies": {
-    "@spinajs/di": "^2.0.10"
+    "@spinajs/di": "^2.0.11"
   },
   "scripts": {
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
