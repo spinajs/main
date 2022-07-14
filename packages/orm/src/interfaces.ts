@@ -25,9 +25,8 @@ export enum ColumnAlterationType {
 }
 
 export abstract class DefaultValueBuilder<T> {
-
-  public Query : RawQuery;
-  public Value :string | number;
+  public Query: RawQuery;
+  public Value: string | number;
 
   /**
    * fills by default with current date
@@ -41,14 +40,14 @@ export abstract class DefaultValueBuilder<T> {
 
   /**
    * Fills column with default value
-   * 
+   *
    * @param val - value to fill
    */
   public abstract value(val: string | number): T;
 
   /**
    * Fills column with result of query provided
-   * 
+   *
    * @param query - raw query instance
    */
   public abstract raw(query: RawQuery): T;
@@ -321,7 +320,7 @@ export interface IRelationDescriptor {
    */
   Type: RelationType;
 
-  TargetModelType :  Constructor<ModelBase> |  ForwardRefFunction | string;
+  TargetModelType: Constructor<ModelBase> | ForwardRefFunction | string;
 
   /**
    * Relation model (  foreign )

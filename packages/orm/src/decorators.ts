@@ -46,7 +46,7 @@ export function extractDecoratorDescriptor(callback: (model: IModelDescriptor, t
           Field: '',
           Models: null,
         },
-        Schema: {}
+        Schema: {},
       };
 
       if (!base) {

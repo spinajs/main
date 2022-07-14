@@ -26,8 +26,6 @@ export class UserMetaController {
       throw new Forbidden('cannot add metadata to another user');
     }
 
-    
-
     return new Ok();
   }
 }

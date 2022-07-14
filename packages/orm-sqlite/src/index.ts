@@ -18,7 +18,7 @@ import { SqlLiteJoinStatement } from './statements';
 import { ResourceDuplicated } from '@spinajs/exceptions';
 import { IIndexInfo, IIndexInfoList, ITableInfo } from './types';
 import { format } from '@spinajs/configuration';
-import { SqlLiteDefaultValueBuilder} from "./builders";
+import { SqlLiteDefaultValueBuilder } from './builders';
 
 @Injectable('orm-driver-sqlite')
 export class SqliteOrmDriver extends SqlDriver {

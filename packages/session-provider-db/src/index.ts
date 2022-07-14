@@ -24,7 +24,6 @@ export class DbSessionStore extends SessionProvider {
     if (!session) {
       return null;
     }
- 
 
     return new Session({
       ...session,
@@ -40,7 +39,7 @@ export class DbSessionStore extends SessionProvider {
     }
   }
 
-  public async  save(s: ISession): Promise<void> {
+  public async save(s: ISession): Promise<void> {
     const session = new DbSession({
       ...s,
       Data: JSON.stringify(s.Data),
