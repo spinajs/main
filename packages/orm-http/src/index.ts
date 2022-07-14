@@ -1,7 +1,6 @@
 import { Orm, ModelBase, OrmException } from '@spinajs/orm';
 import { IRouteArgs, IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest } from '@spinajs/http';
 import { AsyncModule, IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
-import * as express from 'express';
 
 @Injectable()
 export class AsDbModel implements IRouteArgs {
@@ -9,7 +8,7 @@ export class AsDbModel implements IRouteArgs {
     return 'AsDbModel';
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request) {
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: sRequest) {
     const result = new param.RuntimeType() as ModelBase;
     result.hydrate(req.body[param.Options.field ?? param.Name]);
     return { CallData: callData, Args: result };

@@ -1,4 +1,13 @@
+import { User, ISession } from '@spinajs/rbac';
+
 export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
+
+declare module '@spinajs/http' {
+  interface IActionLocalStoregeContext {
+    user: User | null;
+    session: ISession;
+  }
+}
 
 export interface IRbacDescriptor {
   /**
