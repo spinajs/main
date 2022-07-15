@@ -18,20 +18,7 @@ export class MySqlOrmDriver extends SqlDriver {
 
     return new Promise((resolve, reject) => {
       this.Pool.query(stmt, params, function (err, results) {
-        const tDiff = this.Log.timeEnd(`query-${tName}`);
-
         if (err) {
-          void this.Log.write({
-            Level: LogLevel.Error,
-            Variables: {
-              error: err,
-              message: `Failed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
-              logger: this.Log.Name,
-              level: 'Error',
-              duration: tDiff,
-            },
-          });
-
           reject(err);
         } else {
           switch (context) {
@@ -48,20 +35,41 @@ export class MySqlOrmDriver extends SqlDriver {
               resolve(results);
               break;
           }
-
-          void this.Log.write({
-            Level: LogLevel.Trace,
-            Variables: {
-              error: null,
-              message: `Executed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
-              logger: this.Log.Name,
-              level: 'TRACE',
-              duration: tDiff,
-            },
-          });
         }
       });
-    });
+    })
+      .then((val) => {
+        const tDiff = this.Log.timeEnd(`query-${tName}`);
+
+        void this.Log.write({
+          Level: LogLevel.Trace,
+          Variables: {
+            error: null,
+            message: `Executed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
+            logger: this.Log.Name,
+            level: 'TRACE',
+            duration: tDiff,
+          },
+        });
+
+        return val;
+      })
+      .catch((err) => {
+        const tDiff = this.Log.timeEnd(`query-${tName}`);
+
+        void this.Log.write({
+          Level: LogLevel.Error,
+          Variables: {
+            error: err,
+            message: `Failed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
+            logger: this.Log.Name,
+            level: 'Error',
+            duration: tDiff,
+          },
+        });
+
+        throw err;
+      });
   }
 
   public resolve() {
