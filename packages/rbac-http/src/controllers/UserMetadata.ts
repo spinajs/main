@@ -1,5 +1,4 @@
-import { Forbidden } from './../../../http/src/response-methods/forbidden';
-import { Patch, Post, BasePath, Ok } from '@spinajs/http';
+import { Patch, Post, BasePath, Ok, Forbidden } from '@spinajs/http';
 import { User as UserModel, UserMetadata } from '@spinajs/rbac';
 import { Resource } from './../decorators';
 import { Permission, User } from '../decorators';
