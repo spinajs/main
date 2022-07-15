@@ -1,9 +1,10 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log';
-import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql';
+import { MySqlTableExistsCompiler } from './compilers';
 import { IIndexInfo, ITableColumnInfo } from './types';
 
 @Injectable('orm-driver-mysql')
@@ -61,6 +62,12 @@ export class MySqlOrmDriver extends SqlDriver {
         }
       });
     });
+  }
+
+  public resolve() {
+    super.resolve();
+
+    this.Container.register(MySqlTableExistsCompiler).as(TableExistsCompiler);
   }
 
   public async ping(): Promise<boolean> {
