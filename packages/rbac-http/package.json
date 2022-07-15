@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac-http",
-  "version": "2.0.14",
+  "version": "2.0.15",
   "description": "HTTP API for user session & permissions",
   "main": "lib/index.js",
   "private": false,
@@ -43,7 +43,7 @@
     "@spinajs/exceptions": "^2.0.12",
     "@spinajs/log": "^2.0.14",
     "@spinajs/orm": "^2.0.14",
-    "@spinajs/orm-http": "^2.0.14",
+    "@spinajs/orm-http": "^2.0.15",
     "@spinajs/rbac": "^2.0.14",
     "@spinajs/reflection": "^2.0.14",
     "accesscontrol": "^2.2.1",
