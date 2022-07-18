@@ -12,19 +12,31 @@ import { format } from "@spinajs/configuration";
 import { pipeline, Readable } from "stream";
 
 class FileLogStream extends Readable {
-  protected LogQueue: string[] = [];
+  protected LogQueue: any[] = [];
 
-  public enqueue(entry: string) {
-    this.LogQueue.push(entry);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  public push(chunk: any, _encoding?: BufferEncoding) {
+    this.LogQueue.push(chunk);
+
+    if (this.LogQueue.length > 10) {
+      super.push(this.LogQueue.shift());
+    }
+
+    return true;
   }
 
   public _read(): void {
     let ok = true;
     let val = null;
     do {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       val = this.LogQueue.shift();
       if (val) {
-        ok = this.push(val);
+        ok = super.push(val);
+
+        if (!ok) {
+          this.LogQueue.unshift(val);
+        }
       }
     } while (ok && val);
   }
