@@ -83,10 +83,12 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     }
 
     const lEntry = format(data.Variables, this.Options.layout) + EOL;
-    this.LogStream.enqueue(lEntry);
+    this.LogStream.push(lEntry);
 
-    if (this.CurrentFileSize + this.WriteStream.bytesWritten >= this.Options.options.maxSize && !this.IsArchiving) {
-      this.archive();
+    if (this.WriteStream) {
+      if (this.CurrentFileSize + this.WriteStream.bytesWritten >= this.Options.options.maxSize && !this.IsArchiving) {
+        this.archive();
+      }
     }
   }
 
