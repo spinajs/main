@@ -225,9 +225,9 @@ export class Controllers extends AsyncModule {
           this.Log.error(`Controller ${controller.name} does not have member ${name as string} for route ${route.Path}`);
         }
       }
-    }
 
-    this.Server.use(controller.instance.Router);
+      this.Server.use(controller.instance.Router);
+    }
   }
 
   public async resolveAsync(): Promise<void> {

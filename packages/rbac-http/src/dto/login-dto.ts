@@ -13,7 +13,7 @@ export const LoginDtoSchema = {
 
 @Schema(LoginDtoSchema)
 export class LoginDto {
-  public Login: string;
+  public Email: string;
 
   public Password: string;
 

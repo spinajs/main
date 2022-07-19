@@ -26,7 +26,7 @@ export class LoginController extends BaseController {
       return new NotAllowed('User already logged in. Please logout before trying to authorize.');
     }
 
-    const user = await this.AuthProvider.authenticate(credentials.Login, credentials.Password);
+    const user = await this.AuthProvider.authenticate(credentials.Email, credentials.Password);
 
     if (!user) {
       return new Unauthorized({
