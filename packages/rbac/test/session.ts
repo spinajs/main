@@ -20,9 +20,9 @@ describe('Session provider tests', () => {
     const session = new Session();
     const provider = await DI.resolve(SessionProvider);
 
-    await provider.updateSession(session);
+    await provider.save(session);
 
-    const restored = await provider.restoreSession(session.SessionId);
+    const restored = await provider.restore(session.SessionId);
 
     expect(restored instanceof Session).to.be.true;
   });
@@ -31,10 +31,10 @@ describe('Session provider tests', () => {
     const session = new Session();
     const provider = await DI.resolve(SessionProvider);
 
-    await provider.updateSession(session);
-    await provider.deleteSession(session.SessionId);
+    await provider.save(session);
+    await provider.delete(session.SessionId);
 
-    const restored = await provider.restoreSession(session.SessionId);
+    const restored = await provider.restore(session.SessionId);
 
     expect(restored).to.be.null;
   });

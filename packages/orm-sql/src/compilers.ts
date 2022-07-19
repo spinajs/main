@@ -250,8 +250,8 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
     const bindings = [];
     bindings.push(...join.bindings);
     bindings.push(...where.bindings);
-    bindings.push(...limit.bindings);
     bindings.push(...sort.bindings);
+    bindings.push(...limit.bindings);
     bindings.push(...group.bindings);
 
     return {
@@ -797,6 +797,9 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     }
     if (this.builder.Comment) {
       _stmt.push(this._statementsMappings.comment(this.builder));
+    }
+    if (this.builder.Unique) {
+      _stmt.push('UNIQUE');
     }
 
     return {

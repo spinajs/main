@@ -10,9 +10,16 @@ export class MySqlTableExistsCompiler implements TableExistsCompiler {
   }
 
   public compile(): ICompilerOutput {
+    if (this.builder.Database) {
+      return {
+        bindings: [this.builder.Database, this.builder.Table],
+        expression: `SELECT * FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;`,
+      };
+    }
+
     return {
-      bindings: [this.builder.Database, this.builder.Table],
-      expression: `SELECT * FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;`,
+      bindings: [this.builder.Table],
+      expression: `SELECT * FROM information_schema.tables WHERE table_name = ? LIMIT 1;`,
     };
   }
 }

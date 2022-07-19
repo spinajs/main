@@ -1,7 +1,7 @@
 import { ModelBase, Primary, Connection, Model, CreatedAt } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-@Connection('mssql')
+@Connection('mysql')
 @Model('test_model')
 export class TestModel extends ModelBase {
   @Primary()
