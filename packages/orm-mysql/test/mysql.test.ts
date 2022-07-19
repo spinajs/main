@@ -211,6 +211,8 @@ describe('mysql model functions', () => {
 
 describe('MySql queries', () => {
   beforeEach(async () => {
+    DI.clearCache();
+
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
@@ -223,8 +225,9 @@ describe('MySql queries', () => {
     await db().reloadTableInfo();
   });
 
-  afterEach(() => {
-    DI.clearCache();
+  after(async () => {
+    await db().Connections.get('mysql').disconnect();
+    process.exit();
   });
 
   it('should select and sort', async () => {

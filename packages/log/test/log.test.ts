@@ -46,6 +46,10 @@ describe("logger tests", function () {
     sinon.restore();
   });
 
+  after(() => {
+    process.exit();
+  });
+
   it("Should create logger", async () => {
     const log = logger();
 
