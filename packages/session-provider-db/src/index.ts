@@ -53,7 +53,7 @@ export class DbSessionStore extends SessionProvider {
     return new Session({
       SessionId: session.SessionId,
       Creation: session.CreatedAt,
-      Data: JSON.parse(session.Data, replacer),
+      Data: JSON.parse(session.Data, reviver),
       Expiration: session.Expiration,
     });
   }
@@ -65,7 +65,7 @@ export class DbSessionStore extends SessionProvider {
   public async save(s: ISession): Promise<void> {
     const session = new DbSession({
       ...s,
-      Data: JSON.stringify(s.Data, reviver),
+      Data: JSON.stringify(s.Data, replacer),
     });
 
     await session.insert(InsertBehaviour.InsertOrUpdate);
