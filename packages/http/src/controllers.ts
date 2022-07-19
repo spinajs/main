@@ -208,18 +208,22 @@ export class Controllers extends AsyncModule {
     const compiler = new TypescriptCompiler(controller.file.replace('.js', '.d.ts'));
     const members = compiler.getClassMembers(controller.name);
 
-    for (const [name, route] of controller.instance.Descriptor.Routes) {
-      if (members.has(name as string)) {
-        const member = members.get(name as string);
+    if (!controller.instance.Descriptor) {
+      this.Log.warn(`Controller ${controller.name} in file ${controller.file} dont have descriptor or routes defined`);
+    } else {
+      for (const [name, route] of controller.instance.Descriptor.Routes) {
+        if (members.has(name as string)) {
+          const member = members.get(name as string);
 
-        for (const [index, rParam] of route.Parameters) {
-          const parameterInfo = member.parameters[index];
-          if (parameterInfo) {
-            rParam.Name = (parameterInfo.name as any).text;
+          for (const [index, rParam] of route.Parameters) {
+            const parameterInfo = member.parameters[index];
+            if (parameterInfo) {
+              rParam.Name = (parameterInfo.name as any).text;
+            }
           }
+        } else {
+          this.Log.error(`Controller ${controller.name} does not have member ${name as string} for route ${route.Path}`);
         }
-      } else {
-        this.Log.error(`Controller ${controller.name} does not have member ${name as string} for route ${route.Path}`);
       }
     }
 
