@@ -168,7 +168,7 @@ export class MsSqlTableQueryCompiler extends SqlTableQueryCompiler {
 
     return {
       bindings: [],
-      expression: `${_table} (${_columns} ${_unique.length !== 0 ? `UNIQUE(${_unique.join(',')}) ` : ''} ${_keys.filter((k) => k && k !== '').join(',')})`,
+      expression: `${_table} (${_columns} ${_unique.length !== 0 ? `, UNIQUE(${_unique.join(',')}) ` : ''} ${_keys ? ',' + _keys.filter((k) => k && k !== '').join(',') : ''})`,
     };
   }
 

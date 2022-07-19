@@ -684,11 +684,12 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
   public compile(): ICompilerOutput {
     const _table = this._table();
     const _columns = this._columns();
-    const _keys = [this._primaryKeys(), this._foreignKeys()];
+    const _keys = this._foreignKeys();
+    const _primaryKey = this._primaryKeys();
 
     return {
       bindings: [],
-      expression: `${_table} (${_columns} ${_keys.filter((k) => k && k !== '').join(',')})`,
+      expression: `${_table} (${_columns} ${_primaryKey ? ',' + _primaryKey : ''} ${_keys ? ', ' + _keys : ''})`,
     };
   }
 
