@@ -50,5 +50,5 @@
     "@spinajs/orm-sql": "^2.0.27",
     "mysql2": "^2.3.3"
   },
-  "gitHead": "48eeb6c14c6138f4717ad574efab7961ab4fbb83"
+  "gitHead": "859e3ca25f973babbfa165ab5d64744095119b15"
 }

@@ -26,7 +26,7 @@ export class DbSessionStore extends SessionProvider {
     }
 
     return new Session({
-      SessionId: session.Id,
+      SessionId: session.SessionId,
       Creation: session.CreatedAt,
       Data: JSON.parse(session.Data),
       Expiration: session.Expiration,
