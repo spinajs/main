@@ -5,6 +5,31 @@ import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession';
 import { InsertBehaviour } from '@spinajs/orm';
 
+interface ICustomDataType {
+  dataType: string;
+  value: any;
+}
+
+function replacer(key: string, value: unknown) {
+  if (value instanceof Map) {
+    return {
+      dataType: 'Map',
+      value: Array.from(value.entries()), // or with spread: value: [...value]
+    };
+  } else {
+    return value;
+  }
+}
+
+function reviver(key: string, value: ICustomDataType) {
+  if (typeof value === 'object' && value !== null) {
+    if (value.dataType === 'Map') {
+      return new Map(value.value);
+    }
+  }
+  return value;
+}
+
 @Injectable(SessionProvider)
 export class DbSessionStore extends SessionProvider {
   @Logger('db-session-store')
@@ -28,7 +53,7 @@ export class DbSessionStore extends SessionProvider {
     return new Session({
       SessionId: session.SessionId,
       Creation: session.CreatedAt,
-      Data: JSON.parse(session.Data),
+      Data: JSON.parse(session.Data, replacer),
       Expiration: session.Expiration,
     });
   }
@@ -40,7 +65,7 @@ export class DbSessionStore extends SessionProvider {
   public async save(s: ISession): Promise<void> {
     const session = new DbSession({
       ...s,
-      Data: JSON.stringify(s.Data),
+      Data: JSON.stringify(s.Data, reviver),
     });
 
     await session.insert(InsertBehaviour.InsertOrUpdate);
