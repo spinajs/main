@@ -6,7 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 import { isFunction } from 'lodash';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import * as fs from 'fs';
-import { parse } from "csv";
+import { parse } from 'csv';
 
 interface FormData {
   Fields: Fields;
@@ -199,7 +199,7 @@ export class CsvFileRouteArgs extends FromFile {
 
   protected async parseCvs(path: string) {
     const data: any[] = [];
- 
+
     return new Promise((res, rej) => {
       fs.createReadStream(path)
         .pipe(parse())

@@ -41,7 +41,7 @@ export class FileResponse extends Response {
       });
     });
   }
-} 
+}
 
 export class JsonFileResponse extends Response {
   constructor(protected data: any, protected filename: string) {
