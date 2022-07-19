@@ -10,7 +10,7 @@ interface ICustomDataType {
   value: any;
 }
 
-function replacer(key: string, value: unknown) {
+function replacer(_: string, value: unknown) {
   if (value instanceof Map) {
     return {
       dataType: 'Map',
@@ -21,7 +21,7 @@ function replacer(key: string, value: unknown) {
   }
 }
 
-function reviver(key: string, value: ICustomDataType) {
+function reviver(_: string, value: ICustomDataType) {
   if (typeof value === 'object' && value !== null) {
     if (value.dataType === 'Map') {
       return new Map(value.value);
