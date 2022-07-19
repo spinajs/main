@@ -689,7 +689,7 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
 
     return {
       bindings: [],
-      expression: `${_table} (${_columns} ${_primaryKey ? ',' + _primaryKey : ''} ${_keys ? ', ' + _keys : ''})`,
+      expression: `${_table} (${_columns} ${_primaryKey ? ',' + _primaryKey : ''} ${_keys ? ',' + _keys : ''})`,
     };
   }
 
@@ -711,7 +711,7 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
       .join(',');
 
     if (!_.isEmpty(_keys)) {
-      return `, PRIMARY KEY (${_keys})`;
+      return `PRIMARY KEY (${_keys})`;
     }
 
     return '';

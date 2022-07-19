@@ -938,7 +938,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT , PRIMARY KEY (`foo`),FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE CASCADE ON UPDATE CASCADE)');
+    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE CASCADE ON UPDATE CASCADE)');
   });
 
   it('table with default referential action', () => {
@@ -949,7 +949,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT , PRIMARY KEY (`foo`),FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE NO ACTION ON UPDATE NO ACTION)');
+    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE NO ACTION ON UPDATE NO ACTION)');
   });
 
   it('column with one primary keys', () => {
@@ -959,7 +959,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT , PRIMARY KEY (`foo`))');
+    expect(result.expression).to.equal('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) )');
   });
 
   it('column with multiple primary keys', () => {
@@ -970,7 +970,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT,`bar` INT NOT NULL AUTO_INCREMENT , PRIMARY KEY (`foo`,`bar`))');
+    expect(result.expression).to.equal('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT,`bar` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`,`bar`) )');
   });
 
   it('column with charset', () => {
@@ -1000,7 +1000,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` INT UNSIGNED DEFAULT 1 )');
+    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` INT UNSIGNED DEFAULT 1  )');
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
@@ -1008,7 +1008,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.eq("CREATE TABLE `users` (`foo` VARCHAR(255) DEFAULT 'abc' )");
+    expect(result.expression).to.eq("CREATE TABLE `users` (`foo` VARCHAR(255) DEFAULT 'abc'  )");
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
@@ -1032,7 +1032,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` TIMESTAMP DEFAULT CURRENT_TIMESTAMP )');
+    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` TIMESTAMP DEFAULT CURRENT_TIMESTAMP  )');
   });
 
   it('create index', () => {
@@ -1089,7 +1089,7 @@ describe('schema building', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('CREATE TEMPORARY TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT,`bar` INT NOT NULL AUTO_INCREMENT , PRIMARY KEY (`foo`,`bar`))');
+    expect(result.expression).to.equal('CREATE TEMPORARY TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT,`bar` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`,`bar`) )');
   });
 
   it('Clone table shallow', () => {
