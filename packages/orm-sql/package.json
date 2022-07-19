@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-sql",
-  "version": "2.0.19",
+  "version": "2.0.20",
   "description": "framework orm sql language module",
   "main": "lib/index.js",
   "private": false,

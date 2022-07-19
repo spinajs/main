@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl-http",
-  "version": "2.0.19",
+  "version": "2.0.20",
   "description": "Internationalization support for http module",
   "main": "lib/index.js",
   "private": false,
@@ -47,7 +47,7 @@
     "@spinajs/reflection": "^2.0.19"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.19"
+    "@spinajs/orm-sqlite": "^2.0.20"
   },
   "gitHead": "48eeb6c14c6138f4717ad574efab7961ab4fbb83"
 }
