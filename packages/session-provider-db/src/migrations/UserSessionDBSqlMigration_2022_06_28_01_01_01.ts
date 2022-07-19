@@ -6,7 +6,7 @@ export class UserSessionDBSqlMigration_2022_06_28_01_01_01 extends OrmMigration 
     await connection.schema().createTable('user_sessions', (table) => {
       table.string('SessionId', 255).primaryKey().notNull();
       table.date('CreatedAt').notNull();
-      table.date('Expiration').notNull();
+      table.date('Expiration');
       table.text('Data').notNull();
     });
 
