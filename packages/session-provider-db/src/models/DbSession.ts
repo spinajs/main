@@ -5,7 +5,7 @@ import { DateTime } from 'luxon';
 @Model('user_sessions')
 export class DbSession extends ModelBase {
   @Primary()
-  public Id: string;
+  public SessionId: string;
 
   @CreatedAt()
   public CreatedAt: DateTime;

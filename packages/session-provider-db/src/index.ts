@@ -18,7 +18,7 @@ export class DbSessionStore extends SessionProvider {
 
   public async restore(sessionId: string): Promise<Session> {
     const session = await DbSession.where({
-      Id: sessionId,
+      SessionId: sessionId,
     }).first();
 
     if (!session) {

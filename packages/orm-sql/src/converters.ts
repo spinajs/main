@@ -18,6 +18,10 @@ export class SqlSetConverter implements IValueConverter {
 
 export class SqlDatetimeValueConverter extends DatetimeValueConverter {
   public toDB(value: Date | DateTime) {
+    if (!value) {
+      return null;
+    }
+
     if (value.constructor.name === 'Date') {
       return (value as Date).toISOString();
     }
