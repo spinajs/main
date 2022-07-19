@@ -12,11 +12,7 @@ export class MySqlTableExistsCompiler implements TableExistsCompiler {
   public compile(): ICompilerOutput {
     return {
       bindings: [this.builder.Database, this.builder.Table],
-      expression: `SELECT * 
-      FROM information_schema.tables
-      WHERE table_schema = ? 
-          AND table_name = ?
-      LIMIT 1;`,
+      expression: `SELECT * FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;`,
     };
   }
 }

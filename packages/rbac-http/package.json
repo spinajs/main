@@ -46,6 +46,7 @@
     "@spinajs/orm-http": "^2.0.15",
     "@spinajs/rbac": "^2.0.14",
     "@spinajs/reflection": "^2.0.14",
+    "@spinajs/http": "^2.0.14",
     "accesscontrol": "^2.2.1",
     "luxon": "^2.4.0"
   },

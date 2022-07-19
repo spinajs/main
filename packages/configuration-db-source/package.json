@@ -35,6 +35,10 @@
   "bugs": {
     "url": "https://github.com/spinajs/main/issues"
   },
+  "devDependencies": {
+    "@types/luxon": "^2.3.0",
+    "@types/lodash": "^4.14.182"
+  },
   "dependencies": {
     "@spinajs/configuration-common": "^2.0.12",
     "@spinajs/di": "^2.0.12",

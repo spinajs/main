@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 
-@Migration('mssql')
+@Migration('mysql')
 export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('user_test', (table) => {

@@ -5,8 +5,8 @@ import { Fields, Files, File, IncomingForm } from 'formidable';
 import { Configuration } from '@spinajs/configuration';
 import { isFunction } from 'lodash';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
-import { parse } from '@fast-csv/parse';
 import * as fs from 'fs';
+import { parse } from "csv";
 
 interface FormData {
   Fields: Fields;
@@ -184,7 +184,7 @@ export class CsvFileRouteArgs extends FromFile {
       fs.promises.unlink(sourceFile);
     }
 
-    const data = await this.parseCvs(sourceFile, param.Options);
+    const data = await this.parseCvs(sourceFile);
 
     return {
       CallData: {
@@ -197,11 +197,12 @@ export class CsvFileRouteArgs extends FromFile {
     };
   }
 
-  protected async parseCvs(path: string, options: any) {
+  protected async parseCvs(path: string) {
     const data: any[] = [];
+ 
     return new Promise((res, rej) => {
       fs.createReadStream(path)
-        .pipe(parse(options))
+        .pipe(parse())
         .on('error', (err: any) => rej(err))
         .on('data', (row: any) => data.push(row))
         .on('end', () => res(data));

@@ -40,7 +40,10 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@types/node": "^16.11.44"
+    "@types/node": "^16.11.44",
+    "@types/lodash": "4.14.182",
+    "@types/luxon": "2.4.0",
+    "@types/uuid": "8.3.4"
   },
   "dependencies": {
     "@spinajs/configuration": "^2.0.12",

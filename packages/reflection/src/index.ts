@@ -60,7 +60,7 @@ export class TypescriptCompiler {
    *
    * @param className - name of class to parse
    */
-  public getClassMembers(className: string) {
+  public getClassMembers(className: string) : Map<string, any> {
     const members: Map<string, ts.MethodDeclaration> = new Map<string, ts.MethodDeclaration>();
 
     const sourceFile = this.compiled.getSourceFile(this.tsFile);
@@ -182,9 +182,10 @@ function _listOrResolveFromFiles(
             logger.warn(`Directory ${d} not exists`);
           }
 
+       
           return exists;
         })
-        .flatMap((d: string) => glob.sync(path.join(d, filter)))
+        .flatMap((d: string) => glob.sync(path.join(d, filter).replace(/\\/g, '/')))
         .flatMap((f: string) => {
           logger.trace(`Loading file ${f}`);
 

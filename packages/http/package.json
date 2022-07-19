@@ -62,7 +62,6 @@
     "cookie-signature": "^1.1.0",
     "cors": "^2.8.5",
     "express": "^4.17.1",
-    "fast-csv": "4.3.2",
     "formidable": "^2.0.1",
     "glob": "^7.1.4",
     "helmet": "^3.23.0",
@@ -72,7 +71,8 @@
     "pug": "^3.0.0",
     "randomstring": "^1.1.5",
     "tempfile": "3.0.0",
-    "uuid": "^8.3.2"
+    "uuid": "^8.3.2",
+    "csv": "^6.2.0"
   },
   "gitHead": "7c1d1b2520b5417f96f52de512d7fb816d86d1b0"
 }
