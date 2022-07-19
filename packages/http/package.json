@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http",
-  "version": "2.0.18",
+  "version": "2.0.19",
   "description": "framework HTTP module base on express.js",
   "main": "lib/index.js",
   "private": false,
@@ -50,13 +50,13 @@
     "@types/uuid": "^8.3.3"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.18",
-    "@spinajs/di": "^2.0.18",
+    "@spinajs/configuration": "^2.0.19",
+    "@spinajs/di": "^2.0.19",
     "@spinajs/exceptions": "^2.0.12",
-    "@spinajs/internal-logger": "^2.0.18",
-    "@spinajs/log": "^2.0.18",
-    "@spinajs/reflection": "^2.0.18",
-    "@spinajs/validation": "^2.0.18",
+    "@spinajs/internal-logger": "^2.0.19",
+    "@spinajs/log": "^2.0.19",
+    "@spinajs/reflection": "^2.0.19",
+    "@spinajs/validation": "^2.0.19",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.5",
     "cookie-signature": "^1.1.0",
