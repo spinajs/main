@@ -1,0 +1,44 @@
+{
+  "name": "@spinajs/cli",
+  "version": "2.0.19",
+  "description": "SpinaJS reflection helpers",
+  "main": "lib/index.js",
+  "private": false,
+  "scripts": {
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -p tsconfig.build.json",
+    "clean": "",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.js --ext .ts src",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/reflection/issues"
+  },
+  "homepage": "https://github.com/spinajs/reflection#readme",
+  "dependencies": {
+    "@spinajs/configuration": "^2.0.19",
+    "@spinajs/di": "^2.0.19",
+    "@spinajs/exceptions": "^2.0.12",
+    "@spinajs/log": "^2.0.19",
+    "@spinajs/reflection" : "^2.0.19",
+    "commander": "9.4.0",
+    "reflect-metadata": "^0.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.11"
+  },
+  "gitHead": "48eeb6c14c6138f4717ad574efab7961ab4fbb83"
+}
