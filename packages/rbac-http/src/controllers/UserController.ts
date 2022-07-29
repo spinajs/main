@@ -7,6 +7,8 @@ import { Permission, User, Resource } from '../decorators';
 import { Config } from '@spinajs/configuration';
 import * as cs from 'cookie-signature';
 import _ from 'lodash';
+import { Post } from 'http/lib';
+import { LoginDto } from 'rbac-http/lib/dto/login-dto';
 
 @BasePath('user')
 @Resource('user')
@@ -25,6 +27,7 @@ export class UserController extends BaseController {
   public async refresh(@User() user: UserModel, @Cookie() ssid: string) {
     // get user data from db
     await user.refresh();
+    await user.Metadata.populate();
 
     // refresh session data from DB
     const sId: string | false = cs.unsign(ssid, this.CoockieSecret);
@@ -38,6 +41,9 @@ export class UserController extends BaseController {
     return new Ok(_.omit(user.dehydrate(), ['Id']));
   }
 
+  @Post('password/restore')
+  public async restorePassword(@Body() _login: LoginDto) {}
+
   @Patch('/password/:login')
   public async newPassword(@Param() login: string, @Body() pwd: PasswordDto) {
     if (pwd.Password !== pwd.ConfirmPassword) {
@@ -48,7 +54,7 @@ export class UserController extends BaseController {
     const isValid = await this.PasswordProvider.verify(user.Password, pwd.OldPassword);
 
     if (!isValid) {
-      throw new Forbidden('Invalid login or password');
+      throw new Forbidden('old password do not match');
     }
 
     const hashedPassword = await this.PasswordProvider.hash(pwd.Password);

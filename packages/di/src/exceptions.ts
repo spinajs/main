@@ -12,3 +12,8 @@ export class ResolveException extends Error {
 }
 
 export class BindException extends Error {}
+
+/**
+ * Service is not registered in DI container
+ */
+export class ServiceNotFound extends Error {}

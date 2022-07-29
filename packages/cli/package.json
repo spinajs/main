@@ -22,6 +22,9 @@
   "files": [
     "lib/**/*"
   ],
+  "bin": {
+    "spinajs": "./lib/cli.js"
+  },
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
   "license": "MIT",
   "bugs": {
@@ -33,7 +36,7 @@
     "@spinajs/di": "^2.0.19",
     "@spinajs/exceptions": "^2.0.12",
     "@spinajs/log": "^2.0.19",
-    "@spinajs/reflection" : "^2.0.19",
+    "@spinajs/reflection": "^2.0.19",
     "commander": "9.4.0",
     "reflect-metadata": "^0.1.13"
   },

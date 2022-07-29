@@ -11,6 +11,17 @@ module.exports = {
       views: [dir('./../views')],
     },
   },
+  rbac: {
+    twoFactorAuth: {
+      enabled: true,
+      service: 'google-auth-2fa',
+    },
+    fingerprint: {
+      enabled: true,
+      maxDevices: 3,
+      service: 'fingerprintjs',
+    },
+  },
   http: {
     middlewares: [
       // add global user from session middleware

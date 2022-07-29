@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata';
 
 /**
- * Base modele for users used by ACL
+ * Base model for users used by auth and ACL system
  *
  * To add / extend fields simply extend this model and register as default user model in ACL service
  */

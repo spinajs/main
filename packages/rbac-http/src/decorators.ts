@@ -1,6 +1,6 @@
 import { IRbacDescriptor, IRbacRoutePermissionDescriptor, PermissionType } from './interfaces';
 import { Parameter, Policy, Route } from '@spinajs/http';
-import { RbacPolicy } from './policies';
+import { RbacPolicy } from './policies/RbacPolicy';
 
 export const ACL_CONTROLLER_DESCRIPTOR = Symbol('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
 

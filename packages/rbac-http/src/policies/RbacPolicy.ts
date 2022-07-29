@@ -1,11 +1,14 @@
 import { AccessControl, Permission } from 'accesscontrol';
 import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
-import { ACL_CONTROLLER_DESCRIPTOR } from './decorators';
-import { IRbacDescriptor } from './interfaces';
+import { ACL_CONTROLLER_DESCRIPTOR } from '../decorators';
+import { IRbacDescriptor } from '../interfaces';
 import { DI } from '@spinajs/di';
 import { User } from '@spinajs/rbac';
 
+/**
+ * Checks if user is logged, authorized & have proper permissions
+ */
 export class RbacPolicy extends BasePolicy {
   protected Ac: AccessControl;
 
@@ -33,8 +36,8 @@ export class RbacPolicy extends BasePolicy {
       throw new Forbidden(`no route permission or resources assigned`);
     }
 
-    if (!req.storage || !req.storage.user) {
-      throw new Forbidden('user not logger or session expired');
+    if (!req.storage || !req.storage.user || !req.storage.session.Data.get('Authorized')) {
+      throw new Forbidden('user not logged or session expired');
     }
 
     if (!checkRoutePermission(req, descriptor.Resource, permission).granted) {

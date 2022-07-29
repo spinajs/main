@@ -1,18 +1,16 @@
 import { Schema } from '@spinajs/validation';
-
-export const LoginDtoSchema = {
+export const TokenDtoSchema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
-  title: 'login DTO',
+  title: 'Token DTO',
   type: 'object',
   properties: {
-    Login: { type: 'string', format: 'email' },
+    Token: { type: 'string', maxLength: 64 },
   },
-  required: ['Email'],
 };
 
-@Schema(LoginDtoSchema)
-export class UserLoginDto {
-  public Email: string;
+@Schema(TokenDtoSchema)
+export class TokenDto {
+  public Token: string;
 
   constructor(data: any) {
     Object.assign(this, data);
