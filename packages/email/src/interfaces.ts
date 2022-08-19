@@ -1,8 +1,8 @@
-export interface EmailRenderer {
-  render(template: string, model: unknown): Promise<string>;
-}
+export abstract class EmailSender {
+  abstract get Type(): string;
 
-export interface EmailSender {}
+  abstract send(email: Email): Promise<void>;
+}
 
 export interface Email {
   mailTo: string[];
