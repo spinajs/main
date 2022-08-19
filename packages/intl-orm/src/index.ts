@@ -1,10 +1,9 @@
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation } from '@spinajs/orm';
-import { TranslationSource } from '@spinajs/intl';
+import { TranslationSource, guessLanguage, defaultLanguage } from '@spinajs/intl';
 import _ from 'lodash';
 import { IntlTranslation } from './models/IntlTranslation';
 import { IntlResource } from './models/IntlResource';
-import { guessLanguage } from './language';
 import { Configuration } from '@spinajs/configuration';
 
 export * from './decorators';
@@ -153,9 +152,9 @@ export class IntlQueryMiddleware extends QueryMiddleware {
   afterQueryCreation(builder: QueryBuilder) {
     if (builder instanceof SelectQueryBuilder && !builder.translated) {
       const lang = guessLanguage();
-      const defaultLanguage = DI.get(Configuration).get<string>('intl.defaultLocale');
+      const dLang = defaultLanguage();
 
-      if (lang && defaultLanguage !== lang) {
+      if (lang && dLang !== lang) {
         builder.translate(lang);
       }
     }

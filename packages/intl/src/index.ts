@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Injectable, AsyncModule, Autoinject, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
@@ -298,3 +299,73 @@ globalAny.__l = (text: string) => {
 globalAny.__h = (text: string) => {
   return DI.get<Intl>(Intl).__h(text);
 };
+
+/**
+ *  Helper function for translations ( eg. for use as in template rentering engines)
+ */
+
+export function __translate(lang: string) {
+  return (text: string | IPhraseWithOptions, ...args: any[]) => {
+    const intl = DI.get<Intl>(Intl);
+    if (typeof text === 'string') {
+      return intl.__(
+        {
+          phrase: text,
+          locale: lang,
+        },
+        ...args,
+      );
+    }
+
+    return intl.__(text, ...args);
+  };
+}
+
+export function __translateNumber(lang: string) {
+  return (text: string | IPhraseWithOptions, count: number) => {
+    const intl = DI.get<Intl>(Intl);
+    if (typeof text === 'string') {
+      return intl.__n(
+        {
+          phrase: text,
+          locale: lang,
+        },
+        count,
+      );
+    }
+
+    return intl.__n(text, count);
+  };
+}
+
+export function __translateL(text: string) {
+  const intl = DI.get<Intl>(Intl);
+  return intl.__l(text);
+}
+export function __translateH(text: string) {
+  const intl = DI.get<Intl>(Intl);
+  return intl.__h(text);
+}
+
+export function guessLanguage(lang?: string) {
+  let selectedLang = lang;
+  if (!selectedLang) {
+    const store = DI.get(AsyncLocalStorage);
+    if (store) {
+      const storage = DI.get(AsyncLocalStorage).getStore() as IIntlAsyncStorage;
+      if (!storage || !storage.language) {
+        selectedLang = DI.get(Configuration).get<string>('intl.defaultLocale');
+      } else {
+        selectedLang = storage.language;
+      }
+    } else {
+      selectedLang = DI.get(Configuration).get<string>('intl.defaultLocale');
+    }
+  }
+
+  return selectedLang;
+}
+
+export function defaultLanguage() {
+  return DI.get(Configuration).get<string>('intl.defaultLocale');
+}

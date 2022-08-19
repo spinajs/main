@@ -1,11 +1,11 @@
-# `http`
+# `email`
 
 > TODO: description
 
 ## Usage
 
 ```
-const http = require('http');
+const email = require('email');
 
 // TODO: DEMONSTRATE API
 ```

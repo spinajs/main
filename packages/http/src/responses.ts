@@ -1,15 +1,14 @@
+import { ServerError } from './response-methods/serverError';
 import * as express from 'express';
 import { HTTP_STATUS_CODE, HttpAcceptHeaders, DataTransformer } from './interfaces';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { ILog, Log } from '@spinajs/log';
-import * as pugTemplate from 'pug';
-import { join, normalize } from 'path';
-import * as fs from 'fs';
+import { extname } from 'path';
 import * as _ from 'lodash';
-import { IOFail } from '@spinajs/exceptions';
 import * as randomstring from 'randomstring';
-import { Intl, IPhraseWithOptions } from '@spinajs/intl';
+import { __translate, __translateH, __translateL, __translateNumber } from '@spinajs/intl';
+import { TemplateRenderer } from '@spinajs/templates';
 
 export type ResponseFunction = (req: express.Request, res: express.Response) => void;
 
@@ -58,49 +57,6 @@ export function textResponse(model: any, status?: HTTP_STATUS_CODE) {
   };
 }
 
-const __translate = (lang: string) => {
-  return (text: string | IPhraseWithOptions, ...args: any[]) => {
-    const intl = DI.get<Intl>(Intl);
-    if (typeof text === 'string') {
-      return intl.__(
-        {
-          phrase: text,
-          locale: lang,
-        },
-        ...args,
-      );
-    }
-
-    return intl.__(text, ...args);
-  };
-};
-
-const __translateNumber = (lang: string) => {
-  return (text: string | IPhraseWithOptions, count: number) => {
-    const intl = DI.get<Intl>(Intl);
-    if (typeof text === 'string') {
-      return intl.__n(
-        {
-          phrase: text,
-          locale: lang,
-        },
-        count,
-      );
-    }
-
-    return intl.__n(text, count);
-  };
-};
-
-const __translateL = (text: string) => {
-  const intl = DI.get<Intl>(Intl);
-  return intl.__l(text);
-};
-const __translateH = (text: string) => {
-  const intl = DI.get<Intl>(Intl);
-  return intl.__h(text);
-};
-
 /**
  * Sends html response & sets proper header. If template is not avaible, handles proper error rendering.
  *
@@ -108,7 +64,7 @@ const __translateH = (text: string) => {
  * @param model - data passed to template
  * @param status - optional status code
  */
-export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE) {
+export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE) {
   const cfg: Configuration = DI.get(Configuration);
 
   return (req: express.Request, res: express.Response) => {
@@ -134,7 +90,7 @@ export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE)
       } catch (err) {
         const log: ILog = DI.resolve(Log, ['http']);
 
-        log.warn(`Cannot render pug file ${file}, error: ${err.message}:${err.stack}`, err);
+        log.warn(`Cannot render html file ${file}, error: ${err.message}:${err.stack}`, err);
 
         // try to render server error response
         _render('responses/serverError.pug', { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR);
@@ -152,36 +108,17 @@ export function pugResponse(file: string, model: any, status?: HTTP_STATUS_CODE)
     }
 
     function _render(f: string, m: any, c: HTTP_STATUS_CODE) {
-      const view = getView(f);
-      const language: string = req.query[cfg.get<string>('intl.queryParameter')] as any;
+      const engines = DI.get(Array.ofType(TemplateRenderer));
+      const engine = engines.find((e) => e.Extension === extname(f));
 
-      const content = pugTemplate.renderFile(
-        view,
-        _.merge(m, {
-          // add i18n functions as globals
-          __: __translate(language),
-          __n: __translateNumber(language),
-          __l: __translateL,
-          __h: __translateH,
-        }),
-      );
+      if (!engine) {
+        throw new ServerError(`Cannot find template engine for file ${f}`);
+      }
+
+      const content = engine.render(f, m);
 
       res.status(c ? c : HTTP_STATUS_CODE.OK);
       res.send(content);
-    }
-
-    function getView(viewFile: string) {
-      const views = cfg
-        .get<string[]>('system.dirs.views')
-        .map((p) => normalize(join(p, viewFile)))
-        .filter((f) => fs.existsSync(f));
-
-      if (_.isEmpty(views)) {
-        throw new IOFail(`View file ${viewFile} not exists.`);
-      }
-
-      // return last merged path, eg. if application have own view files (override standard views)
-      return views[views.length - 1];
     }
   };
 }
@@ -201,7 +138,7 @@ export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: strin
   const transformers = DI.resolve(Array.ofType(DataTransformer));
   return (req: express.Request, res: express.Response) => {
     if (req.accepts('html') && (acceptedHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
-      pugResponse(`${template}.pug`, model, code)(req, res);
+      htmlResponse(`${template}.pug`, model, code)(req, res);
     } else if (req.accepts('json') && (acceptedHeaders & HttpAcceptHeaders.JSON) === HttpAcceptHeaders.JSON) {
       if (req.headers['x-data-transform']) {
         const transformer = transformers.find((t) => t.Type === req.headers['x-data-transform']);
