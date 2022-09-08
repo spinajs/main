@@ -43,17 +43,6 @@ export class PugRenderer extends TemplateRenderer {
       throw new InvalidArgument('template parameter cannot be null or empty');
     }
 
-    if (!this.Templates.has(template)) {
-      this.Log.trace(`Template ${template} is used first time, compiling template ...`);
-
-      const tFile = this.TemplateFiles.find((f) => f.endsWith(template));
-      if (!tFile) {
-        throw new IOFail(`Template file ${template} not exists`);
-      }
-
-      this.Templates.set(template, pugTemplate.compileFile(tFile, this.Options));
-    }
-
     const fTemplate = this.Templates.get(template);
 
     const lang = language ? language : guessLanguage();
@@ -72,5 +61,15 @@ export class PugRenderer extends TemplateRenderer {
     this.Log.trace(`Rendering template ${template} ended, (${time} ms)`);
 
     return Promise.resolve(content);
+  }
+
+  protected async compile(templateName: string, path: string) {
+    const tCompiled = pugTemplate.compileFile(path, this.Options);
+
+    if (!tCompiled) {
+      throw new IOFail(`Cannot compile handlebars template ${templateName} from path ${path}`);
+    }
+
+    this.Templates.set(templateName, tCompiled);
   }
 }

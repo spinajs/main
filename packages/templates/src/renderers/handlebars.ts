@@ -1,5 +1,6 @@
+import { IOFail } from './../../../exceptions/src/index';
 import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
-import { IOFail, InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
 import * as fs from 'fs';
 import * as path from 'path';
 import _ from 'lodash';
@@ -38,27 +39,15 @@ export class HandlebarsRenderer extends TemplateRenderer {
     fs.writeFileSync(filePath, content);
   }
 
-  public async render(template: string, model: unknown, language?: string): Promise<string> {
-    this.Log.trace(`Rendering template ${template}`);
-    this.Log.timeStart(`HandlebarTemplate${template}`);
+  public async render(templatePath: string, model: unknown, language?: string): Promise<string> {
+    this.Log.trace(`Rendering template ${templatePath}`);
+    this.Log.timeStart(`HandlebarTemplate${templatePath}`);
 
-    if (!template) {
+    if (!templatePath) {
       throw new InvalidArgument('template parameter cannot be null or empty');
     }
 
-    if (!this.Templates.has(template)) {
-      this.Log.trace(`Template ${template} is used first time, compiling template ...`);
-
-      const tFile = this.TemplateFiles.find((f) => f.endsWith(template));
-      if (!tFile) {
-        throw new IOFail(`Template file ${template} not exists`);
-      }
-
-      const cTemplate = fs.readFileSync(tFile);
-      this.Templates.set(template, Handlebars.compile(cTemplate, this.Options));
-    }
-
-    const fTemplate = this.Templates.get(template);
+    const fTemplate = this.Templates.get(templatePath);
 
     const lang = language ? language : guessLanguage();
     const tLang = lang ?? defaultLanguage();
@@ -72,9 +61,20 @@ export class HandlebarsRenderer extends TemplateRenderer {
       }),
     );
 
-    const time = this.Log.timeEnd(`HandlebarTemplate${template}`);
-    this.Log.trace(`Rendering template ${template} ended, (${time} ms)`);
+    const time = this.Log.timeEnd(`HandlebarTemplate-${templatePath}`);
+    this.Log.trace(`Rendering template ${templatePath} ended, (${time} ms)`);
 
     return Promise.resolve(content);
+  }
+
+  protected async compile(templateName: string, path: string): Promise<void> {
+    const tContent = fs.readFileSync(path);
+    const tCompiled = Handlebars.compile(tContent, this.Options);
+
+    if (!tCompiled) {
+      throw new IOFail(`Cannot compile handlebars template ${templateName} from path ${path}`);
+    }
+
+    this.Templates.set(templateName, tCompiled);
   }
 }

@@ -18,6 +18,20 @@
         {
             "type": "node",
             "request": "launch",
+            "name": "TEMPLATES test",
+            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+            "args": [
+                "-r",
+                "ts-node/register",
+                "--timeout",
+                "999999",
+                "--colors",
+                "${workspaceFolder}/packages/templates/test/**/*.ts",
+            ],
+        },
+        {
+            "type": "node",
+            "request": "launch",
             "name": "CONF-COMMON test",
             "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
             "args": [
