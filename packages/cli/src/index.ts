@@ -1,13 +1,9 @@
-import { IArgument, ICommand, IOption } from './interfaces';
-import { META_COMMAND, META_OPTION } from './decorators';
+import { CliCommand, IArgument, ICommand, IOption } from './interfaces';
+import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators';
 import { AsyncModule } from '@spinajs/di';
 import { Logger, ILog } from '@spinajs/log';
 import { ResolveFromFiles, ClassInfo } from '@spinajs/reflection';
 import { Command } from 'commander';
-
-export abstract class CliCommand extends AsyncModule {
-  public abstract execute(...args: any[]): Promise<void>;
-}
 
 export class Cli extends AsyncModule {
   @Logger('spinajs-cli')
@@ -24,12 +20,16 @@ export class Cli extends AsyncModule {
 
       const cMeta = Reflect.getMetadata(META_COMMAND, command.type as object) as ICommand;
       const oMeta = Reflect.getMetadata(META_OPTION, command.type as object) as IOption[];
-      const aMeta = Reflect.getMetadata(META_OPTION, command.type as object) as IArgument[];
+      const aMeta = Reflect.getMetadata(META_ARGUMENT, command.type as object) as IArgument[];
 
       const c = this.Program.command(cMeta.nameAndArgs, cMeta.description, cMeta.opts);
 
       oMeta.forEach((o) => {
-        c.option(o.flags, o.description, o.defaultValue);
+        if (o.required) {
+          c.requiredOption(o.flags, o.description, o.defaultValue);
+        } else {
+          c.option(o.flags, o.description, o.defaultValue);
+        }
       });
 
       aMeta.forEach((a) => {

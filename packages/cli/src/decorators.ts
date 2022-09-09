@@ -17,12 +17,26 @@ export function Command(nameAndArgs: string, description: string, opts?: Command
   };
 }
 
-export function Option(flags: string, description?: string, defaultValue?: string | boolean | string[]) {
+/**
+ * Options provided for command. Option contain name and argument
+ * eg. test-command -p 80
+ * @param flags - short flag (single character) and a long name, separated by a comma or space or vertical bar ('|').
+ * @param required - if options is required for command
+ * @param description - short description for option
+ * @param defaultValue - default value if none provided
+ */
+export function Option(
+  flags: string,
+  required?: boolean,
+  description?: string,
+  defaultValue?: string | boolean | string[],
+) {
   return function (target: object) {
     const arg = {
       flags,
       description,
       defaultValue,
+      required,
     };
     let args: IOption[] = [];
 
@@ -35,6 +49,15 @@ export function Option(flags: string, description?: string, defaultValue?: strin
   };
 }
 
+/**
+ * Command argument
+ * eg. @Argument('<first>', 'integer argument')
+ *
+ * @param name - short description argument name
+ * @param description - short arg description
+ * @param defaultValue - default value
+ * @returns
+ */
 export function Argument(name: string, description?: string, defaultValue?: unknown) {
   return function (target: object) {
     const arg = {
