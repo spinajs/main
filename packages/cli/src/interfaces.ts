@@ -1,5 +1,5 @@
 import { AsyncModule } from '@spinajs/di';
-import { CommandOptions } from 'commander';
+import { Command, CommandOptions } from 'commander';
 
 export interface ICommand {
   nameAndArgs: string;
@@ -12,6 +12,7 @@ export interface IOption {
   description?: string;
   defaultValue?: string | boolean | string[];
   required?: boolean;
+  parser?: (opt: string) => unknown;
 }
 
 export interface IArgument {
@@ -19,6 +20,7 @@ export interface IArgument {
   description?: string;
   defaultValue?: unknown;
   required?: boolean;
+  parser?: (opt: string) => unknown;
 }
 
 /**
@@ -36,4 +38,16 @@ export abstract class CliCommand extends AsyncModule {
    * @param args - args passed from cli
    */
   public abstract execute(...args: any[]): Promise<void>;
+
+  /**
+   * Executed on command creation, used when you need to
+   * use advanced stuff from commander lib
+   *
+   * Decorators provide only basic command args & options declarations,
+   * and are used only for simle use cases
+   *
+   * @param c - commander command object
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-function
+  public onCreation(_command: Command): void {}
 }

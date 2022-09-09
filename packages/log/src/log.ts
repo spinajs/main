@@ -1,3 +1,4 @@
+import { InvalidOperation } from "./../../exceptions/src/index";
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
@@ -156,7 +157,15 @@ export class Log extends SyncModule implements ILog {
 
   public write(entry: ILogEntry) {
     if (entry.Variables.logger === this.Name) {
-      return Promise.allSettled(this.Targets.filter((t) => entry.Level >= StrToLogLevel[t.rule.level]).map((t) => t.instance.write(entry)));
+      return Promise.allSettled(
+        this.Targets.filter((t) => entry.Level >= StrToLogLevel[t.rule.level]).map((t) => {
+          if (!t.instance) {
+            throw new InvalidOperation(`Target for rule ${t.rule.name} not exists`);
+          }
+
+          t.instance.write(entry);
+        })
+      );
     }
   }
 

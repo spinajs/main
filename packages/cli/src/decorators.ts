@@ -24,7 +24,7 @@ export function Command(nameAndArgs: string, description: string, opts?: Command
       opts,
     };
 
-    Reflect.defineMetadata(META_COMMAND, target, arg);
+    Reflect.defineMetadata(META_COMMAND, arg, target);
   };
 }
 
@@ -35,12 +35,15 @@ export function Command(nameAndArgs: string, description: string, opts?: Command
  * @param required - if options is required for command
  * @param description - short description for option
  * @param defaultValue - default value if none provided
+ * @param parser - callback function for parsing value
+ *
  */
 export function Option(
   flags: string,
   required?: boolean,
   description?: string,
-  defaultValue?: string | boolean | string[],
+  defaultValue?: any,
+  parser?: (opt: string) => unknown,
 ) {
   return function (target: object) {
     const arg = {
@@ -48,6 +51,7 @@ export function Option(
       description,
       defaultValue,
       required,
+      parser,
     };
     let args: IOption[] = [];
 
@@ -56,7 +60,7 @@ export function Option(
     }
     args.push(arg);
 
-    Reflect.defineMetadata(META_OPTION, target, args);
+    Reflect.defineMetadata(META_OPTION, args, target);
   };
 }
 
@@ -67,14 +71,16 @@ export function Option(
  * @param name - short description argument name
  * @param description - short arg description
  * @param defaultValue - default value
+ * @param parser - callback function for parsing value
  * @returns
  */
-export function Argument(name: string, description?: string, defaultValue?: unknown) {
+export function Argument(name: string, description?: string, defaultValue?: any, parser?: (opt: string) => unknown) {
   return function (target: object) {
     const arg = {
       name,
       description,
       defaultValue,
+      parser,
     };
     let args: IArgument[] = [];
 
@@ -83,6 +89,6 @@ export function Argument(name: string, description?: string, defaultValue?: unkn
     }
     args.push(arg);
 
-    Reflect.defineMetadata(META_ARGUMENT, target, args);
+    Reflect.defineMetadata(META_ARGUMENT, args, target);
   };
 }
