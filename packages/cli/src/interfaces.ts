@@ -21,6 +21,19 @@ export interface IArgument {
   required?: boolean;
 }
 
+/**
+ * Wrapper class for commander  https://github.com/tj/commander.js
+ * To declare opions & arguments use decorators. This class is resolved
+ * when cli module is created.
+ *
+ * It allows to use all features that spinajs provides eg. DI, logging, intl support etc.
+ * inside command functions without hassle.
+ */
 export abstract class CliCommand extends AsyncModule {
+  /**
+   * Function executed when command is running
+   *
+   * @param args - args passed from cli
+   */
   public abstract execute(...args: any[]): Promise<void>;
 }

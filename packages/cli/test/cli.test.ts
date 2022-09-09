@@ -59,7 +59,15 @@ describe('Commands', () => {
     await DI.resolve(Configuration);
   });
 
-  it('Should run command with arg and options', async () => {});
+  it('Should run command with arg and options', async () => {
+    // fake argv params
+    process.argv = ['', '', 'test-command', 'userLogin', 'userPassword', '-t', '10000'];
+    await c();
+  });
 
-  it('Should fail when command not exists', async () => {});
+  it('Should fail when command not exists', async () => {
+    // fake argv params
+    process.argv = ['', '', 'nonExisting'];
+    await c();
+  });
 });

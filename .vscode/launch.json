@@ -1,265 +1,145 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "DI test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/di/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "TEMPLATES test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/templates/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "CONF-COMMON test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/configuration-common/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "ORM HTTP test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/orm-http/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "INTL-ORM test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/intl-orm/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "ORM_SQL test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/orm-sql/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "INTL test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/intl/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "RBAC test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/rbac/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "HTTP test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/http/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "ORM_SQLITE test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/orm-sqlite/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "ORM_MSSQL test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/orm-mssql/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "ORM_MYSQL test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/orm-mysql/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "ORM test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/orm/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "EXCEPTIONS test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "--inspect-brk",
-                "-u",
-                "tdd",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/exceptions/spine/test"
-            ],
-            "internalConsoleOptions": "openOnSessionStart"
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "CONFIGURATION test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/configuration/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "LOG test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/log/test/**/*.ts",
-            ],
-            "env": {
-                "NODE_ENV": "development"
-            }
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "REFLECTION tests",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/reflection/test/**/*.ts",
-            ],
-        },
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "VALIDATION test",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-            "args": [
-                "-r",
-                "ts-node/register",
-                "--timeout",
-                "999999",
-                "--colors",
-                "${workspaceFolder}/packages/validation/test/**/*.ts",
-            ],
-            "env": {
-                "NODE_ENV": "development"
-            }
-        },
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "DI test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/di/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "CLI test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/cli/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "TEMPLATES test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/templates/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "CONF-COMMON test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/configuration-common/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "ORM HTTP test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm-http/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "INTL-ORM test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/intl-orm/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "ORM_SQL test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm-sql/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "INTL test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/intl/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "RBAC test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/rbac/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "HTTP test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/http/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "ORM_SQLITE test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm-sqlite/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "ORM_MSSQL test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm-mssql/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "ORM_MYSQL test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm-mysql/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "ORM test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "EXCEPTIONS test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["--inspect-brk", "-u", "tdd", "--timeout", "999999", "--colors", "${workspaceFolder}/exceptions/spine/test"],
+      "internalConsoleOptions": "openOnSessionStart"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "CONFIGURATION test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/configuration/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "LOG test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/log/test/**/*.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "REFLECTION tests",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/reflection/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "VALIDATION test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/validation/test/**/*.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    }
+  ]
 }

@@ -5,6 +5,17 @@ export const META_COMMAND = 'cli:command';
 export const META_ARGUMENT = 'cli:argument';
 export const META_OPTION = 'cli:options';
 
+/**
+ * Cli command, wrapper for lib commander. For more docs on command options & args check
+ * https://github.com/tj/commander.js
+ *
+ * It allows to use all features that spinajs provides eg. DI, logging, intl support etc.
+ * inside command functions without hassle.
+ *
+ * @param nameAndArgs - name of command with optional args defined
+ * @param description  - short description
+ * @param opts - additional options, see https://github.com/tj/commander.js
+ */
 export function Command(nameAndArgs: string, description: string, opts?: CommandOptions) {
   return function (target: object) {
     const arg = {
@@ -51,7 +62,7 @@ export function Option(
 
 /**
  * Command argument
- * eg. @Argument('<first>', 'integer argument')
+ * eg. \@Argument('<first>', 'integer argument')
  *
  * @param name - short description argument name
  * @param description - short arg description
