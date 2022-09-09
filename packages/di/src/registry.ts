@@ -31,7 +31,12 @@ export class Registry {
       const tname = getTypeName(name);
       const value = this.registry.get(tname);
       if (value) {
-        if (!value.find((v) => getTypeName(v) === getTypeName(type))) {
+        // factory functions, we always add to registry
+        // its impossible to check for duplicates
+        // all would return 'Function' type
+        if (isFactory(type)) {
+          value.push(type);
+        } else if (!value.find((v) => getTypeName(v) === getTypeName(type))) {
           value.push(type);
         }
       } else {

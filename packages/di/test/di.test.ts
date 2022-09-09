@@ -616,6 +616,14 @@ describe('Dependency injection', () => {
     expect(child).to.be.not.null;
   });
 
+  it('Should override factory func', () => {
+    DI.register(() => 'Foo').as('_factory_');
+    DI.register(() => 'Bar').as('_factory_');
+
+    const result = DI.resolve<string>('_factory_');
+    expect(result).to.eq('Bar');
+  });
+
   it('Should check if registered', () => {
     @Injectable()
     class FooBar {}
