@@ -10,7 +10,7 @@ DI.register(() => {
 }).as('__cli_argv_provider__');
 
 export class Cli extends AsyncModule {
-  @Logger('spinajs-cli')
+  @Logger('CLI')
   protected Log: ILog;
 
   @ResolveFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')
