@@ -27,6 +27,12 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
+        intl: {
+          defaultLocale: 'pl',
+
+          // supported locales
+          locales: ['en'],
+        },
         logger: {
           targets: [
             {
@@ -40,6 +46,7 @@ export class ConnectionConf extends FrameworkConfiguration {
         },
         system: {
           dirs: {
+            locales: [dir('./lang')],
             templates: [dir('./templates'), dir('templates_2')],
           },
         },
@@ -57,59 +64,61 @@ describe('templates', () => {
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
+    await DI.resolve(Configuration);
   });
 
   it('should render pug', async () => {
     const t = await tp();
-    const result = await t.render('templates/pug/template.pug', { hello: 'world' });
+    const result = await t.render('pug/template.pug', { hello: 'world' });
 
-    expect(result).to.eq('hello world');
+    expect(result).to.eq('<p>hello world</p>');
   });
 
   it('should render handlebar', async () => {
     const t = await tp();
-    const result = await t.render('templates/handlebars/template.handlebars', { hello: 'world' });
+    const result = await t.render('handlebars/template.handlebars', { hello: 'world' });
 
     expect(result).to.eq('hello world');
   });
 
   it('should render pug with lang', async () => {
     const t = await tp();
-    const result = await t.render('templates/pug/template.pug', { hello: 'world' }, 'en_US');
+    const result = await t.render('pug/template.pug', { hello: 'world' }, 'en');
 
-    expect(result).to.eq('hello world en_US');
+    expect(result).to.eq('<p>hello world en_US</p>');
   });
+
   it('should render handlebar with lang', async () => {
     const t = await tp();
-    const result = await t.render('templates/handlebars/template.handlebars', { hello: 'world' }, 'en_US');
+    const result = await t.render('handlebars/template.handlebars', { hello: 'world' }, 'en');
 
     expect(result).to.eq('hello world en_US');
   });
 
   it('should render pug with lang detected', async () => {
     const store = DI.resolve(AsyncLocalStorage);
-    const result = store.run(
+    const result = await store.run(
       {
-        language: 'en_US',
+        language: 'en',
       },
       async () => {
         const t = await tp();
-        return await t.render('templates/pug/template.pug', { hello: 'world' });
+        return await t.render('pug/template.pug', { hello: 'world' });
       },
     );
 
-    expect(result).to.eq('hello world en_US');
+    expect(result).to.eq('<p>hello world en_US</p>');
   });
 
   it('should render handlebar with lang detected', async () => {
     const store = DI.resolve(AsyncLocalStorage);
-    const result = store.run(
+    const result = await store.run(
       {
-        language: 'en_US',
+        language: 'en',
       },
       async () => {
         const t = await tp();
-        return await t.render('templates/handlebars/template.handlebars', { hello: 'world' });
+        return await t.render('handlebars/template.handlebars', { hello: 'world' });
       },
     );
 
@@ -118,13 +127,13 @@ describe('templates', () => {
 
   it('should fail when template not exists', async () => {
     const t = await tp();
-    expect(t.render('templates/handlebars/template_not_exists.handlebars', { hello: 'world' })).to.be.rejected;
+    expect(t.render('handlebars/template_not_exists.handlebars', { hello: 'world' })).to.be.rejected;
   });
 
   it('should override template', async () => {
     const t = await tp();
-    const result = await t.render('templates/pug/template_2.pug', { hello: 'world' });
+    const result = await t.render('pug/template_2.pug', { hello: 'world' });
 
-    expect(result).to.eq('hello world overriden');
+    expect(result).to.eq('<p>hello world overriden</p>');
   });
 });

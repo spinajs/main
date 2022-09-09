@@ -1,13 +1,17 @@
-import { InvalidOperation } from './../../exceptions/src/index';
-import { DI } from '@spinajs/di';
-import { AsyncModule } from './../../di/src/interfaces';
+import { InvalidOperation } from '@spinajs/exceptions';
+import { DI, AsyncModule, Inject } from '@spinajs/di';
+import { Log, Logger } from '@spinajs/log';
 import { TemplateRenderer } from './interfaces';
 import { extname } from 'path';
-import { Log, Logger } from '@spinajs/log';
+import { Intl } from '@spinajs/intl';
 export * from './interfaces';
 export * from './renderers/handlebars';
 export * from './renderers/pug';
 
+/**
+ * Inject INTL module for language support. We does nothing but to initialize module for use in templates.
+ */
+@Inject(Intl)
 export class Templates extends AsyncModule {
   @Logger('templates')
   protected Log: Log;
@@ -21,6 +25,8 @@ export class Templates extends AsyncModule {
       this.Log.info(`Registered template renderer ${r.Type} for extensions ${r.Extension}`);
       this.Renderers.set(r.Extension, r);
     });
+
+    await super.resolveAsync();
   }
 
   public async render(templatePath: string, model: unknown, language?: string): Promise<string> {

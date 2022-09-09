@@ -1,4 +1,4 @@
-import { IOFail } from './../../../exceptions/src/index';
+import { IOFail, InvalidOperation } from './../../../exceptions/src/index';
 import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
 import { InvalidArgument } from '@spinajs/exceptions';
 import * as fs from 'fs';
@@ -9,6 +9,7 @@ import { Logger, Log } from '@spinajs/log';
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import * as Handlebars from 'handlebars';
+import { normalize } from 'path';
 
 @Injectable(TemplateRenderer)
 export class HandlebarsRenderer extends TemplateRenderer {
@@ -28,6 +29,26 @@ export class HandlebarsRenderer extends TemplateRenderer {
     return '.handlebars';
   }
 
+  public async resolveAsync(): Promise<void> {
+    Handlebars.registerHelper('__', (context, options) => {
+      return __translate(options.data.root.lang)(context);
+    });
+
+    Handlebars.registerHelper('__n', (context, count, options) => {
+      return __translateNumber(options.data.root.lang)(context, count);
+    });
+
+    Handlebars.registerHelper('__l', (context) => {
+      return __translateL(context);
+    });
+
+    Handlebars.registerHelper('__h', (context) => {
+      return __translateH(context);
+    });
+
+    await super.resolveAsync();
+  }
+
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
     const content = await this.render(template, model, language);
     const dir = path.dirname(filePath);
@@ -39,36 +60,41 @@ export class HandlebarsRenderer extends TemplateRenderer {
     fs.writeFileSync(filePath, content);
   }
 
-  public async render(templatePath: string, model: unknown, language?: string): Promise<string> {
-    this.Log.trace(`Rendering template ${templatePath}`);
-    this.Log.timeStart(`HandlebarTemplate${templatePath}`);
+  public async render(templateName: string, model: unknown, language?: string): Promise<string> {
+    this.Log.trace(`Rendering template ${templateName}`);
+    this.Log.timeStart(`HandlebarTemplate${templateName}`);
 
-    if (!templatePath) {
+    if (!templateName) {
       throw new InvalidArgument('template parameter cannot be null or empty');
     }
 
-    const fTemplate = this.Templates.get(templatePath);
+    const fTemplate = this.Templates.get(normalize(templateName));
+    if (!fTemplate) {
+      throw new InvalidOperation(`Template ${templateName} is not found ( check if exists & compiled )`);
+    }
 
     const lang = language ? language : guessLanguage();
     const tLang = lang ?? defaultLanguage();
 
     const content = fTemplate(
       _.merge(model ?? {}, {
-        __: __translate(tLang),
-        __n: __translateNumber(tLang),
-        __l: __translateL,
-        __h: __translateH,
+        lang: tLang,
       }),
     );
 
-    const time = this.Log.timeEnd(`HandlebarTemplate-${templatePath}`);
-    this.Log.trace(`Rendering template ${templatePath} ended, (${time} ms)`);
+    const time = this.Log.timeEnd(`HandlebarTemplate-${templateName}`);
+    this.Log.trace(`Rendering template ${templateName} ended, (${time} ms)`);
 
     return Promise.resolve(content);
   }
 
   protected async compile(templateName: string, path: string): Promise<void> {
-    const tContent = fs.readFileSync(path);
+    const tContent = fs.readFileSync(path, 'utf-8');
+
+    if (tContent.length === 0) {
+      throw new IOFail(`Template file ${path} is empty`);
+    }
+
     const tCompiled = Handlebars.compile(tContent, this.Options);
 
     if (!tCompiled) {

@@ -25,12 +25,12 @@ export abstract class TemplateRenderer extends AsyncModule {
   public async resolveAsync(): Promise<void> {
     for (const path of this.TemplatePaths) {
       const files = glob
-        .sync(join(path, `/**/${this.Extension}`))
+        .sync(join(path, `/**/*${this.Extension}`))
         .map((f) => normalize(resolve(f)))
         .filter((v: any) => v !== null);
 
       for (const file of files) {
-        const templateName = file.substring(path.length, file.length);
+        const templateName = file.substring(path.length + 1, file.length);
         if (this.TemplateFiles.has(templateName)) {
           this.Log.trace(`Template ${templateName} is overriden by ${file}`);
           this.TemplateFiles.get(templateName).push(file);
@@ -52,7 +52,13 @@ export abstract class TemplateRenderer extends AsyncModule {
       // compile only last template ( newest )
       // templates can be overriden by other modules / libs
       // or app
-      await this.compile(templateName, path[path.length - 1]);
+      try {
+        await this.compile(templateName, path[path.length - 1]);
+      } catch (err) {
+        this.Log.error(`Cannot compile template ${templateName} with file ${path[path.length - 1]}, reason: ${JSON.stringify(err)}`);
+
+        continue;
+      }
 
       this.Log.trace(`Compiling template ${templateName}, at path ${path[path.length - 1]} finished`);
     }

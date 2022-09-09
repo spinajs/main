@@ -1,5 +1,5 @@
 import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
-import { IOFail, InvalidArgument } from '@spinajs/exceptions';
+import { IOFail, InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import * as fs from 'fs';
 import * as pugTemplate from 'pug';
 import * as path from 'path';
@@ -8,6 +8,7 @@ import { TemplateRenderer } from '../interfaces';
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
+import { normalize } from 'path';
 
 @Injectable(TemplateRenderer)
 export class PugRenderer extends TemplateRenderer {
@@ -35,16 +36,18 @@ export class PugRenderer extends TemplateRenderer {
     fs.writeFileSync(filePath, content);
   }
 
-  public async render(template: string, model: unknown, language?: string): Promise<string> {
-    this.Log.trace(`Rendering template ${template}`);
-    this.Log.timeStart(`PugTemplate${template}`);
+  public async render(templateName: string, model: unknown, language?: string): Promise<string> {
+    this.Log.trace(`Rendering template ${templateName}`);
+    this.Log.timeStart(`PugTemplate${templateName}`);
 
-    if (!template) {
+    if (!templateName) {
       throw new InvalidArgument('template parameter cannot be null or empty');
     }
 
-    const fTemplate = this.Templates.get(template);
-
+    const fTemplate = this.Templates.get(normalize(templateName));
+    if (!fTemplate) {
+      throw new InvalidOperation(`Template ${templateName} is not found ( check if exists & compiled )`);
+    }
     const lang = language ? language : guessLanguage();
     const tLang = lang ?? defaultLanguage();
 
@@ -57,19 +60,20 @@ export class PugRenderer extends TemplateRenderer {
       }),
     );
 
-    const time = this.Log.timeEnd(`PugTemplate${template}`);
-    this.Log.trace(`Rendering template ${template} ended, (${time} ms)`);
+    const time = this.Log.timeEnd(`PugTemplate${templateName}`);
+    this.Log.trace(`Rendering template ${templateName} ended, (${time} ms)`);
 
     return Promise.resolve(content);
   }
 
   protected async compile(templateName: string, path: string) {
     const tCompiled = pugTemplate.compileFile(path, this.Options);
+    const pNormalized = normalize(templateName);
 
     if (!tCompiled) {
-      throw new IOFail(`Cannot compile handlebars template ${templateName} from path ${path}`);
+      throw new IOFail(`Cannot compile handlebars template ${pNormalized} from path ${path}`);
     }
 
-    this.Templates.set(templateName, tCompiled);
+    this.Templates.set(pNormalized, tCompiled);
   }
 }
