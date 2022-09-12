@@ -5,8 +5,6 @@ import { TemplateRenderer } from './interfaces';
 import { extname } from 'path';
 import { Intl } from '@spinajs/intl';
 export * from './interfaces';
-export * from './renderers/handlebars';
-export * from './renderers/pug';
 
 /**
  * Inject INTL module for language support. We does nothing but to initialize module for use in templates.

@@ -40,6 +40,10 @@
   "homepage": "https://github.com/spinajs/exceptions#readme",
   "gitHead": "8a3f58de2dc2d8d077186d767581dd53be1d40cb",
   "dependencies": {
-    "lodash": "^4.17.21"
+    "lodash": "^4.17.21",
+    "luxon": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.0.1"
   }
 }
