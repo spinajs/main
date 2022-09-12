@@ -5,6 +5,9 @@ import { Logger, ILog } from '@spinajs/log';
 import { ResolveFromFiles, ClassInfo } from '@spinajs/reflection';
 import { program } from 'commander';
 
+export * from './interfaces';
+export * from './decorators';
+
 DI.register(() => {
   return process.argv;
 }).as('__cli_argv_provider__');

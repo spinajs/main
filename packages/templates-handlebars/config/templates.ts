@@ -8,8 +8,6 @@ const templates = {
   system: {
     dirs: {
       templates: [dir('./../templates')],
-      cli: [dir('./../cli')],
-
     },
   },
 };

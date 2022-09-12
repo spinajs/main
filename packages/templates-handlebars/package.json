@@ -1,5 +1,5 @@
 {
-  "name": "@spinajs/templates",
+  "name": "@spinajs/templates-handlebars",
   "version": "2.0.25",
   "description": "templates support eg. html file generation",
   "main": "lib/index.js",
@@ -51,8 +51,7 @@
     "@spinajs/internal-logger": "^2.0.19",
     "@spinajs/log": "^2.0.19",
     "@spinajs/intl": "^2.0.19",
-    "@spinajs/cli": "^2.0.19",
-    "pug": "^3.0.0",
+    "@spibahs/templates": "^2.0.19",
     "handlebars": "^4.7.7",
     "tempfile": "3.0.0"
   },

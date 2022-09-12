@@ -1,6 +1,8 @@
+import { Injectable } from '@spinajs/di';
 import { Email, EmailSender } from '../interfaces';
 import { default as nodemailer } from 'nodemailer';
 
+@Injectable(EmailSender)
 export class SmtpSender extends EmailSender {
   get Type(): string {
     return 'smtp';
