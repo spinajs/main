@@ -28,11 +28,28 @@ export interface Email {
   from: string;
   connection: string;
   attachements?: string[];
+
+  /**
+   * Local template name. Must be avaible in one of dirs set in template config
+   */
   template?: string;
+
+  /**
+   * Some implementations have predefined templates. It can be accessed by this Id
+   * eg. mailersend
+   */
+  templateId?: string;
+
+  /**
+   * Data passed to template
+   */
   model?: unknown;
+
+  /**
+   * Text representation of email
+   */
   text?: string;
   subject: string;
-  asHtml?: boolean;
   lang?: string;
   priority?: string;
   replyTo?: string;
