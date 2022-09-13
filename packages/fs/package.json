@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/fs",
-  "version": "2.0.31",
+  "version": "2.0.32",
   "description": "wrapper for file operations",
   "main": "lib/index.js",
   "private": false,
