@@ -58,6 +58,7 @@
     "@spinajs/reflection": "^2.0.19",
     "@spinajs/validation": "^2.0.19",
     "@spinajs/templates": "^2.0.19",
+    "@spinajs/templates-pug": "^2.0.19",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.5",
     "cookie-signature": "^1.1.0",

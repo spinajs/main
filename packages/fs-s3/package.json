@@ -1,5 +1,5 @@
 {
-  "name": "@spinajs/fs",
+  "name": "@spinajs/fs-s3",
   "version": "2.0.12",
   "description": "file operations implementation for aws s3 storage",
   "main": "lib/index.js",

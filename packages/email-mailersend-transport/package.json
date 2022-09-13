@@ -1,5 +1,5 @@
 {
-  "name": "@spinajs/email-smtp-transport",
+  "name": "@spinajs/email-mailersend-transport",
   "version": "2.0.25",
   "description": "sending emails easy & reliable way",
   "main": "lib/index.js",
@@ -50,8 +50,6 @@
     "@spinajs/log": "^2.0.19",
     "@spinajs/intl": "^2.0.19",
     "@spinajs/email": "^2.0.19",
-    "@spinajs/templates": "^2.0.19",
-    "@spinajs/fs": "^2.0.19",
     "luxon": "^2.3.0",
     "mailersend": "^1.4.1"
   },

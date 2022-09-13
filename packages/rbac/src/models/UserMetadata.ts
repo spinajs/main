@@ -11,6 +11,22 @@ export class UserMetadata extends ModelBase {
 
   public Value: string;
 
+  public asBoolean() {
+    return this.Value.toLowerCase().trim() === 'true' || this.Value.trim() === '1' ? true : false;
+  }
+
+  public asNumber() {
+    return parseInt(this.Value, 10);
+  }
+
+  public asFloat() {
+    return parseFloat(this.Value);
+  }
+
+  public asJsonObject<T = {}>() {
+    return JSON.parse(this.Value) as T;
+  }
+
   @BelongsTo('User')
   public User: SingleRelation<User>;
 }

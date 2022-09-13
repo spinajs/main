@@ -49,7 +49,6 @@
     "@spinajs/internal-logger": "^2.0.19",
     "@spinajs/log": "^2.0.19",
     "@spinajs/intl": "^2.0.19",
-    "@spinajs/templates": "^2.0.19",
     "luxon": "^2.3.0"
   },
   "gitHead": "48eeb6c14c6138f4717ad574efab7961ab4fbb83"

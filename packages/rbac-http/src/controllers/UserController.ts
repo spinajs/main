@@ -1,4 +1,5 @@
 import { PasswordDto } from '../dto/password-dto';
+import { UserLoginDto } from '../dto/login-dto';
 import { User as UserModel, PasswordProvider, SessionProvider } from '@spinajs/rbac';
 import { BaseController, BasePath, Get, Ok, Body, Param, Patch, Cookie } from '@spinajs/http';
 import { InvalidArgument, Forbidden } from '@spinajs/exceptions';
@@ -7,8 +8,7 @@ import { Permission, User, Resource } from '../decorators';
 import { Config } from '@spinajs/configuration';
 import * as cs from 'cookie-signature';
 import _ from 'lodash';
-import { Post } from 'http/lib';
-import { LoginDto } from 'rbac-http/lib/dto/login-dto';
+import { Post } from '@spinajs/http';
 
 @BasePath('user')
 @Resource('user')
@@ -42,7 +42,7 @@ export class UserController extends BaseController {
   }
 
   @Post('password/restore')
-  public async restorePassword(@Body() _login: LoginDto) {}
+  public async restorePassword(@Body() _login: UserLoginDto) {}
 
   @Patch('/password/:login')
   public async newPassword(@Param() login: string, @Body() pwd: PasswordDto) {

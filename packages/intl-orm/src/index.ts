@@ -1,10 +1,9 @@
-import { DI, Injectable, NewInstance } from '@spinajs/di';
+import { Injectable, NewInstance } from '@spinajs/di';
 import { extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation } from '@spinajs/orm';
 import { TranslationSource, guessLanguage, defaultLanguage } from '@spinajs/intl';
 import _ from 'lodash';
 import { IntlTranslation } from './models/IntlTranslation';
 import { IntlResource } from './models/IntlResource';
-import { Configuration } from '@spinajs/configuration';
 
 export * from './decorators';
 export * from './model';

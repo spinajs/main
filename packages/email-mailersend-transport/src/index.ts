@@ -23,5 +23,5 @@ export class MailersendTransport extends EmailSender {
 
   public async resolveAsync(): Promise<void> {}
 
-  public async send(email: Email): Promise<void> {
-     
+  public async send(email: Email): Promise<void> {}
+}

@@ -11,6 +11,7 @@ import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, 
 import Express = require('express');
 import { ValidationFailed } from '@spinajs/validation';
 import './transformers';
+import '@spinajs/templates-pug';
 
 @Injectable()
 export class HttpServer extends AsyncModule {

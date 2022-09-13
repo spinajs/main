@@ -39,7 +39,7 @@ export abstract class TwoFactorAuthProvider {
   /**
    * generate secret key if this provider use is needs it or null
    */
-  public abstract initialize(user: User): Promise<unknown | null>;
+  public abstract initialize(user: User): Promise<any | null>;
 
   /**
    * Perform action eg. send sms or email. Some 2fac implementations do nothing eg. google auth or hardware keys

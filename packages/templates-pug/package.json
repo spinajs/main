@@ -1,11 +1,11 @@
 {
-  "name": "@spinajs/templates",
+  "name": "@spinajs/templates-pug",
   "version": "2.0.25",
-  "description": "templates support eg. html file generation",
+  "description": "templates support for pug files eg. html file generation",
   "main": "lib/index.js",
   "private": false,
   "scripts": {
-    "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views && cpx src/static/**/* lib/static",
+    "build": "npm run clean && npm run compile",
     "compile": "tsc -p tsconfig.build.json",
     "clean": "",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",

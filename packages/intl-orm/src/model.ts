@@ -3,7 +3,7 @@ import { InsertBehaviour, ModelBase } from '@spinajs/orm';
 import _ from 'lodash';
 import { IntlResource } from './models/IntlResource';
 import { Configuration } from '@spinajs/configuration';
-import { guessLanguage } from './language';
+import { guessLanguage } from '@spinajs/intl';
 export class Translatable extends ModelBase {
   protected Language: string;
 

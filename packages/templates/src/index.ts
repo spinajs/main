@@ -1,5 +1,5 @@
 import { InvalidOperation } from '@spinajs/exceptions';
-import { DI, AsyncModule, Inject, Autoinject } from '@spinajs/di';
+import { AsyncModule, Inject, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { TemplateRenderer } from './interfaces';
 import { extname } from 'path';

@@ -1,10 +1,8 @@
-import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
+import { CliCommand, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
-import * as path from 'path';
 import * as fs from 'fs';
 import { Logger, ILog } from '@spinajs/log';
 import { Emails } from './../index';
-import { Templates } from '@spinajs/templates';
 
 interface EmailOptions {
   connection: string;

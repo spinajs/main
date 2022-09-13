@@ -5,7 +5,7 @@
   "main": "lib/index.js",
   "private": false,
   "scripts": {
-    "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views && cpx src/static/**/* lib/static",
+    "build": "npm run clean && npm run compile",
     "compile": "tsc -p tsconfig.build.json",
     "clean": "",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -51,7 +51,6 @@
     "@spinajs/internal-logger": "^2.0.19",
     "@spinajs/log": "^2.0.19",
     "@spinajs/intl": "^2.0.19",
-    "@spibahs/templates": "^2.0.19",
     "handlebars": "^4.7.7",
     "tempfile": "3.0.0"
   },

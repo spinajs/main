@@ -1,7 +1,7 @@
 {
   "name": "@spinajs/cli",
   "version": "2.0.19",
-  "description": "SpinaJS reflection helpers",
+  "description": "SpinaJS command line module",
   "main": "lib/index.js",
   "private": false,
   "scripts": {

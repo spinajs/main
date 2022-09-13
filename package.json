@@ -79,7 +79,12 @@
     "@spinajs/session-provider-db": "file:packages\\session-provider-db",
     "@spinajs/validation": "file:packages\\validation",
     "@spinajs/orm-mysql": "file:packages\\orm-mysql",
-    "@spinajs/templates": "file:packages\\templates"
-
+    "@spinajs/templates": "file:packages\\templates",
+    "@spinajs/templates-handlebars": "file:packages\\templates-handlebars",
+    "@spinajs/templates-pug": "file:packages\\templates-pug",
+    "@spinajs/email": "file:packages\\email",
+    "@spinajs/email-smtp-transport": "file:packages\\email-smtp-transport",
+    "@spinajs/fs": "file:packages\\fs",
+    "@spinajs/cli": "file:packages\\cli"
   }
 }

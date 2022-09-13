@@ -1,7 +1,7 @@
 import { TokenDto } from './../dto/token-dto';
 import { BaseController, BasePath, Cookie, Ok, Post, Unauthorized } from '@spinajs/http';
 import { SessionProvider, User as UserModel } from '@spinajs/rbac';
-import { Body, Policy } from 'http/lib';
+import { Body, Policy } from '@spinajs/http';
 import _ from 'lodash';
 import { User } from '../decorators';
 import { TwoFacRouteEnabled } from '../policies/2FaPolicy';
@@ -39,6 +39,7 @@ export class TwoFactorAuthController extends BaseController {
 
     const session = await this.SessionProvider.restore(ssid);
     session.Data.set('Authorized', true);
+    session.Data.set('2fa_check', true);
 
     await this.SessionProvider.save(session);
 
