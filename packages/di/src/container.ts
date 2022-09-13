@@ -433,9 +433,9 @@ export class Container extends EventEmitter implements IContainer {
       }
 
       let instance = promiseOrVal;
-      if(isArray(promiseOrVal) && t.mapFunc){
+      if (isArray(promiseOrVal) && t.mapFunc) {
         instance = new Map<string, unknown>();
-        for(const i of promiseOrVal){
+        for (const i of promiseOrVal) {
           (instance as Map<string, unknown>).set(t.mapFunc(i), i);
         }
       }
