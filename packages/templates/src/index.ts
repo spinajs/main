@@ -1,5 +1,5 @@
 import { InvalidOperation } from '@spinajs/exceptions';
-import { DI, AsyncModule, Inject } from '@spinajs/di';
+import { DI, AsyncModule, Inject, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { TemplateRenderer } from './interfaces';
 import { extname } from 'path';
@@ -14,18 +14,8 @@ export class Templates extends AsyncModule {
   @Logger('templates')
   protected Log: Log;
 
-  protected Renderers: Map<string, TemplateRenderer> = new Map<string, TemplateRenderer>();
-
-  public async resolveAsync(): Promise<void> {
-    const renderers = await DI.resolve(Array.ofType(TemplateRenderer));
-
-    renderers.forEach((r) => {
-      this.Log.info(`Registered template renderer ${r.Type} for extensions ${r.Extension}`);
-      this.Renderers.set(r.Extension, r);
-    });
-
-    await super.resolveAsync();
-  }
+  @Autoinject(TemplateRenderer, (x) => x.Extension)
+  protected Renderers: Map<string, TemplateRenderer>;
 
   public async render(templatePath: string, model: unknown, language?: string): Promise<string> {
     const extension = extname(templatePath);
