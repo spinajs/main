@@ -223,6 +223,7 @@ export class Container extends EventEmitter implements IContainer {
       if (resolved.some((r) => r instanceof Promise)) {
         return Promise.all(resolved) as any;
       }
+
       return resolved as T[];
     } else {
       // finaly resolve single type:
@@ -430,10 +431,19 @@ export class Container extends EventEmitter implements IContainer {
           };
         });
       }
+
+      let instance = promiseOrVal;
+      if(isArray(promiseOrVal) && t.mapFunc){
+        instance = new Map<string, unknown>();
+        for(const i of promiseOrVal){
+          (instance as Map<string, unknown>).set(t.mapFunc(i), i);
+        }
+      }
+
       return {
         autoinject: t.autoinject,
         autoinjectKey: t.autoinjectKey,
-        instance: promiseOrVal,
+        instance,
       };
     });
 

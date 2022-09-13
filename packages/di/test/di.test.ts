@@ -258,6 +258,23 @@ describe('Dependency injection', () => {
     expect(autoinjected.Test instanceof AutoinjectBar).to.be.true;
   });
 
+  it('Autoinject resolve as Map', () => {
+    DI.register(SampleImplementation1).as(SampleBaseClass);
+    DI.register(SampleImplementation2).as(SampleBaseClass);
+
+    class SampleMultipleAutoinject {
+      @Autoinject(SampleBaseClass, (x) => x.Name)
+      public Instances: Map<string, SampleBaseClass>;
+    }
+
+    const instance = DI.resolve(SampleMultipleAutoinject);
+
+    expect(instance).to.be.not.null;
+    expect(instance.Instances).to.be.an('map').of.length(2);
+    expect(instance.Instances.has('Sample1')).to.be.true;
+    expect(instance.Instances.has('Sample2')).to.be.true;
+  });
+
   it('Autoinject resolve multiple implementations', () => {
     DI.register(SampleImplementation1).as(SampleBaseClass);
     DI.register(SampleImplementation2).as(SampleBaseClass);

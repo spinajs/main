@@ -38,8 +38,18 @@ export function isSyncModule(value: any): value is SyncModule {
   return value instanceof SyncModule;
 }
 
+/**
+ * For DI purpose we  treat Map as array to inject. Difference is, that we fill map by some key
+ * provided by mapFunc in \@Autoinject
+ * @param value - value to check type
+ * @returns
+ */
 export function isTypedArray(value: any): value is TypedArray<any> {
-  return value instanceof Array && value.constructor.name === 'TypedArray';
+  return (value instanceof Array && value.constructor.name === 'TypedArray') || isMap(value);
+}
+
+export function isMap(value: any): value is Map<string, any> {
+  return value instanceof Map && value.constructor.name === 'Map';
 }
 
 export function uniqBy<T>(arr: T[], comparator: (a: T, b: T) => boolean) {

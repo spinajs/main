@@ -4,7 +4,7 @@ export abstract class EmailSender {
   abstract send(email: Email): Promise<void>;
 }
 
-export interface EmailAttachement {
+export interface IEmailAttachement {
   /**
    * - filename to be reported as the name of the attached file. Use of unicode is allowed.
    */
@@ -16,7 +16,7 @@ export interface EmailAttachement {
   path: string;
 
   /**
-   * File provider could be local fs, aws s3 etc.
+   * File provider could be local fs, aws s3 etc. Default is always fs-local
    */
   provider?: string;
 }
@@ -27,7 +27,7 @@ export interface Email {
   bcc?: string[];
   from: string;
   connection: string;
-  attachements?: string[];
+  attachements?: IEmailAttachement[];
 
   /**
    * Local template name. Must be avaible in one of dirs set in template config

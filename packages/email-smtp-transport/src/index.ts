@@ -3,6 +3,7 @@ import { Log, Logger } from '@spinajs/log';
 import { Email, EmailSender, EmailConnectionOptions } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
 import * as nodemailer from 'nodemailer';
+import { fs } from '@spinajs/fs';
 import _ from 'lodash';
 
 @Injectable()
@@ -13,6 +14,9 @@ export class EmailSenderSmtp extends EmailSender {
 
   @Autoinject(Templates)
   protected Tempates: Templates;
+
+  @Autoinject(fs)
+  protected FileSystems: fs[];
 
   protected Transporter: nodemailer.Transport;
 
@@ -41,16 +45,22 @@ export class EmailSenderSmtp extends EmailSender {
   }
 
   public async send(email: Email): Promise<void> {
-    let message = await this.Transporter.sendMail({
+    const options = {
       from: email.from, // sender address
-      to: email.to.join(',s'), // list of receivers
+      to: email.to.join(','), // list of receivers
       cc: email.cc ? email.cc.join(',') : null,
       bcc: email.bcc ? email.bcc.join(',') : null,
       replyTo: email.replyTo,
       subject: email.subject, // Subject line
       text: email.text, // plain text body
       html: email.template ? await this.Tempates.render(email.template, email.model, email.lang) : null,
-    });
+    };
+
+    for (const a of email.attachements) {
+      a.provider;
+    }
+
+    let message = await this.Transporter.sendMail(options);
 
     const response = await this.Transporter.send(message);
 

@@ -82,6 +82,7 @@ export interface IToInject<T> {
   inject: Class<T> | TypedArray<T>;
   autoinject: boolean;
   autoinjectKey: string;
+  mapFunc: (x: unknown) => string;
 }
 
 export interface IResolvedInjection {

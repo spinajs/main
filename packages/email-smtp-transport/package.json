@@ -51,6 +51,7 @@
     "@spinajs/intl": "^2.0.19",
     "@spinajs/email": "^2.0.19",
     "@spinajs/templates": "^2.0.19",
+    "@spinajs/fs": "^2.0.19",
     "luxon": "^2.3.0",
     "nodemailer": "^6.7.7"
   },

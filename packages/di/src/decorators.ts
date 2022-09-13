@@ -108,6 +108,7 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
           autoinject: false,
           autoinjectKey: '',
           inject: a,
+          mapFunc: null,
         });
       }
     }
@@ -119,6 +120,7 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
  * If decorator is applied to array property all registered type instances are injected, otherwise only first / only that exists
  *
  * @param injectType - when injecting array of some type, type must be explicitly provided. Typescript reflection cant reflect declared array types
+ * @param mapFunc - when injecting array we sometimes need services mapped by some kind of key, so later we dont need to search o(n) elements for specific service, but reference by key/name
  * @example
  * ```javascript
  * class Foo{
@@ -139,12 +141,12 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
  *
  * ```
  */
-export function Autoinject(injectType?: Class<unknown>) {
+export function Autoinject<T>(injectType?: Class<T>, mapFunc?: (x: T) => string) {
   return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
-    const isArray = type.name === 'Array';
+    const isArray = type.name === 'Array' || type.name === 'Map';
 
-    if (type.name === 'Array' && !injectType) {
+    if (isArray && !injectType) {
       throw new Error('you must provide inject type when injecting array');
     }
 
@@ -152,6 +154,7 @@ export function Autoinject(injectType?: Class<unknown>) {
       autoinject: true,
       autoinjectKey: propertyKey,
       inject: isArray ? Array.ofType(injectType) : injectType ?? type,
+      mapFunc,
     });
   });
 }
