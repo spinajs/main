@@ -1,3 +1,4 @@
+import { IOFail } from '@spinajs/exceptions';
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { Email, EmailSender, EmailConnectionOptions } from '@spinajs/email';
@@ -15,8 +16,8 @@ export class EmailSenderSmtp extends EmailSender {
   @Autoinject(Templates)
   protected Tempates: Templates;
 
-  @Autoinject(fs)
-  protected FileSystems: fs[];
+  @Autoinject(fs, (x) => x.Provider)
+  protected FileSystems: Map<string, fs>;
 
   protected Transporter: nodemailer.Transport;
 
@@ -54,16 +55,37 @@ export class EmailSenderSmtp extends EmailSender {
       subject: email.subject, // Subject line
       text: email.text, // plain text body
       html: email.template ? await this.Tempates.render(email.template, email.model, email.lang) : null,
-    };
+      attachments: await Promise.all(
+        email.attachements.map(async (a) => {
+          // we allow to use multiple file sources, default is local
+          const provider = this.FileSystems.get(a.provider ?? 'fs-local');
+          if (!provider) {
+            throw new IOFail(`Filesystem privider for ${a.provider} not registered. Make sure you importer all required fs providers`);
+          }
 
-    for (const a of email.attachements) {
-      a.provider;
-    }
+          // with local filesystem, it just return original path
+          // other implementations should dodwnload file locally,
+          // and return temporary path
+          // we provide path to file, becouse nodemailer
+          // prefer it when sending bigger files
+          const file = await provider.download(a.path);
+          return {
+            filename: a.name,
+            path: file,
+            provider: provider.Provider,
+          };
+        }),
+      ),
+    };
 
     let message = await this.Transporter.sendMail(options);
 
     const response = await this.Transporter.send(message);
 
-    this.Log.trace(`Send email with data: ${JSON.stringify(_.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']))}, SMTP response: ${JSON.stringify(response)}`);
+    // delete all downloaded files for attachement
+    const fsLocal = this.FileSystems.get('fs-local');
+    await Promise.all(options.attachments.filter((x) => x.provider !== 'fs-local').map((x) => fsLocal.unlink(x.path)));
+
+    this.Log.trace(`Sent email with data: ${JSON.stringify(_.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']))}, SMTP response: ${JSON.stringify(response)}`);
   }
 }

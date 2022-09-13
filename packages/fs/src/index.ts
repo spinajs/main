@@ -45,7 +45,7 @@ export abstract class fs {
 @Injectable('fs')
 export class fsNative extends fs {
   public get Provider() {
-    return 'fs-native';
+    return 'fs-local';
   }
 
   /**

@@ -1,5 +1,5 @@
 import { InvalidOperation } from './../../exceptions/src/index';
-import { DI, AsyncModule, Autoinject } from '@spinajs/di';
+import { DI, AsyncModule } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { Email, EmailSender, EmailConfiguration } from './interfaces';
 import { Config } from '@spinajs/configuration';
