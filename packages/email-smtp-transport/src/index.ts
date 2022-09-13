@@ -6,7 +6,7 @@ import { Templates } from '@spinajs/templates';
 import * as nodemailer from 'nodemailer';
 import { fs } from '@spinajs/fs';
 import _ from 'lodash';
-import CONFIGURATION_SCHEMA from "./schemas/email.configuration";
+import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration';
 
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
@@ -51,6 +51,11 @@ export class EmailSenderSmtp extends EmailSender {
         this.Options.options,
       ),
     );
+
+    const result = await this.Transporter.verify();
+    if (!result) {
+      throw new Error(`cannot send smtp emails, varify() failed. Pleas check email smtp configuration for connection ${this.Options.name}`);
+    }
   }
 
   public async send(email: Email): Promise<void> {

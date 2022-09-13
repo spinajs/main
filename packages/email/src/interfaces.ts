@@ -95,9 +95,4 @@ export interface EmailConnectionOptions {
    * lib specific
    */
   options?: unknown;
-  attachements: {
-    maxSingleSize: number;
-    maxTotalSize: number;
-    maxCount: number;
-  };
 }
