@@ -64,7 +64,7 @@ export abstract class TwoFactorAuthProvider {
   public abstract isInitialized(user: User): Promise<boolean>;
 }
 
-export abstract class FingerprintPrivider {}
+export abstract class FingerprintProvider {}
 
 export interface AuthProvider {}
 

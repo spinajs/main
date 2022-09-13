@@ -5,7 +5,7 @@ import { Autoinject, DI, ServiceNotFound } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { User } from './../decorators';
 import _ from 'lodash';
-import { FingerpringConfig, FingerprintPrivider, TwoFactorAuthConfig, TwoFactorAuthProvider } from '../interfaces';
+import { FingerpringConfig, FingerprintProvider, TwoFactorAuthConfig, TwoFactorAuthProvider } from '../interfaces';
 
 @BasePath('user/auth')
 export class LoginController extends BaseController {
@@ -29,7 +29,7 @@ export class LoginController extends BaseController {
 
   protected TwoFactorAuthProvider: TwoFactorAuthProvider;
 
-  protected FingerprintPrivider: FingerprintPrivider;
+  protected FingerprintPrivider: FingerprintProvider;
 
   public async resolveAsync(): Promise<void> {
     if (this.TwoFactorConfig.enabled) {
