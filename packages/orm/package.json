@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm",
-  "version": "2.0.19",
+  "version": "2.0.30",
   "description": "framework orm module",
   "main": "lib/index.js",
   "private": false,
@@ -46,12 +46,12 @@
     "@types/uuid": "8.3.4"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.19",
-    "@spinajs/di": "^2.0.19",
+    "@spinajs/configuration": "^2.0.30",
+    "@spinajs/di": "^2.0.30",
     "@spinajs/exceptions": "^2.0.12",
-    "@spinajs/internal-logger": "^2.0.19",
-    "@spinajs/log": "^2.0.19",
-    "@spinajs/reflection": "^2.0.19",
+    "@spinajs/internal-logger": "^2.0.30",
+    "@spinajs/log": "^2.0.30",
+    "@spinajs/reflection": "^2.0.30",
     "glob": "^7.1.4",
     "helmet": "^3.23.0",
     "lodash": "^4.17.14",
