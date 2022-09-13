@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/jobs-stomp-transport",
-  "version": "2.0.33",
+  "version": "2.0.34",
   "description": "simple job transport based on sqlite. Reads & writes jobs to execute in local sqlite database. used for testing & simple projects",
   "main": "lib/index.js",
   "private": false,
@@ -44,12 +44,12 @@
     "@types/pug": "^2.0.4"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.33",
-    "@spinajs/di": "^2.0.33",
+    "@spinajs/configuration": "^2.0.34",
+    "@spinajs/di": "^2.0.34",
     "@spinajs/exceptions": "^2.0.12",
-    "@spinajs/internal-logger": "^2.0.33",
-    "@spinajs/intl": "^2.0.33",
-    "@spinajs/log": "^2.0.33",
+    "@spinajs/internal-logger": "^2.0.34",
+    "@spinajs/intl": "^2.0.34",
+    "@spinajs/log": "^2.0.34",
     "luxon": "^2.3.0",
     "nodemailer": "^6.7.7",
     "pug": "^3.0.0",

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/email-mailersend-transport",
-  "version": "2.0.33",
+  "version": "2.0.34",
   "description": "sending emails easy & reliable way",
   "main": "lib/index.js",
   "private": false,
@@ -43,13 +43,13 @@
     "@types/nodemailer": "^6.4.4"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.33",
-    "@spinajs/di": "^2.0.33",
-    "@spinajs/email": "^2.0.33",
+    "@spinajs/configuration": "^2.0.34",
+    "@spinajs/di": "^2.0.34",
+    "@spinajs/email": "^2.0.34",
     "@spinajs/exceptions": "^2.0.12",
-    "@spinajs/internal-logger": "^2.0.33",
-    "@spinajs/intl": "^2.0.33",
-    "@spinajs/log": "^2.0.33",
+    "@spinajs/internal-logger": "^2.0.34",
+    "@spinajs/intl": "^2.0.34",
+    "@spinajs/log": "^2.0.34",
     "luxon": "^2.3.0",
     "mailersend": "^1.4.1"
   },
