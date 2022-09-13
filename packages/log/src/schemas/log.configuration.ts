@@ -5,8 +5,7 @@ const CONFIGURATION_SCHEMA = {
   type: "object",
   properties: {
     targets: {
-      description:
-        "Log target, where log messages should be written to, and their options",
+      description: "Log target, where log messages should be written to, and their options",
       type: "array",
       minItems: 1,
       uniqueItems: true,
@@ -66,16 +65,7 @@ const CONFIGURATION_SCHEMA = {
           },
           level: {
             type: "string",
-            enum: [
-              "trace",
-              "debug",
-              "warn",
-              "info",
-              "error",
-              "fatal",
-              "security",
-              "success",
-            ],
+            enum: ["trace", "debug", "warn", "info", "error", "fatal", "security", "success"],
           },
           target: {
             oneOf: [

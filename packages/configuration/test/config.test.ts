@@ -183,6 +183,21 @@ describe('Configuration tests', () => {
     expect(cfgNoApp()).to.be.fulfilled;
   });
 
+  it('Should validate subconfigs', () => {
+    DI.register({
+      $id: 'test',
+      $configurationModule: 'test.test2',
+      type: 'object',
+      properties: {
+        value: { type: 'number' },
+        array: { type: 'array' },
+      },
+      required: ['value', 'array'],
+    }).asValue('__configurationSchema__');
+
+    expect(cfgNoApp()).to.be.fulfilled;
+  });
+
   it('Should reject on validate config', () => {
     DI.register({
       $id: 'test',

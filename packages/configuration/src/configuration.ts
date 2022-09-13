@@ -129,6 +129,7 @@ export class FrameworkConfiguration extends Configuration {
      */
     this.loadSources();
     await this.reload();
+    this.validate();
 
     /**
      * Merge from DI container
@@ -151,7 +152,7 @@ export class FrameworkConfiguration extends Configuration {
     this.Sources.push(source);
 
     if (sCfg) {
-      this.validateAndMerge(sCfg);
+      _.mergeWith(sCfg, mergeArrays);
     }
   }
 
@@ -165,7 +166,7 @@ export class FrameworkConfiguration extends Configuration {
       const rCfg = await source.Load(this);
 
       if (rCfg) {
-        this.validateAndMerge(rCfg);
+        _.mergeWith(this.Config, rCfg, mergeArrays);
       }
     }
   }
@@ -183,22 +184,17 @@ export class FrameworkConfiguration extends Configuration {
     });
   }
 
-  protected validateAndMerge(rCfg: IConfigLike) {
-    Object.keys(rCfg).forEach((k) => {
-      const schema = this.ValidationSchemas.find((x) => x.$configurationModule === k);
-
-      if (schema) {
-        const result = this.Validator.validate(schema, rCfg[`${k}`]);
-        if (!result) {
-          throw new InvalidConfiguration(
-            'invalid configuration ! Check config files and restart app.',
-            this.Validator.errors,
-          );
-        }
+  protected validate() {
+    this.ValidationSchemas.forEach((s) => {
+      const config = this.get(s.$configurationModule);
+      const result = this.Validator.validate(s, config);
+      if (!result) {
+        throw new InvalidConfiguration(
+          'invalid configuration ! Check config files and restart app.',
+          this.Validator.errors,
+        );
       }
     });
-
-    _.mergeWith(this.Config, rCfg, mergeArrays);
   }
 
   protected initValidator() {
