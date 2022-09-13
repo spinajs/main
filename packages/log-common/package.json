@@ -1,5 +1,5 @@
 {
-  "version": "2.0.30",
+  "version": "2.0.31",
   "description": "Log lib for all spinejs related libs",
   "main": "lib/index.js",
   "private": false,
@@ -41,6 +41,6 @@
   },
   "gitHead": "f79d93279608ab33966185d3775d7818162ab4ca",
   "dependencies": {
-    "@spinajs/di": "^2.0.30"
+    "@spinajs/di": "^2.0.31"
   }
 }

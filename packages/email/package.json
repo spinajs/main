@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/email",
-  "version": "2.0.30",
+  "version": "2.0.31",
   "description": "sending emails easy & reliable way",
   "main": "lib/index.js",
   "private": false,
@@ -43,12 +43,12 @@
     "@types/nodemailer": "^6.4.4"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.30",
-    "@spinajs/di": "^2.0.30",
+    "@spinajs/configuration": "^2.0.31",
+    "@spinajs/di": "^2.0.31",
     "@spinajs/exceptions": "^2.0.12",
-    "@spinajs/internal-logger": "^2.0.30",
-    "@spinajs/intl": "^2.0.30",
-    "@spinajs/log": "^2.0.30",
+    "@spinajs/internal-logger": "^2.0.31",
+    "@spinajs/intl": "^2.0.31",
+    "@spinajs/log": "^2.0.31",
     "luxon": "^2.3.0"
   },
   "gitHead": "f79d93279608ab33966185d3775d7818162ab4ca"
