@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-pug",
-  "version": "2.0.25",
+  "version": "2.0.30",
   "description": "templates support for pug files eg. html file generation",
   "main": "lib/index.js",
   "private": false,
@@ -39,18 +39,18 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "@types/luxon": "^2.3.1",
+    "@types/mocha": "9.1.1",
     "@types/node": "^16.11.11",
-    "@types/pug": "^2.0.4",
-    "@types/mocha": "9.1.1"
+    "@types/pug": "^2.0.4"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.19",
-    "@spinajs/di": "^2.0.19",
+    "@spinajs/configuration": "^2.0.30",
+    "@spinajs/di": "^2.0.30",
     "@spinajs/exceptions": "^2.0.12",
-    "@spinajs/internal-logger": "^2.0.19",
-    "@spinajs/log": "^2.0.19",
-    "@spinajs/intl": "^2.0.19",
-    "@spinajs/templates": "^2.0.19",
+    "@spinajs/internal-logger": "^2.0.30",
+    "@spinajs/intl": "^2.0.30",
+    "@spinajs/log": "^2.0.30",
+    "@spinajs/templates": "^2.0.30",
     "pug": "^3.0.0",
     "tempfile": "3.0.0"
   },

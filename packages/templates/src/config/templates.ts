@@ -9,7 +9,6 @@ const templates = {
     dirs: {
       templates: [dir('./../templates')],
       cli: [dir('./../cli')],
-
     },
   },
 };

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac-http",
-  "version": "2.0.28",
+  "version": "2.0.30",
   "description": "HTTP API for user session & permissions",
   "main": "lib/index.js",
   "private": false,
@@ -38,23 +38,23 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.19",
-    "@spinajs/di": "^2.0.19",
+    "@spinajs/configuration": "^2.0.30",
+    "@spinajs/di": "^2.0.30",
     "@spinajs/exceptions": "^2.0.12",
-    "@spinajs/http": "^2.0.25",
-    "@spinajs/log": "^2.0.19",
-    "@spinajs/orm": "^2.0.19",
-    "@spinajs/orm-http": "^2.0.28",
-    "@spinajs/rbac": "^2.0.28",
-    "@spinajs/reflection": "^2.0.19",
+    "@spinajs/http": "^2.0.30",
+    "@spinajs/log": "^2.0.30",
+    "@spinajs/orm": "^2.0.30",
+    "@spinajs/orm-http": "^2.0.30",
+    "@spinajs/rbac": "^2.0.30",
+    "@spinajs/reflection": "^2.0.30",
     "accesscontrol": "^2.2.1",
     "luxon": "^2.4.0",
     "qrcode": "^1.5.1",
     "speakeasy": "^2.0.0"
   },
   "devDependencies": {
+    "@spinajs/orm-sqlite": "^2.0.30",
     "@types/qrcode": "^1.4.2",
-    "@spinajs/orm-sqlite": "^2.0.28",
     "@types/speakeasy": "^2.0.7"
   },
   "gitHead": "859e3ca25f973babbfa165ab5d64744095119b15"
