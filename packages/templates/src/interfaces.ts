@@ -1,7 +1,7 @@
 import { Config } from '@spinajs/configuration';
 import { AsyncModule } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
-import { join, normalize, resolve } from 'path';
+import { join } from 'path';
 import { glob } from 'glob';
 import _ from 'lodash';
 
@@ -24,10 +24,7 @@ export abstract class TemplateRenderer extends AsyncModule {
 
   public async resolveAsync(): Promise<void> {
     for (const path of this.TemplatePaths) {
-      const files = glob
-        .sync(join(path, `/**/*${this.Extension}`))
-        .map((f) => normalize(resolve(f)))
-        .filter((v: any) => v !== null);
+      const files = glob.sync(join(path, `/**/*${this.Extension}`));
 
       for (const file of files) {
         const templateName = file.substring(path.length + 1, file.length);

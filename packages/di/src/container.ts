@@ -397,7 +397,6 @@ export class Container extends EventEmitter implements IContainer {
         return new Promise((res, rej) => {
           (newInstance as AsyncModule)
             .resolveAsync()
-            .then(() => {})
             .then(() => {
               res(newInstance);
             })
@@ -421,29 +420,19 @@ export class Container extends EventEmitter implements IContainer {
     const dependencies = toInject.map((t) => {
       const promiseOrVal = this.resolve(t.inject as any);
       if (promiseOrVal instanceof Promise) {
-        return new Promise((res, _) => {
-          res(promiseOrVal);
-        }).then((val: any) => {
+        return promiseOrVal.then((val: any) => {
           return {
             autoinject: t.autoinject,
             autoinjectKey: t.autoinjectKey,
-            instance: val,
+            instance: valOrMap(val, t),
           };
         });
-      }
-
-      let instance = promiseOrVal;
-      if (isArray(promiseOrVal) && t.mapFunc) {
-        instance = new Map<string, unknown>();
-        for (const i of promiseOrVal) {
-          (instance as Map<string, unknown>).set(t.mapFunc(i), i);
-        }
       }
 
       return {
         autoinject: t.autoinject,
         autoinjectKey: t.autoinjectKey,
-        instance,
+        instance: valOrMap(promiseOrVal, t),
       };
     });
 
@@ -452,6 +441,18 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     return dependencies;
+
+    function valOrMap(val: any, t: IToInject<unknown>) {
+      let instance = val;
+      if (isArray(val) && t.mapFunc) {
+        instance = new Map<string, unknown>();
+        for (const i of val) {
+          (instance as Map<string, unknown>).set(t.mapFunc(i), i);
+        }
+      }
+
+      return instance;
+    }
   }
 
   protected extractDescriptor(type: Class<unknown>) {

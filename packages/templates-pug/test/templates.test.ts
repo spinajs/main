@@ -70,14 +70,14 @@ describe('templates', () => {
 
   it('should render pug', async () => {
     const t = await tp();
-    const result = await t.render('pug/template.pug', { hello: 'world' });
+    const result = await t.render('template.pug', { hello: 'world' });
 
     expect(result).to.eq('<p>hello world</p>');
   });
 
   it('should render pug with lang', async () => {
     const t = await tp();
-    const result = await t.render('pug/template.pug', { hello: 'world' }, 'en');
+    const result = await t.render('template.pug', { hello: 'world' }, 'en');
 
     expect(result).to.eq('<p>hello world en_US</p>');
   });
@@ -90,7 +90,7 @@ describe('templates', () => {
       },
       async () => {
         const t = await tp();
-        return await t.render('pug/template.pug', { hello: 'world' });
+        return await t.render('template.pug', { hello: 'world' });
       },
     );
 
@@ -104,7 +104,7 @@ describe('templates', () => {
 
   it('should override template', async () => {
     const t = await tp();
-    const result = await t.render('pug/template_2.pug', { hello: 'world' });
+    const result = await t.render('template_2.pug', { hello: 'world' });
 
     expect(result).to.eq('<p>hello world overriden</p>');
   });

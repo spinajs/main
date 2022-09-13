@@ -17,6 +17,10 @@ export class PugRenderer extends TemplateRenderer {
 
   protected Templates: Map<string, pugTemplate.compileTemplate> = new Map<string, pugTemplate.compileTemplate>();
 
+  constructor() {
+    super();
+  }
+
   public get Type() {
     return 'pug';
   }

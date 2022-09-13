@@ -18,9 +18,16 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "TEMPLATES test",
+      "name": "TEMPLATES PUG test",
       "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/templates/test/**/*.ts"]
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/templates-pug/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "TEMPLATES HANDLEBARS test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/templates-handlebars/test/**/*.ts"]
     },
     {
       "type": "node",
