@@ -38,7 +38,7 @@
     "url": "https://github.com/spinajs/exceptions/issues"
   },
   "homepage": "https://github.com/spinajs/exceptions#readme",
-  "gitHead": "e48fe8038fab4eb187a8809ff8da99d3f1bc6dee",
+  "gitHead": "b8e5638f2c9e46cdeb06f754e553deafae7511c4",
   "dependencies": {
     "lodash": "^4.17.21"
   }

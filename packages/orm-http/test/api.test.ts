@@ -17,6 +17,7 @@ describe('Http orm tests', function () {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
 
+    await DI.resolve(Configuration);
     await DI.resolve(Controllers);
     await DI.resolve(Orm);
     const server = await DI.resolve(HttpServer);

@@ -9,6 +9,7 @@ import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { RouteArgs, FromFormBase } from './route-args';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { isPromise } from 'node:util/types';
 
 export abstract class BaseController extends AsyncModule implements IController {
   /**
@@ -95,8 +96,16 @@ export abstract class BaseController extends AsyncModule implements IController 
           await this._actionLocalStorage.run(req.storage, async () => {
             const args = (await _extractRouteArgs(route, req, res)).concat([req, res, next]);
             const result = this[route.Method].call(this, ...args);
-            res.locals.response = result;
-            next();
+
+            if (isPromise(result)) {
+              result.then((r) => {
+                res.locals.response = r;
+                next();
+              });
+            } else {
+              res.locals.response = result;
+              next();
+            }
           });
         } catch (err) {
           next(err);
