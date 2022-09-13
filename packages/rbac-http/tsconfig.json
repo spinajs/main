@@ -1,9 +1,5 @@
 {
   "extends": "../../tsconfig.json",
 
-  "compilerOptions": {
-    "typeRoots": [
-      "./typings"
-  ]
-  }
+  "compilerOptions": {}
 }
