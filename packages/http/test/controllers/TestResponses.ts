@@ -1,6 +1,6 @@
 import { join } from 'lodash';
 import { normalize, resolve } from 'path';
-import { BasePath, BaseController, Get, PugResponse, ServerError, Ok, FileResponse } from '../../src';
+import { BasePath, BaseController, Get, TemplateResponse, ServerError, Ok, FileResponse } from '../../src';
 
 @BasePath('responses')
 export class TestResponses extends BaseController {
@@ -16,12 +16,12 @@ export class TestResponses extends BaseController {
 
   @Get()
   public testPug() {
-    return new PugResponse('test-view.pug', { sampleText: 'hello world' });
+    return new TemplateResponse('test-view.pug', { sampleText: 'hello world' });
   }
 
   @Get()
   public testPugIntl() {
-    return new PugResponse('test-view-intl.pug', { sampleText: 'witaj świecie' });
+    return new TemplateResponse('test-view-intl.pug', { sampleText: 'witaj świecie' });
   }
 
   @Get()

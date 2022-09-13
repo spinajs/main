@@ -1,14 +1,12 @@
-import { ServerError } from './response-methods/serverError';
 import * as express from 'express';
 import { HTTP_STATUS_CODE, HttpAcceptHeaders, DataTransformer } from './interfaces';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { ILog, Log } from '@spinajs/log';
-import { extname } from 'path';
 import * as _ from 'lodash';
 import * as randomstring from 'randomstring';
 import { __translate, __translateH, __translateL, __translateNumber } from '@spinajs/intl';
-import { TemplateRenderer } from '@spinajs/templates';
+import { Templates } from '@spinajs/templates';
 
 export type ResponseFunction = (req: express.Request, res: express.Response) => void;
 
@@ -84,41 +82,32 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
 
     res.set('Content-Type', 'text/html');
 
-    try {
-      try {
-        _render(file, model, status);
-      } catch (err) {
-        const log: ILog = DI.resolve(Log, ['http']);
-
-        log.warn(`Cannot render html file ${file}, error: ${err.message}:${err.stack}`, err);
-
-        // try to render server error response
-        _render('responses/serverError.pug', { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR);
-      }
-    } catch (err) {
+    _render(file, model, status).catch((err) => {
       const log: ILog = DI.resolve(Log, ['http']);
 
-      // final fallback rendering error fails, we render embedded html error page
-      const ticketNo = randomstring.generate(7);
+      log.warn(`Cannot render html file ${file}, error: ${err.message}:${err.stack}`, err);
 
-      log.warn(`Cannot render pug file error: ${err.message}, ticket: ${ticketNo}`, err);
+      // try to render server error response
+      _render('responses/serverError.pug', { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR).catch((err2) => {
+        const log: ILog = DI.resolve(Log, ['http']);
 
-      res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
-      res.send(cfg.get<string>('http.FatalTemplate').replace('{ticket}', ticketNo));
-    }
+        // final fallback rendering error fails, we render embedded html error page
+        const ticketNo = randomstring.generate(7);
+
+        log.warn(`Cannot render pug file error: ${err2.message}, ticket: ${ticketNo}`, err);
+
+        res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
+        res.send(cfg.get<string>('http.FatalTemplate').replace('{ticket}', ticketNo));
+      });
+    });
 
     function _render(f: string, m: any, c: HTTP_STATUS_CODE) {
-      const engines = DI.get(Array.ofType(TemplateRenderer));
-      const engine = engines.find((e) => e.Extension === extname(f));
+      const templateEngine = DI.get(Templates);
 
-      if (!engine) {
-        throw new ServerError(`Cannot find template engine for file ${f}`);
-      }
-
-      const content = engine.render(f, m);
-
-      res.status(c ? c : HTTP_STATUS_CODE.OK);
-      res.send(content);
+      return templateEngine.render(f, m).then((content) => {
+        res.status(c ? c : HTTP_STATUS_CODE.OK);
+        res.send(content);
+      });
     }
   };
 }

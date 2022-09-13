@@ -46,6 +46,13 @@
     {
       "type": "node",
       "request": "launch",
+      "name": "INTL HTTP test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/intl-http/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
       "name": "INTL-ORM test",
       "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
       "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/intl-orm/test/**/*.ts"]

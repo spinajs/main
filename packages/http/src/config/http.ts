@@ -32,7 +32,7 @@ module.exports = {
   system: {
     dirs: {
       locales: [dir('./../locales')],
-      views: [dir('./../views')],
+      templates: [dir('./../views')],
       controllers: [dir('./../controllers')],
     },
   },

@@ -5,7 +5,7 @@ import { Response, htmlResponse } from '../responses';
 /**
  * HTML resposne with HTML from pug file
  */
-export class PugResponse extends Response {
+export class TemplateResponse extends Response {
   protected file: string;
   protected status: HTTP_STATUS_CODE = null;
 

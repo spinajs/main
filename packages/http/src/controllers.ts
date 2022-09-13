@@ -92,13 +92,12 @@ export abstract class BaseController extends AsyncModule implements IController 
 
       const acionWrapper = async (req: sRequest, res: express.Response, next: express.NextFunction) => {
         try {
-          const response = await this._actionLocalStorage.run(req.storage, async () => {
+          await this._actionLocalStorage.run(req.storage, async () => {
             const args = (await _extractRouteArgs(route, req, res)).concat([req, res, next]);
-            return this[route.Method].call(this, ...args);
+            const result = this[route.Method].call(this, ...args);
+            res.locals.response = result;
+            next();
           });
-
-          res.locals.response = response;
-          next();
         } catch (err) {
           next(err);
         }

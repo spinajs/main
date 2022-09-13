@@ -1,5 +1,5 @@
 import { ResponseFunction } from './responses';
-import { AsyncModule, IContainer, Autoinject, Injectable, Container } from '@spinajs/di';
+import { AsyncModule, IContainer, Autoinject, Injectable, Container, Inject } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { Server } from 'http';
@@ -12,8 +12,10 @@ import Express = require('express');
 import { ValidationFailed } from '@spinajs/validation';
 import './transformers';
 import '@spinajs/templates-pug';
+import { Templates } from '@spinajs/templates';
 
 @Injectable()
+@Inject(Templates)
 export class HttpServer extends AsyncModule {
   @Autoinject(Configuration)
   protected Configuration: Configuration;

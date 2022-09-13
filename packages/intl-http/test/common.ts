@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
-import { Controllers } from '../src';
+import { Controllers } from '@spinajs/http';
 import { join, normalize, resolve } from 'path';
 import * as _ from 'lodash';
 import chaiHttp from 'chai-http';

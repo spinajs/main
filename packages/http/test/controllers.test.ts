@@ -207,18 +207,6 @@ describe('http & controller tests', function () {
     });
   });
 
-  it('Pug resposne should be internationalized', async () => {
-    let response = await req().get('responses/testPugIntl?lang=en').set('Accept', 'text/html').send();
-    expect(response).to.have.status(200);
-    expect(response).to.be.html;
-    expect(response.text).to.eq('<html><head><title> Sample view</title></head><body>   <p>sample view</p><p>hello world</p></body></html>');
-
-    response = await req().get('responses/testPugIntl?lang=pl').set('Accept', 'text/html').send();
-    expect(response).to.have.status(200);
-    expect(response).to.be.html;
-    expect(response.text).to.eq('<html><head><title> Sample view</title></head><body>   <p>sample view</p><p>witaj świecie</p></body></html>');
-  });
-
   it('Should return error 500', async () => {
     const response = await req().get('responses/testError').set('Accept', 'application/json').send();
     expect(response).to.have.status(500);
