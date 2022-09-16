@@ -1,9 +1,17 @@
 import { InvalidOperation } from './../../exceptions/src/index';
-import { DI, AsyncModule } from '@spinajs/di';
+import { DI, AsyncModule, Bootstrapper, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { Email, EmailSender, EmailConfiguration } from './interfaces';
 import { Config } from '@spinajs/configuration';
+import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration';
 export * from './interfaces';
+
+@Injectable(Bootstrapper)
+export class LogBotstrapper extends Bootstrapper {
+  public bootstrap(): void {
+    DI.register(CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+  }
+}
 
 /**
  * Inject INTL module for language support. We does nothing but to initialize module for use in templates.

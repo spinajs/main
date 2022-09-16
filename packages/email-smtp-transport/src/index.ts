@@ -1,19 +1,11 @@
 import { IOFail } from '@spinajs/exceptions';
-import { Autoinject, Bootstrapper, DI, Injectable, NewInstance } from '@spinajs/di';
+import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { Email, EmailSender, EmailConnectionOptions } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
 import * as nodemailer from 'nodemailer';
 import { fs } from '@spinajs/fs';
 import _ from 'lodash';
-import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration';
-
-@Injectable(Bootstrapper)
-export class LogBotstrapper extends Bootstrapper {
-  public bootstrap(): void {
-    DI.register(CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
-  }
-}
 
 @Injectable()
 @NewInstance()

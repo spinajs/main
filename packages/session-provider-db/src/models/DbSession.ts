@@ -1,7 +1,7 @@
 import { ModelBase, Primary, Connection, Model, CreatedAt } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-@Connection('default')
+@Connection('session-provider-connection')
 @Model('user_sessions')
 export class DbSession extends ModelBase {
   @Primary()
