@@ -1,0 +1,54 @@
+{
+  "name": "@spinajs/jobs",
+  "version": "2.0.38",
+  "description": "jobs sending & pulling made easy",
+  "main": "lib/index.js",
+  "private": false,
+  "scripts": {
+    "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views && cpx src/static/**/* lib/static",
+    "compile": "tsc -p tsconfig.build.json",
+    "clean": "",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "types": "lib",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "http"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "devDependencies": {
+    "@types/luxon": "^2.3.1",
+    "@types/node": "^16.11.11",
+    "@types/nodemailer": "^6.4.4",
+    "@types/pug": "^2.0.4"
+  },
+  "dependencies": {
+    "@spinajs/configuration": "^2.0.38",
+    "@spinajs/di": "^2.0.38",
+    "@spinajs/exceptions": "^2.0.12",
+    "@spinajs/internal-logger": "^2.0.38",
+    "@spinajs/log": "^2.0.38"
+  },
+  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+}
