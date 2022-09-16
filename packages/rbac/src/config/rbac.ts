@@ -44,6 +44,8 @@ module.exports = {
     },
     defaultRole: 'guest',
     session: {
+      provider: 'session-provider-db',
+
       // 2h session expiration  time
       expiration: 120,
     },

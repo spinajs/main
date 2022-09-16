@@ -7,7 +7,7 @@ import { isTypedArray } from './helpers';
 
 export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
 
-function AddDependency(callback?: (descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => void): any {
+export function AddDependency(callback?: (descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
     let descriptor = (target as any).__DI_INJECTION_DESCRIPTOR__ as IInjectDescriptor<unknown>;
     if (!descriptor) {
@@ -216,6 +216,19 @@ export function PerChildInstance() {
 export function NewInstance() {
   return AddDependency((descriptor: IInjectDescriptor<unknown>) => {
     descriptor.resolver = ResolveType.NewInstance;
+  });
+}
+
+/**
+ * If we have multiple registered types at one base type
+ * we can resolve any of it once
+ *
+ * In comparison, Singleton flag means that only one instance can be resolved
+ * for base class
+ */
+export function PerInstance() {
+  return AddDependency((descriptor: IInjectDescriptor<unknown>) => {
+    descriptor.resolver = ResolveType.PerInstance;
   });
 }
 

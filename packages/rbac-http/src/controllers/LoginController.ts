@@ -15,7 +15,7 @@ export class LoginController extends BaseController {
   @Autoinject()
   protected AuthProvider: AuthProvider;
 
-  @Autoinject()
+  @AutoinjectService('rbac.session.provider')
   protected SessionProvider: SessionProvider;
 
   @Config('rbac.session.expiration', 120)

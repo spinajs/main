@@ -77,6 +77,7 @@
     "@spinajs/rbac-http": "file:packages\\rbac-http",
     "@spinajs/reflection": "file:packages\\reflection",
     "@spinajs/session-provider-db": "file:packages\\session-provider-db",
+    "@spinajs/session-provider-dynamodb": "file:packages\\session-provider-dynamodb",
     "@spinajs/validation": "file:packages\\validation",
     "@spinajs/orm-mysql": "file:packages\\orm-mysql",
     "@spinajs/templates": "file:packages\\templates",
@@ -85,6 +86,7 @@
     "@spinajs/email": "file:packages\\email",
     "@spinajs/email-smtp-transport": "file:packages\\email-smtp-transport",
     "@spinajs/fs": "file:packages\\fs",
-    "@spinajs/cli": "file:packages\\cli"
+    "@spinajs/cli": "file:packages\\cli",
+    "@spinajs/util": "file:packages\\util"
   }
 }

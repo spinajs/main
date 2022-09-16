@@ -44,8 +44,6 @@ export class Session implements ISession {
  */
 @Injectable(SessionProvider)
 export class MemorySessionStore extends SessionProvider<ISession> {
-  @Autoinject()
-  protected Configuration: Configuration;
 
   protected Sessions: Map<string, ISession> = new Map<string, ISession>();
 

@@ -3,7 +3,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 
 import 'mocha';
-import { AsyncModule, Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, SyncModule, Singleton } from '../src';
+import { AsyncModule, Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, SyncModule, Singleton, IInjectDescriptor, AddDependency, Class, PerInstance } from '../src';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -156,6 +156,22 @@ class BaseClass {
 
 class ChildClass extends BaseClass {}
 
+export function AutoinjectService(service: string) {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+    const type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
+    descriptor.inject.push({
+      autoinject: true,
+      autoinjectKey: propertyKey,
+      inject: type,
+      data: service,
+      serviceFunc: (data: string) => {
+        return data;
+      },
+    });
+  });
+}
+
 describe('Dependency injection', () => {
   beforeEach(() => {
     DI.clear();
@@ -288,6 +304,57 @@ describe('Dependency injection', () => {
 
     expect(instance).to.be.not.null;
     expect(instance.Instances).to.be.an('array').of.length(2);
+  });
+
+  it('Should autoinject with service func', () => {
+    @PerInstance()
+    class SampleImplementation1Single extends SampleBaseClass {
+      constructor() {
+        super();
+      }
+    }
+
+    @PerInstance()
+    class SampleImplementation2Single extends SampleBaseClass {
+      constructor() {
+        super();
+      }
+    }
+
+    @PerInstance()
+    class SampleImplementation3Single extends SampleBaseClass {
+      constructor() {
+        super();
+      }
+    }
+
+    DI.register(SampleImplementation1Single).as(SampleBaseClass);
+    DI.register(SampleImplementation2Single).as(SampleBaseClass);
+    DI.register(SampleImplementation3Single).as(SampleBaseClass);
+    class SampleMultipleAutoinject {
+      @AutoinjectService('SampleImplementation2Single')
+      public Service: SampleBaseClass;
+    }
+
+    class SampleMultipleAutoinject2 {
+      @Autoinject()
+      public Service: SampleBaseClass;
+    }
+
+    class SampleMultipleAutoinject3 {
+      @Autoinject(SampleImplementation1Single)
+      public Service: SampleBaseClass;
+    }
+
+    const instance = DI.resolve(SampleMultipleAutoinject);
+    const instance2 = DI.resolve(SampleMultipleAutoinject2);
+    const instance3 = DI.resolve(SampleMultipleAutoinject3);
+
+    expect(instance).to.be.not.null;
+    expect(instance.Service).to.be.not.null;
+    expect(instance.Service.constructor.name).to.eq('SampleImplementation2Single');
+    expect(instance2.Service.constructor.name).to.eq('SampleImplementation3Single');
+    expect(instance3.Service.constructor.name).to.eq('SampleImplementation1Single');
   });
 
   it('Should autoinject multiple as singleton', () => {

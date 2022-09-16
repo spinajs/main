@@ -155,7 +155,7 @@ export class Container extends EventEmitter implements IContainer {
    * @param type - what to resolve, can be class definition or factory function
    * @param options - options passed to constructor / factory
    */
-  public resolve<T>(type: string, options?: unknown[], check?: boolean): T;
+  public resolve<T>(type: string, options?: unknown[], check?: boolean, tType?: Class<T>): T;
   public resolve<T>(type: string, check?: boolean): T;
 
   /**
@@ -186,7 +186,7 @@ export class Container extends EventEmitter implements IContainer {
    * @param options - options passed to constructor / factory
    * @param check - strict check if serivice is registered in container before resolving. Default behavior is to not check and resolve
    */
-  public resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean): Promise<T | T[]> | T | T[] {
+  public resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean, tType?: Class<unknown>): Promise<T | T[]> | T | T[] {
     if (!type) {
       throw new InvalidArgument('argument `type` cannot be null or undefined');
     }
@@ -240,8 +240,12 @@ export class Container extends EventEmitter implements IContainer {
         }
       }
 
-      // resolve last registered type ( newest )
-      const rValue = this.resolveType(sourceType, targetType[targetType.length - 1], opt);
+      // if we have target function callback
+      // we can select whitch of targetType to resolve
+      //
+      // if not, by default last registered type is resolved
+      const fType = tType ?? targetType[targetType.length - 1];
+      const rValue = this.resolveType(sourceType, fType, opt);
       return rValue as any;
     }
   }
@@ -418,7 +422,18 @@ export class Container extends EventEmitter implements IContainer {
 
   protected resolveDependencies(toInject: IToInject<unknown>[]) {
     const dependencies = toInject.map((t) => {
-      const promiseOrVal = this.resolve(t.inject as any);
+      let tInject = null;
+
+      // if we have service func, retrieve target
+      // we can have multiple implementation of same interface
+      // and service can request to inject specific one
+      // ( not just last one registered )
+      if (t.serviceFunc) {
+        const tName = t.serviceFunc(t.data, this);
+        tInject = this.getRegisteredTypes(t.inject).find((x) => x.name === tName) as any;
+      }
+
+      const promiseOrVal = this.resolve(t.inject as any, null, false, tInject as any);
       if (promiseOrVal instanceof Promise) {
         return promiseOrVal.then((val: any) => {
           return {

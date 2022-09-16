@@ -1,45 +1,14 @@
 import { SessionProvider, Session, ISession } from '@spinajs/rbac';
-import { Autoinject, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession';
 import { InsertBehaviour } from '@spinajs/orm';
-
-interface ICustomDataType {
-  dataType: string;
-  value: any;
-}
-
-function replacer(_: string, value: unknown) {
-  if (value instanceof Map) {
-    return {
-      dataType: 'Map',
-      value: Array.from(value.entries()), // or with spread: value: [...value]
-    };
-  } else {
-    return value;
-  }
-}
-
-function reviver(_: string, value: ICustomDataType) {
-  if (typeof value === 'object' && value !== null) {
-    if (value.dataType === 'Map') {
-      return new Map(value.value);
-    }
-  }
-  return value;
-}
+import { reviver, replacer } from '@spinajs/util';
 
 @Injectable(SessionProvider)
 export class DbSessionStore extends SessionProvider {
   @Logger('db-session-store')
   protected Log: Log;
-
-  @Autoinject()
-  protected Configuration: Configuration;
-
-  // tslint:disable-next-line: no-empty
-  public async resolveAsync() {}
 
   public async restore(sessionId: string): Promise<Session> {
     const session = await DbSession.where({

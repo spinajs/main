@@ -1,7 +1,7 @@
 {
-  "name": "@spinajs/session-provider-dynamodb",
+  "name": "@spinajs/util",
   "version": "2.0.38",
-  "description": "dynamo db session store",
+  "description": "utility functions shared across @spinajs framework",
   "main": "lib/index.js",
   "private": false,
   "scripts": {
@@ -37,19 +37,7 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "homepage": "https://github.com/spinajs/main#readme",
-  "devDependencies": {
-    "@types/luxon": "^2.3.1",
-    "@types/node": "^16.11.11",
-    "@types/nodemailer": "^6.4.4",
-    "@types/pug": "^2.0.4"
-  },
-  "dependencies": {
-    "@spinajs/configuration": "^2.0.38",
-    "@spinajs/di": "^2.0.38",
-    "@spinajs/exceptions": "^2.0.12",
-    "@spinajs/internal-logger": "^2.0.38",
-    "@spinajs/log": "^2.0.38",
-    "aws-sdk": "^2.1218.0"
-  },
+  "devDependencies": {},
+  "dependencies": {},
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

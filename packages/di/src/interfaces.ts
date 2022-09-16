@@ -82,7 +82,24 @@ export interface IToInject<T> {
   inject: Class<T> | TypedArray<T>;
   autoinject: boolean;
   autoinjectKey: string;
-  mapFunc: (x: unknown) => string;
+
+  /**
+   * additional data passed to DI
+   */
+  data?: any;
+
+  /**
+   * Callback used to resolve service
+   * name of service we want to resolve
+   * eg. we have multiple \@injectable registered
+   * and we want specific one
+   *
+   * It is specifically for use with configuration module
+   * where services can be changed in configuration files
+   * and allows to use @AutoinjectService() decorator
+   */
+  serviceFunc?: (data: any, container: IContainer) => string;
+  mapFunc?: (x: unknown) => string;
 }
 
 export interface IResolvedInjection {
