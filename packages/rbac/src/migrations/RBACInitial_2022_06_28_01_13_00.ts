@@ -10,9 +10,13 @@ export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
       table.string('Password', 128).notNull();
       table.string('Login', 64).notNull();
       table.string('Role', 256).notNull();
+      table.boolean('IsBanned').notNull();
+      table.boolean('IsActive').notNull();
+
       table.dateTime('RegisteredAt');
       table.dateTime('CreatedAt').notNull().default().dateTime();
       table.dateTime('DeletedAt');
+      table.dateTime('LastLoginAt');
     });
 
     await connection.schema().createTable('users_metadata', (table) => {

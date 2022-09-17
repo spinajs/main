@@ -14,12 +14,12 @@ module.exports = {
   rbac: {
     twoFactorAuth: {
       enabled: true,
-      service: 'google-auth-2fa',
+      service: 'SpeakEasy2FaToken',
     },
     fingerprint: {
       enabled: true,
       maxDevices: 3,
-      service: 'fingerprintjs',
+      service: 'FingerprintJs',
     },
   },
   http: {

@@ -32,6 +32,11 @@ interface IServiceCfg {
   path: string;
 }
 
+/**
+ * Inject service based on configuration.
+ *
+ * @param path - configuration path where service type is stored
+ */
 export function AutoinjectService(path: string) {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {

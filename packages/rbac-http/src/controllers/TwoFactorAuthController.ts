@@ -5,29 +5,18 @@ import { Body, Policy } from '@spinajs/http';
 import _ from 'lodash';
 import { User } from '../decorators';
 import { TwoFacRouteEnabled } from '../policies/2FaPolicy';
-import { Config } from '@spinajs/configuration';
-import { TwoFactorAuthConfig, TwoFactorAuthProvider } from '../interfaces';
-import { Autoinject, DI, ServiceNotFound } from '@spinajs/di';
+import { AutoinjectService } from '@spinajs/configuration';
+import { TwoFactorAuthProvider } from '../interfaces';
+import { Autoinject } from '@spinajs/di';
 
 @BasePath('user/auth')
 @Policy(TwoFacRouteEnabled)
 export class TwoFactorAuthController extends BaseController {
-  @Config('rbac.twoFactorAuth')
-  protected TwoFactorConfig: TwoFactorAuthConfig;
-
   @Autoinject()
   protected SessionProvider: SessionProvider;
 
+  @AutoinjectService('rbac.twoFactorAuth.provider')
   protected TwoFactorAuthProvider: TwoFactorAuthProvider;
-
-  public async resolveAsync(): Promise<void> {
-    if (this.TwoFactorConfig.enabled) {
-      if (!DI.check(this.TwoFactorConfig.service)) {
-        throw new ServiceNotFound(`2FA provider ${this.TwoFactorConfig.service} not registered in DI container`);
-      }
-      this.TwoFactorAuthProvider = DI.resolve(this.TwoFactorConfig.service);
-    }
-  }
 
   @Post('2fa/verify')
   public async verifyToken(@User() logged: UserModel, @Body() token: TokenDto, @Cookie() ssid: string) {

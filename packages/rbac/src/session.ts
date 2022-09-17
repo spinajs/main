@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
 import { SessionProvider, ISession } from './interfaces';
-import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
-import { Config, Configuration } from '@spinajs/configuration';
+import { Injectable, NewInstance } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -44,7 +44,6 @@ export class Session implements ISession {
  */
 @Injectable(SessionProvider)
 export class MemorySessionStore extends SessionProvider<ISession> {
-
   protected Sessions: Map<string, ISession> = new Map<string, ISession>();
 
   public async restore(sessionId: string): Promise<ISession | null> {

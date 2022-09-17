@@ -1,12 +1,12 @@
 {
-  "name": "@spinajs/jobs",
+  "name": "@spinajs/session-provider-redis",
   "version": "2.0.38",
   "description": "jobs sending & pulling made easy",
   "main": "lib/index.js",
   "private": false,
   "scripts": {
     "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views && cpx src/static/**/* lib/static",
-    "compile": "tsc -p tsconfig.build.json",
+    "compile": "tsc -pkw tsconfig.build.json",
     "clean": "",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",

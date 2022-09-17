@@ -9,6 +9,7 @@ module.exports = {
     dirs: {
       migrations: [dir('./../migrations')],
       models: [dir('./../models')],
+      cli: [dir('./../cli')],
     },
   },
   rbac: {
@@ -43,8 +44,14 @@ module.exports = {
       },
     },
     defaultRole: 'guest',
+    auth: {
+      provider: 'SimpleDbAuthProvider',
+    },
+    password: {
+      provider: 'BasicPasswordProvider',
+    },
     session: {
-      provider: 'session-provider-db',
+      provider: 'MemorySessionStore',
 
       // 2h session expiration  time
       expiration: 120,

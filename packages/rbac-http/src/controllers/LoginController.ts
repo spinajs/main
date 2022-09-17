@@ -1,18 +1,18 @@
 import { UserLoginDto } from '../dto/userLogin-dto';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, NotAllowed } from '@spinajs/http';
 import { AuthProvider, Session, SessionProvider, User as UserModel } from '@spinajs/rbac';
-import { Autoinject, DI, ServiceNotFound } from '@spinajs/di';
-import { Config, Configuration } from '@spinajs/configuration';
+import { Autoinject } from '@spinajs/di';
+import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import { User } from './../decorators';
 import _ from 'lodash';
-import { FingerpringConfig, FingerprintProvider, TwoFactorAuthConfig, TwoFactorAuthProvider } from '../interfaces';
+import { FingerprintProvider, TwoFactorAuthProvider } from '../interfaces';
 
 @BasePath('user/auth')
 export class LoginController extends BaseController {
   @Autoinject()
   protected Configuration: Configuration;
 
-  @Autoinject()
+  @AutoinjectService('rbac.auth.provider')
   protected AuthProvider: AuthProvider;
 
   @AutoinjectService('rbac.session.provider')
@@ -21,31 +21,11 @@ export class LoginController extends BaseController {
   @Config('rbac.session.expiration', 120)
   protected SessionExpirationTime: number;
 
-  @Config('rbac.twoFactorAuth')
-  protected TwoFactorConfig: TwoFactorAuthConfig;
-
-  @Config('rbac.fingerprint')
-  protected FingerPrintConfig: FingerpringConfig;
-
+  @AutoinjectService('rbac.twoFactorAuth.provider')
   protected TwoFactorAuthProvider: TwoFactorAuthProvider;
 
+  @AutoinjectService('rbac.fingerprint.provider')
   protected FingerprintPrivider: FingerprintProvider;
-
-  public async resolveAsync(): Promise<void> {
-    if (this.TwoFactorConfig.enabled) {
-      if (!DI.check(this.TwoFactorConfig.service)) {
-        throw new ServiceNotFound(`2FA provider ${this.TwoFactorConfig.service} not registered in DI container`);
-      }
-      this.TwoFactorAuthProvider = DI.resolve(this.TwoFactorConfig.service);
-    }
-
-    if (this.FingerPrintConfig.enabled) {
-      if (!DI.check(this.FingerPrintConfig.service)) {
-        throw new ServiceNotFound(`Fingerprint provider ${this.FingerPrintConfig.service} not registered in DI container`);
-      }
-      this.FingerprintPrivider = DI.resolve(this.FingerPrintConfig.service);
-    }
-  }
 
   @Post()
   public async login(@Body() credentials: UserLoginDto, @User() logged: UserModel) {

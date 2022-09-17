@@ -16,7 +16,7 @@ export class EmailSenderSmtp extends EmailSender {
   @Autoinject(Templates)
   protected Tempates: Templates;
 
-  @Autoinject(fs, (x) => x.Provider)
+  @Autoinject(fs, (x: fs) => x.Provider)
   protected FileSystems: Map<string, fs>;
 
   protected Transporter: nodemailer.Transporter;
@@ -61,7 +61,7 @@ export class EmailSenderSmtp extends EmailSender {
       text: email.text, // plain text body
       html: email.template ? await this.Tempates.render(email.template, email.model, email.lang) : null,
       attachments: await Promise.all(
-        email.attachements.map(async (a) => {
+        email.attachements.map(async (a: any) => {
           // we allow to use multiple file sources, default is local
           const provider = this.FileSystems.get(a.provider ?? 'fs-local');
           if (!provider) {
@@ -89,7 +89,7 @@ export class EmailSenderSmtp extends EmailSender {
     // all non local files are downloaded
     // and temporary path is in email attachement path property
     const fsLocal = this.FileSystems.get('fs-local');
-    await Promise.all(options.attachments.filter((x) => x.provider !== 'fs-local').map((x) => fsLocal.unlink(x.path)));
+    await Promise.all(options.attachments.filter((x: any) => x.provider !== 'fs-local').map((x: any) => fsLocal.unlink(x.path)));
 
     this.Log.trace(`Sent email with data: ${JSON.stringify(_.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']))}, SMTP response: ${JSON.stringify(message)}`);
   }

@@ -1,4 +1,4 @@
-import { InvalidOperation } from './../../exceptions/src/index';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { DI, AsyncModule, Bootstrapper, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { Email, EmailSender, EmailConfiguration } from './interfaces';

@@ -51,6 +51,12 @@ export class User extends ModelBase {
   @SoftDelete()
   public DeletedAt: DateTime;
 
+  public LastLoginAt: DateTime;
+
+  public IsBanned: boolean;
+
+  public IsActive: boolean;
+
   /**
    * User additional information. Can be anything
    */
