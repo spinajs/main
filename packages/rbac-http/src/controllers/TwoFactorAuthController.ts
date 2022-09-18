@@ -7,12 +7,11 @@ import { User } from '../decorators';
 import { TwoFacRouteEnabled } from '../policies/2FaPolicy';
 import { AutoinjectService } from '@spinajs/configuration';
 import { TwoFactorAuthProvider } from '../interfaces';
-import { Autoinject } from '@spinajs/di';
 
 @BasePath('user/auth')
 @Policy(TwoFacRouteEnabled)
 export class TwoFactorAuthController extends BaseController {
-  @Autoinject()
+  @AutoinjectService('rbac.session.provider')
   protected SessionProvider: SessionProvider;
 
   @AutoinjectService('rbac.twoFactorAuth.provider')

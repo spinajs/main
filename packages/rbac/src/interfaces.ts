@@ -59,10 +59,49 @@ export abstract class PasswordProvider {
   public abstract generate(): string;
 }
 
+/**
+ * Provides standard authentication based on login & password
+ *
+ * Unlike federated auth providers, it check local db for user,
+ * or some kind of other source
+ */
 export abstract class AuthProvider<U = User> {
   public abstract exists(user: U): Promise<boolean>;
 
   public abstract authenticate(email: string, password: string): Promise<U>;
+}
+
+/**
+ * Used for implementign authentication with external services
+ * eg. slack or facebook that uses openid or similar auth
+ *
+ * NOTE: it should only authorize user, it should not register new one if
+ * not exists in use DB.
+ */
+export abstract class FederatedAuthProvider<C, U = User> {
+  /**
+   * Name of strategy
+   */
+  abstract get Name(): string;
+
+  /**
+   *
+   * login service provides Host header for check
+   * whitch service is trying to authenticate
+   *
+   * Base on host adress we choose auth provider
+   *
+   * @param caller - caller url
+   */
+  public abstract callerCheck(caller: string): boolean;
+
+  /**
+   *
+   * Authenticates user based on response from external auth service
+   *
+   * @param credentials - provided credentials eg. data with token
+   */
+  public abstract authenticate(credentials: C): Promise<U>;
 }
 
 export abstract class SessionProvider<T = ISession> extends AsyncModule {

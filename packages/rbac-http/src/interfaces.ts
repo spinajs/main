@@ -66,8 +66,6 @@ export abstract class TwoFactorAuthProvider {
 
 export abstract class FingerprintProvider {}
 
-export interface AuthProvider {}
-
 export interface TwoFactorAuthConfig {
   enabled: boolean;
   service: string;

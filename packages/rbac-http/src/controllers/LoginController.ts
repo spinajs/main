@@ -1,11 +1,13 @@
+import { InvalidOperation } from '@spinajs/exceptions';
 import { UserLoginDto } from '../dto/userLogin-dto';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, NotAllowed } from '@spinajs/http';
-import { AuthProvider, Session, SessionProvider, User as UserModel } from '@spinajs/rbac';
+import { AuthProvider, FederatedAuthProvider, Session, SessionProvider, User as UserModel } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import { User } from './../decorators';
 import _ from 'lodash';
 import { FingerprintProvider, TwoFactorAuthProvider } from '../interfaces';
+import { Header } from 'http/lib';
 
 @BasePath('user/auth')
 export class LoginController extends BaseController {
@@ -27,6 +29,37 @@ export class LoginController extends BaseController {
   @AutoinjectService('rbac.fingerprint.provider')
   protected FingerprintPrivider: FingerprintProvider;
 
+  @Autoinject(FederatedAuthProvider)
+  protected FederatedLoginStrategies: FederatedAuthProvider<any>[];
+
+  @Post('federated-login')
+  public async loginFederated(@Body() credentials: unknown, @Header('Host') caller: string, @User() logged: UserModel) {
+    if (logged) {
+      return new NotAllowed('User already logged in. Please logout before trying to authorize.');
+    }
+
+    const strategy = this.FederatedLoginStrategies.find((x) => x.callerCheck(caller));
+    if (!strategy) {
+      throw new InvalidOperation(`No auth stragegy registered for caller ${caller}`);
+    }
+
+    const user = await strategy.authenticate(credentials);
+
+    // proceed with standard authentication
+    return await this.authenticate(user);
+  }
+
+  /**
+   *
+   * Api call for listing avaible federated login strategies
+   *
+   * @returns response with avaible login strategies
+   */
+  @Get()
+  public async federatedLogin() {
+    return new Ok(this.FederatedLoginStrategies.map((x) => x.Name));
+  }
+
   @Post()
   public async login(@Body() credentials: UserLoginDto, @User() logged: UserModel) {
     if (logged) {
@@ -34,7 +67,22 @@ export class LoginController extends BaseController {
     }
 
     const user = await this.AuthProvider.authenticate(credentials.Email, credentials.Password);
+    return await this.authenticate(user);
+  }
 
+  @Get()
+  public async logout(@Cookie() ssid: string) {
+    if (!ssid) {
+      return new Ok();
+    }
+
+    await this.SessionProvider.delete(ssid);
+
+    // send empty cookie to confirm session deletion
+    return new CookieResponse('ssid', null, this.SessionExpirationTime);
+  }
+
+  protected async authenticate(user: UserModel) {
     if (!user) {
       return new Unauthorized({
         error: {
@@ -110,17 +158,5 @@ export class LoginController extends BaseController {
     // BEWARE: httpOnly coockie, only accesible via http method in browser
     // return coockie session id with additional user data
     return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime, true, _.omit(dUser, ['Id']), { httpOnly: true });
-  }
-
-  @Get()
-  public async logout(@Cookie() ssid: string) {
-    if (!ssid) {
-      return new Ok();
-    }
-
-    await this.SessionProvider.delete(ssid);
-
-    // send empty cookie to confirm session deletion
-    return new CookieResponse('ssid', null, this.SessionExpirationTime);
   }
 }
