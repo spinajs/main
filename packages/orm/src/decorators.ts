@@ -1,3 +1,4 @@
+import { JsonValueConverter } from './interfaces';
 /* eslint-disable prettier/prettier */
 import { UuidConverter } from './converters';
 import { Constructor } from '@spinajs/di';
@@ -384,6 +385,16 @@ export function DateTime() {
     }
 
     model.Converters.set(propertyKey, DatetimeValueConverter);
+  });
+}
+
+/**
+ * Converts data in db to json object. 
+ */
+export function Json() {
+  return extractDecoratorDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
+    // add converter for this field
+    model.Converters.set(propertyKey, JsonValueConverter);
   });
 }
 

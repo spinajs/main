@@ -3,7 +3,7 @@
 
   "compilerOptions":  {
     "typeRoots": [
-      "./typings"
+      "typings"
   ]
   }
 }

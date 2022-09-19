@@ -830,7 +830,7 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     // pk constrain
-    if (description.PrimaryKey) {
+    if (description.PrimaryKey && pk !== null) {
       query.where(description.PrimaryKey, pk);
     }
 

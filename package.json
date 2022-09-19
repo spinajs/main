@@ -87,6 +87,8 @@
     "@spinajs/email-smtp-transport": "file:packages\\email-smtp-transport",
     "@spinajs/fs": "file:packages\\fs",
     "@spinajs/cli": "file:packages\\cli",
-    "@spinajs/util": "file:packages\\util"
+    "@spinajs/util": "file:packages\\util",
+    "@spinajs/queue": "file:packages\\queue",
+    "@spinajs/queue-orm-transport": "file:packages/queue-orm-transport"
   }
 }

@@ -18,6 +18,7 @@ export class Cli extends AsyncModule {
 
   @ResolveFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')
   public Commands: Promise<Array<ClassInfo<CliCommand>>>;
+
   public async resolveAsync(): Promise<void> {
     for (const command of await this.Commands) {
       this.Log.trace(`Found command ${command.name} in file ${command.file}`);

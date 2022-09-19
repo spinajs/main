@@ -909,6 +909,26 @@ export class ValueConverter implements IValueConverter {
  */
 export class DatetimeValueConverter extends ValueConverter {}
 
+export class JsonValueConverter extends ValueConverter {
+  /**
+   * Converts value to database type
+   *
+   * @param value - value to convert
+   */
+  public toDB(value: any): any {
+    return JSON.stringify(value);
+  }
+
+  /**
+   * Converts value from database type eg. mysql timestamp to DateTime
+   *
+   * @param value - value to convert
+   */
+  public fromDB(value: any): any {
+    return JSON.parse(value);
+  }
+}
+
 /**
  * Converter for set field (eg. mysql SET)
  */
