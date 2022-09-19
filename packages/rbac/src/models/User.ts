@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid } from '@spinajs/orm';
 import { AccessControl } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata';
@@ -16,6 +16,9 @@ export class User extends ModelBase {
 
   @Primary()
   public Id: number;
+
+  @Uuid()
+  public Uuid: string;
 
   public Email: string;
 

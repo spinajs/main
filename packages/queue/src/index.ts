@@ -2,6 +2,7 @@ import { Config } from '@spinajs/configuration';
 import { AsyncModule, DI, Inject } from '@spinajs/di';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
+import { ResolveFromFiles } from '@spinajs/reflection';
 import { EventBase, MessageBase, QueueConfiguration, QueueTransport } from './interfaces';
 
 export * from './interfaces';
@@ -16,9 +17,6 @@ export class Queue extends AsyncModule {
 
   protected Transports: QueueTransport[];
 
-  @Inject(EventBase)
-  protected Events: EventBase[];
-
   public async resolveAsync(): Promise<void> {
     for (const c of this.Configuration.connections) {
       this.Log.trace(`Found connection ${c.name}, transport: ${c.transport}`);
@@ -29,7 +27,9 @@ export class Queue extends AsyncModule {
 
     await super.resolveAsync();
   }
+}
 
+export class QueueClient extends Queue {
   /**
    *
    * Dispatches event to all transports that are configured for handle channel specified in event.
@@ -53,6 +53,11 @@ export class Queue extends AsyncModule {
       await t.dispatch(event);
     }
   }
+}
+
+export class QueueServer extends Queue {
+  @ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.events')
+  protected Events: EventBase[];
 
   /**
    *

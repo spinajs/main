@@ -29,12 +29,12 @@ export abstract class MessageBase {
   [key: string]: any;
 
   @Serialize()
-  public CreatedAt: string;
+  public CreatedAt: DateTime;
 
   public Channel: string;
 
   constructor(channel: string) {
-    this.CreatedAt = DateTime.now().toISODate();
+    this.CreatedAt = DateTime.now();
     this.Channel = channel;
   }
 

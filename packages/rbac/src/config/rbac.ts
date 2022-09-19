@@ -13,6 +13,12 @@ module.exports = {
     },
   },
   rbac: {
+    users: {
+      // when user is created, should he confirm email
+      // if false, user is acvite at creation,
+      // when true, first, user will be sent confirmation email
+      ConfirmEmail: false,
+    },
     // default roles to manage users & guest account
     roles: [
       {
@@ -49,6 +55,7 @@ module.exports = {
     },
     password: {
       provider: 'BasicPasswordProvider',
+      minPasswordLength: 6,
     },
     session: {
       provider: 'MemorySessionStore',

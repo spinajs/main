@@ -44,13 +44,12 @@ export class UserController extends BaseController {
   @Post('password/restore')
   public async restorePassword(@Body() _login: UserLoginDto) {}
 
-  @Patch('/password/:login')
-  public async newPassword(@Param() login: string, @Body() pwd: PasswordDto) {
+  @Patch('/password')
+  public async newPassword(@User() user: UserModel, @Body() pwd: PasswordDto) {
     if (pwd.Password !== pwd.ConfirmPassword) {
       throw new InvalidArgument('password does not match');
     }
 
-    const user = await UserModel.where({ Login: login }).firstOrFail();
     const isValid = await this.PasswordProvider.verify(user.Password, pwd.OldPassword);
 
     if (!isValid) {
