@@ -13,6 +13,7 @@ export class Subscriber extends ModelBase {
   @Primary()
   public Id: number;
 
+  @Primary()
   public Name: string;
 
   @HasManyToMany(Queue, Event, 'Id', 'Id', 'orm_event_transport__event_Id', 'orm_event_transport__subscribers_Id')

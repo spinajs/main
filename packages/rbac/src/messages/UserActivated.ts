@@ -1,6 +1,6 @@
-import { MessageBase, Serialize } from '@spinajs/Queue';
+import { Message, Serialize } from '@spinajs/Queue';
 import { User } from '../models/User';
-export class UserActivatedMessage extends MessageBase {
+export class UserActivatedMessage extends Message {
   @Serialize()
   public Uuid: string;
 

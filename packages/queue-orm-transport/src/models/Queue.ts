@@ -9,11 +9,8 @@ import type { Event } from './Event';
 @Connection('orm-event-transport')
 @Model('orm_event_transport__queue')
 export class Queue extends ModelBase {
-  @Primary()
-  public Id: number;
-
   @BelongsTo('Event', 'orm_event_transport__event_Id', 'Id')
-  public User: SingleRelation<Event>;
+  public Event: SingleRelation<Event>;
 
   @BelongsTo('Subscriber', 'orm_event_transport__subscribers_Id', 'Id')
   public Subscriber: SingleRelation<Subscriber>;

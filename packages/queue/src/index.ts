@@ -1,90 +1,49 @@
-import { Config } from '@spinajs/configuration';
-import { AsyncModule, DI, Inject } from '@spinajs/di';
 import { UnexpectedServerError } from '@spinajs/exceptions';
+import { Config } from '@spinajs/configuration';
+import { AsyncModule, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { ResolveFromFiles } from '@spinajs/reflection';
-import { EventBase, MessageBase, QueueConfiguration, QueueTransport } from './interfaces';
+import { QueueConfiguration, QueueClient, Message, Job } from './interfaces';
 
 export * from './interfaces';
 export * from './decorators';
 
-export class Queue extends AsyncModule {
+export class Queues extends AsyncModule {
   @Logger('queue')
   protected Log: Log;
 
   @Config('queue')
   protected Configuration: QueueConfiguration;
 
-  protected Transports: QueueTransport[];
-
   public async resolveAsync(): Promise<void> {
     for (const c of this.Configuration.connections) {
-      this.Log.trace(`Found connection ${c.name}, transport: ${c.transport}`);
+      this.Log.trace(`Found queue ${c.name}, with transport: ${c.transport}`);
 
-      const connection = (await DI.resolve)<QueueTransport>(c.transport, [c]);
-      this.Transports.push(connection);
+      const connection = await DI.resolve(QueueClient, [c]);
+      DI.register(connection).asValue(`__queue__${c.name}`);
     }
 
     await super.resolveAsync();
   }
-}
 
-export class QueueClient extends Queue {
-  /**
-   *
-   * Dispatches event to all transports that are configured for handle channel specified in event.
-   *
-   * @param event - event to dispatch
-   */
-  public async dispatch(event: MessageBase) {
-    /**
-     * Dispatch to transports that can handle message channel
-     */
-    const transports = this.Transports.filter((x) => {
-      if (x.Channels.indexOf('*') !== -1) return true;
-      return x.Channels.indexOf(event.Channel) !== -1;
-    });
-
-    if (transports.length === 0) {
-      throw new UnexpectedServerError(`Cannot find event transport for channel ${event.channel}`);
+  public async emit<T>(event: Message<T>) {
+    const c = this.get(event.Connection);
+    if (!c) {
+      throw new UnexpectedServerError(`Queue ${event.Connection} not exists !`);
     }
 
-    for (const t of transports) {
-      await t.dispatch(event);
-    }
+    return await c.emit(event);
   }
-}
 
-export class QueueServer extends Queue {
-  @ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.events')
-  protected Events: EventBase[];
-
-  /**
-   *
-   * Subscribes for receiving events for specified connections.
-   *
-   * It must be run explicitly, becouse we dont want to subscribe all channels & connections at once.
-   * For most time we want run one subscriber per process for efficiency
-   *
-   * @param connection - connection name
-   */
-  public async subscribe(connectionName: string) {
-    const transport = this.Transports.find((x) => x.Options.name === connectionName);
-    if (!transport) {
-      throw new UnexpectedServerError(`No connection for ${connectionName}`);
+  public async emitJob<T>(event: Job<T>) {
+    const c = this.get(event.Connection);
+    if (!c) {
+      throw new UnexpectedServerError(`Queue ${event.Connection} not exists !`);
     }
 
-    await transport.subscribe((message) => {
-      const event = this.Events.filter((x) => {
-        if (x.Channels.indexOf('*') !== -1) return true;
-        return x.Channels.indexOf(message.Channel) !== -1;
-      });
+    return await c.emitJob(event);
+  }
 
-      if (!event) {
-        this.Log.warn(`No event subscribed for ${message.Channel} channel`);
-      }
-
-      event.forEach((x) => x.execute(message));
-    });
+  public get(connection: string) {
+    return DI.get<QueueClient>(`__queue__${connection}`);
   }
 }

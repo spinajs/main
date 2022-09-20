@@ -8,6 +8,7 @@ const email = {
   system: {
     dirs: {
       cli: [dir('./../cli')],
+      jobs: [dir('./../jobs')],
     },
   },
 };

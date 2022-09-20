@@ -2,40 +2,26 @@ import { AsyncModule } from '@spinajs/di';
 import { ISerializationDescriptor, ISerializable, Serialize } from './decorators';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
-
-export abstract class EventBase {
-  /**
-   * Events can be dispatched into channels.
-   * Given connection can hook up for one or more channels, or all. It
-   * means that it will push further events that are send to specified channels.
-   *
-   * Awaible channel names are:
-   *  * - all incoming events
-   *  channel1, channel2, .... -  list of channels
-   *  channel1 - one channel
-   *
-   *  eg. pushing / subscribing to queue server all events related to user creation will be:
-   *  'user:creation'
-   */
-  public abstract get Channels(): string[];
-
-  public abstract execute(message: MessageBase): Promise<void>;
-}
+import { ListFromFiles } from '@spinajs/reflection';
+import { Log, Logger } from '@spinajs/log';
 
 /**
  * Events are messages send via queue, we do not want to track it, dont care about result, no retry policy on failed execution etc.
  */
-export abstract class MessageBase {
+export abstract class Message<T> {
   [key: string]: any;
 
   @Serialize()
   public CreatedAt: DateTime;
 
-  public Channel: string;
+  @Serialize()
+  public Payload: T;
 
-  constructor(channel: string) {
+  @Serialize()
+  public Name: string;
+
+  constructor(public Connection: string) {
     this.CreatedAt = DateTime.now();
-    this.Channel = channel;
   }
 
   public hydrate(payload: any) {
@@ -65,19 +51,52 @@ export abstract class MessageBase {
   }
 }
 
-export abstract class QueueTransport extends AsyncModule {
+/**
+ * events provides a simple observer implementation, allowing you to subscribe and listen
+ * for various events that occur in your application. Events serve as a great way to decouple
+ * various aspects of your application, since a single event can have multiple listeners that do not depend on each other.
+ *
+ * we can register multiple listeners for a single event and the event helper will dispatch the event to all of its registered
+ * listeners without us calling them explicitly. where in case of Jobs we would have to call them each one explicitly.
+ */
+export abstract class Event<T> extends Message<T> {}
+
+/**
+ * Jobs are executed only once even if multiple listeners waiting for it. usually used for single method call
+ * or time consuming tasks, that need to checked for result and tracked
+ */
+export abstract class Job<T> extends Message<T> {
+  public abstract execute(): Promise<boolean>;
+
+  /**
+   * Retry count on job failure
+   */
+  @Serialize()
+  public RetryCount: number;
+
+  /**
+   * Execution delay in miliseconds
+   */
+  @Serialize()
+  public Delay: number;
+}
+
+export abstract class QueueClient extends AsyncModule {
+  @Logger('queue')
+  protected Log: Log;
+
   /**
    * Transport options
    */
   public Options: Connection;
 
-  public Channels: string[];
+  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.jobs')
+  protected Jobs: Job<any>[];
 
   constructor(options: Connection) {
     super();
 
     this.Options = options;
-    this.Channels = this.Options.channel.split('.');
   }
 
   /**
@@ -86,14 +105,24 @@ export abstract class QueueTransport extends AsyncModule {
    *
    * @param event - event to dispatch
    */
-  public abstract dispatch(event: MessageBase): Promise<boolean>;
+  public abstract emit<T>(event: Event<T>): Promise<boolean>;
+
+  /**
+   *
+   * Dispatches job
+   *
+   * @param job - job to dispatch
+   */
+  public abstract emitJob<T>(job: Job<T>): Promise<boolean>;
 
   /**
    *
    * Subscribes to queue and process invoming events
    *
    */
-  public abstract subscribe(callback: (message: MessageBase) => void): Promise<void>;
+  public abstract subscribe<T>(event: string, callback: (e: Event<T>) => Promise<boolean>): Promise<void>;
+
+  public abstract unsubscribe<T>(event: string, callback: (e: Event<T>) => Promise<boolean>): Promise<void>;
 }
 
 export interface QueueConfiguration {
@@ -102,27 +131,11 @@ export interface QueueConfiguration {
 
 export interface Connection {
   transport: string;
-
-  /**
-   * Events can be dispatched into channels.
-   * Given connection can hook up for one or more channels, or all. It
-   * means that it will push further events that are send to specified channels.
-   *
-   * Awaible channel names are:
-   *  * - all incoming events
-   *  channel1, channel2, .... - comma separated list of channels
-   *  channel1 - one channel
-   *
-   *  eg. pushing / subscribing to queue server all events related to user creation will be:
-   *  'user:creation'
-   */
-  channel: string;
   name: string;
   login?: string;
   password?: string;
   host?: string;
   port?: number;
   queue?: string;
-
   options?: any;
 }

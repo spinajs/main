@@ -1,3 +1,4 @@
+import { OrmDriver } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
 import { SordOrder } from './enums';
@@ -113,6 +114,8 @@ export interface IModelBase {
   refresh(): Promise<void>;
 
   toJSON(): any;
+
+  driver(): OrmDriver;
 }
 
 export class ModelBase implements IModelBase {
@@ -177,6 +180,12 @@ export class ModelBase implements IModelBase {
           break;
       }
     });
+  }
+
+  public driver(): OrmDriver {
+    const orm = DI.get<Orm>(Orm);
+    const driver = orm.Connections.get(this.ModelDescriptor.Connection);
+    return driver;
   }
 
   /**
@@ -662,6 +671,18 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
 }
 
 export const MODEL_STATIC_MIXINS = {
+  driver(): OrmDriver {
+    const dsc = _descriptor(this);
+    const orm = DI.get<Orm>(Orm);
+    const driver = orm.Connections.get(dsc.Connection);
+
+    if (!driver) {
+      throw new Error(`model ${this.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`);
+    }
+
+    return driver;
+  },
+
   query(): SelectQueryBuilder {
     const { query } = createQuery(this, SelectQueryBuilder, false);
     return query;

@@ -1,9 +1,11 @@
 import { InvalidOperation } from '@spinajs/exceptions';
-import { DI, AsyncModule, Bootstrapper, Injectable } from '@spinajs/di';
+import { DI, AsyncModule, Bootstrapper, Injectable, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { Email, EmailSender, EmailConfiguration } from './interfaces';
 import { Config } from '@spinajs/configuration';
 import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration';
+import { QueueClient } from '@spinajs/queue';
+
 export * from './interfaces';
 
 @Injectable(Bootstrapper)
@@ -25,6 +27,9 @@ export class Emails extends AsyncModule {
   @Config('email')
   protected Configuration: EmailConfiguration;
 
+  @Autoinject(QueueClient)
+  protected Queue: QueueClient;
+
   public async resolveAsync(): Promise<void> {
     for (const c of this.Configuration.connections) {
       this.Log.trace(`Found connection ${c.name} ${c.login}@${c.host}`);
@@ -38,6 +43,22 @@ export class Emails extends AsyncModule {
     await super.resolveAsync();
   }
 
+  /**
+   *
+   * Sends email deferred, it sends email to queue. Proper subscriber should receive and process email in background
+   *
+   * @param email - email struct
+   */
+  public async sendDeferred(email: Email) {
+    this.Queue.dispatch(email);
+  }
+ 
+  /**
+   *
+   * Tries to sends email immediately
+   *
+   * @param email - email struct
+   */
   public async send(email: Email): Promise<void> {
     if (!this.Senders.has(email.connection)) {
       throw new InvalidOperation(`Email sender ${email.connection} not exists. Please check your configuration files.`);

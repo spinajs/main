@@ -1,3 +1,4 @@
+import { Message, Serialize } from '@spinajs/queue';
 export abstract class EmailSender {
   public Options: EmailConnectionOptions;
 
@@ -21,48 +22,73 @@ export interface IEmailAttachement {
   provider?: string;
 }
 
-export interface Email {
+export class Email extends Message {
+  @Serialize()
   to: string[];
+
+  @Serialize()
   cc?: string[];
+
+  @Serialize()
   bcc?: string[];
+
+  @Serialize()
   from: string;
+
+  @Serialize()
   connection: string;
+
+  @Serialize()
   attachements?: IEmailAttachement[];
 
   /**
    * Local template name. Must be avaible in one of dirs set in template config
    */
+  @Serialize()
   template?: string;
 
   /**
    * Some implementations have predefined templates. It can be accessed by this Id
    * eg. mailersend
    */
+  @Serialize()
   templateId?: string;
 
   /**
    * Data passed to template
    */
+  @Serialize()
   model?: unknown;
 
   /**
    * Text representation of email
    */
+  @Serialize()
   text?: string;
+
+  @Serialize()
   subject: string;
+
+  @Serialize()
   lang?: string;
+
+  @Serialize()
   priority?: string;
+
+  @Serialize()
   replyTo?: string;
 
   /**
    * Additional tag for email,
    * usefull for identyfying emails by category or module that sends it
    */
+  @Serialize()
   tag?: string;
 
   /**
    * Unique email id, for identification eg. in case of delivery failure
    */
+  @Serialize()
   emailId?: string;
 }
 
