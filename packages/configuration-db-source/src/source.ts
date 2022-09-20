@@ -8,6 +8,7 @@ import { IDriverOptions, OrmDriver } from '@spinajs/orm';
 import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types';
 import * as _ from 'lodash';
 import { DateTime } from 'luxon';
+import { parse } from './models/DbConfigurationModel';
 
 @NewInstance()
 export class ConfiguratioDbSource extends ConfigurationSource {
@@ -46,35 +47,11 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
   protected async LoadConfigurationFromDB() {
     const dbOptions = (await this.Connection.select().from(this.Options.table)) as IConfigurationEntry[];
-    const processed = dbOptions.map((entry) => {
-      switch (entry.Type) {
-        case 'string':
-          return entry;
-        case 'int':
-          entry.Value = parseInt(entry.Value as string, 10);
-          break;
-        case 'float':
-          entry.Value = parseFloat(entry.Value as string);
-          break;
-        case 'json':
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-          entry.Value = JSON.parse(entry.Value as string);
-          break;
-        case 'date':
-          entry.Value = DateTime.fromFormat(entry.Value as string, 'dd-MM-yyyy');
-          break;
-        case 'time':
-          entry.Value = DateTime.fromFormat(entry.Value as string, 'HH:mm:ss');
-          break;
-        case 'datetime':
-          entry.Value = DateTime.fromISO(entry.Value as string);
-          break;
-      }
-
-      return entry;
+    dbOptions.forEach((entry) => {
+      entry.Value = parse(entry.Value as string, entry.Type);
     });
 
-    const grouped = _.groupBy(processed, 'Group');
+    const grouped = _.groupBy(dbOptions, 'Group');
     const final: IConfigLike = {};
     for (const k in grouped) {
       final[k] = {};
@@ -92,6 +69,8 @@ export class ConfiguratioDbSource extends ConfigurationSource {
   }
 
   protected async Connect() {
+    // we use raw connection instead of ORM,
+    // ORM requires configuration module to load first
     const dbConnections = this.Configuration.get<IDriverOptions[]>('db.Connections');
     const dbConnection = this.Options.connection === 'default' ? this.Configuration.get<string>('db.DefaultConnection', this.Options.connection) : this.Options.connection;
     const cfgConnectionOptions = dbConnections.find((x) => x.Name === dbConnection);

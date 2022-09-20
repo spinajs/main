@@ -11,6 +11,10 @@ const email = {
       jobs: [dir('./../jobs')],
     },
   },
+  email: {
+    // default email queue / transport
+    queue: 'email-queue',
+  },
 };
 
 export default email;

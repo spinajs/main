@@ -6,6 +6,22 @@
 import { Connection, Primary, Model, ModelBase } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
+export function parse(input: string, type: string) {
+  switch (type) {
+    case 'int':
+    case 'float':
+      return Number(input);
+    case 'datetime':
+      return DateTime.fromISO(input);
+    case 'time':
+      return DateTime.fromFormat(input, 'HH:mm:ss');
+    case 'date':
+      return DateTime.fromFormat(input, 'dd-MM-YYYY');
+    case 'json':
+      return JSON.parse(input) as unknown;
+      break;
+  }
+}
 @Connection('default')
 @Model('configuration')
 export class DbConfigurationModel extends ModelBase {
@@ -21,7 +37,7 @@ export class DbConfigurationModel extends ModelBase {
   public Type: 'int' | 'float' | 'string' | 'json' | 'date' | 'datetime' | 'time' | 'boolean';
 
   public hydrate(data: Partial<this>) {
-    Object.assign(this, { ...data, Value: this.parse(data.Value as string, data.Type) });
+    Object.assign(this, { ...data, Value: parse(data.Value as string, data.Type) });
   }
 
   public dehydrate(_omit?: string[]) {
@@ -32,23 +48,6 @@ export class DbConfigurationModel extends ModelBase {
       Type: this.Type,
       Value: this.stringify(this.Value),
     } as any;
-  }
-
-  private parse(input: string, type: string) {
-    switch (type) {
-      case 'int':
-      case 'float':
-        return Number(input);
-      case 'datetime':
-        return DateTime.fromISO(input);
-      case 'time':
-        return DateTime.fromFormat(input, 'HH:mm:ss');
-      case 'date':
-        return DateTime.fromFormat(input, 'dd-MM-YYYY');
-      case 'json':
-        return JSON.parse(input) as unknown;
-        break;
-    }
   }
 
   private stringify(val: number | string | DateTime | boolean | unknown) {

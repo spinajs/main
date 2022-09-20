@@ -50,7 +50,7 @@ export class Emails extends AsyncModule {
    * @param email - email struct
    */
   public async sendDeferred(email: Email) {
-    this.Queue.dispatch(email);
+    this.Queue.emitJob(email);
   }
  
   /**
