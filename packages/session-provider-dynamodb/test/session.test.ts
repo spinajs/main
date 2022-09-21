@@ -115,8 +115,8 @@ describe('dynamodb session provider', () => {
     await s.save(sS);
     r = await s.restore('a');
     expect(r.Data.get('foo')).to.eq('bar 2');
-
   });
+
   it('should delete session', async () => {
     const s = await session();
     const d = new Map<string, string>();

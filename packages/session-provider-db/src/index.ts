@@ -39,4 +39,11 @@ export class DbSessionStore extends SessionProvider {
 
     await session.insert(InsertBehaviour.InsertOrUpdate);
   }
+
+  public touch(session: ISession): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+  public truncate(): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
 }
