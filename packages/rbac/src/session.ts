@@ -46,6 +46,14 @@ export class Session implements ISession {
 export class MemorySessionStore extends SessionProvider<ISession> {
   protected Sessions: Map<string, ISession> = new Map<string, ISession>();
 
+  public async truncate(): Promise<void> {
+    this.Sessions = new Map<string, ISession>();
+  }
+
+  public async touch(session: ISession): Promise<void> {
+    return this.save(session);
+  }
+
   public async restore(sessionId: string): Promise<ISession | null> {
     if (this.Sessions.has(sessionId)) {
       const session = this.Sessions.get(sessionId);
