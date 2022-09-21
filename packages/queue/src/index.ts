@@ -31,7 +31,18 @@ export class Queues extends AsyncModule {
       throw new UnexpectedServerError(`Queue ${event.Connection} not exists !`);
     }
 
-    return await c.emit(event);
+    // if not emitting locally, do it !
+    // reasoning for this is for example
+    // that we want to perform some local action on event eg. user creation that have
+    // remote queue server for other microservices, but we also want to do something
+    // with it in same process that emit it
+    // and instead using remote server or emitting twice explicit ( one to remote, one to local)
+    // subscribe it locally
+    if (c.Options.name !== 'local') {
+      return await Promise.all([c.emit(event), this.get('local').emit(event)]);
+    }
+
+    return c.emit(event);
   }
 
   public async emitJob<T>(event: Job<T>) {
@@ -43,7 +54,7 @@ export class Queues extends AsyncModule {
     return await c.emitJob(event);
   }
 
-  public get(connection: string) {
-    return DI.get<QueueClient>(`__queue__${connection}`);
+  public get(connection?: string) {
+    return DI.get<QueueClient>(`__queue__${connection ?? this.Configuration.default}`);
   }
 }

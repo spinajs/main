@@ -27,9 +27,9 @@ export interface ISession {
    *
    * Extends session lifetime
    *
-   * @param minutes  - how mutch to extend, if value not provided, default value from config is used
+   * @param seconds  - how mutch to extend, if value not provided, default value from config is used
    */
-  extend(minutes?: number): void;
+  extend(seconds?: number): void;
 }
 
 /**
@@ -128,4 +128,19 @@ export abstract class SessionProvider<T = ISession> extends AsyncModule {
    * @param session - session to update / insert
    */
   public abstract save(session: ISession): Promise<void>;
+
+  /**
+   *
+   * Updates only EXPIRATION TIME of session, not changing other data
+   *
+   * @param session - session to update
+   */
+  public abstract touch(session: ISession): Promise<void>;
+
+  /**
+   *
+   * Deletes all session table data
+   *
+   */
+  public abstract truncate(): Promise<void>;
 }

@@ -20,7 +20,7 @@ export abstract class Message<T> {
   @Serialize()
   public Name: string;
 
-  constructor(public Connection: string) {
+  constructor(public Connection?: string) {
     this.CreatedAt = DateTime.now();
   }
 
@@ -126,6 +126,7 @@ export abstract class QueueClient extends AsyncModule {
 }
 
 export interface QueueConfiguration {
+  default: string;
   connections: Connection[];
 }
 

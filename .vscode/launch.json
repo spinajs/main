@@ -88,6 +88,13 @@
     {
       "type": "node",
       "request": "launch",
+      "name": "SESSION - DYNAMODB test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/session-provider-dynamodb/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
       "name": "RBAC HTTP test",
       "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
       "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/rbac-http/test/**/*.ts"]
