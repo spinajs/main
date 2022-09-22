@@ -47,7 +47,6 @@ export class TestConfiguration extends FrameworkConfiguration {
       },
       db: {
         DefaultConnection: 'sqlite',
-
         Connections: [
           {
             Debug: {

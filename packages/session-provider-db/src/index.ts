@@ -12,13 +12,15 @@ export class DbSessionStore extends SessionProvider {
   @Logger('db-session-store')
   protected Log: Log;
 
-  @Config('rbac.session.db.cleanupInteval', 10 * 60 * 1000)
-  protected ConfigPath: any;
+  @Config('rbac.session.db.cleanupInteval', 100000)
+  protected CleanupInterval: any;
 
   public async resolveAsync() {
     setInterval(async () => {
-      await DbSession.destroy().where('Expiration', '<=', DateTime.now());
-    });
+      const c = await DbSession.destroy().where('Expiration', '<=', DateTime.now());
+
+      this.Log.info(`Cleaned up expired session, count: ${c}`);
+    }, this.CleanupInterval);
   }
 
   public async restore(sessionId: string): Promise<Session> {
@@ -27,6 +29,10 @@ export class DbSessionStore extends SessionProvider {
     }).first();
 
     if (!session) {
+      return null;
+    }
+
+    if (session.Expiration < DateTime.now()) {
       return null;
     }
 

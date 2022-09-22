@@ -1,4 +1,4 @@
-import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler } from './compilers';
+import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler, SqliteTruncateTableQueryCompiler } from './compilers';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -10,10 +10,10 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 import { LogLevel } from '@spinajs/log-common';
 export * from './compilers';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler } from '@spinajs/orm';
 import { Database, RunResult } from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
-import { Injectable } from '@spinajs/di';
+import { Injectable, NewInstance } from '@spinajs/di';
 import { SqlLiteJoinStatement } from './statements';
 import { ResourceDuplicated } from '@spinajs/exceptions';
 import { IIndexInfo, IIndexInfoList, ITableInfo } from './types';
@@ -21,6 +21,7 @@ import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders';
 
 @Injectable('orm-driver-sqlite')
+@NewInstance()
 export class SqliteOrmDriver extends SqlDriver {
   protected executionId = 0;
 
@@ -51,17 +52,7 @@ export class SqliteOrmDriver extends SqlDriver {
             });
           });
           break;
-        case QueryContext.Schema:
-        case QueryContext.Transaction:
-          this.Db.run(stmt, ...queryParams, (err: unknown, data: unknown) => {
-            if (err) {
-              reject(err);
-              return;
-            }
 
-            resolve(data);
-          });
-          break;
         case QueryContext.Select:
           this.Db.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
             if (err) {
@@ -87,6 +78,18 @@ export class SqliteOrmDriver extends SqlDriver {
               RowsAffected: this.changes,
               LastInsertId: this.lastID,
             });
+          });
+          break;
+        case QueryContext.Schema:
+        case QueryContext.Transaction:
+        default:
+          this.Db.run(stmt, ...queryParams, (err: unknown, data: unknown) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+
+            resolve(data);
           });
           break;
       }
@@ -167,6 +170,7 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(SqliteTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(SqlLiteDefaultValueBuilder).as(DefaultValueBuilder);
+    this.Container.register(SqliteTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
   }
 
   public async transaction(qrOrCallback: QueryBuilder[] | TransactionCallback) {

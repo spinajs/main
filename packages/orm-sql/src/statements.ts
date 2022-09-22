@@ -1,8 +1,7 @@
-import { ValueConverter } from './../../orm/src/interfaces';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers';
 import { NewInstance } from '@spinajs/di';
-import { SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement } from '@spinajs/orm';
+import { SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter } from '@spinajs/orm';
 
 @NewInstance()
 export class SqlRawStatement extends RawQueryStatement {

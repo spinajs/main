@@ -8,6 +8,8 @@ import '../src';
 import { DbSessionStore } from '../src';
 import { Session } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
+import { Orm } from '@spinajs/orm';
+import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -19,15 +21,46 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
-        orm: {
-          connections: {},
+        system: {
+          dirs: {
+            models: [dir('./../src/models')],
+            migrations: [dir('./../src/migrations')],
+          },
+        },
+        rbac: {
+          session: {
+            db: {
+              cleanupInterval: 1000,
+            },
+          },
+        },
+        db: {
+          DefaultConnection: 'sqlite',
+          Connections: [
+            {
+              Driver: 'orm-driver-sqlite',
+              Filename: ':memory:',
+              Name: 'session-provider-connection',
+              Migration: {
+                OnStartup: true,
+              },
+            },
+            {
+              Driver: 'orm-driver-sqlite',
+              Filename: ':memory:',
+              Name: 'sqlite',
+              Migration: {
+                OnStartup: true,
+              },
+            },
+          ],
         },
         logger: {
           targets: [
             {
               name: 'Empty',
               type: 'BlackHoleTarget',
-              layout: '{datetime} {level} {message} {error} duration: {duration} ({logger})',
+              layout: '${datetime} ${level} ${message} ${error} duration: ${duration} (${logger})',
             },
           ],
 
@@ -53,11 +86,16 @@ async function session() {
   return DI.resolve(DbSessionStore);
 }
 
-describe('dynamodb session provider', () => {
+describe('db session provider', () => {
+  before(() => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  });
+
   beforeEach(async () => {
     DI.clearCache();
-    DI.register(ConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
+    await DI.resolve(Orm);
   });
 
   afterEach(async () => {

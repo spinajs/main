@@ -1,6 +1,5 @@
-import { ModelBase, Primary, Connection, Model, CreatedAt } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, DateTime as DT } from '@spinajs/orm';
 import { DateTime } from 'luxon';
-
 @Connection('session-provider-connection')
 @Model('user_sessions')
 export class DbSession extends ModelBase {
@@ -10,6 +9,7 @@ export class DbSession extends ModelBase {
   @CreatedAt()
   public CreatedAt: DateTime;
 
+  @DT()
   public Expiration: DateTime;
 
   public Data: string;

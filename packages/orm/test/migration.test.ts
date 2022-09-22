@@ -89,9 +89,7 @@ describe('Orm migrations', () => {
                   Filename: 'foo.sqlite',
                   Name: 'sqlite',
                   Migration: {
-                    Migration: {
-                      Startup: true,
-                    },
+                    Startup: true,
                     Transaction: {
                       Mode: MigrationTransactionMode.PerMigration,
                     },
@@ -183,7 +181,6 @@ describe('Orm migrations', () => {
               rules: [{ name: '*', level: 'trace', target: 'Empty' }],
             },
             db: {
-             
               Connections: [
                 {
                   Driver: 'sqlite',

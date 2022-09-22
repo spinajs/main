@@ -11,4 +11,11 @@ module.exports = {
       models: [dir('./../models')],
     },
   },
+  rbac: {
+    session: {
+      db: {
+        cleanupInterval: 10 * 60 * 1000,
+      },
+    },
+  },
 };

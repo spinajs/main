@@ -38,9 +38,6 @@ export class ConnectionConf extends FrameworkConfiguration {
           },
         },
         db: {
-          Migration: {
-            Startup: false,
-          },
           Connections: [
             {
               Driver: 'orm-driver-mssql',

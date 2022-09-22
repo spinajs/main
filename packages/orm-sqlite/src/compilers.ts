@@ -2,9 +2,22 @@
 /* eslint-disable prettier/prettier */
 
 import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
-import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException } from '@spinajs/orm';
+import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler } from '@spinajs/orm';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
+
+export class SqliteTruncateTableQueryCompiler extends TableQueryCompiler {
+  constructor(protected container: Container, protected builder: TableQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    return {
+      bindings: [],
+      expression: `DELETE FROM ${this.container.resolve(TableAliasCompiler).compile(this.builder)}`,
+    };
+  }
+}
 
 @NewInstance()
 export class SqliteOrderByCompiler extends OrderByQueryCompiler {
