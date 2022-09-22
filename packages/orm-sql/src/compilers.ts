@@ -236,8 +236,8 @@ export interface SqlSelectQueryCompiler extends IWhereCompiler, IColumnsCompiler
 export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder> {
   @use(SqlWhereCompiler, SqlColumnsCompiler, TableAliasCompiler, SqlJoinCompiler, SqlWithRecursiveCompiler, SqlGroupByCompiler) this: this;
 
-  constructor(protected _container: IContainer, builder: SelectQueryBuilder) {
-    super(builder);
+  constructor(_container: IContainer, builder: SelectQueryBuilder) {
+    super(builder, _container);
   }
 
   public compile(): ICompilerOutput {
@@ -354,8 +354,8 @@ export interface SqlDeleteQueryCompiler extends IWhereCompiler {}
 export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder<unknown>> {
   @use(SqlWhereCompiler, TableAliasCompiler) this: this;
 
-  constructor(protected _container: IContainer, builder: DeleteQueryBuilder<unknown>) {
-    super(builder);
+  constructor(_container: IContainer, builder: DeleteQueryBuilder<unknown>) {
+    super(builder, _container);
   }
 
   public compile() {
