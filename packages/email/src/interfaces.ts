@@ -1,8 +1,9 @@
-import { Message, Serialize } from '@spinajs/queue';
-export abstract class EmailSender {
+import { AsyncService } from '@spinajs/di';
+
+export abstract class EmailSender extends AsyncService {
   public Options: EmailConnectionOptions;
 
-  abstract send(email: Email): Promise<void>;
+  abstract send(email: IEmail): Promise<void>;
 }
 
 export interface IEmailAttachement {
@@ -22,7 +23,7 @@ export interface IEmailAttachement {
   provider?: string;
 }
 
-export interface Email {
+export interface IEmail {
   to: string[];
 
   cc?: string[];
@@ -86,8 +87,8 @@ export interface EmailConnectionOptions {
   name: string;
   host?: string;
   port?: number;
-  login?: string;
-  password?: string;
+  user?: string;
+  pass?: string;
   ssl?: boolean;
 
   /**

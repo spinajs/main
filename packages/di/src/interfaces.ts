@@ -5,6 +5,10 @@ import { TypedArray } from './array';
 import { Registry } from './registry';
 import { ContainerCache } from './container-cache';
 
+export interface IInstanceCheck {
+  __checkInstance__(creationOptions: any): boolean;
+}
+
 /**
  * Interface to describe DI binding behaviour
  */
@@ -96,9 +100,14 @@ export interface IToInject<T> {
   autoinjectKey: string;
 
   /**
-   * additional data passed to DI
+   * additional data passed to DI when resolving
    */
   data?: any;
+
+  /**
+   * Additional options passed to resolved options
+   */
+  options?: any;
 
   /**
    * Callback used to resolve service
@@ -110,8 +119,13 @@ export interface IToInject<T> {
    * where services can be changed in configuration files
    * and allows to use @AutoinjectService() decorator
    */
-  serviceFunc?: (data: any, container: IContainer) => string;
+  serviceFunc?: (data: string | any[], container: IContainer) => IServiceFuncResult | IServiceFuncResult[];
   mapFunc?: (x: unknown) => string;
+}
+
+export interface IServiceFuncResult {
+  service: string;
+  options?: any;
 }
 
 export interface IResolvedInjection {
@@ -158,4 +172,9 @@ export class AsyncService extends Service {
 
 export abstract class Bootstrapper {
   public abstract bootstrap(): Promise<void> | void;
+}
+
+export interface IAutoinjectOptions<T> {
+  mapFunc?: (x: T) => string;
+  options?: any;
 }

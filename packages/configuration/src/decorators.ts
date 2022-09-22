@@ -1,3 +1,4 @@
+import { isArray, isString } from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration } from '@spinajs/configuration-common';
 import { AddDependency, Class, DI, IContainer, IInjectDescriptor } from '@spinajs/di';
@@ -28,29 +29,57 @@ export function Config(path: string, dafaultValue?: unknown) {
   };
 }
 
-interface IServiceCfg {
-  path: string;
-}
-
 /**
  * Inject service based on configuration.
+ * Configuration could be object or string containing service
+ *
+ * If array is provided in configuration, service is resolved by name
+ * stored in 'service' property and returnes as Map\<serviceName, instance\>
  *
  * @param path - configuration path where service type is stored
+ * @param type - if type is provided, it will override type obtain from reflection. Use it specific with arrays and maps, becouse ts reflection module cannot extract array and map type data
  */
-export function AutoinjectService(path: string) {
+export function AutoinjectService(path: string, type?: Class<unknown>) {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
-    const type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
+    const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
     descriptor.inject.push({
       autoinject: true,
       autoinjectKey: propertyKey,
-      inject: type,
-      data: {
-        path,
-      },
-      serviceFunc: (data: IServiceCfg, container: IContainer) => {
+      inject: t,
+      data: path,
+      serviceFunc: (path: string, container: IContainer) => {
         const cfg = container.get(Configuration);
-        return cfg.get<string>(data.path);
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const cfgVal = cfg.get<any>(path);
+
+        if (!cfgVal) {
+          throw new Error(`Configuration value ${path} is empty`);
+        }
+
+        if (isString(cfgVal)) {
+          return {
+            service: cfgVal,
+          };
+        }
+
+        if (isArray(cfgVal)) {
+          return cfgVal.map((x) => {
+            return {
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+              service: x.service as string,
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+              options: x,
+            };
+          });
+        }
+
+        return {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+          service: cfgVal.service as string,
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          options: cfgVal,
+        };
       },
     });
   });

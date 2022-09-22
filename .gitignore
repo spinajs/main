@@ -65,3 +65,4 @@ lib/
 lerna-debug.log
 npm-debug.log
 /.npmrc
+/packages/email-smtp-transport/tests/config.ts

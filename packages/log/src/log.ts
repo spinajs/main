@@ -1,4 +1,3 @@
-import { InvalidOperation } from "./../../exceptions/src/index";
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
@@ -6,7 +5,7 @@ import { Configuration } from "@spinajs/configuration";
 import { Autoinject, Container, DI, IContainer, NewInstance, SyncService } from "@spinajs/di";
 import { ICommonTargetOptions, LogLevel, ILogOptions, ILogRule, ILogEntry, StrToLogLevel, LogVariables, createLogMessageObject, ILog, ILogTargetDesc, LogTarget } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
-import { InvalidOption } from "@spinajs/exceptions";
+import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 
 function wrapWrite(this: Log, level: LogLevel) {
   return (err: Error | string, message: string | any[], ...args: any[]) => {

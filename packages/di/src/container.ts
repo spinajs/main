@@ -4,13 +4,14 @@ import { TypedArray } from './array';
 import { DI_DESCRIPTION_SYMBOL } from './decorators';
 import { ResolveType } from './enums';
 import { getTypeName, isAsyncService, isFactory, uniqBy, isTypedArray, isPromise } from './helpers';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject } from './interfaces';
+import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, IInstanceCheck } from './interfaces';
 import { Class, Factory } from './types';
 import { EventEmitter } from 'events';
 import { Binder } from './binder';
 import { Registry } from './registry';
 import { ContainerCache } from './container-cache';
 import { isArray } from 'lodash';
+import { ResolveException, ServiceNotFound } from './exceptions';
 
 /**
  * Dependency injection container implementation
@@ -300,6 +301,30 @@ export class Container extends EventEmitter implements IContainer {
       return null;
     };
 
+    const getCachedInstances = (e: string | Class<any> | TypedArray<any>, parent: boolean) => {
+      if (this.isResolved(e, parent)) {
+        const rArray = this.get(e as any, parent);
+        return isArray(rArray) ? rArray : [rArray];
+      }
+
+      return null;
+    };
+
+    const createNewInstance = (t: Class<T>, i: IResolvedInjection[], options: any) => {
+      const instance = this.getNewInstance(t, i, options);
+      if (isPromise(instance)) {
+        return instance.then((r) => {
+          setCache(r);
+          emit(r);
+          return r;
+        });
+      } else {
+        setCache(instance as T);
+        emit(instance);
+        return instance;
+      }
+    };
+
     const resolve = (d: IInjectDescriptor<unknown>, t: Class<T>, i: IResolvedInjection[]) => {
       if (d.resolver === ResolveType.NewInstance) {
         const instance = this.getNewInstance(t, i, options);
@@ -315,22 +340,29 @@ export class Container extends EventEmitter implements IContainer {
         }
       }
 
+      if (d.resolver === ResolveType.PerInstanceCheck) {
+        const cashed = getCachedInstances(tType, true);
+        if (cashed) {
+          const found = cashed.find((x) => {
+            if (!(x as IInstanceCheck).__checkInstance__) {
+              // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+              throw new ResolveException(`service ${x.constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
+            }
+            return (x as IInstanceCheck).__checkInstance__(options);
+          });
+          if (found) {
+            return found;
+          } else {
+            return createNewInstance(t, i, options);
+          }
+        }
+      }
+
       this.Registry.register(sName, t);
 
       const cashed = getCachedInstance(tType, d.resolver === ResolveType.Singleton ? true : false);
       if (!cashed) {
-        const instance = this.getNewInstance(t, i, options);
-        if (isPromise(instance)) {
-          return instance.then((r) => {
-            setCache(r);
-            emit(r);
-            return r;
-          });
-        } else {
-          setCache(instance as T);
-          emit(instance);
-          return instance;
-        }
+        return createNewInstance(t, i, options);
       } else {
         return cashed;
       }
@@ -428,12 +460,46 @@ export class Container extends EventEmitter implements IContainer {
       // we can have multiple implementation of same interface
       // and service can request to inject specific one
       // ( not just last one registered )
+      // if serviceFunc returns array,
+      // all services will be resolved and mapped
       if (t.serviceFunc) {
-        const tName = t.serviceFunc(t.data, this);
-        tInject = this.getRegisteredTypes(t.inject).find((x) => x.name === tName) as any;
+        const services = t.serviceFunc(t.data, this);
+
+        const types = this.getRegisteredTypes(t.inject);
+
+        if (!types || types.length === 0) {
+          throw new ServiceNotFound(`Service ${(t.inject as any).name} is not registered in DI container`);
+        }
+
+        if (isArray(services)) {
+          tInject = services.map((x) => {
+            return {
+              type: types.find((t) => t.name === x.service),
+              options: x.options,
+            };
+          });
+        } else {
+          tInject = {
+            type: types.find((t) => t.name === services.service),
+            options: services.options,
+          };
+        }
       }
 
-      const promiseOrVal = this.resolve(t.inject as any, null, false, tInject as any);
+      let promiseOrVal = null;
+      if (isArray(tInject)) {
+        const pVals = tInject.map((x) => this.resolve(t.inject as any, [t.options ?? x.options], false, x.type));
+        if (pVals.some((x) => isPromise(x))) {
+          promiseOrVal = Promise.all(pVals);
+        } else {
+          promiseOrVal = pVals;
+        }
+
+        t.mapFunc = (x) => (x as any).Name || x.constructor.name;
+      } else {
+        promiseOrVal = this.resolve(t.inject as any, [t.options ?? tInject?.options], false, tInject?.type);
+      }
+
       if (promiseOrVal instanceof Promise) {
         return promiseOrVal.then((val: any) => {
           return {

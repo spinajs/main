@@ -1,0 +1,211 @@
+import { IInstanceCheck } from './../../di/src/interfaces';
+/* eslint-disable security/detect-non-literal-fs-filename */
+import { IOFail } from '@spinajs/exceptions';
+import { constants } from 'fs';
+import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open } from 'node:fs/promises';
+import { DateTime } from 'luxon';
+import { Injectable, PerInstanceCheck } from '@spinajs/di';
+import { fs, IStat } from './interfaces';
+import { join } from 'path';
+import { ILog, Logger } from '@spinajs/log';
+
+export interface IFsLocalOptions {
+  basePath: string;
+  name: string;
+}
+
+/**
+ * Abstract layer for file operations.
+ * Basic implementation is just wrapper for native node fs functions
+ *
+ * It allows to wrap other libs eg. aws s3, ftp
+ * and inject it into code without changing logic that use them.
+ *
+ * TODO: map errors to some kind of common errors shared with other implementations
+ */
+@Injectable('fs')
+@PerInstanceCheck()
+export class fsNative extends fs implements IInstanceCheck {
+  @Logger('fs')
+  protected Logger: ILog;
+
+  /**
+   * Name of provider. We can have multiple providers of the same type but with different options.
+   * Also used in InjectService decorator for mapping
+   */
+  public get Name(): string {
+    return this.Options.name;
+  }
+
+  constructor(public Options: IFsLocalOptions) {
+    super();
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public __checkInstance__(creationOptions: any): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    return this.Name === creationOptions[0].name;
+  }
+
+  public async resolve() {
+    // yup, exceptions as conditional execution path is bad :)
+    try {
+      await access(this.Options.basePath, constants.F_OK);
+    } catch {
+      this.Logger.warn(
+        `Base path ${this.Options.basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
+      );
+
+      await mkdir(this.Options.basePath, { recursive: true });
+
+      this.Logger.success(`Base path ${this.Options.basePath} created`);
+    }
+  }
+
+  /**
+   *
+   * Tries to download file to local filesystem, then returns local filesystem path.
+   * Native implementation simply returns local path and does nothing.
+   *
+   * @param path - file to download
+   */
+  public async download(path: string): Promise<string> {
+    const exists = await this.exists(join(this.Options.basePath, path));
+    if (!exists) {
+      throw new IOFail(`file ${path} does not exists`);
+    }
+    return path;
+  }
+
+  /**
+   * read all content of file
+   */
+  public async read(path: string, encoding: BufferEncoding) {
+    const fDesc = await open(join(this.Options.basePath, path), 'r');
+    return fDesc.readFile({ encoding });
+  }
+
+  public async readStream(path: string) {
+    const fDesc = await open(join(this.Options.basePath, path), 'r');
+    return fDesc.createReadStream();
+  }
+
+  /**
+   * Write to file string or buffer
+   */
+  public async write(path: string, data: string | Buffer, encoding: BufferEncoding) {
+    const fDesc = await open(join(this.Options.basePath, path), 'w');
+    return await fDesc.writeFile(data, { encoding });
+  }
+
+  public async writeStream(path: string) {
+    const fDesc = await open(join(this.Options.basePath, path), 'w');
+    return fDesc.createWriteStream();
+  }
+
+  /**
+   * Checks if file existst
+   * @param path - path to check
+   */
+  public async exists(path: string) {
+    try {
+      await access(join(this.Options.basePath, path), constants.F_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async dirExists(path: string) {
+    return this.exists(join(this.Options.basePath, path));
+  }
+
+  /**
+   * Copy file to another location
+   * @param path - src path
+   * @param dest - dest path
+   */
+  public async copy(path: string, dest: string) {
+    await copyFile(join(this.Options.basePath, path), join(this.Options.basePath, dest));
+  }
+
+  /**
+   * Copy file to another location and deletes src file
+   */
+  public async move(oldPath: string, newPath: string) {
+    const oPath = join(this.Options.basePath, oldPath);
+    const nPath = join(this.Options.basePath, newPath);
+    try {
+      await rename(oPath, nPath);
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if (err.code === 'EXDEV') {
+        await copyFile(oPath, nPath);
+        await unlink(oPath);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Change name of a file
+   */
+  public async rename(oldPath: string, newPath: string) {
+    await rename(join(this.Options.basePath, oldPath), join(this.Options.basePath, newPath));
+  }
+
+  /**
+   * Deletes file permanently
+   *
+   * @param path - path to file that will be deleted
+   */
+  public async unlink(path: string) {
+    await unlink(join(this.Options.basePath, path));
+  }
+
+  /**
+   *
+   * Deletes dir recursively & all contents inside
+   *
+   * @param path - dir to remove
+   */
+  public async rm(path: string) {
+    await rm(join(this.Options.basePath, path), { recursive: true, force: true, maxRetries: 3, retryDelay: 1000 });
+  }
+
+  /**
+   *
+   * Creates directory, recursively
+   *
+   * @param path - directory to create
+   */
+  public async mkdir(path: string) {
+    await mkdir(join(this.Options.basePath, path), { recursive: true });
+  }
+
+  /**
+   * Returns file statistics, not all fields may be accesible
+   */
+  public async stat(path: string): Promise<IStat> {
+    const result = await stat(join(this.Options.basePath, path));
+
+    return {
+      IsDirectory: result.isDirectory(),
+      IsFile: result.isFile(),
+      CreationTime: DateTime.fromJSDate(result.ctime),
+      ModifiedTime: DateTime.fromJSDate(result.mtime),
+      AccessTime: DateTime.fromJSDate(result.atime),
+      Size: result.size,
+    };
+  }
+
+  /**
+   * List content of directory
+   *
+   * @param path - path to directory
+   */
+  public async list(path: string) {
+    return await readdir(join(this.Options.basePath, path));
+  }
+}

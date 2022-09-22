@@ -1,0 +1,32 @@
+/* eslint-disable security/detect-non-literal-fs-filename */
+import { AsyncService } from '@spinajs/di';
+import { PathLike, ReadStream, WriteStream } from 'fs';
+import { DateTime } from 'luxon';
+
+export interface IStat {
+  IsDirectory?: boolean;
+  IsFile?: boolean;
+  Size?: number;
+  AccessTime?: DateTime;
+  ModifiedTime?: DateTime;
+  CreationTime?: DateTime;
+}
+
+export abstract class fs extends AsyncService {
+  public abstract Name: string;
+  public abstract download(path: string): Promise<string>;
+  public abstract read(path: string, encoding: BufferEncoding): Promise<string>;
+  public abstract readStream(path: string): Promise<ReadStream>;
+  public abstract write(path: string, data: string | Buffer, encoding: BufferEncoding): Promise<void>;
+  public abstract writeStream(path: string): Promise<WriteStream>;
+  public abstract exists(path: string): Promise<boolean>;
+  public abstract dirExists(path: string): Promise<boolean>;
+  public abstract copy(path: string, dest: string): Promise<void>;
+  public abstract move(oldPath: string, newPath: string): Promise<void>;
+  public abstract rename(oldPath: string, newPath: string): Promise<void>;
+  public abstract unlink(path: string): Promise<void>;
+  public abstract rm(path: string): Promise<void>;
+  public abstract mkdir(path: string): Promise<void>;
+  public abstract stat(path: string): Promise<IStat>;
+  public abstract list(path: string): Promise<string[]>;
+}

@@ -1,28 +1,41 @@
+import { IInstanceCheck } from './../../di/src/interfaces';
 import { IOFail } from '@spinajs/exceptions';
-import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
+import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { Email, EmailSender, EmailConnectionOptions } from '@spinajs/email';
+import { IEmail, EmailSender, EmailConnectionOptions } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
 import * as nodemailer from 'nodemailer';
 import { fs } from '@spinajs/fs';
 import _ from 'lodash';
+import { AutoinjectService, Config } from '@spinajs/configuration';
 
-@Injectable()
-@NewInstance()
-export class EmailSenderSmtp extends EmailSender {
+@Injectable(EmailSender)
+@PerInstanceCheck()
+export class EmailSenderSmtp extends EmailSender implements IInstanceCheck {
   @Logger('email')
   protected Log: Log;
 
   @Autoinject(Templates)
   protected Tempates: Templates;
 
-  @Autoinject(fs, (x: fs) => x.Provider)
+  @AutoinjectService('fs.providers', fs)
   protected FileSystems: Map<string, fs>;
+
+  @Config('fs.default')
+  protected DefaultFileProvider: string;
 
   protected Transporter: nodemailer.Transporter;
 
+  public get Name(): string {
+    return this.Options.name;
+  }
+
   constructor(public Options: EmailConnectionOptions) {
     super();
+  }
+
+  public __checkInstance__(creationOptions: any): boolean {
+    return this.Name === creationOptions[0].name;
   }
 
   public async resolve(): Promise<void> {
@@ -34,8 +47,8 @@ export class EmailSenderSmtp extends EmailSender {
           port: this.Options.port,
           secure: this.Options.ssl, // true for 465, false for other ports
           auth: {
-            user: this.Options.login, // generated ethereal user
-            pass: this.Options.password, // generated ethereal password
+            user: this.Options.user, // generated ethereal user
+            pass: this.Options.pass, // generated ethereal password
           },
         },
 
@@ -48,9 +61,11 @@ export class EmailSenderSmtp extends EmailSender {
     if (!result) {
       throw new Error(`cannot send smtp emails, varify() failed. Pleas check email smtp configuration for connection ${this.Options.name}`);
     }
+
+    this.Log.success(`Email smtp connection ${this.Options.name} on host ${this.Options.host} established !`);
   }
 
-  public async send(email: Email): Promise<void> {
+  public async send(email: IEmail): Promise<void> {
     const options = {
       from: email.from, // sender address
       to: email.to.join(','), // list of receivers
@@ -60,10 +75,14 @@ export class EmailSenderSmtp extends EmailSender {
       subject: email.subject, // Subject line
       text: email.text, // plain text body
       html: email.template ? await this.Tempates.render(email.template, email.model, email.lang) : null,
-      attachments: await Promise.all(
+      attachments: [] as any[],
+    };
+
+    if (email.attachements) {
+      options.attachments = await Promise.all(
         email.attachements.map(async (a: any) => {
           // we allow to use multiple file sources, default is local
-          const provider = this.FileSystems.get(a.provider ?? 'fs-local');
+          const provider = this.FileSystems.get(a.provider ?? this.DefaultFileProvider);
           if (!provider) {
             throw new IOFail(`Filesystem privider for ${a.provider} not registered. Make sure you importer all required fs providers`);
           }
@@ -77,11 +96,11 @@ export class EmailSenderSmtp extends EmailSender {
           return {
             filename: a.name,
             path: file,
-            provider: provider.Provider,
+            provider: provider.Name,
           };
         }),
-      ),
-    };
+      );
+    }
 
     let message = await this.Transporter.sendMail(options);
 

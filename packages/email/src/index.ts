@@ -1,12 +1,13 @@
 import { InvalidOperation } from '@spinajs/exceptions';
-import { DI, AsyncService, Bootstrapper, Injectable, Autoinject } from '@spinajs/di';
+import { DI, AsyncService, Bootstrapper, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { Email, EmailSender, EmailConfiguration } from './interfaces';
-import { Config } from '@spinajs/configuration';
+import { IEmail, EmailSender, EmailConfiguration } from './interfaces';
+import { AutoinjectService, Config } from '@spinajs/configuration';
 import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration';
-import { QueueClient } from '@spinajs/queue';
+//import { QueueClient } from '@spinajs/queue';
 
 export * from './interfaces';
+export * from './transports';
 
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
@@ -22,26 +23,14 @@ export class Emails extends AsyncService {
   @Logger('email')
   protected Log: Log;
 
-  protected Senders: Map<string, EmailSender> = new Map<string, EmailSender>();
+  @AutoinjectService('email.connections', EmailSender)
+  protected Senders: Map<string, EmailSender>;
 
   @Config('email')
   protected Configuration: EmailConfiguration;
 
-  @Autoinject(QueueClient)
-  protected Queue: QueueClient;
-
-  public async resolve(): Promise<void> {
-    for (const c of this.Configuration.connections) {
-      this.Log.trace(`Found connection ${c.name} ${c.login}@${c.host}`);
-
-      const connection = (await DI.resolve)<EmailSender>(c.sender, [c]);
-      this.Senders.set(c.name, connection);
-
-      this.Log.trace(`Connection initialized - ${c.name} ${c.login}@${c.host}`);
-    }
-
-    await super.resolve();
-  }
+  // @Autoinject(QueueClient)
+  // protected Queue: QueueClient;
 
   /**
    *
@@ -49,22 +38,21 @@ export class Emails extends AsyncService {
    *
    * @param email - email struct
    */
-  public async sendDeferred(email: Email) {
-    this.Queue.emitJob(email);
-  }
- 
+  // public async sendDeferred(email: Email) {
+  //   //this.Queue.emitJob(email);
+  // }
+
   /**
    *
    * Tries to sends email immediately
    *
    * @param email - email struct
    */
-  public async send(email: Email): Promise<void> {
+  public async send(email: IEmail): Promise<void> {
     if (!this.Senders.has(email.connection)) {
       throw new InvalidOperation(`Email sender ${email.connection} not exists. Please check your configuration files.`);
     }
 
-    const connection = this.Senders.get(email.connection);
-    await connection.send(email);
+    return this.Senders.get(email.connection).send(email);
   }
 }

@@ -1,0 +1,13 @@
+import { Injectable, NewInstance } from '@spinajs/di';
+import { EmailSender } from './interfaces';
+
+/**
+ * Transport that does nothing.
+ *
+ * Used for testing, or when we want temporarly disable siding emails
+ */
+@Injectable()
+@NewInstance()
+export class BlackHoleEmailTransport extends EmailSender {
+  public async send(): Promise<void> {}
+}

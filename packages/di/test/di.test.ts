@@ -1,9 +1,10 @@
+import { IInstanceCheck } from './../src/interfaces';
 import { InvalidArgument } from '@spinajs/exceptions';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 
 import 'mocha';
-import { Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, Singleton, IInjectDescriptor, AddDependency, Class, PerInstance, AsyncService, SyncService } from '../src';
+import { Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, Singleton, IInjectDescriptor, AddDependency, Class, PerInstance, AsyncService, SyncService, PerInstanceCheck } from '../src';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -166,7 +167,29 @@ export function AutoinjectService(service: string) {
       inject: type,
       data: service,
       serviceFunc: (data: string) => {
-        return data;
+        return {
+          service: data,
+        };
+      },
+    });
+  });
+}
+
+export function AutoinjectServiceArray(service: string[], type?: Class<unknown>) {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+    const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
+    descriptor.inject.push({
+      autoinject: true,
+      autoinjectKey: propertyKey,
+      inject: t,
+      data: service,
+      serviceFunc: (data: any[]) => {
+        return data.map((x) => {
+          return {
+            service: x as string,
+          };
+        });
       },
     });
   });
@@ -279,7 +302,9 @@ describe('Dependency injection', () => {
     DI.register(SampleImplementation2).as(SampleBaseClass);
 
     class SampleMultipleAutoinject {
-      @Autoinject(SampleBaseClass, (x) => x.Name)
+      @Autoinject(SampleBaseClass, {
+        mapFunc: (x) => x.Name,
+      })
       public Instances: Map<string, SampleBaseClass>;
     }
 
@@ -304,6 +329,62 @@ describe('Dependency injection', () => {
 
     expect(instance).to.be.not.null;
     expect(instance.Instances).to.be.an('array').of.length(2);
+  });
+
+  it('Should autoinject with service func returned array', () => {
+    @NewInstance()
+    class SampleImplementation1Single extends SampleBaseClass {
+      constructor() {
+        super();
+      }
+    }
+
+    @NewInstance()
+    class SampleImplementation2Single extends SampleBaseClass {
+      constructor() {
+        super();
+      }
+    }
+    class SampleMultipleAutoinjectArray {
+      @AutoinjectServiceArray(['SampleImplementation1Single', 'SampleImplementation2Single'], SampleBaseClass)
+      public Service: Map<string, SampleBaseClass>;
+    }
+
+    DI.register(SampleImplementation1Single).as(SampleBaseClass);
+    DI.register(SampleImplementation2Single).as(SampleBaseClass);
+
+    const instance = DI.resolve(SampleMultipleAutoinjectArray);
+    expect(instance).to.be.not.null;
+    expect(instance.Service).to.be.not.null;
+
+    expect(instance.Service.get('SampleImplementation1Single')).to.be.not.null;
+    expect(instance.Service.get('SampleImplementation2Single')).to.be.not.null;
+    expect(instance.Service.get('SampleImplementation1Single').constructor.name).to.eq('SampleImplementation1Single');
+    expect(instance.Service.get('SampleImplementation2Single').constructor.name).to.eq('SampleImplementation2Single');
+  });
+
+  it('Should autoinject with additional options', () => {
+    class SampleImplementation1Single extends SampleBaseClass {
+      constructor(public options: any) {
+        super();
+      }
+    }
+    DI.register(SampleImplementation1Single).as(SampleBaseClass);
+
+    class SampleMultipleAutoinject {
+      @Autoinject({
+        options: {
+          foo: 'bar',
+        },
+      })
+      public Service: SampleBaseClass;
+    }
+
+    const instance = DI.resolve(SampleMultipleAutoinject);
+    expect(instance).to.be.not.null;
+    expect(instance.Service).to.be.not.null;
+    expect((instance.Service as SampleImplementation1Single).options).to.be.not.null;
+    expect((instance.Service as SampleImplementation1Single).options.foo).to.eq('bar');
   });
 
   it('Should autoinject with service func', () => {
@@ -335,7 +416,6 @@ describe('Dependency injection', () => {
       @AutoinjectService('SampleImplementation2Single')
       public Service: SampleBaseClass;
     }
-
     class SampleMultipleAutoinject2 {
       @Autoinject()
       public Service: SampleBaseClass;
@@ -949,5 +1029,27 @@ describe('Dependency injection', () => {
     const instance = DI.get<Map<string, any>>('Test');
     expect(instance.get('1')).to.include({ id: 1 });
     expect(instance.get('2')).to.include({ id: 2 });
+  });
+
+  it('Should resolve per name', () => {
+    @PerInstanceCheck()
+    class A implements IInstanceCheck {
+      constructor(public Name: string) {}
+      __checkInstance__(creationOptions: any): boolean {
+        return this.Name === creationOptions[0];
+      }
+    }
+
+    const a = DI.resolve(A, ['foo']);
+    const b = DI.resolve(A, ['foo']);
+    const c = DI.resolve(A, ['bar']);
+
+    expect(a).to.be.not.null;
+    expect(b).to.be.not.null;
+    expect(c).to.be.not.null;
+
+    expect(a == b).to.be.true;
+    expect(a == c).to.be.false;
+    expect(b == c).to.be.false;
   });
 });

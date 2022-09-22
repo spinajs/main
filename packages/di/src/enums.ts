@@ -27,4 +27,9 @@ export enum ResolveType {
    * for base class
    */
   PerInstance,
+
+  /**
+   * Only one instance with given name can exists of the same service
+   */
+  PerInstanceCheck,
 }

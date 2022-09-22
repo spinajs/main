@@ -1,9 +1,9 @@
 import { ResolveType } from './enums';
-import { IInjectDescriptor } from './interfaces';
+import { IAutoinjectOptions, IInjectDescriptor } from './interfaces';
 import { Class } from './types';
 import { TypedArray } from './array';
 import * as DI from './root';
-import { isTypedArray } from './helpers';
+import { isConstructor, isTypedArray } from './helpers';
 
 export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
 
@@ -141,20 +141,27 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
  *
  * ```
  */
-export function Autoinject<T>(injectType?: Class<T>, mapFunc?: (x: T) => string) {
+export function Autoinject<T>(typeOrOptions?: Class<T> | IAutoinjectOptions<T>, options?: IAutoinjectOptions<T>) {
   return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
-    const type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
+    let type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
     const isArray = type.name === 'Array' || type.name === 'Map';
+    let opt = options;
 
-    if (isArray && !injectType) {
-      throw new Error('you must provide inject type when injecting array');
+    if (isConstructor(typeOrOptions)) {
+      if (isArray && !typeOrOptions) {
+        throw new Error('you must provide inject type when injecting array');
+      }
+      type = typeOrOptions;
+    } else {
+      opt = typeOrOptions;
     }
 
     descriptor.inject.push({
       autoinject: true,
       autoinjectKey: propertyKey,
-      inject: isArray ? Array.ofType(injectType) : injectType ?? type,
-      mapFunc,
+      inject: isArray ? Array.ofType(typeOrOptions as Class<T>) : type,
+      mapFunc: opt?.mapFunc,
+      options: opt?.options,
     });
   });
 }
@@ -221,7 +228,9 @@ export function NewInstance() {
 
 /**
  * If we have multiple registered types at one base type
- * we can resolve any of it once
+ * we can resolve only one by default. Per instance means, that
+ * we can resolve all types registered at base type once. Limitaiton is
+ * that, you should call resolve not on base type, but on target type.
  *
  * In comparison, Singleton flag means that only one instance can be resolved
  * for base class
@@ -229,6 +238,20 @@ export function NewInstance() {
 export function PerInstance() {
   return AddDependency((descriptor: IInjectDescriptor<unknown>) => {
     descriptor.resolver = ResolveType.PerInstance;
+  });
+}
+
+/**
+ *
+ * Before resolve, check function on all resolved instances of given type is called with creation options
+ * It is used for ensuring that for eg. only one instance of service with provided
+ * options is resolved, but allow to create with other option set
+ *
+ * @returns
+ */
+export function PerInstanceCheck() {
+  return AddDependency((descriptor: IInjectDescriptor<unknown>) => {
+    descriptor.resolver = ResolveType.PerInstanceCheck;
   });
 }
 
