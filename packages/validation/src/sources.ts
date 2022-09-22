@@ -1,4 +1,4 @@
-import { Config } from '@spinajs/configuration/lib';
+import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import * as fs from 'fs';
 import * as glob from 'glob';

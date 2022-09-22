@@ -1,19 +1,17 @@
 /* eslint-disable prettier/prettier */
-import { DateTime } from 'luxon';
 import { Container, Inject, NewInstance, Constructor, IContainer, DI } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions';
 import * as _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SordOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums';
-import { DeleteQueryCompiler, DatetimeValueConverter, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder } from './interfaces';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, ISelectBuilderExtensions, QueryMiddleware } from './interfaces';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap } from './statements';
 import { WhereFunction } from './types';
 import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
-import { ColumnAlterationType, TableCloneQueryCompiler, TableExistsCompiler, IUpdateResult, ISelectBuilderExtensions, QueryMiddleware, DropTableCompiler, DefaultValueBuilder } from '.';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -630,10 +628,6 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         return this.whereNull(c);
       }
 
-      if (sVal instanceof DateTime || sVal instanceof Date) {
-        sVal = self._container.resolve(DatetimeValueConverter).toDB(sVal);
-      }
-
       self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, self._tableAlias, this._container]));
 
       return self;
@@ -660,10 +654,6 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
       if (sVal === null) {
         return o === SqlOperator.NOT_NULL ? this.whereNotNull(c) : this.whereNull(c);
-      }
-
-      if (sVal instanceof DateTime || sVal instanceof Date) {
-        sVal = self._container.resolve(DatetimeValueConverter).toDB(sVal);
       }
 
       self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self._tableAlias, this._container]));
@@ -702,16 +692,16 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNot(column: string, val: any): this {
-    return this.where(column, SqlOperator.NOT, this.mapValues(val));
+    return this.where(column, SqlOperator.NOT, val);
   }
 
   public whereIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, this.mapValues(val), false, this._tableAlias]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias]));
     return this;
   }
 
   public whereNotIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, this.mapValues(val), true, this._tableAlias]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias]));
     return this;
   }
 
@@ -726,46 +716,28 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereBetween(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, this.mapValues(val), false, this._tableAlias]));
+    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, false, this._tableAlias]));
     return this;
   }
 
   public whereNotBetween(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, this.mapValues(val), true, this._tableAlias]));
+    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, true, this._tableAlias]));
     return this;
   }
 
   public whereInSet(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, this.mapValues(val), false, this._tableAlias]));
+    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this._tableAlias]));
     return this;
   }
 
   public whereNotInSet(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, this.mapValues(val), true, this._tableAlias]));
+    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this._tableAlias]));
     return this;
   }
 
   public clearWhere() {
     this._statements = [];
     return this;
-  }
-
-  protected mapValues(val: unknown | unknown[]) {
-    const dConverter = this._container.resolve(DatetimeValueConverter);
-
-    const mapVal = (d: unknown) => {
-      if (d instanceof DateTime || d instanceof Date) {
-        return dConverter.toDB(d);
-      }
-
-      return d;
-    };
-
-    if (Array.isArray(val)) {
-      return val.map(mapVal);
-    } else {
-      return mapVal(val);
-    }
   }
 }
 export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {

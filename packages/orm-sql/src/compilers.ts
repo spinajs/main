@@ -3,10 +3,11 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, DatetimeValueConverter } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
+import { DateTime } from 'luxon';
 
 export class SqlTableAliasCompiler implements TableAliasCompiler {
   public compile(builder: IQueryBuilder, tbl?: string) {
@@ -320,10 +321,16 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
     const exprr = [];
 
     for (const prop of Object.keys(this._builder.Value)) {
-      const val = (this._builder.Value as never)[`${prop}`];
+      const val = (this._builder.Value as never)[`${prop}`] as any;
 
       exprr.push(`\`${prop}\` = ?`);
-      bindings = bindings.concat(val);
+
+      let _v = val;
+      if (val instanceof DateTime || val instanceof Date) {
+        _v = this._container.resolve(DatetimeValueConverter).toDB(val);
+      }
+
+      bindings = bindings.concat(_v);
     }
 
     return {
@@ -499,7 +506,12 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
             return 'NULL';
           }
 
-          bindings.push(v);
+          let _v = v;
+          if (v instanceof DateTime || v instanceof Date) {
+            _v = this._container.resolve(DatetimeValueConverter).toDB(v);
+          }
+
+          bindings.push(_v);
           return '?';
         });
       return `(` + toInsert.join(',') + ')';

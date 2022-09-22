@@ -1,7 +1,9 @@
+import { ValueConverter } from './../../orm/src/interfaces';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers';
 import { NewInstance } from '@spinajs/di';
-import { SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement } from '@spinajs/orm';
+import { SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, DatetimeValueConverter } from '@spinajs/orm';
+import { DateTime } from 'luxon';
 
 @NewInstance()
 export class SqlRawStatement extends RawQueryStatement {
@@ -75,8 +77,13 @@ export class SqlWhereStatement extends WhereStatement {
       }
     }
 
+    let val = this._value;
+    if (this._value instanceof DateTime || this._value instanceof Date) {
+      val = this._container.resolve(DatetimeValueConverter).toDB(this._value);
+    }
+
     return {
-      Bindings: isNullableQuery ? [] : [this._value],
+      Bindings: isNullableQuery ? [] : [val],
       Statements: [`${column} ${this._operator.toUpperCase()}${binding}`],
     };
   }

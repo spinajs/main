@@ -24,15 +24,39 @@ export class Binder<T> implements IBind {
    * Add plain value to container. If value exists, it overrides content in  container cache
    *
    * @param type - name of added value
+   * @param override - if true, any value registered before is overriden by new one
    * @returns
    */
-  asValue(type: string, clearPrevious = false): this {
-    if (clearPrevious) {
+  asValue(type: string, override = false): this {
+    if (override) {
       if (this.container.Cache.has(type)) {
         this.container.Cache.remove(type);
       }
     }
     this.container.Cache.add(type, this.implementation);
+    return this;
+  }
+
+  /**
+   *
+   * Add plain value to container, value is stored in hashmap for quick access
+   * eg. we have multiple value converters and we wanc o(1) access, instead searching for
+   * converter for specific type
+   *
+   * @param type - name of added value
+   * @param key - hashmap key
+   */
+  asMapValue(type: string, key: string) {
+    let map = null;
+    if (this.container.Cache.has(type)) {
+      map = this.container.Cache.get(type)[0] as Map<any, any>;
+    } else {
+      map = new Map<string, any>();
+      this.container.Cache.add(type, map);
+    }
+
+    map.set(key, this.implementation);
+
     return this;
   }
 

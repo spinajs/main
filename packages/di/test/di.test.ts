@@ -898,4 +898,56 @@ describe('Dependency injection', () => {
     const instance = await DI.resolve('Test');
     expect(instance).to.include({ id: 1 });
   });
+
+  it('Should register asValue', () => {
+    DI.register({ id: 1 }).asValue('Test');
+
+    const instance = DI.get('Test');
+    expect(instance).to.include({ id: 1 });
+  });
+
+  it('Should register multiple asValue and get last', () => {
+    DI.register({ id: 1 }).asValue('Test');
+    DI.register({ id: 2 }).asValue('Test');
+
+    const instance = DI.get('Test');
+    expect(instance).to.include({ id: 2 });
+  });
+
+  it('Should register multiple asValue', () => {
+    DI.register({ id: 1 }).asValue('Test');
+    DI.register({ id: 2 }).asValue('Test');
+
+    const instance = DI.get(Array.ofType('Test'));
+    expect(instance[0]).to.include({ id: 1 });
+    expect(instance[1]).to.include({ id: 2 });
+  });
+
+  it('Should register asValue but with override', () => {
+    DI.register({ id: 1 }).asValue('Test');
+
+    DI.register({ id: 2 }).asValue('Test', true);
+
+    const instance = DI.get('Test');
+    expect(instance).to.include({ id: 2 });
+
+    const instance2 = DI.get(Array.ofType('Test'));
+    expect(instance2.length).to.eq(1);
+  });
+
+  it('Should register asMapValue', () => {
+    DI.register({ id: 1 }).asMapValue('Test', '1');
+
+    const instance = DI.get<Map<string, any>>('Test');
+    expect(instance.get('1')).to.include({ id: 1 });
+  });
+
+  it('Should register multiple asMapValue', () => {
+    DI.register({ id: 1 }).asMapValue('Test', '1');
+    DI.register({ id: 2 }).asMapValue('Test', '2');
+
+    const instance = DI.get<Map<string, any>>('Test');
+    expect(instance.get('1')).to.include({ id: 1 });
+    expect(instance.get('2')).to.include({ id: 2 });
+  });
 });

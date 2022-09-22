@@ -1,8 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { NewInstance } from '@spinajs/di';
-import { RawQuery } from '@spinajs/orm';
+import { RawQuery, JoinMethod } from '@spinajs/orm';
 import { SqlJoinStatement } from '@spinajs/orm-sql';
-import { JoinMethod } from '@spinajs/orm/lib/enums';
 import { NotSupported } from '@spinajs/exceptions';
 
 @NewInstance()

@@ -1,9 +1,8 @@
 import { Log } from '@spinajs/log';
 /* eslint-disable prettier/prettier */
-import { QueryContext } from './interfaces';
+import { IColumnDescriptor, IDriverOptions, QueryContext } from './interfaces';
 import { SyncModule, IContainer, DI, Container, Autoinject } from '@spinajs/di';
-import { IDriverOptions, IColumnDescriptor, TruncateTableQueryBuilder } from '.';
-import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder } from './builders';
+import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder } from './builders';
 import { ModelHydrator, DbPropertyHydrator, OneToOneRelationHydrator, NonDbPropertyHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from './hydrators';
 import { ModelDehydrator, StandardModelDehydrator } from './dehydrators';
 

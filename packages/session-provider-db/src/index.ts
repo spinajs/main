@@ -4,11 +4,22 @@ import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession';
 import { InsertBehaviour } from '@spinajs/orm';
 import { reviver, replacer } from '@spinajs/util';
+import { Config } from '@spinajs/configuration';
+import { DateTime } from 'luxon';
 
 @Injectable(SessionProvider)
 export class DbSessionStore extends SessionProvider {
   @Logger('db-session-store')
   protected Log: Log;
+
+  @Config('rbac.session.db.cleanupInteval', 10 * 60 * 1000)
+  protected ConfigPath: any;
+
+  public async resolveAsync() {
+    setInterval(async () => {
+      await DbSession.destroy().where('Expiration', '<=', DateTime.now());
+    });
+  }
 
   public async restore(sessionId: string): Promise<Session> {
     const session = await DbSession.where({
@@ -40,10 +51,12 @@ export class DbSessionStore extends SessionProvider {
     await session.insert(InsertBehaviour.InsertOrUpdate);
   }
 
-  public touch(session: ISession): Promise<void> {
-    throw new Error('Method not implemented.');
+  public async touch(session: ISession): Promise<void> {
+    await DbSession.update({
+      Expiration: session.Expiration,
+    }).where('SessionId', session.SessionId);
   }
-  public truncate(): Promise<void> {
-    throw new Error('Method not implemented.');
+  public async truncate(): Promise<void> {
+    await DbSession.truncate();
   }
 }

@@ -227,12 +227,36 @@ describe('Where query builder', () => {
   });
 
   it('Should convert date to sql', () => {
+    
     let result = sqb().select('*').from('users').where('CreatedAt', new Date('2022-07-21T09:35:31.820Z')).toDB();
 
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
     expect(result.bindings[0]).to.equal('2022-07-21T09:35:31.820Z');
 
     result = sqb().select('*').from('users').where('CreatedAt', DateTime.fromISO('2022-07-21T09:35:31.820Z')).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
+    expect(result.bindings[0]).to.equal('2022-07-21T11:35:31.820+02:00');
+  });
+
+  it('Should resolve datetime in where as object', () => {
+    let result = sqb()
+      .select('*')
+      .from('users')
+      .where({
+        CreatedAt: new Date('2022-07-21T09:35:31.820Z'),
+      })
+      .toDB();
+
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
+    expect(result.bindings[0]).to.equal('2022-07-21T09:35:31.820Z');
+
+    result = sqb()
+      .select('*')
+      .from('users')
+      .where({
+        CreatedAt: DateTime.fromISO('2022-07-21T09:35:31.820Z'),
+      })
+      .toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
     expect(result.bindings[0]).to.equal('2022-07-21T11:35:31.820+02:00');
   });
@@ -303,6 +327,12 @@ describe('Delete query builder', () => {
   it('Simple delete', () => {
     const result = dqb().from('users').database('spine').where('active', false).toDB();
     expect(result.expression).to.equal('DELETE FROM `spine`.`users` WHERE active = ?');
+  });
+
+  it('Should delete with datetime', () => {
+    const result = dqb().from('users').database('spine').where('CreatedAt', DateTime.fromISO('2022-07-21T09:35:31.820Z')).toDB();
+    expect(result.expression).to.equal('DELETE FROM `spine`.`users` WHERE CreatedAt = ?');
+    expect(result.bindings[0]).to.equal('2022-07-21T11:35:31.820+02:00');
   });
 
   it('Simple truncate', () => {
@@ -1020,7 +1050,7 @@ describe('schema building', () => {
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
-        table.timestamp('foo').default().date()
+        table.timestamp('foo').default().date();
       })
       .toDB();
 
@@ -1028,7 +1058,7 @@ describe('schema building', () => {
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
-        table.timestamp('foo').default().dateTime()
+        table.timestamp('foo').default().dateTime();
       })
       .toDB();
 

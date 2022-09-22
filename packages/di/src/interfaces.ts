@@ -23,10 +23,22 @@ export interface IBind {
 
   /**
    * Registers as value, it wont be resolved or called, just stored as is in container
-   *
    * @param type - name of type / key after whitch implementation will be resolved
+   * @param override - if true, any value registered before is overriden by new one
    */
+  asValue(type: string, override: boolean): this;
   asValue(type: string): this;
+
+  /**
+   *
+   * Add plain value to container, value is stored in hashmap for quick access
+   * eg. we have multiple value converters and we wanc o(1) access, instead searching for
+   * converter for specific type
+   *
+   * @param type - name of added value
+   * @param key - hashmap key
+   */
+  asMapValue(type: string, hashKey: string): this;
 
   /**
    * Registers object as single instance ( singleton )

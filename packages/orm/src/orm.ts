@@ -1,6 +1,7 @@
+import { ValueConverter } from './interfaces';
 /* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
-import { AsyncModule, Autoinject, Container, Class, DI } from '@spinajs/di';
+import { AsyncModule, Autoinject, Container, Class, DI, Constructor } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { ClassInfo, ListFromFiles } from '@spinajs/reflection';
 import * as _ from 'lodash';
@@ -158,7 +159,7 @@ export class Orm extends AsyncModule {
       });
     }
 
-    const models = DI.get<Class<unknown>>(Array.ofType('__models__'));
+    const models = DI.get<Class<ModelBase>>(Array.ofType('__models__'));
     if (models) {
       models.forEach((m) => {
         this.registerModel(m);
@@ -166,9 +167,8 @@ export class Orm extends AsyncModule {
     }
 
     await this.migrateUp(undefined, false);
-
     await this.reloadTableInfo();
-    await this.wireRelations();
+    this.wireRelations();
     this.applyModelMixins();
   }
 

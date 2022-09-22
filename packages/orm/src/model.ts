@@ -1,11 +1,10 @@
-import { OrmDriver } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
 import { SordOrder } from './enums';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
 import { IModelDescriptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder } from './interfaces';
 import { WhereFunction } from './types';
-import { RawQuery, UpdateQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
+import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
 import { Op } from './enums';
 import { DI, isConstructor, Class, IContainer } from '@spinajs/di';
 import { Orm } from './orm';
@@ -16,6 +15,7 @@ import { OrmException } from './exceptions';
 import { ModelDehydrator } from './dehydrators';
 import { Wrap } from './statements';
 import { DateTime } from 'luxon';
+import { OrmDriver } from './driver';
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
@@ -215,10 +215,17 @@ export class ModelBase implements IModelBase {
   }
 
   /**
+   * Clears all data in table
+   */
+  public static truncate() {
+    throw new Error('Not implemented');
+  }
+
+  /**
    * Get all data from db
    */
   public static all<T extends typeof ModelBase>(this: T, _page?: number, _perPage?: number): SelectQueryBuilder<Array<InstanceType<T>>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -227,7 +234,7 @@ export class ModelBase implements IModelBase {
    * @param _data - data to insert
    */
   public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, _insertBehaviour: InsertBehaviour = InsertBehaviour.None): InsertQueryBuilder {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -245,7 +252,7 @@ export class ModelBase implements IModelBase {
   public static where<T extends typeof ModelBase>(this: T, statement: Wrap): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -254,14 +261,14 @@ export class ModelBase implements IModelBase {
    * @param _data - data to set
    */
   public static update<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): UpdateQueryBuilder<InstanceType<T>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
    * Tries to find all models with given primary keys
    */
   public static find<T extends typeof ModelBase>(this: T, _pks: any[]): Promise<Array<InstanceType<T>>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -271,7 +278,7 @@ export class ModelBase implements IModelBase {
    */
   public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<number>;
   public static first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -281,7 +288,7 @@ export class ModelBase implements IModelBase {
    */
   public static last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>>;
   public static last<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -289,7 +296,7 @@ export class ModelBase implements IModelBase {
    */
   public static newest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>>;
   public static newest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -297,7 +304,7 @@ export class ModelBase implements IModelBase {
    */
   public static oldest<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>>;
   public static oldest<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -305,14 +312,14 @@ export class ModelBase implements IModelBase {
    */
   public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>>;
   public static count<T extends typeof ModelBase>(this: T): Promise<number> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
    * Tries to find all models in db. If not all exists, throws exception
    */
   public static findOrFail<T extends typeof ModelBase>(this: T, _pks: any[]): Promise<Array<InstanceType<T>>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -320,7 +327,7 @@ export class ModelBase implements IModelBase {
    *
    */
   public static get<T extends typeof ModelBase>(this: T, _pk: any): Promise<InstanceType<T>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -328,7 +335,7 @@ export class ModelBase implements IModelBase {
    *
    */
   public static getOrFail<T extends typeof ModelBase>(this: T, _pk: any): Promise<InstanceType<T>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -337,7 +344,7 @@ export class ModelBase implements IModelBase {
    * NOTE: it checks for unique fields constraint
    */
   public static getOrNew<T extends typeof ModelBase>(this: T, _pk?: any, _data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -345,7 +352,7 @@ export class ModelBase implements IModelBase {
    * that dont need full ORM model to involve
    */
   public static query<T>(this: T): SelectQueryBuilder<T> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -356,7 +363,7 @@ export class ModelBase implements IModelBase {
    * @param data - model width data to check
    */
   public static getOrCreate<T extends typeof ModelBase>(this: T, _pk: any, _data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -365,7 +372,7 @@ export class ModelBase implements IModelBase {
    * @param  data - initial model data
    */
   public static create<T extends typeof ModelBase>(this: T, _data: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
-    throw Error('Not implemented');
+    throw new Error('Not implemented');
   }
 
   /**
@@ -374,8 +381,8 @@ export class ModelBase implements IModelBase {
    * @param pk - primary key
    */
 
-  public static destroy(_pk?: any | any[]): Promise<void> {
-    throw Error('Not implemented');
+  public static destroy<T extends typeof ModelBase>(_pk?: any | any[]): DeleteQueryBuilder<InstanceType<T>> {
+    throw new Error('Not implemented');
   }
 
   constructor(data?: unknown) {
@@ -671,6 +678,11 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
 }
 
 export const MODEL_STATIC_MIXINS = {
+  truncate(): TruncateTableQueryBuilder {
+    const { query } = createQuery(this, TruncateTableQueryBuilder, false);
+    return query;
+  },
+
   driver(): OrmDriver {
     const dsc = _descriptor(this);
     const orm = DI.get<Orm>(Orm);
@@ -821,23 +833,32 @@ export const MODEL_STATIC_MIXINS = {
     return (await query.firstOrFail()) as unknown as Promise<InstanceType<T>>;
   },
 
-  async destroy(pks: any | any[]): Promise<void> {
+  destroy<T extends typeof ModelBase>(pks?: any | any[]): IWhereBuilder<InstanceType<T>> {
     const description = _descriptor(this);
 
     const data = Array.isArray(pks) ? pks : [pks];
 
-    if (description.SoftDelete?.DeletedAt) {
-      const { query } = createQuery(this, UpdateQueryBuilder);
-      const orm = DI.get<Orm>(Orm);
-      const driver = orm.Connections.get(description.Connection);
-      const converter = driver.Container.resolve(DatetimeValueConverter);
-
-      await query.whereIn(description.PrimaryKey, data).update({
-        [description.SoftDelete.DeletedAt]: converter.toDB(DateTime.now()),
-      });
-    } else {
+    if (!pks) {
       const { query } = createQuery(this, DeleteQueryBuilder);
-      await query.whereIn(description.PrimaryKey, data);
+      return query;
+    } else {
+      if (description.SoftDelete?.DeletedAt) {
+        const { query } = createQuery(this, UpdateQueryBuilder);
+        const orm = DI.get<Orm>(Orm);
+        const driver = orm.Connections.get(description.Connection);
+        const converter = driver.Container.resolve(DatetimeValueConverter);
+
+        query.whereIn(description.PrimaryKey, data).update({
+          [description.SoftDelete.DeletedAt]: converter.toDB(DateTime.now()),
+        });
+
+        return query;
+      } else {
+        const { query } = createQuery(this, DeleteQueryBuilder);
+        query.whereIn(description.PrimaryKey, data);
+
+        return query;
+      }
     }
   },
 
