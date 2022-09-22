@@ -1,5 +1,5 @@
 import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, BaseMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces';
-import { AsyncModule, IContainer, Autoinject, DI, Container } from '@spinajs/di';
+import { AsyncService, IContainer, Autoinject, DI, Container } from '@spinajs/di';
 import * as express from 'express';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators';
 import { UnexpectedServerError } from '@spinajs/exceptions';
@@ -11,7 +11,7 @@ import { RouteArgs, FromFormBase } from './route-args';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isPromise } from 'node:util/types';
 
-export abstract class BaseController extends AsyncModule implements IController {
+export abstract class BaseController extends AsyncService implements IController {
   /**
    * Array index getter
    */
@@ -54,7 +54,7 @@ export abstract class BaseController extends AsyncModule implements IController 
     return this.Descriptor.BasePath ? this.Descriptor.BasePath : this.constructor.name.toLowerCase();
   }
 
-  public async resolveAsync() {
+  public async resolve() {
     const self = this;
 
     this._router = express.Router();
@@ -194,7 +194,7 @@ export abstract class BaseController extends AsyncModule implements IController 
   }
 }
 
-export class Controllers extends AsyncModule {
+export class Controllers extends AsyncService {
   /**
    * Loaded controllers
    */
@@ -238,7 +238,7 @@ export class Controllers extends AsyncModule {
     }
   }
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     /**
      * globally register controller validator, we use ajv lib
      * we use factory func register as singlegon

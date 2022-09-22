@@ -3,7 +3,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 
 import 'mocha';
-import { AsyncModule, Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, SyncModule, Singleton, IInjectDescriptor, AddDependency, Class, PerInstance } from '../src';
+import { Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, Singleton, IInjectDescriptor, AddDependency, Class, PerInstance, AsyncService, SyncService } from '../src';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -128,7 +128,7 @@ class SampleImplementation2 extends SampleBaseClass {
 }
 
 @Singleton()
-class TestModule extends SyncModule {
+class TestModule extends SyncService {
   public Initialized = false;
 
   // tslint:disable-next-line: no-empty
@@ -249,7 +249,7 @@ describe('Dependency injection', () => {
   });
 
   it('Framework module initialization strategy', () => {
-    const module = DI.resolve<TestModule>(TestModule);
+    const module = DI.resolve(TestModule);
 
     expect(module).to.be.not.null;
     expect(module.Initialized).to.be.true;
@@ -555,10 +555,10 @@ describe('Dependency injection', () => {
   it('Should resolve async', async () => {
     DI.clear();
 
-    class Test extends AsyncModule {
+    class Test extends AsyncService {
       public Initialized = false;
 
-      public async resolveAsync() {
+      public async resolve() {
         return new Promise<void>((resolve) => {
           setTimeout(() => {
             this.Initialized = true;
@@ -578,7 +578,7 @@ describe('Dependency injection', () => {
   it('Should resolve sync', () => {
     DI.clear();
 
-    class Test extends SyncModule {
+    class Test extends SyncService {
       public Initialized = false;
 
       public resolve() {

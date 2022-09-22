@@ -75,10 +75,10 @@ export interface IContainer extends EventEmitter {
 
   resolve<T>(type: string, options?: unknown[], check?: boolean): T;
   resolve<T>(type: string, check?: boolean): T;
-  resolve<T>(type: Class<T> | Factory<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncModule ? Promise<T> : T;
-  resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncModule ? Promise<T[]> : T[];
-  resolve<T>(type: Class<T> | Factory<T>, check?: boolean): T extends AsyncModule ? Promise<T> : T;
-  resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncModule ? Promise<T[]> : T[];
+  resolve<T>(type: Class<T> | Factory<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncService ? Promise<T> : T;
+  resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
+  resolve<T>(type: Class<T> | Factory<T>, check?: boolean): T extends AsyncService ? Promise<T> : T;
+  resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
   resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean): Promise<T | T[]> | T | T[];
 }
 
@@ -126,7 +126,7 @@ export interface IResolvedInjection {
  * specific way but without need for factory function.
  *
  *
- * @see FrameworkModuleSyncModule implementation
+ * @see FrameworkModuleSyncService implementation
  */
 // export interface IStrategy {
 //     resolve: (target: any, container: IContainer) => void;
@@ -136,22 +136,22 @@ export interface IResolvedInjection {
 //     resolveA: (target: any, container: IContainer) => Promise<void>;
 // }
 
-export class Module {
+export class Service {
   protected resolved = false;
   public get Resolved(): boolean {
     return this.resolved;
   }
 }
 
-export abstract class SyncModule extends Module {
+export abstract class SyncService extends Service {
   public resolve() {
     this.resolved = true;
   }
 }
 
-export class AsyncModule extends Module {
+export class AsyncService extends Service {
   /* eslint-disable */
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     this.resolved = true;
   }
 }

@@ -30,7 +30,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
   protected DynamoDb: AWS.DynamoDB;
 
   // tslint:disable-next-line: no-empty
-  public async resolveAsync() {
+  public async resolve() {
     AWS.config.update(this.AwsConfig);
 
     if (this.ConfigPath) {

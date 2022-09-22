@@ -15,7 +15,7 @@ export class DbSessionStore extends SessionProvider {
   @Config('rbac.session.db.cleanupInteval', 100000)
   protected CleanupInterval: any;
 
-  public async resolveAsync() {
+  public async resolve() {
     setInterval(async () => {
       const c = await DbSession.destroy().where('Expiration', '<=', DateTime.now());
 

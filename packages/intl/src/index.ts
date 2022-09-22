@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { Injectable, AsyncModule, Autoinject, DI } from '@spinajs/di';
+import { Injectable, AsyncService, Autoinject, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -21,7 +21,7 @@ export interface IIntlAsyncStorage {
   language?: string;
 }
 
-export abstract class Intl extends AsyncModule {
+export abstract class Intl extends AsyncService {
   private _currentLocale: string;
 
   /**
@@ -103,7 +103,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
   protected Configuration: Configuration;
 
   // tslint:disable-next-line: variable-name
-  public async resolveAsync() {
+  public async resolve() {
     this.CurrentLocale = this.Configuration.get('intl.defaultLocale', 'en');
 
     const sources = await DI.resolve(Array.ofType(TranslatioSources.TranslationSource));

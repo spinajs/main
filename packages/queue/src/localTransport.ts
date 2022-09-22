@@ -15,7 +15,7 @@ export class LocalQueueClient extends QueueClient {
     return true;
   }
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     this.Emitter.on('__job__', async (m: Job<unknown>) => {
       if (m.Delay > 0) {
         setTimeout(execute, m.Delay);

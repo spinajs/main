@@ -29,7 +29,7 @@ export class HandlebarsRenderer extends TemplateRenderer {
     return '.handlebars';
   }
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     Handlebars.registerHelper('__', (context, options) => {
       return __translate(options.data.root.lang)(context);
     });
@@ -46,7 +46,7 @@ export class HandlebarsRenderer extends TemplateRenderer {
       return __translateH(context);
     });
 
-    await super.resolveAsync();
+    await super.resolve();
   }
 
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {

@@ -1,5 +1,5 @@
 import { ResponseFunction } from './responses';
-import { AsyncModule, IContainer, Autoinject, Injectable, Container, Inject } from '@spinajs/di';
+import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { Server } from 'http';
@@ -16,7 +16,7 @@ import { Templates } from '@spinajs/templates';
 
 @Injectable()
 @Inject(Templates)
-export class HttpServer extends AsyncModule {
+export class HttpServer extends AsyncService {
   @Autoinject(Configuration)
   protected Configuration: Configuration;
 
@@ -46,7 +46,7 @@ export class HttpServer extends AsyncModule {
     super();
   }
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     this.Express = Express();
 
     /**

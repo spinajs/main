@@ -1,10 +1,10 @@
 import { IRouteArgs } from './RouteArgs';
 import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces';
-import { AsyncModule, IContainer, Inject, Injectable, Container } from '@spinajs/di';
+import { AsyncService, IContainer, Inject, Injectable, Container } from '@spinajs/di';
 
 @Injectable()
 @Inject(Container)
-export class FromDi extends AsyncModule implements IRouteArgs {
+export class FromDi extends AsyncService implements IRouteArgs {
   protected Container: IContainer;
 
   constructor(c: IContainer) {
@@ -13,7 +13,7 @@ export class FromDi extends AsyncModule implements IRouteArgs {
     this.Container = c;
   }
 
-  async resolveAsync(): Promise<void> {}
+  async resolve(): Promise<void> {}
 
   public get SupportedType(): ParameterType {
     return ParameterType.FromDi;

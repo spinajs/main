@@ -1,4 +1,4 @@
-import { AsyncModule } from '@spinajs/di';
+import { AsyncService } from '@spinajs/di';
 import { ISerializationDescriptor, ISerializable, Serialize } from './decorators';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
@@ -81,7 +81,7 @@ export abstract class Job<T> extends Message<T> {
   public Delay: number;
 }
 
-export abstract class QueueClient extends AsyncModule {
+export abstract class QueueClient extends AsyncService {
   @Logger('queue')
   protected Log: Log;
 

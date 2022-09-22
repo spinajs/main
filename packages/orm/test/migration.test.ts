@@ -60,8 +60,8 @@ describe('Orm migrations', () => {
 
   it('ORM should run migration in transaction scope', async () => {
     class FakeConf extends FrameworkConfiguration {
-      public async resolveAsync(): Promise<void> {
-        await super.resolveAsync();
+      public async resolve(): Promise<void> {
+        await super.resolve();
 
         _.mergeWith(
           this.Config,
@@ -158,8 +158,8 @@ describe('Orm migrations', () => {
 
   it('Should register migration programatically', async () => {
     class FakeConf extends FrameworkConfiguration {
-      public async resolveAsync(): Promise<void> {
-        await super.resolveAsync();
+      public async resolve(): Promise<void> {
+        await super.resolve();
 
         _.mergeWith(
           this.Config,

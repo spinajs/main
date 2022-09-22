@@ -1,5 +1,5 @@
 import { InvalidOperation } from '@spinajs/exceptions';
-import { DI, AsyncModule, Bootstrapper, Injectable, Autoinject } from '@spinajs/di';
+import { DI, AsyncService, Bootstrapper, Injectable, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { Email, EmailSender, EmailConfiguration } from './interfaces';
 import { Config } from '@spinajs/configuration';
@@ -18,7 +18,7 @@ export class LogBotstrapper extends Bootstrapper {
 /**
  * Inject INTL module for language support. We does nothing but to initialize module for use in templates.
  */
-export class Emails extends AsyncModule {
+export class Emails extends AsyncService {
   @Logger('email')
   protected Log: Log;
 
@@ -30,7 +30,7 @@ export class Emails extends AsyncModule {
   @Autoinject(QueueClient)
   protected Queue: QueueClient;
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     for (const c of this.Configuration.connections) {
       this.Log.trace(`Found connection ${c.name} ${c.login}@${c.host}`);
 
@@ -40,7 +40,7 @@ export class Emails extends AsyncModule {
       this.Log.trace(`Connection initialized - ${c.name} ${c.login}@${c.host}`);
     }
 
-    await super.resolveAsync();
+    await super.resolve();
   }
 
   /**

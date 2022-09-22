@@ -3,7 +3,7 @@ import * as glob from 'glob';
 import * as path from 'path';
 import * as ts from 'typescript';
 import { Configuration } from '@spinajs/configuration';
-import { AsyncModule, Class, DI } from '@spinajs/di';
+import { AsyncService, Class, DI } from '@spinajs/di';
 import { InvalidArgument, Exception } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
 
@@ -195,7 +195,7 @@ function _listOrResolveFromFiles(
             const type = fTypes[`${nameToResolve}`] as Class<any>;
 
             if (resolve) {
-              if (type.prototype instanceof AsyncModule) {
+              if (type.prototype instanceof AsyncService) {
                 promised = true;
                 return (DI.resolve(type) as any).then((instance: any) => {
                   return {

@@ -1,5 +1,5 @@
 import { InvalidOperation } from '@spinajs/exceptions';
-import { AsyncModule, Inject, Autoinject } from '@spinajs/di';
+import { AsyncService, Inject, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { TemplateRenderer } from './interfaces';
 import { extname } from 'path';
@@ -10,7 +10,7 @@ export * from './interfaces';
  * Inject INTL module for language support. We does nothing but to initialize module for use in templates.
  */
 @Inject(Intl)
-export class Templates extends AsyncModule {
+export class Templates extends AsyncService {
   @Logger('templates')
   protected Log: Log;
 

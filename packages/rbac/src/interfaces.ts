@@ -1,5 +1,5 @@
 import { User } from './models/User';
-import { AsyncModule } from '@spinajs/di';
+import { AsyncService } from '@spinajs/di';
 import { DateTime } from 'luxon';
 
 export interface ISession {
@@ -104,7 +104,7 @@ export abstract class FederatedAuthProvider<C, U = User> {
   public abstract authenticate(credentials: C): Promise<U>;
 }
 
-export abstract class SessionProvider<T = ISession> extends AsyncModule {
+export abstract class SessionProvider<T = ISession> extends AsyncService {
   /**
    *
    * Load session from store. If not exists or expired returns null

@@ -1,6 +1,6 @@
 import { CliCommand, IArgument, ICommand, IOption } from './interfaces';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators';
-import { AsyncModule, DI } from '@spinajs/di';
+import { AsyncService, DI } from '@spinajs/di';
 import { Logger, ILog } from '@spinajs/log';
 import { ResolveFromFiles, ClassInfo } from '@spinajs/reflection';
 import { program } from 'commander';
@@ -12,14 +12,14 @@ DI.register(() => {
   return process.argv;
 }).as('__cli_argv_provider__');
 
-export class Cli extends AsyncModule {
+export class Cli extends AsyncService {
   @Logger('CLI')
   protected Log: ILog;
 
   @ResolveFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')
   public Commands: Promise<Array<ClassInfo<CliCommand>>>;
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     for (const command of await this.Commands) {
       this.Log.trace(`Found command ${command.name} in file ${command.file}`);
 

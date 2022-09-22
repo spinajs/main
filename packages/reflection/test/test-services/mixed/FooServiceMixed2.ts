@@ -1,7 +1,7 @@
-import { AsyncModule } from '@spinajs/di';
+import { AsyncService } from '@spinajs/di';
 
-export class FooServiceMixed2 extends AsyncModule {
-  public resolveAsync(): Promise<void> {
+export class FooServiceMixed2 extends AsyncService {
+  public resolve(): Promise<void> {
     return Promise.resolve();
   }
 }

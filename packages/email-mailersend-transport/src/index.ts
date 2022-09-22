@@ -34,7 +34,7 @@ export class MailersendTransport extends EmailSender {
     super();
   }
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     this.Connection = new MailerSend({
       api_key: this.Options.api_key,
     });

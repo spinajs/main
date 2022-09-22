@@ -1,9 +1,9 @@
-import { AsyncModule } from '@spinajs/di';
+import { AsyncService } from '@spinajs/di';
 
-export class FooServiceAsync extends AsyncModule {
+export class FooServiceAsync extends AsyncService {
   public Counter = 0;
 
-  public resolveAsync(): Promise<void> {
+  public resolve(): Promise<void> {
     this.Counter++;
     return Promise.resolve();
   }

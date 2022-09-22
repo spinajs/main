@@ -1,7 +1,7 @@
 import { DatetimeValueConverter } from './interfaces';
 /* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
-import { AsyncModule, Autoinject, Container, Class, DI } from '@spinajs/di';
+import { AsyncService, Autoinject, Container, Class, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { ClassInfo, ListFromFiles } from '@spinajs/reflection';
 import * as _ from 'lodash';
@@ -20,7 +20,7 @@ const CFG_PROPS = ['Database', 'User', 'Host', 'Port', 'Filename', 'Driver', 'Na
 const MIGRATION_TABLE_NAME = 'spinajs_migration';
 const MIGRATION_FILE_REGEXP = /(.*)_([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2})/;
 
-export class Orm extends AsyncModule {
+export class Orm extends AsyncService {
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.models')
   public Models: Array<ClassInfo<ModelBase>>;
 
@@ -148,7 +148,7 @@ export class Orm extends AsyncModule {
     }
   }
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     await this.createConnections();
 
     // add all registered migrations via DI

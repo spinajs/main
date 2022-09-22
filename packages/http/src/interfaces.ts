@@ -1,5 +1,5 @@
 import * as express from 'express';
-import { Constructor, AsyncModule } from '@spinajs/di';
+import { Constructor, AsyncService } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 
 /**
@@ -63,7 +63,7 @@ export interface IActionLocalStoregeContext {
   responseStart: Date;
 }
 
-export abstract class ServerMiddleware extends AsyncModule {
+export abstract class ServerMiddleware extends AsyncService {
   public Order: number;
 
   public abstract before(): (req: Request, res: express.Response, next: express.NextFunction) => void | null;

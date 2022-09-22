@@ -1,4 +1,4 @@
-import { AsyncModule, Class } from '@spinajs/di';
+import { AsyncService, Class } from '@spinajs/di';
 
 export * from './variables';
 
@@ -44,7 +44,7 @@ export interface ConfigurationOptions {
   watchFileChanges?: boolean;
 }
 
-export abstract class Configuration extends AsyncModule {
+export abstract class Configuration extends AsyncService {
   /**
    * Root config object, contains whole app configuration
    */

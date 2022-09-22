@@ -1,20 +1,20 @@
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
-import { AsyncModule, DI } from '@spinajs/di';
+import { AsyncService, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueConfiguration, QueueClient, Message, Job } from './interfaces';
 
 export * from './interfaces';
 export * from './decorators';
 
-export class Queues extends AsyncModule {
+export class Queues extends AsyncService {
   @Logger('queue')
   protected Log: Log;
 
   @Config('queue')
   protected Configuration: QueueConfiguration;
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     for (const c of this.Configuration.connections) {
       this.Log.trace(`Found queue ${c.name}, with transport: ${c.transport}`);
 
@@ -22,7 +22,7 @@ export class Queues extends AsyncModule {
       DI.register(connection).asValue(`__queue__${c.name}`);
     }
 
-    await super.resolveAsync();
+    await super.resolve();
   }
 
   public async emit<T>(event: Message<T>) {

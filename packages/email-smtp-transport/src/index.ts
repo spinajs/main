@@ -25,7 +25,7 @@ export class EmailSenderSmtp extends EmailSender {
     super();
   }
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     // create reusable transporter object using the default SMTP transport
     this.Transporter = nodemailer.createTransport(
       Object.assign(

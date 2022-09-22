@@ -24,8 +24,8 @@ export function dir(path: string) {
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public async resolveAsync(): Promise<void> {
-    await super.resolveAsync();
+  public async resolve(): Promise<void> {
+    await super.resolve();
 
     _.mergeWith(
       this.Config,

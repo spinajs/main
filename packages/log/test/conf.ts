@@ -9,8 +9,8 @@ function dir(path: string) {
 
 export class TestConfiguration extends FrameworkConfiguration {
 
-    public async resolveAsync(): Promise<void> {
-        await super.resolveAsync();
+    public async resolve(): Promise<void> {
+        await super.resolve();
 
         _.mergeWith(this.Config, {
             system: {

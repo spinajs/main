@@ -1,5 +1,5 @@
 import { Container } from './container';
-import { IBind, IContainer, AsyncModule, ResolvableObject } from './interfaces';
+import { IBind, IContainer, AsyncService, ResolvableObject } from './interfaces';
 import { Class, Factory } from './types';
 import { TypedArray } from './array';
 
@@ -112,10 +112,10 @@ export function uncache<T>(type: string | Class<T> | TypedArray<T>, parent?: boo
  */
 export function resolve<T>(type: string, options?: unknown[], check?: boolean): T;
 export function resolve<T>(type: string, check?: boolean): T;
-export function resolve<T>(type: Class<T>, check?: boolean): T extends AsyncModule ? Promise<T> : T;
-export function resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncModule ? Promise<T[]> : T[];
-export function resolve<T>(type: Class<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncModule ? Promise<T> : T;
-export function resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncModule ? Promise<T[]> : T[];
+export function resolve<T>(type: Class<T>, check?: boolean): T extends AsyncService ? Promise<T> : T;
+export function resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
+export function resolve<T>(type: Class<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncService ? Promise<T> : T;
+export function resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
 export function resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean): Promise<T | T[]> | T | T[] {
   return RootContainer.resolve<T>(type, options, check);
 }

@@ -18,7 +18,7 @@ export class QueueOrmTransport extends QueueClient {
 
   protected Subscriber: Subscriber;
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     this.Subscriber = await Subscriber.where('Name', this.Options.name).first();
 
     if (!this.Subscriber) {

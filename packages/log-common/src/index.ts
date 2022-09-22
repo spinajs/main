@@ -1,4 +1,4 @@
-import { SyncModule } from "@spinajs/di";
+import { SyncService } from "@spinajs/di";
 import _ from "lodash";
 import * as util from "util";
 
@@ -171,7 +171,7 @@ export interface ILogEntry {
 
 export abstract class LogTarget<
   T extends ICommonTargetOptions
-> extends SyncModule {
+> extends SyncService {
   public HasError = false;
   public Error: Error | null | unknown = null;
   public Options: T;

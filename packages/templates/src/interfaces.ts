@@ -1,11 +1,11 @@
 import { Config } from '@spinajs/configuration';
-import { AsyncModule } from '@spinajs/di';
+import { AsyncService } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { join } from 'path';
 import { glob } from 'glob';
 import _ from 'lodash';
 
-export abstract class TemplateRenderer extends AsyncModule {
+export abstract class TemplateRenderer extends AsyncService {
   @Logger('renderer')
   protected Log: Log;
 
@@ -22,7 +22,7 @@ export abstract class TemplateRenderer extends AsyncModule {
   public abstract renderToFile(templatePath: string, model: unknown, filePath: string, language?: string): Promise<void>;
   protected abstract compile(templateName: string, path: string): Promise<void>;
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     for (const path of this.TemplatePaths) {
       const files = glob.sync(join(path, `/**/*${this.Extension}`));
 

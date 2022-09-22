@@ -97,7 +97,7 @@ export class FrameworkConfiguration extends Configuration {
     _.mergeWith(this.get(path), value, mergeArrays);
   }
 
-  public async resolveAsync(): Promise<void> {
+  public async resolve(): Promise<void> {
     if (!this.Container.hasRegistered(ConfigurationSource)) {
       throw new InvalidOperation(
         'No configuration sources configured. Please ensure that config module have any source to read from !',

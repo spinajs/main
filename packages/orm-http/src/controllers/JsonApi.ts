@@ -146,8 +146,8 @@ export class JsonApi extends BaseController {
     super();
   }
 
-  public async resolveAsync(): Promise<void> {
-    super.resolveAsync();
+  public async resolve(): Promise<void> {
+    super.resolve();
     this.Middlewares = await DI.resolve(Array.ofType(RepositoryMiddleware));
   }
 

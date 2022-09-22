@@ -1,5 +1,5 @@
 import { TypedArray } from './array';
-import { AsyncModule, SyncModule } from './interfaces';
+import { AsyncService, SyncService } from './interfaces';
 import { Factory, Class } from './types';
 
 /**
@@ -26,16 +26,16 @@ export function isObject(value: any): value is object {
   return typeof value === 'object';
 }
 
-export function isAsyncModule(value: any): value is AsyncModule {
-  return value instanceof AsyncModule;
+export function isAsyncService(value: any): value is AsyncService {
+  return value instanceof AsyncService;
 }
 
 export function isPromise(value: any): value is Promise<any> {
   return value instanceof Promise;
 }
 
-export function isSyncModule(value: any): value is SyncModule {
-  return value instanceof SyncModule;
+export function isSyncService(value: any): value is SyncService {
+  return value instanceof SyncService;
 }
 
 /**

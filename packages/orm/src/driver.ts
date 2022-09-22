@@ -1,14 +1,14 @@
 import { Log } from '@spinajs/log';
 /* eslint-disable prettier/prettier */
 import { IColumnDescriptor, IDriverOptions, QueryContext } from './interfaces';
-import { SyncModule, IContainer, DI, Container, Autoinject } from '@spinajs/di';
+import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder } from './builders';
 import { ModelHydrator, DbPropertyHydrator, OneToOneRelationHydrator, NonDbPropertyHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from './hydrators';
 import { ModelDehydrator, StandardModelDehydrator } from './dehydrators';
 
 export type TransactionCallback = (driver: OrmDriver) => Promise<any>;
 
-export abstract class OrmDriver extends SyncModule {
+export abstract class OrmDriver extends SyncService {
   /**
    * Connection options
    */

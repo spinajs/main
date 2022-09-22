@@ -1,4 +1,4 @@
-import { AsyncModule } from '@spinajs/di';
+import { AsyncService } from '@spinajs/di';
 import { Command, CommandOptions } from 'commander';
 
 export interface ICommand {
@@ -31,7 +31,7 @@ export interface IArgument {
  * It allows to use all features that spinajs provides eg. DI, logging, intl support etc.
  * inside command functions without hassle.
  */
-export abstract class CliCommand extends AsyncModule {
+export abstract class CliCommand extends AsyncService {
   /**
    * Function executed when command is running
    *

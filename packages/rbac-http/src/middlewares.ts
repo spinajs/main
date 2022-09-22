@@ -14,7 +14,7 @@ export class RbacMiddleware extends ServerMiddleware {
   @Autoinject()
   protected SessionProvider: SessionProvider;
 
-  public async resolveAsync() {
+  public async resolve() {
     if (!this.CoockieSecret) {
       throw new Error('http.cookie.secres is not set, cannot start UserFromSessionMiddleware. Set this value in configuration file !');
     }

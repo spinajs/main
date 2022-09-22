@@ -3,7 +3,7 @@ import { InvalidOperation } from "./../../exceptions/src/index";
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
-import { Autoinject, Container, DI, IContainer, NewInstance, SyncModule } from "@spinajs/di";
+import { Autoinject, Container, DI, IContainer, NewInstance, SyncService } from "@spinajs/di";
 import { ICommonTargetOptions, LogLevel, ILogOptions, ILogRule, ILogEntry, StrToLogLevel, LogVariables, createLogMessageObject, ILog, ILogTargetDesc, LogTarget } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOption } from "@spinajs/exceptions";
@@ -26,7 +26,7 @@ function wrapWrite(this: Log, level: LogLevel) {
  * Default log implementation interface. Taken from bunyan. Feel free to implement own.
  */
 @NewInstance()
-export class Log extends SyncModule implements ILog {
+export class Log extends SyncService implements ILog {
   /**
    *  STATIC METHODS FOR LOGGER, ALLOWS TO LOG TO ANY TARGET
    *  EVEN BEFORE LOG MODULE INITIALIZATION.

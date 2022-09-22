@@ -1,9 +1,9 @@
-import { AsyncModule, Constructor } from '@spinajs/di';
+import { AsyncService, Constructor } from '@spinajs/di';
 import { DeleteQueryBuilder, InsertQueryBuilder, ModelBase, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import * as express from 'express';
 import { JsonApiIncomingObject } from './interfaces';
 
-export abstract class RepositoryMiddleware extends AsyncModule {
+export abstract class RepositoryMiddleware extends AsyncService {
   public async onGetMiddlewareStart(_resource: any, _req: express.Request): Promise<void> {}
   public async onGetAllMiddlewareStart(_req: express.Request): Promise<void> {}
   public async onUpdateMiddlewareStart(_resource: any, _data: JsonApiIncomingObject, _req: express.Request): Promise<void> {}

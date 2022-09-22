@@ -3,8 +3,8 @@ import 'reflect-metadata';
 import { TypedArray } from './array';
 import { DI_DESCRIPTION_SYMBOL } from './decorators';
 import { ResolveType } from './enums';
-import { getTypeName, isAsyncModule, isFactory, uniqBy, isTypedArray, isPromise } from './helpers';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncModule, IToInject, AsyncModule, ResolvableObject } from './interfaces';
+import { getTypeName, isAsyncService, isFactory, uniqBy, isTypedArray, isPromise } from './helpers';
+import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject } from './interfaces';
 import { Class, Factory } from './types';
 import { EventEmitter } from 'events';
 import { Binder } from './binder';
@@ -165,8 +165,8 @@ export class Container extends EventEmitter implements IContainer {
    * @param type - what to resolve, can be class definition or factory function
    * @param options - options passed to constructor / factory
    */
-  public resolve<T>(type: Class<T>, options?: unknown[], check?: boolean): T extends AsyncModule ? Promise<T> : T;
-  public resolve<T>(type: Class<T>, check?: boolean): T extends AsyncModule ? Promise<T> : T;
+  public resolve<T>(type: Class<T>, options?: unknown[], check?: boolean): T extends AsyncService ? Promise<T> : T;
+  public resolve<T>(type: Class<T>, check?: boolean): T extends AsyncService ? Promise<T> : T;
 
   /**
    *
@@ -177,8 +177,8 @@ export class Container extends EventEmitter implements IContainer {
    * @param check - strict check if serivice is registered in container before resolving. Default behavior is to not check and resolve
    *
    */
-  public resolve<T>(type: TypedArray<T>, options?: unknown[], check?: boolean): T extends AsyncModule ? Promise<T[]> : T[];
-  public resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncModule ? Promise<T[]> : T[];
+  public resolve<T>(type: TypedArray<T>, options?: unknown[], check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
+  public resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
 
   /**
    *
@@ -397,17 +397,17 @@ export class Container extends EventEmitter implements IContainer {
         (newInstance as any)[`${ai.autoinjectKey}`] = ai.instance;
       }
 
-      if (isAsyncModule(newInstance)) {
+      if (isAsyncService(newInstance)) {
         return new Promise((res, rej) => {
-          (newInstance as AsyncModule)
-            .resolveAsync()
+          (newInstance as AsyncService)
+            .resolve()
             .then(() => {
               res(newInstance);
             })
             .catch((err) => rej(err));
         });
       } else {
-        if (newInstance instanceof SyncModule) {
+        if (newInstance instanceof SyncService) {
           newInstance.resolve();
         }
       }

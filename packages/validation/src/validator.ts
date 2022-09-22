@@ -1,4 +1,4 @@
-import { SyncModule, Autoinject, Container } from '@spinajs/di';
+import { SyncService, Autoinject, Container } from '@spinajs/di';
 import Ajv from 'ajv';
 import { Config } from '@spinajs/configuration';
 import { IValidationError, ValidationFailed } from './exceptions';
@@ -7,7 +7,7 @@ import { SCHEMA_SYMBOL } from './decorators';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types';
 import { Logger, ILog } from '@spinajs/log';
 
-export class DataValidator extends SyncModule {
+export class DataValidator extends SyncService {
   @Config('validation')
   public Options: IValidationOptions;
 
