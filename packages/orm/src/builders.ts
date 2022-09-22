@@ -681,13 +681,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this._tableAlias]));
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this._tableAlias, this._container]));
 
     return this;
   }
 
   public whereNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this._tableAlias]));
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this._tableAlias,this._container]));
     return this;
   }
 
@@ -696,12 +696,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias,this._container]));
     return this;
   }
 
   public whereNotIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias,this._container]));
     return this;
   }
 

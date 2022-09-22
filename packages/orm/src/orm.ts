@@ -1,7 +1,7 @@
-import { ValueConverter, DatetimeValueConverter } from './interfaces';
+import { DatetimeValueConverter } from './interfaces';
 /* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
-import { AsyncModule, Autoinject, Container, Class, DI, Constructor } from '@spinajs/di';
+import { AsyncModule, Autoinject, Container, Class, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { ClassInfo, ListFromFiles } from '@spinajs/reflection';
 import * as _ from 'lodash';
