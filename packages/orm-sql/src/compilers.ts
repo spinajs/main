@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, DatetimeValueConverter } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, DatetimeValueConverter, ValueConverter } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
@@ -29,16 +29,23 @@ export class SqlTableAliasCompiler implements TableAliasCompiler {
 
 @NewInstance()
 export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQueryCompiler {
-  protected _builder: T;
-
-  constructor(builder: T) {
+  constructor(protected _builder: T, protected _container: IContainer) {
     super();
 
-    if (builder === null && builder === undefined) {
+    if (_builder === null && _builder === undefined) {
       throw new InvalidArgument('builder cannot be null or undefined');
     }
+  }
 
-    this._builder = builder;
+  protected tryConvertValue(v: any) {
+    let val = v;
+    const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
+    if (converters && converters.has(v.constructor.name)) {
+      const converter = this._container.resolve<ValueConverter>(converters.get(v.constructor.name));
+      val = converter.toDB(val);
+    }
+
+    return val;
   }
 
   public abstract compile(): ICompilerOutput;
@@ -298,7 +305,7 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
   @use(SqlWhereCompiler, TableAliasCompiler) this: this;
 
   constructor(protected _container: IContainer, builder: UpdateQueryBuilder<unknown>) {
-    super(builder);
+    super(builder, _container);
   }
 
   public compile(): ICompilerOutput {
@@ -321,16 +328,11 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
     const exprr = [];
 
     for (const prop of Object.keys(this._builder.Value)) {
-      const val = (this._builder.Value as never)[`${prop}`] as any;
+      const v = (this._builder.Value as never)[`${prop}`] as any;
 
       exprr.push(`\`${prop}\` = ?`);
 
-      let _v = val;
-      if (val instanceof DateTime || val instanceof Date) {
-        _v = this._container.resolve(DatetimeValueConverter).toDB(val);
-      }
-
-      bindings = bindings.concat(_v);
+      bindings = bindings.concat(this.tryConvertValue(v));
     }
 
     return {
@@ -447,8 +449,8 @@ export class SqlIndexQueryCompiler extends IndexQueryCompiler {
 export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder> {
   @use(TableAliasCompiler) this: this;
 
-  constructor(protected _container: IContainer, builder: InsertQueryBuilder) {
-    super(builder);
+  constructor(_container: IContainer, builder: InsertQueryBuilder) {
+    super(builder, _container);
   }
 
   public compile() {
@@ -506,12 +508,7 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
             return 'NULL';
           }
 
-          let _v = v;
-          if (v instanceof DateTime || v instanceof Date) {
-            _v = this._container.resolve(DatetimeValueConverter).toDB(v);
-          }
-
-          bindings.push(_v);
+          bindings.push(this.tryConvertValue(v));
           return '?';
         });
       return `(` + toInsert.join(',') + ')';

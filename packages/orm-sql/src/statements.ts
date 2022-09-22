@@ -78,8 +78,10 @@ export class SqlWhereStatement extends WhereStatement {
     }
 
     let val = this._value;
-    if (this._value instanceof DateTime || this._value instanceof Date) {
-      val = this._container.resolve(DatetimeValueConverter).toDB(this._value);
+    const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
+    if (converters && converters.has(this._value.constructor.name)) {
+      const converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
+      val = converter.toDB(val);
     }
 
     return {

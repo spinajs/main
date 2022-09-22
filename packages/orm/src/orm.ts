@@ -1,4 +1,4 @@
-import { ValueConverter } from './interfaces';
+import { ValueConverter, DatetimeValueConverter } from './interfaces';
 /* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
 import { AsyncModule, Autoinject, Container, Class, DI, Constructor } from '@spinajs/di';
@@ -170,6 +170,14 @@ export class Orm extends AsyncModule {
     await this.reloadTableInfo();
     this.wireRelations();
     this.applyModelMixins();
+    this.registerDefaultConverters();
+  }
+
+  protected registerDefaultConverters() {
+   
+    this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', Date.name);
+    this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', DateTime.name);
+  
   }
 
   protected wireRelations() {
