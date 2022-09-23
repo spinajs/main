@@ -1,6 +1,6 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
-import { constants, createReadStream, createWriteStream, readFileSync } from 'fs';
+import { constants, createReadStream, createWriteStream, readFile, readFileSync } from 'fs';
 import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { IInstanceCheck, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -79,14 +79,20 @@ export class fsNative extends fs implements IInstanceCheck {
   /**
    * read all content of file
    */
-  public async read(path: string, encoding: BufferEncoding) {
-    const fDesc = await open(this.resolvePath(path), 'r');
-    return fDesc.readFile({ encoding });
+  public async read(path: string, encoding?: BufferEncoding) {
+    return new Promise<string | Buffer>((resolve, reject) => {
+      readFile(this.resolvePath(path), { encoding: encoding ?? 'binary' }, (err, data) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(data);
+        }
+      });
+    });
   }
 
-  public async readStream(path: string) {
-    const fDesc = await open(this.resolvePath(path), 'r');
-    return fDesc.createReadStream();
+  public readStream(path: string, encoding?: BufferEncoding) {
+    return Promise.resolve(createReadStream(this.resolvePath(path), { encoding: encoding ?? 'binary' }));
   }
 
   /**
@@ -97,9 +103,8 @@ export class fsNative extends fs implements IInstanceCheck {
     return await fDesc.writeFile(data, { encoding });
   }
 
-  public async writeStream(path: string) {
-    const fDesc = await open(this.resolvePath(path), 'w');
-    return fDesc.createWriteStream();
+  public writeStream(path: string, encoding?: BufferEncoding) {
+    return Promise.resolve(createWriteStream(this.resolvePath(path), { encoding: encoding ?? 'binary' }));
   }
 
   /**

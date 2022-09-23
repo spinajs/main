@@ -2,6 +2,7 @@
 import { AsyncService } from '@spinajs/di';
 import { ReadStream, WriteStream } from 'fs';
 import { DateTime } from 'luxon';
+import { PassThrough } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface IProviderConfiguration {
@@ -20,6 +21,7 @@ export interface IStat {
   AccessTime?: DateTime;
   ModifiedTime?: DateTime;
   CreationTime?: DateTime;
+  AdditionalData?: unknown;
 }
 
 export interface IZipResult {
@@ -31,10 +33,10 @@ export interface IZipResult {
 export abstract class fs extends AsyncService {
   public abstract Name: string;
   public abstract download(path: string): Promise<string>;
-  public abstract read(path: string, encoding: BufferEncoding): Promise<string>;
-  public abstract readStream(path: string): Promise<ReadStream>;
+  public abstract read(path: string, encoding: BufferEncoding): Promise<string | Buffer>;
+  public abstract readStream(path: string, encoding?: BufferEncoding): Promise<ReadStream>;
   public abstract write(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void>;
-  public abstract writeStream(path: string): Promise<WriteStream>;
+  public abstract writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
   public abstract exists(path: string): Promise<boolean>;
   public abstract dirExists(path: string): Promise<boolean>;
   public abstract copy(path: string, dest: string): Promise<void>;
