@@ -13,6 +13,8 @@ import sinon from 'sinon';
 import { SampleMiddleware2 } from './middlewares/SampleMiddleware2';
 import { SamplePolicy2 } from './policies/SamplePolicy2';
 import { req, TestConfiguration } from './common';
+import { FsBootsrapper } from '@spinajs/fs';
+import '@spinajs/templates-pug';
 
 function ctr() {
   return DI.get(Controllers);
@@ -34,6 +36,9 @@ describe('http & controller tests', function () {
   let samplePolicy2ExecuteSpy: sinon.SinonSpy<any, any> = null;
 
   before(async () => {
+    const bootstrapper = DI.resolve(FsBootsrapper);
+    bootstrapper.bootstrap();
+
     middlewareOnAfterSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onAfterAction');
     middlewareOnBeforeSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onBeforeAction');
     middlewareOnResponseSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onResponse');
@@ -68,7 +73,7 @@ describe('http & controller tests', function () {
 
   it('should load controllers from dir', async () => {
     const controllers = await ctr().Controllers;
-    expect(controllers.length).to.eq(17);
+    expect(controllers.length).to.eq(18);
   });
 
   it('should server static files', async () => {
@@ -239,19 +244,22 @@ describe('http & controller tests', function () {
 
   it('Should get file', async () => {
     const response = await req().get('files/file').send();
+
     expect(response).to.have.status(200);
-    expect(response.body).to.be.not.null;
+    expect(response.header['content-length']).to.be.not.null;
+    expect(response.header['content-type']).to.eq('text/plain; charset=UTF-8');
   });
 
   it('Should get zip', async () => {
     const response = await req().get('files/zippedFile').send();
     expect(response).to.have.status(200);
-    expect(response.body).to.be.not.null;
+    expect(response.header['content-length']).to.be.not.null;
+    expect(response.header['content-type']).to.eq('application/zip');
   });
 
   it('Should get json file', async () => {
     const response = await req().get('files/jsonFile').send();
     expect(response).to.have.status(200);
-    expect(response.body).to.be.not.null;
+    expect(response.header['content-length']).to.be.not.null;
   });
 });

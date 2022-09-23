@@ -1,10 +1,9 @@
-import { IInstanceCheck } from './../../di/src/interfaces';
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
 import { constants, createReadStream, createWriteStream, readFileSync } from 'fs';
 import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open } from 'node:fs/promises';
 import { DateTime } from 'luxon';
-import { Injectable, PerInstanceCheck } from '@spinajs/di';
+import { IInstanceCheck, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IStat, IZipResult } from './interfaces';
 import { basename, join } from 'path';
 import { ILog, Logger } from '@spinajs/log';
@@ -74,7 +73,7 @@ export class fsNative extends fs implements IInstanceCheck {
     if (!exists) {
       throw new IOFail(`file ${path} does not exists`);
     }
-    return path;
+    return this.resolvePath(path);
   }
 
   /**
@@ -220,7 +219,7 @@ export class fsNative extends fs implements IInstanceCheck {
   }
 
   public async zip(path: string, zName?: string): Promise<IZipResult> {
-    const outFile = join(this.tmpname(), '.zip');
+    const outFile = this.resolvePath(this.tmpname() + '.zip');
     const output = createWriteStream(outFile);
     const pStat = await this.stat(path);
     const fPath = this.resolvePath(path);

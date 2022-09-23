@@ -12,12 +12,12 @@ export class FsBootsrapper extends Bootstrapper {
       const cfg = container.get(Configuration).get<IFsConfiguration>('fs');
       const defaultProvider = cfg.defaultProvider;
 
-      let provider = DI.get<fs>(Array.ofType(fs)).find((x) => x.Name === name ?? defaultProvider);
-      if (!provider) {
-        const cProvider = cfg.providers.find((x) => x.name === name ?? defaultProvider);
-
-        provider = await DI.resolve(cProvider.service, [cProvider]);
-      }
+      const cProvider = cfg.providers.find((x) => x.name === (name ?? defaultProvider));
+      const rProviders = DI.RootContainer.Registry.getTypes(fs);
+      const provider = await DI.resolve<fs>(
+        rProviders.find((x) => x.name === cProvider.service),
+        [cProvider],
+      );
 
       return provider;
     }).as('__file_provider__');

@@ -3,10 +3,11 @@ import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfac
 import * as express from 'express';
 import { Fields, Files, File, IncomingForm } from 'formidable';
 import { Configuration } from '@spinajs/configuration';
-import { isFunction } from 'lodash';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
-import * as fs from 'fs';
 import { parse } from 'csv';
+import { fs } from '@spinajs/fs';
+import { basename } from 'path';
+import { createReadStream, promises, unlink } from 'fs';
 
 interface FormData {
   Fields: Fields;
@@ -17,7 +18,13 @@ export type FormOptionsCallback = (conf: Configuration) => Promise<FormOptions>;
 
 export interface FormOptions {
   encoding?: string;
-  uploadDir?: string | FormOptionsCallback;
+
+  /**
+   * Wchitch service is handling incoming file storage
+   * fs file provider, defaults to default provider set in configuration
+   * can be local, remote, aws s3, ftp, etc
+   */
+  fileProvider?: string;
   keepExtensions?: boolean;
   maxFileSize?: number;
   maxFieldsSize?: number;
@@ -30,6 +37,8 @@ export interface FormOptions {
 export abstract class FromFormBase extends RouteArgs {
   public Data: FormData;
 
+  protected FileService: fs;
+
   protected async parseForm(callData: IRouteCall, param: IRouteParameter, req: Request) {
     if (callData && callData.Payload && callData.Payload.Form) {
       this.Data = callData.Payload.Form;
@@ -41,13 +50,10 @@ export abstract class FromFormBase extends RouteArgs {
   }
 
   protected async parse(req: express.Request, options: FormOptions) {
+    this.FileService = await DI.resolve('__file_provider__', [options?.fileProvider]);
+
     if (!this.Data) {
       let opts: any = options || { multiples: true };
-
-      if (options && isFunction(options.uploadDir)) {
-        opts = await options.uploadDir(DI.get(Configuration));
-      }
-
       this.Data = await this._parse(req, opts);
     }
   }
@@ -80,6 +86,8 @@ export class FromFile extends FromFormBase {
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: Request): Promise<any> {
+    const self = this;
+
     if (!this.Data) {
       await this.parseForm(callData, param, req);
     }
@@ -87,43 +95,64 @@ export class FromFile extends FromFormBase {
     // map from formidable to our object
     // of type IUploadedFile
     const formFiles = this.Data.Files[param.Name];
+    const data = {
+      CallData: {
+        ...callData,
+        Payload: {
+          Form: this.Data,
+        },
+      },
+    };
 
     if (Array.isArray(formFiles)) {
-      return {
-        CallData: {
-          ...callData,
-          Payload: {
-            Form: this.Data,
-          },
-        },
-        Args: formFiles.map((f: File) => {
-          return {
-            Size: f.size,
-            Path: f.filepath,
-            Name: f.originalFilename,
-            Type: f.mimetype,
-            LastModifiedDate: f.mtime,
-            Hash: f.hash,
-          };
-        }),
-      };
+      for (const f of formFiles) {
+        await copy(f.filepath);
+
+        return Object.assign(data, {
+          Args: formFiles.map(mf),
+        });
+      }
     } else {
+      await copy(formFiles.filepath);
+      return Object.assign(data, {
+        Args: mf(formFiles),
+      });
+    }
+
+    function mf(f: File) {
       return {
-        CallData: {
-          ...callData,
-          Payload: {
-            Form: this.Data,
-          },
+        Size: f.size,
+        BaseName: basename(f.filepath),
+        Provider: {
+          Name: self.FileService.Name,
+          Service: self.FileService.constructor.name,
         },
-        Args: {
-          Size: formFiles.size,
-          Path: formFiles.filepath,
-          Name: formFiles.originalFilename,
-          Type: formFiles.mimetype,
-          LastModifiedDate: formFiles.mtime,
-          Hash: formFiles.hash,
-        },
+        Name: f.originalFilename,
+        Type: f.mimetype,
+        LastModifiedDate: f.mtime,
+        Hash: f.hash,
       };
+    }
+
+    async function copy(file: string) {
+      const stream = await self.FileService.writeStream(basename(file));
+
+      return new Promise<void>((resolve, reject) => {
+        createReadStream(file)
+          .pipe(stream)
+          .on('finish', () => {
+            unlink(file, (err) => {
+              if (err) {
+                reject(err);
+              } else {
+                resolve();
+              }
+            });
+          })
+          .on('error', (err: any) => {
+            reject(err);
+          });
+      });
     }
   }
 }
@@ -145,10 +174,10 @@ export class JsonFileRouteArgs extends FromFile {
     }
 
     const sourceFile = (this.Data.Files[param.Name] as File).filepath;
-    const content = await fs.promises.readFile(sourceFile, { encoding: param.Options.Encoding ?? 'utf-8', flag: 'r' });
+    const content = await promises.readFile(sourceFile, { encoding: param.Options.Encoding ?? 'utf-8', flag: 'r' });
 
     if (param.Options.DeleteFile) {
-      fs.promises.unlink(sourceFile);
+      await promises.unlink(sourceFile);
     }
 
     return {
@@ -181,7 +210,7 @@ export class CsvFileRouteArgs extends FromFile {
 
     const sourceFile = (this.Data.Files[param.Name] as File).filepath;
     if (param.Options.DeleteFile) {
-      fs.promises.unlink(sourceFile);
+      await promises.unlink(sourceFile);
     }
 
     const data = await this.parseCvs(sourceFile);
@@ -201,7 +230,7 @@ export class CsvFileRouteArgs extends FromFile {
     const data: any[] = [];
 
     return new Promise((res, rej) => {
-      fs.createReadStream(path)
+      createReadStream(path)
         .pipe(parse())
         .on('error', (err: any) => rej(err))
         .on('data', (row: any) => data.push(row))

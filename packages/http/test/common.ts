@@ -47,6 +47,11 @@ export class TestConfiguration extends FrameworkConfiguration {
             name: 'test',
             basePath: dir('./files'),
           },
+          {
+            service: 'fsNative',
+            name: 'fs-temp',
+            basePath: dir('./files'),
+          },
         ],
       },
       intl: {
@@ -62,7 +67,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         targets: [
           {
             name: 'Empty',
-            type: 'BlackHoleTarget',
+            type: 'ConsoleTarget',
           },
         ],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],

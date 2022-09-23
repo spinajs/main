@@ -30,7 +30,7 @@ export class ZipResponse extends Response {
     return new Promise((resolve, reject) => {
       res.download(file, this.Options.filename, (err: Error) => {
         provider
-          .unlink(this.Options.path)
+          .unlink(this.Options.path, true)
           .then(() => {
             return provider.unlink(file);
           })

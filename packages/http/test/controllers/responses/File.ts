@@ -1,7 +1,7 @@
 import { BaseController, BasePath, Get, FileResponse, ZipResponse, JsonFileResponse } from '../../../src';
 
 @BasePath('files')
-export class BodyParams extends BaseController {
+export class File extends BaseController {
   @Get()
   public file() {
     return new FileResponse({
