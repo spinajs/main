@@ -133,7 +133,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
     await this.DynamoDb.deleteItem(params).promise();
   }
 
-  public async ouch(session: ISession) {
+  public async touch(session: ISession) {
     const params = {
       TableName: this.Table,
       Key: {
