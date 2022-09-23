@@ -49,78 +49,47 @@ export class DynamoDbSessionProvider extends SessionProvider {
   }
 
   protected updateTimeToLive() {
-    return new Promise<void>((resolve, reject) => {
-      this.DynamoDb.updateTimeToLive(
-        {
-          TableName: this.Table,
-          TimeToLiveSpecification: {
-            AttributeName: 'Expiration',
-            Enabled: true,
-          },
-        },
-        (err: AWS.AWSError) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        },
-      );
-    });
+    return this.DynamoDb.updateTimeToLive({
+      TableName: this.Table,
+      TimeToLiveSpecification: {
+        AttributeName: 'Expiration',
+        Enabled: true,
+      },
+    }).promise();
   }
 
   protected createSessionTable() {
-    return new Promise((resolve, reject) => {
-      this.DynamoDb.createTable(
+    return this.DynamoDb.createTable({
+      TableName: this.Table,
+      AttributeDefinitions: [
         {
-          TableName: this.Table,
-          AttributeDefinitions: [
-            {
-              AttributeName: 'SessionId',
-              AttributeType: 'S',
-            },
-          ],
-          KeySchema: [
-            {
-              AttributeName: 'SessionId',
-              KeyType: 'HASH',
-            },
-          ],
-          ProvisionedThroughput: {
-            ReadCapacityUnits: this.ReadCapacityUnits,
-            WriteCapacityUnits: this.WriteCapacityUnits,
-          },
+          AttributeName: 'SessionId',
+          AttributeType: 'S',
         },
-        (err: AWS.AWSError, data: AWS.DynamoDB.CreateTableOutput) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve(data);
-          }
+      ],
+      KeySchema: [
+        {
+          AttributeName: 'SessionId',
+          KeyType: 'HASH',
         },
-      );
-    });
+      ],
+      ProvisionedThroughput: {
+        ReadCapacityUnits: this.ReadCapacityUnits,
+        WriteCapacityUnits: this.WriteCapacityUnits,
+      },
+    }).promise();
   }
 
-  protected checkSessionTable() {
-    return new Promise((resolve, reject) => {
-      this.DynamoDb.describeTable(
-        {
-          TableName: this.Table,
-        },
-        (err: AWS.AWSError, data: AWS.DynamoDB.DescribeTableOutput) => {
-          if (err) {
-            if (err.code === 'ResourceNotFoundException') {
-              resolve(null);
-            } else {
-              reject(err);
-            }
-          } else {
-            resolve(data);
-          }
-        },
-      );
-    });
+  protected async checkSessionTable() {
+    try {
+      return await this.DynamoDb.describeTable({
+        TableName: this.Table,
+      }).promise();
+    } catch (err) {
+      if (err.code === 'ResourceNotFoundException') {
+        return null;
+      }
+    }
   }
 
   public async restore(sessionId: string): Promise<Session> {
@@ -131,41 +100,26 @@ export class DynamoDbSessionProvider extends SessionProvider {
       },
     };
 
-    const session = await new Promise<Session>((res, rej) => {
-      this.DynamoDb.getItem(params, (err: any, data: any) => {
-        if (err) {
-          rej(err);
-          return;
-        }
+    const result = await this.DynamoDb.getItem(params).promise();
 
-        if (!data.Item) {
-          res(null);
-        } else {
-          // DynamoDB ttl takes time, sometimes
-          // we receive session before ttl mark result as expired
-          // and deletes it
-          const ttl = parseInt(data.Item.Expiration.N);
-          if (ttl < DateTime.now().toMillis()) {
-            res(null);
-          }
-
-          res(
-            new Session({
-              Creation: DateTime.fromISO(data.Item.Creation.S),
-              Expiration: DateTime.fromMillis(ttl),
-              SessionId: data.Item.SessionId.S,
-              Data: JSON.parse(data.Item.Data.S, reviver),
-            }),
-          );
-        }
-      });
-    });
-
-    if (!session) {
+    if (!result.Item) {
       return null;
-    }
+    } else {
+      // DynamoDB ttl takes time, sometimes
+      // we receive session before ttl mark result as expired
+      // and deletes it
+      const ttl = parseInt(result.Item.Expiration.N);
+      if (ttl < DateTime.now().toMillis()) {
+        return null;
+      }
 
-    return session;
+      return new Session({
+        Creation: DateTime.fromISO(result.Item.Creation.S),
+        Expiration: DateTime.fromMillis(ttl),
+        SessionId: result.Item.SessionId.S,
+        Data: JSON.parse(result.Item.Data.S, reviver),
+      });
+    }
   }
 
   public async delete(sessionId: string): Promise<void> {
@@ -176,18 +130,10 @@ export class DynamoDbSessionProvider extends SessionProvider {
       },
     };
 
-    await new Promise<void>((res, rej) => {
-      this.DynamoDb.deleteItem(params, (err: any) => {
-        if (err) {
-          rej(err);
-        } else {
-          res();
-        }
-      });
-    });
+    await this.DynamoDb.deleteItem(params).promise();
   }
 
-  public touch(session: ISession): Promise<void> {
+  public async ouch(session: ISession) {
     const params = {
       TableName: this.Table,
       Key: {
@@ -202,15 +148,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       ReturnValues: 'UPDATED_NEW',
     };
 
-    return new Promise((resolve, reject) => {
-      this.DynamoDb.updateItem(params, (err: AWS.AWSError) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
+    await this.DynamoDb.updateItem(params).promise();
   }
 
   public async truncate(): Promise<void> {
@@ -219,21 +157,10 @@ export class DynamoDbSessionProvider extends SessionProvider {
     await this.updateTimeToLive();
   }
 
-  protected deleteSessionTable(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.DynamoDb.deleteTable(
-        {
-          TableName: this.Table,
-        },
-        (err) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        },
-      );
-    });
+  protected async deleteSessionTable() {
+    await this.DynamoDb.deleteTable({
+      TableName: this.Table,
+    }).promise();
   }
 
   public async save(session: ISession): Promise<void> {
@@ -249,14 +176,6 @@ export class DynamoDbSessionProvider extends SessionProvider {
       },
     };
 
-    await new Promise<void>((res, rej) => {
-      this.DynamoDb.putItem(params, (err: any) => {
-        if (err) {
-          rej(err);
-          return;
-        }
-        res();
-      });
-    });
+    await this.DynamoDb.putItem(params).promise();
   }
 }
