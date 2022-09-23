@@ -10,6 +10,7 @@ import { DataValidator } from '@spinajs/validation';
 import { RouteArgs, FromFormBase } from './route-args';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isPromise } from 'node:util/types';
+import { Response } from './interfaces';
 
 export abstract class BaseController extends AsyncService implements IController {
   /**
@@ -99,10 +100,16 @@ export abstract class BaseController extends AsyncService implements IController
 
             if (isPromise(result)) {
               result.then((r) => {
+                if (r instanceof Response) {
+                  enabledMiddlewares.forEach((x) => x.onResponse(r));
+                }
                 res.locals.response = r;
                 next();
               });
             } else {
+              if (result instanceof Response) {
+                enabledMiddlewares.forEach((x) => x.onResponse(result));
+              }
               res.locals.response = result;
               next();
             }

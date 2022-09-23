@@ -1,5 +1,5 @@
 import * as express from 'express';
-import { Response } from '../responses';
+import { Response } from '../interfaces';
 
 /**
  * Redirects to another route ( simple alias for request.redirect for api consistency)

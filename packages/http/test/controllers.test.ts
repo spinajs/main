@@ -24,9 +24,11 @@ describe('http & controller tests', function () {
   const middlewareSandbox = sinon.createSandbox();
   let middlewareOnBeforeSpy: sinon.SinonSpy<any, any> = null;
   let middlewareOnAfterSpy: sinon.SinonSpy<any, any> = null;
+  let middlewareOnResponseSpy: sinon.SinonSpy<any, any> = null;
 
   let middleware2OnBeforeSpy: sinon.SinonSpy<any, any> = null;
   let middleware2OnAfterSpy: sinon.SinonSpy<any, any> = null;
+  let middleware2OnResponseSpy: sinon.SinonSpy<any, any> = null;
 
   let samplePolicyExecuteSpy: sinon.SinonSpy<any, any> = null;
   let samplePolicy2ExecuteSpy: sinon.SinonSpy<any, any> = null;
@@ -34,9 +36,11 @@ describe('http & controller tests', function () {
   before(async () => {
     middlewareOnAfterSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onAfterAction');
     middlewareOnBeforeSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onBeforeAction');
+    middlewareOnResponseSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onResponse');
 
     middleware2OnAfterSpy = middlewareSandbox.spy(SampleMiddleware2.prototype, 'onAfterAction');
     middleware2OnBeforeSpy = middlewareSandbox.spy(SampleMiddleware2.prototype, 'onBeforeAction');
+    middleware2OnResponseSpy = middlewareSandbox.spy(SampleMiddleware2.prototype, 'onResponse');
 
     samplePolicyExecuteSpy = middlewareSandbox.spy(SamplePolicy.prototype, 'execute');
     samplePolicy2ExecuteSpy = middlewareSandbox.spy(SamplePolicy2.prototype, 'execute');
@@ -123,12 +127,14 @@ describe('http & controller tests', function () {
 
     expect(middlewareOnAfterSpy.calledOnce).to.be.true;
     expect(middlewareOnBeforeSpy.calledOnce).to.be.true;
+    expect(middlewareOnResponseSpy.calledOnce).to.be.true;
 
     response = await req().get('testmiddleware/testGet2');
     expect(response).to.have.status(200);
 
     expect(middlewareOnAfterSpy.calledTwice).to.be.true;
     expect(middlewareOnBeforeSpy.calledTwice).to.be.true;
+    expect(middlewareOnResponseSpy.calledTwice).to.be.true;
   });
 
   it('middleware should run on specific path', async () => {
@@ -136,12 +142,14 @@ describe('http & controller tests', function () {
     expect(response).to.have.status(200);
     expect(middleware2OnAfterSpy.calledOnce).to.be.false;
     expect(middleware2OnBeforeSpy.calledOnce).to.be.false;
+    expect(middleware2OnResponseSpy.calledOnce).to.be.false;
 
     response = await req().get('testmiddlewarepath/testGet');
     expect(response).to.have.status(200);
 
     expect(middleware2OnAfterSpy.calledOnce).to.be.true;
     expect(middleware2OnBeforeSpy.calledOnce).to.be.true;
+    expect(middleware2OnResponseSpy.calledTwice).to.be.false;
   });
 
   it('policy should run on controller', async () => {
@@ -227,5 +235,23 @@ describe('http & controller tests', function () {
     expect(response.body).to.deep.equal({
       message: 'hello world transformed',
     });
+  });
+
+  it('Should get file', async () => {
+    const response = await req().get('files/file').send();
+    expect(response).to.have.status(200);
+    expect(response.body).to.be.not.null;
+  });
+
+  it('Should get zip', async () => {
+    const response = await req().get('files/zippedFile').send();
+    expect(response).to.have.status(200);
+    expect(response.body).to.be.not.null;
+  });
+
+  it('Should get json file', async () => {
+    const response = await req().get('files/jsonFile').send();
+    expect(response).to.have.status(200);
+    expect(response.body).to.be.not.null;
   });
 });

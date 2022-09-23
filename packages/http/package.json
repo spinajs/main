@@ -73,7 +73,6 @@
     "mime": "^2.4.6",
     "pug": "^3.0.0",
     "randomstring": "^1.1.5",
-    "tempfile": "3.0.0",
     "uuid": "^8.3.2"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

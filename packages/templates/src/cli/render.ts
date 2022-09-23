@@ -12,7 +12,7 @@ interface RenderOptions {
 }
 
 @Command('template-render', 'Renders template, usefull for template testing')
-@Argument('template', 'template path, must be in one of direcotory provided in configs')
+@Argument('template', 'template path, must be in one of directory provided in configs')
 @Option('-f, --file [file]', false, 'path for file, where parsing result will be saved')
 @Option('-m, --model [model]', false, 'path to optional model data, passed to template, in json format')
 @Option('-l, --lang [lang]', false, 'optional language. Language data must be in directories configured in intl module. If none provided, default language is used')

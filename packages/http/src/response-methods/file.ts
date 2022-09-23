@@ -1,43 +1,89 @@
+import { DI } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import * as express from 'express';
-import * as fs from 'fs';
 import * as _ from 'lodash';
 import { getType } from 'mime';
-import { Response } from '../responses';
-import tempfile from 'tempfile';
+import { IFileResponseOptions, Response } from './../interfaces';
+import { fs } from '@spinajs/fs';
 
-export class FileResponse extends Response {
-  protected path: string;
-  protected filename: string;
-  protected mimeType: string;
-
+export class ZipResponse extends Response {
   /**
-   * Sends file to client at given path & filename. If file exists
+   * Sends zipped to client at given path & filename. If file exists
    * it will send file with 200 OK, if not exists 404 NOT FOUND
-   * @param path - server full path to file
-   * @param filename - real filename send to client
-   * @param mimeType - optional mimetype. If not set, server will try to guess.
    */
-  constructor(path: string, filename: string, mimeType?: string) {
+  constructor(protected Options: IFileResponseOptions) {
     super(null);
 
-    this.mimeType = mimeType ? mimeType : getType(filename);
-    this.filename = filename;
-    this.path = path;
-
-    if (!fs.existsSync(path)) {
-      throw new ResourceNotFound(`File ${path} not exists`);
-    }
+    this.Options.mimeType = Options.mimeType ?? getType(Options.filename);
   }
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
+    const provider = await DI.resolve<fs>('__file_provider__', [this.Options.provider]);
+    const exists = await provider.exists(this.Options.path);
+
+    if (!exists) {
+      throw new ResourceNotFound(`File ${this.Options.path} not exists`);
+    }
+
+    const file = (await provider.zip(this.Options.path)).asFilePath();
+
     return new Promise((resolve, reject) => {
-      res.download(this.path, this.filename, (err: Error) => {
-        if (!_.isNil(err)) {
-          reject(err);
-        } else {
-          resolve();
-        }
+      res.download(file, this.Options.filename, (err: Error) => {
+        provider
+          .unlink(this.Options.path)
+          .then(() => {
+            return provider.unlink(file);
+          })
+          .then(() => {
+            if (!_.isNil(err)) {
+              reject(err);
+            } else {
+              resolve();
+            }
+          })
+          .catch((err) => {
+            reject(err);
+          });
+      });
+    });
+  }
+}
+
+export class FileResponse extends Response {
+  /**
+   * Sends file to client at given path & filename. If file exists
+   * it will send file with 200 OK, if not exists 404 NOT FOUND
+   */
+  constructor(protected Options: IFileResponseOptions) {
+    super(null);
+
+    this.Options.mimeType = Options.mimeType ?? getType(Options.filename);
+  }
+
+  public async execute(_req: express.Request, res: express.Response): Promise<void> {
+    const provider = await DI.resolve<fs>('__file_provider__', [this.Options.provider]);
+    const exists = await provider.exists(this.Options.path);
+
+    if (!exists) {
+      throw new ResourceNotFound(`File ${this.Options.path} not exists`);
+    }
+
+    const file = await provider.download(this.Options.path);
+
+    return new Promise((resolve, reject) => {
+      res.download(file, this.Options.filename, (err: Error) => {
+        provider
+          .unlink(this.Options.path, true)
+          .then(() => {
+            if (!_.isNil(err)) {
+              reject(err);
+            } else {
+              resolve();
+            }
+          })
+          .catch((err) => {
+            reject(err);
+          });
       });
     });
   }
@@ -49,20 +95,24 @@ export class JsonFileResponse extends Response {
   }
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
-    const tempPath = tempfile('.json');
-    const file = await fs.promises.open(tempPath, 'w');
-
-    await file.writeFile(JSON.stringify(this.data));
+    const provider = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
+    const tmpPath = provider.tmppath();
+    provider.write(tmpPath, JSON.stringify(this.data));
 
     return new Promise((resolve, reject) => {
-      res.download(tempPath, this.filename, (err: Error) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-
-        fs.unlink(tempPath, null);
+      res.download(tmpPath, this.filename, (err: Error) => {
+        provider
+          .unlink(tmpPath)
+          .then(() => {
+            if (err) {
+              reject(err);
+            } else {
+              resolve();
+            }
+          })
+          .catch((err) => {
+            reject(err);
+          });
       });
     });
   }

@@ -8,18 +8,6 @@ import * as randomstring from 'randomstring';
 import { __translate, __translateH, __translateL, __translateNumber } from '@spinajs/intl';
 import { Templates } from '@spinajs/templates';
 
-export type ResponseFunction = (req: express.Request, res: express.Response) => void;
-
-export abstract class Response {
-  protected responseData: any;
-
-  constructor(responseData: any) {
-    this.responseData = responseData;
-  }
-
-  public abstract execute(req: express.Request, res: express.Response, next?: express.NextFunction): Promise<ResponseFunction | void>;
-}
-
 /**
  * Sends data & sets proper header as json
  *

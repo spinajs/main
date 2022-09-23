@@ -1,14 +1,14 @@
 import { IInstanceCheck } from './../../di/src/interfaces';
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
-import { constants } from 'fs';
+import { constants, createReadStream, createWriteStream, readFileSync } from 'fs';
 import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
-import { fs, IStat } from './interfaces';
-import { join } from 'path';
+import { fs, IStat, IZipResult } from './interfaces';
+import { basename, join } from 'path';
 import { ILog, Logger } from '@spinajs/log';
-
+import archiver from 'archiver';
 export interface IFsLocalOptions {
   basePath: string;
   name: string;
@@ -70,7 +70,7 @@ export class fsNative extends fs implements IInstanceCheck {
    * @param path - file to download
    */
   public async download(path: string): Promise<string> {
-    const exists = await this.exists(join(this.Options.basePath, path));
+    const exists = await this.exists(this.resolvePath(path));
     if (!exists) {
       throw new IOFail(`file ${path} does not exists`);
     }
@@ -81,12 +81,12 @@ export class fsNative extends fs implements IInstanceCheck {
    * read all content of file
    */
   public async read(path: string, encoding: BufferEncoding) {
-    const fDesc = await open(join(this.Options.basePath, path), 'r');
+    const fDesc = await open(this.resolvePath(path), 'r');
     return fDesc.readFile({ encoding });
   }
 
   public async readStream(path: string) {
-    const fDesc = await open(join(this.Options.basePath, path), 'r');
+    const fDesc = await open(this.resolvePath(path), 'r');
     return fDesc.createReadStream();
   }
 
@@ -94,12 +94,12 @@ export class fsNative extends fs implements IInstanceCheck {
    * Write to file string or buffer
    */
   public async write(path: string, data: string | Buffer, encoding: BufferEncoding) {
-    const fDesc = await open(join(this.Options.basePath, path), 'w');
+    const fDesc = await open(this.resolvePath(path), 'w');
     return await fDesc.writeFile(data, { encoding });
   }
 
   public async writeStream(path: string) {
-    const fDesc = await open(join(this.Options.basePath, path), 'w');
+    const fDesc = await open(this.resolvePath(path), 'w');
     return fDesc.createWriteStream();
   }
 
@@ -109,7 +109,7 @@ export class fsNative extends fs implements IInstanceCheck {
    */
   public async exists(path: string) {
     try {
-      await access(join(this.Options.basePath, path), constants.F_OK);
+      await access(this.resolvePath(path), constants.F_OK);
       return true;
     } catch {
       return false;
@@ -117,7 +117,7 @@ export class fsNative extends fs implements IInstanceCheck {
   }
 
   public async dirExists(path: string) {
-    return this.exists(join(this.Options.basePath, path));
+    return this.exists(this.resolvePath(path));
   }
 
   /**
@@ -126,15 +126,15 @@ export class fsNative extends fs implements IInstanceCheck {
    * @param dest - dest path
    */
   public async copy(path: string, dest: string) {
-    await copyFile(join(this.Options.basePath, path), join(this.Options.basePath, dest));
+    await copyFile(this.resolvePath(path), this.resolvePath(dest));
   }
 
   /**
    * Copy file to another location and deletes src file
    */
   public async move(oldPath: string, newPath: string) {
-    const oPath = join(this.Options.basePath, oldPath);
-    const nPath = join(this.Options.basePath, newPath);
+    const oPath = this.resolvePath(oldPath);
+    const nPath = this.resolvePath(newPath);
     try {
       await rename(oPath, nPath);
     } catch (err) {
@@ -152,16 +152,22 @@ export class fsNative extends fs implements IInstanceCheck {
    * Change name of a file
    */
   public async rename(oldPath: string, newPath: string) {
-    await rename(join(this.Options.basePath, oldPath), join(this.Options.basePath, newPath));
+    await rename(this.resolvePath(oldPath), this.resolvePath(newPath));
   }
 
   /**
    * Deletes file permanently
    *
    * @param path - path to file that will be deleted
+   * @param onlyTemp - remote filesystems need to download file before, if so, calling unlink with this flag removes only local temp file after we finished processing
    */
-  public async unlink(path: string) {
-    await unlink(join(this.Options.basePath, path));
+  public async unlink(path: string, onlyTemp?: boolean) {
+    // local fs returns only local path to file, we dont want to delete it
+    if (onlyTemp) {
+      return;
+    }
+
+    await unlink(this.resolvePath(path));
   }
 
   /**
@@ -171,7 +177,7 @@ export class fsNative extends fs implements IInstanceCheck {
    * @param path - dir to remove
    */
   public async rm(path: string) {
-    await rm(join(this.Options.basePath, path), { recursive: true, force: true, maxRetries: 3, retryDelay: 1000 });
+    await rm(this.resolvePath(path), { recursive: true, force: true, maxRetries: 3, retryDelay: 1000 });
   }
 
   /**
@@ -181,14 +187,14 @@ export class fsNative extends fs implements IInstanceCheck {
    * @param path - directory to create
    */
   public async mkdir(path: string) {
-    await mkdir(join(this.Options.basePath, path), { recursive: true });
+    await mkdir(this.resolvePath(path), { recursive: true });
   }
 
   /**
    * Returns file statistics, not all fields may be accesible
    */
   public async stat(path: string): Promise<IStat> {
-    const result = await stat(join(this.Options.basePath, path));
+    const result = await stat(this.resolvePath(path));
 
     return {
       IsDirectory: result.isDirectory(),
@@ -200,12 +206,59 @@ export class fsNative extends fs implements IInstanceCheck {
     };
   }
 
+  public tmppath(): string {
+    return join(this.Options.basePath, super.tmpname());
+  }
+
   /**
    * List content of directory
    *
    * @param path - path to directory
    */
   public async list(path: string) {
-    return await readdir(join(this.Options.basePath, path));
+    return await readdir(this.resolvePath(path));
+  }
+
+  public async zip(path: string, zName?: string): Promise<IZipResult> {
+    const outFile = join(this.tmpname(), '.zip');
+    const output = createWriteStream(outFile);
+    const pStat = await this.stat(path);
+    const fPath = this.resolvePath(path);
+    const archive = archiver('zip', {
+      zlib: { level: 9 }, // Sets the compression level.
+    });
+
+    // pipe archive data to the file
+    archive.pipe(output);
+
+    if (pStat.IsDirectory) {
+      archive.directory(fPath, false);
+    } else {
+      archive.file(fPath, { name: zName ?? basename(fPath) });
+    }
+
+    await archive.finalize();
+
+    return {
+      asFilePath: () => {
+        return outFile;
+      },
+      asStream: (encoding?: BufferEncoding) => {
+        return createReadStream(outFile, {
+          encoding: encoding ?? 'binary',
+        });
+      },
+      asBase64: () => {
+        return readFileSync(outFile, { encoding: 'base64' });
+      },
+    };
+  }
+
+  protected resolvePath(path: string) {
+    if (path.startsWith(this.Options.basePath)) {
+      return path;
+    }
+
+    return join(this.Options.basePath, path);
   }
 }

@@ -17,7 +17,7 @@ module.exports = {
       service: 'SpeakEasy2FaToken',
     },
     fingerprint: {
-      enabled: true,
+      enabled: false,
       maxDevices: 3,
       service: 'FingerprintJs',
     },

@@ -1,6 +1,4 @@
-import { join } from 'lodash';
-import { normalize, resolve } from 'path';
-import { BasePath, BaseController, Get, TemplateResponse, ServerError, Ok, FileResponse } from '../../src';
+import { BasePath, BaseController, Get, TemplateResponse, ServerError, Ok } from '../../src';
 
 @BasePath('responses')
 export class TestResponses extends BaseController {
@@ -27,10 +25,5 @@ export class TestResponses extends BaseController {
   @Get()
   public testDataTransformer() {
     return new Ok({ message: 'hello world' });
-  }
-
-  @Get()
-  public testFileResponse() {
-    return new FileResponse(normalize(join(resolve(__dirname), './../public/index.html')), 'index.html');
   }
 }

@@ -470,11 +470,21 @@ export abstract class BaseMiddleware {
 
   /**
    * Called before action in middleware stack eg. to modify req or resp objects.
+   * Its express middleware func
    */
   public abstract onBeforeAction(req: express.Request): Promise<void>;
 
   /**
-   * Called after action in middleware stack eg. to modify response
+   * Called after action response, is framework middleware
+   * Used to modify response returned by actions in controller
+   * eg. filter out data
+   *
+   */
+  public abstract onResponse(response: Response): Promise<void>;
+
+  /**
+   * Called after action in middleware stack eg. to modify express response.
+   * Its express middleware func
    */
   public abstract onAfterAction(req: express.Request): Promise<void>;
 }
@@ -486,6 +496,18 @@ export interface IPolicyDescriptor {
   Type: Constructor<BasePolicy>;
 
   Options: any[];
+}
+
+export type ResponseFunction = (req: express.Request, res: express.Response) => void;
+
+export abstract class Response {
+  protected responseData: any;
+
+  constructor(responseData: any) {
+    this.responseData = responseData;
+  }
+
+  public abstract execute(req: express.Request, res: express.Response, next?: express.NextFunction): Promise<ResponseFunction | void>;
 }
 
 /**
@@ -556,3 +578,25 @@ export abstract class DataTransformer<T = any, U = any> {
 }
 
 export type RouteCallback = (req: express.Request, res: express.Response, next: express.NextFunction) => (req: express.Request, res: express.Response) => void;
+
+export interface IFileResponseOptions {
+  /**
+   * Path to file
+   */
+  path: string;
+
+  /**
+   * File system provider, default is local
+   */
+  provider?: string;
+
+  /**
+   * File name ( for browser )
+   */
+  filename: string;
+
+  /**
+   * If not provided, it will be guessed
+   */
+  mimeType?: string;
+}

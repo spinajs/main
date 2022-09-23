@@ -39,6 +39,16 @@ export class TestConfiguration extends FrameworkConfiguration {
           controllers: [dir('./controllers')],
         },
       },
+      fs: {
+        defaultProvider: 'test',
+        providers: [
+          {
+            service: 'fsNative',
+            name: 'test',
+            basePath: dir('./files'),
+          },
+        ],
+      },
       intl: {
         // supported locales
         locales: ['en', 'pl'],

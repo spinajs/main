@@ -884,6 +884,13 @@ export abstract class QueryMiddleware {
   abstract afterQueryCreation(query: QueryBuilder): void;
 }
 
+export abstract class ModelMiddleware {
+  abstract onDelete(model: ModelBase): Promise<void>;
+  abstract onUpdate(model: ModelBase): Promise<void>;
+  abstract onInsert(model: ModelBase): Promise<void>;
+  abstract onSelect(model: ModelBase): Promise<void>;
+}
+
 export class ValueConverter implements IValueConverter {
   /**
    * Converts value to database type

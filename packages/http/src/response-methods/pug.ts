@@ -1,6 +1,6 @@
 import * as express from 'express';
-import { HTTP_STATUS_CODE } from '../interfaces';
-import { Response, htmlResponse } from '../responses';
+import { HTTP_STATUS_CODE, Response } from '../interfaces';
+import { htmlResponse } from '../responses';
 
 /**
  * HTML resposne with HTML from pug file

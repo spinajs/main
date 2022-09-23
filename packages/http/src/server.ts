@@ -1,10 +1,9 @@
-import { ResponseFunction } from './responses';
 import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { Server } from 'http';
 import { RequestHandler } from 'express';
-import { IHttpStaticFileConfiguration, ServerMiddleware } from './interfaces';
+import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction } from './interfaces';
 import * as fs from 'fs';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods';

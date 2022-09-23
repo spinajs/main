@@ -63,18 +63,13 @@ export function Resource(resource: string, permission: PermissionType = 'readOwn
  */
 export function Permission(permission: PermissionType = 'readOwn') {
   return descriptor((metadata: IRbacDescriptor, target: any, propertyKey: string) => {
-    let route: IRbacRoutePermissionDescriptor = null;
-
     if (propertyKey) {
-      if (metadata.Routes.has(propertyKey)) {
-        route = metadata.Routes.get(propertyKey);
-      } else {
-        route = {
+      if (!metadata.Routes.has(propertyKey)) {
+        const route = {
           Permission: permission,
         };
+        metadata.Routes.set(propertyKey, route);
       }
-
-      metadata.Routes.set(propertyKey, route);
     }
 
     Policy(RbacPolicy)(target, propertyKey, null);
