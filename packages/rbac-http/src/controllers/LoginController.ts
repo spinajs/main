@@ -82,7 +82,7 @@ export class LoginController extends BaseController {
     return new CookieResponse('ssid', null, this.SessionExpirationTime);
   }
 
-  protected async authenticate(user: UserModel) {
+  protected async authenticate(user: UserModel, federated?: boolean) {
     if (!user) {
       return new Unauthorized({
         error: {
@@ -102,9 +102,11 @@ export class LoginController extends BaseController {
     // create session, but user is not yet authorized
     session.Data.set('Authorized', false);
 
-    await this.SessionProvider.save(session);
+    // if its federated login, skip 2fa - assume
+    // external login service provided it
+    if (this.TwoFactorConfig.enabled || !federated) {
+      await this.SessionProvider.save(session);
 
-    if (this.TwoFactorConfig.enabled) {
       const enabledForUser = await this.TwoFactorAuthProvider.isEnabled(user);
 
       /**
@@ -157,6 +159,6 @@ export class LoginController extends BaseController {
 
     // BEWARE: httpOnly coockie, only accesible via http method in browser
     // return coockie session id with additional user data
-    return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime, true, _.omit(dUser, ['Id']), { httpOnly: true });
+    return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime, true, dUser, { httpOnly: true });
   }
 }

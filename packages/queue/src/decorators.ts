@@ -1,14 +1,17 @@
-export interface ISerializationDescriptor {
-  Properties: string[];
-}
-
-export function Channel(name: string) {
+/**
+ *
+ * Mark class as job
+ *
+ * @param connection - job connection name for use
+ */
+export function Job(connection: string) {
   return (target: any) => {
-    if (!Reflect.hasMetadata('event:channel', target)) {
+    if (!Reflect.hasMetadata('queue:options', target)) {
       Reflect.defineMetadata(
-        'event:serialization',
+        'queue:options',
         {
-          channel: name,
+          channel: connection,
+          type: 'job',
         },
         target,
       );
@@ -16,23 +19,22 @@ export function Channel(name: string) {
   };
 }
 
-export function Serialize() {
-  return (target: any, property: string) => {
-    if (!Reflect.hasMetadata('event:serialization', target)) {
+/**
+ * Mark class as event
+ *
+ * @param connection - event connection name for use
+ */
+export function Event(connection: string) {
+  return (target: any) => {
+    if (!Reflect.hasMetadata('queue:options', target)) {
       Reflect.defineMetadata(
-        'event:serialization',
+        'queue:options',
         {
-          Properties: [],
+          channel: connection,
+          type: 'event',
         },
         target,
       );
     }
-
-    const sdesc: ISerializationDescriptor = Reflect.getMetadata('event:serialization', target);
-    sdesc.Properties.push(property);
   };
-}
-
-export interface ISerializable {
-  [key: string]: any;
 }

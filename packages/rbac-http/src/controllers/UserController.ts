@@ -38,7 +38,7 @@ export class UserController extends BaseController {
       }
     }
 
-    return new Ok(_.omit(user.dehydrate(), ['Id']));
+    return new Ok(user.dehydrate());
   }
 
   @Post('password/restore')

@@ -1,5 +1,5 @@
-import { Message, Serialize } from '@spinajs/Queue';
-export class UserPropertyChangedMessage extends Message {
+import { QueueMessage, Serialize } from '@spinajs/Queue';
+export class UserPropertyChangedMessage extends QueueMessage {
   @Serialize()
   public Uuid: string;
 

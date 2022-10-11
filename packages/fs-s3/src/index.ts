@@ -10,7 +10,7 @@ import { Config } from '@spinajs/configuration';
 import archiver from 'archiver';
 import { basename } from 'path';
 import { MethodNotImplemented } from '@spinajs/exceptions';
-import { createReadStream, readFile, readFileSync } from 'fs';
+import { createReadStream, readFileSync } from 'fs';
 import { DateTime } from 'luxon';
 import stream from 'stream';
 
@@ -292,7 +292,17 @@ export class fsS3 extends fs implements IInstanceCheck {
    *
    * @param path - path to directory
    */
-  public async list(path: string) {}
+  public async list(path: string) {
+    const params = {
+      Bucket: this.Options.bucket,
+      Delimiter: '/',
+      Prefix: path,
+    };
+
+    // TODO: support more than 1000 items using continuation token
+    const result = await this.S3.listObjectsV2(params).promise();
+    return result.Contents.map((x) => x.Key);
+  }
 
   public async zip(path: string, zName?: string): Promise<IZipResult> {
     const zTmpName = this.TempFs.tmppath();

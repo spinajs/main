@@ -3,6 +3,7 @@ import { SessionProvider, ISession } from './interfaces';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { v4 as uuidv4 } from 'uuid';
+import _ from 'lodash';
 
 /**
  * Session base class
@@ -72,7 +73,15 @@ export class MemorySessionStore extends SessionProvider<ISession> {
     }
   }
 
-  public async save(session: ISession): Promise<void> {
-    this.Sessions.set(session.SessionId, session);
+  public async save(idOrSession: ISession | string, data?: object): Promise<void> {
+    if (_.isString(idOrSession)) {
+      const s = this.Sessions.get(idOrSession);
+
+      for (const key in data) {
+        s.Data.set(key, (data as any)[key]);
+      }
+    } else {
+      this.Sessions.set(idOrSession.SessionId, idOrSession);
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { BelongsTo, Connection, Model, ModelBase, Primary, SingleRelation } from '@spinajs/orm';
+import { BelongsTo, Connection, Model, ModelBase, Primary, SingleRelation, SelectQueryBuilder } from '@spinajs/orm';
 import type { User } from './User';
 
 @Connection('default')
@@ -29,4 +29,8 @@ export class UserMetadata extends ModelBase {
 
   @BelongsTo('User')
   public User: SingleRelation<User>;
+
+  public __permissionCheck(query: SelectQueryBuilder<this>){
+    query.where(this.User.)
+  }
 }

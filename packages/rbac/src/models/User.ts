@@ -12,7 +12,7 @@ import { UserMetadata } from './UserMetadata';
 @Connection('default')
 @Model('users')
 export class User extends ModelBase {
-  protected _hidden: string[] = ['Password'];
+  protected _hidden: string[] = ['Password', 'Id'];
 
   @Primary()
   public Id: number;

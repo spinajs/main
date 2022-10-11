@@ -25,13 +25,12 @@ export class TwoFactorAuthController extends BaseController {
       return new Unauthorized(`invalid token`);
     }
 
-    const session = await this.SessionProvider.restore(ssid);
-    session.Data.set('Authorized', true);
-    session.Data.set('2fa_check', true);
-
-    await this.SessionProvider.save(session);
+    await this.SessionProvider.save(ssid, {
+      Authorized: true,
+      TwoFactorAuth_check: true,
+    });
 
     // return user data
-    return new Ok(_.omit(logged.dehydrate(), ['Id']));
+    return new Ok(logged.dehydrate());
   }
 }

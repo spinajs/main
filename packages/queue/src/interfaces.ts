@@ -5,49 +5,38 @@ import _ from 'lodash';
 import { ListFromFiles } from '@spinajs/reflection';
 import { Log, Logger } from '@spinajs/log';
 
+export interface IQueueMessage<T> {
+  CreatedAt: DateTime;
+  Payload: T;
+  Name: string;
+  Type: 'job' | 'event';
+}
+
+export interface IQueueJob<T> extends IQueueMessage<T> {
+  RetryCount: number;
+  Delay: number;
+}
+
 /**
  * Events are messages send via queue, we do not want to track it, dont care about result, no retry policy on failed execution etc.
  */
-export abstract class Message<T> {
+export abstract class QueueMessage<T> implements IQueueMessage<T> {
   [key: string]: any;
 
-  @Serialize()
   public CreatedAt: DateTime;
 
-  @Serialize()
   public Payload: T;
 
-  @Serialize()
   public Name: string;
+
+  public Type: 'job' | 'event';
 
   constructor(public Connection?: string) {
     this.CreatedAt = DateTime.now();
   }
 
   public hydrate(payload: any) {
-    const sdesc: ISerializationDescriptor = Reflect.getMetadata('event:serialization', this);
-    if (!sdesc || !payload) {
-      return;
-    }
-
-    for (const prop of sdesc.Properties) {
-      this[prop] = payload[prop];
-    }
-  }
-
-  toJSON() {
-    const sdesc: ISerializationDescriptor = Reflect.getMetadata('event:serialization', this);
-    const data: ISerializable = {};
-
-    if (!sdesc) {
-      return data;
-    }
-
-    for (const prop of sdesc.Properties) {
-      data[prop] = this[prop];
-    }
-
-    return data;
+    Object.assign(this, payload);
   }
 }
 
@@ -59,13 +48,13 @@ export abstract class Message<T> {
  * we can register multiple listeners for a single event and the event helper will dispatch the event to all of its registered
  * listeners without us calling them explicitly. where in case of Jobs we would have to call them each one explicitly.
  */
-export abstract class Event<T> extends Message<T> {}
+export abstract class QueueEvent<T> extends QueueMessage<T> {}
 
 /**
  * Jobs are executed only once even if multiple listeners waiting for it. usually used for single method call
  * or time consuming tasks, that need to checked for result and tracked
  */
-export abstract class Job<T> extends Message<T> {
+export abstract class QueueJob<T> extends QueueMessage<T> implements IQueueJob<T> {
   public abstract execute(): Promise<boolean>;
 
   /**
@@ -88,12 +77,15 @@ export abstract class QueueClient extends AsyncService {
   /**
    * Transport options
    */
-  public Options: Connection;
+  public Options: IConnection;
 
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.jobs')
-  protected Jobs: Job<any>[];
+  protected Jobs: QueueJob<any>[];
 
-  constructor(options: Connection) {
+  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.events')
+  protected Events: QueueJob<any>[];
+
+  constructor(options: IConnection) {
     super();
 
     this.Options = options;
@@ -105,32 +97,24 @@ export abstract class QueueClient extends AsyncService {
    *
    * @param event - event to dispatch
    */
-  public abstract emit<T>(event: Event<T>): Promise<boolean>;
+  public abstract emit<T>(event: IQueueMessage<T>): Promise<boolean>;
 
   /**
    *
-   * Dispatches job
-   *
-   * @param job - job to dispatch
-   */
-  public abstract emitJob<T>(job: Job<T>): Promise<boolean>;
-
-  /**
-   *
-   * Subscribes to queue and process invoming events
+   * Subscribes to queue and process incoming events
    *
    */
-  public abstract subscribe<T>(event: string, callback: (e: Event<T>) => Promise<boolean>): Promise<void>;
+  public abstract subscribe<T>(connection: string, callback: (e: IQueueMessage<T>) => Promise<boolean>): Promise<void>;
 
-  public abstract unsubscribe<T>(event: string, callback: (e: Event<T>) => Promise<boolean>): Promise<void>;
+  public abstract unsubscribe<T>(connection: string, callback: (e: IQueueMessage<T>) => Promise<boolean>): Promise<void>;
 }
 
-export interface QueueConfiguration {
+export interface IQueueConfiguration {
   default: string;
-  connections: Connection[];
+  connections: IConnection[];
 }
 
-export interface Connection {
+export interface IConnection {
   transport: string;
   name: string;
   login?: string;
@@ -139,4 +123,5 @@ export interface Connection {
   port?: number;
   queue?: string;
   options?: any;
+  type: 'event' | 'job';
 }

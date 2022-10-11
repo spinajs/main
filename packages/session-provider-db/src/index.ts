@@ -6,6 +6,7 @@ import { InsertBehaviour } from '@spinajs/orm';
 import { reviver, replacer } from '@spinajs/util';
 import { Config } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
+import _ from 'lodash';
 
 @Injectable(SessionProvider)
 export class DbSessionStore extends SessionProvider {
@@ -14,6 +15,9 @@ export class DbSessionStore extends SessionProvider {
 
   @Config('rbac.session.db.cleanupInteval', 100000)
   protected CleanupInterval: any;
+
+  @Config('rbac.session.expiration')
+  protected DefaultExpirationTime: number;
 
   public async resolve() {
     setInterval(async () => {
@@ -48,10 +52,27 @@ export class DbSessionStore extends SessionProvider {
     await DbSession.destroy(sessionId);
   }
 
-  public async save(s: ISession): Promise<void> {
+  public async save(sessionOrId: string | ISession, data?: object): Promise<void> {
+    let sId = '';
+    let sData = null;
+    let sCreationTime = DateTime.now();
+    let sExpirationTime = DateTime.now().plus({ seconds: this.DefaultExpirationTime });
+
+    if (_.isString(sessionOrId)) {
+      sId = sessionOrId;
+      sData = data;
+    } else {
+      sId = sessionOrId.SessionId;
+      sData = Object.fromEntries(sessionOrId.Data);
+      sCreationTime = sessionOrId.Creation;
+      sExpirationTime = sessionOrId.Expiration;
+    }
+
     const session = new DbSession({
-      ...s,
-      Data: JSON.stringify(s.Data, replacer),
+      SessionId: sId,
+      CreatedAt: sCreationTime,
+      Expiration: sExpirationTime,
+      Data: JSON.stringify(sData, replacer),
     });
 
     await session.insert(InsertBehaviour.InsertOrUpdate);

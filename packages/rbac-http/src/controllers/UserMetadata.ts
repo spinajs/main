@@ -35,3 +35,11 @@ export class UserMetaController {
     return new Ok();
   }
 }
+
+function userOwnerPermissionStrategy(){
+
+   // 1. obtain current logged user
+   // 2. find
+
+
+}

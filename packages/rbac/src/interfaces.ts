@@ -131,6 +131,15 @@ export abstract class SessionProvider<T = ISession> extends AsyncService {
 
   /**
    *
+   * Updates session data for given id
+   *
+   * @param id - session id
+   * @param data  - key - value pair of data
+   */
+  public abstract save(id: string, data: object): Promise<void>;
+
+  /**
+   *
    * Updates only EXPIRATION TIME of session, not changing other data
    *
    * @param session - session to update

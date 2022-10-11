@@ -1,22 +1,18 @@
 import { Injectable } from '@spinajs/di';
 import { EventEmitter } from 'eventemitter3';
-import { Event, Job, QueueClient } from './interfaces';
+import { QueueMessage, QueueJob, QueueClient } from './interfaces';
 
 @Injectable('local-event-emitter')
 export class LocalQueueClient extends QueueClient {
   protected Emitter = new EventEmitter();
 
-  public async emit<T>(event: Event<T>): Promise<boolean> {
+  public async emit<T>(event: QueueMessage<T>): Promise<boolean> {
     this.Emitter.emit(`__event__${event.Name}`, event);
-    return true;
-  }
-  public async emitJob<T>(job: Job<T>): Promise<boolean> {
-    this.Emitter.emit(`__job__`, job);
     return true;
   }
 
   public async resolve(): Promise<void> {
-    this.Emitter.on('__job__', async (m: Job<unknown>) => {
+    this.Emitter.on('__job__', async (m: QueueJob<unknown>) => {
       if (m.Delay > 0) {
         setTimeout(execute, m.Delay);
       } else {
@@ -42,11 +38,11 @@ export class LocalQueueClient extends QueueClient {
     });
   }
 
-  public async subscribe<T>(event: string, callback: (e: Event<T>) => Promise<boolean>): Promise<void> {
+  public async subscribe<T>(event: string, callback: (e: QueueMessage<T>) => Promise<boolean>): Promise<void> {
     this.Emitter.on(`__event__${event}`, callback);
   }
 
-  public async unsubscribe<T>(event: string, callback: (e: Event<T>) => Promise<boolean>): Promise<void> {
+  public async unsubscribe<T>(event: string, callback: (e: QueueMessage<T>) => Promise<boolean>): Promise<void> {
     this.Emitter.off(`__event__${event}`, callback);
   }
 }

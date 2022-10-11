@@ -6,6 +6,7 @@ import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { reviver, replacer } from '@spinajs/util';
+import _ from 'lodash';
 
 @Injectable(SessionProvider)
 export class DynamoDbSessionProvider extends SessionProvider {
@@ -17,6 +18,9 @@ export class DynamoDbSessionProvider extends SessionProvider {
 
   @Config('rbac.session.aws.config')
   protected AwsConfig: any;
+
+  @Config('rbac.session.expiration')
+  protected DefaultExpirationTime: number;
 
   @Config('rbac.session.aws.configPath')
   protected ConfigPath: any;
@@ -163,16 +167,31 @@ export class DynamoDbSessionProvider extends SessionProvider {
     }).promise();
   }
 
-  public async save(session: ISession): Promise<void> {
+  public async save(sessionOrId: string | ISession, data?: object): Promise<void> {
+    let sId = '';
+    let sData = null;
+    let sCreationTime = DateTime.now();
+    let sExpirationTime = DateTime.now().plus({ seconds: this.DefaultExpirationTime });
+
+    if (_.isString(sessionOrId)) {
+      sId = sessionOrId;
+      sData = data;
+    } else {
+      sId = sessionOrId.SessionId;
+      sData = Object.fromEntries(sessionOrId.Data);
+      sCreationTime = sessionOrId.Creation;
+      sExpirationTime = sessionOrId.Expiration;
+    }
+
     const params = {
       TableName: this.Table,
       Item: {
-        SessionId: { S: session.SessionId },
+        SessionId: { S: sId },
         Data: {
-          S: JSON.stringify(session.Data, replacer),
+          M: sData as any,
         },
-        Creation: { S: session.Creation.toISO() },
-        Expiration: { N: `${session.Expiration.toMillis()}` },
+        Creation: { S: sCreationTime.toISO() },
+        Expiration: { N: `${sExpirationTime.toMillis()}` },
       },
     };
 

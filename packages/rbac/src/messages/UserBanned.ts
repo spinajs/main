@@ -1,6 +1,6 @@
-import { Message, Serialize } from '@spinajs/Queue';
+import { QueueMessage, Serialize } from '@spinajs/Queue';
 import { User } from '../models/User';
-export class UserBannedMessage extends Message {
+export class UserBannedMessage extends QueueMessage {
   @Serialize()
   public Uuid: string;
 

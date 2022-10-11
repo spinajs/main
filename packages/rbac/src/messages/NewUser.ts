@@ -1,7 +1,7 @@
-import { Message, Serialize } from '@spinajs/Queue';
+import { QueueMessage, Serialize } from '@spinajs/Queue';
 import { DateTime } from 'luxon';
 import { User } from '../models/User';
-export class NewUserMessage extends Message {
+export class NewUserMessage extends QueueMessage {
   @Serialize()
   public Uuid: string;
 
