@@ -171,7 +171,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
     let sId = '';
     let sData = null;
     let sCreationTime = DateTime.now();
-    let sExpirationTime = DateTime.now().plus({ seconds: this.DefaultExpirationTime });
+    let sExpirationTime = DateTime.now().plus({ minutes: this.DefaultExpirationTime });
 
     if (_.isString(sessionOrId)) {
       sId = sessionOrId;

@@ -1,7 +1,7 @@
-import { BaseMiddleware, IRoute, IController, Response } from '../../src/interfaces';
+import { RouteMiddleware, IRoute, IController, Response } from '../../src/interfaces';
 import { Request } from 'express';
 
-export class SampleMiddleware2 extends BaseMiddleware {
+export class SampleMiddleware2 extends RouteMiddleware {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
   }
@@ -9,8 +9,8 @@ export class SampleMiddleware2 extends BaseMiddleware {
   public async onResponse(_: Response): Promise<void> {}
 
   // tslint:disable-next-line: no-empty
-  public async onBeforeAction(_req: Request): Promise<void> {}
+  public async onBefore(_req: Request): Promise<void> {}
 
   // tslint:disable-next-line: no-empty
-  public async onAfterAction(_req: Request): Promise<void> {}
+  public async onAfter(_req: Request): Promise<void> {}
 }

@@ -127,7 +127,7 @@ export class LoginController extends BaseController {
             true,
             {
               toFactorAuth: true,
-              initialize: true,
+              twoFactorAuthFirstTime: true,
               method: this.TwoFactorConfig.service,
               data: twoFaResult,
             },

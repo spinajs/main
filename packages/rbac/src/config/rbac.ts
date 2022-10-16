@@ -17,7 +17,7 @@ module.exports = {
       // when user is created, should he confirm email
       // if false, user is acvite at creation,
       // when true, first, user will be sent confirmation email
-      ConfirmEmail: false,
+      emailConfimationOnCreation: false,
     },
     // default roles to manage users & guest account
     roles: [
@@ -61,6 +61,7 @@ module.exports = {
       provider: 'MemorySessionStore',
 
       // 2h session expiration  time
+      // time in minutes
       expiration: 120,
     },
   },

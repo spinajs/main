@@ -1,4 +1,4 @@
-import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, BaseMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces';
+import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces';
 import { AsyncService, IContainer, Autoinject, DI, Container } from '@spinajs/di';
 import * as express from 'express';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators';
@@ -75,7 +75,7 @@ export abstract class BaseController extends AsyncService implements IController
         path = `/${this.BasePath}/${route.Method}`;
       }
 
-      const middlewares = await Promise.all<BaseMiddleware>(
+      const middlewares = await Promise.all<RouteMiddleware>(
         this.Descriptor.Middlewares.concat(route.Middlewares || []).map((m: IMiddlewareDescriptor) => {
           return self._container.resolve(m.Type, m.Options);
         }),
@@ -90,7 +90,7 @@ export abstract class BaseController extends AsyncService implements IController
       this._log.trace(`Registering route ${route.Type.toUpperCase()} ${this.constructor.name}::${route.Method} at ${path}`);
 
       handlers.push(...policies.filter((p) => p.isEnabled(route, this)).map((p) => _invokePolicyAction(p, p.execute.bind(p), route)));
-      handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBeforeAction.bind(m))));
+      handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBefore.bind(m), route)));
 
       const acionWrapper = async (req: sRequest, res: express.Response, next: express.NextFunction) => {
         try {
@@ -101,14 +101,14 @@ export abstract class BaseController extends AsyncService implements IController
             if (isPromise(result)) {
               result.then((r) => {
                 if (r instanceof Response) {
-                  enabledMiddlewares.forEach((x) => x.onResponse(r));
+                  enabledMiddlewares.forEach((x) => x.onResponse(r, route, this));
                 }
                 res.locals.response = r;
                 next();
               });
             } else {
               if (result instanceof Response) {
-                enabledMiddlewares.forEach((x) => x.onResponse(result));
+                enabledMiddlewares.forEach((x) => x.onResponse(result, route, this));
               }
               res.locals.response = result;
               next();
@@ -125,15 +125,15 @@ export abstract class BaseController extends AsyncService implements IController
       });
 
       handlers.push(acionWrapper);
-      handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onAfterAction.bind(m))));
+      handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onAfter.bind(m), route)));
 
       // register to express router
       (this._router as any)[route.InternalType as string](path, handlers);
     }
 
-    function _invokeAction(source: any, action: any) {
+    function _invokeAction(source: any, action: any, route: IRoute) {
       const wrapper = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-        action(req, res, self)
+        action(req, res, route, self)
           .then(() => {
             next();
           })

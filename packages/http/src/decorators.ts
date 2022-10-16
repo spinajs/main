@@ -1,5 +1,5 @@
 import { Constructor } from '@spinajs/di';
-import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, BaseMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions } from './interfaces';
+import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions } from './interfaces';
 import { ArgHydrator } from './route-args/ArgHydrator';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas';
 
@@ -152,7 +152,7 @@ export function Policy(policy: Constructor<BasePolicy>, ...options: any[]) {
   });
 }
 
-export function Middleware(policy: Constructor<BaseMiddleware>, ...options: any[]) {
+export function Middleware(policy: Constructor<RouteMiddleware>, ...options: any[]) {
   return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1: string, _2: number | PropertyDescriptor) => {
     const pDesc = {
       Options: options,

@@ -434,7 +434,7 @@ export interface IRoute {
 }
 
 export interface IMiddlewareDescriptor {
-  Type: Constructor<BaseMiddleware>;
+  Type: Constructor<RouteMiddleware>;
 
   Options: any[];
 }
@@ -462,17 +462,17 @@ export interface IController {
  * Middlewares are classes that can change request object or perform specific task before & after route execution
  * eg. route parameter logging / headers check etc.
  */
-export abstract class BaseMiddleware {
+export abstract class RouteMiddleware {
   /**
    * Inform, if middleware is enabled for given action
    */
-  public abstract isEnabled(action: IRoute, instance: IController): boolean;
+  public abstract isEnabled(route: IRoute, controller: IController): boolean;
 
   /**
    * Called before action in middleware stack eg. to modify req or resp objects.
    * Its express middleware func
    */
-  public abstract onBeforeAction(req: express.Request): Promise<void>;
+  public abstract onBefore(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
 
   /**
    * Called after action response, is framework middleware
@@ -480,13 +480,13 @@ export abstract class BaseMiddleware {
    * eg. filter out data
    *
    */
-  public abstract onResponse(response: Response): Promise<void>;
+  public abstract onResponse(response: Response, route: IRoute, controller: IController): Promise<void>;
 
   /**
    * Called after action in middleware stack eg. to modify express response.
    * Its express middleware func
    */
-  public abstract onAfterAction(req: express.Request): Promise<void>;
+  public abstract onAfter(req: express.Request, res: express.Response, route: IRoute, controller: IController): Promise<void>;
 }
 
 /**
@@ -501,11 +501,7 @@ export interface IPolicyDescriptor {
 export type ResponseFunction = (req: express.Request, res: express.Response) => void;
 
 export abstract class Response {
-  protected responseData: any;
-
-  constructor(responseData: any) {
-    this.responseData = responseData;
-  }
+  constructor(protected responseData: any) {}
 
   public abstract execute(req: express.Request, res: express.Response, next?: express.NextFunction): Promise<ResponseFunction | void>;
 }
