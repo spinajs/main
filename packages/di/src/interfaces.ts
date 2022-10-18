@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-empty-function */
 import { ResolveType } from './enums';
 import { Class, Factory } from './types';
 import { EventEmitter } from 'events';
@@ -155,6 +156,12 @@ export class Service {
   public get Resolved(): boolean {
     return this.resolved;
   }
+
+  /**
+   * Use to dispose service, relase all resources, stop timers etc.
+   *
+   */
+  public async dispose() {}
 }
 
 export abstract class SyncService extends Service {

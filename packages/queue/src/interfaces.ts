@@ -1,35 +1,31 @@
 import { AsyncService } from '@spinajs/di';
-import { ISerializationDescriptor, ISerializable, Serialize } from './decorators';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
-import { ListFromFiles } from '@spinajs/reflection';
 import { Log, Logger } from '@spinajs/log';
 
-export interface IQueueMessage<T> {
+export interface IQueueMessage {
   CreatedAt: DateTime;
-  Payload: T;
   Name: string;
-  Type: 'job' | 'event';
+  Type: 'job' | 'topic';
 }
 
-export interface IQueueJob<T> extends IQueueMessage<T> {
+export interface IQueueJob extends IQueueMessage {
   RetryCount: number;
   Delay: number;
+  JobId?: string;
 }
 
 /**
  * Events are messages send via queue, we do not want to track it, dont care about result, no retry policy on failed execution etc.
  */
-export abstract class QueueMessage<T> implements IQueueMessage<T> {
+export abstract class QueueMessage implements IQueueMessage {
   [key: string]: any;
 
   public CreatedAt: DateTime;
 
-  public Payload: T;
-
   public Name: string;
 
-  public Type: 'job' | 'event';
+  public Type: 'job' | 'topic';
 
   constructor(public Connection?: string) {
     this.CreatedAt = DateTime.now();
@@ -48,25 +44,27 @@ export abstract class QueueMessage<T> implements IQueueMessage<T> {
  * we can register multiple listeners for a single event and the event helper will dispatch the event to all of its registered
  * listeners without us calling them explicitly. where in case of Jobs we would have to call them each one explicitly.
  */
-export abstract class QueueEvent<T> extends QueueMessage<T> {}
+export abstract class QueueEvent extends QueueMessage {}
 
 /**
  * Jobs are executed only once even if multiple listeners waiting for it. usually used for single method call
  * or time consuming tasks, that need to checked for result and tracked
+ *
+ * Job results are preserved
  */
-export abstract class QueueJob<T> extends QueueMessage<T> implements IQueueJob<T> {
-  public abstract execute(): Promise<boolean>;
+export abstract class QueueJob extends QueueMessage implements IQueueJob {
+  public JobId: string;
+
+  public abstract execute(progress: (p: number) => Promise<void>): Promise<unknown>;
 
   /**
    * Retry count on job failure
    */
-  @Serialize()
   public RetryCount: number;
 
   /**
    * Execution delay in miliseconds
    */
-  @Serialize()
   public Delay: number;
 }
 
@@ -74,21 +72,8 @@ export abstract class QueueClient extends AsyncService {
   @Logger('queue')
   protected Log: Log;
 
-  /**
-   * Transport options
-   */
-  public Options: IConnection;
-
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.jobs')
-  protected Jobs: QueueJob<any>[];
-
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.events')
-  protected Events: QueueJob<any>[];
-
-  constructor(options: IConnection) {
+  constructor(protected Options: IQueueConnectionOptions) {
     super();
-
-    this.Options = options;
   }
 
   /**
@@ -97,24 +82,29 @@ export abstract class QueueClient extends AsyncService {
    *
    * @param event - event to dispatch
    */
-  public abstract emit<T>(event: IQueueMessage<T>): Promise<boolean>;
+  public abstract emit(event: IQueueMessage): Promise<void>;
 
   /**
    *
-   * Subscribes to queue and process incoming events
+   * Subscribes to queue and process incoming events or jobs
    *
    */
-  public abstract subscribe<T>(connection: string, callback: (e: IQueueMessage<T>) => Promise<boolean>): Promise<void>;
+  public abstract subscribe(channel: string, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
 
-  public abstract unsubscribe<T>(connection: string, callback: (e: IQueueMessage<T>) => Promise<boolean>): Promise<void>;
+  public abstract unsubscribe(channel: string): void;
 }
 
 export interface IQueueConfiguration {
   default: string;
-  connections: IConnection[];
+  connections: IQueueConnectionOptions[];
 }
 
-export interface IConnection {
+export interface IMessageRoutingOption {
+  channel: string;
+  deadLetterChannel: string;
+}
+
+export interface IQueueConnectionOptions {
   transport: string;
   name: string;
   login?: string;
@@ -124,4 +114,38 @@ export interface IConnection {
   queue?: string;
   options?: any;
   type: 'event' | 'job';
+  debug?: boolean;
+
+  /**
+   * Default topic ( events ) channel in broker
+   * If no routing for specified event is provided
+   * it will be send to this channel
+   */
+  defaultTopicChannel?: string;
+
+  /**
+   * Default queue ( job ) channel in broker
+   * If no routing for specified job is provided
+   * it will be send to this channel
+   */
+  defaultQueueChannel?: string;
+
+  /**
+   * If job fails at client side and we dont send ack
+   * broker will try to send job again ( and probably will fail again )
+   * In such event, it will reschedule job to deat letter queue for further processing
+   * and for unblocking source queue
+   */
+  defaultQueueDeadLetterChannel?: string;
+
+  /**
+   * Message routing eg. where event/job with given type ( name ) will be send to
+   * eg. job Email will be sent to /task/mails channel in broker
+   * If no routing for message is provided, it will be sent to default one.
+   *
+   * Also here deat letter channel for message can be configured
+   */
+  messageRouting?: {
+    [key: string]: string | IMessageRoutingOption;
+  };
 }
