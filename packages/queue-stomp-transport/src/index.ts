@@ -137,6 +137,6 @@ export class StompQueueClient extends QueueClient {
 
     this.Subscriptions.set(channel, subscription);
 
-    this.Log.success(`Channel ${channel}, durable: ${durable ? 'true' : } subscribed and ready to receive messages !`);
+    this.Log.success(`Channel ${channel}, durable: ${durable ? 'true' : 'false'} subscribed and ready to receive messages !`);
   }
 }
