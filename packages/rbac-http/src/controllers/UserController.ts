@@ -1,7 +1,7 @@
 import { PasswordDto } from '../dto/password-dto';
 import { UserLoginDto } from '../dto/login-dto';
 import { User as UserModel, PasswordProvider, SessionProvider } from '@spinajs/rbac';
-import { BaseController, BasePath, Get, Ok, Body, Param, Patch, Cookie } from '@spinajs/http';
+import { BaseController, BasePath, Get, Ok, Body, Patch, Cookie } from '@spinajs/http';
 import { InvalidArgument, Forbidden } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
 import { Permission, User, Resource } from '../decorators';

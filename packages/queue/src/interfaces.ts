@@ -3,10 +3,15 @@ import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log';
 
+export enum QueueMessageType {
+  Job = 'JOB',
+  Event = 'EVENT',
+}
+
 export interface IQueueMessage {
   CreatedAt: DateTime;
   Name: string;
-  Type: 'job' | 'topic';
+  Type: QueueMessageType;
 }
 
 export interface IQueueJob extends IQueueMessage {
@@ -25,7 +30,7 @@ export abstract class QueueMessage implements IQueueMessage {
 
   public Name: string;
 
-  public Type: 'job' | 'topic';
+  public Type: QueueMessageType;
 
   constructor(public Connection?: string) {
     this.CreatedAt = DateTime.now();

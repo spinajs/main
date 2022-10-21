@@ -1,12 +1,13 @@
-import { QueueClient } from '@spinajs/Queue';
-import { PasswordProvider, User } from '@spinajs/rbac';
+import { QueueClient } from '@spinajs/queue';
 import { Log, Logger } from '@spinajs/log';
 import { CliCommand, Command, Option } from '@spinajs/cli';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 import { Autoinject } from '@spinajs/di';
 import { v4 as uuidv4 } from 'uuid';
-import { NewUserMessage } from '../messages/NewUser';
+// import { NewUserMessage } from '../messages/NewUser';
+import { PasswordProvider } from '../interfaces';
+import { User } from '../models/User';
 
 interface UserCreationOptions {
   email: string;
@@ -55,7 +56,7 @@ export class CreateUser extends CliCommand {
     await user.insert();
 
     // notify others about user creation
-    this.Queue.dispatch(new NewUserMessage(user, 'rbac:user:new'));
+    //this.Queue.dispatch(new NewUserMessage(user, 'rbac:user:new'));
 
     this.Log.success('User creation SUCCESS');
   }

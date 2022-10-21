@@ -8,7 +8,7 @@ export class Exception extends Error {
    * @param message - error message
    * @param inner - inner exception ( eg. original couse of error )
    */
-  constructor(message?: string, public inner?: Error) {
+  constructor(message?: string, public inner?: Error | unknown) {
     super(message);
   }
 }

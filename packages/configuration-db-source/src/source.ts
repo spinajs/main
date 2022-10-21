@@ -7,7 +7,6 @@ import { DI, NewInstance } from '@spinajs/di';
 import { IDriverOptions, OrmDriver } from '@spinajs/orm';
 import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types';
 import * as _ from 'lodash';
-import { DateTime } from 'luxon';
 import { parse } from './models/DbConfigurationModel';
 
 @NewInstance()

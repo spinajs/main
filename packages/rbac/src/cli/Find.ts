@@ -1,9 +1,6 @@
-import { ResourceNotFound } from '@spinajs/exceptions';
-import { QueueClient } from '@spinajs/Queue';
-import { User } from '@spinajs/rbac';
 import { Log, Logger } from '@spinajs/log';
 import { Option, CliCommand, Command } from '@spinajs/cli';
-import { Autoinject } from '@spinajs/di';
+import { User } from '../models/User';
 
 interface UserOption {
   idOrUuid?: string;
@@ -18,9 +15,6 @@ interface UserOption {
 export class CreateUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
-
-  @Autoinject(QueueClient)
-  protected Queue: QueueClient;
 
   public async execute(options: UserOption): Promise<void> {
     let query = null;

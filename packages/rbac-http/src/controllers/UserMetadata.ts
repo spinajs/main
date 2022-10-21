@@ -36,10 +36,10 @@ export class UserMetaController {
   }
 }
 
-function userOwnerPermissionStrategy(){
+// function userOwnerPermissionStrategy(){
 
-   // 1. obtain current logged user
-   // 2. find
+//    // 1. obtain current logged user
+//    // 2. find
 
 
-}
+// }

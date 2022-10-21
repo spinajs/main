@@ -1,7 +1,6 @@
-import { ResolveException } from './../../di/src/exceptions';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
-import { AsyncService, DI, IContainer } from '@spinajs/di';
+import { AsyncService, DI, IContainer, ResolveException } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { IQueueConfiguration, QueueClient, QueueJob, QueueEvent, IQueueMessage, IQueueJob } from './interfaces';
 import { ClassInfo, ListFromFiles } from '@spinajs/reflection';

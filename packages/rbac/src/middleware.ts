@@ -5,7 +5,7 @@ import { QueryBuilder, QueryMiddleware, SelectQueryBuilder } from '@spinajs/orm'
 export class RbacModelPermissionMiddleware extends QueryMiddleware {
   afterQueryCreation(builder: QueryBuilder) {
     if (builder instanceof SelectQueryBuilder) {
-      builder.Model.
+      //builder.Model.
     }
   }
 }

@@ -178,7 +178,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       sData = data;
     } else {
       sId = sessionOrId.SessionId;
-      sData = Object.fromEntries(sessionOrId.Data);
+      sData = JSON.stringify(Object.fromEntries(sessionOrId.Data), replacer);
       sCreationTime = sessionOrId.Creation;
       sExpirationTime = sessionOrId.Expiration;
     }

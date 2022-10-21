@@ -1,15 +1,10 @@
-import { RouteMiddleware, IController, IRoute, Response } from '@spinajs/http';
-import { Request } from 'express';
+import { RouteMiddleware, IController, IRoute } from '@spinajs/http';
 
 /**
  * Filters attributes of db models
  */
 export class FilterAttribute extends RouteMiddleware {
-  public onResponse(response: Response, route: IRoute): Promise<void> {
-
-     
-
-  }
+  public async onResponse(): Promise<void> {}
 
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;

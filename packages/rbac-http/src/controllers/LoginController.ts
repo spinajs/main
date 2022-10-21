@@ -1,13 +1,12 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { UserLoginDto } from '../dto/userLogin-dto';
-import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, NotAllowed } from '@spinajs/http';
+import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, NotAllowed, Header } from '@spinajs/http';
 import { AuthProvider, FederatedAuthProvider, Session, SessionProvider, User as UserModel } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import { User } from './../decorators';
 import _ from 'lodash';
 import { FingerprintProvider, TwoFactorAuthProvider } from '../interfaces';
-import { Header } from 'http/lib';
 
 @BasePath('user/auth')
 export class LoginController extends BaseController {

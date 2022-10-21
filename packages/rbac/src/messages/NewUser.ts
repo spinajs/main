@@ -1,29 +1,21 @@
-import { QueueMessage, Serialize } from '@spinajs/Queue';
+import { QueueMessage } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 import { User } from '../models/User';
 export class NewUserMessage extends QueueMessage {
-  @Serialize()
   public Uuid: string;
 
-  @Serialize()
   public Email: string;
 
-  @Serialize()
   public Login: string;
 
-  @Serialize()
   public Role: string[];
 
-  @Serialize()
   public UserCreatedAt: DateTime;
 
-  @Serialize()
   public IsBanned: boolean;
 
-  @Serialize()
   public IsActive: boolean;
 
-  @Serialize()
   public Metadata: Map<string, any> = new Map<string, any>();
 
   constructor(user: User, channel: string) {

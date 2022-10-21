@@ -46,6 +46,7 @@
     "@spinajs/di": "^2.0.38",
     "@spinajs/exceptions": "^2.0.12",
     "@spinajs/log": "^2.0.38",
+    "@spinajs/queue": "^2.0.38",
     "@stomp/stompjs": "^6.1.2",
     "websocket": "^1.0.34"
   },

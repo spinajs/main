@@ -1,10 +1,10 @@
-import { UserBannedMessage } from './../messages/UserBanned';
+//import { UserBannedMessage } from './../messages/UserBanned';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { QueueClient } from '@spinajs/Queue';
-import { User } from '@spinajs/rbac';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
+import { User } from '../models/User';
 
 @Command('rbac:user-active', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')
@@ -23,7 +23,7 @@ export class CreateUser extends CliCommand {
     await user.update();
 
     // notify others about user creation
-    this.Queue.dispatch(new UserBannedMessage(user, 'rbac:user:active'));
+    //this.Queue.dispatch(new UserBannedMessage(user, 'rbac:user:active'));
 
     this.Log.success('User active status changed');
   }

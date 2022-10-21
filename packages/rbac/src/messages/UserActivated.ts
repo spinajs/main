@@ -1,10 +1,8 @@
-import { QueueMessage, Serialize } from '@spinajs/Queue';
+import { QueueMessage } from '@spinajs/queue';
 import { User } from '../models/User';
 export class UserActivatedMessage extends QueueMessage {
-  @Serialize()
   public Uuid: string;
 
-  @Serialize()
   public Active: boolean;
 
   constructor(user: User, channel: string) {

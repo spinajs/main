@@ -1,10 +1,11 @@
-import { UserBannedMessage } from './../messages/UserBanned';
+//import { UserBannedMessage } from './../messages/UserBanned';
 import { ResourceNotFound } from '@spinajs/exceptions';
-import { QueueClient } from '@spinajs/Queue';
-import { User } from '@spinajs/rbac';
+import { QueueClient } from '@spinajs/queue';
+ 
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
+import { User } from '../models/User';
 
 @Command('rbac:user-ban', 'Bans or unbans user')
 @Argument('idOrUuid', 'numeric id or uuid')
@@ -23,7 +24,7 @@ export class CreateUser extends CliCommand {
     await user.update();
 
     // notify others about user creation
-    this.Queue.dispatch(new UserBannedMessage(user, 'rbac:user:banned'));
+    //this.Queue.dispatch(new UserBannedMessage(user, 'rbac:user:banned'));
 
     this.Log.success('User ban status changed');
   }
