@@ -3,9 +3,11 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { IQueueMessage, IQueueConnectionOptions, QueueClient, IMessageRoutingOption, QueueMessageType } from '@spinajs/queue';
 import { Client, StompSubscription } from '@stomp/stompjs';
 import _ from 'lodash';
+import { NewInstance } from '@spinajs/di';
 
 Object.assign(global, { WebSocket: require('websocket').w3cwebsocket });
 
+@NewInstance()
 export class StompQueueClient extends QueueClient {
   protected Client: Client;
 
@@ -100,15 +102,14 @@ export class StompQueueClient extends QueueClient {
   }
 
   public async emit(message: IQueueMessage) {
+    let routing: string | IMessageRoutingOption = '';
+
     if (message.Type === QueueMessageType.Job) {
-      this._emitJob(message);
+      routing = this.Options.messageRouting ? this.Options.messageRouting[message.Name] ?? this.Options.defaultQueueChannel : this.Options.defaultQueueChannel;
     } else {
-      this._emitEvent(message);
+      routing = this.Options.messageRouting ? this.Options.messageRouting[message.Name] ?? this.Options.defaultTopicChannel : this.Options.defaultTopicChannel;
     }
-  }
 
-  private _emitJob(message: IQueueMessage) {
-    const routing = this.Options.messageRouting ? this.Options.messageRouting[message.Name] ?? this.Options.defaultQueueChannel : this.Options.defaultQueueChannel;
     const channel = (routing as IMessageRoutingOption).channel ?? (routing as string);
 
     this.Client.publish({
@@ -116,19 +117,7 @@ export class StompQueueClient extends QueueClient {
       body: JSON.stringify(message),
     });
 
-    this.Log.trace(`Published job { Name: ${message.Name}} to channel ${channel}`);
-  }
-
-  private _emitEvent(message: IQueueMessage) {
-    const routing = this.Options.messageRouting ? this.Options.messageRouting[message.Name] ?? this.Options.defaultTopicChannel : this.Options.defaultTopicChannel;
-    const channel = (routing as IMessageRoutingOption).channel ?? (routing as string);
-
-    this.Client.publish({
-      destination: channel,
-      body: JSON.stringify(message),
-    });
-
-    this.Log.trace(`Published event { Name: ${message.Name}} to channel ${channel}`);
+    this.Log.trace(`Published ${message.Type} { Name: ${message.Name}} to channel ${channel}`);
   }
 
   public unsubscribe(channel: string) {
@@ -137,6 +126,7 @@ export class StompQueueClient extends QueueClient {
     }
 
     this.Subscriptions.get(channel).unsubscribe();
+    this.Subscriptions.delete(channel);
   }
 
   public subscribe(channel: string, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void> {

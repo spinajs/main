@@ -8,8 +8,13 @@ import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { QueueMessageType } from '@spinajs/queue';
 import { DateTime } from 'luxon';
+import * as sinon from 'sinon';
 
 chai.use(chaiAsPromised);
+
+const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
+const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
+const QUEUE_WAIT_TIME_MS = 1000;
 
 export function mergeArrays(target: any, source: any) {
   if (_.isArray(target)) {
@@ -19,6 +24,14 @@ export function mergeArrays(target: any, source: any) {
 
 export function dir(path: string) {
   return resolve(normalize(join(__dirname, path)));
+}
+
+async function wait(amount: number) {
+  return new Promise<void>((res) => {
+    setTimeout(() => {
+      res();
+    }, amount);
+  });
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
@@ -33,7 +46,7 @@ export class ConnectionConf extends FrameworkConfiguration {
             {
               name: 'Empty',
               type: 'BlackHoleTarget',
-              layout: '{datetime} {level} {message} {error} duration: {duration} ms ({logger})',
+              layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
             },
           ],
 
@@ -45,16 +58,27 @@ export class ConnectionConf extends FrameworkConfiguration {
   }
 }
 
+const qList: StompQueueClient[] = [];
+
 async function q() {
-  return await DI.resolve(StompQueueClient, [
+  const q = await DI.resolve(StompQueueClient, [
     {
       host: 'ws://localhost:61614/ws',
-      name: 'test-id',
+      name: `test-id-${DateTime.now().toMillis()}`,
       debug: true,
-      defaultQueueChannel: 'queue\\test',
-      defaultTopicChannel: 'topic\\test',
+      defaultQueueChannel: TestJobChannelName,
+      defaultTopicChannel: TestEventChannelName,
+      messageRouting: {
+        TestEventDurable: '/topic/durable',
+        TestEventRouted: '/topic/routed',
+        TestJobRouted: '/queue/routed',
+      },
     },
   ]);
+
+  qList.push(q);
+
+  return q;
 }
 
 // class TestJob extends QueueJob {
@@ -77,9 +101,8 @@ describe('stomp queue transport test', () => {
   });
 
   afterEach(async () => {
-    const q = DI.get(StompQueueClient);
-    if (q) {
-      await q.dispose();
+    for (const q of qList) {
+      q.dispose();
     }
   });
 
@@ -109,7 +132,14 @@ describe('stomp queue transport test', () => {
       Foo: 'bar',
     };
 
+    const s = sinon.stub().returns(Promise.resolve());
+
+    c.subscribe(TestJobChannelName, s);
     c.emit(message);
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s.calledOnce).to.be.true;
   });
 
   it('Should emit event', async () => {
@@ -122,17 +152,189 @@ describe('stomp queue transport test', () => {
       Foo: 'far',
     };
 
-    c.subscribe('')
+    const s = sinon.stub().returns(Promise.resolve());
+
+    c.subscribe(TestEventChannelName, s);
+    c.emit(message);
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s.calledOnce).to.be.true;
+  });
+
+  it('Should emit multiple events', async () => {
+    const c = await q();
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestEvent',
+      Type: QueueMessageType.Event,
+      Foo: 'far',
+    };
+
+    const s = sinon.stub().returns(Promise.resolve());
+
+    c.subscribe(TestEventChannelName, s);
+    c.emit(message);
+    c.emit(message);
+    c.emit(message);
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s.calledThrice).to.be.true;
+  });
+
+  it('Should emit durable event', async () => {
+    const c = await q();
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestEventDurable',
+      Type: QueueMessageType.Event,
+      Foo: 'far',
+    };
+
+    const s = sinon.stub().returns(Promise.resolve());
+
+    c.subscribe('/topic/durable', s, 'test-durable', true);
+    c.emit(message);
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s.calledOnce).to.be.true;
+    c.unsubscribe('/topic/durable');
 
     c.emit(message);
-  });
-  it('Should emit durable event', async () => {});
-  it('Should register on job', async () => {});
-  it('Should register on event', async () => {});
-  it('Should register on job multiple subscribers', async () => {});
-  it('Should register on event multiple subscribers', async () => {});
-  it('Should unsubscribe', async () => {});
 
-  it('Should route job with routing table', async () => {});
-  it('Should route event with routing table', async () => {});
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s.calledOnce).to.be.true;
+
+    c.subscribe('/topic/durable', s, 'test-durable', true);
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s.calledTwice).to.be.true;
+  });
+
+  it('Should register on job multiple subscribers', async () => {
+    const c1 = await q();
+    const c2 = await q();
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestJob',
+      Type: QueueMessageType.Job,
+      Foo: 'far',
+    };
+
+    const s1 = sinon.stub().returns(Promise.resolve());
+    const s2 = sinon.stub().returns(Promise.resolve());
+
+    c1.subscribe(TestJobChannelName, s1);
+    c2.subscribe(TestJobChannelName, s2);
+
+    for (let i = 0; i < 500; i++) {
+      c1.emit(message);
+    }
+
+    await wait(QUEUE_WAIT_TIME_MS * 2);
+
+    expect(s1.callCount + s2.callCount).to.eq(500);
+  });
+
+  it('Should register on event multiple subscribers', async () => {
+    const c1 = await q();
+    const c2 = await q();
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestEvent',
+      Type: QueueMessageType.Event,
+      Foo: 'far',
+    };
+
+    const s1 = sinon.stub().returns(Promise.resolve());
+    const s2 = sinon.stub().returns(Promise.resolve());
+
+    c1.subscribe(TestEventChannelName, s1);
+    c2.subscribe(TestEventChannelName, s2);
+
+    c1.emit(message);
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s1.calledOnce).to.be.true;
+    expect(s2.calledOnce).to.be.true;
+  });
+
+  it('Should route job with routing table', async () => {
+    const c1 = await q();
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestJobRouted',
+      Type: QueueMessageType.Job,
+      Foo: 'far',
+    };
+
+    const s1 = sinon.stub().returns(Promise.resolve());
+
+    c1.subscribe('/queue/routed', s1);
+
+    for (let i = 0; i < 500; i++) {
+      c1.emit(message);
+    }
+
+    await wait(QUEUE_WAIT_TIME_MS * 2);
+
+    expect(s1.callCount).to.eq(500);
+  });
+
+  it('Should route event with routing table', async () => {
+    const c = await q();
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestEventRouted',
+      Type: QueueMessageType.Event,
+      Foo: 'far',
+    };
+
+    const s = sinon.stub().returns(Promise.resolve());
+
+    c.subscribe('/topic/routed', s);
+    c.emit(message);
+    c.emit(message);
+    c.emit(message);
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s.calledThrice).to.be.true;
+  });
+
+  it('Should unsubscribe', async () => {
+    const c = await q();
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestEvent',
+      Type: QueueMessageType.Event,
+      Foo: 'far',
+    };
+
+    const s = sinon.stub().returns(Promise.resolve());
+
+    c.subscribe(TestEventChannelName, s);
+    c.emit(message);
+    c.emit(message);
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    c.unsubscribe(TestEventChannelName);
+    c.emit(message);
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s.calledTwice).to.be.true;
+  });
 });
