@@ -80,6 +80,7 @@
     "@spinajs/orm-sqlite": "file:packages\\orm-sqlite",
     "@spinajs/queue": "file:packages\\queue",
     "@spinajs/queue-orm-transport": "file:packages/queue-orm-transport",
+    "@spinajs/queue-stomp-transport": "file:packages/queue-stomp-transport",
     "@spinajs/rbac": "file:packages\\rbac",
     "@spinajs/rbac-http": "file:packages\\rbac-http",
     "@spinajs/reflection": "file:packages\\reflection",

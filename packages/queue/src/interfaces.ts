@@ -1,4 +1,4 @@
-import { AsyncService } from '@spinajs/di';
+import { AsyncService, Constructor } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log';
@@ -77,7 +77,7 @@ export abstract class QueueClient extends AsyncService {
   @Logger('queue')
   protected Log: Log;
 
-  constructor(protected Options: IQueueConnectionOptions) {
+  constructor(public Options: IQueueConnectionOptions) {
     super();
   }
 
@@ -97,6 +97,26 @@ export abstract class QueueClient extends AsyncService {
   public abstract subscribe(channel: string, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
 
   public abstract unsubscribe(channel: string): void;
+
+  /**
+   *
+   * Gets event channel from routing table or default if non is set
+   *
+   * @param event - event to check
+   */
+  public getChannelForMessage(event: Constructor<QueueMessage>): string {
+    const eName = event.name;
+    const isJob = event.prototype instanceof QueueJob;
+    let route: string | IMessageRoutingOption = null;
+
+    if (isJob) {
+      route = this.Options.messageRouting ? this.Options.messageRouting[eName] ?? this.Options.defaultQueueChannel : this.Options.defaultQueueChannel;
+    } else {
+      route = this.Options.messageRouting ? this.Options.messageRouting[eName] ?? this.Options.defaultTopicChannel : this.Options.defaultTopicChannel;
+    }
+
+    return (route as IMessageRoutingOption).channel ?? (route as string);
+  }
 }
 
 export interface IQueueConfiguration {

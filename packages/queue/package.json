@@ -39,7 +39,8 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "@types/luxon": "^2.3.1",
-    "@types/node": "^16.11.11"
+    "@types/node": "^16.11.11",
+    "@spinajs/queue-stomp-transport": "^2.0.38"
   },
   "dependencies": {
     "@spinajs/configuration": "^2.0.38",

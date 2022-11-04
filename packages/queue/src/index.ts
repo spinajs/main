@@ -1,9 +1,8 @@
-import { UnexpectedServerError } from '@spinajs/exceptions';
+import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
-import { AsyncService, DI, IContainer, ResolveException } from '@spinajs/di';
+import { AsyncService, Constructor, DI, IContainer, ResolveException } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { IQueueConfiguration, QueueClient, QueueJob, QueueEvent, IQueueMessage, IQueueJob } from './interfaces';
-import { ClassInfo, ListFromFiles } from '@spinajs/reflection';
+import { IQueueConfiguration, QueueClient, QueueJob, QueueEvent, IQueueMessage, IQueueJob, QueueMessageType, IQueueConnectionOptions, QueueMessage } from './interfaces';
 import { JobModel } from './models/JobModel';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -19,15 +18,19 @@ export class Queues extends AsyncService {
   @Config('queue')
   protected Configuration: IQueueConfiguration;
 
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.jobs')
-  protected Jobs: Array<ClassInfo<QueueJob>>;
-
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.events')
-  protected Events: Array<ClassInfo<QueueEvent>>;
-
   public async resolve(): Promise<void> {
+    const self = this;
+
     for (const c of this.Configuration.connections) {
-      this.Log.trace(`Found queue ${c.name}, with transport: ${c.transport}, of type: ${c.type}`);
+      registerQueue(c);
+    }
+
+    registerQueue(this.Configuration.connections.find((x) => x.name === this.Configuration.default));
+
+    await super.resolve();
+
+    function registerQueue(c: IQueueConnectionOptions) {
+      self.Log.trace(`Found queue ${c.name}, with transport: ${c.transport}, of type: ${c.type}`);
 
       DI.register(async (container: IContainer) => {
         if (!container.hasRegisteredType(QueueClient, c.transport)) {
@@ -37,18 +40,16 @@ export class Queues extends AsyncService {
         return await container.resolve(QueueClient, [c]);
       }).as(`__queue__${c.name}`);
     }
-
-    await super.resolve();
   }
 
   public async emit(event: IQueueMessage, connection?: string) {
     const cName = connection ? connection : this.Configuration.default;
-    const c = this.get(connection ? connection : this.Configuration.default);
+    const c = await this.get(connection ? connection : this.Configuration.default);
     if (!c) {
       throw new UnexpectedServerError(`Queue ${cName} not exists !`);
     }
 
-    if (event.Type === 'job') {
+    if (event.Type === QueueMessageType.Job) {
       const jModel = new JobModel();
 
       jModel.JobId = uuidv4();
@@ -62,102 +63,110 @@ export class Queues extends AsyncService {
     return c.emit(event);
   }
 
-  public async consumeEvent(connection: string, channel: string, callback: (message: QueueEvent) => Promise<void>, subscriptionId?: string, durable?: boolean) {
-    const c = this.get(connection);
+  /**
+   *
+   * Starts to consume events/jobs from connection
+   *
+   * NOTE: When consuming events, we can have multiple event types on same channel, couse
+   *       subscribe function filters it out, and event can be handled in another subscription
+   *
+   *       When consuming jobs, multiple jobs on same channel can have unpredictible behavior becouse
+   *       job can be executed once event with multiple subscribers, so filtering it out
+   *       prevents from executing it on other subscriptions
+   *
+   * @param connection - connection to use
+   * @param event - event type to consume
+   * @param callback - optional callback when job is consumet, mandatory for events
+   * @param subscriptionId - optional subscription id if consuming durable events
+   * @param durable - is durable event
+   */
+  public async consume<T extends QueueMessage>(connection: string, event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean) {
+    const c = await this.get(connection);
+    const self = this;
+
+    if (!c) {
+      throw new UnexpectedServerError(`queue connection ${connection} not exists in connection pool`);
+    }
 
     c.subscribe(
-      channel,
-      async (e: IQueueMessage) => {
-        const eClass = this.Jobs.find((x) => x.name === e.Name);
+      c.getChannelForMessage(event),
+      async (e) => {
+        if (e.Name === event.name) {
+          const ev = DI.resolve<QueueMessage>(event);
+          ev.hydrate(e);
 
-        if (!eClass) {
-          throw new UnexpectedServerError(`Event class ${e.Name} is not registered`);
+          /**
+           * Handle job type of message
+           * To preserve result & handle delay, errors etc..
+           */
+          if (ev instanceof QueueJob) {
+            let jobResult = null;
+            const jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+            jModel.Status = 'executing';
+
+            try {
+              // TODO: implement retry count & dead letter
+              if (ev.Delay != 0) {
+                jobResult = await _executeDelayed(ev);
+              } else {
+                jobResult = await ev.execute(onProgress);
+              }
+
+              jModel.Result = jobResult;
+              jModel.Status = 'success';
+
+              this.Log.trace(`Job ${event.name} processed with result ${JSON.stringify(jModel.Result)}`);
+            } catch (err) {
+              this.Log.error(err, `Cannot execute job ${event.name}`);
+
+              jModel.Result = {
+                message: err.message,
+              };
+              jModel.Status = 'error';
+            }
+
+            await jModel.update();
+
+            async function onProgress(p: number) {
+              jModel.Progress = p;
+              await jModel.update();
+
+              self.Log.trace(`Job ${event.name}:${jModel.JobId} progress: ${p}%`);
+            }
+
+            async function _executeDelayed(jobInstance: QueueJob) {
+              return new Promise((res, rej) => {
+                setTimeout(() => {
+                  jobInstance
+                    .execute(onProgress)
+                    .then((result) => {
+                      res(result);
+                    })
+                    .catch((err) => {
+                      rej(err);
+                    });
+                }, jobInstance.Delay);
+              });
+            }
+          }
+
+          if (!callback && ev instanceof QueueEvent) {
+            throw new InvalidArgument('when subscribing to events, callback cannot be null. Subscriber should handle event in callback function !');
+          }
+
+          if (callback) {
+            await callback(ev as T);
+          }
+
+          this.Log.trace(`Queue message ${event.name} processed`);
         }
-
-        const eInstance = DI.resolve<QueueEvent>(eClass.type);
-        eInstance.hydrate(e);
-
-        await callback(eInstance);
-
-        this.Log.trace(`Event ${eClass.name} processed`);
       },
       subscriptionId,
       durable,
     );
   }
 
-  public async consumeJob(connection: string, channel: string): Promise<void> {
-    const c = this.get(connection);
-    const self = this;
-
-    if (!c) {
-      throw new UnexpectedServerError(`Queue ${connection} not exists !`);
-    }
-
-    c.subscribe(channel, async (e: IQueueJob) => {
-      const jClass = this.Jobs.find((x) => x.name === e.Name);
-
-      if (!jClass) {
-        throw new UnexpectedServerError(`Job class ${e.Name} is not registered`);
-      }
-
-      const jInstance = DI.resolve<QueueJob>(jClass.type);
-      const jModel = await JobModel.where({ JobId: e.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${e.JobId}`));
-
-      jModel.Status = 'executing';
-
-      jInstance.hydrate(e);
-
-      let jobResult = null;
-
-      try {
-        // TODO: implement retry count & dead letter
-        if (jInstance.Delay != 0) {
-          jobResult = await _executeDelayed(jInstance);
-        } else {
-          jobResult = await jInstance.execute(onProgress);
-        }
-
-        jModel.Result = jobResult;
-        jModel.Status = 'success';
-
-        this.Log.trace(`Job ${jClass.name} processed with result ${JSON.stringify(jModel.Result)}`);
-      } catch (err) {
-        this.Log.error(err, `Cannot execute job ${jClass.name}`);
-
-        jModel.Result = {
-          message: err.message,
-        };
-        jModel.Status = 'error';
-      }
-
-      await jModel.update();
-
-      async function onProgress(p: number) {
-        jModel.Progress = p;
-        await jModel.update();
-
-        self.Log.trace(`Job ${jClass.name}:${jModel.JobId} progress: ${p}%`);
-      }
-
-      async function _executeDelayed(jobInstance: QueueJob) {
-        return new Promise((res, rej) => {
-          setTimeout(() => {
-            jobInstance
-              .execute(onProgress)
-              .then((result) => {
-                res(result);
-              })
-              .catch((err) => {
-                rej(err);
-              });
-          }, jobInstance.Delay);
-        });
-      }
-    });
-  }
-
-  public get(connection?: string) {
-    return DI.get<QueueClient>(`__queue__${connection ?? this.Configuration.default}`);
+  public async get(connection?: string) {
+    return await DI.resolve<QueueClient>(`__queue__${connection ?? this.Configuration.default}`);
   }
 }

@@ -1,7 +1,6 @@
 //import { UserBannedMessage } from './../messages/UserBanned';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { QueueClient } from '@spinajs/queue';
- 
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';

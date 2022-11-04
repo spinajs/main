@@ -10,7 +10,7 @@ export function Job(connection: string) {
       Reflect.defineMetadata(
         'queue:options',
         {
-          channel: connection,
+          connection,
           type: 'job',
         },
         target,
@@ -30,7 +30,7 @@ export function Event(connection: string) {
       Reflect.defineMetadata(
         'queue:options',
         {
-          channel: connection,
+          connection,
           type: 'event',
         },
         target,

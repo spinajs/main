@@ -33,6 +33,13 @@
     {
       "type": "node",
       "request": "launch",
+      "name": "QUEUE service test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/queue/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
       "name": "QUEUE STOMP test",
       "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
       "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/queue-stomp-transport/test/**/*.ts"]
