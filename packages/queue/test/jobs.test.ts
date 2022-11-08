@@ -4,17 +4,19 @@ import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { Queues } from './../src';
+import { QueueEvent, QueueJob, Queues, Event, Job, JobModel } from './../src';
 import { DateTime } from 'luxon';
 import { expect } from 'chai';
+import * as sinon from 'sinon';
 
 import '@spinajs/queue-stomp-transport';
+import { MigrationTransactionMode } from '@spinajs/orm';
 
 chai.use(chaiAsPromised);
 
 const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
 const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
-// const QUEUE_WAIT_TIME_MS = 1000;
+const QUEUE_WAIT_TIME_MS = 1000;
 
 export function mergeArrays(target: any, source: any) {
   if (_.isArray(target)) {
@@ -26,13 +28,13 @@ export function dir(path: string) {
   return resolve(normalize(join(__dirname, path)));
 }
 
-// async function wait(amount?: number) {
-//   return new Promise<void>((res) => {
-//     setTimeout(() => {
-//       res();
-//     }, amount ?? QUEUE_WAIT_TIME_MS);
-//   });
-// }
+async function wait(amount?: number) {
+  return new Promise<void>((res) => {
+    setTimeout(() => {
+      res();
+    }, amount ?? QUEUE_WAIT_TIME_MS);
+  });
+}
 
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -41,6 +43,38 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
+        db: {
+          DefaultConnection: 'sqlite',
+          Connections: [
+            // queue DB
+            {
+              Driver: 'orm-driver-sqlite',
+              Filename: ':memory:',
+              Name: 'queue',
+              Migration: {
+                OnStartup: true,
+                Table: 'orm_migrations',
+                Transaction: {
+                  Mode: MigrationTransactionMode.PerMigration,
+                },
+              },
+            },
+
+            // default connection
+            {
+              Driver: 'orm-driver-sqlite',
+              Filename: ':memory:',
+              Name: 'sqlite',
+              Migration: {
+                OnStartup: true,
+                Table: 'orm_migrations',
+                Transaction: {
+                  Mode: MigrationTransactionMode.PerMigration,
+                },
+              },
+            },
+          ],
+        },
         queue: {
           default: 'default-test-queue',
           connections: [
@@ -76,6 +110,30 @@ export class ConnectionConf extends FrameworkConfiguration {
   }
 }
 
+@Event()
+class SampleEvent extends QueueEvent {
+  Bar: string;
+}
+
+@Job()
+class SampleJob extends QueueJob {
+  public Foo: string;
+
+  public async execute(progress: (p: number) => Promise<void>) {
+    await progress(0);
+
+    await wait(500);
+
+    await progress(50);
+
+    await wait(500);
+
+    await progress(100);
+
+    return 'finished';
+  }
+}
+
 async function q() {
   return DI.resolve(Queues);
 }
@@ -88,16 +146,69 @@ describe('jobs', () => {
     await DI.resolve(Configuration);
   });
 
+  afterEach(() => {
+    sinon.restore();
+  });
+
   it('should connecto to queue server', async () => {
     const queue = await q();
 
     const c = await queue.get();
     expect(c).to.be.not.null;
   });
-  it('should subscribe to jobs');
-  it('should subscribe to events');
+  it('should subscribe to jobs', async () => {
+    const queue = await q();
+    const sExecute = sinon.spy(SampleJob.prototype, 'execute');
 
-  it('Should preserve job result', () => {});
+    await queue.consume(SampleJob);
 
-  it('Should retry job on fail', () => {});
+    await SampleJob.emit({ Foo: 'test job' });
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(sExecute.calledOnce).to.be.true;
+    expect((sExecute.args[0][0] as any).Bar).to.eq('test message');
+  });
+
+  it('should subscribe to events', async () => {
+    const queue = await q();
+    const callback = sinon.stub().returns(Promise.resolve());
+
+    await queue.consume(SampleEvent, callback);
+
+    SampleEvent.emit({ Bar: 'test message' });
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(callback.calledOnce).to.be.true;
+    expect((callback.args[0][0] as any).Bar).to.eq('test message');
+  });
+
+  it('Should preserve job result', async () => {
+    const queue = await q();
+    const sExecute = sinon.spy(SampleJob.prototype, 'execute');
+
+    await queue.consume(SampleJob);
+
+    await SampleJob.emit({ Foo: 'test job' });
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(sExecute.calledOnce).to.be.true;
+
+    const job = sExecute.thisValues[0] as SampleJob;
+
+    expect(job).to.be.instanceOf(SampleJob);
+    expect(job.JobId).to.be.not.null;
+    expect(job.Foo).to.equal('test job');
+
+    const model = await JobModel.where('JobId', job.JobId).first();
+
+    expect(model).to.be.not.null;
+
+    expect(model.Result).to.eq('finished');
+    expect(model.Progress).to.eq(100);
+  });
+
+  it('Should retry job on fail', () => {
+    // TODO: retries & dead letter queue
+  });
 });

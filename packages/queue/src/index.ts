@@ -1,8 +1,8 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
-import { AsyncService, Constructor, DI, IContainer, ResolveException } from '@spinajs/di';
+import { Constructor, DI, IContainer, Injectable, ResolveException } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { IQueueConfiguration, QueueClient, QueueJob, QueueEvent, IQueueMessage, IQueueJob, QueueMessageType, IQueueConnectionOptions, QueueMessage } from './interfaces';
+import { IQueueConfiguration, QueueClient, QueueJob, QueueEvent, IQueueMessage, IQueueJob, QueueMessageType, IQueueConnectionOptions, QueueMessage, QueueService } from './interfaces';
 import { JobModel } from './models/JobModel';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -11,7 +11,8 @@ export * from './decorators';
 export * from './bootstrap';
 export * from './models/JobModel';
 
-export class Queues extends AsyncService {
+@Injectable(QueueService)
+export class Queues extends QueueService {
   @Logger('queue')
   protected Log: Log;
 
@@ -71,7 +72,7 @@ export class Queues extends AsyncService {
    *       subscribe function filters it out, and event can be handled in another subscription
    *
    *       When consuming jobs, multiple jobs on same channel can have unpredictible behavior becouse
-   *       job can be executed once event with multiple subscribers, so filtering it out
+   *       job can be executed once even with multiple subscribers, so filtering it out
    *       prevents from executing it on other subscriptions
    *
    * @param connection - connection to use
@@ -80,15 +81,22 @@ export class Queues extends AsyncService {
    * @param subscriptionId - optional subscription id if consuming durable events
    * @param durable - is durable event
    */
-  public async consume<T extends QueueMessage>(connection: string, event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean) {
-    const c = await this.get(connection);
+  public async consume<T extends QueueMessage>(event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean) {
+    const options = Reflect.getMetadata('queue:options', event);
     const self = this;
 
-    if (!c) {
-      throw new UnexpectedServerError(`queue connection ${connection} not exists in connection pool`);
+    if (!options) {
+      throw new InvalidArgument(`Type ${event.name} is not defined as Job or Event type. Use proper decorator to configure queue events`);
     }
 
-    c.subscribe(
+    const { connection } = options;
+    const c = await this.get(connection);
+
+    if (!c) {
+      throw new UnexpectedServerError(`queue connection ${connection} not exists in connection pool. Check queue confiuguration file or if server is alive.`);
+    }
+
+    await c.subscribe(
       c.getChannelForMessage(event),
       async (e) => {
         if (e.Name === event.name) {
@@ -166,6 +174,11 @@ export class Queues extends AsyncService {
     );
   }
 
+  /**
+   * Get specific queue client connection. If no connection param is provided, default is returned.
+   * @param connection - connection name to obtain
+   * @returns
+   */
   public async get(connection?: string) {
     return await DI.resolve<QueueClient>(`__queue__${connection ?? this.Configuration.default}`);
   }

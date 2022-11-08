@@ -81,17 +81,6 @@ async function q() {
   return q;
 }
 
-// class TestJob extends QueueJob {
-//   public execute(progress: (p: number) => Promise<void>): Promise<unknown> {
-//     if (progress) {
-//       progress(100);
-//     }
-//     return Promise.resolve();
-//   }
-// }
-
-// class TestEvent extends QueueEvent {}
-
 describe('stomp queue transport test', () => {
   beforeEach(async () => {
     DI.clearCache();

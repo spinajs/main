@@ -389,7 +389,9 @@ export function DateTime() {
 }
 
 /**
- * Converts data in db to json object. 
+ * Converts data in db to json object. Column type in DB should be STRING.
+ * DO not use this decorator for use of native DB JSON implementation.
+ * ORM will detect automatically if field is native JSON DB type.
  */
 export function Json() {
   return extractDecoratorDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {

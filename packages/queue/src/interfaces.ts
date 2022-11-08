@@ -1,4 +1,4 @@
-import { AsyncService, Constructor } from '@spinajs/di';
+import { AsyncService, Constructor, DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log';
@@ -20,6 +20,11 @@ export interface IQueueJob extends IQueueMessage {
   JobId?: string;
 }
 
+export abstract class QueueService extends AsyncService {
+  public abstract emit(event: IQueueMessage, connection?: string): Promise<void>;
+  public abstract consume<T extends QueueMessage>(event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
+  public abstract get(connection?: string): Promise<QueueClient>;
+}
 /**
  * Events are messages send via queue, we do not want to track it, dont care about result, no retry policy on failed execution etc.
  */
@@ -38,6 +43,19 @@ export abstract class QueueMessage implements IQueueMessage {
 
   public hydrate(payload: any) {
     Object.assign(this, payload);
+  }
+
+  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>): Promise<void> {
+    const queue = await DI.resolve(QueueService);
+    const { connection } = Reflect.getMetadata('queue:options', this);
+
+    const message = {
+      ...val,
+      CreatedAt: val.CreatedAt ?? DateTime.now(),
+    } as IQueueMessage;
+
+    // partial of queue job always is queue message
+    await queue.emit(message, connection ?? null);
   }
 }
 
