@@ -202,7 +202,7 @@ describe('jobs', () => {
     await queue.consume(SampleJob);
 
     await SampleJob.emit({ Foo: 'test job' });
-    await wait(QUEUE_WAIT_TIME_MS);
+    await wait(10 * 1000);
 
     expect(sExecute.calledOnce).to.be.true;
 
