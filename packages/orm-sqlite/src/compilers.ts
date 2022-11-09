@@ -165,6 +165,8 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
       case 'dateTime':
       case 'time':
       case 'set':
+      case 'timestamp':
+      case 'enum':
         _stmt.push(`TEXT`);
         break;
       case 'float':

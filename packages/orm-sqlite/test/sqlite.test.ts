@@ -135,6 +135,19 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
     await expect(db().Connections.get('sqlite').select().from('notexisted')).to.be.rejected;
   });
 
+  it('Should create schema builder', async () => {
+    const result = db()
+      .Connections.get('sqlite')
+      .schema()
+      .createTable('test', (table) => {
+        table.timestamp('timestamp');
+        table.enum('enum', ['a', 'b', 'c']);
+      })
+      .toDB();
+
+      expect(result.expression).to.eq('CREATE TABLE `test` (`timestamp` TEXT,`enum` TEXT )');
+  });
+
   it('Should check if table exists', async () => {
     await db().migrateUp();
 
@@ -475,7 +488,6 @@ describe('Sqlite model functions', () => {
     expect(check.Many.length).to.eq(2);
     expect(check.Many[0].Id).to.eq(2);
     expect(check.Many[1].Id).to.eq(3);
- 
   });
 
   it('model relation intersection should work', async () => {
