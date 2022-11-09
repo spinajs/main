@@ -90,7 +90,7 @@ export class Container extends EventEmitter implements IContainer {
     return new Binder(implementation, this);
   }
 
-  public unregister<T>(implementation: Class<T> | Factory<T> | ResolvableObject): void {
+  public unregister<T>(implementation: string | Class<T> | Factory<T> | ResolvableObject): void {
     if (!implementation) {
       throw new InvalidArgument('argument `type` cannot be null or undefined');
     }

@@ -7,7 +7,7 @@ import { Injectable, NewInstance } from '@spinajs/di';
 Object.assign(global, { WebSocket: require('websocket').w3cwebsocket });
 
 @NewInstance()
-@Injectable(QueueClient)
+@Injectable()
 export class StompQueueClient extends QueueClient {
   protected Client: Client;
 
@@ -82,10 +82,12 @@ export class StompQueueClient extends QueueClient {
   }
 
   public async dispose() {
+    this.Log.info(`Disposing queue connection ${this.Options.name} ...`);
+
     return new Promise<void>((resolve) => {
       // if we dont have onDisconnect callback after 5sek, assume we have disconnected
       const t = setTimeout(() => {
-        this.Log.info('STOMP client deactivated, but was not connected before');
+        this.Log.warn('STOMP client deactivated, but was not connected before');
 
         resolve();
       }, 5000);
@@ -94,7 +96,7 @@ export class StompQueueClient extends QueueClient {
         clearTimeout(t);
         resolve();
 
-        this.Log.info('STOMP client deactivated');
+        this.Log.success('STOMP client deactivated');
       };
 
       this.Client.deactivate();

@@ -1,8 +1,8 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
-import { Constructor, DI, IContainer, Injectable, ResolveException } from '@spinajs/di';
+import { Constructor, DI, Injectable, ResolveException } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { IQueueConfiguration, QueueClient, QueueJob, QueueEvent, IQueueMessage, IQueueJob, QueueMessageType, IQueueConnectionOptions, QueueMessage, QueueService } from './interfaces';
+import { IQueueConfiguration, QueueClient, QueueJob, QueueEvent, IQueueMessage, IQueueJob, QueueMessageType, QueueMessage, QueueService } from './interfaces';
 import { JobModel } from './models/JobModel';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -12,35 +12,37 @@ export * from './bootstrap';
 export * from './models/JobModel';
 
 @Injectable(QueueService)
-export class Queues extends QueueService {
+export class DefaultQueueService extends QueueService {
   @Logger('queue')
   protected Log: Log;
 
   @Config('queue')
   protected Configuration: IQueueConfiguration;
 
+  protected Connections: Map<string, QueueClient> = new Map();
+
   public async resolve(): Promise<void> {
-    const self = this;
-
     for (const c of this.Configuration.connections) {
-      registerQueue(c);
-    }
+      const qName = `__queue__${c.name}`;
+      this.Log.trace(`Found queue ${c.name}, with transport: ${c.transport}`);
 
-    registerQueue(this.Configuration.connections.find((x) => x.name === this.Configuration.default));
+      if (!DI.check(c.transport)) {
+        throw new ResolveException(`Queue client of type ${c.transport} is not registered in DI container.`);
+      }
+
+      const conn = await DI.resolve<QueueClient>(c.transport, [c]);
+      this.Connections.set(qName, conn);
+    }
 
     await super.resolve();
+  }
 
-    function registerQueue(c: IQueueConnectionOptions) {
-      self.Log.trace(`Found queue ${c.name}, with transport: ${c.transport}, of type: ${c.type}`);
+  public async dispose() {
+    this.Connections.forEach(async (val) => {
+      await val.dispose();
+    });
 
-      DI.register(async (container: IContainer) => {
-        if (!container.hasRegisteredType(QueueClient, c.transport)) {
-          throw new ResolveException(`Queue client of type ${c.transport} is not registered in DI container.`);
-        }
-
-        return await container.resolve(QueueClient, [c]);
-      }).as(`__queue__${c.name}`);
-    }
+    this.Connections.clear();
   }
 
   public async emit(event: IQueueMessage, connection?: string) {
@@ -180,6 +182,6 @@ export class Queues extends QueueService {
    * @returns
    */
   public async get(connection?: string) {
-    return await DI.resolve<QueueClient>(`__queue__${connection ?? this.Configuration.default}`);
+    return this.Connections.get(`__queue__${connection ?? this.Configuration.default}`);
   }
 }

@@ -4,13 +4,14 @@ import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { QueueEvent, QueueJob, Queues, Event, Job, JobModel } from './../src';
+import { QueueEvent, QueueJob, Event, Job, JobModel, QueueService } from './../src';
 import { DateTime } from 'luxon';
 import { expect } from 'chai';
+import '@spinajs/orm-sqlite';
 import * as sinon from 'sinon';
 
 import '@spinajs/queue-stomp-transport';
-import { MigrationTransactionMode } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
 chai.use(chaiAsPromised);
 
@@ -97,7 +98,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'BlackHoleTarget',
+              type: 'ConsoleTarget',
               layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
             },
           ],
@@ -135,7 +136,7 @@ class SampleJob extends QueueJob {
 }
 
 async function q() {
-  return DI.resolve(Queues);
+  return DI.resolve(QueueService);
 }
 
 describe('jobs', () => {
@@ -144,10 +145,15 @@ describe('jobs', () => {
     DI.register(ConnectionConf).as(Configuration);
 
     await DI.resolve(Configuration);
+    await DI.resolve(Orm);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     sinon.restore();
+
+    const queue = await q();
+
+    await queue.dispose();
   });
 
   it('should connecto to queue server', async () => {

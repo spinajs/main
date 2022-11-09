@@ -95,7 +95,7 @@ export function register<T>(type: Class<T> | Factory<T> | ResolvableObject): IBi
   return RootContainer.register(type);
 }
 
-export function unregister<T>(type: Class<T> | Factory<T> | ResolvableObject): void {
+export function unregister<T>(type: string | Class<T> | Factory<T> | ResolvableObject): void {
   RootContainer.unregister(type);
 }
 
@@ -149,6 +149,19 @@ export function has<T>(service: string | Class<T>): boolean {
 export function check<T>(service: Class<T> | string): boolean {
   return RootContainer.hasRegistered(service);
 }
+
+/**
+ * Checks if specific service is registered in container.
+ * Eg. we can have multiple drivers registered for queue connections with different protocol implementations
+ * and we want to check if specific driver is registered
+ *
+ * @param source - source class to check ( eg. base class )
+ * @param type - specific type to check eg. base class implementation
+ */
+export function checkType<T>(source: Class<any> | string | TypedArray<any>, type: Class<T> | string | TypedArray<T> | object): boolean {
+  return RootContainer.hasRegisteredType(source, type);
+}
+
 /**
  * Creates child DI container.
  *

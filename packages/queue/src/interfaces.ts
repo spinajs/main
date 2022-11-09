@@ -44,19 +44,6 @@ export abstract class QueueMessage implements IQueueMessage {
   public hydrate(payload: any) {
     Object.assign(this, payload);
   }
-
-  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>): Promise<void> {
-    const queue = await DI.resolve(QueueService);
-    const { connection } = Reflect.getMetadata('queue:options', this);
-
-    const message = {
-      ...val,
-      CreatedAt: val.CreatedAt ?? DateTime.now(),
-    } as IQueueMessage;
-
-    // partial of queue job always is queue message
-    await queue.emit(message, connection ?? null);
-  }
 }
 
 /**
@@ -67,7 +54,21 @@ export abstract class QueueMessage implements IQueueMessage {
  * we can register multiple listeners for a single event and the event helper will dispatch the event to all of its registered
  * listeners without us calling them explicitly. where in case of Jobs we would have to call them each one explicitly.
  */
-export abstract class QueueEvent extends QueueMessage {}
+export abstract class QueueEvent extends QueueMessage {
+  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>): Promise<void> {
+    const queue = await DI.resolve(QueueService);
+    const { connection } = Reflect.getMetadata('queue:options', this);
+
+    const message = {
+      ...val,
+      Type: QueueMessageType.Event,
+      CreatedAt: val.CreatedAt ?? DateTime.now(),
+    } as IQueueMessage;
+
+    // partial of queue job always is queue message
+    await queue.emit(message, connection ?? null);
+  }
+}
 
 /**
  * Jobs are executed only once even if multiple listeners waiting for it. usually used for single method call
@@ -89,6 +90,20 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
    * Execution delay in miliseconds
    */
   public Delay: number;
+
+  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>): Promise<void> {
+    const queue = await DI.resolve(QueueService);
+    const { connection } = Reflect.getMetadata('queue:options', this);
+
+    const message = {
+      ...val,
+      Type: QueueMessageType.Job,
+      CreatedAt: val.CreatedAt ?? DateTime.now(),
+    } as IQueueMessage;
+
+    // partial of queue job always is queue message
+    await queue.emit(message, connection ?? null);
+  }
 }
 
 export abstract class QueueClient extends AsyncService {
@@ -124,7 +139,10 @@ export abstract class QueueClient extends AsyncService {
    */
   public getChannelForMessage(event: Constructor<QueueMessage>): string {
     const eName = event.name;
-    const isJob = event.prototype instanceof QueueJob;
+
+    // HACK: should work simple event.prototype instanceof QueueJob, but it fails ?
+    // so we simply check if have execute function, and assume its job class
+    const isJob = event.prototype instanceof QueueJob || event.prototype.execute !== undefined;
     let route: string | IMessageRoutingOption = null;
 
     if (isJob) {
