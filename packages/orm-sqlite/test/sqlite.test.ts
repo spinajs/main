@@ -135,7 +135,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
     await expect(db().Connections.get('sqlite').select().from('notexisted')).to.be.rejected;
   });
 
-  it('Should create schema builder', async () => {
+  it('Should create schema builder', () => {
     const result = db()
       .Connections.get('sqlite')
       .schema()
@@ -145,7 +145,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
       })
       .toDB();
 
-      expect(result.expression).to.eq('CREATE TABLE `test` (`timestamp` TEXT,`enum` TEXT )');
+    expect(result.expression).to.eq('CREATE TABLE `test` (`timestamp` TEXT,`enum` TEXT )');
   });
 
   it('Should check if table exists', async () => {

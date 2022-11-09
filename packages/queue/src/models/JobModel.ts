@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { ModelBase, Connection, Model, Json, CreatedAt, DateTime as DT } from '@spinajs/orm';
+import { ModelBase, Connection, Model, Json, CreatedAt, DateTime as DT, Primary } from '@spinajs/orm';
 
 /**
  * Base modele for users used by ACL
@@ -9,6 +9,7 @@ import { ModelBase, Connection, Model, Json, CreatedAt, DateTime as DT } from '@
 @Connection('queue')
 @Model('queue_jobs')
 export class JobModel<T> extends ModelBase {
+  @Primary()
   public Id: number;
 
   public JobId: string;

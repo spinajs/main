@@ -4,7 +4,7 @@ import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { QueueEvent, QueueJob, Event, Job, JobModel, QueueService } from './../src';
+import { QueueEvent, QueueJob, Event, Job, QueueService, JobModel } from './../src';
 import { DateTime } from 'luxon';
 import { expect } from 'chai';
 import '@spinajs/orm-sqlite';
@@ -44,6 +44,12 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
+        system: {
+          dirs: {
+            migrations: [dir('./../src/migrations')],
+            models: [dir('./../src/models')],
+          },
+        },
         db: {
           DefaultConnection: 'sqlite',
           Connections: [
@@ -172,7 +178,7 @@ describe('jobs', () => {
     await wait(QUEUE_WAIT_TIME_MS);
 
     expect(sExecute.calledOnce).to.be.true;
-    expect((sExecute.args[0][0] as any).Bar).to.eq('test message');
+    expect((sExecute.thisValues[0] as SampleJob).Foo).to.eq('test job');
   });
 
   it('should subscribe to events', async () => {

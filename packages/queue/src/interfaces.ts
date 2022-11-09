@@ -63,6 +63,7 @@ export abstract class QueueEvent extends QueueMessage {
       ...val,
       Type: QueueMessageType.Event,
       CreatedAt: val.CreatedAt ?? DateTime.now(),
+      Name: this.name,
     } as IQueueMessage;
 
     // partial of queue job always is queue message
@@ -91,7 +92,7 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
    */
   public Delay: number;
 
-  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>): Promise<void> {
+  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, delay?: number): Promise<void> {
     const queue = await DI.resolve(QueueService);
     const { connection } = Reflect.getMetadata('queue:options', this);
 
@@ -99,6 +100,8 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
       ...val,
       Type: QueueMessageType.Job,
       CreatedAt: val.CreatedAt ?? DateTime.now(),
+      Name: this.name,
+      Delay: delay ?? 0,
     } as IQueueMessage;
 
     // partial of queue job always is queue message
@@ -142,6 +145,8 @@ export abstract class QueueClient extends AsyncService {
 
     // HACK: should work simple event.prototype instanceof QueueJob, but it fails ?
     // so we simply check if have execute function, and assume its job class
+    // dont know for now, but when testing, nodejs loads twice QueueJob type from lib and src folder :(
+    // TODO: try to fix this
     const isJob = event.prototype instanceof QueueJob || event.prototype.execute !== undefined;
     let route: string | IMessageRoutingOption = null;
 

@@ -57,6 +57,8 @@ export class DefaultQueueService extends QueueService {
 
       jModel.JobId = uuidv4();
       jModel.Name = event.Name;
+      jModel.Status = 'created';
+      jModel.Progress = 0;
 
       await jModel.insert();
 
@@ -114,9 +116,12 @@ export class DefaultQueueService extends QueueService {
             const jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
             jModel.Status = 'executing';
 
+            // update executing state
+            await jModel.update();
+
             try {
               // TODO: implement retry count & dead letter
-              if (ev.Delay != 0) {
+              if (ev.Delay !== 0) {
                 jobResult = await _executeDelayed(ev);
               } else {
                 jobResult = await ev.execute(onProgress);
