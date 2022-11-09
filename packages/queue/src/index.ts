@@ -68,6 +68,18 @@ export class DefaultQueueService extends QueueService {
     return c.emit(event);
   }
 
+  public async stopConsuming(event: Constructor<QueueMessage>) {
+    const options = Reflect.getMetadata('queue:options', event);
+    if (!options) {
+      throw new InvalidArgument(`Type ${event.name} is not defined as Job or Event type. Use proper decorator to configure queue events`);
+    }
+
+    const { connection } = options;
+    const c = await this.get(connection);
+
+    c.unsubscribe(c.getChannelForMessage(event));
+  }
+
   /**
    *
    * Starts to consume events/jobs from connection
@@ -83,7 +95,7 @@ export class DefaultQueueService extends QueueService {
    * @param event - event type to consume
    * @param callback - optional callback when job is consumet, mandatory for events
    * @param subscriptionId - optional subscription id if consuming durable events
-   * @param durable - is durable event
+   * @param durable - is durable event, if not set, this value default to event decorator options
    */
   public async consume<T extends QueueMessage>(event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean) {
     const options = Reflect.getMetadata('queue:options', event);
@@ -93,11 +105,15 @@ export class DefaultQueueService extends QueueService {
       throw new InvalidArgument(`Type ${event.name} is not defined as Job or Event type. Use proper decorator to configure queue events`);
     }
 
-    const { connection } = options;
+    const { connection, durable: eDurable } = options;
     const c = await this.get(connection);
 
     if (!c) {
       throw new UnexpectedServerError(`queue connection ${connection} not exists in connection pool. Check queue confiuguration file or if server is alive.`);
+    }
+
+    if ((eDurable || durable) && !subscriptionId) {
+      throw new InvalidArgument('subscriptionId should be set when using durable events');
     }
 
     await c.subscribe(
@@ -169,15 +185,15 @@ export class DefaultQueueService extends QueueService {
             throw new InvalidArgument('when subscribing to events, callback cannot be null. Subscriber should handle event in callback function !');
           }
 
-          if (callback) {
-            await callback(ev as T);
-          }
-
           this.Log.trace(`Queue message ${event.name} processed`);
+
+          if (callback) {
+            return callback(ev as T);
+          }
         }
       },
       subscriptionId,
-      durable,
+      durable ?? eDurable ?? false,
     );
   }
 

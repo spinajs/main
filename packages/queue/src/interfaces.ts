@@ -23,6 +23,7 @@ export interface IQueueJob extends IQueueMessage {
 export abstract class QueueService extends AsyncService {
   public abstract emit(event: IQueueMessage, connection?: string): Promise<void>;
   public abstract consume<T extends QueueMessage>(event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
+  public abstract stopConsuming(event: Constructor<QueueMessage>): Promise<void>;
   public abstract get(connection?: string): Promise<QueueClient>;
 }
 /**

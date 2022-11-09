@@ -17,7 +17,7 @@ chai.use(chaiAsPromised);
 
 const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
 const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
-const QUEUE_WAIT_TIME_MS = 1000;
+const QUEUE_WAIT_TIME_MS = 5 * 1000;
 
 export function mergeArrays(target: any, source: any) {
   if (_.isArray(target)) {
@@ -104,7 +104,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'ConsoleTarget',
+              type: 'BlackHoleTarget',
               layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
             },
           ],
@@ -119,6 +119,18 @@ export class ConnectionConf extends FrameworkConfiguration {
 
 @Event()
 class SampleEvent extends QueueEvent {
+  Bar: string;
+}
+
+@Event()
+class SampleEvent2 extends QueueEvent {
+  Bar: string;
+}
+
+@Event({
+  durable: true,
+})
+class DurableEvent extends QueueEvent {
   Bar: string;
 }
 
@@ -195,6 +207,52 @@ describe('jobs', () => {
     expect((callback.args[0][0] as any).Bar).to.eq('test message');
   });
 
+  it('should subscribe to durable events', async () => {
+    const queue = await q();
+    const callback = sinon.stub().returns(Promise.resolve());
+
+    await queue.consume(DurableEvent, callback, 'test-durable');
+
+    DurableEvent.emit({ Bar: 'test message' });
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(callback.calledOnce).to.be.true;
+    expect((callback.args[0][0] as any).Bar).to.eq('test message');
+
+    await queue.stopConsuming(DurableEvent);
+
+    DurableEvent.emit({ Bar: 'test message' });
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(callback.calledOnce).to.be.true;
+
+    await queue.consume(DurableEvent, callback, 'test-durable');
+    await wait(QUEUE_WAIT_TIME_MS);
+    expect(callback.calledTwice).to.be.true;
+  });
+
+  // NOTE: stomp with topics, when we send nack, treats message as dequeued already
+  // ACK/NACK works only with Queues ????
+  // it('should retry durable event on error', async () => {
+  //   const queue = await q();
+  //   const callback = sinon.stub().onFirstCall().rejects('first call rejected').onSecondCall().resolves();
+
+  //   await queue.consume(DurableEvent, callback, 'test-durable');
+
+  //   DurableEvent.emit({ Bar: 'test message' });
+
+  //   await wait(10 * 1000);
+
+  //   DurableEvent.emit({ Bar: 'test message' });
+
+  //   await wait(10 * 1000);
+
+  //   expect(callback.calledTwice).to.be.true;
+  //   expect((callback.args[0][0] as any).Bar).to.eq('test message');
+  // });
+
   it('Should preserve job result', async () => {
     const queue = await q();
     const sExecute = sinon.spy(SampleJob.prototype, 'execute');
@@ -218,6 +276,21 @@ describe('jobs', () => {
 
     expect(model.Result).to.eq('finished');
     expect(model.Progress).to.eq(100);
+  });
+
+  it('Should filter out event we dont subscribe to', async () => {
+    const queue = await q();
+    const callback = sinon.stub().returns(Promise.resolve());
+
+    await queue.consume(SampleEvent2, callback);
+
+    SampleEvent.emit({ Bar: 'test message' });
+    SampleEvent2.emit({ Bar: 'test message' });
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(callback.calledOnce).to.be.true;
+    expect((callback.args[0][0] as any).Bar).to.eq('test message');
   });
 
   it('Should retry job on fail', () => {
