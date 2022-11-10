@@ -104,22 +104,16 @@ export class StompQueueClient extends QueueClient {
   }
 
   public async emit(message: IQueueMessage) {
-    let routing: string | IMessageRoutingOption = '';
+    const channels = this.getChannelForMessage(message);
 
-    if (message.Type === QueueMessageType.Job) {
-      routing = this.Options.messageRouting ? this.Options.messageRouting[message.Name] ?? this.Options.defaultQueueChannel : this.Options.defaultQueueChannel;
-    } else {
-      routing = this.Options.messageRouting ? this.Options.messageRouting[message.Name] ?? this.Options.defaultTopicChannel : this.Options.defaultTopicChannel;
-    }
+    channels.forEach((c) => {
+      this.Client.publish({
+        destination: c,
+        body: JSON.stringify(message),
+      });
 
-    const channel = (routing as IMessageRoutingOption).channel ?? (routing as string);
-
-    this.Client.publish({
-      destination: channel,
-      body: JSON.stringify(message),
+      this.Log.trace(`Published ${message.Type} Name: ${message.Name}} to channel ${c} ( ${this.Options.name} )`);
     });
-
-    this.Log.trace(`Published ${message.Type} { Name: ${message.Name}} to channel ${channel}`);
   }
 
   public unsubscribe(channel: string) {

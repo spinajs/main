@@ -68,11 +68,6 @@ async function q() {
       debug: true,
       defaultQueueChannel: TestJobChannelName,
       defaultTopicChannel: TestEventChannelName,
-      messageRouting: {
-        TestEventDurable: '/topic/durable',
-        TestEventRouted: '/topic/routed',
-        TestJobRouted: '/queue/routed',
-      },
     },
   ]);
 

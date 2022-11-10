@@ -84,6 +84,15 @@ export class ConnectionConf extends FrameworkConfiguration {
         },
         queue: {
           default: 'default-test-queue',
+          routing: {
+            TestEventDurable: '/topic/durable',
+            TestEventRouted: '/topic/routed',
+            TestJobRouted: '/queue/routed',
+            TestSecond: {
+              connection: 'second-test-connection',
+              channel: '/queue/routed',
+            },
+          },
           connections: [
             {
               transport: 'StompQueueClient',
@@ -92,11 +101,6 @@ export class ConnectionConf extends FrameworkConfiguration {
               debug: true,
               defaultQueueChannel: TestJobChannelName,
               defaultTopicChannel: TestEventChannelName,
-              messageRouting: {
-                TestEventDurable: '/topic/durable',
-                TestEventRouted: '/topic/routed',
-                TestJobRouted: '/queue/routed',
-              },
             },
           ],
         },

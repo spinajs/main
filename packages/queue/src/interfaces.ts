@@ -2,6 +2,7 @@ import { AsyncService, Constructor, DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log';
+import { Config } from '@spinajs/configuration';
 
 export enum QueueMessageType {
   Job = 'JOB',
@@ -21,10 +22,35 @@ export interface IQueueJob extends IQueueMessage {
 }
 
 export abstract class QueueService extends AsyncService {
+  @Config('queue')
+  protected Configuration: IQueueConfiguration;
+
   public abstract emit(event: IQueueMessage, connection?: string): Promise<void>;
   public abstract consume<T extends QueueMessage>(event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
   public abstract stopConsuming(event: Constructor<QueueMessage>): Promise<void>;
   public abstract get(connection?: string): Promise<QueueClient>;
+
+  protected getConnectionForMessage(event: Constructor<QueueMessage>): string[] {
+    const option = this.Configuration.routing[event.name] ?? this.Configuration.default;
+
+    if (_.isString(option)) {
+      return [this.Configuration.default];
+    }
+
+    if (_.isArray(option)) {
+      return _.uniq(
+        option.map((x) => {
+          if (_.isString(x)) {
+            return this.Configuration.default;
+          }
+
+          if (x.connection) {
+            return x.connection;
+          }
+        }),
+      );
+    }
+  }
 }
 /**
  * Events are messages send via queue, we do not want to track it, dont care about result, no retry policy on failed execution etc.
@@ -114,6 +140,9 @@ export abstract class QueueClient extends AsyncService {
   @Logger('queue')
   protected Log: Log;
 
+  @Config('queue.routing')
+  protected Routing: IQueueMessageRoutingOptions;
+
   constructor(public Options: IQueueConnectionOptions) {
     super();
   }
@@ -141,34 +170,58 @@ export abstract class QueueClient extends AsyncService {
    *
    * @param event - event to check
    */
-  public getChannelForMessage(event: Constructor<QueueMessage>): string {
-    const eName = event.name;
+  public getChannelForMessage(event: IQueueMessage): string[] {
+    const eName = event.Name;
+    const isJob = event.Type === QueueMessageType.Job;
+    const rOption = this.Routing[eName];
 
-    // HACK: should work simple event.prototype instanceof QueueJob, but it fails ?
-    // so we simply check if have execute function, and assume its job class
-    // dont know for now, but when testing, nodejs loads twice QueueJob type from lib and src folder :(
-    // TODO: try to fix this
-    const isJob = event.prototype instanceof QueueJob || event.prototype.execute !== undefined;
-    let route: string | IMessageRoutingOption = null;
-
-    if (isJob) {
-      route = this.Options.messageRouting ? this.Options.messageRouting[eName] ?? this.Options.defaultQueueChannel : this.Options.defaultQueueChannel;
-    } else {
-      route = this.Options.messageRouting ? this.Options.messageRouting[eName] ?? this.Options.defaultTopicChannel : this.Options.defaultTopicChannel;
+    if (!rOption) {
+      return [isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel];
     }
 
-    return (route as IMessageRoutingOption).channel ?? (route as string);
+    if (_.isString(rOption)) {
+      return [rOption];
+    }
+
+    if (_.isArray(rOption)) {
+      return _.uniq(
+        rOption.map((x) => {
+          if (_.isString(x)) {
+            return x;
+          }
+
+          return x.channel ?? isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel;
+        }),
+      );
+    }
+
+    return [rOption.channel ?? isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel];
   }
+}
+
+export interface IQueueMessageRoutingOptions {
+  [key: string]: string | IMessageRoutingOption | string[] | IMessageRoutingOption[];
 }
 
 export interface IQueueConfiguration {
   default: string;
+  /**
+   * Message routing eg. where event/job with given type ( name ) will be send to
+   * eg. job Email will be sent to /task/mails channel in broker
+   * If no routing for message is provided, it will be sent to default one.
+   *
+   * Also here deat letter channel for message can be configured
+   *
+   * Message can be router in multiple destinations
+   */
+  routing?: IQueueMessageRoutingOptions;
   connections: IQueueConnectionOptions[];
 }
 
 export interface IMessageRoutingOption {
-  channel: string;
-  deadLetterChannel: string;
+  channel?: string;
+  deadLetterChannel?: string;
+  connection?: string;
 }
 
 export interface IQueueConnectionOptions {
@@ -204,15 +257,4 @@ export interface IQueueConnectionOptions {
    * and for unblocking source queue
    */
   defaultQueueDeadLetterChannel?: string;
-
-  /**
-   * Message routing eg. where event/job with given type ( name ) will be send to
-   * eg. job Email will be sent to /task/mails channel in broker
-   * If no routing for message is provided, it will be sent to default one.
-   *
-   * Also here deat letter channel for message can be configured
-   */
-  messageRouting?: {
-    [key: string]: string | IMessageRoutingOption;
-  };
 }

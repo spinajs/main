@@ -1,10 +1,11 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
-import { Config } from '@spinajs/configuration';
 import { Constructor, DI, Injectable, ResolveException } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { IQueueConfiguration, QueueClient, QueueJob, QueueEvent, IQueueMessage, IQueueJob, QueueMessageType, QueueMessage, QueueService } from './interfaces';
+import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IQueueJob, QueueMessageType, QueueMessage, QueueService } from './interfaces';
 import { JobModel } from './models/JobModel';
 import { v4 as uuidv4 } from 'uuid';
+
+import 'BlackHoleQueueClient';
 
 export * from './interfaces';
 export * from './decorators';
@@ -16,8 +17,7 @@ export class DefaultQueueService extends QueueService {
   @Logger('queue')
   protected Log: Log;
 
-  @Config('queue')
-  protected Configuration: IQueueConfiguration;
+
 
   protected Connections: Map<string, QueueClient> = new Map();
 
