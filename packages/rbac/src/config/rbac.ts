@@ -12,6 +12,32 @@ module.exports = {
       cli: [dir('./../cli')],
     },
   },
+  queue: {
+    routing: {
+      NewUser: { connection: 'rbac-user-queue' },
+      UserActivated: { connection: 'rbac-user-queue' },
+      UserBanned: { connection: 'rbac-user-queue' },
+      UserDeactivated: { connection: 'rbac-user-queue' },
+      UserDeleted: { connection: 'rbac-user-queue' },
+      UserLoginFailed: { connection: 'rbac-user-queue' },
+      UserMetadataAdded: { connection: 'rbac-user-queue' },
+      UserMetadataChanged: { connection: 'rbac-user-queue' },
+      UserMetadataDeleted: { connection: 'rbac-user-queue' },
+      UserPropertyChanged: { connection: 'rbac-user-queue' },
+      UserUnbanned: { connection: 'rbac-user-queue' },
+    },
+
+    // by default all events from rbac module are routed to rbac-user-queue
+    // and is using empty sink ( no events are sent )
+    connections: [
+      {
+        name: 'rbac-user-queue',
+        transport: 'BlackHoleQueueClient',
+        defaultQueueChannel: 'rbac-jobs',
+        defaultTopicChannel: 'rbac-events',
+      },
+    ],
+  },
   rbac: {
     users: {
       // when user is created, should he confirm email

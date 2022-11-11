@@ -1,13 +1,15 @@
 import { InvalidOperation } from '@spinajs/exceptions';
-import { DI, AsyncService, Bootstrapper, Injectable } from '@spinajs/di';
+import { DI, AsyncService, Bootstrapper, Injectable, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { IEmail, EmailSender, EmailConfiguration } from './interfaces';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration';
-//import { QueueClient } from '@spinajs/queue';
+import { QueueService } from '@spinajs/queue';
+import { EmailSent } from './events/EmailSent';
 
 export * from './interfaces';
 export * from './transports';
+export * from './jobs/EmailSend';
 
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
@@ -29,18 +31,8 @@ export class Emails extends AsyncService {
   @Config('email')
   protected Configuration: EmailConfiguration;
 
-  // @Autoinject(QueueClient)
-  // protected Queue: QueueClient;
-
-  /**
-   *
-   * Sends email deferred, it sends email to queue. Proper subscriber should receive and process email in background
-   *
-   * @param email - email struct
-   */
-  // public async sendDeferred(email: Email) {
-  //   //this.Queue.emitJob(email);
-  // }
+  @Autoinject(QueueService)
+  protected Queue: QueueService;
 
   /**
    *
@@ -53,6 +45,9 @@ export class Emails extends AsyncService {
       throw new InvalidOperation(`Email sender ${email.connection} not exists. Please check your configuration files.`);
     }
 
-    return this.Senders.get(email.connection).send(email);
+    await this.Senders.get(email.connection).send(email);
+
+    // inform others of email event
+    await this.Queue.emit(new EmailSent(email));
   }
 }

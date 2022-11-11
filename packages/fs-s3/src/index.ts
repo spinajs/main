@@ -238,7 +238,10 @@ export class fsS3 extends fs implements IInstanceCheck {
    *
    * @param path - dir to remove
    */
-  public async rm(path: string) {}
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-function
+  public async rm(_path: string) {
+    // s3 is not deleting folders
+  }
 
   /**
    *

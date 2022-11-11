@@ -23,7 +23,7 @@ interface EmailOptions {
 @Option('-s, --subject [model]', true, 'subject')
 @Option('-c, --content [content]', false, 'text content if template is not provided')
 export class SendEmailCommand extends CliCommand {
-  @Logger('templates')
+  @Logger('email')
   protected Log: ILog;
 
   public async execute(options: EmailOptions): Promise<void> {
@@ -42,7 +42,7 @@ export class SendEmailCommand extends CliCommand {
 
       await emails.send({
         from: options.from,
-        to: [options.to],
+        to: options.to.split(','),
         connection: options.connection,
         template: options.template,
         model: model,
