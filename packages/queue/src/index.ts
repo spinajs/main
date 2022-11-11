@@ -20,7 +20,6 @@ export class DefaultQueueService extends QueueService {
 
   public async resolve(): Promise<void> {
     for (const c of this.Configuration.connections) {
-      const qName = `__queue__${c.name}`;
       this.Log.trace(`Found queue ${c.name}, with transport: ${c.transport}`);
 
       if (!DI.check(c.transport)) {
@@ -28,7 +27,7 @@ export class DefaultQueueService extends QueueService {
       }
 
       const conn = await DI.resolve<QueueClient>(c.transport, [c]);
-      this.Connections.set(qName, conn);
+      this.Connections.set(c.name, conn);
     }
 
     await super.resolve();
@@ -80,7 +79,6 @@ export class DefaultQueueService extends QueueService {
    *       job can be executed once even with multiple subscribers, so filtering it out
    *       prevents from executing it on other subscriptions
    *
-   * @param connection - connection to use
    * @param event - event type to consume
    * @param callback - optional callback when job is consumet, mandatory for events
    * @param subscriptionId - optional subscription id if consuming durable events
@@ -94,96 +92,95 @@ export class DefaultQueueService extends QueueService {
       throw new InvalidArgument(`Type ${event.name} is not defined as Job or Event type. Use proper decorator to configure queue events`);
     }
 
-    const { connection, durable: eDurable } = options;
-    const c = await this.get(connection);
-
-    if (!c) {
-      throw new UnexpectedServerError(`queue connection ${connection} not exists in connection pool. Check queue confiuguration file or if server is alive.`);
-    }
+    const { durable: eDurable } = options;
+    const connections = this.getConnectionsForMessage(event);
 
     if ((eDurable || durable) && !subscriptionId) {
       throw new InvalidArgument('subscriptionId should be set when using durable events');
     }
 
-    await c.subscribe(
-      event,
-      async (e) => {
-        if (e.Name === event.name) {
-          const ev = DI.resolve<QueueMessage>(event);
-          ev.hydrate(e);
+    for (let c of connections) {
+      const conn = this.Connections.get(c);
+      await conn.subscribe(
+        event,
+        async (e) => {
+          if (e.Name === event.name) {
+            const ev = DI.resolve<QueueMessage>(event);
+            ev.hydrate(e);
 
-          /**
-           * Handle job type of message
-           * To preserve result & handle delay, errors etc..
-           */
-          if (ev instanceof QueueJob) {
-            let jobResult = null;
-            const jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
-            jModel.Status = 'executing';
+            /**
+             * Handle job type of message
+             * To preserve result & handle delay, errors etc..
+             */
+            if (ev instanceof QueueJob) {
+              let jobResult = null;
+              const jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+              jModel.Status = 'executing';
 
-            // update executing state
-            await jModel.update();
-
-            try {
-              // TODO: implement retry count & dead letter
-              if (ev.Delay !== 0) {
-                jobResult = await _executeDelayed(ev);
-              } else {
-                jobResult = await ev.execute(onProgress);
-              }
-
-              jModel.Result = jobResult;
-              jModel.Status = 'success';
-
-              this.Log.trace(`Job ${event.name} processed with result ${JSON.stringify(jModel.Result)}`);
-            } catch (err) {
-              this.Log.error(err, `Cannot execute job ${event.name}`);
-
-              jModel.Result = {
-                message: err.message,
-              };
-              jModel.Status = 'error';
-            }
-
-            await jModel.update();
-
-            async function onProgress(p: number) {
-              jModel.Progress = p;
+              // update executing state
               await jModel.update();
 
-              self.Log.trace(`Job ${event.name}:${jModel.JobId} progress: ${p}%`);
+              try {
+                // TODO: implement retry count & dead letter
+                if (ev.Delay !== 0) {
+                  jobResult = await _executeDelayed(ev);
+                } else {
+                  jobResult = await ev.execute(onProgress);
+                }
+
+                jModel.Result = jobResult;
+                jModel.Status = 'success';
+
+                this.Log.trace(`Job ${event.name} processed with result ${JSON.stringify(jModel.Result)}`);
+              } catch (err) {
+                this.Log.error(err, `Cannot execute job ${event.name}`);
+
+                jModel.Result = {
+                  message: err.message,
+                };
+                jModel.Status = 'error';
+              }
+
+              await jModel.update();
+
+              async function onProgress(p: number) {
+                jModel.Progress = p;
+                await jModel.update();
+
+                self.Log.trace(`Job ${event.name}:${jModel.JobId} progress: ${p}%`);
+              }
+
+              async function _executeDelayed(jobInstance: QueueJob) {
+                return new Promise((res, rej) => {
+                  setTimeout(() => {
+                    jobInstance
+                      .execute(onProgress)
+                      .then((result) => {
+                        res(result);
+                      })
+                      .catch((err) => {
+                        rej(err);
+                      });
+                  }, jobInstance.Delay);
+                });
+              }
             }
 
-            async function _executeDelayed(jobInstance: QueueJob) {
-              return new Promise((res, rej) => {
-                setTimeout(() => {
-                  jobInstance
-                    .execute(onProgress)
-                    .then((result) => {
-                      res(result);
-                    })
-                    .catch((err) => {
-                      rej(err);
-                    });
-                }, jobInstance.Delay);
-              });
+            if (!callback && ev instanceof QueueEvent) {
+              throw new InvalidArgument('when subscribing to events, callback cannot be null. Subscriber should handle event in callback function !');
+            }
+
+            this.Log.trace(`Queue message ${event.name} processed`);
+
+            if (callback) {
+              return callback(ev as T);
             }
           }
-
-          if (!callback && ev instanceof QueueEvent) {
-            throw new InvalidArgument('when subscribing to events, callback cannot be null. Subscriber should handle event in callback function !');
-          }
-
-          this.Log.trace(`Queue message ${event.name} processed`);
-
-          if (callback) {
-            return callback(ev as T);
-          }
-        }
-      },
-      subscriptionId,
-      durable ?? eDurable ?? false,
-    );
+        },
+        subscriptionId,
+        durable ?? eDurable ?? false,
+      );
+    }
   }
 
   /**
@@ -192,6 +189,6 @@ export class DefaultQueueService extends QueueService {
    * @returns
    */
   public get(connection?: string) {
-    return this.Connections.get(`__queue__${connection ?? this.Configuration.default}`);
+    return this.Connections.get(`${connection ?? this.Configuration.default}`);
   }
 }

@@ -197,8 +197,9 @@ export abstract class QueueClient extends AsyncService {
    * @param event - event to check
    */
   public getChannelForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
+    const options = Reflect.getMetadata('queue:options', event);
     const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name;
-    const isJob = (event as IQueueMessage).Type ? (event as IQueueMessage).Type === QueueMessageType.Job : (event as Constructor<QueueMessage>).prototype instanceof QueueJob;
+    const isJob = (event as IQueueMessage).Type ? (event as IQueueMessage).Type === QueueMessageType.Job : options ? options.type === 'job' : false;
     const rOption = this.Routing[eName];
 
     if (!rOption) {
