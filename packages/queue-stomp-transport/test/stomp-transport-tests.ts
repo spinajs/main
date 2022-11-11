@@ -41,6 +41,13 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
+        queue: {
+          routing: {
+            TestEventDurable: '/topic/durable',
+            TestEventRouted: '/topic/routed',
+            TestJobRouted: '/queue/routed',
+          },
+        },
         logger: {
           targets: [
             {

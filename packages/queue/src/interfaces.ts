@@ -25,13 +25,13 @@ export abstract class QueueService extends AsyncService {
   @Config('queue')
   protected Configuration: IQueueConfiguration;
 
-  public abstract emit(event: IQueueMessage, connection?: string): Promise<void>;
+  public abstract emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<void>;
   public abstract consume<T extends QueueMessage>(event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
   public abstract stopConsuming(event: Constructor<QueueMessage>): Promise<void>;
-  public abstract get(connection?: string): Promise<QueueClient>;
+  public abstract get(connection?: string): QueueClient;
 
-  protected getConnectionForMessage(event: Constructor<QueueMessage>): string[] {
-    const option = this.Configuration.routing[event.name] ?? this.Configuration.default;
+  protected getConnectionsForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
+    const option = this.Configuration.routing[(event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name] ?? this.Configuration.default;
 
     if (_.isString(option)) {
       return [this.Configuration.default];
@@ -52,6 +52,11 @@ export abstract class QueueService extends AsyncService {
     }
   }
 }
+
+export function isJob(event: IQueueMessage): event is QueueJob {
+  return event.Type === QueueMessageType.Job;
+}
+
 /**
  * Events are messages send via queue, we do not want to track it, dont care about result, no retry policy on failed execution etc.
  */
@@ -64,7 +69,7 @@ export abstract class QueueMessage implements IQueueMessage {
 
   public Type: QueueMessageType;
 
-  constructor(public Connection?: string) {
+  constructor() {
     this.CreatedAt = DateTime.now();
   }
 
@@ -82,9 +87,14 @@ export abstract class QueueMessage implements IQueueMessage {
  * listeners without us calling them explicitly. where in case of Jobs we would have to call them each one explicitly.
  */
 export abstract class QueueEvent extends QueueMessage {
+  constructor() {
+    super();
+
+    this.Type = QueueMessageType.Event;
+  }
+
   public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>): Promise<void> {
     const queue = await DI.resolve(QueueService);
-    const { connection } = Reflect.getMetadata('queue:options', this);
 
     const message = {
       ...val,
@@ -94,7 +104,7 @@ export abstract class QueueEvent extends QueueMessage {
     } as IQueueMessage;
 
     // partial of queue job always is queue message
-    await queue.emit(message, connection ?? null);
+    await queue.emit(message);
   }
 }
 
@@ -107,8 +117,6 @@ export abstract class QueueEvent extends QueueMessage {
 export abstract class QueueJob extends QueueMessage implements IQueueJob {
   public JobId: string;
 
-  public abstract execute(progress: (p: number) => Promise<void>): Promise<unknown>;
-
   /**
    * Retry count on job failure
    */
@@ -119,9 +127,16 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
    */
   public Delay: number;
 
+  constructor() {
+    super();
+
+    this.Type = QueueMessageType.Job;
+  }
+
+  public abstract execute(progress: (p: number) => Promise<void>): Promise<unknown>;
+
   public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, delay?: number): Promise<void> {
     const queue = await DI.resolve(QueueService);
-    const { connection } = Reflect.getMetadata('queue:options', this);
 
     const message = {
       ...val,
@@ -132,7 +147,7 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
     } as IQueueMessage;
 
     // partial of queue job always is queue message
-    await queue.emit(message, connection ?? null);
+    await queue.emit(message);
   }
 }
 
@@ -157,11 +172,22 @@ export abstract class QueueClient extends AsyncService {
 
   /**
    *
-   * Subscribes to queue and process incoming events or jobs
+   * Subscribes to ALL channels that event is assignet to in routing table
    *
+   */
+  public abstract subscribe(event: Constructor<QueueMessage>, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
+
+  /**
+   * Subscribes for specific channel in queue server
+   *
+   * @param channel - specified channel to subscribe
+   * @param callback - callback executet when message arrives
+   * @param subscriptionId - id to identify subscription when using durable events
+   * @param durable - is durable event ?
    */
   public abstract subscribe(channel: string, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
 
+  public abstract unsubscribe(event: Constructor<QueueMessage>): void;
   public abstract unsubscribe(channel: string): void;
 
   /**
@@ -170,9 +196,9 @@ export abstract class QueueClient extends AsyncService {
    *
    * @param event - event to check
    */
-  public getChannelForMessage(event: IQueueMessage): string[] {
-    const eName = event.Name;
-    const isJob = event.Type === QueueMessageType.Job;
+  public getChannelForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
+    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name;
+    const isJob = (event as IQueueMessage).Type ? (event as IQueueMessage).Type === QueueMessageType.Job : (event as Constructor<QueueMessage>).prototype instanceof QueueJob;
     const rOption = this.Routing[eName];
 
     if (!rOption) {

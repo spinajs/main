@@ -11,6 +11,7 @@ export class Queue_2022_10_18_01_13_00 extends OrmMigration {
       table.string('Result');
       table.enum('Status', ['error', 'success', 'created', 'executing']).notNull().default().value('created');
       table.int('Progress').notNull().default().value(0);
+      table.string('Connection').notNull();
       table.timestamp('CreatedAt').notNull().default().dateTime();
       table.timestamp('ExecutedAt');
       table.timestamp('FinishedAt');

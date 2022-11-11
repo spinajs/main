@@ -23,6 +23,8 @@ export class JobModel<T> extends ModelBase {
 
   public Progress: number;
 
+  public Connection: string;
+
   @CreatedAt()
   public CreatedAt: DateTime;
 

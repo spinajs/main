@@ -1,12 +1,11 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ResolveException } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IQueueJob, QueueMessageType, QueueMessage, QueueService } from './interfaces';
+import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces';
 import { JobModel } from './models/JobModel';
 import { v4 as uuidv4 } from 'uuid';
 
-import 'BlackHoleQueueClient';
-
+import './BlackHoleQueueClient';
 export * from './interfaces';
 export * from './decorators';
 export * from './bootstrap';
@@ -16,8 +15,6 @@ export * from './models/JobModel';
 export class DefaultQueueService extends QueueService {
   @Logger('queue')
   protected Log: Log;
-
-
 
   protected Connections: Map<string, QueueClient> = new Map();
 
@@ -45,39 +42,31 @@ export class DefaultQueueService extends QueueService {
     this.Connections.clear();
   }
 
-  public async emit(event: IQueueMessage, connection?: string) {
-    const cName = connection ? connection : this.Configuration.default;
-    const c = await this.get(connection ? connection : this.Configuration.default);
-    if (!c) {
-      throw new UnexpectedServerError(`Queue ${cName} not exists !`);
+  public async emit(event: IQueueMessage | QueueEvent | QueueJob) {
+    const connections = this.getConnectionsForMessage(event);
+
+    for (let c of connections) {
+      if (isJob(event)) {
+        const jModel = new JobModel();
+
+        jModel.JobId = uuidv4();
+        jModel.Name = event.Name;
+        jModel.Status = 'created';
+        jModel.Progress = 0;
+        jModel.Connection = c;
+
+        await jModel.insert();
+
+        event.JobId = jModel.JobId;
+      }
+
+      this.Connections.get(c).emit(event);
+      this.Log.trace(`Emitted message ${event.Name}, type: ${event.Type} to connection ${c}`);
     }
-
-    if (event.Type === QueueMessageType.Job) {
-      const jModel = new JobModel();
-
-      jModel.JobId = uuidv4();
-      jModel.Name = event.Name;
-      jModel.Status = 'created';
-      jModel.Progress = 0;
-
-      await jModel.insert();
-
-      (event as IQueueJob).JobId = jModel.JobId;
-    }
-
-    return c.emit(event);
   }
 
   public async stopConsuming(event: Constructor<QueueMessage>) {
-    const options = Reflect.getMetadata('queue:options', event);
-    if (!options) {
-      throw new InvalidArgument(`Type ${event.name} is not defined as Job or Event type. Use proper decorator to configure queue events`);
-    }
-
-    const { connection } = options;
-    const c = await this.get(connection);
-
-    c.unsubscribe(c.getChannelForMessage(event));
+    this.getConnectionsForMessage(event).forEach((c) => this.Connections.get(c).unsubscribe(event));
   }
 
   /**
@@ -117,7 +106,7 @@ export class DefaultQueueService extends QueueService {
     }
 
     await c.subscribe(
-      c.getChannelForMessage(event),
+      event,
       async (e) => {
         if (e.Name === event.name) {
           const ev = DI.resolve<QueueMessage>(event);
@@ -202,7 +191,7 @@ export class DefaultQueueService extends QueueService {
    * @param connection - connection name to obtain
    * @returns
    */
-  public async get(connection?: string) {
+  public get(connection?: string) {
     return this.Connections.get(`__queue__${connection ?? this.Configuration.default}`);
   }
 }

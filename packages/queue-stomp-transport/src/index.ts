@@ -1,8 +1,8 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
-import { IQueueMessage, IQueueConnectionOptions, QueueClient, IMessageRoutingOption, QueueMessageType } from '@spinajs/queue';
+import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
 import { Client, StompSubscription } from '@stomp/stompjs';
 import _ from 'lodash';
-import { Injectable, NewInstance } from '@spinajs/di';
+import { Constructor, Injectable, NewInstance } from '@spinajs/di';
 
 Object.assign(global, { WebSocket: require('websocket').w3cwebsocket });
 
@@ -116,53 +116,61 @@ export class StompQueueClient extends QueueClient {
     });
   }
 
-  public unsubscribe(channel: string) {
-    if (!this.Subscriptions.has(channel)) {
-      return;
-    }
+  public unsubscribe(channelOrMessage: string | Constructor<QueueMessage>) {
+    const channels = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
 
-    this.Subscriptions.get(channel).unsubscribe();
-    this.Subscriptions.delete(channel);
-  }
-
-  public subscribe(channel: string, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void> {
-    if (this.Subscriptions.has(channel)) {
-      this.Log.warn(`Channel ${channel} already subscribed !`);
-      return;
-    }
-
-    const headers: { [key: string]: string } = { ack: 'client' };
-
-    if (subscriptionId) {
-      headers.id = subscriptionId;
-    }
-
-    if (durable) {
-      if (!subscriptionId) {
-        throw new InvalidArgument(`subscriptionId cannot be empty if using durable subscriptions`);
+    channels.forEach((c) => {
+      if (!this.Subscriptions.has(c)) {
+        return;
       }
 
-      headers['activemq.subscriptionName'] = subscriptionId;
-    }
+      this.Subscriptions.get(c).unsubscribe();
+      this.Subscriptions.delete(c);
+    });
+  }
 
-    const subscription = this.Client.subscribe(
-      channel,
-      (message) => {
-        const qMessage: IQueueMessage = JSON.parse(message.body);
+  public async subscribe(channelOrMessage: string | Constructor<QueueMessage>, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void> {
+    const channels = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
 
-        callback(qMessage)
-          .then(() => {
-            message.ack();
-          })
-          .catch(() => {
-            message.nack();
-          });
-      },
-      headers,
-    );
+    channels.forEach((c) => {
+      if (this.Subscriptions.has(c)) {
+        this.Log.warn(`Channel ${c} already subscribed !`);
+        return;
+      }
 
-    this.Subscriptions.set(channel, subscription);
+      const headers: { [key: string]: string } = { ack: 'client' };
 
-    this.Log.success(`Channel ${channel}, durable: ${durable ? 'true' : 'false'} subscribed and ready to receive messages !`);
+      if (subscriptionId) {
+        headers.id = subscriptionId;
+      }
+
+      if (durable) {
+        if (!subscriptionId) {
+          throw new InvalidArgument(`subscriptionId cannot be empty if using durable subscriptions`);
+        }
+
+        headers['activemq.subscriptionName'] = subscriptionId;
+      }
+
+      const subscription = this.Client.subscribe(
+        c,
+        (message) => {
+          const qMessage: IQueueMessage = JSON.parse(message.body);
+
+          callback(qMessage)
+            .then(() => {
+              message.ack();
+            })
+            .catch(() => {
+              message.nack();
+            });
+        },
+        headers,
+      );
+
+      this.Subscriptions.set(c, subscription);
+
+      this.Log.success(`Channel ${c}, durable: ${durable ? 'true' : 'false'} subscribed and ready to receive messages !`);
+    });
   }
 }
