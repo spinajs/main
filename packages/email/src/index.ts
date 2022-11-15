@@ -1,11 +1,9 @@
 import { InvalidOperation } from '@spinajs/exceptions';
-import { DI, AsyncService, Bootstrapper, Injectable, Autoinject } from '@spinajs/di';
-import { Log, Logger } from '@spinajs/log';
-import { IEmail, EmailSender, EmailConfiguration } from './interfaces';
-import { AutoinjectService, Config } from '@spinajs/configuration';
+import { DI, Bootstrapper, Injectable } from '@spinajs/di';
+import { IEmail, EmailService } from './interfaces';
 import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration';
-import { QueueService } from '@spinajs/queue';
 import { EmailSent } from './events/EmailSent';
+import { EmailSend } from './jobs/EmailSend';
 
 export * from './interfaces';
 export * from './transports';
@@ -19,21 +17,9 @@ export class LogBotstrapper extends Bootstrapper {
 }
 
 /**
- * Inject INTL module for language support. We does nothing but to initialize module for use in templates.
+ * Email sending service.
  */
-export class Emails extends AsyncService {
-  @Logger('email')
-  protected Log: Log;
-
-  @AutoinjectService('email.connections', EmailSender)
-  protected Senders: Map<string, EmailSender>;
-
-  @Config('email')
-  protected Configuration: EmailConfiguration;
-
-  @Autoinject(QueueService)
-  protected Queue: QueueService;
-
+export class DefaultEmailService extends EmailService {
   /**
    *
    * Tries to sends email immediately
@@ -49,5 +35,15 @@ export class Emails extends AsyncService {
 
     // inform others of email event
     await this.Queue.emit(new EmailSent(email));
+  }
+
+  public async sendDeferred(email: IEmail): Promise<void> {
+    const dEmail = new EmailSend();
+    dEmail.hydrate(email);
+    await this.Queue.emit(dEmail);
+  }
+
+  public async processDefferedEmails(): Promise<void> {
+    await this.Queue.consume(EmailSend);
   }
 }

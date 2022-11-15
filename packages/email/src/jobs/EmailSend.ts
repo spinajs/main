@@ -1,46 +1,31 @@
 import { DI } from '@spinajs/di';
 import { QueueJob, Job } from '@spinajs/queue';
-import { Emails } from '..';
+import { EmailService, IEmail, IEmailAttachement } from '../interfaces';
 
 /**
  * Job for sending emails in background
  */
 @Job()
-export class EmailSend extends QueueJob {
-  public Connection?: string;
-
-  public From: string;
-
-  public To: string[];
-
-  /**
-   * Email template eg. pug file or mustashe
-   */
-  public Template?: string;
-
-  /**
-   * Data model used in template
-   */
-  public Model?: any;
-
-  public Subject: string;
-
-  /**
-   * text content if template is not provided
-   */
-  public Content?: string;
+export class EmailSend extends QueueJob implements IEmail {
+  public to: string[];
+  public cc?: string[];
+  public bcc?: string[];
+  public from: string;
+  public connection: string;
+  public attachements?: IEmailAttachement[];
+  public template?: string;
+  public templateId?: string;
+  public model?: unknown;
+  public text?: string;
+  public subject: string;
+  public lang?: string;
+  public priority?: string;
+  public replyTo?: string;
+  public tag?: string;
+  public emailId?: string;
 
   public async execute() {
-    const emails = await DI.resolve(Emails);
-
-    await emails.send({
-      from: this.From,
-      to: this.To,
-      connection: this.Connection,
-      template: this.Template,
-      model: this.Model,
-      subject: this.Subject,
-      text: this.Options,
-    });
+    const emails = await DI.resolve(EmailService);
+    await emails.send(this);
   }
 }

@@ -1,5 +1,7 @@
-import { AsyncService } from '@spinajs/di';
-
+import { AsyncService, Autoinject } from '@spinajs/di';
+import { Log, Logger } from '@spinajs/log';
+import { AutoinjectService, Config } from '@spinajs/configuration';
+import { QueueService } from '@spinajs/queue';
 export abstract class EmailSender extends AsyncService {
   public Options: EmailConnectionOptions;
 
@@ -106,4 +108,40 @@ export interface EmailConnectionOptions {
    * lib specific
    */
   options?: unknown;
+}
+
+export abstract class EmailService extends AsyncService {
+  @Logger('email')
+  protected Log: Log;
+
+  @AutoinjectService('email.connections', EmailSender)
+  protected Senders: Map<string, EmailSender>;
+
+  @Config('email')
+  protected Configuration: EmailConfiguration;
+
+  @Autoinject(QueueService)
+  protected Queue: QueueService;
+
+  /**
+   *
+   * Sends email immediatelly ( in current process )
+   *
+   * @param email - email to send
+   */
+  public abstract send(email: IEmail): Promise<void>;
+
+  /**
+   *
+   * Schedules email to send ( adds to queue ). Email is sent by separate process
+   * that subscribe for specific events
+   *
+   * @param email - email to send
+   */
+  public abstract sendDeferred(email: IEmail): Promise<void>;
+
+  /**
+   * Subscribte to queue for emails to send
+   */
+  public abstract processDefferedEmails(): Promise<void>;
 }

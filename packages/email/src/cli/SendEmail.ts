@@ -2,7 +2,7 @@ import { CliCommand, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import * as fs from 'fs';
 import { Logger, ILog } from '@spinajs/log';
-import { Emails } from './../index';
+import { DefaultEmailService } from './../index';
 
 interface EmailOptions {
   connection: string;
@@ -30,7 +30,7 @@ export class SendEmailCommand extends CliCommand {
     this.Log.trace(`Sending email with options options: ${JSON.stringify(options)}`);
 
     try {
-      const emails = await DI.resolve(Emails);
+      const emails = await DI.resolve(DefaultEmailService);
       let model = {};
 
       if (options.model && fs.existsSync(options.model)) {
