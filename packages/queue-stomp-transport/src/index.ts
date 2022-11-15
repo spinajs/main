@@ -2,11 +2,11 @@ import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
 import { Client, StompSubscription } from '@stomp/stompjs';
 import _ from 'lodash';
-import { Constructor, Injectable, NewInstance } from '@spinajs/di';
+import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
 
 Object.assign(global, { WebSocket: require('websocket').w3cwebsocket });
 
-@NewInstance()
+@PerInstanceCheck()
 @Injectable()
 export class StompQueueClient extends QueueClient {
   protected Client: Client;

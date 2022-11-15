@@ -6,6 +6,7 @@ import { JobModel } from './models/JobModel';
 import { v4 as uuidv4 } from 'uuid';
 
 import './BlackHoleQueueClient';
+import { AutoinjectService } from '@spinajs/configuration';
 export * from './interfaces';
 export * from './decorators';
 export * from './bootstrap';
@@ -16,22 +17,8 @@ export class DefaultQueueService extends QueueService {
   @Logger('queue')
   protected Log: Log;
 
-  protected Connections: Map<string, QueueClient> = new Map();
-
-  public async resolve(): Promise<void> {
-    for (const c of this.Configuration.connections) {
-      this.Log.trace(`Found queue ${c.name}, with transport: ${c.transport}`);
-
-      if (!DI.check(c.transport)) {
-        throw new ResolveException(`Queue client of type ${c.transport} is not registered in DI container.`);
-      }
-
-      const conn = await DI.resolve<QueueClient>(c.transport, [c]);
-      this.Connections.set(c.name, conn);
-    }
-
-    await super.resolve();
-  }
+  @AutoinjectService('queue.connections', QueueClient)
+  protected Connections: Map<string, QueueClient>;
 
   public async dispose() {
     this.Connections.forEach(async (val) => {

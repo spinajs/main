@@ -1,4 +1,4 @@
-import { AsyncService, Constructor, DI } from '@spinajs/di';
+import { AsyncService, Constructor, DI, IInstanceCheck } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log';
@@ -151,7 +151,7 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
   }
 }
 
-export abstract class QueueClient extends AsyncService {
+export abstract class QueueClient extends AsyncService implements IInstanceCheck {
   @Logger('queue')
   protected Log: Log;
 
@@ -160,6 +160,10 @@ export abstract class QueueClient extends AsyncService {
 
   constructor(public Options: IQueueConnectionOptions) {
     super();
+  }
+
+  public __checkInstance__(creationOptions: any): boolean {
+    return this.Options.name === creationOptions[0].name;
   }
 
   /**

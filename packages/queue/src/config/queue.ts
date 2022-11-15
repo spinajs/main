@@ -20,7 +20,7 @@ module.exports = {
     connections: [
       {
         name: 'black-hole',
-        transport: 'BlackHoleQueueClient',
+        service: 'BlackHoleQueueClient',
       },
     ],
   },
