@@ -19,6 +19,7 @@ export class LogBotstrapper extends Bootstrapper {
 /**
  * Email sending service.
  */
+@Injectable(EmailService)
 export class DefaultEmailService extends EmailService {
   /**
    *
