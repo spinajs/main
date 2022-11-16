@@ -40,7 +40,9 @@
   "devDependencies": {
     "@types/luxon": "^2.3.1",
     "@types/node": "^16.11.11",
-    "@types/nodemailer": "^6.4.4"
+    "@types/nodemailer": "^6.4.4",
+    "@spinajs/templates-pug": "^2.0.38",
+    "@spinajs/templates-handlebars": "^2.0.38"
   },
   "dependencies": {
     "@spinajs/configuration": "^2.0.38",

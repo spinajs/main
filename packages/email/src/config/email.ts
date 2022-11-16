@@ -13,18 +13,18 @@ const email = {
   },
   email: {
     // default email queue / transport
-    queue: 'email-queue',
+    queue: 'email-queue-black-hole',
   },
   queue: {
     routing: {
-      EmailSendJob: { connection: 'queue-emails' },
-      EmailSent: { connection: 'queue-emails' },
+      EmailSendJob: { connection: 'email-queue-black-hole' },
+      EmailSent: { connection: 'email-queue-black-hole' },
     },
 
     // by default we dont have queue server for sending emails
     connections: [
       {
-        name: 'queue-emails',
+        name: 'email-queue-black-hole',
         transport: 'BlackHoleQueueClient',
         defaultQueueChannel: 'email-jobs',
         defaultTopicChannel: 'email-events',

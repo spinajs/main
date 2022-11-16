@@ -7,9 +7,10 @@ import { DI } from '@spinajs/di';
 import '../src';
 import servers from './config';
 import { EmailService } from '../src';
+import '@spinajs/templates-handlebars';
+import '@spinajs/templates-pug';
 
 chai.use(chaiAsPromised);
-//const expect = chai.expect;
 
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -28,6 +29,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           connections: servers,
         },
         fs: {
+          default: 'fs-local',
           providers: [
             {
               service: 'fsNative',
@@ -85,10 +87,6 @@ describe('smtp email transport', () => {
 
   it('Should connect to test email server', async () => {
     await email();
-  });
-
-  it('Should throw when cannot connect', async () => {
-    await email2();
   });
 
   it('Should send text email', async () => {
@@ -177,4 +175,10 @@ describe('smtp email transport', () => {
       text: 'test attachement',
     });
   });
+
+  it('Should send from second connection', async () => {});
+
+  it('Should send deferred', async () => {});
+
+  it('Should emit event when email is sent', async () => {});
 });

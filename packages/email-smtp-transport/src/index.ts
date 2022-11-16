@@ -84,7 +84,7 @@ export class EmailSenderSmtp extends EmailSender implements IInstanceCheck {
           // we allow to use multiple file sources, default is local
           const provider = this.FileSystems.get(a.provider ?? this.DefaultFileProvider);
           if (!provider) {
-            throw new IOFail(`Filesystem privider for ${a.provider} not registered. Make sure you importer all required fs providers`);
+            throw new IOFail(`Filesystem provider for ${a.provider} not registered. Make sure you importer all required fs providers`);
           }
 
           // with local filesystem, it just return original path

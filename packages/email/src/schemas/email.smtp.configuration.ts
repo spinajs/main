@@ -4,6 +4,7 @@ const CONFIGURATION_SCHEMA = {
   description: 'Email smtp transport configuration option validation',
   type: 'object',
   properties: {
+    queue: 'string',
     connections: {
       type: 'array',
       uniqueItems: true,

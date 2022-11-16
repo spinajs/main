@@ -6,3 +6,4 @@ export * from '@spinajs/configuration-common';
 export * from './sources';
 export * from './decorators';
 export * from './configuration';
+export * from './exception';

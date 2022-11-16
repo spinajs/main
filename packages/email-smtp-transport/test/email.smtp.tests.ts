@@ -7,9 +7,11 @@ import { DI } from '@spinajs/di';
 import '../src';
 import servers from './config';
 import { EmailSenderSmtp } from '../src';
+import { expect } from 'chai';
+import '@spinajs/templates-handlebars';
+import '@spinajs/templates-pug';
 
 chai.use(chaiAsPromised);
-//const expect = chai.expect;
 
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -28,6 +30,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           connections: servers,
         },
         fs: {
+          default: 'fs-local',
           providers: [
             {
               service: 'fsNative',
@@ -70,7 +73,7 @@ export function dir(path: string) {
 }
 
 async function email() {
-  return DI.resolve(EmailSenderSmtp, [servers]);
+  return DI.resolve(EmailSenderSmtp, servers);
 }
 
 async function email2() {
@@ -101,7 +104,7 @@ describe('smtp email transport', () => {
   });
 
   it('Should throw when cannot connect', async () => {
-    await email2();
+    expect(email2()).to.be.rejected;
   });
 
   it('Should send text email', async () => {
@@ -141,7 +144,7 @@ describe('smtp email transport', () => {
       model: {
         hello: 'world',
       },
-      template: 'test.handlebar',
+      template: 'test.handlebars',
     });
   });
 
