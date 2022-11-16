@@ -95,7 +95,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           },
           connections: [
             {
-              transport: 'StompQueueClient',
+              service: 'StompQueueClient',
               host: 'ws://localhost:61614/ws',
               name: `default-test-queue`,
               debug: true,

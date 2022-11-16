@@ -25,7 +25,7 @@ const email = {
     connections: [
       {
         name: 'email-queue-black-hole',
-        transport: 'BlackHoleQueueClient',
+        service: 'BlackHoleQueueClient',
         defaultQueueChannel: 'email-jobs',
         defaultTopicChannel: 'email-events',
       },

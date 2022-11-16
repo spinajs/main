@@ -5,13 +5,6 @@
 // }
 
 module.exports = {
-  system: {
-    // model & migrations are registered in queue bootstrap
-    // dirs: {
-    //   migrations: [dir('./../migrations')],
-    //   models: [dir('./../models')],
-    // },
-  },
   queue: {
     // by default, all messages are sent to black hole
     // becouse some modules use queues to pass events eg. user login

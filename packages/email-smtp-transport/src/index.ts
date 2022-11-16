@@ -1,6 +1,5 @@
-import { IInstanceCheck } from './../../di/src/interfaces';
 import { IOFail } from '@spinajs/exceptions';
-import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Autoinject, Injectable, PerInstanceCheck, IInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { IEmail, EmailSender, EmailConnectionOptions } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';

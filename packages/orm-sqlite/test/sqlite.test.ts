@@ -43,12 +43,6 @@ export class ConnectionConf2 extends FrameworkConfiguration {
 
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
-        system: {
-          dirs: {
-            models: [dir('./models')],
-            migrations: [dir('./migrations')],
-          },
-        },
         db: {
           Migration: {
             Startup: false,
@@ -71,6 +65,14 @@ export class ConnectionConf2 extends FrameworkConfiguration {
       },
       mergeArrays,
     );
+
+    /**
+     * For testing, clean out all dirs from another modules
+     */
+    this.set('system.dirs', {
+      models: [dir('./models')],
+      migrations: [dir('./migrations')],
+    });
   }
 }
 
@@ -92,12 +94,7 @@ export class ConnectionConf extends FrameworkConfiguration {
 
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
-        system: {
-          dirs: {
-            models: [dir('./models')],
-            migrations: [dir('./migrations')],
-          },
-        },
+
         db: {
           Connections: [
             {
@@ -113,6 +110,11 @@ export class ConnectionConf extends FrameworkConfiguration {
       },
       mergeArrays,
     );
+
+    this.set('system.dirs', {
+      models: [dir('./models')],
+      migrations: [dir('./migrations')],
+    });
   }
 }
 

@@ -7,7 +7,7 @@ import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
 Object.assign(global, { WebSocket: require('websocket').w3cwebsocket });
 
 @PerInstanceCheck()
-@Injectable()
+@Injectable(QueueClient)
 export class StompQueueClient extends QueueClient {
   protected Client: Client;
 

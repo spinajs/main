@@ -1,3 +1,12 @@
+var Module = require('module');
+var originalRequire = Module.prototype.require;
+
+Module.prototype.require = function () {
+  //do your thing here
+  return originalRequire.apply(this, arguments);
+};
+
+import { QueueBootstrapper } from '@spinajs/queue/src/bootstrap';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { join, normalize, resolve } from 'path';
 import * as _ from 'lodash';
@@ -10,8 +19,12 @@ import { EmailService } from '../src';
 import '@spinajs/templates-handlebars';
 import '@spinajs/templates-pug';
 import '@spinajs/queue-stomp-transport';
-import { MigrationTransactionMode } from '@spinajs/orm';
+import '@spinajs/email-smtp-transport';
+import '@spinajs/orm-sqlite';
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { DateTime } from 'luxon';
+import { QueueService } from '@spinajs/queue';
+import * as sinon from 'sinon';
 
 chai.use(chaiAsPromised);
 
@@ -19,7 +32,7 @@ const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
 const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
+  async resolve() {
     await super.resolve();
 
     _.mergeWith(
@@ -36,9 +49,13 @@ export class ConnectionConf extends FrameworkConfiguration {
         },
         queue: {
           default: 'default-test-queue',
+          routing: {
+            EmailSendJob: { connection: 'default-test-queue' },
+            EmailSent: { connection: 'default-test-queue' },
+          },
           connections: [
             {
-              transport: 'StompQueueClient',
+              service: 'StompQueueClient',
               host: 'ws://localhost:61614/ws',
               name: `default-test-queue`,
               debug: true,
@@ -99,7 +116,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'BlackHoleTarget',
+              type: 'ConsoleTarget',
               layout: '${datetime} ${level} ${message} ${error} duration: ${duration} (${logger})',
             },
           ],
@@ -126,14 +143,39 @@ async function email() {
   return DI.resolve(EmailService);
 }
 
-describe('smtp email transport', () => {
-  before(() => {
-    DI.register(ConnectionConf).as(Configuration);
-  });
+async function q() {
+  return DI.resolve(QueueService);
+}
 
+describe('smtp email transport', () => {
   beforeEach(async () => {
     DI.clearCache();
+    DI.register(ConnectionConf).as(Configuration);
+
+    const b = await DI.resolve(QueueBootstrapper);
+    await b.bootstrap();
+
     await DI.resolve(Configuration);
+    await DI.resolve(Orm);
+  });
+
+  afterEach(async () => {
+    sinon.restore();
+
+    const queue = await q();
+
+    await queue.dispose();
+  });
+
+  it('Should send deferred', async () => {
+    const e = await email();
+
+    await e.sendDeferred({
+      to: ['test@spinajs.com'],
+      from: 'test@spinajs.com',
+      subject: 'test email - text email',
+      connection: 'test',
+    });
   });
 
   it('Should connect to test email server', async () => {
@@ -177,7 +219,7 @@ describe('smtp email transport', () => {
       model: {
         hello: 'world',
       },
-      template: 'test.handlebar',
+      template: 'test.handlebars',
     });
   });
 
@@ -235,17 +277,6 @@ describe('smtp email transport', () => {
       from: 'test@spinajs.com',
       subject: 'test email - text email',
       connection: 'test2',
-    });
-  });
-
-  it('Should send deferred', async () => {
-    const e = await email();
-
-    await e.sendDeferred({
-      to: ['test@spinajs.com'],
-      from: 'test@spinajs.com',
-      subject: 'test email - text email',
-      connection: 'test',
     });
   });
 

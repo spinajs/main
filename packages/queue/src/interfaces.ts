@@ -158,6 +158,10 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
   @Config('queue.routing')
   protected Routing: IQueueMessageRoutingOptions;
 
+  public get Name(): string {
+    return this.Options.name;
+  }
+
   constructor(public Options: IQueueConnectionOptions) {
     super();
   }

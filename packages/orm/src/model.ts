@@ -661,7 +661,7 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   }
 
   const cnt = driver.Container;
-  const qr = cnt.resolve<T>(query, [driver, injectModel ? model : null]);
+  const qr = cnt.resolve<T>(query, [driver, injectModel ? orm.Models.find((x) => x.name === model.name).type : null]);
 
   qr.middleware(new DiscriminationMapMiddleware(dsc));
   qr.setTable(dsc.TableName);

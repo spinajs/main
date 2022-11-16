@@ -1,5 +1,5 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
-import { Constructor, DI, Injectable, ResolveException } from '@spinajs/di';
+import { Constructor, DI, Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces';
 import { JobModel } from './models/JobModel';

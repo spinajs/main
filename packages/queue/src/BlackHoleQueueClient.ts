@@ -6,7 +6,7 @@ import { IQueueMessage, QueueClient, QueueMessage } from './interfaces';
  * Use it, if you want to route or dismiss messages sent by queue service
  */
 @NewInstance()
-@Injectable()
+@Injectable(QueueClient)
 export class BlackHoleQueueClient extends QueueClient {
   public emit(_event: IQueueMessage): Promise<void> {
     return Promise.resolve();
