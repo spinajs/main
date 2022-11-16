@@ -9,8 +9,14 @@ import servers from './config';
 import { EmailService } from '../src';
 import '@spinajs/templates-handlebars';
 import '@spinajs/templates-pug';
+import '@spinajs/queue-stomp-transport';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { DateTime } from 'luxon';
 
 chai.use(chaiAsPromised);
+
+const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
+const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
 
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -27,6 +33,51 @@ export class ConnectionConf extends FrameworkConfiguration {
         },
         email: {
           connections: servers,
+        },
+        queue: {
+          default: 'default-test-queue',
+          connections: [
+            {
+              transport: 'StompQueueClient',
+              host: 'ws://localhost:61614/ws',
+              name: `default-test-queue`,
+              debug: true,
+              defaultQueueChannel: TestJobChannelName,
+              defaultTopicChannel: TestEventChannelName,
+            },
+          ],
+        },
+        db: {
+          DefaultConnection: 'sqlite',
+          Connections: [
+            // queue DB
+            {
+              Driver: 'orm-driver-sqlite',
+              Filename: ':memory:',
+              Name: 'queue',
+              Migration: {
+                OnStartup: true,
+                Table: 'orm_migrations',
+                Transaction: {
+                  Mode: MigrationTransactionMode.PerMigration,
+                },
+              },
+            },
+
+            // default connection
+            {
+              Driver: 'orm-driver-sqlite',
+              Filename: ':memory:',
+              Name: 'sqlite',
+              Migration: {
+                OnStartup: true,
+                Table: 'orm_migrations',
+                Transaction: {
+                  Mode: MigrationTransactionMode.PerMigration,
+                },
+              },
+            },
+          ],
         },
         fs: {
           default: 'fs-local',
@@ -72,7 +123,7 @@ export function dir(path: string) {
 }
 
 async function email() {
-  return DI.resolve(EmailService, [servers]);
+  return DI.resolve(EmailService);
 }
 
 describe('smtp email transport', () => {
@@ -176,9 +227,36 @@ describe('smtp email transport', () => {
     });
   });
 
-  it('Should send from second connection', async () => {});
+  it('Should send from second connection', async () => {
+    const e = await email();
 
-  it('Should send deferred', async () => {});
+    await e.send({
+      to: ['test@spinajs.com'],
+      from: 'test@spinajs.com',
+      subject: 'test email - text email',
+      connection: 'test2',
+    });
+  });
 
-  it('Should emit event when email is sent', async () => {});
+  it('Should send deferred', async () => {
+    const e = await email();
+
+    await e.sendDeferred({
+      to: ['test@spinajs.com'],
+      from: 'test@spinajs.com',
+      subject: 'test email - text email',
+      connection: 'test',
+    });
+  });
+
+  it('Should emit event when email is sent', async () => {
+    const e = await email();
+
+    await e.send({
+      to: ['test@spinajs.com'],
+      from: 'test@spinajs.com',
+      subject: 'test email - text email',
+      connection: 'test2',
+    });
+  });
 });
