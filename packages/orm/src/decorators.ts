@@ -1,7 +1,7 @@
 import { JsonValueConverter } from './interfaces';
 /* eslint-disable prettier/prettier */
 import { UuidConverter } from './converters';
-import { Constructor } from '@spinajs/di';
+import { Constructor, DI } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, ValueConverter, SetValueConverter } from './interfaces';
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model';
@@ -80,6 +80,8 @@ export function Migration(connection: string) {
     }
 
     metadata.Connection = connection;
+
+    DI.register(target).asValue('__migrations__');
   };
 }
 
@@ -100,9 +102,15 @@ export function Connection(name: string) {
  * @param name - table name in database that is referred by this model
  */
 export function Model(tableName: string) {
-  return extractDecoratorDescriptor((model: IModelDescriptor) => {
-    model.TableName = tableName;
-  }, true);
+  return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
+
+    DI.register(target).asValue("__models__");
+
+    extractDecoratorDescriptor((model: IModelDescriptor) => {
+      model.TableName = tableName;
+    }, true)(target, propertyKey, indexOrDescriptor);
+  }
+
 }
 
 /**

@@ -21,10 +21,8 @@ const MIGRATION_TABLE_NAME = 'spinajs_migration';
 const MIGRATION_FILE_REGEXP = /(.*)_([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2})/;
 
 export class Orm extends AsyncService {
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.models')
   public Models: Array<ClassInfo<ModelBase>>;
 
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.migrations')
   public Migrations: Array<ClassInfo<OrmMigration>>;
 
   public Connections: Map<string, OrmDriver> = new Map<string, OrmDriver>();
@@ -174,10 +172,10 @@ export class Orm extends AsyncService {
   }
 
   protected registerDefaultConverters() {
-   
+
     this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', Date.name);
     this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', DateTime.name);
-  
+
   }
 
   protected wireRelations() {
