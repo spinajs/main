@@ -12,13 +12,13 @@ import { Orm, MigrationTransactionMode, Migration, OrmDriver, OrmMigration, Quer
 import * as _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { User } from './models/User';
 import * as sinon from 'sinon';
 import { DateTime } from 'luxon';
-import { dir, mergeArrays } from './util';
+import { mergeArrays } from './util';
 import { TestModel } from './models/TestModel';
 import { TestOwned } from './models/TestOwned';
 import { TestMany } from './models/TestMany';
+import { User } from './models/User';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);

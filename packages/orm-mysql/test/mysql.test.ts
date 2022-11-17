@@ -3,11 +3,14 @@ import * as _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { MySqlOrmDriver } from '../src/index';
-import { dir, mergeArrays } from './util';
+import { mergeArrays } from './util';
 import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
-import { User } from './models/User';
 import { DateTime } from 'luxon';
+
+import './migrations/TestMigration_2022_02_08_01_13_00';
+import './models/TestModel';
+import { User } from './models/User';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);

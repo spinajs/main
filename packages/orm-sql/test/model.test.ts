@@ -2,18 +2,23 @@
 /* eslint-disable @typescript-eslint/no-floating-promises */
 
 import { SqlInsertQueryCompiler, SqlUpdateQueryCompiler } from './../src/compilers';
-import { UuidModel } from './Models/UuidModel';
 import { DI } from '@spinajs/di';
 import { ConnectionConf, FakeSqliteDriver } from './fixture';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
-import { Model1 } from './Models/Model1';
 import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
-import { Model2 } from './Models/Model2';
 import chaiAsPromised from 'chai-as-promised';
 
+import './Models/JoinModel';
+import { Model1 } from './Models/Model1';
+import { Model2 } from './Models/Model2';
+import './Models/RelationModel';
+import './Models/RelationModel2';
+import './Models/RelationModel3';
+import './Models/RelationModel4';
+import { UuidModel } from './Models/UuidModel';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -127,7 +132,7 @@ describe('model generated queries', () => {
     const model2 = new Model2({
       Far: 'hello',
     });
-    model2.Bar = "helo";
+    model2.Bar = 'helo';
     expect(model2.insert()).to.be.fulfilled;
   });
 });
