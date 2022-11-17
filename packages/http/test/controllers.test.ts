@@ -39,12 +39,12 @@ describe('http & controller tests', function () {
     const bootstrapper = DI.resolve(FsBootsrapper);
     bootstrapper.bootstrap();
 
-    middlewareOnAfterSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onAfterAction');
-    middlewareOnBeforeSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onBeforeAction');
+    middlewareOnAfterSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onAfter');
+    middlewareOnBeforeSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onBefore');
     middlewareOnResponseSpy = middlewareSandbox.spy(SampleMiddleware.prototype, 'onResponse');
 
-    middleware2OnAfterSpy = middlewareSandbox.spy(SampleMiddleware2.prototype, 'onAfterAction');
-    middleware2OnBeforeSpy = middlewareSandbox.spy(SampleMiddleware2.prototype, 'onBeforeAction');
+    middleware2OnAfterSpy = middlewareSandbox.spy(SampleMiddleware2.prototype, 'onAfter');
+    middleware2OnBeforeSpy = middlewareSandbox.spy(SampleMiddleware2.prototype, 'onBefore');
     middleware2OnResponseSpy = middlewareSandbox.spy(SampleMiddleware2.prototype, 'onResponse');
 
     samplePolicyExecuteSpy = middlewareSandbox.spy(SamplePolicy.prototype, 'execute');
