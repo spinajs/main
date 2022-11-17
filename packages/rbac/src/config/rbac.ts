@@ -12,24 +12,27 @@ module.exports = {
   },
   queue: {
     routing: {
-      NewUser: { connection: 'rbac-user-queue' },
-      UserActivated: { connection: 'rbac-user-queue' },
-      UserBanned: { connection: 'rbac-user-queue' },
-      UserDeactivated: { connection: 'rbac-user-queue' },
-      UserDeleted: { connection: 'rbac-user-queue' },
-      UserLoginFailed: { connection: 'rbac-user-queue' },
-      UserMetadataAdded: { connection: 'rbac-user-queue' },
-      UserMetadataChanged: { connection: 'rbac-user-queue' },
-      UserMetadataDeleted: { connection: 'rbac-user-queue' },
-      UserPropertyChanged: { connection: 'rbac-user-queue' },
-      UserUnbanned: { connection: 'rbac-user-queue' },
+      NewUser: { connection: 'rbac-user-empty-queue' },
+      UserActivated: { connection: 'rbac-user-empty-queue' },
+      UserBanned: { connection: 'rbac-user-empty-queue' },
+      UserDeactivated: { connection: 'rbac-user-empty-queue' },
+      UserDeleted: { connection: 'rbac-user-empty-queue' },
+      UserLoginFailed: { connection: 'rbac-user-empty-queue' },
+      UserMetadataAdded: { connection: 'rbac-user-empty-queue' },
+      UserMetadataChanged: { connection: 'rbac-user-empty-queue' },
+      UserMetadataDeleted: { connection: 'rbac-user-empty-queue' },
+      UserPropertyChanged: { connection: 'rbac-user-empty-queue' },
+      UserUnbanned: { connection: 'rbac-user-empty-queue' },
+      UserPasswordChanged: { connection: 'rbac-user-empty-queue' },
+      UserRoleGranted: { connection: 'rbac-user-empty-queue' },
+      UserRoleRevoked: { connection: 'rbac-user-empty-queue' },
     },
 
-    // by default all events from rbac module are routed to rbac-user-queue
+    // by default all events from rbac module are routed to rbac-user-empty-queue
     // and is using empty sink ( no events are sent )
     connections: [
       {
-        name: 'rbac-user-queue',
+        name: 'rbac-user-empty-queue',
         transport: 'BlackHoleQueueClient',
         defaultQueueChannel: 'rbac-jobs',
         defaultTopicChannel: 'rbac-events',
@@ -42,6 +45,15 @@ module.exports = {
       // if false, user is acvite at creation,
       // when true, first, user will be sent confirmation email
       emailConfimationOnCreation: false,
+
+      minPasswordLength: 6,
+
+      maxPasswordLength: 16,
+
+      /**
+       * Should password expire after some time ?
+       */
+      passwordExpirationTime: 0,
     },
     // default roles to manage users & guest account
     roles: [

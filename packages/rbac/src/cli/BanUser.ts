@@ -1,15 +1,15 @@
-//import { UserBannedMessage } from './../messages/UserBanned';
-import { ResourceNotFound } from '@spinajs/exceptions';
-import { QueueClient } from '@spinajs/queue';
+import { UserUnbanned } from './../events/UserUnbanned';
+import { QueueClient } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 import { User } from '../models/User';
+import { UserBanned } from '../events/UserBanned';
 
-@Command('rbac:user-ban', 'Bans or unbans user')
+@Command('rbac:user-ban', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')
 @Argument('ban', ' true / false', false, (opt: string) => (opt.toLowerCase() === 'true' ? true : false))
-export class CreateUser extends CliCommand {
+export class BanUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
@@ -17,14 +17,19 @@ export class CreateUser extends CliCommand {
   protected Queue: QueueClient;
 
   public async execute(idOrUuid: string, ban: boolean): Promise<void> {
-    const user = await User.where('Id', idOrUuid).orWhere('Uuid', idOrUuid).firstOrThrow(new ResourceNotFound(`user with given id/uuid not found in database`));
+    const result = await User.update({ IsBanned: ban }).where('Id', idOrUuid).orWhere('Uuid', idOrUuid);
 
-    user.IsBanned = ban;
-    await user.update();
+    if (result.RowsAffected > 0) {
+      // notify others
+      if (ban) {
+        this.Queue.emit(new UserBanned(idOrUuid));
+      } else {
+        this.Queue.emit(new UserUnbanned(idOrUuid));
+      }
 
-    // notify others about user creation
-    //this.Queue.dispatch(new UserBannedMessage(user, 'rbac:user:banned'));
-
-    this.Log.success('User ban status changed');
+      this.Log.success(`User ban status changed to ${ban}`);
+    } else {
+      this.Log.warn(`No user with id: ${idOrUuid} found`);
+    }
   }
 }

@@ -1,15 +1,16 @@
+import { UserDeactivated } from './../events/UserDeactivated';
 //import { UserBannedMessage } from './../messages/UserBanned';
-import { ResourceNotFound } from '@spinajs/exceptions';
 import { QueueClient } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 import { User } from '../models/User';
+import { UserActivated } from '../events/UserActivated';
 
 @Command('rbac:user-active', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')
 @Argument('active', ' true / false', false, (opt: string) => (opt.toLowerCase() === 'true' ? true : false))
-export class CreateUser extends CliCommand {
+export class ActivateUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
@@ -17,14 +18,19 @@ export class CreateUser extends CliCommand {
   protected Queue: QueueClient;
 
   public async execute(idOrUuid: string, active: boolean): Promise<void> {
-    const user = await User.where('Id', idOrUuid).orWhere('Uuid', idOrUuid).firstOrThrow(new ResourceNotFound(`user with given id/uuid not found in database`));
+    const result = await User.update({ IsActive: active }).where('Id', idOrUuid).orWhere('Uuid', idOrUuid);
 
-    user.IsActive = active;
-    await user.update();
+    if (result.RowsAffected > 0) {
+      // notify others
+      if (active) {
+        this.Queue.emit(new UserActivated(idOrUuid));
+      } else {
+        this.Queue.emit(new UserDeactivated(idOrUuid));
+      }
 
-    // notify others about user creation
-    //this.Queue.dispatch(new UserBannedMessage(user, 'rbac:user:active'));
-
-    this.Log.success('User active status changed');
+      this.Log.success(`User activation status changed to ${active}`);
+    } else {
+      this.Log.warn(`No user with id: ${idOrUuid} found`);
+    }
   }
 }
