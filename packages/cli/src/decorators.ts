@@ -1,3 +1,4 @@
+import { DI } from '@spinajs/di';
 import { CommandOptions } from 'commander';
 import { IArgument, IOption } from './interfaces';
 
@@ -25,6 +26,8 @@ export function Command(nameAndArgs: string, description: string, opts?: Command
     };
 
     Reflect.defineMetadata(META_COMMAND, arg, target);
+
+    DI.register(target).as('__cli_command__');
   };
 }
 
