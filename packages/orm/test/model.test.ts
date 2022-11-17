@@ -19,10 +19,7 @@ import chaiSubset from 'chai-subset';
 import { RawModel } from './mocks/models/RawModel';
 import { Model, Connection } from '../src/decorators';
 import { ModelBase } from './../src/model';
-import { ModelDiscBase } from './mocks/models/ModelDiscBase';
-import { ModelDisc1 } from './mocks/models/ModelDisc1';
-import { ModelDisc2 } from './mocks/models/ModelDisc2';
-import { Model6 } from './mocks/models/Model6';
+import { Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -33,7 +30,7 @@ async function db() {
 }
 
 describe('General model tests', () => {
-  beforeEach(() => {
+  before(() => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(FakeSqliteDriver).as('sqlite');
     DI.register(FakeMysqlDriver).as('mysql');
@@ -60,11 +57,7 @@ describe('General model tests', () => {
     const orm = await db();
     const models = await orm.Models;
 
-    expect(models.length).to.eq(19);
-    expect(models[1].name).to.eq('Model1');
-    expect(models[2].name).to.eq('Model2');
-    expect(models[1].type.name).to.eq('Model1');
-    expect(models[2].type.name).to.eq('Model2');
+    expect(models.length).to.eq(18);
   });
 
   it('Models should have added mixins', async () => {
@@ -84,7 +77,7 @@ describe('General model tests', () => {
 
     expect(() => {
       ModelNoDescription.where('1', 1);
-    }).to.throw('model ModelNoDescription does not have model descriptor. Use @model decorator on class');
+    }).to.throw('Not implemented');
   });
 
   it('Model should throw if invalid connection', async () => {
@@ -803,7 +796,6 @@ describe('General model tests', () => {
     expect(model.DeletedAt).to.be.not.null;
   });
 
-
   it('Orm should load column info for models', async () => {
     const tb = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo').returns(
       new Promise((res) => {
@@ -821,7 +813,7 @@ describe('General model tests', () => {
     const orm = await db();
     const models = await orm.Models;
 
-    let toCheck = models[1];
+    let toCheck = models.find((x) => x.name === 'Model1');
     let descriptor = toCheck.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor;
 
     expect(descriptor).to.deep.include({
@@ -842,7 +834,7 @@ describe('General model tests', () => {
       Name: 'Model1',
     });
 
-    toCheck = models[2];
+    toCheck = models.find((x) => x.name === 'Model2');
     descriptor = toCheck.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor;
 
     expect(descriptor).to.deep.include({
@@ -1013,7 +1005,7 @@ describe('Model discrimination tests', () => {
     sinon.restore();
   });
 
-  it('should create models base onkw discrimination map', async () => {
+  it('should create models based on discrimination map', async () => {
     await db();
 
     sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(

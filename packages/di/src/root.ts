@@ -132,6 +132,16 @@ export function get<T>(serviceName: string | Class<T> | TypedArray<T>): T | T[] 
 }
 
 /**
+ *
+ * Returns list of types registered at given type, eg. all types/services registered under BaseService
+ *
+ * @param type - base type to check
+ */
+export function getRegisteredTypes<T>(type: string | Class<T>): Class<T>[] {
+  return RootContainer.getRegisteredTypes(type);
+}
+
+/**
  * Checks if service is already resolved and exists in container cache.
  * NOTE: check is only valid for classes that are singletons.
  *

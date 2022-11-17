@@ -3,7 +3,7 @@ import { DatetimeValueConverter } from './interfaces';
 import { Configuration } from '@spinajs/configuration';
 import { AsyncService, Autoinject, Container, Class, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { ClassInfo, ListFromFiles } from '@spinajs/reflection';
+import { ClassInfo } from '@spinajs/reflection';
 import * as _ from 'lodash';
 import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode, IModelDescriptor } from './interfaces';
 import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor } from './model';
@@ -21,9 +21,9 @@ const MIGRATION_TABLE_NAME = 'spinajs_migration';
 const MIGRATION_FILE_REGEXP = /(.*)_([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2})/;
 
 export class Orm extends AsyncService {
-  public Models: Array<ClassInfo<ModelBase>>;
+  public Models: Array<ClassInfo<ModelBase>> = [];
 
-  public Migrations: Array<ClassInfo<OrmMigration>>;
+  public Migrations: Array<ClassInfo<OrmMigration>> = [];
 
   public Connections: Map<string, OrmDriver> = new Map<string, OrmDriver>();
 
@@ -150,14 +150,14 @@ export class Orm extends AsyncService {
     await this.createConnections();
 
     // add all registered migrations via DI
-    const migrations = DI.get<Class<unknown>>(Array.ofType('__migrations__'));
+    const migrations = DI.getRegisteredTypes<OrmMigration>('__migrations__');
     if (migrations) {
       migrations.forEach((m) => {
         this.registerMigration(m);
       });
     }
 
-    const models = DI.get<Class<ModelBase>>(Array.ofType('__models__'));
+    const models = DI.getRegisteredTypes<ModelBase>('__models__');
     if (models) {
       models.forEach((m) => {
         this.registerModel(m);
@@ -172,10 +172,8 @@ export class Orm extends AsyncService {
   }
 
   protected registerDefaultConverters() {
-
     this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', Date.name);
     this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', DateTime.name);
-
   }
 
   protected wireRelations() {

@@ -81,7 +81,7 @@ export function Migration(connection: string) {
 
     metadata.Connection = connection;
 
-    DI.register(target).asValue('__migrations__');
+    DI.register(target).as('__migrations__');
   };
 }
 
@@ -102,15 +102,10 @@ export function Connection(name: string) {
  * @param name - table name in database that is referred by this model
  */
 export function Model(tableName: string) {
-  return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
-
-    DI.register(target).asValue("__models__");
-
-    extractDecoratorDescriptor((model: IModelDescriptor) => {
-      model.TableName = tableName;
-    }, true)(target, propertyKey, indexOrDescriptor);
-  }
-
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any) => {
+    DI.register(target).as('__models__');
+    model.TableName = tableName;
+  }, true);
 }
 
 /**

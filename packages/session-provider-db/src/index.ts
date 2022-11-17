@@ -8,6 +8,9 @@ import { Config } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 
+export * from './models/DbSession';
+export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_01_01';
+
 @Injectable(SessionProvider)
 export class DbSessionStore extends SessionProvider {
   @Logger('db-session-store')

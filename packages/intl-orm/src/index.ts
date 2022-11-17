@@ -7,7 +7,9 @@ import { IntlResource } from './models/IntlResource';
 
 export * from './decorators';
 export * from './model';
-export * from './bootstrap';
+export * from './migrations/IntlOrm_2022_06_28_01_13_00';
+export * from './models/IntlResource';
+export * from './models/IntlTranslation';
 
 declare module '@spinajs/orm' {
   interface ISelectBuilderExtensions<T = any> {

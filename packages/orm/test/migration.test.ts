@@ -9,8 +9,7 @@ import { Orm } from '../src/orm';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler, FakeColumnQueryCompiler, dir, mergeArrays, FakeTableExistsCompiler } from './misc';
 import * as sinon from 'sinon';
 import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableExistsCompiler, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode } from '../src';
-import { Migration1_2021_12_01_12_00_00 } from './mocks/migrations/Migration1_2021_12_01_12_00_00';
-import { Migration2_2021_12_02_12_00_00 } from './mocks/migrations/Migration2_2021_12_02_12_00_00';
+import { Migration1_2021_12_01_12_00_00, Migration2_2021_12_02_12_00_00 } from './mocks/migrations';
 import { OrmDriver } from '../src/driver';
 
 const expect = chai.expect;
@@ -20,7 +19,7 @@ async function db() {
 }
 
 describe('Orm migrations', () => {
-  beforeEach(() => {
+  before(() => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(FakeSqliteDriver).as('sqlite');
     DI.register(FakeMysqlDriver).as('mysql');
@@ -211,7 +210,6 @@ describe('Orm migrations', () => {
     class FakeOrm extends Orm {
       constructor() {
         super();
-        this.registerMigration(Test_2021_12_02_12_00_00);
       }
     }
 
