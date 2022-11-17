@@ -6,7 +6,6 @@ Module.prototype.require = function () {
   return originalRequire.apply(this, arguments);
 };
 
-import { QueueBootstrapper } from '@spinajs/queue/src/bootstrap';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { join, normalize, resolve } from 'path';
 import * as _ from 'lodash';
@@ -15,7 +14,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import '../src';
 import servers from './config';
-import { EmailService } from '../src';
+import { EmailSend, EmailService } from '../src';
 import '@spinajs/templates-handlebars';
 import '@spinajs/templates-pug';
 import '@spinajs/queue-stomp-transport';
@@ -23,8 +22,9 @@ import '@spinajs/email-smtp-transport';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { DateTime } from 'luxon';
-import { QueueService } from '@spinajs/queue';
+import { JobModel, QueueService } from '@spinajs/queue';
 import * as sinon from 'sinon';
+import { expect } from 'chai';
 
 chai.use(chaiAsPromised);
 
@@ -116,7 +116,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'ConsoleTarget',
+              type: 'BlackHoleTarget',
               layout: '${datetime} ${level} ${message} ${error} duration: ${duration} (${logger})',
             },
           ],
@@ -147,13 +147,18 @@ async function q() {
   return DI.resolve(QueueService);
 }
 
+async function wait(amount?: number) {
+  return new Promise<void>((res) => {
+    setTimeout(() => {
+      res();
+    }, amount ?? 1000);
+  });
+}
+
 describe('smtp email transport', () => {
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
-
-    const b = await DI.resolve(QueueBootstrapper);
-    await b.bootstrap();
 
     await DI.resolve(Configuration);
     await DI.resolve(Orm);
@@ -170,12 +175,28 @@ describe('smtp email transport', () => {
   it('Should send deferred', async () => {
     const e = await email();
 
-    await e.sendDeferred({
+    const event = await e.sendDeferred({
       to: ['test@spinajs.com'],
       from: 'test@spinajs.com',
-      subject: 'test email - text email',
+      subject: 'test deferred email',
       connection: 'test',
     });
+
+    const sExecute = sinon.spy(EmailSend.prototype, 'execute');
+
+    let m = await JobModel.where('JobId', event.JobId).first();
+    expect(m).to.be.not.null;
+    expect(m.Name).to.eq('EmailSend');
+    expect(m.FinishedAt).to.eq(null);
+    expect(m.Progress).to.eq(0);
+
+    await e.processDefferedEmails();
+    await wait(10000);
+
+    expect(sExecute.calledOnce).to.be.true;
+    m = await JobModel.where('JobId', event.JobId).first();
+    expect(m.FinishedAt).to.be.not.null;
+    expect(m.Progress).to.eq(100);
   });
 
   it('Should connect to test email server', async () => {

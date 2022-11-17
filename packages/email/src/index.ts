@@ -38,10 +38,12 @@ export class DefaultEmailService extends EmailService {
     await this.Queue.emit(new EmailSent(email));
   }
 
-  public async sendDeferred(email: IEmail): Promise<void> {
+  public async sendDeferred(email: IEmail): Promise<EmailSend> {
     const dEmail = new EmailSend();
     dEmail.hydrate(email);
     await this.Queue.emit(dEmail);
+
+    return dEmail;
   }
 
   public async processDefferedEmails(): Promise<void> {

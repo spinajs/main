@@ -2,6 +2,7 @@ import { AsyncService, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { QueueService } from '@spinajs/queue';
+import { EmailSend } from './jobs/EmailSend';
 export abstract class EmailSender extends AsyncService {
   public Options: EmailConnectionOptions;
 
@@ -138,7 +139,7 @@ export abstract class EmailService extends AsyncService {
    *
    * @param email - email to send
    */
-  public abstract sendDeferred(email: IEmail): Promise<void>;
+  public abstract sendDeferred(email: IEmail): Promise<EmailSend>;
 
   /**
    * Subscribte to queue for emails to send

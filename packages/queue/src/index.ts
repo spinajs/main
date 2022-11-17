@@ -4,13 +4,14 @@ import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces';
 import { JobModel } from './models/JobModel';
 import { v4 as uuidv4 } from 'uuid';
-
-import './BlackHoleQueueClient';
 import { AutoinjectService } from '@spinajs/configuration';
+import { DateTime } from 'luxon';
+
+export * from './BlackHoleQueueClient';
 export * from './interfaces';
 export * from './decorators';
-export * from './bootstrap';
 export * from './models/JobModel';
+export * from './migrations/Queue_2022_10_18_01_13_00';
 
 @Injectable(QueueService)
 export class DefaultQueueService extends QueueService {
@@ -103,13 +104,14 @@ export class DefaultQueueService extends QueueService {
               let jobResult = null;
               const jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
               jModel.Status = 'executing';
+              jModel.ExecutedAt = DateTime.now();
 
               // update executing state
               await jModel.update();
 
               try {
                 // TODO: implement retry count & dead letter
-                if (ev.Delay !== 0) {
+                if (ev.Delay) {
                   jobResult = await _executeDelayed(ev);
                 } else {
                   jobResult = await ev.execute(onProgress);
@@ -117,6 +119,8 @@ export class DefaultQueueService extends QueueService {
 
                 jModel.Result = jobResult;
                 jModel.Status = 'success';
+                jModel.FinishedAt = DateTime.now();
+                jModel.Progress = 100;
 
                 this.Log.trace(`Job ${event.name} processed with result ${JSON.stringify(jModel.Result)}`);
               } catch (err) {

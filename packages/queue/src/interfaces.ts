@@ -131,6 +131,7 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
     super();
 
     this.Type = QueueMessageType.Job;
+    this.Name = this.constructor.name;
   }
 
   public abstract execute(progress: (p: number) => Promise<void>): Promise<unknown>;
