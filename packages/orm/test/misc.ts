@@ -21,12 +21,6 @@ export class ConnectionConf extends FrameworkConfiguration {
     await super.resolve();
 
     this.Config = {
-      system: {
-        dirs: {
-          migrations: [dir('./mocks/migrations')],
-          models: [dir('./mocks/models')],
-        },
-      },
       logger: {
         targets: [
           {
@@ -152,7 +146,6 @@ export class FakeDropTableCompiler extends DropTableCompiler {
     };
   }
 }
-
 
 export class FakeDeleteQueryCompiler extends DeleteQueryCompiler {
   public compile(): ICompilerOutput {

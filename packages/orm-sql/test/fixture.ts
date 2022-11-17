@@ -108,11 +108,6 @@ export class ConnectionConf extends FrameworkConfiguration {
 
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
-        system: {
-          dirs: {
-            models: [dir('./Models')],
-          },
-        },
         db: {
           Connections: [
             {

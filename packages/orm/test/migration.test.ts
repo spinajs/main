@@ -65,12 +65,6 @@ describe('Orm migrations', () => {
         _.mergeWith(
           this.Config,
           {
-            system: {
-              dirs: {
-                migrations: [dir('./mocks/migrations')],
-                models: [dir('./mocks/models')],
-              },
-            },
             logger: {
               targets: [
                 {
@@ -163,12 +157,6 @@ describe('Orm migrations', () => {
         _.mergeWith(
           this.Config,
           {
-            system: {
-              dirs: {
-                migrations: [dir('./mocks/migrations')],
-                models: [dir('./mocks/models')],
-              },
-            },
             logger: {
               targets: [
                 {

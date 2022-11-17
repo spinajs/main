@@ -7,8 +7,6 @@ function dir(path: string) {
 module.exports = {
   system: {
     dirs: {
-      migrations: [dir('./../migrations')],
-      models: [dir('./../models')],
       cli: [dir('./../cli')],
     },
   },

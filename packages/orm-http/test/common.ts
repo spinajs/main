@@ -28,8 +28,6 @@ export class TestConfiguration extends FrameworkConfiguration {
     this.Config = {
       system: {
         dirs: {
-          migrations: [dir('./migrations')],
-          models: [dir('./models')],
           controllers: [dir('./../src/controllers'), dir('./controllers')],
         },
       },

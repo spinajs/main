@@ -35,12 +35,6 @@ export class ConnectionConf extends FrameworkConfiguration {
 
           rules: [{ name: '*', level: 'trace', target: 'Console' }],
         },
-        system: {
-          dirs: {
-            models: [dir('./models')],
-            migrations: [dir('./migrations')],
-          },
-        },
         db: {
           Migration: {
             Startup: false,

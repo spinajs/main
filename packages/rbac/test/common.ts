@@ -21,12 +21,6 @@ export class TestConfiguration extends FrameworkConfiguration {
     await super.resolve();
 
     this.Config = {
-      system: {
-        dirs: {
-          migrations: [dir('./../src/migrations')],
-          models: [dir('./../src/models')],
-        },
-      },
       rbac: {
         // default roles to manage users & guest account
         roles: [

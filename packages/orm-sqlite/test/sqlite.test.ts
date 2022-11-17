@@ -65,14 +65,6 @@ export class ConnectionConf2 extends FrameworkConfiguration {
       },
       mergeArrays,
     );
-
-    /**
-     * For testing, clean out all dirs from another modules
-     */
-    this.set('system.dirs', {
-      models: [dir('./models')],
-      migrations: [dir('./migrations')],
-    });
   }
 }
 
@@ -110,11 +102,6 @@ export class ConnectionConf extends FrameworkConfiguration {
       },
       mergeArrays,
     );
-
-    this.set('system.dirs', {
-      models: [dir('./models')],
-      migrations: [dir('./migrations')],
-    });
   }
 }
 

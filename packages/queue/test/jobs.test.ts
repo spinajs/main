@@ -44,12 +44,6 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
-        system: {
-          dirs: {
-            migrations: [dir('./../src/migrations')],
-            models: [dir('./../src/models')],
-          },
-        },
         db: {
           DefaultConnection: 'sqlite',
           Connections: [

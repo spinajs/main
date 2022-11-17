@@ -21,12 +21,6 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
-        system: {
-          dirs: {
-            models: [dir('./../src/models')],
-            migrations: [dir('./../src/migrations')],
-          },
-        },
         rbac: {
           session: {
             db: {
