@@ -27,6 +27,16 @@ export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
       table.foreignKey('user_id').references('users', 'Id').cascade();
     });
 
+    await connection.schema().createTable('user_timeline', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('Action', 255).notNull();
+      table.int('ResourceId');
+      table.text('Data');
+      table.dateTime('CreatedAt').notNull().default().dateTime();
+
+      table.foreignKey('user_id').references('users', 'Id').cascade();
+    });
+
     await connection.index().unique().table('users').name('user_uuid_idx').columns(['Uuid']);
     await connection.index().unique().table('users_metadata').name('owner_user_meta_key_idx').columns(['user_id', 'Key']);
     await connection.index().unique().table('users').name('user_login_idx').columns(['Login']);

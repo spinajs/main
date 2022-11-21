@@ -11,7 +11,7 @@ import { Config } from '@spinajs/configuration';
 @Command('rbac:user-ban', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')
 @Argument('newPassword', 'new password')
-export class ChangePassword extends CliCommand {
+export class ChangeUserPassword extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 

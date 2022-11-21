@@ -2,7 +2,7 @@ import { QueueEvent, Event } from '@spinajs/queue';
 
 @Event()
 export class UserRoleGranted extends QueueEvent {
-  constructor(public UserUUID: string) {
+  constructor(public UserUUID: string, public Role: string) {
     super();
   }
 }
