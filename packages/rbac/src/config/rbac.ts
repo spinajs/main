@@ -41,7 +41,7 @@ module.exports = {
   },
   rbac: {
     timeline: {
-      schedule: '*/1 * * * *',
+      schedule: '1 0 */1 * *', // delete old entries once a day
       ttl: 24 * 60,
     },
     users: {
