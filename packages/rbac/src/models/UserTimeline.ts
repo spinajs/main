@@ -28,7 +28,7 @@ export class UserTimeline extends ModelBase {
 
   /**
    * If action is performed on some kind of resource
-   * Here is stored this rerource identifier or primary key in db
+   * Here is stored this resource identifier or primary key in db
    */
   public ResourceId: number;
 
