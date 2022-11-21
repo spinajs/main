@@ -40,6 +40,10 @@ module.exports = {
     ],
   },
   rbac: {
+    timeline: {
+      schedule: '*/1 * * * *',
+      ttl: 24 * 60,
+    },
     users: {
       // when user is created, should he confirm email
       // if false, user is acvite at creation,

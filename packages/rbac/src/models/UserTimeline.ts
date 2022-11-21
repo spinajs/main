@@ -20,6 +20,13 @@ export class UserTimeline extends ModelBase {
   public Data: string;
 
   /**
+   * True if this timeline event is persistent
+   * eg. we clear out login attempts older than 5 days
+   * but we want to save for eg. events related to payments
+   */
+  public Persistent: boolean;
+
+  /**
    * If action is performed on some kind of resource
    * Here is stored this rerource identifier or primary key in db
    */

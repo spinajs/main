@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
+import _ from 'lodash';
 
 @Migration('default')
 export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
@@ -30,6 +31,7 @@ export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
     await connection.schema().createTable('user_timeline', (table) => {
       table.int('Id').primaryKey().autoIncrement();
       table.string('Action', 255).notNull();
+      table.boolean('Persistent').notNull().default().value(0);
       table.int('ResourceId');
       table.text('Data');
       table.dateTime('CreatedAt').notNull().default().dateTime();
