@@ -68,7 +68,13 @@ export abstract class PasswordProvider {
 export abstract class AuthProvider<U = User> {
   public abstract exists(user: U): Promise<boolean>;
 
-  public abstract authenticate(email: string, password: string): Promise<U>;
+  public abstract authenticate(email: string, password: string): Promise<IAuthenticationResult<U>>;
+
+  public abstract isBanned(email: string): Promise<boolean>;
+
+  public abstract isActive(email: string): Promise<boolean>;
+
+  public abstract isDeleted(email: string): Promise<boolean>;
 }
 
 /**
@@ -101,7 +107,7 @@ export abstract class FederatedAuthProvider<C, U = User> {
    *
    * @param credentials - provided credentials eg. data with token
    */
-  public abstract authenticate(credentials: C): Promise<U>;
+  public abstract authenticate(credentials: C): Promise<IAuthenticationResult<U>>;
 }
 
 export abstract class SessionProvider<T = ISession> extends AsyncService {
@@ -152,4 +158,36 @@ export abstract class SessionProvider<T = ISession> extends AsyncService {
    *
    */
   public abstract truncate(): Promise<void>;
+}
+
+export enum AthenticationErrorCodes {
+  E_USER_BANNED = 'E_USER_BANNED',
+  E_USER_NOT_ACTIVE = 'E_USER_NOT_ACTIVE',
+  E_INVALID_CREDENTIALS = 'E_INVALID_CREDENTIALS',
+  E_LOGIN_ATTEMPTS_EXCEEDED = 'E_LOGIN_ATTEMPTS_EXCEEDED',
+}
+
+/**
+ * Authentication result
+ */
+export interface IAuthenticationResult<U = User> {
+  /**
+   * If auth is succeded, user field is not null
+   */
+  User?: U;
+
+  /**
+   * If result failed, Error field is not null
+   */
+  Error?: {
+    /**
+     * Error code eg E_IS_BANNED
+     */
+    Code: string | AthenticationErrorCodes;
+
+    /**
+     * Optional message
+     */
+    Message?: string;
+  };
 }
