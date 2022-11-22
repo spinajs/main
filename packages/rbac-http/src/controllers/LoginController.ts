@@ -42,10 +42,13 @@ export class LoginController extends BaseController {
       throw new InvalidOperation(`No auth stragegy registered for caller ${caller}`);
     }
 
-    const user = await strategy.authenticate(credentials);
+    const result = await strategy.authenticate(credentials);
+    if (!result.Error) {
+      // proceed with standard authentication
+      return await this.authenticate(result.User);
+    }
 
-    // proceed with standard authentication
-    return await this.authenticate(user);
+    return new Unauthorized(result.Error);
   }
 
   /**
@@ -65,8 +68,14 @@ export class LoginController extends BaseController {
       return new NotAllowed('User already logged in. Please logout before trying to authorize.');
     }
 
-    const user = await this.AuthProvider.authenticate(credentials.Email, credentials.Password);
-    return await this.authenticate(user);
+    const result = await this.AuthProvider.authenticate(credentials.Email, credentials.Password);
+
+    if (!result.Error) {
+      // proceed with standard authentication
+      return await this.authenticate(result.User);
+    }
+
+    return new Unauthorized(result.Error);
   }
 
   @Get()

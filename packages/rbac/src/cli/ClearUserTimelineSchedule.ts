@@ -11,7 +11,7 @@ export class ChangeUserPassword extends CliCommand {
   protected Log: Log;
 
   @Config('rbac.timeline.schedule')
-  protected CronSchedule: number;
+  protected CronSchedule: string;
 
   @Config('rbac.timeline.ttl')
   protected TimelineTTL: number;
