@@ -38,6 +38,10 @@ export class TestConfiguration extends FrameworkConfiguration {
           // 2h session expiration  time
           expiration: 120,
         },
+        password: {
+          provider: 'BasicPasswordProvider',
+          minPasswordLength: 6,
+        },
       },
       db: {
         DefaultConnection: 'sqlite',

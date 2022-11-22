@@ -39,6 +39,7 @@ describe('Authorization provider tests', () => {
       RegisteredAt: new Date(),
       Role: 'admin',
       IsActive: true,
+      IsBanned: false,
     });
 
     await User.insert(user);
@@ -46,7 +47,7 @@ describe('Authorization provider tests', () => {
     const user2 = new User({
       Email: 'test2@spinajs.pl',
       NiceName: 'test',
-      Login: 'test',
+      Login: 'test2',
       Password: await provider.hash('bbbb'),
       RegisteredAt: DateTime.now(),
       Role: 'admin',
@@ -101,16 +102,16 @@ describe('Authorization provider tests', () => {
     const provider = DI.resolve(AuthProvider);
 
     let result = await provider.authenticate('test@spinajs.pl', 'dbbbb');
-    expect(result.User).to.be.null;
+    expect(result.User).to.be.undefined;
     expect(result.Error).to.be.not.null;
-    expect(result.Error).to.eq({
-      Error: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
+    expect(result.Error).to.deep.equal({
+      Code: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
       Message: 'Invalid user credentials, or user not exist.',
     });
 
     result = await provider.authenticate('test@spinsajs.pl', 'bbbb');
-    expect(result.Error).to.eq({
-      Error: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
+    expect(result.Error).to.deep.equal({
+      Code: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
       Message: 'Invalid user credentials, or user not exist.',
     });
   });

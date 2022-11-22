@@ -21,10 +21,10 @@ export class ChangeUserPassword extends CliCommand {
   @Autoinject()
   protected PasswordProvider: PasswordProvider;
 
-  @Config('rbac.user.minPasswordLength')
+  @Config('rbac.password.minPasswordLength')
   protected MinPasswordLength: number;
 
-  @Config('rbac.user.maxPasswordLength')
+  @Config('rbac.password.maxPasswordLength')
   protected MaxPasswordLength: number;
 
   public async execute(idOrUuid: string, newPassword: string): Promise<void> {

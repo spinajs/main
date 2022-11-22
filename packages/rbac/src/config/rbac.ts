@@ -49,15 +49,6 @@ module.exports = {
       // if false, user is acvite at creation,
       // when true, first, user will be sent confirmation email
       emailConfimationOnCreation: false,
-
-      minPasswordLength: 6,
-
-      maxPasswordLength: 16,
-
-      /**
-       * Should password expire after some time ?
-       */
-      passwordExpirationTime: 0,
     },
     // default roles to manage users & guest account
     roles: [
@@ -96,6 +87,12 @@ module.exports = {
     password: {
       provider: 'BasicPasswordProvider',
       minPasswordLength: 6,
+      maxPasswordLength: 16,
+
+      /**
+       * Should password expire after some time ?
+       */
+      passwordExpirationTime: 0,
     },
     session: {
       provider: 'MemorySessionStore',
