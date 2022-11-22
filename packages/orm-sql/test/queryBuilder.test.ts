@@ -598,10 +598,21 @@ describe('Relations query builder', () => {
 
   it('should query by relation in where', () => {
     const result = RelationModel.where({ Relation: 1 }).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = `1`');
+    expect(result.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
+    expect(result.bindings[0]).to.equal(1);
 
     const result2 = RelationModel.where({ Relation: new RelationModel2({ Id: 2 }) }).toDB();
-    expect(result2.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = `2`');
+    expect(result2.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
+    expect(result2.bindings[0]).to.equal(2);
+
+    const result3 = RelationModel.where('Relation', 1).toDB();
+    expect(result3.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
+    expect(result3.bindings[0]).to.equal(1);
+
+    const result4 = RelationModel.where('Relation', new RelationModel2({ Id: 2 })).toDB();
+    expect(result4.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
+    expect(result4.bindings[0]).to.equal(2);
+
   });
 
   it('belongsTo simple', () => {

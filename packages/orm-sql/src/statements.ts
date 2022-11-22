@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers';
 import { NewInstance } from '@spinajs/di';
-import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter } from '@spinajs/orm';
+import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor } from '@spinajs/orm';
 
 @NewInstance()
 export class SqlRawStatement extends RawQueryStatement {
@@ -64,8 +64,17 @@ export class SqlWhereStatement extends WhereStatement {
   public build(): IQueryStatementResult {
     const isNullableQuery = this._operator === SqlOperator.NOT_NULL || this._operator === SqlOperator.NULL;
     const binding = isNullableQuery ? '' : ' ?';
-
     let column = this._column;
+    let val = this._value;
+
+    if (this._model) {
+      const desc = extractModelDescriptor(this._model);
+      const rel = desc.Relations.get(column as string);
+      if (rel) {
+        column = rel.ForeignKey;
+      }
+    }
+
     if (column instanceof Wrap) {
       const wrapper = this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._tableAlias]);
       column = wrapper.wrap();
@@ -73,17 +82,15 @@ export class SqlWhereStatement extends WhereStatement {
       if (this._tableAlias) {
         column = `\`${this._tableAlias}\`.${this._column as string}`;
       }
-    }
 
-    let val = this._value;
-
-    if (val instanceof ModelBase) {
-      val = val.PrimaryKeyValue;
-    } else {
-      const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
-      if (converters && this._value && converters.has(this._value.constructor.name)) {
-        const converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
-        val = converter.toDB(val);
+      if (val instanceof ModelBase) {
+        val = val.PrimaryKeyValue;
+      } else {
+        const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
+        if (converters && this._value && converters.has(this._value.constructor.name)) {
+          const converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
+          val = converter.toDB(val);
+        }
       }
     }
 

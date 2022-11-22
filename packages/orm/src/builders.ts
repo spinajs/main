@@ -561,6 +561,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   protected _container: Container;
   protected _tableAlias: string;
 
+  protected _model: Constructor<ModelBase>;
+
   get Statements() {
     return this._statements;
   }
@@ -628,7 +630,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         return this.whereNull(c);
       }
 
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, self._tableAlias, this._container]));
+      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, self._tableAlias, this._container, self._model]));
 
       return self;
     }
@@ -656,7 +658,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         return o === SqlOperator.NOT_NULL ? this.whereNotNull(c) : this.whereNull(c);
       }
 
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self._tableAlias, this._container]));
+      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self._tableAlias, this._container, self._model]));
 
       return this;
     }

@@ -1,9 +1,10 @@
 /* eslint-disable prettier/prettier */
 import { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders';
 import { ColumnMethods, SqlOperator, JoinMethod } from './enums';
-import { NewInstance, Container, Class } from '@spinajs/di';
+import { NewInstance, Container, Class, Constructor } from '@spinajs/di';
 import * as _ from 'lodash';
 import { IColumnDescriptor } from './interfaces';
+import { ModelBase } from './model';
 
 export interface IQueryStatementResult {
   Statements: string[];
@@ -105,13 +106,15 @@ export abstract class WhereStatement extends QueryStatement {
   protected _operator: SqlOperator;
   protected _value: any;
   protected _container: Container;
+  protected _model: Constructor<ModelBase>;
 
-  constructor(column: string, operator: SqlOperator, value: any, tableAlias: string, container: Container) {
+  constructor(column: string, operator: SqlOperator, value: any, tableAlias: string, container: Container, model: Constructor<ModelBase>) {
     super(tableAlias);
     this._column = column;
     this._operator = operator;
     this._value = value;
     this._container = container;
+    this._model = model;
   }
 
   public abstract build(): IQueryStatementResult;
