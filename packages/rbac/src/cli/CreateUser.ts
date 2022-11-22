@@ -5,7 +5,6 @@ import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 import { Autoinject } from '@spinajs/di';
 import { v4 as uuidv4 } from 'uuid';
-// import { NewUserMessage } from '../messages/NewUser';
 import { PasswordProvider } from '../interfaces';
 import { User } from '../models/User';
 

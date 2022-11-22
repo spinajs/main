@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon';
-import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT } from '@spinajs/orm';
 import { AccessControl } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata';
+import { UserTimeline } from './UserTimeline';
 
 /**
  * Base model for users used by auth and ACL system
@@ -46,6 +47,7 @@ export class User extends ModelBase {
   /**
    * Registration date. User is registered when clicked confirmation link sended to provided email.
    */
+  @DT()
   public RegisteredAt: DateTime;
 
   /**
@@ -54,6 +56,7 @@ export class User extends ModelBase {
   @SoftDelete()
   public DeletedAt: DateTime;
 
+  @DT()
   public LastLoginAt: DateTime;
 
   public IsBanned: boolean;
@@ -65,6 +68,9 @@ export class User extends ModelBase {
    */
   @HasMany(UserMetadata)
   public Metadata: Relation<UserMetadata>;
+
+  @HasMany(UserTimeline)
+  public ActionsTimeline: Relation<UserTimeline>;
 
   public can(resource: string, permission: string) {
     const ac = DI.get<AccessControl>('AccessControl');

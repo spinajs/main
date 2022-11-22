@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password';
 import { DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User } from '../src';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, AthenticationErrorCodes } from '../src';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 
@@ -10,6 +10,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common';
+import { DateTime } from 'luxon';
 
 chai.use(chaiAsPromised);
 
@@ -37,9 +38,24 @@ describe('Authorization provider tests', () => {
       Password: await provider.hash('bbbb'),
       RegisteredAt: new Date(),
       Role: 'admin',
+      IsActive: true,
     });
 
     await User.insert(user);
+
+    const user2 = new User({
+      Email: 'test2@spinajs.pl',
+      NiceName: 'test',
+      Login: 'test',
+      Password: await provider.hash('bbbb'),
+      RegisteredAt: DateTime.now(),
+      Role: 'admin',
+      IsBanned: true,
+      IsActive: true,
+      DeletedAt: DateTime.now(),
+    });
+
+    await user2.insert();
   });
 
   afterEach(async () => {
@@ -62,15 +78,46 @@ describe('Authorization provider tests', () => {
     expect(result).to.be.false;
   });
 
+  it('Should check for active user', async () => {
+    const provider = DI.resolve(AuthProvider);
+    let result = await provider.isActive('test2@spinajs.pl');
+
+    expect(result).to.be.true;
+  });
+  it('Should check for deleted user', async () => {
+    const provider = DI.resolve(AuthProvider);
+    let result = await provider.isDeleted('test2@spinajs.pl');
+
+    expect(result).to.be.true;
+  });
+  it('Should check for banned user', async () => {
+    const provider = DI.resolve(AuthProvider);
+    let result = await provider.isBanned('test2@spinajs.pl');
+
+    expect(result).to.be.true;
+  });
+
+  it('Should return invalid credentials', async () => {
+    const provider = DI.resolve(AuthProvider);
+
+    let result = await provider.authenticate('test@spinajs.pl', 'dbbbb');
+    expect(result.User).to.be.null;
+    expect(result.Error).to.be.not.null;
+    expect(result.Error).to.eq({
+      Error: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
+      Message: 'Invalid user credentials, or user not exist.',
+    });
+
+    result = await provider.authenticate('test@spinsajs.pl', 'bbbb');
+    expect(result.Error).to.eq({
+      Error: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
+      Message: 'Invalid user credentials, or user not exist.',
+    });
+  });
+
   it('Should authenticate', async () => {
     const provider = DI.resolve(AuthProvider);
-    let user = await provider.authenticate('test@spinajs.pl', 'bbbb');
-    expect(user).to.be.not.null;
-
-    user = await provider.authenticate('test@spinajs.pl', 'dbbbb');
-    expect(user).to.be.null;
-
-    user = await provider.authenticate('test@spinsajs.pl', 'bbbb');
-    expect(user).to.be.null;
+    let result = await provider.authenticate('test@spinajs.pl', 'bbbb');
+    expect(result.User).to.be.not.null;
   });
 });
