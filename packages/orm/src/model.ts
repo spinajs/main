@@ -1,3 +1,4 @@
+import { PickRelations } from './types';
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
 import { SordOrder } from './enums';
@@ -245,13 +246,13 @@ export class ModelBase implements IModelBase {
    * @param value - value to compare
    */
   public static where<T extends typeof ModelBase>(this: T, val: boolean): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(this: T, val: Partial<InstanceType<T>>): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, val: Partial<InstanceType<T>> | PickRelations<T, Relation<any>>): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, func: WhereFunction<InstanceType<T>>): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, column: string, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, statement: Wrap): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
+  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap  | PickRelations<T, Relation<any>>, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T, Relation<any>>, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
     throw new Error('Not implemented');
   }
 

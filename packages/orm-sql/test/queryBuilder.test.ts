@@ -11,6 +11,7 @@ import { RelationModel } from './Models/RelationModel';
 import * as sinon from 'sinon';
 import { RelationModel3 } from './Models/RelationModel3';
 import { DateTime } from 'luxon';
+import { RelationModel2 } from './Models/RelationModel2';
 
 function sqb() {
   const connection = db().Connections.get('sqlite');
@@ -227,7 +228,6 @@ describe('Where query builder', () => {
   });
 
   it('Should convert date to sql', () => {
-    
     let result = sqb().select('*').from('users').where('CreatedAt', new Date('2022-07-21T09:35:31.820Z')).toDB();
 
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
@@ -594,6 +594,14 @@ describe('Relations query builder', () => {
   afterEach(() => {
     DI.clearCache();
     sinon.restore();
+  });
+
+  it('should query by relation in where', () => {
+    const result = RelationModel.where({ Relation: 1 }).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = `1`');
+
+    const result2 = RelationModel.where({ Relation: new RelationModel2({ Id: 2 }) }).toDB();
+    expect(result2.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = `2`');
   });
 
   it('belongsTo simple', () => {
