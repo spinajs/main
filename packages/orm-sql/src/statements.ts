@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers';
 import { NewInstance } from '@spinajs/di';
-import { SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter } from '@spinajs/orm';
+import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter } from '@spinajs/orm';
 
 @NewInstance()
 export class SqlRawStatement extends RawQueryStatement {
@@ -76,10 +76,15 @@ export class SqlWhereStatement extends WhereStatement {
     }
 
     let val = this._value;
-    const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
-    if (converters && this._value && converters.has(this._value.constructor.name)) {
-      const converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
-      val = converter.toDB(val);
+
+    if (val instanceof ModelBase) {
+      val = val.PrimaryKeyValue;
+    } else {
+      const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
+      if (converters && this._value && converters.has(this._value.constructor.name)) {
+        const converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
+        val = converter.toDB(val);
+      }
     }
 
     return {

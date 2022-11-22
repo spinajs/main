@@ -7,10 +7,10 @@ import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SordOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums';
 import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, ISelectBuilderExtensions, QueryMiddleware } from './interfaces';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap } from './statements';
-import { WhereFunction } from './types';
+import { PickRelations, WhereFunction } from './types';
 import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
-import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
+import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, Relation } from './relations';
 import { Orm } from './orm';
 
 /**
@@ -576,7 +576,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._tableAlias = tableAlias;
   }
 
-  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<T>, operator?: SqlOperator | any, value?: any): this {
+  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<T> | PickRelations<T, Relation<any>>, operator?: SqlOperator | any, value?: any): this {
     const self = this;
 
     // Support "where true || where false"
