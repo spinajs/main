@@ -40,11 +40,13 @@ export class SpeakEasy2FaToken extends TwoFactorAuthProvider {
 
     return verified;
   }
+
   public async initialize(user: User): Promise<any> {
     const secret = speakeasy.generateSecret(this.Config);
     await user.Metadata.add(new UserMetadata({ Value: secret.base32, Key: '2fa_speakeasy_token' }));
     return secret.base32;
   }
+
   public async isEnabled(user: User): Promise<boolean> {
     const meta = user.Metadata.find((x) => x.Key === '2fa_enabled');
     return meta ? meta.asBoolean() : false;

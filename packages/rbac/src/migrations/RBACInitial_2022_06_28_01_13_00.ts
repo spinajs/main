@@ -27,7 +27,7 @@ export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
       table.foreignKey('user_id').references('users', 'Id').cascade();
     });
 
-    await connection.schema().createTable('user_timeline', (table) => {
+    await connection.schema().createTable('user_actions', (table) => {
       table.int('Id').primaryKey().autoIncrement();
       table.string('Action', 255).notNull();
       table.boolean('Persistent').notNull().default().value(0);

@@ -1,6 +1,6 @@
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
-import { UserTimeline } from '../models/UserTimeline';
+import { UserAction } from '../models/UserTimeline';
 import { User } from '../models/User';
 
 @Command('rbac:user-events', 'Shows latest user timelinet events')
@@ -15,7 +15,7 @@ export class LatestUserEvents extends CliCommand {
       .orWhere('Uuid', idOrUuid)
       .firstOrThrow(new Error(`No user with id ${idOrUuid}`));
 
-    const timeline = await UserTimeline.where({ User: user }).take(count).orderByDescending('CreatedAt');
+    const timeline = await UserAction.where({ User: user }).take(count).orderByDescending('CreatedAt');
 
     timeline.forEach((x) => {
       this.Log.info(`Event ${x.Action}, date: ${x.CreatedAt.toISO()}, persistent: ${x.Persistent}, data: ${x.Data}`);

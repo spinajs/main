@@ -1,12 +1,23 @@
+import { InsertBehaviour } from './../../../orm/src/interfaces';
+import { BadRequest } from './../../../http/src/response-methods/badRequest';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { UserLoginDto } from '../dto/userLogin-dto';
-import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, NotAllowed, Header } from '@spinajs/http';
-import { AuthProvider, FederatedAuthProvider, Session, SessionProvider, User as UserModel } from '@spinajs/rbac';
+import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, Header, Policy, Query } from '@spinajs/http';
+import { AuthProvider, FederatedAuthProvider, Session, SessionProvider, User as UserModel, UserMetadata } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
-import { User } from './../decorators';
 import _ from 'lodash';
 import { FingerprintProvider, TwoFactorAuthProvider } from '../interfaces';
+import { QueueClient } from '@spinajs/queue';
+
+import { NotLoggedPolicy } from '../policies/NotLoggedPolicy';
+import { LoggedPolicy } from '../policies/LoggedPolicy';
+import { UserPasswordRestore } from '../events/UserPassordRestore';
+import { RestorePasswordDto } from '../dto/restore-password-dto';
+
+import { v4 as uuidv4 } from 'uuid';
+import { DateTime } from 'luxon';
+import { UserAction } from 'rbac/src/models/UserTimeline';
 
 @BasePath('user/auth')
 export class LoginController extends BaseController {
@@ -22,6 +33,9 @@ export class LoginController extends BaseController {
   @Config('rbac.session.expiration', 120)
   protected SessionExpirationTime: number;
 
+  @Config('rbac.password_reset.ttl')
+  protected PasswordResetTonekTTL: number;
+
   @AutoinjectService('rbac.twoFactorAuth.provider')
   protected TwoFactorAuthProvider: TwoFactorAuthProvider;
 
@@ -31,12 +45,12 @@ export class LoginController extends BaseController {
   @Autoinject(FederatedAuthProvider)
   protected FederatedLoginStrategies: FederatedAuthProvider<any>[];
 
-  @Post('federated-login')
-  public async loginFederated(@Body() credentials: unknown, @Header('Host') caller: string, @User() logged: UserModel) {
-    if (logged) {
-      return new NotAllowed('User already logged in. Please logout before trying to authorize.');
-    }
+  @Autoinject(QueueClient)
+  protected Queue: QueueClient;
 
+  @Post('federated-login')
+  @Policy(NotLoggedPolicy)
+  public async loginFederated(@Body() credentials: unknown, @Header('Host') caller: string) {
     const strategy = this.FederatedLoginStrategies.find((x) => x.callerCheck(caller));
     if (!strategy) {
       throw new InvalidOperation(`No auth stragegy registered for caller ${caller}`);
@@ -63,11 +77,8 @@ export class LoginController extends BaseController {
   }
 
   @Post()
-  public async login(@Body() credentials: UserLoginDto, @User() logged: UserModel) {
-    if (logged) {
-      return new NotAllowed('User already logged in. Please logout before trying to authorize.');
-    }
-
+  @Policy(NotLoggedPolicy)
+  public async login(@Body() credentials: UserLoginDto) {
     const result = await this.AuthProvider.authenticate(credentials.Email, credentials.Password);
 
     if (!result.Error) {
@@ -78,7 +89,81 @@ export class LoginController extends BaseController {
     return new Unauthorized(result.Error);
   }
 
+  @Post('new-password')
+  @Policy(NotLoggedPolicy)
+  public async setNewPassword(@Query() token: string, @Body() pwd: RestorePasswordDto) {
+    UserModel.where({}).populate
+
+    const meta = await UserMetadata.where({
+      Key: 'reset_password_token',
+      Value: token,
+    }).first();
+
+    if (!meta) {
+      return new InvalidOperation('Invalid reset token');
+    }
+
+    await meta.User.populate();
+    await meta.User.Value.Metadata.populate();
+
+    const user = meta.User.Value;
+
+    const rTime = user.Metadata.find((x) => x.Key === 'reset_password_time').asISODate();
+  }
+
+  @Post('forgot-password')
+  @Policy(NotLoggedPolicy)
+  public async forgotPassword(@Body() login: UserLoginDto) {
+    const user = await this.AuthProvider.get(login.Email);
+
+    if (!user.IsActive || user.IsBanned || user.DeletedAt !== null) {
+      return new BadRequest('User is inactive, banned or deleted. Contact system administrator');
+    }
+
+    const token = uuidv4();
+
+    await user.Metadata.populate();
+
+    await this.Queue.emit(new UserPasswordRestore(user.Uuid, token));
+
+    await user.Metadata.add(
+      new UserMetadata({
+        Key: 'reset_password',
+        Value: true,
+      }),
+      InsertBehaviour.InsertOrUpdate,
+    );
+
+    await user.Metadata.add(
+      new UserMetadata({
+        Key: 'reset_password_token',
+        Value: token,
+      }),
+    );
+
+    await user.Metadata.add(
+      new UserMetadata({
+        Key: 'reset_password_time',
+        Value: DateTime.now().toISO(),
+      }),
+    );
+
+    await user.Actions.add(
+      new UserAction({
+        Action: 'password_reset',
+        Data: DateTime.now().toISO(),
+        Persistend: true,
+      }),
+    );
+
+    return new Ok({
+      reset_token: token,
+      ttl: this.PasswordResetTonekTTL,
+    });
+  }
+
   @Get()
+  @Policy(LoggedPolicy)
   public async logout(@Cookie() ssid: string) {
     if (!ssid) {
       return new Ok();

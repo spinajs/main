@@ -3,7 +3,7 @@ import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, 
 import { AccessControl } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata';
-import { UserTimeline } from './UserTimeline';
+import { UserAction } from './UserTimeline';
 
 /**
  * Base model for users used by auth and ACL system
@@ -69,8 +69,8 @@ export class User extends ModelBase {
   @HasMany(UserMetadata)
   public Metadata: Relation<UserMetadata>;
 
-  @HasMany(UserTimeline)
-  public ActionsTimeline: Relation<UserTimeline>;
+  @HasMany(UserAction)
+  public Actions: Relation<UserAction>;
 
   public can(resource: string, permission: string) {
     const ac = DI.get<AccessControl>('AccessControl');

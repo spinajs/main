@@ -66,15 +66,53 @@ export abstract class PasswordProvider {
  * or some kind of other source
  */
 export abstract class AuthProvider<U = User> {
-  public abstract exists(user: U): Promise<boolean>;
+  /**
+   *
+   * Checks if user is already exists with given login
+   *
+   * @param loginOrUser - login string or user object
+   */
+  public abstract exists(loginOrUser: U | string): Promise<boolean>;
 
-  public abstract authenticate(email: string, password: string): Promise<IAuthenticationResult<U>>;
+  /**
+   *
+   * Authenticate user with login and pass, if succeded auth result contains user object
+   *
+   * @param login - user login
+   * @param password  - user password
+   */
+  public abstract authenticate(login: string, password: string): Promise<IAuthenticationResult<U>>;
 
-  public abstract isBanned(email: string): Promise<boolean>;
+  /**
+   *
+   * Checks if user is banned
+   *
+   * @param login - user login
+   */
+  public abstract isBanned(login: string): Promise<boolean>;
 
-  public abstract isActive(email: string): Promise<boolean>;
+  /**
+   * Checks if user is active
+   *
+   * @param login - user login
+   */
+  public abstract isActive(login: string): Promise<boolean>;
 
-  public abstract isDeleted(email: string): Promise<boolean>;
+  /**
+   *
+   * Cheks if user is deleted
+   *
+   * @param login - user login
+   */
+  public abstract isDeleted(login: string): Promise<boolean>;
+
+  /**
+   *
+   * Gets user from auth store
+   *
+   * @param login - user login
+   */
+  public abstract get(login: string): Promise<U>;
 }
 
 /**

@@ -7,8 +7,8 @@ import type { User } from './User';
  * eg. login attempts, failed logins, resource deletions, alterations etc.
  */
 @Connection('default')
-@Model('user_timeline')
-export class UserTimeline extends ModelBase {
+@Model('user_actions')
+export class UserAction extends ModelBase {
   @Primary()
   public Id: number;
 

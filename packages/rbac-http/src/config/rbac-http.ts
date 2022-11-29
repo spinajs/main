@@ -21,6 +21,10 @@ module.exports = {
       maxDevices: 3,
       service: 'FingerprintJs',
     },
+    password_reset: {
+      // password reset token ttl in minutes
+      tokentTTL: 60,
+    },
   },
   http: {
     middlewares: [

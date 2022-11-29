@@ -50,12 +50,14 @@
     "accesscontrol": "^2.2.1",
     "luxon": "^2.4.0",
     "qrcode": "^1.5.1",
-    "speakeasy": "^2.0.0"
+    "speakeasy": "^2.0.0",
+    "uuid": "^8.3.2"
   },
   "devDependencies": {
     "@spinajs/orm-sqlite": "^2.0.38",
     "@types/qrcode": "^1.4.2",
-    "@types/speakeasy": "^2.0.7"
+    "@types/speakeasy": "^2.0.7",
+    "@types/uuid": "^8.3.3"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

@@ -2,7 +2,7 @@ import { Log, Logger } from '@spinajs/log';
 import { CliCommand, Command } from '@spinajs/cli';
 import { Config } from '@spinajs/configuration';
 import { CronJob } from 'cron';
-import { UserTimeline } from '../models/UserTimeline';
+import { UserAction } from '../models/UserTimeline';
 import { DateTime } from 'luxon';
 
 @Command('rbac:cleanup-schedule', 'Starts a schedule with cleanup tasks')
@@ -20,7 +20,7 @@ export class ChangeUserPassword extends CliCommand {
     new CronJob(
       this.CronSchedule,
       async () => {
-        const result = await UserTimeline.destroy()
+        const result = await UserAction.destroy()
           .where('Persistent', false)
           .andWhere(
             'CreatedAt',

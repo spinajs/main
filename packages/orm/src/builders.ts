@@ -472,9 +472,10 @@ export class JoinBuilder implements IJoinBuilder {
     return this;
   }
 
+  public innerJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
   public innerJoin(query: RawQuery): this;
   public innerJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public innerJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
+  public innerJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.INNER, ...arguments);
     return this;
   }
@@ -521,10 +522,12 @@ export class JoinBuilder implements IJoinBuilder {
     return this;
   }
 
-  private addJoinStatement(method: JoinMethod, table: string | RawQuery, AliasOrForeignKey?: string, fkOrPkKey?: string, primaryKey?: string) {
+  private addJoinStatement(method: JoinMethod, table: string | RawQuery | ModelBase, AliasOrForeignKey?: string | ((this: SelectQueryBuilder<this>) => void), fkOrPkKey?: string, primaryKey?: string) {
     let stmt: JoinStatement = null;
 
-    if (arguments.length === 4) {
+    if (arguments.length === 3) {
+      stmt = this._container.resolve<JoinStatement>(JoinStatement, [table, method, AliasOrForeignKey]);
+    } else if (arguments.length === 4) {
       stmt = this._container.resolve<JoinStatement>(JoinStatement, [table, method, AliasOrForeignKey, fkOrPkKey, null, this._tableAlias]);
     } else if (arguments.length === 5) {
       stmt = this._container.resolve<JoinStatement>(JoinStatement, [table, method, fkOrPkKey, primaryKey, AliasOrForeignKey, this._tableAlias]);
@@ -689,7 +692,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this._tableAlias,this._container]));
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this._tableAlias, this._container]));
     return this;
   }
 
@@ -698,12 +701,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias,this._container]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias, this._container]));
     return this;
   }
 
   public whereNotIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias,this._container]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias, this._container]));
     return this;
   }
 

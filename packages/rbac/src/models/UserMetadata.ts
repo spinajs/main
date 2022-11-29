@@ -1,4 +1,5 @@
 import { BelongsTo, Connection, Model, ModelBase, Primary, SingleRelation } from '@spinajs/orm';
+import { DateTime } from 'luxon';
 import type { User } from './User';
 
 @Connection('default')
@@ -25,6 +26,10 @@ export class UserMetadata extends ModelBase {
 
   public asJsonObject<T = {}>() {
     return JSON.parse(this.Value) as T;
+  }
+
+  public asISODate() {
+    return DateTime.fromISO(this.Value);
   }
 
   @BelongsTo('User')

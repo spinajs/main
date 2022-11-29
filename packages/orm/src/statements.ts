@@ -1,3 +1,4 @@
+import { ISelectQueryBuilder } from './interfaces';
 /* eslint-disable prettier/prettier */
 import { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders';
 import { ColumnMethods, SqlOperator, JoinMethod } from './enums';
@@ -158,21 +159,26 @@ export abstract class JoinStatement extends QueryStatement {
   protected _query: RawQuery;
   protected _alias: string;
   protected _tableAlias: string;
+  protected _model: ModelBase;
+  protected _whereBuilder: (this: ISelectQueryBuilder<any>) => void;
 
-  constructor(table: string | RawQuery, method: JoinMethod, foreignKey: string, primaryKey: string, alias: string, tableAlias: string) {
+  constructor(table: string | RawQuery | ModelBase, method: JoinMethod, foreignKey: string | ((this: SelectQueryBuilder) => void), primaryKey: string, alias: string, tableAlias: string) {
     super(tableAlias);
 
     this._method = method;
 
+    if(_.isFunction(foreignKey)){
+      this._whereBuilder = foreignKey;
+    }
+
     if (_.isString(table)) {
       this._table = table;
-      this._foreignKey = foreignKey;
       this._primaryKey = primaryKey;
       this._alias = alias;
       this._tableAlias = tableAlias;
-    } else {
+    } else if(table instanceof RawQuery) {
       this._query = table;
-    }
+    }else if
   }
 
   public abstract build(): IQueryStatementResult;

@@ -663,6 +663,7 @@ export interface IJoinBuilder {
 
   clearJoins(): this;
 
+  innerJoin(model: ModelBase, where?: (this: ISelectQueryBuilder<this>) => void): this;
   innerJoin(query: RawQuery): this;
   innerJoin(table: string, foreignKey: string, primaryKey: string): this;
   // tslint:disable-next-line: unified-signatures
