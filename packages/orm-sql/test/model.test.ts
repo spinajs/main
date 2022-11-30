@@ -19,6 +19,8 @@ import './Models/RelationModel2';
 import './Models/RelationModel3';
 import './Models/RelationModel4';
 import { UuidModel } from './Models/UuidModel';
+import { Model3 } from './Models/Model3';
+import { Model4 } from './Models/Model4';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -48,6 +50,30 @@ describe('model generated queries', () => {
 
     expect(updateSpy.returnValues[0].expression).to.eq('UPDATE `TestTable1` SET `Bar` = ? WHERE Id = ?');
     expect(updateSpy.returnValues[1].expression).to.eq('UPDATE `TestTable1` SET `Bar` = ? WHERE Id IS NULL');
+  });
+
+  it('Should model query join work', async () => {
+    await DI.resolve(Orm);
+
+    const result = Model3.query()
+      .innerJoin(Model4, function () {
+        this.where({
+          Bar: 1,
+        });
+      })
+      .toDB();
+
+    const result2 = Model3.query()
+      .leftJoin(Model4, function () {
+        this.where({
+          Bar: 1,
+        });
+      })
+      .toDB();
+
+    expect(result.expression).to.equal('SELECT * FROM `TestTable3` as `$Model3$` INNER JOIN `TestTable4` as `$Model4$` ON `$Model3$`.Id = `$Model4$`.model3_id WHERE `$Model4$`.Bar = ?');
+    expect(result2.expression).to.equal('SELECT * FROM `TestTable3` as `$Model3$` LEFT JOIN `TestTable4` as `$Model4$` ON `$Model3$`.Id = `$Model4$`.model3_id WHERE `$Model4$`.Bar = ?');
+
   });
 
   it('model insert with uuid from static function', async () => {

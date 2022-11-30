@@ -663,38 +663,44 @@ export interface IJoinBuilder {
 
   clearJoins(): this;
 
-  innerJoin(model: ModelBase, where?: (this: ISelectQueryBuilder<this>) => void): this;
+  innerJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   innerJoin(query: RawQuery): this;
   innerJoin(table: string, foreignKey: string, primaryKey: string): this;
   // tslint:disable-next-line: unified-signatures
   innerJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
 
+  leftJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   leftJoin(query: RawQuery): this;
   leftJoin(table: string, foreignKey: string, primaryKey: string): this;
 
   // tslint:disable-next-line: unified-signatures
   leftJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
 
+  leftOuterJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   leftOuterJoin(query: RawQuery): this;
   leftOuterJoin(table: string, foreignKey: string, primaryKey: string): this;
   // tslint:disable-next-line: unified-signatures
   leftOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
 
+  rightJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   rightJoin(query: RawQuery): this;
   rightJoin(table: string, foreignKey: string, primaryKey: string): this;
   // tslint:disable-next-line: unified-signatures
   rightJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
 
+  rightOuterJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   rightOuterJoin(query: RawQuery): this;
   rightOuterJoin(table: string, foreignKey: string, primaryKey: string): this;
   // tslint:disable-next-line: unified-signatures
   rightOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
 
+  fullOuterJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   fullOuterJoin(query: RawQuery): this;
   fullOuterJoin(table: string, foreignKey: string, primaryKey: string): this;
   // tslint:disable-next-line: unified-signatures
   fullOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
 
+  crossJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   crossJoin(query: RawQuery): this;
   crossJoin(table: string, foreignKey: string, primaryKey: string): this;
   // tslint:disable-next-line: unified-signatures

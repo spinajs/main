@@ -5,7 +5,8 @@ import { ColumnMethods, SqlOperator, JoinMethod } from './enums';
 import { NewInstance, Container, Class, Constructor } from '@spinajs/di';
 import * as _ from 'lodash';
 import { IColumnDescriptor } from './interfaces';
-import { ModelBase } from './model';
+import { extractModelDescriptor, ModelBase } from './model';
+import { OrmException } from './exceptions';
 
 export interface IQueryStatementResult {
   Statements: string[];
@@ -159,26 +160,67 @@ export abstract class JoinStatement extends QueryStatement {
   protected _query: RawQuery;
   protected _alias: string;
   protected _tableAlias: string;
-  protected _model: ModelBase;
-  protected _whereBuilder: (this: ISelectQueryBuilder<any>) => void;
+  protected _model: Constructor<ModelBase>;
+  protected _sourceModel: Constructor<ModelBase>;
+  protected _whereCallback: (this: ISelectQueryBuilder<any>) => void;
+  protected _builder: SelectQueryBuilder<any>;
+  protected _whereBuilder: SelectQueryBuilder<any>;
 
-  constructor(table: string | RawQuery | ModelBase, method: JoinMethod, foreignKey: string | ((this: SelectQueryBuilder) => void), primaryKey: string, alias: string, tableAlias: string) {
+  constructor(builder: SelectQueryBuilder<any>, sourceModel: Constructor<ModelBase>, table: string | RawQuery | Constructor<ModelBase>, method: JoinMethod, foreignKey: string | ((this: SelectQueryBuilder) => void), primaryKey: string, alias: string, tableAlias: string) {
     super(tableAlias);
 
     this._method = method;
+    this._builder = builder;
 
-    if(_.isFunction(foreignKey)){
-      this._whereBuilder = foreignKey;
+    if (_.isString(foreignKey)) {
+      this._foreignKey = foreignKey;
     }
 
     if (_.isString(table)) {
       this._table = table;
       this._primaryKey = primaryKey;
-      this._alias = alias;
-      this._tableAlias = tableAlias;
-    } else if(table instanceof RawQuery) {
+      this._alias = tableAlias;
+      this._tableAlias = alias;
+    } else if (table instanceof RawQuery) {
       this._query = table;
-    }else if
+    } else {
+      this._model = table;
+      this._sourceModel = sourceModel;
+
+      const sDesc = extractModelDescriptor(this._sourceModel);
+      const tDesc = extractModelDescriptor(this._model);
+      const sAlias = `${sDesc.Driver.Options.AliasSeparator}${sDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
+      this._tableAlias = `${sDesc.Driver.Options.AliasSeparator}${tDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
+
+      if (!this._builder.TableAlias) {
+        this._builder.setAlias(sAlias);
+      }
+
+      if (_.isFunction(foreignKey)) {
+        this._whereCallback = foreignKey;
+
+        const driver = this._builder.Driver;
+        const cnt = driver.Container;
+        this._whereBuilder = cnt.resolve<SelectQueryBuilder>(SelectQueryBuilder, [driver, this._model, this]);
+        this._whereBuilder.setAlias(this._tableAlias);
+
+        this._whereCallback.call(this._whereBuilder, [this]);
+
+        this._builder.mergeStatements(this._whereBuilder);
+      }
+
+      const relation = Array.from(sDesc.Relations, ([key, value]) => ({ key, value })).find((x) => x.value.TargetModel.name === this._model.name);
+
+      if (!relation) {
+        throw new OrmException(`Cannot find relation between ${this._model.name} and ${this._sourceModel.name}, thus cannot perform join statement`);
+      }
+
+      this._table = tDesc.TableName;
+      this._primaryKey = relation.value.ForeignKey;
+      this._alias = sAlias;
+
+      this._foreignKey = sDesc.PrimaryKey;
+    }
   }
 
   public abstract build(): IQueryStatementResult;

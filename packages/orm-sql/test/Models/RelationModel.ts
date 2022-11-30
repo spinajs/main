@@ -10,6 +10,6 @@ export class RelationModel extends ModelBase {
   @BelongsTo(RelationModel2)
   public Relation: SingleRelation<RelationModel2>;
 
-  @BelongsTo(RelationModel2, 'pK_Id', 'fK_Id')
+  @BelongsTo(RelationModel2, 'fK_Id', 'pK_Id')
   public Relation2: SingleRelation<RelationModel2>;
 }

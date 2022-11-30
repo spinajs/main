@@ -116,12 +116,12 @@ export class SqlJoinStatement extends JoinStatement {
     let foreignKey = this._foreignKey;
 
     if (this._alias) {
-      table = `\`${this._table}\` as \`${this._alias}\``;
-      foreignKey = `\`${this._tableAlias}\`.${this._foreignKey}`;
+      primaryKey = `\`${this._alias}\`.${this._foreignKey}`;
     }
 
     if (this._tableAlias) {
-      primaryKey = `\`${this._alias}\`.${this._primaryKey}`;
+      table = `\`${this._table}\` as \`${this._tableAlias}\``;
+      foreignKey = `\`${this._tableAlias}\`.${this._primaryKey}`;
     }
 
     return {

@@ -334,7 +334,7 @@ describe('Sqlite model functions', () => {
 
     const check = await TestOwned.getOrFail(1);
     await check.Owner.populate();
-
+     
     expect(check.Owner.Value.constructor.name).to.eq('TestModel');
     expect(check.Owner.Value.Id).to.eq(2);
   });

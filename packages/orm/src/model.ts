@@ -697,7 +697,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   query(): SelectQueryBuilder {
-    const { query } = createQuery(this, SelectQueryBuilder, false);
+    const { query } = createQuery(this, SelectQueryBuilder);
     return query;
   },
 

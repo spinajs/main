@@ -123,6 +123,7 @@ export class Orm extends AsyncService {
       if (descriptor) {
         const connection = this.Connections.get(descriptor.Connection);
         if (connection) {
+          (m.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor).Driver = connection;
           const columns = await connection.tableInfo(descriptor.TableName, connection.Options.Database);
           if (columns) {
             m.type[MODEL_DESCTRIPTION_SYMBOL].Columns = _.uniqBy(

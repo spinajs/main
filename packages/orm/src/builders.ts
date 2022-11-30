@@ -453,6 +453,8 @@ export class GroupByBuilder implements IGroupByBuilder {
 }
 
 export class JoinBuilder implements IJoinBuilder {
+  protected _model?: Constructor<ModelBase>;
+
   public get JoinStatements() {
     return this._joinStatements;
   }
@@ -480,44 +482,50 @@ export class JoinBuilder implements IJoinBuilder {
     return this;
   }
 
+  public leftJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
   public leftJoin(query: RawQuery): this;
   public leftJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public leftJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
+  public leftJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.LEFT, ...arguments);
     return this;
   }
 
+  public leftOuterJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
   public leftOuterJoin(query: RawQuery): this;
   public leftOuterJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public leftOuterJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
+  public leftOuterJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.LEFT_OUTER, ...arguments);
     return this;
   }
 
+  public rightJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
   public rightJoin(query: RawQuery): this;
   public rightJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public rightJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
+  public rightJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.RIGHT, ...arguments);
     return this;
   }
 
+  public rightOuterJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
   public rightOuterJoin(query: RawQuery): this;
   public rightOuterJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public rightOuterJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
+  public rightOuterJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.RIGHT_OUTER, ...arguments);
     return this;
   }
 
+  public fullOuterJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
   public fullOuterJoin(query: RawQuery): this;
   public fullOuterJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public fullOuterJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
+  public fullOuterJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.FULL_OUTER, ...arguments);
     return this;
   }
 
+  public crossJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
   public crossJoin(query: RawQuery): this;
   public crossJoin(table: string, foreignKey: string, primaryKey: string): this;
-  public crossJoin(_table: string | RawQuery, _AliasOrForeignKey?: string, _fkOrPkKey?: string, _primaryKey?: string): this {
+  public crossJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string): this {
     this.addJoinStatement.call(this, JoinMethod.CROSS, ...arguments);
     return this;
   }
@@ -526,13 +534,13 @@ export class JoinBuilder implements IJoinBuilder {
     let stmt: JoinStatement = null;
 
     if (arguments.length === 3) {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [table, method, AliasOrForeignKey]);
+      stmt = this._container.resolve<JoinStatement>(JoinStatement, [this, this._model, table, method, AliasOrForeignKey]);
     } else if (arguments.length === 4) {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [table, method, AliasOrForeignKey, fkOrPkKey, null, this._tableAlias]);
+      stmt = this._container.resolve<JoinStatement>(JoinStatement, [this, this._model, table, method, AliasOrForeignKey, fkOrPkKey, null, this._tableAlias]);
     } else if (arguments.length === 5) {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [table, method, fkOrPkKey, primaryKey, AliasOrForeignKey, this._tableAlias]);
+      stmt = this._container.resolve<JoinStatement>(JoinStatement, [this, this._model, table, method, fkOrPkKey, primaryKey, AliasOrForeignKey, this._tableAlias]);
     } else {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [table, method]);
+      stmt = this._container.resolve<JoinStatement>(JoinStatement, [this, this._model, table, method]);
     }
 
     this.JoinStatements.push(stmt);
