@@ -349,10 +349,10 @@ export class ModelBase implements IModelBase {
   }
 
   /**
-   * Creates raw query on this model. used for quering db for partial data or to perform some kind of operations
-   * that dont need full ORM model to involve
+   * Creates query on this model. used for quering db for partial data, to perform some kind of operations
+   * that dont need full ORM model to involve, or other non standard operations eg. joins or raw data queries based on this model
    */
-  public static query<T>(this: T): SelectQueryBuilder<T> {
+  public static query<T extends typeof ModelBase>(this: T): SelectQueryBuilder<InstanceType<T>> {
     throw new Error('Not implemented');
   }
 

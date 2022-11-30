@@ -3,7 +3,7 @@ import { BadRequest } from './../../../http/src/response-methods/badRequest';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { UserLoginDto } from '../dto/userLogin-dto';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, Header, Policy, Query } from '@spinajs/http';
-import { AuthProvider, FederatedAuthProvider, Session, SessionProvider, User as UserModel, UserMetadata } from '@spinajs/rbac';
+import { AuthProvider, FederatedAuthProvider, Session, SessionProvider, User, User as UserModel, UserMetadata } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -92,23 +92,15 @@ export class LoginController extends BaseController {
   @Post('new-password')
   @Policy(NotLoggedPolicy)
   public async setNewPassword(@Query() token: string, @Body() pwd: RestorePasswordDto) {
-    UserModel.where({}).populate
-
-    const meta = await UserMetadata.where({
-      Key: 'reset_password_token',
-      Value: token,
-    }).first();
-
-    if (!meta) {
-      return new InvalidOperation('Invalid reset token');
-    }
-
-    await meta.User.populate();
-    await meta.User.Value.Metadata.populate();
-
-    const user = meta.User.Value;
-
-    const rTime = user.Metadata.find((x) => x.Key === 'reset_password_time').asISODate();
+    const user = await User.query()
+      .innerJoin(UserMetadata, function () {
+        this.where({
+          Key: 'reset_password_token',
+          Value: token,
+        });
+      })
+      .populate('Metadata')
+      .first();
   }
 
   @Post('forgot-password')
