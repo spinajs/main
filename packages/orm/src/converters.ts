@@ -1,3 +1,4 @@
+import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { IUniversalConverterOptions, ValueConverter } from './interfaces';
 import { ModelBase } from './model';

@@ -105,13 +105,13 @@ export class LoginController extends BaseController {
       return new InvalidOperation('Invalid password reset token');
     }
 
-    const val = user.Metadata['password:reset:start'];
+    const val = user.Metadata['password:reset:start'] as DateTime;
   }
 
   @Post('forgot-password')
   @Policy(NotLoggedPolicy)
   public async forgotPassword(@Body() login: UserLoginDto) {
-    const user = await this.AuthProvider.get(login.Email);
+    const user = await this.AuthProvider.getByEmail(login.Email);
 
     if (!user.IsActive || user.IsBanned || user.DeletedAt !== null) {
       return new InvalidOperation('User is inactive, banned or deleted. Contact system administrator');
@@ -121,14 +121,16 @@ export class LoginController extends BaseController {
 
     await user.Metadata.add(
       [
-        { Key: 'password:reset', Value: true },
+        { Key: 'password:reset', Value: true, Type: 'boolean' },
         {
           Key: 'password:reset:token',
           Value: token,
+          Type: 'string',
         },
         {
           Key: 'password:reset:start',
           Value: DateTime.now(),
+          Type: 'datetime',
         },
       ],
       InsertBehaviour.InsertOrUpdate,
