@@ -490,6 +490,11 @@ export class ManyToManyRelation extends OrmRelation {
 
 export interface IRelation {
   TargetModelDescriptor: IModelDescriptor;
+
+  /**
+   * Indicates if data was fetched  from db
+   */
+  Populated: boolean;
 }
 
 export class SingleRelation<R extends IModelBase> implements IRelation {
@@ -498,6 +503,8 @@ export class SingleRelation<R extends IModelBase> implements IRelation {
   protected Orm: Orm;
 
   public Value: R;
+
+  public Populated: boolean = false;
 
   constructor(protected _owner: ModelBase, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
     this.TargetModelDescriptor = extractModelDescriptor(model);
@@ -546,6 +553,8 @@ export class SingleRelation<R extends IModelBase> implements IRelation {
     if (result) {
       this.Value = result;
     }
+
+    this.Populated = true;
   }
 }
 
@@ -558,6 +567,9 @@ export abstract class Relation<R extends ModelBase> extends Array<R> implements 
   public TargetModelDescriptor: IModelDescriptor;
 
   protected Orm: Orm;
+
+  public Populated: boolean = false;
+
 
   constructor(protected owner: ModelBase, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, objects?: R[]) {
     super();
@@ -583,7 +595,7 @@ export abstract class Relation<R extends ModelBase> extends Array<R> implements 
    *
    * @param obj - data to add
    */
-  public abstract add(obj: R | R[], mode?: InsertBehaviour): Promise<void>;
+  public abstract add(obj: R | R[] | Partial<R> | Partial<R>[], mode?: InsertBehaviour): Promise<void>;
 
   /**
    * Delete all objects from relation
@@ -605,12 +617,6 @@ export abstract class Relation<R extends ModelBase> extends Array<R> implements 
    * Populates this relation
    */
   public async populate(callback?: (this: SelectQueryBuilder<this>) => void): Promise<void> {
-    /**
-     * Do little cheat - we construct query that loads initial model with given relation.
-     * Then we only assign relation property.
-     *
-     * TODO: create only relation query without loading its owner.
-     */
     const query = (this.Relation.TargetModel as any).where(this.Relation.ForeignKey, this.owner.PrimaryKeyValue);
     if (callback) {
       callback.apply(query);
@@ -621,6 +627,8 @@ export abstract class Relation<R extends ModelBase> extends Array<R> implements 
       this.length = 0;
       this.push(...result);
     }
+
+    this.Populated = true;
   }
 }
 
@@ -787,8 +795,20 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
     _.remove(this, (o) => data.indexOf(o.PrimaryKeyValue) !== -1);
   }
 
-  public async add(obj: T | T[], mode?: InsertBehaviour): Promise<void> {
+  public async add(obj: T | T[] | Partial<T> | Partial<T>[], mode?: InsertBehaviour): Promise<void> {
     const data = Array.isArray(obj) ? obj : [obj];
+    const tInsert = data.map((x) => {
+      if (x instanceof ModelBase) {
+        return x;
+      }
+
+      if (_.isFunction(this.model)) {
+        return new (this.model())(x);
+      }
+
+      return new this.model(x);
+    }) as T[];
+
     data.forEach((d) => {
       (d as any)[this.Relation.ForeignKey] = this.owner.PrimaryKeyValue;
     });
@@ -801,6 +821,6 @@ export class OneToManyRelationList<T extends ModelBase> extends Relation<T> {
       }
     }
 
-    this.push(...data);
+    this.push(...tInsert);
   }
 }

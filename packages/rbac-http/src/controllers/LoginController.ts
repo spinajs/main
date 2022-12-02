@@ -1,5 +1,3 @@
-import { InsertBehaviour } from './../../../orm/src/interfaces';
-import { BadRequest } from './../../../http/src/response-methods/badRequest';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { UserLoginDto } from '../dto/userLogin-dto';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, Header, Policy, Query } from '@spinajs/http';
@@ -18,6 +16,7 @@ import { RestorePasswordDto } from '../dto/restore-password-dto';
 import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
 import { UserAction } from 'rbac/src/models/UserTimeline';
+import { InsertBehaviour } from '@spinajs/orm';
 
 @BasePath('user/auth')
 export class LoginController extends BaseController {
@@ -34,7 +33,7 @@ export class LoginController extends BaseController {
   protected SessionExpirationTime: number;
 
   @Config('rbac.password_reset.ttl')
-  protected PasswordResetTonekTTL: number;
+  protected PasswordResetTokenTTL: number;
 
   @AutoinjectService('rbac.twoFactorAuth.provider')
   protected TwoFactorAuthProvider: TwoFactorAuthProvider;
@@ -95,12 +94,18 @@ export class LoginController extends BaseController {
     const user = await User.query()
       .innerJoin(UserMetadata, function () {
         this.where({
-          Key: 'reset_password_token',
+          Key: 'password:reset:token',
           Value: token,
         });
       })
       .populate('Metadata')
       .first();
+
+    if (!user) {
+      return new InvalidOperation('Invalid password reset token');
+    }
+
+    const val = user.Metadata['password:reset:start'];
   }
 
   @Post('forgot-password')
@@ -109,48 +114,39 @@ export class LoginController extends BaseController {
     const user = await this.AuthProvider.get(login.Email);
 
     if (!user.IsActive || user.IsBanned || user.DeletedAt !== null) {
-      return new BadRequest('User is inactive, banned or deleted. Contact system administrator');
+      return new InvalidOperation('User is inactive, banned or deleted. Contact system administrator');
     }
 
     const token = uuidv4();
 
-    await user.Metadata.populate();
-
-    await this.Queue.emit(new UserPasswordRestore(user.Uuid, token));
-
     await user.Metadata.add(
-      new UserMetadata({
-        Key: 'reset_password',
-        Value: true,
-      }),
+      [
+        { Key: 'password:reset', Value: true },
+        {
+          Key: 'password:reset:token',
+          Value: token,
+        },
+        {
+          Key: 'password:reset:start',
+          Value: DateTime.now(),
+        },
+      ],
       InsertBehaviour.InsertOrUpdate,
-    );
-
-    await user.Metadata.add(
-      new UserMetadata({
-        Key: 'reset_password_token',
-        Value: token,
-      }),
-    );
-
-    await user.Metadata.add(
-      new UserMetadata({
-        Key: 'reset_password_time',
-        Value: DateTime.now().toISO(),
-      }),
     );
 
     await user.Actions.add(
       new UserAction({
-        Action: 'password_reset',
+        Action: 'user:password:reset',
         Data: DateTime.now().toISO(),
-        Persistend: true,
+        Persistent: true,
       }),
     );
 
+    await this.Queue.emit(new UserPasswordRestore(user.Uuid, token));
+
     return new Ok({
       reset_token: token,
-      ttl: this.PasswordResetTonekTTL,
+      ttl: this.PasswordResetTokenTTL,
     });
   }
 

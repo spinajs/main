@@ -119,7 +119,7 @@ export interface IModelBase {
   driver(): OrmDriver;
 }
 
-export class ModelBase implements IModelBase {
+export class ModelBase<M = unknown> implements IModelBase {
   private _container: IContainer;
 
   /**
@@ -251,7 +251,7 @@ export class ModelBase implements IModelBase {
   public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, column: string, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, statement: Wrap): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap  | PickRelations<T, Relation<any>>, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T, Relation<any>>, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T, Relation<any>>, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
     throw new Error('Not implemented');
   }
@@ -386,7 +386,7 @@ export class ModelBase implements IModelBase {
     throw new Error('Not implemented');
   }
 
-  constructor(data?: unknown) {
+  constructor(data?: Partial<M>) {
     this.setDefaults();
 
     if (data) {
@@ -445,7 +445,7 @@ export class ModelBase implements IModelBase {
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val) : val;
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, this, this.ModelDescriptor.Converters.get(c.Name).Options) : val;
     });
 
     for (const val of relArr) {
@@ -581,7 +581,11 @@ export class ModelBase implements IModelBase {
     }
 
     for (const [, rel] of this.ModelDescriptor.Relations) {
-      if (rel.Type === RelationType.Many) {
+      if (rel.Factory) {
+        (this as any)[rel.Name] = rel.Factory(this, rel, this.Container);
+      } else if (rel.Type) {
+        (this as any)[rel.Name] = this.Container.resolve(rel.RelationClass, [this, rel.TargetModel, rel, []]);
+      } else if (rel.Type === RelationType.Many) {
         (this as any)[rel.Name] = new OneToManyRelationList(this, rel.TargetModel, rel, []);
       } else if (rel.Type === RelationType.ManyToMany) {
         (this as any)[rel.Name] = new ManyToManyRelationList(this, rel.TargetModel, rel, []);
@@ -850,7 +854,7 @@ export const MODEL_STATIC_MIXINS = {
         const converter = driver.Container.resolve(DatetimeValueConverter);
 
         query.whereIn(description.PrimaryKey, data).update({
-          [description.SoftDelete.DeletedAt]: converter.toDB(DateTime.now()),
+          [description.SoftDelete.DeletedAt]: converter.toDB(DateTime.now(), this, this.ModelDescriptor.Converters.get(description.SoftDelete.DeletedAt).Options),
         });
 
         return query;

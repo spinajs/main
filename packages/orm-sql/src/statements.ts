@@ -89,7 +89,7 @@ export class SqlWhereStatement extends WhereStatement {
         const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
         if (converters && this._value && converters.has(this._value.constructor.name)) {
           const converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
-          val = converter.toDB(val);
+          val = converter.toDB(val, null, null);
         }
       }
     }

@@ -81,7 +81,7 @@ export class DbPropertyHydrator extends ModelHydrator {
       }
 
       const column = descriptor.Columns?.find((c) => c.Name === k);
-      (target as any)[k] = column.Converter ? column.Converter.fromDB(values[k]) : values[k];
+      (target as any)[k] = column.Converter ? column.Converter.fromDB(values[k], values, descriptor.Converters.get(column.Name).Options) : values[k];
     });
   }
 }

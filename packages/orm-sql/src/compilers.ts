@@ -39,9 +39,9 @@ export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQue
   protected tryConvertValue(v: any) {
     let val = v;
     const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
-    if (converters && v &&  converters.has(v.constructor.name)) {
+    if (converters && v && converters.has(v.constructor.name)) {
       const converter = this._container.resolve<ValueConverter>(converters.get(v.constructor.name));
-      val = converter.toDB(val);
+      val = converter.toDB(val, null, null);
     }
 
     return val;

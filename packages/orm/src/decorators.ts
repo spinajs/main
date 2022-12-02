@@ -1,11 +1,12 @@
-import { JsonValueConverter } from './interfaces';
+import { IValueConverterDescriptor, JsonValueConverter } from './interfaces';
 /* eslint-disable prettier/prettier */
 import { UuidConverter } from './converters';
-import { Constructor, DI } from '@spinajs/di';
+import { Constructor, DI, IContainer } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, ValueConverter, SetValueConverter } from './interfaces';
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
+import { Relation } from './relations';
 
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
@@ -25,7 +26,7 @@ export function extractDecoratorDescriptor(callback: (model: IModelDescriptor, t
     if (!metadata) {
       metadata = {
         Driver: null,
-        Converters: new Map<string, Constructor<ValueConverter>>(),
+        Converters: new Map<string, IValueConverterDescriptor>(),
         Columns: [],
         Connection: null,
         PrimaryKey: '',
@@ -122,7 +123,9 @@ export function CreatedAt() {
     model.Timestamps.CreatedAt = propertyKey;
 
     // add converter for this field
-    model.Converters.set(propertyKey, DatetimeValueConverter);
+    model.Converters.set(propertyKey, {
+      Class: DatetimeValueConverter,
+    });
   });
 }
 
@@ -140,7 +143,9 @@ export function UpdatedAt() {
     model.Timestamps.UpdatedAt = propertyKey;
 
     // add converter for this field
-    model.Converters.set(propertyKey, DatetimeValueConverter);
+    model.Converters.set(propertyKey, {
+      Class: DatetimeValueConverter,
+    });
   });
 }
 
@@ -158,7 +163,9 @@ export function SoftDelete() {
     model.SoftDelete.DeletedAt = propertyKey;
 
     // add converter for this field
-    model.Converters.set(propertyKey, DatetimeValueConverter);
+    model.Converters.set(propertyKey, {
+      Class: DatetimeValueConverter,
+    });
   });
 }
 
@@ -177,7 +184,9 @@ export function Archived() {
     model.Archived.ArchivedAt = propertyKey;
 
     // add converter for this field
-    model.Converters.set(propertyKey, DatetimeValueConverter);
+    model.Converters.set(propertyKey, {
+      Class: DatetimeValueConverter,
+    });
   });
 }
 
@@ -218,7 +227,9 @@ export function Uuid() {
       columnDesc.Uuid = true;
     }
 
-    model.Converters.set(propertyKey, UuidConverter);
+    model.Converters.set(propertyKey, {
+      Class: UuidConverter,
+    });
   }, true);
 }
 
@@ -319,6 +330,23 @@ export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: str
   });
 }
 
+export interface IHasManyDecoratorOptions {
+  foreignKey?: string;
+  primaryKey?: string;
+
+  /**
+   * Relation factory, sometimes we dont want to create standard relation object.
+   * When creating object and specific relation is created via this factory
+   */
+  factory?: (owner: ModelBase, relation: IRelationDescriptor, container: IContainer) => Relation<ModelBase<unknown>>;
+
+  /**
+   *  sometimes we dont want to create standard relation object, so we create type
+   *  that is passed in this property
+   */
+  type?: Constructor<Relation<ModelBase<unknown>>>;
+}
+
 /**
  * Creates one to many relation with target model.
  *
@@ -327,7 +355,7 @@ export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: str
  * @param primaryKey - primary key in source table defaults to lowercase property name with _id suffix eg. owner_id
  *
  */
-export function HasMany(targetModel: Constructor<ModelBase> | string, foreignKey?: string, primaryKey?: string) {
+export function HasMany(targetModel: Constructor<ModelBase> | string, options?: IHasManyDecoratorOptions) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
@@ -335,9 +363,11 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, foreignKey
       SourceModel: target.constructor,
       TargetModelType: targetModel,
       TargetModel: null,
-      ForeignKey: foreignKey ?? `${model.Name.toLowerCase()}_id`,
-      PrimaryKey: primaryKey ?? model.PrimaryKey,
+      ForeignKey: options ? options.foreignKey ?? `${model.Name.toLowerCase()}_id` : `${model.Name.toLowerCase()}_id`,
+      PrimaryKey: options ? options.primaryKey ?? model.PrimaryKey : model.PrimaryKey,
       Recursive: false,
+      Factory: options ? options.factory : null,
+      RelationClass: options ? options.type : null,
     });
   });
 }
@@ -387,7 +417,9 @@ export function DateTime() {
       throw new InvalidArgument(`property ${propertyKey} already have data converter attached`);
     }
 
-    model.Converters.set(propertyKey, DatetimeValueConverter);
+    model.Converters.set(propertyKey, {
+      Class: DatetimeValueConverter,
+    });
   });
 }
 
@@ -399,7 +431,28 @@ export function DateTime() {
 export function Json() {
   return extractDecoratorDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
     // add converter for this field
-    model.Converters.set(propertyKey, JsonValueConverter);
+    model.Converters.set(propertyKey, {
+      Class: JsonValueConverter,
+    });
+  });
+}
+
+/**
+ *
+ * Universal converter that guess whitch type to return. Usefull in tables that holds as text different values
+ * eg. metadata table
+ *
+ * @param typeColumn - type column that defines final type of value
+ */
+export function UniversalConverter(typeColumn: string) {
+  return extractDecoratorDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
+    // add converter for this field
+    model.Converters.set(propertyKey, {
+      Class: JsonValueConverter,
+      Options: {
+        TypeColumn: typeColumn,
+      },
+    });
   });
 }
 
@@ -417,6 +470,8 @@ export function Set() {
       throw new InvalidArgument(`property ${propertyKey} already have data converter attached`);
     }
 
-    model.Converters.set(propertyKey, SetValueConverter);
+    model.Converters.set(propertyKey, {
+      Class: SetValueConverter,
+    });
   });
 }

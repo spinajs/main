@@ -11,13 +11,28 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
   @AutoinjectService('rbac.password.provider')
   protected PasswordProvider: PasswordProvider;
 
-  public async exists(user: User | string): Promise<boolean> {
-    const result = await User.where('Email', user instanceof User ? user.Email : user).first();
+  public async exists(userOrEmail: User | string): Promise<boolean> {
+    const result = await User.where('Email', userOrEmail instanceof User ? userOrEmail.Email : userOrEmail).first();
     if (result) {
       return true;
     }
 
     return false;
+  }
+
+  public async getByLogin(login: string): Promise<User> {
+    const result = await User.where('Login', login).first();
+    return result;
+  }
+
+  public async getByEmail(email: string): Promise<User> {
+    const result = await User.where('Email', email).first();
+    return result;
+  }
+
+  public async getByUUID(uuid: string): Promise<User> {
+    const result = await User.where('Uuid', uuid).first();
+    return result;
   }
 
   public async authenticate(email: string, password: string): Promise<IAuthenticationResult<User>> {

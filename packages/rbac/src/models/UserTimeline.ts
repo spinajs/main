@@ -8,7 +8,7 @@ import type { User } from './User';
  */
 @Connection('default')
 @Model('user_actions')
-export class UserAction extends ModelBase {
+export class UserAction extends ModelBase<UserAction> {
   @Primary()
   public Id: number;
 

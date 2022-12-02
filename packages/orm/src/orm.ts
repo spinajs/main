@@ -139,7 +139,7 @@ export class Orm extends AsyncService {
           for (const [key, val] of descriptor.Converters) {
             const column = (m.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor).Columns.find((c) => c.Name === key);
             if (column) {
-              column.Converter = connection.Container.hasRegistered(val) ? connection.Container.resolve(val) : null;
+              column.Converter = connection.Container.hasRegistered(val.Class) ? connection.Container.resolve(val.Class) : null;
             }
           }
         }

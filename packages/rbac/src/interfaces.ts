@@ -68,11 +68,11 @@ export abstract class PasswordProvider {
 export abstract class AuthProvider<U = User> {
   /**
    *
-   * Checks if user is already exists with given login
+   * Checks if user is already exists with given email
    *
-   * @param loginOrUser - login string or user object
+   * @param emailOrUser - email or user object
    */
-  public abstract exists(loginOrUser: U | string): Promise<boolean>;
+  public abstract exists(emailOrUser: U | string): Promise<boolean>;
 
   /**
    *
@@ -112,7 +112,23 @@ export abstract class AuthProvider<U = User> {
    *
    * @param login - user login
    */
-  public abstract get(login: string): Promise<U>;
+  public abstract getByLogin(login: string): Promise<U>;
+
+  /**
+   *
+   * Gets user from auth store
+   *
+   * @param email - user email
+   */
+  public abstract getByEmail(email: string): Promise<U>;
+
+  /**
+   *
+   * Gets user from auth store
+   *
+   * @param uuid - user uuid
+   */
+  public abstract getByUUID(uuid: string): Promise<U>;
 }
 
 /**

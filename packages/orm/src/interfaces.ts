@@ -4,6 +4,7 @@ import { QueryBuilder, RawQuery } from './builders';
 import { SordOrder, WhereBoolean } from './enums';
 import { IQueryStatement, Wrap } from './statements';
 import { Unbox, WhereFunction } from './types';
+import { Relation } from './relations';
 import { OrmDriver } from './driver';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
 import { ModelBase } from './model';
@@ -203,6 +204,11 @@ export interface IMigrationDescriptor {
   Connection: string;
 }
 
+export interface IValueConverterDescriptor {
+  Class: Constructor<ValueConverter>;
+  Options?: any;
+}
+
 /**
  * Describes model, used internally
  */
@@ -245,7 +251,7 @@ export interface IModelDescriptor {
   /**
    * Converters attached to fields
    */
-  Converters: Map<string, Constructor<ValueConverter>>;
+  Converters: Map<string, IValueConverterDescriptor>;
 
   /**
    * List of unique columns ( UNIQUE constraint )
@@ -357,6 +363,17 @@ export interface IRelationDescriptor {
    * Is this relation recursive ? Used for hierarchical / paren one-to-one relations
    */
   Recursive: boolean;
+
+  /**
+   * Relation factory, sometimes we dont want to create standard relation object
+   */
+  Factory?: (model: ModelBase<unknown>, relation: IRelationDescriptor, container: IContainer) => Relation<ModelBase<unknown>>;
+
+  /**
+   *  sometimes we dont want to create standard relation object, so we create type
+   *  that is passed in this property
+   */
+  RelationClass?: Constructor<Relation<ModelBase<unknown>>>;
 }
 
 export interface IJunctionProperty {
@@ -452,14 +469,14 @@ export interface IValueConverter {
    *
    * @param value - value to convert
    */
-  toDB(value: any): any;
+  toDB(value: any, model: ModelBase, options: any): any;
 
   /**
    * Converts value from database type eg. mysql timestamp to DateTime
    *
    * @param value - value to convert
    */
-  fromDB(value: any): any;
+  fromDB(value: any, rawData: any, options: any): any;
 }
 
 /**
@@ -904,7 +921,7 @@ export class ValueConverter implements IValueConverter {
    *
    * @param value - value to convert
    */
-  public toDB(_value: any): any {
+  public toDB(_value: any, _model: ModelBase<any>, _options: any): any {
     throw new MethodNotImplemented();
   }
 
@@ -913,7 +930,7 @@ export class ValueConverter implements IValueConverter {
    *
    * @param value - value to convert
    */
-  public fromDB(_value: any): any {
+  public fromDB(_value: any, _rawData: any, _options: any): any {
     throw new MethodNotImplemented();
   }
 }
@@ -951,4 +968,8 @@ export class SetValueConverter extends ValueConverter {}
 @Singleton()
 export abstract class TableAliasCompiler {
   public abstract compile(builder: QueryBuilder, tbl?: string): string;
+}
+
+export interface IUniversalConverterOptions {
+  TypeColumn: string;
 }
