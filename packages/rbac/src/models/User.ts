@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor, InsertBehaviour } from '@spinajs/orm';
 import { AccessControl } from 'accesscontrol';
 import { DI, IContainer } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata';
@@ -16,8 +16,43 @@ class UserMetadataRelation extends OneToManyRelationList<UserMetadata> {
 function UserMetadataRelationFactory(model: ModelBase<User>, desc: IRelationDescriptor, container: IContainer) {
   const repository = container.resolve(UserMetadataRelation, [model, desc.TargetModel, desc, []]);
   const proxy = {
-    get(target: UserMetadataRelation, prop: string) {
-      // if we try to call method or prop that exists return itF
+    set: (target: UserMetadataRelation, prop: string, value: any) => {
+      // if we try to call method or prop that exists return it
+      if ((target as any)[prop]) {
+        return ((target as any)[prop] = value);
+      } else {
+        let meta = target.find((x) => x.Value === prop);
+
+        if (meta) {
+          meta.Value = value;
+
+          return meta.update();
+        } else {
+          UserMetadata.where({
+            User: model,
+            Key: prop,
+          })
+            .first()
+            .then((res) => {
+              if (res) {
+                res.Value = value;
+                return res.update();
+              }
+
+              const nMeta = new UserMetadata({
+                Key: prop,
+                Value: value,
+              });
+
+              return target.add(nMeta);
+            });
+        }
+      }
+
+      return true;
+    },
+    get: (target: UserMetadataRelation, prop: string) => {
+      // if we try to call method or prop that exists return it
       if ((target as any)[prop]) {
         return (target as any)[prop];
       } else {
@@ -28,7 +63,18 @@ function UserMetadataRelationFactory(model: ModelBase<User>, desc: IRelationDesc
           return found.Value;
         }
 
-        return undefined;
+        // if not found try to obtain it
+        // or return null
+        return UserMetadata.where({
+          User: model,
+          Key: prop,
+        })
+          .first()
+          .then((res) => {
+            // add to this repo for cache
+            target.add(res);
+            return res;
+          });
       }
     },
   };

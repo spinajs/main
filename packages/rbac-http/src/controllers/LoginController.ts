@@ -105,7 +105,7 @@ export class LoginController extends BaseController {
       return new InvalidOperation('Invalid password reset token');
     }
 
-    const val = user.Metadata['password:reset:start'] as DateTime;
+    const val = (await user.Metadata['password:reset:start']) as DateTime;
   }
 
   @Post('forgot-password')
@@ -119,22 +119,10 @@ export class LoginController extends BaseController {
 
     const token = uuidv4();
 
-    await user.Metadata.add(
-      [
-        { Key: 'password:reset', Value: true, Type: 'boolean' },
-        {
-          Key: 'password:reset:token',
-          Value: token,
-          Type: 'string',
-        },
-        {
-          Key: 'password:reset:start',
-          Value: DateTime.now(),
-          Type: 'datetime',
-        },
-      ],
-      InsertBehaviour.InsertOrUpdate,
-    );
+    // assign meta to user
+    await (user.Metadata['password:reset'] = true);
+    await (user.Metadata['password:reset:token'] = token);
+    await (user.Metadata['password:reset:start'] = DateTime.now());
 
     await user.Actions.add(
       new UserAction({
