@@ -8,5 +8,5 @@ export class Model3 extends ModelBase {
   public Id: number;
 
   @HasMany(Model4)
-  public Model4s: Relation<Model4>;
+  public Model4s: Relation<Model4, Model3>;
 }

@@ -161,7 +161,7 @@ export class User extends ModelBase<User> {
   public Metadata: UserMetadataRelation;
 
   @HasMany(UserAction)
-  public Actions: Relation<UserAction>;
+  public Actions: Relation<UserAction, User>;
 
   public can(resource: string, permission: string) {
     const ac = DI.get<AccessControl>('AccessControl');

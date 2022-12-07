@@ -17,5 +17,5 @@ export class RelationModel2 extends ModelBase {
   @HasMany(Model1, {
     foreignKey: 'RelId2',
   })
-  public Many: Relation<Model1>;
+  public Many: Relation<Model1, RelationModel2>;
 }

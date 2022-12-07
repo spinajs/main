@@ -367,13 +367,13 @@ export interface IRelationDescriptor {
   /**
    * Relation factory, sometimes we dont want to create standard relation object
    */
-  Factory?: (model: ModelBase<unknown>, relation: IRelationDescriptor, container: IContainer) => Relation<ModelBase<unknown>>;
+  Factory?: (model: ModelBase<unknown>, relation: IRelationDescriptor, container: IContainer) => Relation<ModelBase<unknown>, ModelBase<unknown>>;
 
   /**
    *  sometimes we dont want to create standard relation object, so we create type
    *  that is passed in this property
    */
-  RelationClass?: Constructor<Relation<ModelBase<unknown>>>;
+  RelationClass?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>>;
 }
 
 export interface IJunctionProperty {

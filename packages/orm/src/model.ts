@@ -1,10 +1,9 @@
-import { UpdateQueryBuilder } from '@spinajs/orm';
 import { PickRelations } from './types';
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
 import { SordOrder } from './enums';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
-import { IModelDescriptor, RelationType, InsertBehaviour, DatetimeValueConverter, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder } from './interfaces';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder } from './interfaces';
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
 import { Op } from './enums';
@@ -124,7 +123,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   private _container: IContainer;
 
   /**
-   * List of hidden properties from JSON / dehydratoins
+   * List of hidden properties from JSON / dehydrations
    * eg. password field of user
    */
   protected _hidden: string[] = [];
