@@ -82,12 +82,31 @@ module.exports = {
     },
     defaultRole: 'guest',
     auth: {
-      provider: 'SimpleDbAuthProvider',
+      service: 'SimpleDbAuthProvider',
     },
     password: {
-      provider: 'BasicPasswordProvider',
-      minPasswordLength: 6,
-      maxPasswordLength: 16,
+      service: 'BasicPasswordProvider',
+      validation: {
+        service: 'BasicPasswordValidationProvider',
+        rule: {
+          // UNCOMMENT ONE OF BELOW OR MODIFY
+          // VALIDATION RULE IS JSON SCHEMA
+
+          // Minimum eight characters, at least one letter and one number
+          pattern: '^(?=.*[A-Za-z])(?=.*d)[A-Za-zd]{8,}$',
+
+          // Minimum eight characters, at least one letter, one number and one special character:
+          // pattern: '^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$',
+
+          // Minimum eight characters, at least one uppercase letter, one lowercase letter and one number
+          // pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$',
+
+          // Minimum eight characters, at least one uppercase letter, one lowercase letter and one number
+          // pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$',
+
+          type: 'string',
+        },
+      },
 
       /**
        * Should password expire after some time ?
@@ -95,7 +114,7 @@ module.exports = {
       passwordExpirationTime: 0,
     },
     session: {
-      provider: 'MemorySessionStore',
+      service: 'MemorySessionStore',
 
       // 2h session expiration  time
       // time in minutes

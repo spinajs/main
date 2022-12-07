@@ -8,7 +8,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
   @Autoinject(Container)
   protected Container: IContainer;
 
-  @AutoinjectService('rbac.password.provider')
+  @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;
 
   public async exists(userOrEmail: User | string): Promise<boolean> {

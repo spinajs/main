@@ -245,3 +245,10 @@ export interface IAuthenticationResult<U = User> {
     Message?: string;
   };
 }
+
+/**
+ * Interface to provide implementation of password rule validation
+ */
+export abstract class PasswordValidationProvider {
+  public abstract check(password: string): boolean;
+}

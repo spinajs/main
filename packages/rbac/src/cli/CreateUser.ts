@@ -7,6 +7,7 @@ import { Autoinject } from '@spinajs/di';
 import { v4 as uuidv4 } from 'uuid';
 import { PasswordProvider } from '../interfaces';
 import { User } from '../models/User';
+import { UserRegisteredMessage } from '../events/NewUser';
 
 interface UserCreationOptions {
   email: string;
@@ -24,7 +25,7 @@ export class CreateUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
-  @AutoinjectService('rbac.password.provider')
+  @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;
 
   @Autoinject(QueueClient)
@@ -34,7 +35,7 @@ export class CreateUser extends CliCommand {
     const user = new User({
       Email: options.email,
       Login: options.login,
-      Role: options.roles,
+      Role: options.roles.split(','),
       IsBanned: false,
       IsActive: false,
     });
@@ -54,8 +55,11 @@ export class CreateUser extends CliCommand {
 
     await user.insert();
 
+    const qMessage = new UserRegisteredMessage();
+    qMessage.hydrate(user.toJSON());
+
     // notify others about user creation
-    //this.Queue.dispatch(new NewUserMessage(user, 'rbac:user:new'));
+    this.Queue.emit(qMessage);
 
     this.Log.success('User creation SUCCESS');
   }

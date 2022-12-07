@@ -3,7 +3,7 @@ import { Op } from './enums';
 import { QueryBuilder, RawQuery } from './builders';
 import { SordOrder, WhereBoolean } from './enums';
 import { IQueryStatement, Wrap } from './statements';
-import { Unbox, WhereFunction } from './types';
+import { PartialModel, Unbox, WhereFunction } from './types';
 import { Relation } from './relations';
 import { OrmDriver } from './driver';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
@@ -619,28 +619,28 @@ export interface IWhereBuilder<T> {
   Op: WhereBoolean;
 
   where(val: boolean): this;
-  where(val: Partial<T>): this;
+  where(val: PartialModel<T>): this;
   where(func: WhereFunction<T>): this;
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
   where(statement: Wrap): this;
-  where(column: string | boolean | WhereFunction<T> | RawQuery | Partial<T> | Wrap, operator?: Op | any, value?: any): this;
+  where(column: string | boolean | WhereFunction<T> | RawQuery | PartialModel<T> | Wrap, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
-  orWhere(val: Partial<T>): this;
+  orWhere(val: PartialModel<T>): this;
   orWhere(func: WhereFunction<T>): this;
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
   orWhere(statement: Wrap): this;
-  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<T>, operator?: Op | any, value?: any): this;
+  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialModel<T>, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
-  andWhere(val: Partial<T>): this;
+  andWhere(val: PartialModel<T>): this;
   andWhere(func: WhereFunction<T>): this;
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
   andWhere(statement: Wrap): this;
-  andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<T>, operator?: Op | any, value?: any): this;
+  andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialModel<T>, operator?: Op | any, value?: any): this;
 
   whereObject(obj: any): this;
   whereNotNull(column: string): this;

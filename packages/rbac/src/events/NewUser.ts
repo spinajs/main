@@ -11,7 +11,7 @@ export class UserRegisteredMessage extends QueueEvent {
 
   public Role: string[];
 
-  public UserCreatedAt: DateTime;
+  public RegisteredAt: DateTime;
 
   public IsBanned: boolean;
 

@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor, InsertBehaviour } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor } from '@spinajs/orm';
 import { AccessControl } from 'accesscontrol';
 import { DI, IContainer } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata';
@@ -8,6 +8,19 @@ import { UserAction } from './UserTimeline';
 class UserMetadataRelation extends OneToManyRelationList<UserMetadata> {
   public async metadataExists(key: string) {
     return this.find((x) => x.Key === key) !== undefined;
+  }
+
+  public async deleteMetadata(key: string) {
+    let meta = this.find((x) => x.Value === key);
+
+    if (meta) {
+      await this.remove(meta);
+    } else {
+      UserMetadata.query().where({
+        Key: key,
+        User: this.owner as ModelBase<User>,
+      });
+    }
   }
 
   [index: string]: any;

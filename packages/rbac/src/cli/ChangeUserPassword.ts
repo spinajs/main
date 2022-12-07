@@ -4,11 +4,11 @@ import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 import { User } from '../models/User';
-import { PasswordProvider } from '../interfaces';
+import { PasswordProvider, PasswordValidationProvider } from '../interfaces';
 import { UserPasswordChanged } from '../events/UserPasswordChanged';
-import { Config } from '@spinajs/configuration';
+import { AutoinjectService } from '@spinajs/configuration';
 
-@Command('rbac:user-ban', 'Sets active or inactive user')
+@Command('rbac:user-change-password', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')
 @Argument('newPassword', 'new password')
 export class ChangeUserPassword extends CliCommand {
@@ -18,26 +18,19 @@ export class ChangeUserPassword extends CliCommand {
   @Autoinject(QueueClient)
   protected Queue: QueueClient;
 
-  @Autoinject()
+  @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;
 
-  @Config('rbac.password.minPasswordLength')
-  protected MinPasswordLength: number;
-
-  @Config('rbac.password.maxPasswordLength')
-  protected MaxPasswordLength: number;
+  @AutoinjectService('rbac.validation')
+  protected PasswordValidation: PasswordValidationProvider;
 
   public async execute(idOrUuid: string, newPassword: string): Promise<void> {
     const user = await User.where('Id', idOrUuid)
       .orWhere('Uuid', idOrUuid)
       .firstOrThrow(new ResourceNotFound(`No user with id ${idOrUuid} found`));
 
-    if (newPassword.length < this.MinPasswordLength) {
-      throw new InvalidArgument(`Password is less than ${this.MinPasswordLength} characters`);
-    }
-
-    if (newPassword.length > this.MaxPasswordLength) {
-      throw new InvalidArgument(`Password is more than ${this.MinPasswordLength} characters`);
+    if (!this.PasswordValidation.check(newPassword)) {
+      throw new InvalidArgument(`New password does not match password rules, change passowrd or check rbac.password.validation config entry for password rules`);
     }
 
     const hashedPassword = await this.PasswordProvider.hash(newPassword);

@@ -7,7 +7,7 @@ import { Autoinject } from '@spinajs/di';
 import { User } from '../models/User';
 import { UserActivated } from '../events/UserActivated';
 
-@Command('rbac:user-active', 'Sets active or inactive user')
+@Command('rbac:user-activate', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')
 @Argument('active', ' true / false', false, (opt: string) => (opt.toLowerCase() === 'true' ? true : false))
 export class ActivateUser extends CliCommand {
@@ -21,12 +21,9 @@ export class ActivateUser extends CliCommand {
     const result = await User.update({ IsActive: active }).where('Id', idOrUuid).orWhere('Uuid', idOrUuid);
 
     if (result.RowsAffected > 0) {
-      // notify others
-      if (active) {
-        this.Queue.emit(new UserActivated(idOrUuid));
-      } else {
-        this.Queue.emit(new UserDeactivated(idOrUuid));
-      }
+      const event = active ? new UserActivated(idOrUuid) : new UserDeactivated(idOrUuid);
+
+      this.Queue.emit(event);
 
       this.Log.success(`User activation status changed to ${active}`);
     } else {

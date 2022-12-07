@@ -8,7 +8,7 @@ interface UserOption {
   email?: string;
 }
 
-@Command('rbac:user-active', 'Sets active or inactive user')
+@Command('rbac:user-find', 'Sets active or inactive user')
 @Option('-i, --idOrUuid <idOrUuid>', false, 'numeric id or uuid')
 @Option('-l, --login <login>', false, 'login')
 @Option('-e, --email <email>', false, 'email')

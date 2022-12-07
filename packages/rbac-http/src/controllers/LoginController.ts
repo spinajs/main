@@ -1,7 +1,7 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { UserLoginDto } from '../dto/userLogin-dto';
-import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, Header, Policy, Query } from '@spinajs/http';
-import { AuthProvider, FederatedAuthProvider, Session, SessionProvider, User, User as UserModel, UserMetadata } from '@spinajs/rbac';
+import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, Header, Policy, Query, BadRequest, NotFound } from '@spinajs/http';
+import { AuthProvider, FederatedAuthProvider, PasswordProvider, PasswordValidationProvider, Session, SessionProvider, User, User as UserModel, UserMetadata } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -16,17 +16,16 @@ import { RestorePasswordDto } from '../dto/restore-password-dto';
 import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
 import { UserAction } from 'rbac/src/models/UserTimeline';
-import { InsertBehaviour } from '@spinajs/orm';
 
 @BasePath('user/auth')
 export class LoginController extends BaseController {
   @Autoinject()
   protected Configuration: Configuration;
 
-  @AutoinjectService('rbac.auth.provider')
+  @AutoinjectService('rbac.auth')
   protected AuthProvider: AuthProvider;
 
-  @AutoinjectService('rbac.session.provider')
+  @AutoinjectService('rbac.session')
   protected SessionProvider: SessionProvider;
 
   @Config('rbac.session.expiration', 120)
@@ -35,14 +34,20 @@ export class LoginController extends BaseController {
   @Config('rbac.password_reset.ttl')
   protected PasswordResetTokenTTL: number;
 
-  @AutoinjectService('rbac.twoFactorAuth.provider')
+  @AutoinjectService('rbac.twoFactorAuth')
   protected TwoFactorAuthProvider: TwoFactorAuthProvider;
 
   @AutoinjectService('rbac.fingerprint.provider')
-  protected FingerprintPrivider: FingerprintProvider;
+  protected FingerprintProvider: FingerprintProvider;
+
+  @AutoinjectService('rbac.password.validation')
+  protected PasswordValidationService: PasswordValidationProvider;
 
   @Autoinject(FederatedAuthProvider)
   protected FederatedLoginStrategies: FederatedAuthProvider<any>[];
+
+  @Autoinject()
+  protected PasswordProvider: PasswordProvider;
 
   @Autoinject(QueueClient)
   protected Queue: QueueClient;
@@ -71,7 +76,8 @@ export class LoginController extends BaseController {
    * @returns response with avaible login strategies
    */
   @Get()
-  public async federatedLogin() {
+  @Policy(NotLoggedPolicy)
+  public async federatedLoginList() {
     return new Ok(this.FederatedLoginStrategies.map((x) => x.Name));
   }
 
@@ -102,10 +108,50 @@ export class LoginController extends BaseController {
       .first();
 
     if (!user) {
-      return new InvalidOperation('Invalid password reset token');
+      return new NotFound({
+        error: {
+          code: 'ERR_USER_NOT_FOUND',
+          message: 'No user found for this reset token',
+        },
+      });
     }
 
     const val = (await user.Metadata['password:reset:start']) as DateTime;
+    const now = DateTime.now().plus({ seconds: -this.PasswordResetTokenTTL });
+
+    if (val < now) {
+      return new BadRequest({
+        error: {
+          code: 'ERR_RESET_TOKEN_EXPIRED',
+          message: 'Password reset token expired',
+        },
+      });
+    }
+
+    if (!this.PasswordValidationService.check(pwd.Password)) {
+      return new BadRequest({
+        error: {
+          code: 'ERR_PASSWORD_RULE',
+          message: 'Invalid password, does not match password rules',
+        },
+      });
+    }
+
+    if (pwd.Password !== pwd.ConfirmPassword) {
+      return new BadRequest({
+        error: {
+          code: 'ERR_PASSWORD_NOT_MATCH',
+          message: 'Password and repeat password does not match',
+        },
+      });
+    }
+
+    const hashedPassword = await this.PasswordProvider.hash(pwd.Password);
+    user.Password = hashedPassword;
+
+    await user.update();
+
+    await user.Metadata
   }
 
   @Post('forgot-password')
