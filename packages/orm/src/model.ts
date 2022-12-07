@@ -846,21 +846,17 @@ export const MODEL_STATIC_MIXINS = {
 
     const { query } = description.SoftDelete?.DeletedAt ? createQuery(this, UpdateQueryBuilder) : createQuery(this, DeleteQueryBuilder);
 
-    if (!pks) {
-      return query;
-    } else {
-      query.whereIn(description.PrimaryKey, data);
-
-      if (description.SoftDelete?.DeletedAt) {
-        (query as UpdateQueryBuilder<never>).update({
-          [description.SoftDelete.DeletedAt]: DateTime.now(),
-        });
-
-        return query;
-      } else {
-        return query;
-      }
+    if (description.SoftDelete?.DeletedAt) {
+      (query as UpdateQueryBuilder<never>).update({
+        [description.SoftDelete.DeletedAt]: DateTime.now(),
+      });
     }
+
+    if (pks) {
+      query.whereIn(description.PrimaryKey, data);
+    }
+
+    return query;
   },
 
   async create<T extends typeof ModelBase>(this: T, data: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
