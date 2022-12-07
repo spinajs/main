@@ -1,3 +1,4 @@
+import { UpdateQueryBuilder } from '@spinajs/orm';
 import { PickRelations } from './types';
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
@@ -246,13 +247,13 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param value - value to compare
    */
   public static where<T extends typeof ModelBase>(this: T, val: boolean): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(this: T, val: Partial<InstanceType<T>> | PickRelations<T, Relation<any>>): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, val: Partial<InstanceType<T>> | PickRelations<T, Relation<any, any>>): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, func: WhereFunction<InstanceType<T>>): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, column: string, value: any): SelectQueryBuilder<Array<InstanceType<T>>>;
   public static where<T extends typeof ModelBase>(this: T, statement: Wrap): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T, Relation<any>>, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
-  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T, Relation<any>>, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
+  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T, Relation<any, any>>, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>>;
+  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T, Relation<any, any>>, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> {
     throw new Error('Not implemented');
   }
 
@@ -382,7 +383,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param pk - primary key
    */
 
-  public static destroy<T extends typeof ModelBase>(_pk?: any | any[]): DeleteQueryBuilder<InstanceType<T>> {
+  public static destroy<T extends typeof ModelBase>(this: T, _pk?: any | any[]): DeleteQueryBuilder<InstanceType<T>> {
     throw new Error('Not implemented');
   }
 
@@ -422,7 +423,7 @@ export class ModelBase<M = unknown> implements IModelBase {
             break;
           case RelationType.Many:
           case RelationType.ManyToMany:
-            ((this as any)[v.Name] as Relation<ModelBase>).push(data);
+            ((this as any)[v.Name] as Relation<ModelBase, ModelBase>).push(data);
             break;
         }
       }
@@ -843,25 +844,20 @@ export const MODEL_STATIC_MIXINS = {
 
     const data = Array.isArray(pks) ? pks : [pks];
 
+    const { query } = description.SoftDelete?.DeletedAt ? createQuery(this, UpdateQueryBuilder) : createQuery(this, DeleteQueryBuilder);
+
     if (!pks) {
-      const { query } = createQuery(this, DeleteQueryBuilder);
       return query;
     } else {
-      if (description.SoftDelete?.DeletedAt) {
-        const { query } = createQuery(this, UpdateQueryBuilder);
-        const orm = DI.get<Orm>(Orm);
-        const driver = orm.Connections.get(description.Connection);
-        const converter = driver.Container.resolve(DatetimeValueConverter);
+      query.whereIn(description.PrimaryKey, data);
 
-        query.whereIn(description.PrimaryKey, data).update({
-          [description.SoftDelete.DeletedAt]: converter.toDB(DateTime.now(), this, this.ModelDescriptor.Converters.get(description.SoftDelete.DeletedAt).Options),
+      if (description.SoftDelete?.DeletedAt) {
+        (query as UpdateQueryBuilder<never>).update({
+          [description.SoftDelete.DeletedAt]: DateTime.now(),
         });
 
         return query;
       } else {
-        const { query } = createQuery(this, DeleteQueryBuilder);
-        query.whereIn(description.PrimaryKey, data);
-
         return query;
       }
     }

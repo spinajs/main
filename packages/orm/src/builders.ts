@@ -589,7 +589,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._tableAlias = tableAlias;
   }
 
-  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialModel<T> | PickRelations<T, Relation<any>>, operator?: SqlOperator | any, value?: any): this {
+  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialModel<T> | PickRelations<T, Relation<any, any>>, operator?: SqlOperator | any, value?: any): this {
     const self = this;
 
     // Support "where true || where false"

@@ -5,7 +5,7 @@ import { DI, IContainer } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata';
 import { UserAction } from './UserTimeline';
 
-class UserMetadataRelation extends OneToManyRelationList<UserMetadata> {
+class UserMetadataRelation extends OneToManyRelationList<UserMetadata, User> {
   public async metadataExists(key: string) {
     return this.find((x) => x.Key === key) !== undefined;
   }
@@ -16,9 +16,9 @@ class UserMetadataRelation extends OneToManyRelationList<UserMetadata> {
     if (meta) {
       await this.remove(meta);
     } else {
-      UserMetadata.query().where({
+      await UserMetadata.destroy().where({
         Key: key,
-        User: this.owner as ModelBase<User>,
+        User: this.owner,
       });
     }
   }
