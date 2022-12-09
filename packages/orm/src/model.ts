@@ -3,7 +3,7 @@ import { PickRelations } from './types';
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
 import { SordOrder } from './enums';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder } from './interfaces';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope } from './interfaces';
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
 import { Op } from './enums';
@@ -127,6 +127,8 @@ export class ModelBase<M = unknown> implements IModelBase {
    * eg. password field of user
    */
   protected _hidden: string[] = [];
+
+  public static _scopes: QueryScope;
 
   /**
    * Gets descriptor for this model. It contains information about relations, orm driver, connection properties,

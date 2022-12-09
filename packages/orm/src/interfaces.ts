@@ -973,3 +973,8 @@ export abstract class TableAliasCompiler {
 export interface IUniversalConverterOptions {
   TypeColumn: string;
 }
+
+/**
+ * base class for select & where builder for defining scopes
+ */
+export abstract class QueryScope {}

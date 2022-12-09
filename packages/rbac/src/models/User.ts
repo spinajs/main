@@ -168,3 +168,5 @@ export class User extends ModelBase<User> {
     return (ac.can(this.Role) as any)[permission](resource);
   }
 }
+
+User.where()
