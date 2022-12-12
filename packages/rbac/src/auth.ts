@@ -36,7 +36,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
   }
 
   public async authenticate(email: string, password: string): Promise<IAuthenticationResult<User>> {
-    const result = await User.where({ Email: email }).isActiveUser().first();
+    const result = await User.where({ Email: email, DeletedAt: null }).first();
     const eInvalidCredentials = {
       Error: {
         Code: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
@@ -54,11 +54,15 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
 
     const valid = await this.PasswordProvider.verify(result.Password, password);
     if (!valid) {
-      return eInvalidCredentials;
+      return {
+        User: result,
+        ...eInvalidCredentials,
+      };
     }
 
     if (result.IsBanned) {
       return {
+        User: result,
         Error: {
           Code: AthenticationErrorCodes.E_USER_BANNED,
         },
@@ -67,6 +71,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
 
     if (result.IsActive) {
       return {
+        User: result,
         Error: {
           Code: AthenticationErrorCodes.E_USER_NOT_ACTIVE,
         },
