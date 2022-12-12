@@ -1,7 +1,7 @@
 import { QueueEvent, Event } from '@spinajs/queue';
 
 @Event()
-export class UserLoginFailed extends QueueEvent {
+export class UserLoginSuccess extends QueueEvent {
   constructor(public UserUUID: string) {
     super();
   }

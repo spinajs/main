@@ -14,5 +14,5 @@ export class Model4 extends ModelBase {
   public Property4: string;
 
   @HasManyToMany(JunctionModel, Model5)
-  public ManyOwners: Relation<Model5>;
+  public ManyOwners: Relation<Model5, Model4>;
 }

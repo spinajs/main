@@ -12,6 +12,8 @@ export class ModelNested1 extends ModelBase {
 
   public Property1: string;
 
-  @HasMany(ModelNested2, 'rel_1')
-  public HasMany1: Relation<ModelNested2>;
+  @HasMany(ModelNested2, {
+    foreignKey: 'rel_1',
+  })
+  public HasMany1: Relation<ModelNested2, ModelNested1>;
 }

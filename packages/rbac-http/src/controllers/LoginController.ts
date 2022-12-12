@@ -1,7 +1,7 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { UserLoginDto } from '../dto/userLogin-dto';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, Header, Policy, Query, BadRequest, NotFound } from '@spinajs/http';
-import { AuthProvider, FederatedAuthProvider, PasswordProvider, PasswordValidationProvider, Session, SessionProvider, User, User as UserModel, UserMetadata } from '@spinajs/rbac';
+import { AuthProvider, FederatedAuthProvider, PasswordProvider, PasswordValidationProvider, Session, SessionProvider, User, User as UserModel, UserMetadata, UserPasswordChanged } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -16,6 +16,7 @@ import { RestorePasswordDto } from '../dto/restore-password-dto';
 import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
 import { UserAction } from 'rbac/src/models/UserTimeline';
+import { UserLoginSuccess } from '../events/UserLoginSuccess';
 
 @BasePath('user/auth')
 export class LoginController extends BaseController {
@@ -151,7 +152,23 @@ export class LoginController extends BaseController {
 
     await user.update();
 
-    await user.Metadata
+    /**
+     * Delete reset related meta for user
+     */
+    await user.Metadata.deleteMetadata('password:reset');
+    await user.Metadata.deleteMetadata('password:reset:token');
+    await user.Metadata.deleteMetadata('password:reset:start');
+
+    // add to action list
+    await user.Actions.add(
+      new UserAction({
+        Persistent: true,
+        Action: 'password:reset',
+      }),
+    );
+
+    // inform others
+    await this.Queue.emit(new UserPasswordChanged(user.Uuid));
   }
 
   @Post('forgot-password')
@@ -273,6 +290,11 @@ export class LoginController extends BaseController {
     // 2fa is not enabled, so we found user, it means it is logged
     session.Data.set('Authorized', true);
     await this.SessionProvider.save(session);
+
+    await this.Queue.emit(new UserLoginSuccess(user.Uuid));
+
+    user.LastLoginAt = DateTime.now();
+    await user.update();
 
     // BEWARE: httpOnly coockie, only accesible via http method in browser
     // return coockie session id with additional user data

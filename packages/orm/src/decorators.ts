@@ -2,7 +2,7 @@ import { IValueConverterDescriptor, JsonValueConverter } from './interfaces';
 /* eslint-disable prettier/prettier */
 import { UuidConverter } from './converters';
 import { Constructor, DI, IContainer } from '@spinajs/di';
-import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, ValueConverter, SetValueConverter } from './interfaces';
+import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter } from './interfaces';
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';

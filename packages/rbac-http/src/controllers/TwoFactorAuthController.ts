@@ -7,14 +7,21 @@ import { User } from '../decorators';
 import { TwoFacRouteEnabled } from '../policies/2FaPolicy';
 import { AutoinjectService } from '@spinajs/configuration';
 import { TwoFactorAuthProvider } from '../interfaces';
+import { DateTime } from 'luxon';
+import { UserLoginSuccess } from '../events/UserLoginSuccess';
+import { Autoinject } from '@spinajs/di';
+import { QueueClient } from '@spinajs/queue';
 
 @BasePath('user/auth')
 @Policy(TwoFacRouteEnabled)
 export class TwoFactorAuthController extends BaseController {
-  @AutoinjectService('rbac.session.provider')
+  @Autoinject(QueueClient)
+  protected Queue: QueueClient;
+
+  @AutoinjectService('rbac.session')
   protected SessionProvider: SessionProvider;
 
-  @AutoinjectService('rbac.twoFactorAuth.provider')
+  @AutoinjectService('rbac.twoFactorAuth')
   protected TwoFactorAuthProvider: TwoFactorAuthProvider;
 
   @Post('2fa/verify')
@@ -24,6 +31,11 @@ export class TwoFactorAuthController extends BaseController {
     if (result) {
       return new Unauthorized(`invalid token`);
     }
+
+    logged.LastLoginAt = DateTime.now();
+    await logged.update();
+
+    await this.Queue.emit(new UserLoginSuccess(logged.Uuid));
 
     await this.SessionProvider.save(ssid, {
       Authorized: true,

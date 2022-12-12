@@ -20,6 +20,7 @@ import { RawModel } from './mocks/models/RawModel';
 import { Model, Connection } from '../src/decorators';
 import { ModelBase } from './../src/model';
 import { Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models';
+import { ModelWithScope, ModelWithScopeQueryScope } from './mocks/models/ModelWithScope';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -57,7 +58,7 @@ describe('General model tests', () => {
     const orm = await db();
     const models = await orm.Models;
 
-    expect(models.length).to.eq(18);
+    expect(models.length).to.eq(19);
   });
 
   it('Models should have added mixins', async () => {
@@ -357,6 +358,29 @@ describe('General model tests', () => {
 
     await RawModel.destroy(1);
     expect(execute.calledOnce).to.be.true;
+  });
+
+  it('model scope should work', async () => {
+    // @ts-ignore
+    const orm = await db();
+
+    sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([]);
+      }),
+    );
+
+    const scope = sinon.spy(ModelWithScopeQueryScope.prototype, 'whereIdIsGreaterThan');
+
+    await ModelWithScope.query().whereIdIsGreaterThan(1);
+
+    expect(execute.calledOnce).to.be.true;
+    expect(scope.calledOnce).to.be.true;
   });
 
   it('update mixin should work', async () => {

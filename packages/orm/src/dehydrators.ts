@@ -21,7 +21,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val) : val;
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, null) : val;
     });
 
     for (const val of relArr) {
@@ -33,7 +33,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
 
       if (val.Type === RelationType.Many) {
         if ((model as any)[val.Name]) {
-          (obj as any)[val.Name] = [...((model as any)[val.Name] as Relation<ModelBase>).map((x) => x.dehydrate())];
+          (obj as any)[val.Name] = [...((model as any)[val.Name] as Relation<ModelBase, any>).map((x) => x.dehydrate())];
         }
       }
     }

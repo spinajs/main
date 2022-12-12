@@ -1,5 +1,6 @@
+import { ISelectQueryBuilder } from './../../../orm/lib/interfaces.d';
 import { DateTime } from 'luxon';
-import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor, QueryScope, IWhereBuilder } from '@spinajs/orm';
 import { AccessControl } from 'accesscontrol';
 import { DI, IContainer } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata';
@@ -94,6 +95,22 @@ function UserMetadataRelationFactory(model: ModelBase<User>, desc: IRelationDesc
 
   return new Proxy(repository, proxy);
 }
+
+export class UserQueryScopes implements QueryScope {
+  /**
+   *
+   * Fetch users that are not banned, are active & email confirmed, not deleted
+   *
+   */
+  public isActiveUser(this: ISelectQueryBuilder<User>) {
+    return this.where({
+      IsBanned: false,
+      IsActive: true,
+      DeletedAt: null,
+    });
+  }
+}
+
 /**
  * Base model for users used by auth and ACL system
  *
@@ -101,8 +118,10 @@ function UserMetadataRelationFactory(model: ModelBase<User>, desc: IRelationDesc
  */
 @Connection('default')
 @Model('users')
-export class User extends ModelBase<User> {
+export class User extends ModelBase {
   protected _hidden: string[] = ['Password', 'Id'];
+
+  public static readonly _queryScopes: UserQueryScopes = new UserQueryScopes();
 
   @Primary()
   public Id: number;
@@ -150,6 +169,9 @@ export class User extends ModelBase<User> {
 
   public IsBanned: boolean;
 
+  /**
+   * Account is fully active (eg. passed registration)
+   */
   public IsActive: boolean;
 
   /**
@@ -168,5 +190,3 @@ export class User extends ModelBase<User> {
     return (ac.can(this.Role) as any)[permission](resource);
   }
 }
-
-User.where()
