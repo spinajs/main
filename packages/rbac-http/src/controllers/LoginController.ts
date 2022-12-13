@@ -153,11 +153,9 @@ export class LoginController extends BaseController {
     await user.update();
 
     /**
-     * Delete reset related meta for user
+     * Delete all reset related meta for user
      */
-    await user.Metadata.deleteMetadata('password:reset');
-    await user.Metadata.deleteMetadata('password:reset:token');
-    await user.Metadata.deleteMetadata('password:reset:start');
+    await user.Metadata.delete(/password:reset.*/);
 
     // add to action list
     await user.Actions.add(

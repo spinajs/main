@@ -1,27 +1,56 @@
 import { ISelectQueryBuilder } from './../../../orm/lib/interfaces.d';
 import { DateTime } from 'luxon';
-import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor, QueryScope, IWhereBuilder } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor, QueryScope, IWhereBuilder, InsertBehaviour } from '@spinajs/orm';
 import { AccessControl } from 'accesscontrol';
 import { DI, IContainer } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata';
 import { UserAction } from './UserTimeline';
 
 class UserMetadataRelation extends OneToManyRelationList<UserMetadata, User> {
-  public async metadataExists(key: string) {
-    return this.find((x) => x.Key === key) !== undefined;
+  /**
+   *
+   * Checks if metadata exists, its DB first, it will only check DB for existence
+   *
+   * @param key - key to find
+   * @returns {true|false}
+   */
+  public async exists(key: string | RegExp) {
+    let result = null;
+    if (key instanceof RegExp) {
+      result = await UserMetadata.where({
+        User: this.owner,
+      }).andWhere('Key', 'rlike', key.source);
+    } else {
+      result = await UserMetadata.where({
+        User: this.owner,
+      }).andWhere('Key', key);
+    }
+
+    return result !== null && result !== undefined;
   }
 
-  public async deleteMetadata(key: string) {
-    let meta = this.find((x) => x.Value === key);
-
-    if (meta) {
-      await this.remove(meta);
+  /**
+   *
+   * Deletes meta from DB
+   *
+   * @param key - meta key do delete or regexp
+   */
+  public async delete(key: string | RegExp) {
+    if (key instanceof RegExp) {
+      await UserMetadata.destroy()
+        .where({
+          User: this.owner,
+        })
+        .andWhere('Key', 'rlike', key.source);
     } else {
       await UserMetadata.destroy().where({
         Key: key,
         User: this.owner,
       });
     }
+
+    // refresh meta
+    await this.populate();
   }
 
   [index: string]: any;
@@ -35,31 +64,19 @@ function UserMetadataRelationFactory(model: ModelBase<User>, desc: IRelationDesc
       if ((target as any)[prop]) {
         return ((target as any)[prop] = value);
       } else {
+        const userMeta = new UserMetadata();
+        userMeta.User.Value = model as User;
+        userMeta.Key = prop;
+        userMeta.Value = value;
+
+        UserMetadata.insert(userMeta, InsertBehaviour.InsertOrUpdate);
+
         let meta = target.find((x) => x.Value === prop);
 
         if (meta) {
           meta.Value = value;
-
-          return meta.update();
         } else {
-          UserMetadata.where({
-            User: model,
-            Key: prop,
-          })
-            .first()
-            .then((res) => {
-              if (res) {
-                res.Value = value;
-                return res.update();
-              }
-
-              const nMeta = new UserMetadata({
-                Key: prop,
-                Value: value,
-              });
-
-              return target.add(nMeta);
-            });
+          target.push(userMeta);
         }
       }
 

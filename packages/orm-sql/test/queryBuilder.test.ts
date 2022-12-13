@@ -168,6 +168,11 @@ describe('Where query builder', () => {
     expect(result.expression).to.equal('SELECT * FROM `users`');
   });
 
+  it('where rlike', () => {
+    const result = sqb().select('*').from('users').where('Name', 'rlike', '.*').toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE Name RLIKE ?');
+  });
+
   it('where exists', () => {
     const result = sqb().select('*').from('users').whereExist(sqb().where('id', 1).from('comments')).toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE EXISTS ( SELECT * FROM `comments` WHERE id = ? )');
@@ -612,7 +617,6 @@ describe('Relations query builder', () => {
     const result4 = RelationModel.where('Relation', new RelationModel2({ Id: 2 })).toDB();
     expect(result4.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
     expect(result4.bindings[0]).to.equal(2);
-
   });
 
   it('belongsTo simple', () => {

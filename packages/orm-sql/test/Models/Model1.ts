@@ -17,5 +17,3 @@ export class Model1 extends ModelBase {
 
   public Bar: string;
 }
-
-Model1.query().whereIdIsGreaterThan(1);

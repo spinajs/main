@@ -60,9 +60,10 @@ export enum SqlOperator {
   BETWEEN = 'between',
   NOT_BETWEEN = 'not between',
   LIKE = 'like',
+  RLIKE = 'rlike',
 }
 
-export type Op = '<' | '>' | '!=' | '<=>' | '>=' | '<=' | '<>' | 'like' | '=';
+export type Op = '<' | '>' | '!=' | '<=>' | '>=' | '<=' | '<>' | 'like' | '=' | 'rlike';
 
 /**
  * Allowed join methods in queries
