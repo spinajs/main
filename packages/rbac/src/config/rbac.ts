@@ -86,6 +86,7 @@ module.exports = {
     },
     password: {
       service: 'BasicPasswordProvider',
+
       validation: {
         service: 'BasicPasswordValidationProvider',
         rule: {

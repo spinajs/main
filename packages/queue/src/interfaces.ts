@@ -13,11 +13,29 @@ export interface IQueueMessage {
   CreatedAt: DateTime;
   Name: string;
   Type: QueueMessageType;
+  /**
+   * The time in milliseconds that a message will wait before being scheduled to be delivered by the broker
+   */
+  ScheduleDelay?: number;
+
+  /**
+   * The time in milliseconds to wait after the start time to wait before scheduling the message again
+   */
+  SchedulePeriod?: number;
+
+  /**
+   * The number of times to repeat scheduling a message for delivery
+   */
+  ScheduleRepeat?: number;
+
+  /**
+   * Use a Cron entry to set the schedule
+   */
+  ScheduleCron?: string;
 }
 
 export interface IQueueJob extends IQueueMessage {
   RetryCount: number;
-  Delay: number;
   JobId?: string;
 }
 
@@ -69,6 +87,26 @@ export abstract class QueueMessage implements IQueueMessage {
 
   public Type: QueueMessageType;
 
+  /**
+   * The time in milliseconds that a message will wait before being scheduled to be delivered by the broker
+   */
+  ScheduleDelay: number;
+
+  /**
+   * The time in milliseconds to wait after the start time to wait before scheduling the message again
+   */
+  SchedulePeriod: number;
+
+  /**
+   * The number of times to repeat scheduling a message for delivery
+   */
+  ScheduleRepeat: number;
+
+  /**
+   * Use a Cron entry to set the schedule
+   */
+  ScheduleCron: string;
+
   constructor() {
     this.CreatedAt = DateTime.now();
   }
@@ -93,7 +131,7 @@ export abstract class QueueEvent extends QueueMessage {
     this.Type = QueueMessageType.Event;
   }
 
-  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>): Promise<void> {
+  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, options?: IMessageOptions): Promise<void> {
     const queue = await DI.resolve(QueueService);
 
     const message = {
@@ -101,6 +139,7 @@ export abstract class QueueEvent extends QueueMessage {
       Type: QueueMessageType.Event,
       CreatedAt: val.CreatedAt ?? DateTime.now(),
       Name: this.name,
+      ...options,
     } as IQueueMessage;
 
     // partial of queue job always is queue message
@@ -122,11 +161,6 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
    */
   public RetryCount: number;
 
-  /**
-   * Execution delay in miliseconds
-   */
-  public Delay: number;
-
   constructor() {
     super();
 
@@ -136,7 +170,7 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
 
   public abstract execute(progress: (p: number) => Promise<void>): Promise<unknown>;
 
-  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, delay?: number): Promise<void> {
+  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, options?: IMessageOptions): Promise<void> {
     const queue = await DI.resolve(QueueService);
 
     const message = {
@@ -144,7 +178,7 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
       Type: QueueMessageType.Job,
       CreatedAt: val.CreatedAt ?? DateTime.now(),
       Name: this.name,
-      Delay: delay ?? 0,
+      ...options,
     } as IQueueMessage;
 
     // partial of queue job always is queue message
@@ -293,4 +327,26 @@ export interface IQueueConnectionOptions {
    * and for unblocking source queue
    */
   defaultQueueDeadLetterChannel?: string;
+}
+
+export interface IMessageOptions {
+  /**
+   * The time in milliseconds that a message will wait before being scheduled to be delivered by the broker
+   */
+  ScheduleDelay: number;
+
+  /**
+   * The time in milliseconds to wait after the start time to wait before scheduling the message again
+   */
+  SchedulePeriod: number;
+
+  /**
+   * The number of times to repeat scheduling a message for delivery
+   */
+  ScheduleRepeat: number;
+
+  /**
+   * Use a Cron entry to set the schedule
+   */
+  ScheduleCron: string;
 }

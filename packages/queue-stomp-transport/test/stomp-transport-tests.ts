@@ -328,4 +328,54 @@ describe('stomp queue transport test', () => {
 
     expect(s.calledTwice).to.be.true;
   });
+
+  it('Should execute with delay', async () => {
+    const c = await q();
+    const s = sinon.stub().returns(Promise.resolve());
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestEvent',
+      Type: QueueMessageType.Event,
+      Foo: 'far',
+      ScheduleDelay: 5000,
+    };
+
+    c.subscribe(TestEventChannelName, s);
+    c.emit(message);
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s.calledOnce).to.be.false;
+
+    await wait(QUEUE_WAIT_TIME_MS * 5);
+
+    expect(s.calledOnce).to.be.true;
+  });
+
+  it('Should execute 10 times', async () => {
+    const c = await q();
+    const s = sinon.stub().returns(Promise.resolve());
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestEvent',
+      Type: QueueMessageType.Event,
+      Foo: 'far',
+      ScheduleDelay: 1000,
+      ScheduleRepeat: 10,
+      SchedulePeriod: 1000,
+    };
+
+    c.subscribe(TestEventChannelName, s);
+    c.emit(message);
+
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    expect(s.calledOnce).to.be.false;
+
+    await wait(QUEUE_WAIT_TIME_MS * 15);
+
+    expect(s.callCount).to.eq(11);
+  });
 });

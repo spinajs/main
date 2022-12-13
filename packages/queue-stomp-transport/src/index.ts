@@ -1,6 +1,6 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
-import { Client, StompSubscription } from '@stomp/stompjs';
+import { Client, StompHeaders, StompSubscription } from '@stomp/stompjs';
 import _ from 'lodash';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
 
@@ -105,11 +105,28 @@ export class StompQueueClient extends QueueClient {
 
   public async emit(message: IQueueMessage) {
     const channels = this.getChannelForMessage(message);
+    const headers: StompHeaders = {};
 
+    if (message.ScheduleCron) {
+      headers['AMQ_SCHEDULED_CRON'] = message.ScheduleCron;
+    }
+
+    if (message.ScheduleDelay) {
+      headers['AMQ_SCHEDULED_DELAY'] = message.ScheduleDelay.toString();
+    }
+
+    if (message.SchedulePeriod) {
+      headers['AMQ_SCHEDULED_PERIOD'] = message.SchedulePeriod.toString();
+    }
+
+    if (message.ScheduleRepeat) {
+      headers['AMQ_SCHEDULED_REPEAT'] = message.ScheduleRepeat.toString();
+    }
     channels.forEach((c) => {
       this.Client.publish({
         destination: c,
         body: JSON.stringify(message),
+        headers,
       });
 
       this.Log.trace(`Published ${message.Type} Name: ${message.Name}} to channel ${c} ( ${this.Options.name} )`);

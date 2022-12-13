@@ -21,9 +21,14 @@ module.exports = {
       maxDevices: 3,
       service: 'FingerprintJs',
     },
-    password_reset: {
+    password: {
       // password reset token ttl in minutes
-      tokentTTL: 60,
+      tokenTTL: 60,
+
+      /**
+       * Block account after invalid login attempts
+       */
+      blockAfterAttempts: 3,
     },
   },
   http: {

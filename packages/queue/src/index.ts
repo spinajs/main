@@ -110,12 +110,7 @@ export class DefaultQueueService extends QueueService {
               await jModel.update();
 
               try {
-                // TODO: implement retry count & dead letter
-                if (ev.Delay) {
-                  jobResult = await _executeDelayed(ev);
-                } else {
-                  jobResult = await ev.execute(onProgress);
-                }
+                jobResult = await ev.execute(onProgress);
 
                 jModel.Result = jobResult;
                 jModel.Status = 'success';
@@ -139,21 +134,6 @@ export class DefaultQueueService extends QueueService {
                 await jModel.update();
 
                 self.Log.trace(`Job ${event.name}:${jModel.JobId} progress: ${p}%`);
-              }
-
-              async function _executeDelayed(jobInstance: QueueJob) {
-                return new Promise((res, rej) => {
-                  setTimeout(() => {
-                    jobInstance
-                      .execute(onProgress)
-                      .then((result) => {
-                        res(result);
-                      })
-                      .catch((err) => {
-                        rej(err);
-                      });
-                  }, jobInstance.Delay);
-                });
               }
             }
 
