@@ -1,9 +1,10 @@
+import { EventQueryBuilder, EventIntervalDesc } from './../../orm/src/builders';
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
@@ -867,5 +868,101 @@ export class SqlAlterColumnQueryCompiler extends SqlColumnQueryCompiler {
         expression: `MODIFY ${cDefinition.expression}`,
       };
     }
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class SqlEventQueryCompiler extends SqlQueryCompiler<EventQueryBuilder> {
+  constructor(container: IContainer, builder: EventQueryBuilder) {
+    super(builder, container);
+  }
+
+  public compile(): ICompilerOutput {
+    const schedule = this._createSchedule();
+    const action = this._action();
+
+    return {
+      bindings: action.bindings,
+      expression: `CREATE EVENT ${this._builder.Name} ON SCHEDULE ${schedule} DO BEGIN ${action.expression} END`,
+    };
+  }
+
+  _createSchedule() {
+    if (this._builder.FromNowInverval) {
+      return `AT CURRENT_TIMESTAMP + INTERVAL ${this._getInterval(this._builder.FromNowInverval)}`;
+    }
+
+    if (this._builder.At) {
+      return `AT ${this._builder.At.toFormat(`yyyy-mm-dd HH:mm:ss`)}`;
+    }
+
+    if (this._builder.EveryInterval) {
+      return `EVERY ${this._getInterval(this._builder.EveryInterval)}`;
+    }
+  }
+
+  _getInterval(desc: EventIntervalDesc) {
+    return Object.getOwnPropertyNames(desc)
+      .map((x) => {
+        if ((desc as any)[`${x}`] > 0) {
+          return `${(desc as any)[`${x}`]} ${x.toUpperCase()}`;
+        }
+
+        return null;
+      })
+      .find((x) => x !== null);
+  }
+
+  _action(): { expression: string; bindings: any[] } {
+    if (this._builder.RawSql) {
+      const res = this._builder.RawSql.build();
+      return {
+        expression: res.Statements.join(';'),
+        bindings: res.Bindings,
+      };
+    } else {
+      const qResult = this._builder.Queries.reduce(
+        (prev, curr) => {
+          const res = curr.toDB();
+
+          if (Array.isArray(res)) {
+            res.forEach((x) => {
+              prev.bindings = prev.bindings.concat(x.bindings);
+              prev.expression.push(x.expression);
+            });
+          } else {
+            prev.bindings = prev.bindings.concat(res.bindings);
+            prev.expression.push(res.expression);
+          }
+
+          return prev;
+        },
+        {
+          expression: [],
+          bindings: [],
+        },
+      );
+
+      return {
+        expression: qResult.expression.join(';'),
+        bindings: qResult.bindings,
+      };
+    }
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class SqlDropEventQueryCompiler extends SqlQueryCompiler<DropEventQueryBuilder> {
+  constructor(container: IContainer, builder: DropEventQueryBuilder) {
+    super(builder, container);
+  }
+
+  public compile(): ICompilerOutput {
+    return {
+      bindings: [],
+      expression: `DROP EVENT IF EXISTS ${this._builder.Name}`,
+    };
   }
 }

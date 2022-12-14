@@ -1,3 +1,4 @@
+import { SqlRawStatement } from './../../orm-sql/src/statements';
 /* eslint-disable prettier/prettier */
 import { Container, Inject, NewInstance, Constructor, IContainer, DI } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
@@ -5,13 +6,14 @@ import { OrmException } from './exceptions';
 import * as _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SordOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, ISelectBuilderExtensions, QueryMiddleware } from './interfaces';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, ISelectBuilderExtensions, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler } from './interfaces';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap } from './statements';
 import { PartialModel, PickRelations, WhereFunction } from './types';
 import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, Relation } from './relations';
 import { Orm } from './orm';
+import { DateTime } from 'luxon';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -1758,6 +1760,117 @@ export class CloneTableQueryBuilder extends QueryBuilder {
   }
 }
 
+export class EventIntervalDesc {
+  public Year: number;
+  public Month: number;
+  public Minute: number;
+  public Hour: number;
+  public Second: number;
+}
+
+@NewInstance()
+@Inject(Container)
+export class EventQueryBuilder extends QueryBuilder {
+  public EveryInterval: EventIntervalDesc;
+  public FromNowInverval: EventIntervalDesc;
+  public Comment: string;
+  public At: DateTime;
+  public RawSql: SqlRawStatement;
+  public Queries: QueryBuilder[];
+
+  constructor(protected container: Container, protected driver: OrmDriver, public Name: string) {
+    super(container, driver);
+  }
+
+  /**
+   * execute every time with specified interval ( days, hours, seconds, minutes etc)
+   */
+  public every() {
+    this.EveryInterval = new EventIntervalDesc();
+    return this.EveryInterval;
+  }
+
+  /**
+   *
+   * Execute at specific time
+   *
+   * @param dateTime - specific time
+   */
+  public at(dateTime: DateTime) {
+    this.At = dateTime;
+  }
+
+  /**
+   * execute once at specific interfal from now eg. now + 1 day
+   */
+  public fromNow() {
+    this.FromNowInverval = new EventIntervalDesc();
+    return this.FromNowInverval;
+  }
+
+  /**
+   *
+   * @param sql - code to execute,  could be raw sql query, single builder, or multiple builders that will be executed on by one
+   */
+  public do(sql: SqlRawStatement | QueryBuilder[] | QueryBuilder) {
+    if (sql instanceof SqlRawStatement) {
+      this.RawSql = sql;
+    } else if (Array.isArray(sql)) {
+      this.Queries = sql;
+    } else {
+      this.Queries = [sql];
+    }
+  }
+
+  /**
+   *
+   * Add comment to schedule for documentation. It is passed to sql engine
+   *
+   * @param comment - comment text
+   */
+  public comment(comment: string) {
+    this.Comment = comment;
+  }
+
+  public toDB(): ICompilerOutput[] {
+    return this._container.resolve<EventQueryCompiler>(EventQueryCompiler, [this]).compile();
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class DropEventQueryBuilder extends QueryBuilder {
+  constructor(protected container: Container, protected driver: OrmDriver, public Name: string) {
+    super(container, driver);
+  }
+
+  public toDB(): ICompilerOutput[] {
+    return this._container.resolve<DropEventQueryCompiler>(DropEventQueryCompiler, [this]).compile();
+  }
+}
+
+/**
+ * Creates schedule job in database engine.
+ * Note, some engines does not support this, so it will implemented
+ * as nodejs interval
+ */
+@NewInstance()
+@Inject(Container)
+export class ScheduleQueryBuilder {
+  constructor(protected container: Container, protected driver: OrmDriver) {}
+
+  public create(name: string, callback: (event: EventQueryBuilder) => void) {
+    const builder = new EventQueryBuilder(this.container, this.driver, name);
+    callback.call(this, builder);
+
+    return builder;
+  }
+
+  public drop(name: string) {
+    return new DropEventQueryBuilder(this.container, this.driver, name);
+  }
+}
+
 @NewInstance()
 @Inject(Container)
 export class SchemaQueryBuilder {
@@ -1795,6 +1908,14 @@ export class SchemaQueryBuilder {
 
     const exists = await query;
     return exists !== null && exists.length === 1;
+  }
+
+  public async event(name: string) {
+    return new EventQueryBuilder(this.container, this.driver, name);
+  }
+
+  public async dropEvent(name: string) {
+    return new DropEventQueryBuilder(this.container, this.driver, name);
   }
 }
 
