@@ -4,7 +4,7 @@ import { EventQueryBuilder, EventIntervalDesc } from './../../orm/src/builders';
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
@@ -681,6 +681,35 @@ export class SqlTruncateTableQueryCompiler extends TableQueryCompiler {
   }
 }
 
+@NewInstance()
+@Inject(Container)
+export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
+  constructor(protected container: Container, protected builder: TableQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput[] {
+    const tblAliasCompiler = this.container.resolve(TableAliasCompiler);
+    const hTtblName = tblAliasCompiler.compile(this.builder, `${this.builder.Table}__history`);
+
+    return [
+      // clone table
+      {
+        bindings: [],
+        expression: `CREATE TABLE ${hTtblName} LIKE ${tblAliasCompiler.compile(this.builder)}`,
+      },
+
+      // remove primary key & add history columns
+      {
+        bindings: [],
+        expression: `ALTER TABLE ${hTtblName} DROP PRIMARY KEY, ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AUTO_INCREMENT AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__, ADD PRIMARY KEY (primary_key_column, __revision__);`,
+      },
+
+      // create tracking triggers
+    ];
+  }
+}
+
 export interface SqlTableQueryCompiler {}
 
 @NewInstance()
@@ -690,16 +719,23 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
     super();
   }
 
-  public compile(): ICompilerOutput {
+  public compile(): ICompilerOutput[] {
     const _table = this._table();
     const _columns = this._columns();
     const _keys = this._foreignKeys();
     const _primaryKey = this._primaryKeys();
 
-    return {
+    const createOutput: ICompilerOutput = {
       bindings: [],
       expression: `${_table} (${_columns} ${_primaryKey ? ',' + _primaryKey : ''} ${_keys ? ',' + _keys : ''})`,
     };
+
+    if (this.builder.TrackHistory) {
+      const hCompiler = this.container.resolve(TableHistoryQueryCompiler, [this.builder]);
+      return [createOutput, ...hCompiler.compile()];
+    } else {
+      return [createOutput];
+    }
   }
 
   protected _columns() {

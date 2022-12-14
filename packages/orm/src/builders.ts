@@ -1599,8 +1599,20 @@ export class TableQueryBuilder extends QueryBuilder {
     return this;
   }
 
+  /**
+   * Mark table as temporary
+   */
   public temporary(): TableQueryBuilder {
     this._temporary = true;
+    return this;
+  }
+
+  /**
+   * Turn on history trackign for this table
+   * Each change & row will be tracked, and all history of changes can be accessed
+   */
+  public trackHistory() {
+    this._trackHistory = true;
     return this;
   }
 
@@ -1626,12 +1638,18 @@ export class TableQueryBuilder extends QueryBuilder {
 
   protected _temporary: boolean;
 
+  protected _trackHistory: boolean;
+
   public get CheckExists() {
     return this._checkExists;
   }
 
   public get Temporary() {
     return this._temporary;
+  }
+
+  public get TrackHistory() {
+    return this._trackHistory;
   }
 
   constructor(container: Container, driver: OrmDriver, name: string) {
@@ -1642,6 +1660,7 @@ export class TableQueryBuilder extends QueryBuilder {
     this._columns = [];
     this._foreignKeys = [];
     this._temporary = false;
+    this._trackHistory = false;
 
     this.setTable(name);
 

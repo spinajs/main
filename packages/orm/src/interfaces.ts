@@ -822,7 +822,12 @@ export abstract class OnDuplicateQueryCompiler implements IQueryCompiler {
 
 @NewInstance()
 export abstract class TableQueryCompiler implements IQueryCompiler {
-  public abstract compile(): ICompilerOutput;
+  public abstract compile(): ICompilerOutput[];
+}
+
+@NewInstance()
+export abstract class TableHistoryQueryCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput[];
 }
 
 @NewInstance()
