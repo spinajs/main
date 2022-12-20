@@ -372,6 +372,21 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
   });
 }
 
+export function Historical(targetModel: Constructor<ModelBase>) {
+  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    model.Relations.set(propertyKey, {
+      Name: propertyKey,
+      Type: RelationType.Many,
+      SourceModel: target.constructor,
+      TargetModelType: targetModel,
+      TargetModel: null,
+      ForeignKey: model.PrimaryKey,
+      PrimaryKey: model.PrimaryKey,
+      Recursive: false,
+    });
+  });
+}
+
 /**
  * Creates many to many relation with separate join table
  *

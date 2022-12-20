@@ -3,7 +3,7 @@ import { PickRelations } from './types';
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
 import { SordOrder } from './enums';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope } from './interfaces';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel } from './interfaces';
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
 import { Op } from './enums';
@@ -642,6 +642,13 @@ function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, 
       query.order(description.Timestamps.UpdatedAt, order ?? SordOrder.DESC);
     }
   }
+}
+
+export abstract class HistoricalModel implements IHistoricalModel {
+  public readonly __action__: 'update' | 'insert' | 'delete';
+  public readonly __revision__: number;
+  public readonly __start__: DateTime;
+  public readonly __end__: DateTime;
 }
 
 /**

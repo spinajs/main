@@ -9,6 +9,7 @@ import { OrmDriver } from './driver';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
 import { ModelBase } from './model';
 import { MethodNotImplemented } from '@spinajs/exceptions';
+import { DateTime } from 'luxon';
 
 export enum QueryContext {
   Insert,
@@ -822,7 +823,7 @@ export abstract class OnDuplicateQueryCompiler implements IQueryCompiler {
 
 @NewInstance()
 export abstract class TableQueryCompiler implements IQueryCompiler {
-  public abstract compile(): ICompilerOutput[];
+  public abstract compile(): ICompilerOutput[] | ICompilerOutput;
 }
 
 @NewInstance()
@@ -993,3 +994,10 @@ export interface IUniversalConverterOptions {
  * base class for select & where builder for defining scopes
  */
 export abstract class QueryScope {}
+
+export interface IHistoricalModel {
+  readonly __action__: 'insert' | 'update' | 'delete';
+  readonly __revision__: number;
+  readonly __start__: DateTime;
+  readonly __end__: DateTime;
+}

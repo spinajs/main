@@ -691,6 +691,7 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
   public compile(): ICompilerOutput[] {
     const tblAliasCompiler = this.container.resolve(TableAliasCompiler);
     const hTtblName = tblAliasCompiler.compile(this.builder, `${this.builder.Table}__history`);
+    const tblName = tblAliasCompiler.compile(this.builder, `${this.builder.Table}`);
 
     return [
       // clone table
@@ -706,6 +707,30 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
       },
 
       // create tracking triggers
+      {
+        bindings: [],
+        expression: `DROP TRIGGER IF EXISTS ${hTtblName}__insert_trigger`,
+      },
+      {
+        bindings: [],
+        expression: `DROP TRIGGER IF EXISTS ${hTtblName}__update_trigger`,
+      },
+      {
+        bindings: [],
+        expression: `DROP TRIGGER IF EXISTS ${hTtblName}__delete_trigger`,
+      },
+      {
+        bindings: [],
+        expression: `CREATE TRIGGER ${hTtblName}__insert_trigger AFTER INSERT ON ${tblName} FOR EACH ROW INSERT INTO ${hTtblName} SELECT 'insert', NULL, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.primary_key_column = NEW.primary_key_column;`,
+      },
+      {
+        bindings: [],
+        expression: `CREATE TRIGGER ${hTtblName}__update_trigger AFTER UPDATE ON ${tblName} FOR EACH ROW INSERT INTO ${hTtblName} SELECT 'update', NULL, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.primary_key_column = NEW.primary_key_column;`,
+      },
+      {
+        bindings: [],
+        expression: `CREATE TRIGGER ${hTtblName}__delete_trigger BEFORE DELETE ON ${tblName} FOR EACH ROW INSERT INTO ${hTtblName} SELECT 'delete', NULL, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.primary_key_column = NEW.primary_key_column;`,
+      },
     ];
   }
 }
