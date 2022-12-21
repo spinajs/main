@@ -1,6 +1,6 @@
 import { isArray, isString } from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Configuration } from '@spinajs/configuration-common';
+import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
 import { AddDependency, Class, DI, IContainer, IInjectDescriptor } from '@spinajs/di';
 
 /**
@@ -10,7 +10,7 @@ import { AddDependency, Class, DI, IContainer, IInjectDescriptor } from '@spinaj
  * @param dafaultValue - default value if path not exists
  * @returns
  */
-export function Config(path: string, dafaultValue?: unknown) {
+export function Config(path: string, options?: IConfigEntryOptions) {
   return (target?: any, key?: string): any => {
     let config: Configuration = null;
 
@@ -18,7 +18,12 @@ export function Config(path: string, dafaultValue?: unknown) {
       if (!config) {
         config = DI.get(Configuration);
       }
-      return config.get(path, dafaultValue);
+
+      // register conf, so we can expose eg. in db if config is set
+      DI.register({ path, options }).asValue('__configuration_property__');
+
+      // try to return val
+      return config.get(path, options ? options.defaultValue ?? undefined : undefined);
     };
 
     Object.defineProperty(target, key, {

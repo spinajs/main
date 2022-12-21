@@ -15,5 +15,21 @@ export interface IConfigurationEntry {
 
   // int, float, string, json, date, time, datetime, boolean
   // if json, it will be parset as such
-  Type: string;
+  Type: 'int' | 'float' | 'string' | 'json' | 'date' | 'time' | 'datetime' | 'boolean';
+}
+
+export interface IConfigEntryOptions {
+  /**
+   * Should value be exposed in db
+   */
+  expose?: boolean;
+
+  /**
+   * DB expose options
+   */
+  exposeOptions: {
+    slug?: string;
+    group?: string;
+    type?: 'int' | 'float' | 'string' | 'json' | 'date' | 'time' | 'datetime' | 'boolean';
+  };
 }

@@ -116,3 +116,7 @@ export abstract class ConfigurationSource {
 
   public abstract Load(configuration: Configuration): Promise<IConfigLike>;
 }
+
+export interface IConfigEntryOptions {
+  defaultValue?: unknown;
+}
