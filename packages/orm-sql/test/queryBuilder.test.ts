@@ -3,7 +3,7 @@
 /* eslint-disable prettier/prettier */
 import { expect } from 'chai';
 import 'mocha';
-import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction } from '@spinajs/orm';
+import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { ConnectionConf, FakeSqliteDriver } from './fixture';
@@ -968,6 +968,34 @@ describe('schema building', () => {
     DI.clearCache();
   });
 
+  it('Should create history table with triggers', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.int('Id').notNull().primaryKey().autoIncrement();
+        table.string('Name').notNull();
+
+        table.trackHistory();
+      })
+      .toDB() as ICompilerOutput[];
+
+    const r = /\s{2,}/g;
+
+    expect(result.length).to.be.eq(12);
+
+    expect(result[0].expression).to.be.eq('CREATE TABLE `users` (`Id` INT NOT NULL AUTO_INCREMENT,`Name` VARCHAR(255) NOT NULL ,PRIMARY KEY (`Id`) )');
+    expect(result[1].expression).to.be.eq('CREATE TABLE `users__history` LIKE `users`');
+    expect(result[2].expression.replace(r,' ')).to.be.eq(`ALTER TABLE \`users__history\` CHANGE COLUMN Id Id INT NOT NULL , DROP PRIMARY KEY;`);
+    expect(result[3].expression.replace(r,' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__`);
+    expect(result[4].expression.replace(r,' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD PRIMARY KEY (Id, __revision__)`);
+    expect(result[5].expression.replace(r,' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__history__insert_trigger BEFORE INSERT ON \`users__history\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); SET NEW.__revision__ = rev + 1; END;`);
+    expect(result[6].expression.replace(r,' ')).to.be.eq('DROP TRIGGER IF EXISTS users__insert_trigger');
+    expect(result[7].expression.replace(r,' ')).to.be.eq('DROP TRIGGER IF EXISTS users__update_trigger');
+    expect(result[8].expression.replace(r,' ')).to.be.eq('DROP TRIGGER IF EXISTS users__delete_trigger');
+    expect(result[9].expression.replace(r,' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__insert_trigger AFTER INSERT ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'insert', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
+    expect(result[10].expression.replace(r,' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__update_trigger AFTER UPDATE ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'update', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
+    expect(result[11].expression.replace(r,' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__delete_trigger BEFORE DELETE ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'delete', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
+  });
+
   it('should drop table', () => {
     const result = schqb().dropTable('users').toDB();
     expect(result.expression).to.eq('DROP TABLE `users`');
@@ -989,9 +1017,9 @@ describe('schema building', () => {
         table.int('foo').notNull().primaryKey().autoIncrement();
         table.foreignKey('parent_id').references('group', 'id').onDelete(ReferentialAction.Cascade).onUpdate(ReferentialAction.Cascade);
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE CASCADE ON UPDATE CASCADE)');
+    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE CASCADE ON UPDATE CASCADE)');
   });
 
   it('table with default referential action', () => {
@@ -1000,9 +1028,9 @@ describe('schema building', () => {
         table.int('foo').notNull().primaryKey().autoIncrement();
         table.foreignKey('parent_id').references('group', 'id');
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE NO ACTION ON UPDATE NO ACTION)');
+    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE NO ACTION ON UPDATE NO ACTION)');
   });
 
   it('column with one primary keys', () => {
@@ -1010,9 +1038,9 @@ describe('schema building', () => {
       .createTable('users', (table: TableQueryBuilder) => {
         table.int('foo').notNull().primaryKey().autoIncrement();
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.equal('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) )');
+    expect(result[0].expression).to.equal('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) )');
   });
 
   it('column with multiple primary keys', () => {
@@ -1021,9 +1049,9 @@ describe('schema building', () => {
         table.int('foo').notNull().primaryKey().autoIncrement();
         table.int('bar').notNull().primaryKey().autoIncrement();
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.equal('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT,`bar` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`,`bar`) )');
+    expect(result[0].expression).to.equal('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT,`bar` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`,`bar`) )');
   });
 
   it('column with charset', () => {
@@ -1031,9 +1059,9 @@ describe('schema building', () => {
       .createTable('users', (table: TableQueryBuilder) => {
         table.string('foo').charset('utf8');
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.contain("`foo` VARCHAR(255) CHARACTER SET 'utf8'");
+    expect(result[0].expression).to.contain("`foo` VARCHAR(255) CHARACTER SET 'utf8'");
   });
 
   it('column with collation', () => {
@@ -1041,9 +1069,9 @@ describe('schema building', () => {
       .createTable('users', (table: TableQueryBuilder) => {
         table.string('foo').collation('utf8_bin');
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.contain("`foo` VARCHAR(255) COLLATE 'utf8_bin'");
+    expect(result[0].expression).to.contain("`foo` VARCHAR(255) COLLATE 'utf8_bin'");
   });
 
   it('column with default', () => {
@@ -1051,41 +1079,41 @@ describe('schema building', () => {
       .createTable('users', (table: TableQueryBuilder) => {
         table.int('foo').unsigned().default().value(1);
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` INT UNSIGNED DEFAULT 1  )');
+    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT UNSIGNED DEFAULT 1  )');
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
         table.string('foo').default().value('abc');
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.eq("CREATE TABLE `users` (`foo` VARCHAR(255) DEFAULT 'abc'  )");
+    expect(result[0].expression).to.eq("CREATE TABLE `users` (`foo` VARCHAR(255) DEFAULT 'abc'  )");
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
         table.timestamp('foo').default().raw(RawQuery.create('CURRENT_TIMESTAMP'));
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.contain('`foo` TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    expect(result[0].expression).to.contain('`foo` TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
         table.timestamp('foo').default().date();
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.contain('`foo` TIMESTAMP DEFAULT (CURRENT_DATE())');
+    expect(result[0].expression).to.contain('`foo` TIMESTAMP DEFAULT (CURRENT_DATE())');
 
     result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {
         table.timestamp('foo').default().dateTime();
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.eq('CREATE TABLE `users` (`foo` TIMESTAMP DEFAULT CURRENT_TIMESTAMP  )');
+    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` TIMESTAMP DEFAULT CURRENT_TIMESTAMP  )');
   });
 
   it('create index', () => {
@@ -1098,9 +1126,9 @@ describe('schema building', () => {
       .createTable('users', (table: TableQueryBuilder) => {
         table.int('foo').unsigned().autoIncrement();
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.contain('`foo` INT UNSIGNED AUTO_INCREMENT');
+    expect(result[0].expression).to.contain('`foo` INT UNSIGNED AUTO_INCREMENT');
   });
 
   it('column with unsigned', () => {
@@ -1108,9 +1136,9 @@ describe('schema building', () => {
       .createTable('users', (table: TableQueryBuilder) => {
         table.int('foo').unsigned();
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.contain('`foo` INT UNSIGNED');
+    expect(result[0].expression).to.contain('`foo` INT UNSIGNED');
   });
 
   it('column with comment', () => {
@@ -1118,9 +1146,9 @@ describe('schema building', () => {
       .createTable('users', (table: TableQueryBuilder) => {
         table.text('foo').comment('spine comment');
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.contain("COMMENT 'spine comment'");
+    expect(result[0].expression).to.contain("COMMENT 'spine comment'");
   });
 
   it('column with not null', () => {
@@ -1128,9 +1156,9 @@ describe('schema building', () => {
       .createTable('users', (table: TableQueryBuilder) => {
         table.text('foo').notNull();
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.contain('`foo` TEXT NOT NULL');
+    expect(result[0].expression).to.contain('`foo` TEXT NOT NULL');
   });
 
   it('create temporary table', () => {
@@ -1140,9 +1168,9 @@ describe('schema building', () => {
         table.int('bar').notNull().primaryKey().autoIncrement();
         table.temporary();
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.equal('CREATE TEMPORARY TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT,`bar` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`,`bar`) )');
+    expect(result[0].expression).to.equal('CREATE TEMPORARY TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT,`bar` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`,`bar`) )');
   });
 
   it('Clone table shallow', () => {
@@ -1265,28 +1293,28 @@ describe('schema building', () => {
         table.json('foo');
         table.set('foo', ['bar', 'baz']);
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.contain('`foo` SMALLINT');
-    expect(result.expression).to.contain('`foo` TINYINT');
-    expect(result.expression).to.contain('`foo` INT');
-    expect(result.expression).to.contain('`foo` BIGINT');
-    expect(result.expression).to.contain('`foo` TINYTEXT');
-    expect(result.expression).to.contain('`foo` MEDIUMTEXT');
-    expect(result.expression).to.contain('`foo` LONGTEXT');
-    expect(result.expression).to.contain('`foo` LONGTEXT');
-    expect(result.expression).to.contain('`foo` TEXT');
-    expect(result.expression).to.contain('`foo` VARCHAR(255)'); // string
-    expect(result.expression).to.contain('`foo` FLOAT(8,2)');
-    expect(result.expression).to.contain('`foo` DECIMAL(8,2)');
-    expect(result.expression).to.contain('`foo` TINYINT(1)'); // boolean
-    expect(result.expression).to.contain('`foo` BIT');
-    expect(result.expression).to.contain('`foo` DOUBLE(8,2)');
-    expect(result.expression).to.contain('`foo` DATE');
-    expect(result.expression).to.contain('`foo` TIME');
-    expect(result.expression).to.contain('`foo` DATETIME');
-    expect(result.expression).to.contain('`foo` TIMESTAMP');
-    expect(result.expression).to.contain('`foo` JSON');
-    expect(result.expression).to.contain("`foo` SET('bar','baz')");
+    expect(result[0].expression).to.contain('`foo` SMALLINT');
+    expect(result[0].expression).to.contain('`foo` TINYINT');
+    expect(result[0].expression).to.contain('`foo` INT');
+    expect(result[0].expression).to.contain('`foo` BIGINT');
+    expect(result[0].expression).to.contain('`foo` TINYTEXT');
+    expect(result[0].expression).to.contain('`foo` MEDIUMTEXT');
+    expect(result[0].expression).to.contain('`foo` LONGTEXT');
+    expect(result[0].expression).to.contain('`foo` LONGTEXT');
+    expect(result[0].expression).to.contain('`foo` TEXT');
+    expect(result[0].expression).to.contain('`foo` VARCHAR(255)'); // string
+    expect(result[0].expression).to.contain('`foo` FLOAT(8,2)');
+    expect(result[0].expression).to.contain('`foo` DECIMAL(8,2)');
+    expect(result[0].expression).to.contain('`foo` TINYINT(1)'); // boolean
+    expect(result[0].expression).to.contain('`foo` BIT');
+    expect(result[0].expression).to.contain('`foo` DOUBLE(8,2)');
+    expect(result[0].expression).to.contain('`foo` DATE');
+    expect(result[0].expression).to.contain('`foo` TIME');
+    expect(result[0].expression).to.contain('`foo` DATETIME');
+    expect(result[0].expression).to.contain('`foo` TIMESTAMP');
+    expect(result[0].expression).to.contain('`foo` JSON');
+    expect(result[0].expression).to.contain("`foo` SET('bar','baz')");
   });
 });

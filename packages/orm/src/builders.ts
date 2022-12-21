@@ -1,4 +1,3 @@
-import { SqlRawStatement } from './../../orm-sql/src/statements';
 /* eslint-disable prettier/prettier */
 import { Container, Inject, NewInstance, Constructor, IContainer, DI } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
@@ -1794,7 +1793,7 @@ export class EventQueryBuilder extends QueryBuilder {
   public FromNowInverval: EventIntervalDesc;
   public Comment: string;
   public At: DateTime;
-  public RawSql: SqlRawStatement;
+  public RawSql: RawQueryStatement;
   public Queries: QueryBuilder[];
 
   constructor(protected container: Container, protected driver: OrmDriver, public Name: string) {
@@ -1831,8 +1830,8 @@ export class EventQueryBuilder extends QueryBuilder {
    *
    * @param sql - code to execute,  could be raw sql query, single builder, or multiple builders that will be executed on by one
    */
-  public do(sql: SqlRawStatement | QueryBuilder[] | QueryBuilder) {
-    if (sql instanceof SqlRawStatement) {
+  public do(sql: RawQueryStatement | QueryBuilder[] | QueryBuilder) {
+    if (sql instanceof RawQueryStatement) {
       this.RawSql = sql;
     } else if (Array.isArray(sql)) {
       this.Queries = sql;

@@ -1,10 +1,9 @@
-import { EventQueryBuilder, EventIntervalDesc } from './../../orm/src/builders';
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
@@ -692,6 +691,17 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
     const tblAliasCompiler = this.container.resolve(TableAliasCompiler);
     const hTtblName = tblAliasCompiler.compile(this.builder, `${this.builder.Table}__history`);
     const tblName = tblAliasCompiler.compile(this.builder, `${this.builder.Table}`);
+    const hTriggerName = `${this.builder.Table}__history`;
+    const tblTriggerName = this.builder.Table;
+
+    const dropUnique = this.builder.Columns.filter((c) => c.Unique).map((c) => {
+      return {
+        bindings: [],
+        expression: `ALTER TABLE ${hTtblName} DROP INDEX ${c.Name}`,
+      };
+    });
+
+    const pKey = this.builder.Columns.find((c) => c.PrimaryKey);
 
     return [
       // clone table
@@ -699,37 +709,80 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
         bindings: [],
         expression: `CREATE TABLE ${hTtblName} LIKE ${tblAliasCompiler.compile(this.builder)}`,
       },
+      ...dropUnique,
+      {
+        bindings: [],
+        expression: `ALTER TABLE ${hTtblName} 
+                      CHANGE COLUMN ${pKey.Name} ${pKey.Name} INT NOT NULL ,
+                     DROP PRIMARY KEY;`,
+      },
 
       // remove primary key & add history columns
       {
         bindings: [],
-        expression: `ALTER TABLE ${hTtblName} DROP PRIMARY KEY, ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AUTO_INCREMENT AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__, ADD PRIMARY KEY (primary_key_column, __revision__);`,
+        expression: `ALTER TABLE ${hTtblName} ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__`,
+      },
+
+      {
+        bindings: [],
+        expression: `ALTER TABLE ${hTtblName}  ADD PRIMARY KEY (${pKey.Name}, __revision__)`,
+      },
+
+      {
+        bindings: [],
+        expression: `DELIMITER $$ 
+        CREATE TRIGGER ${hTriggerName}__insert_trigger BEFORE INSERT ON ${hTtblName} FOR EACH ROW 
+        BEGIN 
+          DECLARE rev INT;
+          SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
+          SET NEW.__revision__ = rev + 1; 
+        END;`,
       },
 
       // create tracking triggers
       {
         bindings: [],
-        expression: `DROP TRIGGER IF EXISTS ${hTtblName}__insert_trigger`,
+        expression: `DROP TRIGGER IF EXISTS ${tblTriggerName}__insert_trigger`,
       },
       {
         bindings: [],
-        expression: `DROP TRIGGER IF EXISTS ${hTtblName}__update_trigger`,
+        expression: `DROP TRIGGER IF EXISTS ${tblTriggerName}__update_trigger`,
       },
       {
         bindings: [],
-        expression: `DROP TRIGGER IF EXISTS ${hTtblName}__delete_trigger`,
+        expression: `DROP TRIGGER IF EXISTS ${tblTriggerName}__delete_trigger`,
+      },
+
+      // insert into history table & update __end__ date for all operations
+      {
+        bindings: [],
+        expression: `DELIMITER $$ 
+                     CREATE TRIGGER ${tblTriggerName}__insert_trigger AFTER INSERT ON ${tblName} FOR EACH ROW BEGIN 
+                        DECLARE rev INT;
+                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
+                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev;
+                        INSERT INTO ${hTtblName} SELECT 'insert', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
+                    END;`,
       },
       {
         bindings: [],
-        expression: `CREATE TRIGGER ${hTtblName}__insert_trigger AFTER INSERT ON ${tblName} FOR EACH ROW INSERT INTO ${hTtblName} SELECT 'insert', NULL, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.primary_key_column = NEW.primary_key_column;`,
+        expression: `DELIMITER $$ 
+                     CREATE TRIGGER ${tblTriggerName}__update_trigger AFTER UPDATE ON ${tblName} FOR EACH ROW BEGIN 
+                        DECLARE rev INT;
+                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
+                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev;
+                        INSERT INTO ${hTtblName} SELECT 'update', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
+                      END;`,
       },
       {
         bindings: [],
-        expression: `CREATE TRIGGER ${hTtblName}__update_trigger AFTER UPDATE ON ${tblName} FOR EACH ROW INSERT INTO ${hTtblName} SELECT 'update', NULL, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.primary_key_column = NEW.primary_key_column;`,
-      },
-      {
-        bindings: [],
-        expression: `CREATE TRIGGER ${hTtblName}__delete_trigger BEFORE DELETE ON ${tblName} FOR EACH ROW INSERT INTO ${hTtblName} SELECT 'delete', NULL, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.primary_key_column = NEW.primary_key_column;`,
+        expression: `DELIMITER $$ 
+                     CREATE TRIGGER ${tblTriggerName}__delete_trigger BEFORE DELETE ON ${tblName} FOR EACH ROW BEGIN 
+                        DECLARE rev INT;
+                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE Id = NEW.Id);
+                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev;
+                        INSERT INTO ${hTtblName} SELECT 'delete', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
+                     END;`,
       },
     ];
   }
