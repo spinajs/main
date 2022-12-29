@@ -91,6 +91,7 @@
     "@spinajs/templates-pug": "file:packages\\templates-pug",
     "@spinajs/util": "file:packages\\util",
     "@spinajs/validation": "file:packages\\validation",
+    "@spinajs/docs": "file:packages\\docs",
     "@stomp/stompjs": "^6.1.2",
     "websocket": "^1.0.34"
   }

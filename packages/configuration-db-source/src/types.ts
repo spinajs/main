@@ -31,5 +31,11 @@ export interface IConfigEntryOptions {
     slug?: string;
     group?: string;
     type?: 'int' | 'float' | 'string' | 'json' | 'date' | 'time' | 'datetime' | 'boolean';
+
+    /**
+     * Should we watch for config val change
+     * Usefull if we dont need to restart app when value changes
+     */
+    watch?: boolean;
   };
 }
