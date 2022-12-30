@@ -1,3 +1,4 @@
+import _ from 'lodash';
 import { TypedArray } from './array';
 import { getTypeName } from './helpers';
 import { IContainer } from './interfaces';
@@ -12,6 +13,14 @@ export class ContainerCache {
     // add to cache container
     // so we can inject container if needed
     this.add(container, container);
+  }
+
+  *[Symbol.iterator]() {
+    for (const [key, value] of this.cache) {
+      for (const v of value) {
+        yield { key, value: v };
+      }
+    }
   }
 
   public remove(key: string | Class<any> | TypedArray<any>, parent?: boolean): void {

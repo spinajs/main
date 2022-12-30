@@ -4,7 +4,7 @@ import { TypedArray } from './array';
 import { DI_DESCRIPTION_SYMBOL } from './decorators';
 import { ResolveType } from './enums';
 import { getTypeName, isAsyncService, isFactory, uniqBy, isTypedArray, isPromise } from './helpers';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, IInstanceCheck } from './interfaces';
+import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, IInstanceCheck, Service } from './interfaces';
 import { Class, Factory } from './types';
 import { EventEmitter } from 'events';
 import { Binder } from './binder';
@@ -61,6 +61,19 @@ export class Container extends EventEmitter implements IContainer {
    */
   public clear() {
     this.clearCache();
+  }
+
+  public async dispose() {
+    for (const entry of this.cache) {
+      if (entry.value instanceof Service) {
+        await entry.value.dispose();
+      }
+    }
+
+    this.clearCache();
+    this.clearRegistry();
+
+    this.emit('di.dispose');
   }
 
   /**

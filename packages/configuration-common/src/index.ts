@@ -119,4 +119,5 @@ export abstract class ConfigurationSource {
 
 export interface IConfigEntryOptions {
   defaultValue?: unknown;
+  required?: boolean;
 }

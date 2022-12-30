@@ -1,7 +1,11 @@
+import { DateTime } from 'luxon';
+
 export interface IConfiguratioDbSourceConfig {
   connection: string;
   table: string;
 }
+
+export type ConfigurationEntryType = 'int' | 'float' | 'string' | 'json' | 'date' | 'datetime' | 'time' | 'boolean' | 'time-range' | 'date-range' | 'datetime-range' | 'range' | 'oneOf' | 'manyOf';
 
 export interface IConfigurationEntry {
   Id: number;
@@ -15,7 +19,18 @@ export interface IConfigurationEntry {
 
   // int, float, string, json, date, time, datetime, boolean
   // if json, it will be parset as such
-  Type: 'int' | 'float' | 'string' | 'json' | 'date' | 'time' | 'datetime' | 'boolean';
+  Type: ConfigurationEntryType;
+}
+
+export interface IConfigurationEntryMeta {
+  minDate?: DateTime;
+  maxDate?: DateTime;
+
+  min?: number;
+  max?: number;
+
+  oneOf?: string[];
+  manyOf?: string[];
 }
 
 export interface IConfigEntryOptions {
@@ -30,7 +45,10 @@ export interface IConfigEntryOptions {
   exposeOptions: {
     slug?: string;
     group?: string;
-    type?: 'int' | 'float' | 'string' | 'json' | 'date' | 'time' | 'datetime' | 'boolean';
+    type?: ConfigurationEntryType;
+    meta?: IConfigurationEntryMeta;
+    description?: string;
+    label?: string;
 
     /**
      * Should we watch for config val change

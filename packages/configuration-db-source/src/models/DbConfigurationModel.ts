@@ -4,68 +4,95 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
 /* eslint-disable prettier/prettier */
 import { Connection, Primary, Model, ModelBase } from '@spinajs/orm';
+import _ from 'lodash';
 import { DateTime } from 'luxon';
+import { ConfigurationEntryType, IConfigurationEntryMeta } from '../types';
 
-export function parse(input: string, type: string) {
-  switch (type) {
-    case 'int':
-    case 'float':
-      return Number(input);
-    case 'datetime':
-      return DateTime.fromISO(input);
-    case 'time':
-      return DateTime.fromFormat(input, 'HH:mm:ss');
-    case 'date':
-      return DateTime.fromFormat(input, 'dd-MM-YYYY');
-    case 'json':
-      return JSON.parse(input) as unknown;
-      break;
-  }
-}
 @Connection('default')
 @Model('configuration')
-export class DbConfigurationModel extends ModelBase {
+export class DbConfigurationModel<T = unknown> extends ModelBase {
   @Primary()
   public Id: number;
 
   public Slug: string;
 
-  public Value?: unknown;
+  public Value?: T;
 
   public Group: string;
 
-  public Type: 'int' | 'float' | 'string' | 'json' | 'date' | 'datetime' | 'time' | 'boolean';
+  public Label?: string;
+
+  public Description?: string;
+
+  public Meta?: IConfigurationEntryMeta;
+
+  public Required: boolean;
+
+  public Type: ConfigurationEntryType;
 
   public hydrate(data: Partial<this>) {
-    Object.assign(this, { ...data, Value: parse(data.Value as string, data.Type) });
+    Object.assign(this, { ...data, Value: this.parse(data.Value as string, data.Type) });
   }
 
   public dehydrate(_omit?: string[]) {
     return {
-      Id: this.Id,
-      Slug: this.Slug,
-      Group: this.Group,
-      Type: this.Type,
+      ...this,
       Value: this.stringify(this.Value),
     } as any;
   }
 
-  private stringify(val: number | string | DateTime | boolean | unknown) {
-    switch (this.Type) {
-      case 'json':
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        return (this.Value = JSON.stringify(val));
-      case 'date':
-        return (this.Value = (val as DateTime).toFormat('dd-MM-YYYY'));
-      case 'time':
-        return (this.Value = (val as DateTime).toFormat('HH:mm:ss'));
-      case 'datetime':
-        return (this.Value = (val as DateTime).toISO());
-      case 'string':
+  private parse(input: string, type: string) {
+    switch (type) {
       case 'int':
       case 'float':
+      case 'range':
+        return Number(input);
+      case 'boolean':
+        return input === 'true' ? true : false;
+      case 'datetime':
+        return DateTime.fromISO(input);
+      case 'time':
+        return DateTime.fromFormat(input, 'HH:mm:ss');
+      case 'date':
+        return DateTime.fromFormat(input, 'dd-MM-YYYY');
+      case 'datetime-range':
+        return input.split(';').map((x) => DateTime.fromISO(x));
+      case 'time-range':
+        return input.split(';').map((x) => DateTime.fromFormat(x, 'HH:mm:ss'));
+      case 'date-range':
+        return input.split(';').map((x) => DateTime.fromFormat(x, 'dd-MM-YYYY'));
       default:
-        return `${val}`;
+        return JSON.parse(input) as unknown;
     }
+  }
+
+  private stringify(val: number | string | DateTime | boolean | unknown | DateTime[] | string[]) {
+    if (_.isString(val) || _.isNumber(val) || _.isBoolean(val)) {
+      return `${val}`;
+    }
+
+    if (val instanceof DateTime) {
+      switch (this.Type) {
+        case 'date':
+          return val.toFormat('dd-MM-YYYY');
+        case 'time':
+          return val.toFormat('HH:mm:ss');
+        case 'datetime':
+          return val.toISO();
+      }
+    }
+
+    if (_.isArray(val)) {
+      switch (this.Type) {
+        case 'date-range':
+          return val.map((x: DateTime) => x.toFormat('dd-MM-YYYY')).join(';');
+        case 'time-range':
+          return val.map((x: DateTime) => x.toFormat('HH:mm:ss')).join(';');
+        case 'datetime-range':
+          return val.map((x: DateTime) => x.toISO()).join(';');
+      }
+    }
+
+    return JSON.stringify(val);
   }
 }

@@ -85,6 +85,8 @@ export interface IContainer extends EventEmitter {
   resolve<T>(type: Class<T> | Factory<T>, check?: boolean): T extends AsyncService ? Promise<T> : T;
   resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
   resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean): Promise<T | T[]> | T | T[];
+
+  dispose(): Promise<void>;
 }
 
 /**

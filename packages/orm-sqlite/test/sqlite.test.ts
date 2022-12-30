@@ -1,3 +1,4 @@
+import { ICompilerOutput } from '@spinajs/orm';
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
@@ -132,9 +133,9 @@ describe('Sqlite driver migration, updates, deletions & inserts', () => {
         table.timestamp('timestamp');
         table.enum('enum', ['a', 'b', 'c']);
       })
-      .toDB();
+      .toDB() as ICompilerOutput[];
 
-    expect(result.expression).to.eq('CREATE TABLE `test` (`timestamp` TEXT,`enum` TEXT )');
+    expect(result[0].expression).to.eq('CREATE TABLE `test` (`timestamp` TEXT,`enum` TEXT )');
   });
 
   it('Should check if table exists', async () => {

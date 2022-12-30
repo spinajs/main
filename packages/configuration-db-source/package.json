@@ -37,7 +37,9 @@
   },
   "devDependencies": {
     "@types/lodash": "^4.14.182",
-    "@types/luxon": "^2.3.0"
+    "@types/luxon": "^2.3.0",
+    "@spinajs/orm-sqlite": "^2.0.38",
+    "@spinajs/configuration": "2.0.38"
   },
   "dependencies": {
     "@spinajs/configuration-common": "^2.0.38",
