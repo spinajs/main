@@ -92,6 +92,7 @@
     "@spinajs/util": "file:packages\\util",
     "@spinajs/validation": "file:packages\\validation",
     "@spinajs/docs": "file:packages\\docs",
+    "@spinajs/metrics": "file:packages\\metrics",
     "@stomp/stompjs": "^6.1.2",
     "websocket": "^1.0.34"
   }
