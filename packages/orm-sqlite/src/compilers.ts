@@ -106,15 +106,17 @@ export class SqliteTableExistsCompiler implements TableExistsCompiler {
 @NewInstance()
 @Inject(Container)
 export class SqliteTableQueryCompiler extends SqlTableQueryCompiler {
-  public compile(): ICompilerOutput {
+  public compile(): ICompilerOutput[] {
     const _table = this._table();
     const _columns = this._columns();
     const _foreignKeys = this._foreignKeys();
 
-    return {
-      bindings: [],
-      expression: `${_table} (${_columns} ${_foreignKeys ? ',' + _foreignKeys : ''})`,
-    };
+    return [
+      {
+        bindings: [],
+        expression: `${_table} (${_columns} ${_foreignKeys ? ',' + _foreignKeys : ''})`,
+      },
+    ];
   }
 }
 

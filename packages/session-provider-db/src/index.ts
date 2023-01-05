@@ -16,7 +16,9 @@ export class DbSessionStore extends SessionProvider {
   @Logger('db-session-store')
   protected Log: Log;
 
-  @Config('rbac.session.db.cleanupInteval', 100000)
+  @Config('rbac.session.db.cleanupInteval', {
+    defaultValue: 100000,
+  })
   protected CleanupInterval: any;
 
   @Config('rbac.session.expiration')

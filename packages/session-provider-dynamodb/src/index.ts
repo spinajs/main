@@ -25,10 +25,14 @@ export class DynamoDbSessionProvider extends SessionProvider {
   @Config('rbac.session.aws.configPath')
   protected ConfigPath: any;
 
-  @Config('rbac.session.aws.readCapacityUnits', 10)
+  @Config('rbac.session.aws.readCapacityUnits', {
+    defaultValue: 10,
+  })
   protected ReadCapacityUnits: any;
 
-  @Config('rbac.session.aws.writeCapacityUnits', 10)
+  @Config('rbac.session.aws.writeCapacityUnits', {
+    defaultValue: 10,
+  })
   protected WriteCapacityUnits: any;
 
   protected DynamoDb: AWS.DynamoDB;

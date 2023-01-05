@@ -1,7 +1,7 @@
 import { Injectable } from '@spinajs/di';
 import { TwoFactorAuthProvider } from '../interfaces';
 import * as speakeasy from 'speakeasy';
-import { User, UserMetadata } from '@spinajs/rbac';
+import { User } from '@spinajs/rbac';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 
@@ -22,6 +22,7 @@ export class SpeakEasy2FaToken extends TwoFactorAuthProvider {
     // we dont send any email or sms
     return Promise.resolve();
   }
+
   public async verifyToken(token: string, user: User): Promise<boolean> {
     const meta = user.Metadata.find((x) => x.Key === '2fa_speakeasy_token');
 
@@ -43,17 +44,17 @@ export class SpeakEasy2FaToken extends TwoFactorAuthProvider {
 
   public async initialize(user: User): Promise<any> {
     const secret = speakeasy.generateSecret(this.Config);
-    await user.Metadata.add(new UserMetadata({ Value: secret.base32, Key: '2fa_speakeasy_token' }));
+    await (user.Metadata['2fa_speakeasy_token'] = secret.base32);
     return secret.base32;
   }
 
   public async isEnabled(user: User): Promise<boolean> {
-    const meta = user.Metadata.find((x) => x.Key === '2fa_enabled');
-    return meta ? meta.asBoolean() : false;
+    const val = await user.Metadata['2fa_enabled'];
+    return val as boolean;
   }
 
   public async isInitialized(user: User): Promise<boolean> {
-    const meta = user.Metadata.find((x) => x.Key === '2fa_speakeasy_token');
-    return meta ? meta.Value !== '' : false;
+    const val = await user.Metadata['2fa_speakeasy_token'];
+    return val !== '';
   }
 }

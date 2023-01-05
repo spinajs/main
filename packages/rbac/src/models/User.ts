@@ -1,6 +1,6 @@
 import { ISelectQueryBuilder } from './../../../orm/lib/interfaces.d';
 import { DateTime } from 'luxon';
-import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor, QueryScope, IWhereBuilder, InsertBehaviour } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor, QueryScope, InsertBehaviour } from '@spinajs/orm';
 import { AccessControl } from 'accesscontrol';
 import { DI, IContainer } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata';

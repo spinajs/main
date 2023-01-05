@@ -160,16 +160,18 @@ export class MsSqlOrderByCompiler extends SqlOrderByQueryCompiler {
 
 @NewInstance()
 export class MsSqlTableQueryCompiler extends SqlTableQueryCompiler {
-  public compile(): ICompilerOutput {
+  public compile(): ICompilerOutput[] {
     const _table = this._table();
     const _columns = this._columns();
     const _keys = [this._foreignKeys()];
     const _unique = this.builder.Columns.filter((c) => c.Unique).map((c) => c.Name);
 
-    return {
-      bindings: [],
-      expression: `${_table} (${_columns} ${_unique.length !== 0 ? `, UNIQUE(${_unique.join(',')}) ` : ''} ${_keys ? ',' + _keys.filter((k) => k && k !== '').join(',') : ''})`,
-    };
+    return [
+      {
+        bindings: [],
+        expression: `${_table} (${_columns} ${_unique.length !== 0 ? `, UNIQUE(${_unique.join(',')}) ` : ''} ${_keys ? ',' + _keys.filter((k) => k && k !== '').join(',') : ''})`,
+      },
+    ];
   }
 
   protected _columns() {

@@ -47,7 +47,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
   protected async LoadConfigurationFromDB() {
     const dbOptions = (await this.Connection.select().from(this.Options.table)) as IConfigurationEntry[];
     dbOptions.forEach((entry) => {
-      entry.Value = parse(entry.Value as string, entry.Type);
+      entry.Value = parse(entry.Value as unknown as string, entry.Type);
     });
 
     const grouped = _.groupBy(dbOptions, 'Group');

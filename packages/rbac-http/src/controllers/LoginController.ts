@@ -15,7 +15,7 @@ import { RestorePasswordDto } from '../dto/restore-password-dto';
 
 import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
-import { UserAction } from 'rbac/src/models/UserTimeline';
+import { UserAction } from '@spinajs/rbac';
 import { UserLoginSuccess } from '../events/UserLoginSuccess';
 
 @BasePath('user/auth')
@@ -29,7 +29,9 @@ export class LoginController extends BaseController {
   @AutoinjectService('rbac.session')
   protected SessionProvider: SessionProvider;
 
-  @Config('rbac.session.expiration', 120)
+  @Config('rbac.session.expiration', {
+    defaultValue: 120,
+  })
   protected SessionExpirationTime: number;
 
   @Config('rbac.password_reset.ttl')

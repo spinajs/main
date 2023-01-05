@@ -9,7 +9,7 @@ export abstract class TemplateRenderer extends AsyncService {
   @Logger('renderer')
   protected Log: Log;
 
-  @Config('system.dirs.templates', [])
+  @Config('system.dirs.templates', { defaultValue: [] })
   protected TemplatePaths: string[];
 
   protected TemplateFiles: Map<string, string[]> = new Map<string, string[]>();

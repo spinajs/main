@@ -11,6 +11,7 @@ export * from './password';
 export * from './session';
 export * from './models/User';
 export * from './models/UserMetadata';
+export * from './models/UserTimeline';
 export * from './migrations/RBACInitial_2022_06_28_01_13_00';
 export * from './events';
 export { AccessControl } from 'accesscontrol';

@@ -31,7 +31,7 @@ export class DbConfigurationModel<T = unknown> extends ModelBase {
   public Type: ConfigurationEntryType;
 
   public hydrate(data: Partial<this>) {
-    Object.assign(this, { ...data, Value: this.parse(data.Value as string, data.Type) });
+    Object.assign(this, { ...data, Value: parse(data.Value as unknown as string, data.Type) });
   }
 
   public dehydrate(_omit?: string[]) {
@@ -41,31 +41,7 @@ export class DbConfigurationModel<T = unknown> extends ModelBase {
     } as any;
   }
 
-  private parse(input: string, type: string) {
-    switch (type) {
-      case 'int':
-      case 'float':
-      case 'range':
-        return Number(input);
-      case 'boolean':
-        return input === 'true' ? true : false;
-      case 'datetime':
-        return DateTime.fromISO(input);
-      case 'time':
-        return DateTime.fromFormat(input, 'HH:mm:ss');
-      case 'date':
-        return DateTime.fromFormat(input, 'dd-MM-YYYY');
-      case 'datetime-range':
-        return input.split(';').map((x) => DateTime.fromISO(x));
-      case 'time-range':
-        return input.split(';').map((x) => DateTime.fromFormat(x, 'HH:mm:ss'));
-      case 'date-range':
-        return input.split(';').map((x) => DateTime.fromFormat(x, 'dd-MM-YYYY'));
-      default:
-        return JSON.parse(input) as unknown;
-    }
-  }
-
+  
   private stringify(val: number | string | DateTime | boolean | unknown | DateTime[] | string[]) {
     if (_.isString(val) || _.isNumber(val) || _.isBoolean(val)) {
       return `${val}`;
@@ -94,5 +70,32 @@ export class DbConfigurationModel<T = unknown> extends ModelBase {
     }
 
     return JSON.stringify(val);
+  }
+
+  
+}
+
+export function parse(input: string, type: string) {
+  switch (type) {
+    case 'int':
+    case 'float':
+    case 'range':
+      return Number(input);
+    case 'boolean':
+      return input === 'true' ? true : false;
+    case 'datetime':
+      return DateTime.fromISO(input);
+    case 'time':
+      return DateTime.fromFormat(input, 'HH:mm:ss');
+    case 'date':
+      return DateTime.fromFormat(input, 'dd-MM-YYYY');
+    case 'datetime-range':
+      return input.split(';').map((x) => DateTime.fromISO(x));
+    case 'time-range':
+      return input.split(';').map((x) => DateTime.fromFormat(x, 'HH:mm:ss'));
+    case 'date-range':
+      return input.split(';').map((x) => DateTime.fromFormat(x, 'dd-MM-YYYY'));
+    default:
+      return JSON.parse(input) as unknown;
   }
 }
