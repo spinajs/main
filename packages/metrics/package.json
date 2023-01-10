@@ -41,7 +41,8 @@
     "@spinajs/di": "^2.0.39",
     "@spinajs/exceptions": "^2.0.39",
     "@spinajs/http": "^2.0.40",
-    "prom-client": "^14.1.0"
+    "prom-client": "^14.1.0",
+    "express-prom-bundle": "^6.6.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
