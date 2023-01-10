@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue",
-  "version": "2.0.38",
+  "version": "2.0.39",
   "description": "queue sending & pulling made easy",
   "main": "lib/index.js",
   "private": false,
@@ -38,17 +38,17 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
+    "@spinajs/queue-stomp-transport": "^2.0.38",
     "@types/luxon": "^2.3.1",
-    "@types/node": "^16.11.11",
-    "@spinajs/queue-stomp-transport": "^2.0.38"
+    "@types/node": "^16.11.11"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.38",
-    "@spinajs/di": "^2.0.38",
-    "@spinajs/exceptions": "^2.0.12",
-    "@spinajs/log": "^2.0.38",
-    "luxon": "^2.3.0",
-    "eventemitter3": "^4.0.7"
+    "@spinajs/configuration": "^2.0.39",
+    "@spinajs/di": "^2.0.39",
+    "@spinajs/exceptions": "^2.0.39",
+    "@spinajs/log": "^2.0.39",
+    "eventemitter3": "^4.0.7",
+    "luxon": "^2.3.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

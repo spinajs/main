@@ -570,7 +570,6 @@ export abstract class Relation<R extends ModelBase, O extends ModelBase> extends
 
   public Populated: boolean = false;
 
-
   constructor(protected owner: O, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, objects?: R[]) {
     super();
 
@@ -632,7 +631,7 @@ export abstract class Relation<R extends ModelBase, O extends ModelBase> extends
   }
 }
 
-export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T,O> {
+export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
   public intersection(_obj: T[], _callback?: (a: T, b: T) => boolean): Promise<void> {
     throw new Error('Method not implemented.');
   }
@@ -689,7 +688,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   }
 }
 
-export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T,O>  {
+export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
   public async diff(obj: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
     const result = callback ? _.differenceWith(obj, [...this], callback) : _.differenceBy(obj, [...this], this.TargetModelDescriptor.PrimaryKey);
     const result2 = callback ? _.differenceWith([...this], obj, callback) : _.differenceBy([...this], obj, this.TargetModelDescriptor.PrimaryKey);

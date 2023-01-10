@@ -41,7 +41,6 @@ export class DbConfigurationModel<T = unknown> extends ModelBase {
     } as any;
   }
 
-  
   private stringify(val: number | string | DateTime | boolean | unknown | DateTime[] | string[]) {
     if (_.isString(val) || _.isNumber(val) || _.isBoolean(val)) {
       return `${val}`;
@@ -71,8 +70,6 @@ export class DbConfigurationModel<T = unknown> extends ModelBase {
 
     return JSON.stringify(val);
   }
-
-  
 }
 
 export function parse(input: string, type: string) {
