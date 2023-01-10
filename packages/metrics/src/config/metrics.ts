@@ -1,7 +1,7 @@
-import * as bundle from 'express-prom-bundle';
+// import * as bundle from 'express-prom-bundle';
 
-module.exports = {
-  http: {
-    middlewares: [],
-  },
-};
+// module.exports = {
+//   http: {
+//     middlewares: [],
+//   },
+// };
