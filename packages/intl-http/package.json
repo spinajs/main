@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl-http",
-  "version": "2.0.39",
+  "version": "2.0.40",
   "description": "Internationalization support for http module",
   "main": "lib/index.js",
   "private": false,
@@ -41,7 +41,7 @@
     "@spinajs/configuration": "^2.0.39",
     "@spinajs/di": "^2.0.39",
     "@spinajs/exceptions": "^2.0.39",
-    "@spinajs/http": "^2.0.39",
+    "@spinajs/http": "^2.0.40",
     "@spinajs/intl": "^2.0.39",
     "@spinajs/log": "^2.0.39",
     "@spinajs/reflection": "^2.0.39"

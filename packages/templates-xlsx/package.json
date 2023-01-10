@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-xlsx",
-  "version": "2.0.39",
+  "version": "2.0.40",
   "description": "templates support eg. html file generation",
   "main": "lib/index.js",
   "private": false,
