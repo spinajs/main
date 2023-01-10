@@ -19,21 +19,21 @@ export class Templates extends AsyncService {
   })
   protected Renderers: Map<string, TemplateRenderer>;
 
-  public async render(templatePath: string, model: unknown, language?: string): Promise<string> {
-    const extension = extname(templatePath);
+  public async render(template: string, model: unknown, language?: string): Promise<string> {
+    const extension = extname(template);
     if (!this.Renderers.has(extension)) {
-      throw new InvalidOperation(`No renderer for file ${templatePath} with extension ${extension}`);
+      throw new InvalidOperation(`No renderer for file ${template} with extension ${extension}`);
     }
 
-    return await this.Renderers.get(extension).render(templatePath, model, language);
+    return await this.Renderers.get(extension).render(template, model, language);
   }
 
-  public async renderToFile(templatePath: string, model: unknown, filePath: string, language?: string): Promise<void> {
-    const extension = extname(templatePath);
+  public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
+    const extension = extname(template);
     if (!this.Renderers.has(extension)) {
-      throw new InvalidOperation(`No renderer for file ${templatePath} with extension ${extension}`);
+      throw new InvalidOperation(`No renderer for file ${template} with extension ${extension}`);
     }
 
-    return await this.Renderers.get(extension).renderToFile(templatePath, model, filePath, language);
+    return await this.Renderers.get(extension).renderToFile(template, model, filePath, language);
   }
 }

@@ -41,8 +41,8 @@ export class PugRenderer extends TemplateRenderer {
   }
 
   public async render(templateName: string, model: unknown, language?: string): Promise<string> {
-    this.Log.trace(`Rendering template ${templateName}`);
-    this.Log.timeStart(`PugTemplate${templateName}`);
+    this.Log.trace(`Rendering pug template ${templateName}`);
+    this.Log.timeStart(`PugTemplate.render.start.${templateName}`);
 
     if (!templateName) {
       throw new InvalidArgument('template parameter cannot be null or empty');
@@ -64,8 +64,8 @@ export class PugRenderer extends TemplateRenderer {
       }),
     );
 
-    const time = this.Log.timeEnd(`PugTemplate${templateName}`);
-    this.Log.trace(`Rendering template ${templateName} ended, (${time} ms)`);
+    const time = this.Log.timeEnd(`PugTemplate.render.start.${templateName}`);
+    this.Log.trace(`Rendering pug template ${templateName} ended, (${time} ms)`);
 
     return Promise.resolve(content);
   }

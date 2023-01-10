@@ -20,6 +20,13 @@ export abstract class TemplateRenderer extends AsyncService {
 
   public abstract render(templatePath: string, model: unknown, language?: string): Promise<string>;
   public abstract renderToFile(templatePath: string, model: unknown, filePath: string, language?: string): Promise<void>;
+
+  /**
+   * Function used for precompiling templates at load time. Not all template engines can support it, leave it empty if so.
+   *
+   * @param templateName - template name
+   * @param path - template full path
+   */
   protected abstract compile(templateName: string, path: string): Promise<void>;
 
   public async resolve(): Promise<void> {
