@@ -3,9 +3,7 @@ import "mocha";
 import { DI } from "@spinajs/di";
 import { Configuration } from "@spinajs/configuration";
 import * as sinon from "sinon";
-//import * as fs from "fs";
 import { Log, LogBotstrapper } from "../src";
-//import { ILogTargetDesc } from "@spinajs/log-common";
 import * as _ from "lodash";
 import { TestConfiguration } from "./conf";
 
@@ -43,13 +41,31 @@ describe("file target tests", function () {
 
   it("Should write to file", () => {
     const log = logger("file");
+    log.info("Hello world");
+  });
 
-    log.info("Hello world");
-    log.info("Hello world");
-    log.info("Hello world");
-    log.info("Hello world");
-    log.info("Hello world");
-    log.info("Hello world");
+  it('Should write multiple times to file', () =>{ 
+
+  });
+
+  it('Should create multiple files based on path', () =>{ 
+
+  })
+
+  it('Should archive file', () =>{ 
+
+  })
+
+  it('Should delete archive files after limit', () =>{ 
+
+  });
+
+  it('Should resolve log file name with variables', () =>{ 
+
+  });
+
+  it('Should create multiple log files per config', () =>{ 
+
   });
 
   it("Performance test", () => {

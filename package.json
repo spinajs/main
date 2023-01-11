@@ -94,6 +94,7 @@
     "@spinajs/docs": "file:packages\\docs",
     "@spinajs/metrics": "file:packages\\metrics",
     "@stomp/stompjs": "^6.1.2",
+    "@spinajs/log-source-graphana-loki": "file:packages/log-source-graphana-loki",
     "websocket": "^1.0.34"
   }
 }

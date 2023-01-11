@@ -1,0 +1,50 @@
+{
+  "version": "2.0.39",
+  "description": "Log lib for all spinejs related libs",
+  "main": "lib/index.js",
+  "private": false,
+  "scripts": {
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -p tsconfig.build.json",
+    "clean": "",
+    "prepare": "npm run build",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.js --ext .ts src",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/log)",
+  "license": "MIT",
+  "name": "@spinajs/log-source-graphana-loki",
+  "homepage": "https://github.com/spinajs/main#readme",
+  "directories": {
+    "lib": "lib",
+    "test": "__tests__"
+  },
+  "files": [
+    "lib"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
+  "dependencies": {
+    "@spinajs/di": "^2.0.39",
+    "@spinajs/log-common": "^2.0.39",
+    "@spinajs/log": "2.0.39",
+    "@spinajs/configuration-common": "^2.0.39",
+    "lodash": "^4.17.21"
+  }
+}

@@ -1,8 +1,8 @@
 /* eslint-disable security/detect-object-injection */
 import { EOL } from "os";
 /* eslint security/detect-non-literal-fs-filename:0 -- Safe as no value holds user input */
-import { Injectable, NewInstance } from "@spinajs/di";
-import { createLogMessageObject, IFileTargetOptions, ILog, ILogEntry, LogLevel, LogTarget } from "@spinajs/log-common";
+import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
+import { IFileTargetOptions, ILog, ILogEntry, LogTarget } from "@spinajs/log-common";
 import * as fs from "fs";
 import * as path from "path";
 import { InvalidOption } from "@spinajs/exceptions";
@@ -12,9 +12,17 @@ import { format } from "@spinajs/configuration";
 import { pipeline } from "stream";
 import { Logger } from "./../decorators";
 
-@NewInstance()
+enum FileTargetStatus {
+  WRITTING,
+  PENDING,
+  IDLE,
+}
+
+// we mark per instance check becouse we can have multiple file targes
+// for different files/paths/logs but we dont want to create every time writer for same.
+@PerInstanceCheck()
 @Injectable("FileTarget")
-export class FileTarget extends LogTarget<IFileTargetOptions> {
+export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstanceCheck {
   @Logger("LogFileTarget")
   protected Log: ILog;
 
@@ -27,7 +35,14 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
   protected ArchiveTimer: NodeJS.Timer;
   protected FlushTimer: NodeJS.Timer;
 
-  public async resolve() {
+  protected Status: FileTargetStatus = FileTargetStatus.IDLE;
+  protected ArchiveStatus: FileTargetStatus = FileTargetStatus.IDLE;
+
+  __checkInstance__(creationOptions: IFileTargetOptions): boolean {
+    return this.Options.name === creationOptions.name;
+  }
+
+  public resolve() {
     this.Options.options = Object.assign(
       {
         compress: true,
@@ -58,6 +73,11 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
     // we do this, becouse buffer can not be filled
     // and we could wait unknown amount of time before messages are written to file
     this.FlushTimer = setInterval(() => {
+      // do not flush, if we already writting to file
+      if (this.Status !== FileTargetStatus.IDLE) {
+        return;
+      }
+
       setImmediate(() => {
         this.flush();
       });
@@ -65,6 +85,13 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
     // every 3 minutes try to archive log files
     this.ArchiveTimer = setInterval(() => {
+      // do not archive if we already doing it
+      if (this.ArchiveStatus !== FileTargetStatus.IDLE) {
+        return;
+      }
+
+      this.ArchiveStatus = FileTargetStatus.PENDING;
+
       // at end of nodejs event loop
       setImmediate(() => {
         this.archive();
@@ -75,14 +102,16 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
   }
 
   protected flush() {
-
-    if(this.Buffer.length === 0){
+    if (this.Buffer.length === 0) {
+      this.Status = FileTargetStatus.IDLE;
       return;
     }
 
+    this.Status = FileTargetStatus.WRITTING;
+
     // we calculate log path every time to allow for
     // dynamic path creation eg. based on timestamp
-    const logFileName = format({ logger: this.Options.name }, path.basename(this.Options.options.path));
+    const logFileName = format({ target: this.Options.name }, path.basename(this.Options.options.path));
     const logPath = path.join(this.LogDirPath, logFileName);
 
     fs.appendFile(logPath, this.Buffer.join(EOL), (err) => {
@@ -92,13 +121,15 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       }
 
       this.Log.trace(`Wrote buffered messages to log file at path ${logPath}, buffer size: ${this.Options.options.maxBufferSize}`);
+
+      this.Status = FileTargetStatus.IDLE;
     });
   }
 
   public async dispose() {
     // stop archiving
     clearInterval(this.ArchiveTimer);
-    
+
     // stop flush timer
     clearInterval(this.FlushTimer);
 
@@ -115,7 +146,15 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
 
     this.Buffer.push(lEntry);
 
+    // if we already writting, skip buffer check & write to file
+    // wait until write is finished
+    if (this.Status !== FileTargetStatus.IDLE) {
+      return;
+    }
+
     if (this.Buffer.length > this.Options.options.maxBufferSize) {
+      this.Status = FileTargetStatus.PENDING;
+
       // write at end of nodejs event loop all buffered messages at once
       setImmediate(() => {
         this.flush();
@@ -164,6 +203,10 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       return x.stat.size > this.Options.options.maxSize || lFiles.indexOf(x) <= lFiles.length - 2;
     });
 
+    if (filesToArchive.length === 0) {
+      this.ArchiveStatus = FileTargetStatus.IDLE;
+    }
+
     for (let i = 0; i < filesToArchive.length; i++) {
       const { name, ext } = path.parse(path.basename(lFiles[i].name));
 
@@ -202,7 +245,11 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
                 this.Log.error(err, `Cannot delete archived log after compression at path ${archPath}`);
               }
             });
+
+            this.ArchiveStatus = FileTargetStatus.IDLE;
           });
+        } else {
+          this.ArchiveStatus = FileTargetStatus.IDLE;
         }
       });
     }
