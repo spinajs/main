@@ -1,0 +1,8 @@
+{
+  "label": "Dependency injection",
+  "position": 1,
+  "link": {
+    "type": "generated-index",
+    "description": "How to use dependency injection"
+  }
+}

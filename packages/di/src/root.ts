@@ -108,6 +108,7 @@ export function uncache<T>(type: string | Class<T> | TypedArray<T>, parent?: boo
  *
  * @param type - class to resolve
  * @param options - optional parameters passed to class constructor
+ * @param check - use parent container to check when resolving
  * @throws {@link InvalidArgument} if type is null or undefined
  */
 export function resolve<T>(type: string, options?: unknown[], check?: boolean): T;

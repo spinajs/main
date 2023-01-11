@@ -60,6 +60,11 @@ export class Binder<T> implements IBind {
     return this;
   }
 
+  /**
+   * Register type as itself. Usefull when we also want to register type as self instead of base class
+   * so we can retrieve just this specific instance.
+   * @returns this
+   */
   asSelf(): this {
     if (!this.isConstructor || this.isFactory) {
       throw new BindException('cannot register as self non class');
@@ -69,6 +74,11 @@ export class Binder<T> implements IBind {
     this.container.Registry.register(this.implementation as any, this.implementation);
     return this;
   }
+
+  /**
+   * Mark type as SingleInstance resolve strategy.
+   * @returns this
+   */
   singleInstance(): this {
     const descriptor: IInjectDescriptor<unknown> = {
       inject: [],
