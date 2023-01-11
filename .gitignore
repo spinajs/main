@@ -57,6 +57,9 @@ jspm_packages/
 # next.js build output
 .next
 
+# doc
+docs
+
 lib/
  
 lerna-debug.log

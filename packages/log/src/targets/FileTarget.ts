@@ -1,64 +1,31 @@
+/* eslint-disable security/detect-object-injection */
 import { EOL } from "os";
 /* eslint security/detect-non-literal-fs-filename:0 -- Safe as no value holds user input */
 import { Injectable, NewInstance } from "@spinajs/di";
-import { createLogMessageObject, IFileTargetOptions, ILogEntry, LogLevel, LogTarget } from "@spinajs/log-common";
+import { createLogMessageObject, IFileTargetOptions, ILog, ILogEntry, LogLevel, LogTarget } from "@spinajs/log-common";
 import * as fs from "fs";
 import * as path from "path";
-import { Job, scheduleJob } from "node-schedule";
 import { InvalidOption } from "@spinajs/exceptions";
 import * as glob from "glob";
 import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";
-import { pipeline, Readable } from "stream";
-
-class FileLogStream extends Readable {
-  protected LogQueue: any[] = [];
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public push(chunk: any, _encoding?: BufferEncoding) {
-    this.LogQueue.push(chunk);
-
-    if (this.LogQueue.length > 10) {
-      super.push(this.LogQueue.shift());
-    }
-
-    return true;
-  }
-
-  public _read(): void {
-    let ok = true;
-    let val = null;
-    do {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      val = this.LogQueue.shift();
-      if (val) {
-        ok = super.push(val);
-
-        if (!ok) {
-          this.LogQueue.unshift(val);
-        }
-      }
-    } while (ok && val);
-  }
-}
+import { pipeline } from "stream";
+import { Logger } from "./../decorators";
 
 @NewInstance()
 @Injectable("FileTarget")
 export class FileTarget extends LogTarget<IFileTargetOptions> {
-  public LogDirPath: string;
-  public LogFileName: string;
-  public LogPath: string;
-  public LogFileExt: string;
-  public LogBaseName: string;
+  @Logger("LogFileTarget")
+  protected Log: ILog;
 
+  public LogDirPath: string;
   public ArchiveDirPath: string;
 
-  protected RotateJob: Job;
-  protected CurrentFileSize: number;
-  protected IsArchiving = false;
-
   protected WriteStream: fs.WriteStream;
-  protected LogStream: FileLogStream;
+  protected Buffer: string[] = [];
+
+  protected ArchiveTimer: NodeJS.Timer;
+  protected FlushTimer: NodeJS.Timer;
 
   public async resolve() {
     this.Options.options = Object.assign(
@@ -70,103 +37,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       this.Options.options
     );
 
-    this.LogStream = new FileLogStream();
-
-    this.initialize();
-    this.rotate();
-    super.resolve();
-  }
-
-  public async write(data: ILogEntry) {
-    if (!this.Options.enabled) {
-      return;
-    }
-
-    const lEntry = format(data.Variables, this.Options.layout) + EOL;
-    this.LogStream.push(lEntry);
-
-    if (this.WriteStream) {
-      if (this.CurrentFileSize + this.WriteStream.bytesWritten >= this.Options.options.maxSize && !this.IsArchiving) {
-        this.archive();
-      }
-    }
-  }
-
-  protected archive() {
-    this.IsArchiving = true;
-
-    const files = glob
-      .sync(path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}*{${this.LogFileExt},.gzip}`))
-      .map((f: string) => {
-        return {
-          name: f,
-          stat: fs.statSync(f),
-        };
-      })
-      .sort((x) => x.stat.mtime.getTime());
-
-    const newestFile = files.length !== 0 ? files[files.length - 1].name : undefined;
-    const fIndex = newestFile ? parseInt(newestFile.substring(newestFile.lastIndexOf("_") + 1, newestFile.lastIndexOf("_") + 2), 10) + 1 : 1;
-    const archPath = path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}`);
-
-    if (!fs.existsSync(this.LogPath)) {
-      return;
-    }
-
-    this.WriteStream.once("close", () => {
-      fs.rename(this.LogPath, archPath, (err) => {
-        this.initialize();
-
-        if (!err) {
-          if (this.Options.options.compress) {
-            const zippedPath = path.join(this.ArchiveDirPath, `archived_${this.LogBaseName}_${fIndex}${this.LogFileExt}.gzip`);
-            const zip = zlib.createGzip();
-            const read = fs.createReadStream(archPath);
-            const write = fs.createWriteStream(zippedPath);
-
-            pipeline(read, zip, write, (err) => {
-              if (err) {
-                void this.write(createLogMessageObject(err, `Cannot compress log file at ${this.LogPath}`, LogLevel.Trace, "log-file-target", {}));
-                fs.unlink(zippedPath, () => {
-                  return;
-                });
-              }
-              fs.unlink(archPath, () => {
-                return;
-              });
-            });
-          }
-
-          if (files.length >= this.Options.options.maxArchiveFiles) {
-            fs.unlink(files[0].name, () => {
-              return;
-            });
-          }
-        }
-      });
-    });
-    this.close();
-  }
-
-  private rotate() {
-    if (this.Options.options.rotate) {
-      this.RotateJob = scheduleJob(`LogScheduleJob`, this.Options.options.rotate, () => {
-        this.archive();
-      });
-    }
-  }
-
-  private initialize() {
-    this.CurrentFileSize = 0;
-    this.IsArchiving = false;
     this.LogDirPath = path.dirname(path.resolve(format(null, this.Options.options.path)));
     this.ArchiveDirPath = this.Options.options.archivePath ? path.resolve(format(null, this.Options.options.archivePath)) : this.LogDirPath;
-    this.LogFileName = format({ logger: this.Options.name }, path.basename(this.Options.options.path));
-    this.LogPath = path.join(this.LogDirPath, this.LogFileName);
-
-    const { name, ext } = path.parse(this.LogFileName);
-    this.LogFileExt = ext;
-    this.LogBaseName = name;
 
     if (!this.LogDirPath) {
       throw new InvalidOption("Missing LogDirPath log option");
@@ -182,45 +54,157 @@ export class FileTarget extends LogTarget<IFileTargetOptions> {
       }
     }
 
-    try {
-      const { size } = fs.statSync(this.LogPath);
-      this.CurrentFileSize = size;
-    } catch {}
+    // flush all buffered messages at least once per second
+    // we do this, becouse buffer can not be filled
+    // and we could wait unknown amount of time before messages are written to file
+    this.FlushTimer = setInterval(() => {
+      setImmediate(() => {
+        this.flush();
+      });
+    }, 1000);
 
-    this.open();
+    // every 3 minutes try to archive log files
+    this.ArchiveTimer = setInterval(() => {
+      // at end of nodejs event loop
+      setImmediate(() => {
+        this.archive();
+      });
+    }, 3 * 60 * 1000);
+
+    super.resolve();
   }
 
-  private close() {
-    this.LogStream.unpipe(this.WriteStream);
-    this.WriteStream.end();
-    this.WriteStream = null;
-  }
+  protected flush() {
 
-  private open() {
-    this.WriteStream = fs.createWriteStream(this.LogPath, {
-      flags: "a",
-      encoding: "utf-8",
-    });
+    if(this.Buffer.length === 0){
+      return;
+    }
 
-    this.WriteStream.once("open", () => {
-      void this.write(createLogMessageObject(`Log file opened at ${this.LogPath}`, [], LogLevel.Trace, "log-file-target", {}));
+    // we calculate log path every time to allow for
+    // dynamic path creation eg. based on timestamp
+    const logFileName = format({ logger: this.Options.name }, path.basename(this.Options.options.path));
+    const logPath = path.join(this.LogDirPath, logFileName);
 
-      if (this.WriteStream) {
-        this.LogStream.pipe(this.WriteStream);
+    fs.appendFile(logPath, this.Buffer.join(EOL), (err) => {
+      // log error message to others if applicable eg. console
+      if (err) {
+        this.Log.error(err, `Cannot write log messages to file target at path ${logPath}`);
       }
+
+      this.Log.trace(`Wrote buffered messages to log file at path ${logPath}, buffer size: ${this.Options.options.maxBufferSize}`);
+    });
+  }
+
+  public async dispose() {
+    // stop archiving
+    clearInterval(this.ArchiveTimer);
+    
+    // stop flush timer
+    clearInterval(this.FlushTimer);
+
+    // write all messages from buffer
+    this.flush();
+  }
+
+  public async write(data: ILogEntry) {
+    if (!this.Options.enabled) {
+      return;
+    }
+
+    const lEntry = format(data.Variables, this.Options.layout);
+
+    this.Buffer.push(lEntry);
+
+    if (this.Buffer.length > this.Options.options.maxBufferSize) {
+      // write at end of nodejs event loop all buffered messages at once
+      setImmediate(() => {
+        this.flush();
+      });
+    }
+  }
+
+  protected archive() {
+    const { ext } = path.parse(path.basename(this.Options.options.path));
+
+    const aFiles = glob
+      .sync(path.join(this.ArchiveDirPath, `archived_*{${ext},.gzip}`))
+      .map((f: string) => {
+        return {
+          name: f,
+          stat: fs.statSync(f),
+        };
+      })
+      .sort((a, b) => a.stat.mtime.getTime() - b.stat.mtime.getTime());
+
+    const lFiles = glob
+      .sync(path.join(this.LogDirPath, `*${ext}`))
+      .map((f: string) => {
+        return {
+          name: f,
+          stat: fs.statSync(f),
+        };
+      })
+      .sort((a, b) => a.stat.mtime.getTime() - b.stat.mtime.getTime());
+
+    // clear archived files above limit
+    if (aFiles.length > this.Options.options.maxArchiveFiles) {
+      for (let i = aFiles.length; i > this.Options.options.maxArchiveFiles; i--) {
+        fs.unlink(aFiles[i - 1].name, (err) => {
+          if (err) {
+            this.Log.error(err, `Cannot delete archived file at path ${aFiles[i - 1].name}`);
+          } else {
+            this.Log.info(`Deleted archived file at path ${aFiles[i - 1].name}`);
+          }
+        });
+      }
+    }
+
+    // now move log files that are above limited file size or old
+    const filesToArchive = lFiles.filter((x) => {
+      return x.stat.size > this.Options.options.maxSize || lFiles.indexOf(x) <= lFiles.length - 2;
     });
 
-    this.WriteStream.once("close", () => {
-      void this.write(createLogMessageObject(`Log file closed at ${this.LogPath}`, [], LogLevel.Trace, "log-file-target", {}));
-    });
+    for (let i = 0; i < filesToArchive.length; i++) {
+      const { name, ext } = path.parse(path.basename(lFiles[i].name));
 
-    this.WriteStream.once("error", (err: Error) => {
-      this.LogStream.unpipe(this.WriteStream);
-      void this.write(createLogMessageObject(err, `Cannot write to log file at ${this.LogPath}`, LogLevel.Error, "log-file-target", {}));
+      // get number of files with same name, eg. during a day, multiple log files can be produced
+      const lArchiFiles = glob.sync(path.join(this.ArchiveDirPath, `archived_${name}*{${ext},.gzip}`));
+      const archPath = path.join(this.ArchiveDirPath, `archived_${name}_${lArchiFiles.length + 1}${ext}`);
 
-      setTimeout(() => {
-        this.initialize();
-      }, 1000);
-    });
+      fs.rename(lFiles[i].name, archPath, (err) => {
+        if (err) {
+          this.Log.error(err, `Cannot move log file ${name} to archive at path ${archPath}`);
+          return;
+        }
+
+        if (this.Options.options.compress) {
+          this.Log.trace(`Compressing archive log at path ${archPath}`);
+
+          const zippedPath = path.join(this.ArchiveDirPath, `archived_${name}_${lArchiFiles.length + 1}${ext}.gzip`);
+          const zip = zlib.createGzip();
+          const read = fs.createReadStream(archPath);
+          const write = fs.createWriteStream(zippedPath);
+
+          pipeline(read, zip, write, (err) => {
+            if (err) {
+              this.Log.error(err, `Cannot compress archived file at path ${archPath}`);
+              fs.unlink(zippedPath, () => {
+                return;
+              });
+
+              return;
+            }
+
+            this.Log.info(`Succesyfully compressed archive log at path ${zippedPath}`);
+
+            fs.unlink(archPath, (err) => {
+              if (err) {
+                this.Log.error(err, `Cannot delete archived log after compression at path ${archPath}`);
+              }
+            });
+          });
+        }
+      });
+    }
   }
 }

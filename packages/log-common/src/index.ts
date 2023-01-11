@@ -146,6 +146,15 @@ export interface IFileTargetOptions extends ICommonTargetOptions {
     rotate: string;
 
     /**
+     * Max internal message buffer size before writting to file
+     * If bigger the number - less writes to disk.
+     * 
+     * Set it big when logging very frequently to avoid disk writes
+     * Defaults to 100 messages
+     */
+     maxBufferSize: number;
+
+    /**
      * How mutch archive files should be preserved before deletion. Default is 0
      * Eg. to store max 5 archive files, set it to 5. Oldest by modification time are deleted.
      */
