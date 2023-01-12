@@ -1,6 +1,7 @@
 import { Configuration } from "@spinajs/configuration-common";
 import { Bootstrapper, DI, Injectable } from "@spinajs/di";
 import { ILogEntry, LogLevel, createLogMessageObject, ILog } from "@spinajs/log-common";
+import * as _ from "lodash";
 
 /**
  * This class is used only in some spinajs packages
@@ -8,28 +9,32 @@ import { ILogEntry, LogLevel, createLogMessageObject, ILog } from "@spinajs/log-
  *
  * It should not be used in production
  */
+
+function writeLogEntry(entry: ILogEntry, logName: string) {
+  const logger: ILog = DI.resolve("__log__", [logName]);
+  if (logger) {
+    logger
+      .write(entry)
+      .then((values) => {
+        values.forEach((v) => {
+          if (v.status === "rejected") {
+            console.error(`Couldnt write to logger ${logName} message ${JSON.stringify({ level: entry.Level, vars: _.pick(entry.Variables, ["message"]) })}, reason: ${v.reason as string}`);
+          }
+        });
+
+        return;
+      })
+      .catch(null);
+  }
+}
 @Injectable(Bootstrapper)
 export class InternalLogger extends Bootstrapper {
   public bootstrap(): void | Promise<void> {
     const write = () => {
       InternalLogger.LogBuffer.forEach((value, lName) => {
-        const logger: ILog = DI.resolve("__log__", [lName]);
-        if (logger) {
-          value.forEach((msg) => {
-            logger
-              .write(msg)
-              .then((values) => {
-                values.forEach((v) => {
-                  if (v.status === "rejected") {
-                    console.error(`Couldnt write to logger ${lName} message ${JSON.stringify(msg)}, reason: ${v.reason as string}`);
-                  }
-                });
-
-                return;
-              })
-              .catch(null);
-          });
-        }
+        value.forEach((entry) => {
+          writeLogEntry(entry, lName);
+        });
       });
       InternalLogger.LogBuffer.clear();
     };
@@ -38,7 +43,7 @@ export class InternalLogger extends Bootstrapper {
     // becouse log is dependent on it
     // when configuration system is resolved
     // write all buffered messages to it
-    if (DI.has("Configuration")) {
+    if (DI.has(Configuration)) {
       // if we botstrapped before logger
       write();
     } else {
@@ -102,22 +107,11 @@ export class InternalLogger extends Bootstrapper {
     const logName = name ?? (message as string);
 
     // when we have log system working, write directly to it
+    // first we must check if Configuration module is resolved
+    // to obtain information about log targets etc.
     if (DI.has(Configuration)) {
-      const logger: ILog = DI.resolve("__log__", [logName]);
-      if (logger) {
-        // eslint-disable-next-line promise/no-promise-in-callback
-        logger
-          .write(msg)
-          .then((values) => {
-            values.forEach((v) => {
-              if (v.status === "rejected") {
-                console.error(v.reason);
-              }
-            });
-
-            return;
-          })
-          .catch(null);
+      if (DI.resolve("__log__", [logName])) {
+        writeLogEntry(msg, logName);
       } else {
         InternalLogger.writeInternal(msg, logName);
       }
