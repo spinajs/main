@@ -1,14 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Configuration, FrameworkConfiguration } from "@spinajs/configuration";
-import { Bootstrapper, DI } from "@spinajs/di";
+import { DI } from "@spinajs/di";
 import * as chai from "chai";
 import * as sinon from "sinon";
 import * as _ from "lodash";
 import { BlackHoleTarget, LogLevel } from "@spinajs/log";
-import { InternalLogger } from "./../src";
+import { InternalLogger } from "../src";
 
 const expect = chai.expect;
-
 
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -40,48 +39,50 @@ describe("@spinajs/internal-logger", () => {
 
   it("should write logs before configuration is resolved and logger botstrapped", async () => {
     const spy = sinon.spy(BlackHoleTarget.prototype, "write");
-    await DI.resolve(Configuration);
 
     InternalLogger.info("hello world", "test");
 
-    await DI.resolve(Array.ofType(Bootstrapper));
+    const bootstrappers = DI.resolve(InternalLogger);
+    bootstrappers.bootstrap();
+
+    await DI.resolve(Configuration);
 
     expect(spy.calledOnce).to.be.true;
-    expect((spy.args[0] as any)[0]).to.have.property("Level", LogLevel.Trace);
+    expect((spy.args[0] as any)[0]).to.have.property("Level", LogLevel.Info);
   });
 
   it("Shold write log after botstrapped & before configuration", async () => {
-
     const spy = sinon.spy(BlackHoleTarget.prototype, "write");
-    await DI.resolve(Array.ofType(Bootstrapper));
-    await DI.resolve(Configuration);
+    const bootstrappers = DI.resolve(InternalLogger);
+    bootstrappers.bootstrap();
 
+    await DI.resolve(Configuration);
 
     InternalLogger.info("hello world", "test");
 
-
     expect(spy.calledOnce).to.be.true;
-    expect((spy.args[0] as any)[0]).to.have.property("Level", LogLevel.Trace);
+    expect((spy.args[0] as any)[0]).to.have.property("Level", LogLevel.Info);
   });
 
   it("Shold write multiple logs", async () => {
-
     const spy = sinon.spy(BlackHoleTarget.prototype, "write");
-    await DI.resolve(Array.ofType(Bootstrapper));
+    const bootstrappers = DI.resolve(InternalLogger);
+    bootstrappers.bootstrap();
 
     InternalLogger.info("hello world", "test");
-    InternalLogger.info("hello world", "test");
-    InternalLogger.info("hello world", "test");
-    InternalLogger.info("hello world", "test");
+    InternalLogger.info("hello world 2", "test");
+    InternalLogger.info("hello world 3", "test");
+    InternalLogger.info("hello world 4", "test");
 
     await DI.resolve(Configuration);
 
     expect(spy.callCount).to.eq(4);
   });
 
-  it("should write logs after configuration is resolved", async () =>{ 
+  it("should write logs after configuration is resolved", async () => {
     const spy = sinon.spy(BlackHoleTarget.prototype, "write");
-    await DI.resolve(Array.ofType(Bootstrapper));
+    const bootstrappers = DI.resolve(InternalLogger);
+    bootstrappers.bootstrap();
     await DI.resolve(Configuration);
 
     InternalLogger.info("hello world", "test");

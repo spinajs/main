@@ -29,7 +29,7 @@ function writeLogEntry(entry: ILogEntry, logName: string) {
 }
 @Injectable(Bootstrapper)
 export class InternalLogger extends Bootstrapper {
-  public bootstrap(): void | Promise<void> {
+  public bootstrap(): void {
     const write = () => {
       InternalLogger.LogBuffer.forEach((value, lName) => {
         value.forEach((entry) => {
@@ -48,7 +48,10 @@ export class InternalLogger extends Bootstrapper {
       write();
     } else {
       // if not wait for event to occur
-      DI.once("di.resolved.Configuration", () => write());
+      DI.once("di.resolved.Configuration", () => {
+        debugger;
+        write();
+      });
     }
   }
 
