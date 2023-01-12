@@ -48,7 +48,7 @@
     "@spinajs/rbac": "^2.0.39",
     "@spinajs/reflection": "^2.0.39",
     "accesscontrol": "^2.2.1",
-    "luxon": "^2.4.0",
+    "luxon":"^3.2.1",
     "qrcode": "^1.5.1",
     "speakeasy": "^2.0.0",
     "uuid": "^8.3.2"

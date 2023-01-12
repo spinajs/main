@@ -1,4 +1,4 @@
-import { Injectable, Bootstrapper, DI, IContainer } from "@spinajs/di";
+import { Injectable, Bootstrapper, DI } from "@spinajs/di";
 import { Log } from "./log";
 import CONFIGURATION_SCHEMA from "./schemas/log.configuration";
 

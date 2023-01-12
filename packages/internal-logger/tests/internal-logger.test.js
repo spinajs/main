@@ -1,7 +1,10 @@
 "use strict";
 
-const internalLogger = require("..");
-
 describe("@spinajs/internal-logger", () => {
-  it("needs tests");
+  it("should write log messages before configuration is resolved", () => {
+
+
+    // TODO
+
+  });
 });

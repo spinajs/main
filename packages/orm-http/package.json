@@ -47,7 +47,7 @@
     "@spinajs/orm": "^2.0.39",
     "@spinajs/rbac-http": "^2.0.40",
     "lodash": "^4.17.21",
-    "luxon": "^2.4.0"
+    "luxon": "^3.2.1"
   },
   "devDependencies": {
     "@spinajs/orm-sqlite": "^2.0.39"

@@ -12,5 +12,5 @@ export class TestModel extends ModelBase {
   public CreatedAt: DateTime;
 
   @HasMany(TestMany)
-  public Many: Relation<TestMany>;
+  public Many: Relation<TestMany, TestModel>;
 }

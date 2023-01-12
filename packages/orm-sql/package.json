@@ -43,7 +43,7 @@
     "@spinajs/configuration": "^2.0.39",
     "@spinajs/di": "^2.0.39",
     "@spinajs/orm": "^2.0.39",
-    "luxon": "^2.3.0",
+    "luxon":"^3.2.1",
     "typescript-mix": "^3.1.3"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

@@ -40,7 +40,7 @@
   "devDependencies": {
     "@spinajs/templates-handlebars": "^2.0.39",
     "@spinajs/templates-pug": "^2.0.40",
-    "@types/luxon": "^2.3.1",
+    "@types/luxon":"^3.2.0",
     "@types/node": "^16.11.11",
     "@types/nodemailer": "^6.4.4"
   },
@@ -54,7 +54,7 @@
     "@spinajs/intl": "^2.0.39",
     "@spinajs/log": "^2.0.39",
     "@spinajs/templates": "^2.0.40",
-    "luxon": "^2.3.0",
+    "luxon":"^3.2.1",
     "nodemailer": "^6.7.7"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

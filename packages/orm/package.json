@@ -41,7 +41,7 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "@types/lodash": "4.14.182",
-    "@types/luxon": "2.4.0",
+    "@types/luxon":"^3.2.0",
     "@types/node": "^16.11.44",
     "@types/uuid": "8.3.4"
   },
@@ -54,7 +54,7 @@
     "@spinajs/reflection": "^2.0.39",
     "glob": "^7.1.4",
     "lodash": "^4.17.14",
-    "luxon": "^2.2.0",
+    "luxon": "^3.2.1",
     "uuid": "^8.3.2"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
