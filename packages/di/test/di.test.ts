@@ -1052,4 +1052,8 @@ describe('Dependency injection', () => {
     expect(a == c).to.be.false;
     expect(b == c).to.be.false;
   });
+
+  it('should emit event on resolve', () => {});
+
+  it('Should not emit multiple resolve event', () => {});
 });

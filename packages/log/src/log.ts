@@ -162,7 +162,7 @@ export class Log extends SyncService implements ILog {
             throw new InvalidOperation(`Target for rule ${t.rule.name} not exists`);
           }
 
-          t.instance.write(entry);
+          return t.instance.write(entry);
         })
       );
     }

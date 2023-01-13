@@ -5,11 +5,23 @@ import { Configuration } from "@spinajs/configuration";
 import * as sinon from "sinon";
 import { Log, LogBotstrapper } from "../src";
 import * as _ from "lodash";
-import { TestConfiguration } from "./conf";
+import { dir, TestConfiguration } from "./conf";
+import { expect } from "chai";
+import { DateTime } from "luxon";
+
+const fs = require("fs");
 
 function logger(name?: string) {
   DI.resolve(LogBotstrapper).bootstrap();
   return DI.resolve(Log, [name ?? "TestLogger"]);
+}
+
+function wait(amount: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(() => {
+      resolve();
+    }, amount || 1000);
+  });
 }
 
 describe("file target tests", function () {
@@ -26,13 +38,13 @@ describe("file target tests", function () {
     DI.uncache("__log_file_targets__");
   });
 
-  after(() => {
-    // const log = logger("file");
-    // const target = log.Targets.find((t: ILogTargetDesc) => {
-    //   return t.instance instanceof FileTarget;
-    // }).instance as FileTarget;
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
-    //fs.unlinkSync(target.LogPath);
+  afterEach(async () => {
+    return new Promise((resolve) => {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename
+      fs.rmdir(dir("./logs"), () => {});
+
+      resolve();
+    });
   });
 
   afterEach(() => {
@@ -44,53 +56,125 @@ describe("file target tests", function () {
     log.info("Hello world");
   });
 
-  it('Should write multiple times to file', () =>{ 
+  it("Should create multiple instances of file target", () => {});
 
+  it("Should write to different files", () => {});
+
+  it("Should archive file", () => {});
+
+  it("Should delete archive files after limit", () => {});
+
+  it("Should resolve log file name with variables", () => {});
+
+  it("Should create multiple log files per config", () => {});
+
+  it("Should compress archived files", () => {});
+
+  it("Should write to file", async () => {});
+
+  it("Should write with big buffer size with many messages", async () => {
+    const appendFile = sinon.stub(fs, "appendFile");
+    const log = logger("big-buffer");
+
+    Array.from(Array(1100), () => {
+      log.info("Hello world");
+    });
+
+    await wait(1000);
+
+    expect(appendFile.called).to.eq(true);
+    expect((appendFile.args[0][1] as string[]).length).to.greaterThan(6000);
   });
 
-  it('Should create multiple files based on path', () =>{ 
+  it("Should write with big buffer size with few messages", async () => {
+    const appendFile = sinon.stub(fs, "appendFile");
+    const log = logger("big-buffer");
 
-  })
+    Array.from(Array(10), () => {
+      log.info("Hello world");
+    });
 
-  it('Should archive file', () =>{ 
+    await wait(2000);
 
-  })
-
-  it('Should delete archive files after limit', () =>{ 
-
+    expect(appendFile.called).to.eq(true);
+    expect((appendFile.args[0][1] as string[]).length).to.greaterThan(600);
   });
 
-  it('Should resolve log file name with variables', () =>{ 
+  it("Should write formatted message", async () => {});
 
+  it("Should not write multiple times same messages", async () => {
+    const appendFile = sinon.stub(fs, "appendFile").yields(null);
+    const log = logger("file");
+
+    log.info("Hello world");
+
+    await wait(3000);
+
+    expect(appendFile.called).to.eq(true);
+    expect(appendFile.callCount).to.equal(1);
   });
 
-  it('Should create multiple log files per config', () =>{ 
+  it("Should do multiple writes to file", async () => {
+    const appendFile = sinon.stub(fs, "appendFile").yields(null);
+    const log = logger("big-buffer");
 
+    Array.from(Array(10), () => {
+      log.info("Hello world");
+    });
+
+    await wait(2000);
+
+    Array.from(Array(10), () => {
+      log.info("Hello world");
+    });
+
+    await wait(2000);
+
+    Array.from(Array(10), () => {
+      log.info("Hello world");
+    });
+
+    await wait(2000);
+
+    expect(appendFile.called).to.eq(true);
+    expect(appendFile.callCount).to.equal(3);
   });
 
-  it("Performance test", () => {
-    const log = logger("file-speed");
-    for (let i = 0; i < 50000; i++) {
-      log.info(`more speed line line ${i}`);
-    }
+  it("Should write big log", async () => {
+    const appendFile = sinon.stub(fs, "appendFile").yields(null);
+    const log = logger("big-buffer");
+
+    Array.from(Array(10000), () => {
+      log.info("Hello world");
+    });
+
+    await wait(500);
+
+    Array.from(Array(10000), () => {
+      log.info("Hello world");
+    });
+
+    await wait(500);
+
+    Array.from(Array(10000), () => {
+      log.info("Hello world");
+    });
+
+    expect(appendFile.called).to.eq(true);
+    appendFile.args.forEach((a) => {
+      expect((a[2] as string[]).length).to.greaterThan(60000);
+    });
   });
 
-  // it("Should resolve file name with variables", () => {
-  //   const sSpy = sinon.spy(fs, "openSync");
-  //   const log = logger("file");
-  //   log.warn("test");
+  it("Performance test", () => {});
 
-  //   expect(sSpy.getCall(0).args[0]).to.satisfy((name: string) => name.includes(`log_${DateTime.now().toFormat("dd_MM_yyyy")}.txt`));
-  // });
+  it("Should resolve file name with variables", async () => {
+    const appendFile = sinon.stub(fs, "appendFile");
+    const log = logger("file-vars");
+    log.warn("test");
 
-  // it("Should rotate log files when size is exceeded", async () => {});
+    await wait(1000);
 
-  // it("Should clean log files when criteria are met", async () => {});
-
-  // it("should create file logger per creation", () => {
-  //   // const sSpy = sinon.spy(fs, "openSync");
-  //   // const loggers =  logger("file");
-  //   // const loggers =  logger("file2");
-  //   // expect(sSpy.callCount).to.eq(2);
-  // });
+    expect(appendFile.args[0][0]).to.contain(`log_file-vars_${DateTime.now().toFormat("dd_MM_yyyy")}.txt`);
+  });
 });

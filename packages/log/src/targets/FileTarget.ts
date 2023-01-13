@@ -12,6 +12,8 @@ import { format } from "@spinajs/configuration";
 import { pipeline } from "stream";
 import { Logger } from "./../decorators";
 
+import "@spinajs/configuration-common";
+
 enum FileTargetStatus {
   WRITTING,
   PENDING,
@@ -111,7 +113,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
     // we calculate log path every time to allow for
     // dynamic path creation eg. based on timestamp
-    const logFileName = format({ target: this.Options.name }, path.basename(this.Options.options.path));
+    const logFileName = format({ logger: this.Options.name }, path.basename(this.Options.options.path));
     const logPath = path.join(this.LogDirPath, logFileName);
 
     fs.appendFile(logPath, this.Buffer.join(EOL), (err) => {
@@ -122,6 +124,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
       this.Log.trace(`Wrote buffered messages to log file at path ${logPath}, buffer size: ${this.Options.options.maxBufferSize}`);
 
+      this.Buffer = [];
       this.Status = FileTargetStatus.IDLE;
     });
   }
@@ -152,7 +155,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
       return;
     }
 
-    if (this.Buffer.length > this.Options.options.maxBufferSize) {
+    if (this.Buffer.length >= this.Options.options.maxBufferSize) {
       this.Status = FileTargetStatus.PENDING;
 
       // write at end of nodejs event loop all buffered messages at once
