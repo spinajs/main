@@ -12,6 +12,7 @@ import { dir, TestConfiguration } from "./conf";
 import { expect } from "chai";
 import { DateTime } from "luxon";
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-var-requires
 const fs = require("fs");
 
 function logger(name?: string) {
