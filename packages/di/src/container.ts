@@ -294,7 +294,6 @@ export class Container extends EventEmitter implements IContainer {
       return target;
     };
     const emit = (target: any) => {
-
       const sourceTypeName = getTypeName(sourceType);
       const targetTypeName = getTypeName(targetType);
 
