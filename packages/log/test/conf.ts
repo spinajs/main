@@ -74,12 +74,12 @@ export class TestConfiguration extends FrameworkConfiguration {
                 name: "big-buffer",
                 type: "FileTarget",
                 options: {
-                  path: dir("./logs/log_${logger}_${date:dd_MM_yyyy}.txt"),
+                  path: dir("./logs/log_${logger}.txt"),
                   archivePath: dir("./logs/archive"),
                   compress: true,
                   maxArchiveFiles: 2,
                   maxBufferSize: 1000,
-                  maxSize: 100 * 1000,
+                  maxSize: 100 * 100000,
                 },
               },
             {
@@ -95,10 +95,36 @@ export class TestConfiguration extends FrameworkConfiguration {
               },
             },
             {
+                name: "file-archive",
+                type: "FileTarget",
+                options: {
+                  path: dir("./logs/log_${logger}.txt"),
+                  archivePath: dir("./logs/archive"),
+                  compress: true,
+                  maxArchiveFiles: 2,
+                  maxBufferSize: 10,
+                  maxSize: 1000,
+                  archiveInterval: 3
+                },
+              },
+              {
+                name: "file-archive-no-compress",
+                type: "FileTarget",
+                options: {
+                  path: dir("./logs/log_${logger}.txt"),
+                  archivePath: dir("./logs/archive"),
+                  compress: false,
+                  maxArchiveFiles: 2,
+                  maxBufferSize: 10,
+                  maxSize: 1000,
+                  archiveInterval: 3
+                },
+              },
+            {
               name: "File2",
               type: "FileTarget",
               options: {
-                path: dir("./logs/log_file2_${date:dd_MM_yyyy}.txt"),
+                path: dir("./logs/log_${logger}.txt"),
                 archivePath: dir("./logs/archive"),
                 compress: true,
                 maxArchiveFiles: 2,
@@ -120,6 +146,9 @@ export class TestConfiguration extends FrameworkConfiguration {
             { name: "file2", level: "trace", target: "File2" },
             { name: "file-speed", level: "trace", target: "file-speed" },
             { name: "big-buffer", level: "trace", target: "big-buffer" },
+            { name: "file-archive", level: "trace", target: "file-archive" },
+            { name: "file-archive-no-compress", level: "trace", target: "file-archive-no-compress" },
+
 
           ],
         },

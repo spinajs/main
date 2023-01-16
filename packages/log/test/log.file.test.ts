@@ -1,9 +1,12 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable security/detect-non-literal-fs-filename */
 /* eslint-disable @typescript-eslint/no-empty-function */
 import "mocha";
 import { DI } from "@spinajs/di";
 import { Configuration } from "@spinajs/configuration";
 import * as sinon from "sinon";
-import { Log, LogBotstrapper } from "../src";
+import { FileTarget, Log, LogBotstrapper } from "../src";
 import * as _ from "lodash";
 import { dir, TestConfiguration } from "./conf";
 import { expect } from "chai";
@@ -25,7 +28,7 @@ function wait(amount: number) {
 }
 
 describe("file target tests", function () {
-  this.timeout(15000);
+  this.timeout(25000);
 
   before(async () => {
     DI.clearCache();
@@ -39,11 +42,17 @@ describe("file target tests", function () {
   });
 
   afterEach(async () => {
-    return new Promise((resolve) => {
-      // eslint-disable-next-line security/detect-non-literal-fs-filename
-      fs.rmdir(dir("./logs"), () => {});
+    const target = DI.get(FileTarget);
+    await target.dispose();
 
-      resolve();
+    return new Promise((resolve) => {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+      fs.rm(dir("./logs"), { recursive: true, force: true }, (err: any) => {
+        if (err) {
+          resolve();
+        }
+        resolve();
+      });
     });
   });
 
@@ -51,26 +60,141 @@ describe("file target tests", function () {
     sinon.restore();
   });
 
-  it("Should write to file", () => {
-    const log = logger("file");
-    log.info("Hello world");
+  it("Should write to different files", async () => {
+    const appendFile = sinon.stub(fs, "appendFile").yields(null);
+
+    const log1 = logger("file");
+    const log2 = logger("file2");
+
+    log1.info("Hello world 1");
+    log2.info("Hello world 2");
+
+    await wait(3000);
+
+    expect(appendFile.args[0][0]).to.contain(`log_File.txt`);
+    expect(appendFile.args[1][0]).to.contain(`log_File2.txt`);
+
+    expect(appendFile.args[0][1]).to.contain(`Hello world 1`);
+    expect(appendFile.args[1][1]).to.contain(`Hello world 2`);
   });
 
-  it("Should create multiple instances of file target", () => {});
+  it("Should archive file", async () => {
+    const log = logger("file-archive-no-compress");
+    let i = 0;
+    Array.from(Array(10000), () => {
+      log.info(`[${i++}]`);
+    });
 
-  it("Should write to different files", () => {});
+    await wait(4000);
+    expect(fs.existsSync(dir("./logs/archive/archived_log_file-archive-no-compress_1.txt"))).to.be.true;
+  });
 
-  it("Should archive file", () => {});
+  it("Should delete archive files after limit", async () => {
+    const log = logger("file-archive");
 
-  it("Should delete archive files after limit", () => {});
+    let i = 0;
+    Array.from(Array(10000), () => {
+      log.info(`[${i++}]`);
+    });
 
-  it("Should resolve log file name with variables", () => {});
+    await wait(4000);
 
-  it("Should create multiple log files per config", () => {});
+    Array.from(Array(10000), () => {
+      log.info(`[${i++}]`);
+    });
+    await wait(4000);
 
-  it("Should compress archived files", () => {});
+    Array.from(Array(10000), () => {
+      log.info(`[${i++}]`);
+    });
 
-  it("Should write to file", async () => {});
+    await wait(4000);
+    Array.from(Array(10000), () => {
+      log.info(`[${i++}]`);
+    });
+
+    await wait(4000);
+
+    expect(fs.existsSync(dir("./logs/archive/archived_log_file-archive_1.txt.gzip"))).to.be.false;
+    expect(fs.existsSync(dir("./logs/archive/archived_log_file-archive_2.txt.gzip"))).to.be.true;
+    expect(fs.existsSync(dir("./logs/archive/archived_log_file-archive_3.txt.gzip"))).to.be.true;
+  });
+
+  it("Should compress archived files", async () => {
+    const log = logger("file-archive");
+    Array.from(Array(10000), () => {
+      log.info(`Hello world`);
+    });
+
+    await wait(6000);
+
+    Array.from(Array(10000), () => {
+      log.info(`Hello world`);
+    });
+
+    await wait(6000);
+
+    expect(fs.existsSync(dir("./logs/archive/archived_log_file-archive_1.txt.gzip"))).to.be.true;
+    expect(fs.existsSync(dir("./logs/archive/archived_log_file-archive_2.txt.gzip"))).to.be.true;
+  });
+
+  it("Should maintain order of log enties", async () => {
+    const log = logger("big-buffer");
+    let i = 0;
+    Array.from(Array(10000), () => {
+      log.info(`[${i++}]`);
+    });
+
+    await wait(500);
+
+    Array.from(Array(10000), () => {
+      log.info(`[${i++}]`);
+    });
+
+    await wait(500);
+
+    Array.from(Array(10000), () => {
+      log.info(`[${i++}]`);
+    });
+
+    await wait(500);
+
+    Array.from(Array(10), () => {
+      log.info(`[${i++}]`);
+    });
+    await wait(500);
+
+    Array.from(Array(10), () => {
+      log.info(`[${i++}]`);
+    });
+    await wait(500);
+
+    Array.from(Array(10), () => {
+      log.info(`[${i++}]`);
+    });
+    await wait(2000);
+
+    const result = fs.readFileSync(dir("./logs/log_big-buffer.txt"), "utf8") as string;
+    const entries = result.split("\n");
+
+    const reg = /\[(\d+)\]/gm;
+    let prev = -1;
+
+    expect(entries.length).to.eq(30031);
+    expect(
+      _.every(
+        entries.filter((x) => x !== ""),
+        (entry) => {
+          const result = reg.exec(entry);
+          reg.lastIndex = 0;
+          const num = parseInt(result[1]);
+          const curr = prev;
+          prev = num;
+          return curr < num;
+        }
+      )
+    ).to.be.true;
+  });
 
   it("Should write with big buffer size with many messages", async () => {
     const appendFile = sinon.stub(fs, "appendFile");
@@ -100,7 +224,15 @@ describe("file target tests", function () {
     expect((appendFile.args[0][1] as string[]).length).to.greaterThan(600);
   });
 
-  it("Should write formatted message", async () => {});
+  it("Should write formatted message", async () => {
+    const appendFile = sinon.stub(fs, "appendFile");
+    const log = logger("file-vars");
+    log.warn("test ${date:dd_MM_yyyy}");
+
+    await wait(1000);
+
+    expect(appendFile.args[0][1]).to.contain(`test ${DateTime.now().toFormat("dd_MM_yyyy")}`);
+  });
 
   it("Should not write multiple times same messages", async () => {
     const appendFile = sinon.stub(fs, "appendFile").yields(null);
@@ -162,11 +294,18 @@ describe("file target tests", function () {
 
     expect(appendFile.called).to.eq(true);
     appendFile.args.forEach((a) => {
-      expect((a[2] as string[]).length).to.greaterThan(60000);
+      expect((a[1] as string[]).length).to.greaterThan(60000);
     });
   });
 
-  it("Performance test", () => {});
+  it("Performance test", () => {
+    console.time("FILE");
+    const log = logger("file-vars");
+    Array.from(Array(10000), () => {
+      log.info("Hello world");
+    });
+    console.timeEnd("FILE");
+  });
 
   it("Should resolve file name with variables", async () => {
     const appendFile = sinon.stub(fs, "appendFile");

@@ -159,6 +159,12 @@ export interface IFileTargetOptions extends ICommonTargetOptions {
      * Eg. to store max 5 archive files, set it to 5. Oldest by modification time are deleted.
      */
     maxArchiveFiles: number;
+
+    /**
+     * Log archive interval at whitch process should check if log files need archiving, in seconds.
+     * Default is 3 minutes
+     */
+    archiveInterval: number;
   };
 }
 

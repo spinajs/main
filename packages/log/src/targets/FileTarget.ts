@@ -50,6 +50,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
         compress: true,
         maxSize: 1024 * 1024,
         maxArchiveFiles: 5,
+        archiveInterval: 3 * 60,
       },
       this.Options.options
     );
@@ -76,7 +77,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     // and we could wait unknown amount of time before messages are written to file
     this.FlushTimer = setInterval(() => {
       // do not flush, if we already writting to file
-      if (this.Status !== FileTargetStatus.IDLE) {
+      if (this.Status !== FileTargetStatus.IDLE && this.ArchiveStatus !== FileTargetStatus.IDLE) {
         return;
       }
 
@@ -88,7 +89,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     // every 3 minutes try to archive log files
     this.ArchiveTimer = setInterval(() => {
       // do not archive if we already doing it
-      if (this.ArchiveStatus !== FileTargetStatus.IDLE) {
+      if (this.Status !== FileTargetStatus.IDLE && this.ArchiveStatus !== FileTargetStatus.IDLE) {
         return;
       }
 
@@ -98,7 +99,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
       setImmediate(() => {
         this.archive();
       });
-    }, 3 * 60 * 1000);
+    }, this.Options.options.archiveInterval * 1000);
 
     super.resolve();
   }
@@ -116,7 +117,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     const logFileName = format({ logger: this.Options.name }, path.basename(this.Options.options.path));
     const logPath = path.join(this.LogDirPath, logFileName);
 
-    fs.appendFile(logPath, this.Buffer.join(EOL), (err) => {
+    fs.appendFile(logPath, this.Buffer.join(EOL) + EOL, (err) => {
       // log error message to others if applicable eg. console
       if (err) {
         this.Log.error(err, `Cannot write log messages to file target at path ${logPath}`);
@@ -151,7 +152,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
     // if we already writting, skip buffer check & write to file
     // wait until write is finished
-    if (this.Status !== FileTargetStatus.IDLE) {
+    if (this.Status !== FileTargetStatus.IDLE || this.ArchiveStatus !== FileTargetStatus.IDLE) {
       return;
     }
 
@@ -190,12 +191,12 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
     // clear archived files above limit
     if (aFiles.length > this.Options.options.maxArchiveFiles) {
-      for (let i = aFiles.length; i > this.Options.options.maxArchiveFiles; i--) {
-        fs.unlink(aFiles[i - 1].name, (err) => {
+      for (let i = 0; i < aFiles.length - this.Options.options.maxArchiveFiles; i++) {
+        fs.unlink(aFiles[i].name, (err) => {
           if (err) {
             this.Log.error(err, `Cannot delete archived file at path ${aFiles[i - 1].name}`);
           } else {
-            this.Log.info(`Deleted archived file at path ${aFiles[i - 1].name}`);
+            this.Log.info(`Deleted archived file at path ${aFiles[i].name}`);
           }
         });
       }
