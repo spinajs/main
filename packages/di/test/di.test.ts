@@ -2,6 +2,7 @@ import { IInstanceCheck } from './../src/interfaces';
 import { InvalidArgument } from '@spinajs/exceptions';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { mock } from 'sinon';
 
 import 'mocha';
 import { Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, Singleton, IInjectDescriptor, AddDependency, Class, PerInstance, AsyncService, SyncService, PerInstanceCheck } from '../src';
@@ -1053,7 +1054,46 @@ describe('Dependency injection', () => {
     expect(b == c).to.be.false;
   });
 
-  it('should emit event on resolve', () => {});
+  it('should emit event on resolve', () => {
+    const baseMock = mock();
+    const targetMock = mock();
 
-  it('Should not emit multiple resolve event', () => {});
+    class TestClassBase {}
+    @Injectable(TestClassBase)
+    class TestClass {}
+
+    DI.once('di.resolved.TestClass', targetMock);
+    DI.once('di.resolved.TestClassBase', baseMock);
+
+    DI.resolve(TestClassBase);
+
+    expect(targetMock.calledOnce).to.be.true;
+    expect(baseMock.calledOnce).to.be.true;
+
+    DI.resolve(TestClass);
+    expect(targetMock.calledOnce).to.be.true;
+  });
+
+  it('Should emit event on resolve @NewInstance strategy', () => {
+    const baseMock = mock().atLeast(1);
+    const targetMock = mock().atLeast(1);
+
+    class TestClassBase {}
+    @Injectable(TestClassBase)
+    @NewInstance()
+    class TestClass {}
+
+    DI.on('di.resolved.TestClass', targetMock);
+    DI.on('di.resolved.TestClassBase', baseMock);
+
+    DI.resolve(TestClassBase);
+    DI.resolve(TestClassBase);
+    DI.resolve(TestClassBase);
+
+    expect(targetMock.callCount).to.eq(3);
+    expect(baseMock.callCount).to.eq(3);
+
+    DI.resolve(TestClass);
+    expect(targetMock.callCount).to.eq(4);
+  });
 });

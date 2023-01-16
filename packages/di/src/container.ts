@@ -294,14 +294,20 @@ export class Container extends EventEmitter implements IContainer {
       return target;
     };
     const emit = (target: any) => {
+
+      const sourceTypeName = getTypeName(sourceType);
+      const targetTypeName = getTypeName(targetType);
+
       // do not emit when we alrady created and cached value
       // ( resolve happends only once eg. for singletons)
-      if (!this.Cache.has(getTypeName(target))) {
+      if (!this.Cache.has(targetTypeName)) {
         // firs event to emit that particular type was resolved
-        this.emit(`di.resolved.${getTypeName(target)}`, this, target);
+        this.emit(`di.resolved.${targetTypeName}`, this, target);
 
         // emit that source type was resolved
-        this.emit(`di.resolved.${getTypeName(sourceType)}`, this, target);
+        if (targetTypeName !== sourceTypeName) {
+          this.emit(`di.resolved.${sourceTypeName}`, this, target);
+        }
       }
     };
 
@@ -327,13 +333,13 @@ export class Container extends EventEmitter implements IContainer {
       const instance = this.getNewInstance(t, i, options);
       if (isPromise(instance)) {
         return instance.then((r) => {
-          setCache(r);
           emit(r);
+          setCache(r);
           return r;
         });
       } else {
-        setCache(instance as T);
         emit(instance);
+        setCache(instance as T);
         return instance;
       }
     };
