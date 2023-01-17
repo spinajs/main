@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/email-smtp-transport",
-  "version": "2.0.40",
+  "version": "2.0.43",
   "description": "sending emails easy & reliable way",
   "main": "lib/index.js",
   "private": false,
@@ -38,23 +38,23 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/templates-handlebars": "^2.0.39",
-    "@spinajs/templates-pug": "^2.0.40",
-    "@types/luxon":"^3.2.0",
+    "@spinajs/templates-handlebars": "^2.0.43",
+    "@spinajs/templates-pug": "^2.0.43",
+    "@types/luxon": "^3.2.0",
     "@types/node": "^16.11.11",
     "@types/nodemailer": "^6.4.4"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.39",
-    "@spinajs/di": "^2.0.39",
-    "@spinajs/email": "^2.0.40",
+    "@spinajs/configuration": "^2.0.43",
+    "@spinajs/di": "^2.0.43",
+    "@spinajs/email": "^2.0.43",
     "@spinajs/exceptions": "^2.0.39",
-    "@spinajs/fs": "^2.0.39",
-    "@spinajs/internal-logger": "^2.0.39",
-    "@spinajs/intl": "^2.0.39",
-    "@spinajs/log": "^2.0.39",
-    "@spinajs/templates": "^2.0.40",
-    "luxon":"^3.2.1",
+    "@spinajs/fs": "^2.0.43",
+    "@spinajs/internal-logger": "^2.0.43",
+    "@spinajs/intl": "^2.0.43",
+    "@spinajs/log": "^2.0.43",
+    "@spinajs/templates": "^2.0.43",
+    "luxon": "^3.2.1",
     "nodemailer": "^6.7.7"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

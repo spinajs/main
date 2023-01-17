@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/fs",
-  "version": "2.0.39",
+  "version": "2.0.43",
   "description": "wrapper for file operations",
   "main": "lib/index.js",
   "private": false,
@@ -42,7 +42,7 @@
   "dependencies": {
     "archiver": "^5.3.1",
     "lodash": "^4.17.21",
-    "luxon":"^3.2.1",
+    "luxon": "^3.2.1",
     "uuid": "^8.3.2"
   },
   "devDependencies": {
