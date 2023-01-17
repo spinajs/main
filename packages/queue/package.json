@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue",
-  "version": "2.0.43",
+  "version": "2.0.44",
   "description": "queue sending & pulling made easy",
   "main": "lib/index.js",
   "private": false,
@@ -43,10 +43,10 @@
     "@types/node": "^16.11.11"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.43",
-    "@spinajs/di": "^2.0.43",
+    "@spinajs/configuration": "^2.0.44",
+    "@spinajs/di": "^2.0.44",
     "@spinajs/exceptions": "^2.0.39",
-    "@spinajs/log": "^2.0.43",
+    "@spinajs/log": "^2.0.44",
     "eventemitter3": "^4.0.7",
     "luxon": "^3.2.1"
   },
