@@ -1,16 +1,17 @@
+/* eslint-disable promise/always-return */
 /* eslint-disable security/detect-object-injection */
 import { format } from "@spinajs/configuration-common";
 import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
 import { ILog, ILogEntry, LogTarget, ICommonTargetOptions } from "@spinajs/log-common";
 import { Logger } from "@spinajs/log";
 
-import * as http from "http";
-import * as https from "https";
+import axios from "axios";
 import _ from "lodash";
 
 export interface IGraphanaOptions extends ICommonTargetOptions {
   options: {
-    batchInterval: number;
+    interval: number;
+    bufferSize: number;
     timeout: number;
     host: string;
     labels: {
@@ -29,6 +30,12 @@ interface Stream {
   values: unknown[];
 }
 
+enum TargetStatus {
+  WRITTING,
+  PENDING,
+  IDLE,
+}
+
 // we mark per instance check becouse we can have multiple file targes
 // for different files/paths/logs but we dont want to create every time writer for same.
 @PerInstanceCheck()
@@ -37,14 +44,23 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
   @Logger("LogLokiTarget")
   protected Log: ILog;
 
-  protected LokiUrl: URL;
+  protected Entries: ILogEntry[] = [];
 
-  protected Batch: ILogEntry[] = [];
+  protected Status: TargetStatus = TargetStatus.IDLE;
+
+  protected FlushTimer: NodeJS.Timer;
 
   constructor(options: IGraphanaOptions) {
     super(options);
 
-    this.LokiUrl = new URL(`${options.options.host}/loki/api/v1/push`);
+    this.Options.options = Object.assign(
+      {
+        interval: 3000,
+        bufferSize: 10,
+        timeout: 1000,
+      },
+      this.Options.options
+    );
   }
 
   __checkInstance__(creationOptions: IGraphanaOptions): boolean {
@@ -52,86 +68,104 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
   }
 
   public resolve(): void {
-    setInterval(() => {
-      const batch: Stream[] = [];
-
-      if (this.Batch.length === 0) {
+    this.FlushTimer = setInterval(() => {
+      // do not flush, if we already writting to file
+      if (this.Status !== TargetStatus.IDLE) {
         return;
       }
 
-      this.Batch.forEach((entry) => {
-        let stream = batch.find((b) =>
-          _.isEqual(b.labels, {
+      setImmediate(() => {
+        this.flush();
+      });
+    }, this.Options.options.interval ?? 3000);
+  }
+
+  public write(data: ILogEntry): void {
+    if (!this.Options.enabled) {
+      return;
+    }
+
+    data.Variables["n_timestamp"] = new Date().getTime() * 1000000;
+    this.Entries.push(data);
+
+    // if we already writting, skip buffer check & write to file
+    // wait until write is finished
+    if (this.Status !== TargetStatus.IDLE) {
+      return;
+    }
+
+    if (this.Entries.length >= this.Options.options.bufferSize) {
+      this.Status = TargetStatus.PENDING;
+
+      // write at end of nodejs event loop all buffered messages at once
+      setImmediate(() => {
+        this.flush();
+      });
+    }
+  }
+
+  public async dispose() {
+    // stop flush timer
+    clearInterval(this.FlushTimer);
+
+    // write all messages from buffer
+    this.flush();
+  }
+
+  protected flush() {
+    const batch: Stream[] = [];
+
+    if (this.Entries.length === 0) {
+      this.Status = TargetStatus.IDLE;
+      return;
+    }
+
+    this.Status = TargetStatus.WRITTING;
+
+    this.Entries.forEach((entry) => {
+      let stream = batch.find((b) =>
+        _.isEqual(b.labels, {
+          app: this.Options.options.labels.app,
+          logger: entry.Variables.logger,
+          level: entry.Variables.level,
+          ...this.Options.options.labels,
+        })
+      );
+
+      if (!stream) {
+        stream = {
+          labels: {
             app: this.Options.options.labels.app,
             logger: entry.Variables.logger,
             level: entry.Variables.level,
             ...this.Options.options.labels,
-          })
-        );
+          },
+          values: [],
+        };
 
-        if (!stream) {
-          stream = {
-            labels: {
-              app: this.Options.options.labels.app,
-              logger: entry.Variables.logger,
-              level: entry.Variables.level,
-              ...this.Options.options.labels,
-            },
-            values: [],
-          };
-
-          batch.push(stream);
-        }
-        stream.values.push([entry.Variables["n_timestamp"], JSON.stringify(format(entry.Variables, this.Options.layout))]);
-      });
-
-      void this.post(JSON.stringify(batch))
-        .catch((err) => {
-          this.Log.error(err, `Cannot send graphana loki logs`);
-        })
-        // eslint-disable-next-line promise/always-return
-        .then(() => {
-          this.Batch = [];
-        });
-    }, this.Options.options.batchInterval ?? 3000);
-  }
-
-  public write(data: ILogEntry): void {
-    data.Variables["n_timestamp"] = new Date().getTime() * 1000000;
-    this.Batch.push(data);
-  }
-
-  protected async post(data: string) {
-    // Construct a buffer from the data string to have deterministic data size
-    const dataBuffer = Buffer.from(data, "utf8");
-    const lib = this.LokiUrl.protocol === "https:" ? https : http;
-
-    // Construct the headers
-    const defaultHeaders = {
-      "Content-Type": "application/json",
-      "Content-Length": dataBuffer.length,
-    };
-
-    const options = {
-      hostname: this.LokiUrl.hostname,
-      port: this.LokiUrl.port !== "" ? this.LokiUrl.port : this.LokiUrl.protocol === "https:" ? 443 : 80,
-      path: this.LokiUrl.pathname,
-      method: "POST",
-      headers: Object.assign(defaultHeaders),
-      timeout: this.Options.options.timeout,
-    };
-
-    return new Promise((resolve, reject) => {
-      const request = lib.request(options, (message) => {
-        let resData = "";
-        message.on("data", (data) => (resData += data));
-        message.on("end", () => resolve(resData));
-      });
-
-      request.on("error", (error) => reject(error));
-
-      request.write(dataBuffer);
-      request.end();
+        batch.push(stream);
+      }
+      stream.values.push([entry.Variables["n_timestamp"], JSON.stringify(format(entry.Variables, this.Options.layout))]);
     });
+
+    axios
+      .post(this.Options.options.host + "/loki/api/v1/push", {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        timeout: this.Options.options.timeout,
+        data: batch,
+      })
+      .then(() => {
+        this.Entries = [];
+        this.Status = TargetStatus.IDLE;
+
+        this.Log.trace(`Wrote buffered messages to graphana target at url ${this.Options.options.host}`);
+      })
+      .catch((err) => {
+        // log error message to others if applicable eg. console
+        this.Log.error(err, `Cannot write log messages to  graphana target`);
+        this.Status = TargetStatus.IDLE;
+      });
   }
 }

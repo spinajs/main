@@ -43,6 +43,9 @@ describe("file target tests", function () {
   });
 
   afterEach(async () => {
+
+    sinon.restore();
+
     const target = DI.get(FileTarget);
     await target.dispose();
 
@@ -56,11 +59,7 @@ describe("file target tests", function () {
       });
     });
   });
-
-  afterEach(() => {
-    sinon.restore();
-  });
-
+ 
   it("Should write to different files", async () => {
     const appendFile = sinon.stub(fs, "appendFile").yields(null);
 
