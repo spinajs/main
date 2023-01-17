@@ -89,6 +89,7 @@
     "@spinajs/templates": "file:packages\\templates",
     "@spinajs/templates-handlebars": "file:packages\\templates-handlebars",
     "@spinajs/templates-pug": "file:packages\\templates-pug",
+    "@spinajs/templates-xlsx": "file:packages\\templates-xlsx",
     "@spinajs/util": "file:packages\\util",
     "@spinajs/validation": "file:packages\\validation",
     "@spinajs/docs": "file:packages\\docs",

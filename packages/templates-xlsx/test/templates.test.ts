@@ -68,6 +68,15 @@ describe('templates', () => {
     await DI.resolve(Configuration);
   });
 
+  afterEach(async () => {
+    return new Promise((resolve) => {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+      fs.rm(dir('./templates/rendered_template.xlsx'), () => {
+        resolve();
+      });
+    });
+  });
+
   it('should render xlsx to file', async () => {
     const t = await tp();
     await t.renderToFile('template.xlsx', { hello: 'world' }, dir('./templates/rendered_template.xlsx'));

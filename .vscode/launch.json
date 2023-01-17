@@ -68,6 +68,13 @@
     {
       "type": "node",
       "request": "launch",
+      "name": "TEMPLATES XLSX test",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/templates-xlsx/test/**/*.ts"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
       "name": "CONF-COMMON test",
       "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
       "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/configuration-common/test/**/*.ts"]

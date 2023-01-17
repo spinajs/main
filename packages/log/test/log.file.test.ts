@@ -43,23 +43,22 @@ describe("file target tests", function () {
   });
 
   afterEach(async () => {
-
     sinon.restore();
 
     const target = DI.get(FileTarget);
     await target.dispose();
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       // eslint-disable-next-line security/detect-non-literal-fs-filename, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       fs.rm(dir("./logs"), { recursive: true, force: true }, (err: any) => {
         if (err) {
-          resolve();
+          reject(err);
         }
         resolve();
       });
     });
   });
- 
+
   it("Should write to different files", async () => {
     const appendFile = sinon.stub(fs, "appendFile").yields(null);
 
