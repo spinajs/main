@@ -1,6 +1,11 @@
 import { Configuration } from "@spinajs/configuration-common";
 import { Bootstrapper, DI, Injectable } from "@spinajs/di";
-import { ILogEntry, LogLevel, createLogMessageObject, ILog } from "@spinajs/log-common";
+import {
+  ILogEntry,
+  LogLevel,
+  createLogMessageObject,
+  ILog,
+} from "@spinajs/log-common";
 import * as _ from "lodash";
 
 /**
@@ -18,7 +23,12 @@ function writeLogEntry(entry: ILogEntry, logName: string) {
       .then((values) => {
         values.forEach((v) => {
           if (v.status === "rejected") {
-            console.error(`Couldnt write to logger ${logName} message ${JSON.stringify({ level: entry.Level, vars: _.pick(entry.Variables, ["message"]) })}, reason: ${v.reason as string}`);
+            console.error(
+              `Couldnt write to logger ${logName} message ${JSON.stringify({
+                level: entry.Level,
+                vars: _.pick(entry.Variables, ["message"]),
+              })}, reason: ${v.reason as string}`
+            );
           }
         });
 
@@ -58,54 +68,140 @@ export class InternalLogger extends Bootstrapper {
   protected static LogBuffer: Map<string, ILogEntry[]> = new Map();
 
   public static trace(message: string, name: string, ...args: any[]): void;
-  public static trace(err: Error, message: string, name: string, ...args: any[]): void;
-  public static trace(err: Error | string, message: string | any[], name: string, ...args: any[]): void {
+  public static trace(
+    err: Error,
+    message: string,
+    name: string,
+    ...args: any[]
+  ): void;
+  public static trace(
+    err: Error | string,
+    message: string | any[],
+    name: string,
+    ...args: any[]
+  ): void {
     InternalLogger.write(err, message, LogLevel.Trace, name, ...args);
   }
 
   public static debug(message: string, name: string, ...args: any[]): void;
-  public static debug(err: Error, message: string, name: string, ...args: any[]): void;
-  public static debug(err: Error | string, message: string | any[], name: string, ...args: any[]): void {
+  public static debug(
+    err: Error,
+    message: string,
+    name: string,
+    ...args: any[]
+  ): void;
+  public static debug(
+    err: Error | string,
+    message: string | any[],
+    name: string,
+    ...args: any[]
+  ): void {
     InternalLogger.write(err, message, LogLevel.Debug, name, ...args);
   }
 
   public static info(message: string, name: string, ...args: any[]): void;
-  public static info(err: Error, message: string, name: string, ...args: any[]): void;
-  public static info(err: Error | string, message: string | any[], name: string, ...args: any[]): void {
+  public static info(
+    err: Error,
+    message: string,
+    name: string,
+    ...args: any[]
+  ): void;
+  public static info(
+    err: Error | string,
+    message: string | any[],
+    name: string,
+    ...args: any[]
+  ): void {
     InternalLogger.write(err, message, LogLevel.Info, name, ...args);
   }
 
   public static warn(message: string, name: string, ...args: any[]): void;
-  public static warn(err: Error, message: string, name: string, ...args: any[]): void;
-  public static warn(err: Error | string, message: string | any[], name: string, ...args: any[]): void {
+  public static warn(
+    err: Error,
+    message: string,
+    name: string,
+    ...args: any[]
+  ): void;
+  public static warn(
+    err: Error | string,
+    message: string | any[],
+    name: string,
+    ...args: any[]
+  ): void {
     InternalLogger.write(err, message, LogLevel.Warn, name, ...args);
   }
 
   public static error(message: string, name: string, ...args: any[]): void;
-  public static error(err: Error, message: string, name: string, ...args: any[]): void;
-  public static error(err: Error | string, message: string | any[], name: string, ...args: any[]): void {
+  public static error(
+    err: Error,
+    message: string,
+    name: string,
+    ...args: any[]
+  ): void;
+  public static error(
+    err: Error | string,
+    message: string | any[],
+    name: string,
+    ...args: any[]
+  ): void {
     InternalLogger.write(err, message, LogLevel.Error, name, ...args);
   }
 
   public static fatal(message: string, name: string, ...args: any[]): void;
-  public static fatal(err: Error, message: string, name: string, ...args: any[]): void;
-  public static fatal(err: Error | string, message: string | any[], name: string, ...args: any[]): void {
+  public static fatal(
+    err: Error,
+    message: string,
+    name: string,
+    ...args: any[]
+  ): void;
+  public static fatal(
+    err: Error | string,
+    message: string | any[],
+    name: string,
+    ...args: any[]
+  ): void {
     InternalLogger.write(err, message, LogLevel.Fatal, name, ...args);
   }
 
   public static security(message: string, name: string, ...args: any[]): void;
-  public static security(err: Error, message: string, name: string, ...args: any[]): void;
-  public static security(err: Error | string, message: string | any[], name: string, ...args: any[]): void {
+  public static security(
+    err: Error,
+    message: string,
+    name: string,
+    ...args: any[]
+  ): void;
+  public static security(
+    err: Error | string,
+    message: string | any[],
+    name: string,
+    ...args: any[]
+  ): void {
     InternalLogger.write(err, message, LogLevel.Security, name, ...args);
   }
 
   public static success(message: string, name: string, ...args: any[]): void;
-  public static success(err: Error, message: string, name: string, ...args: any[]): void;
-  public static success(err: Error | string, message: string | any[], name: string, ...args: any[]): void {
+  public static success(
+    err: Error,
+    message: string,
+    name: string,
+    ...args: any[]
+  ): void;
+  public static success(
+    err: Error | string,
+    message: string | any[],
+    name: string,
+    ...args: any[]
+  ): void {
     InternalLogger.write(err, message, LogLevel.Success, name, ...args);
   }
 
-  protected static write(err: Error | string, message: string | any[], level: LogLevel, name: string, ...args: any[]) {
+  protected static write(
+    err: Error | string,
+    message: string | any[],
+    level: LogLevel,
+    name: string,
+    ...args: any[]
+  ) {
     const msg = createLogMessageObject(err, message, level, name, {}, ...args);
     const logName = name ?? (message as string);
 
