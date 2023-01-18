@@ -29,9 +29,19 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
     return null;
   }
 
-  public fromDB(value: string) {
+  public fromDB(value: string | DateTime | Date) {
     if (!value) {
       return null;
+    }
+
+    // we do this checks, becose at creating models from data
+    // we call hydrators, and hydrators checks for converters.
+    if (value instanceof DateTime) {
+      return value;
+    }
+
+    if (value instanceof Date) {
+      return DateTime.fromJSDate(value);
     }
 
     return DateTime.fromSQL(value);
