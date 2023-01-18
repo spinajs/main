@@ -257,6 +257,8 @@ describe('stomp queue transport test', function () {
     c1.subscribe(TestEventChannelName, s1);
     c2.subscribe(TestEventChannelName, s2);
 
+    await wait(QUEUE_WAIT_TIME_MS);
+
     c1.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS);
