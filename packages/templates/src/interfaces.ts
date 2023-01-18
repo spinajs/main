@@ -1,3 +1,4 @@
+import { IMappableService } from './../../di/src/interfaces';
 import { Config } from '@spinajs/configuration';
 import { AsyncService } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
@@ -5,7 +6,7 @@ import { join } from 'path';
 import { glob } from 'glob';
 import _ from 'lodash';
 
-export abstract class TemplateRenderer extends AsyncService {
+export abstract class TemplateRenderer extends AsyncService implements IMappableService {
   @Logger('renderer')
   protected Log: Log;
 
@@ -17,6 +18,11 @@ export abstract class TemplateRenderer extends AsyncService {
   public abstract get Type(): string;
 
   public abstract get Extension(): string;
+
+  public get ServiceName() {
+    // we map this service by extension
+    return this.Extension;
+  }
 
   public abstract render(templatePath: string, model: unknown, language?: string): Promise<string>;
   public abstract renderToFile(templatePath: string, model: unknown, filePath: string, language?: string): Promise<void>;

@@ -15,7 +15,7 @@ export class Templates extends AsyncService {
   protected Log: Log;
 
   @Autoinject(TemplateRenderer, {
-    mapFunc: (x) => x.Extension,
+    mapFunc: (x) => x.ServiceName,
   })
   protected Renderers: Map<string, TemplateRenderer>;
 
