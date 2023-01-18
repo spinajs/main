@@ -5,7 +5,7 @@ import { SessionProvider, Session, ISession } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
-import { reviver, replacer } from '@spinajs/util';
+import { replacer } from '@spinajs/util';
 import _ from 'lodash';
 
 @Injectable(SessionProvider)
@@ -121,11 +121,13 @@ export class DynamoDbSessionProvider extends SessionProvider {
         return null;
       }
 
+      const data = JSON.parse(result.Item.Data.S);
+
       return new Session({
         Creation: DateTime.fromISO(result.Item.Creation.S),
         Expiration: DateTime.fromMillis(ttl),
         SessionId: result.Item.SessionId.S,
-        Data: JSON.parse(result.Item.Data.S, reviver),
+        Data: new Map(Object.entries(data)),
       });
     }
   }
@@ -179,7 +181,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
 
     if (_.isString(sessionOrId)) {
       sId = sessionOrId;
-      sData = data;
+      sData = JSON.stringify(data);
     } else {
       sId = sessionOrId.SessionId;
       sData = JSON.stringify(Object.fromEntries(sessionOrId.Data), replacer);
@@ -192,7 +194,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       Item: {
         SessionId: { S: sId },
         Data: {
-          M: sData as any,
+          S: sData,
         },
         Creation: { S: sCreationTime.toISO() },
         Expiration: { N: `${sExpirationTime.toMillis()}` },
