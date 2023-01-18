@@ -108,7 +108,7 @@ export class JsFileSource extends BaseFileSource {
         // eslint-disable-next-line security/detect-non-literal-require
         return require(file);
       } catch (err) {
-        console.error(`error loading configuration file ${file}, reasoun: ${(err as Error).message}`);
+        InternalLogger.error(err, `error loading configuration file ${file}`);
         return null;
       }
     }

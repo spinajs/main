@@ -12,6 +12,7 @@ import { Test } from './models/Test';
 import { DbTranslationSource } from '../src/index';
 import { AsyncLocalStorage } from 'async_hooks';
 import { Test2 } from './models/Test2';
+import './migrations/Test_2022_06_28_01_13_00';
 import '../src/index';
 
 chai.use(chaiAsPromised);

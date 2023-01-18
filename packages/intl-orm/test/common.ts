@@ -28,8 +28,8 @@ export class TestConfiguration extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '{datetime} {level} {message} {error} duration: {duration} ms ({logger})',
+              type: 'ConsoleTarget',
+              layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
             },
           ],
 
