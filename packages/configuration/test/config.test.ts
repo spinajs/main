@@ -1,3 +1,4 @@
+import { IMappableService } from '@spinajs/di';
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import 'mocha';
@@ -8,6 +9,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { join, normalize } from 'path';
 import { DI } from '@spinajs/di';
 import { FrameworkConfiguration } from '../src/configuration';
+import { AutoinjectService } from './../src/decorators';
 import { Configuration } from '@spinajs/configuration-common';
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
@@ -222,5 +224,51 @@ describe('Configuration tests', () => {
     }).asValue('__configurationSchema__');
 
     expect(cfgNoApp()).to.be.rejected;
+  });
+
+  it('Should resolve array from AutoinjectService', async () => {
+    await cfgNoApp();
+
+    class Base implements IMappableService {
+      ServiceName: string;
+    }
+
+    class Serv1 extends Base {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      constructor(options: any) {
+        super();
+
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        this.ServiceName = options.name as string;
+      }
+    }
+
+    class Serv2 extends Base {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      constructor(options: any) {
+        super();
+
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        this.ServiceName = options.name as string;
+      }
+    }
+
+    DI.register(Serv1).as(Base);
+    DI.register(Serv2).as(Base);
+
+    class Serv3 {
+      @AutoinjectService('autoinject', Base)
+      public Services: Map<string, Base>;
+    }
+
+    const instance = DI.resolve(Serv3);
+
+    expect(instance.Services).to.be.not.null;
+    expect(instance.Services.get('serv1')).to.be.not.null;
+    expect(instance.Services.get('serv2')).to.be.not.null;
+
+    expect(instance.Services.get('serv1').constructor.name).to.eq('Serv1');
+    expect(instance.Services.get('serv2').constructor.name).to.eq('Serv2');
+
   });
 });

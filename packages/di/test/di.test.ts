@@ -110,14 +110,14 @@ class LazyInjectResolve {
 }
 
 abstract class SampleBaseClass {
-  public Name: string;
+  public ServiceName: string;
 }
 
 class SampleImplementation1 extends SampleBaseClass {
   constructor() {
     super();
 
-    this.Name = 'Sample1';
+    this.ServiceName = 'Sample1';
   }
 }
 
@@ -125,7 +125,7 @@ class SampleImplementation2 extends SampleBaseClass {
   constructor() {
     super();
 
-    this.Name = 'Sample2';
+    this.ServiceName = 'Sample2';
   }
 }
 
@@ -185,6 +185,9 @@ export function AutoinjectServiceArray(service: string[], type?: Class<unknown>)
       autoinjectKey: propertyKey,
       inject: t,
       data: service,
+      mapFunc: (x: any) => {
+        return x.Name || x.constructor.name;
+      },
       serviceFunc: (data: any[]) => {
         return data.map((x) => {
           return {
@@ -304,7 +307,7 @@ describe('Dependency injection', () => {
 
     class SampleMultipleAutoinject {
       @Autoinject(SampleBaseClass, {
-        mapFunc: (x) => x.Name,
+        mapFunc: (x) => x.ServiceName,
       })
       public Instances: Map<string, SampleBaseClass>;
     }
@@ -445,7 +448,7 @@ describe('Dependency injection', () => {
       constructor() {
         super();
 
-        this.Name = 'Sample1';
+        this.ServiceName = 'Sample1';
 
         SampleImplementation1Single.CallCount++;
       }
@@ -458,7 +461,7 @@ describe('Dependency injection', () => {
       constructor() {
         super();
 
-        this.Name = 'Sample2';
+        this.ServiceName = 'Sample2';
 
         SampleImplementation2Single.CallCount++;
       }

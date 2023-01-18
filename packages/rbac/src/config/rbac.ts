@@ -33,7 +33,7 @@ module.exports = {
     connections: [
       {
         name: 'rbac-user-empty-queue',
-        transport: 'BlackHoleQueueClient',
+        service: 'BlackHoleQueueClient',
         defaultQueueChannel: 'rbac-jobs',
         defaultTopicChannel: 'rbac-events',
       },

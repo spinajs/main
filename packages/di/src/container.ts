@@ -492,6 +492,7 @@ export class Container extends EventEmitter implements IContainer {
               options: x.options,
             };
           });
+          
         } else {
           tInject = {
             type: types.find((t) => t.name === services.service),
@@ -502,16 +503,14 @@ export class Container extends EventEmitter implements IContainer {
 
       let promiseOrVal = null;
       if (isArray(tInject)) {
-        const pVals = tInject.map((x) => this.resolve(t.inject as any, [t.options ?? x.options], false, x.type));
+        const pVals = tInject.map((x) => this.resolve(x.type as any, [t.options ?? x.options], false, x.type));
         if (pVals.some((x) => isPromise(x))) {
           promiseOrVal = Promise.all(pVals);
         } else {
           promiseOrVal = pVals;
         }
-
-        t.mapFunc = (x) => (x as any).Name || x.constructor.name;
       } else {
-        promiseOrVal = this.resolve(t.inject as any, [t.options ?? tInject?.options], false, tInject?.type);
+        promiseOrVal = this.resolve(tInject?.type as any ?? t.inject, [t.options ?? tInject?.options], false, tInject?.type);
       }
 
       if (promiseOrVal instanceof Promise) {

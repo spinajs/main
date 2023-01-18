@@ -1,7 +1,7 @@
 import { isArray, isString } from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
-import { AddDependency, Class, DI, IContainer, IInjectDescriptor } from '@spinajs/di';
+import { AddDependency, Class, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
 
 /**
  * Injects configuration value to given class property
@@ -53,6 +53,10 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
       autoinjectKey: propertyKey,
       inject: t,
       data: path,
+      mapFunc: (x: IMappableService) => {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
+        return x.ServiceName || x.constructor.name;
+      },
       serviceFunc: (path: string, container: IContainer) => {
         const cfg = container.get(Configuration);
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment

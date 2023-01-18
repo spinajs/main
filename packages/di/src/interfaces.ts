@@ -123,7 +123,11 @@ export interface IToInject<T> {
    * and allows to use @AutoinjectService() decorator
    */
   serviceFunc?: (data: string | any[], container: IContainer) => IServiceFuncResult | IServiceFuncResult[];
-  mapFunc?: (x: unknown) => string;
+  mapFunc?: (x: IMappableService) => string;
+}
+
+export interface IMappableService {
+  ServiceName: string;
 }
 
 export interface IServiceFuncResult {
@@ -183,7 +187,7 @@ export abstract class Bootstrapper {
   public abstract bootstrap(): Promise<void> | void;
 }
 
-export interface IAutoinjectOptions<T> {
-  mapFunc?: (x: T) => string;
+export interface IAutoinjectOptions {
+  mapFunc?: (x: IMappableService) => string;
   options?: any;
 }
