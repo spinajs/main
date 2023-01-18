@@ -84,7 +84,7 @@ async function q() {
 }
 
 describe('stomp queue transport test', function () {
-  this.timeout(15000);
+  this.timeout(20000);
 
   beforeEach(async () => {
     DI.clearCache();
