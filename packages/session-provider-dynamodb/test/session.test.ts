@@ -61,7 +61,9 @@ async function session() {
   return DI.resolve(DynamoDbSessionProvider);
 }
 
-describe('dynamodb session provider', () => {
+describe('dynamodb session provider', function () {
+  this.timeout(10000);
+
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
