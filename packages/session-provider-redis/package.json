@@ -5,8 +5,8 @@
   "main": "lib/index.js",
   "private": false,
   "scripts": {
-    "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views && cpx src/static/**/* lib/static",
-    "compile": "tsc -pkw tsconfig.build.json",
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -p tsconfig.build.json",
     "clean": "",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
@@ -50,5 +50,5 @@
     "@spinajs/internal-logger": "^2.0.44",
     "@spinajs/log": "^2.0.44"
   },
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+  "gitHead": "027c4862bbc97c4dd4f8e468a712b804c80b07f9"
 }
