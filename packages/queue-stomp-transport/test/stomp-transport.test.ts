@@ -99,6 +99,10 @@ describe('stomp queue transport test', function () {
     }
   });
 
+  after(() => {
+    process.exit(0);
+  });
+
   it('Should connect to queue server', async () => {
     await q();
   });
