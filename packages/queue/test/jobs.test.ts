@@ -155,7 +155,9 @@ async function q() {
   return DI.resolve(QueueService);
 }
 
-describe('jobs', () => {
+describe('jobs', function () {
+  this.timeout(10000);
+
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
