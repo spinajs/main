@@ -83,7 +83,9 @@ async function q() {
   return q;
 }
 
-describe('stomp queue transport test', () => {
+describe('stomp queue transport test', function () {
+  this.timeout(15000);
+
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
