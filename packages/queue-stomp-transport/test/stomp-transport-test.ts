@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { StompQueueClient } from './../src';
+import { StompQueueClient } from '../src';
 import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import * as chai from 'chai';
