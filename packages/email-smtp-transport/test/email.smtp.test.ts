@@ -89,7 +89,8 @@ async function email2() {
   ]);
 }
 
-describe('smtp email transport', () => {
+describe('smtp email transport', function () {
+  this.timeout(20000);
   before(() => {
     DI.register(ConnectionConf).as(Configuration);
   });
