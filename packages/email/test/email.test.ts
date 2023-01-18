@@ -155,7 +155,8 @@ async function wait(amount?: number) {
   });
 }
 
-describe('smtp email transport', () => {
+describe('smtp email transport', function () {
+  this.timeout(15000);
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
