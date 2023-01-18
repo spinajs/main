@@ -45,12 +45,11 @@
     "@spinajs/intl-orm": "^2.0.44",
     "@spinajs/log": "^2.0.44",
     "@spinajs/orm": "^2.0.44",
-    "@spinajs/rbac-http": "^2.0.44",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1"
   },
   "devDependencies": {
     "@spinajs/orm-sqlite": "^2.0.44"
   },
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+  "gitHead": "b0f038aa2814b69b242ab9a277b26d73d39544d2"
 }

@@ -38,7 +38,6 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/email-smtp-transport": "^2.0.44",
     "@spinajs/queue-stomp-transport": "^2.0.38",
     "@spinajs/templates-handlebars": "^2.0.44",
     "@spinajs/templates-pug": "^2.0.44",
