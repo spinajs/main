@@ -18,6 +18,9 @@ export class Test extends ModelBase {
   @BelongsTo(Belongs)
   public Belongs: SingleRelation<Belongs>;
 
-  @HasMany(Test2, 'test_id', 'Id')
-  public TestsTwos: Relation<Test2>;
+  @HasMany(Test2, {
+    foreignKey: 'test_id',
+    primaryKey: 'Id',
+  })
+  public TestsTwos: Relation<Test2, Test>;
 }

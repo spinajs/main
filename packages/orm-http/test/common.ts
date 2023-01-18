@@ -4,6 +4,9 @@ import { join, normalize, resolve } from 'path';
 import * as _ from 'lodash';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
+
+import './migrations/Test_2022_06_28_01_13_00';
+
 const express = require('express');
 
 chai.use(chaiHttp);
@@ -30,6 +33,16 @@ export class TestConfiguration extends FrameworkConfiguration {
         dirs: {
           controllers: [dir('./../src/controllers'), dir('./controllers')],
         },
+      },
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+          },
+        ],
+
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       http: {
         middlewares: [
