@@ -1,5 +1,5 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
-import { Constructor, DI, Injectable } from '@spinajs/di';
+import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces';
 import { JobModel } from './models/JobModel';
@@ -89,6 +89,11 @@ export class DefaultQueueService extends QueueService {
 
     for (let c of connections) {
       const conn = this.Connections.get(c);
+
+      if (!conn) {
+        throw new ServiceNotFound(`Queue connection ${c} not found. Please check your configuration before consuming events from this connection.`);
+      }
+
       await conn.subscribe(
         event,
         async (e) => {
@@ -106,10 +111,10 @@ export class DefaultQueueService extends QueueService {
               jModel.Status = 'executing';
               jModel.ExecutedAt = DateTime.now();
 
-              // update executing state
-              await jModel.update();
-
               try {
+                // update executing state
+                await jModel.update();
+
                 jobResult = await ev.execute(onProgress);
 
                 jModel.Result = jobResult;

@@ -269,6 +269,5 @@ describe('Configuration tests', () => {
 
     expect(instance.Services.get('serv1').constructor.name).to.eq('Serv1');
     expect(instance.Services.get('serv2').constructor.name).to.eq('Serv2');
-
   });
 });

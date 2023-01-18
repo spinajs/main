@@ -183,8 +183,8 @@ describe('jobs', () => {
     const sExecute = sinon.spy(SampleJob.prototype, 'execute');
 
     await queue.consume(SampleJob);
-
     await SampleJob.emit({ Foo: 'test job' });
+
     await wait(QUEUE_WAIT_TIME_MS);
 
     expect(sExecute.calledOnce).to.be.true;

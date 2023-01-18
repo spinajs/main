@@ -34,6 +34,6 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
       return null;
     }
 
-    return DateTime.fromISO(value);
+    return DateTime.fromSQL(value);
   }
 }
