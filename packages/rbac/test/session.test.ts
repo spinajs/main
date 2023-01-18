@@ -2,7 +2,7 @@ import { DI } from '@spinajs/di';
 import { MemorySessionStore, SessionProvider, Session } from '../src';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
-import { TestConfiguration } from './common';
+import { TestConfiguration } from './common.test';
 
 describe('Session provider tests', () => {
   before(async () => {

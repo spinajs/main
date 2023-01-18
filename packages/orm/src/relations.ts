@@ -1,10 +1,11 @@
 /* eslint-disable prettier/prettier */
-import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, ForwardRefFunction, IBuilderMiddleware } from './interfaces';
-import { NewInstance, DI, Constructor } from '@spinajs/di';
-import { SelectQueryBuilder, DeleteQueryBuilder } from './builders';
+import { NewInstance, DI, Constructor, isConstructor } from '@spinajs/di';
+import { SelectQueryBuilder } from './builders';
 import { createQuery, extractModelDescriptor, IModelBase, ModelBase } from './model';
 import { Orm } from './orm';
+import { OrmDriver } from './driver';
 import * as _ from 'lodash';
 
 export interface IOrmRelation {
@@ -570,15 +571,25 @@ export abstract class Relation<R extends ModelBase, O extends ModelBase> extends
 
   public Populated: boolean = false;
 
-  constructor(protected owner: O, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, objects?: R[]) {
+  protected Driver: OrmDriver;
+
+  protected IsModelAForwardRef: boolean;
+
+  constructor(protected owner: O, protected Model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, objects?: R[]) {
     super();
 
     if (objects) {
       this.push(...objects);
     }
 
-    this.TargetModelDescriptor = extractModelDescriptor(model);
+    this.TargetModelDescriptor = extractModelDescriptor(Model);
     this.Orm = DI.get(Orm);
+
+    if (this.TargetModelDescriptor) {
+      this.Driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
+    }
+
+    this.IsModelAForwardRef = !isConstructor(this.Model);
   }
 
   /**
@@ -607,13 +618,43 @@ export abstract class Relation<R extends ModelBase, O extends ModelBase> extends
     this.length = 0;
   }
 
-  public abstract intersection(obj: R[], callback?: (a: R, b: R) => boolean): Promise<void>;
-  public abstract union(obj: R[], mode?: InsertBehaviour): Promise<void>;
-  public abstract diff(obj: R[], callback?: (a: R, b: R) => boolean): Promise<void>;
-  public abstract set(obj: R[]): Promise<void>;
+  /**
+   *
+   * Calculates intersection between data in this relation and provided dataset
+   * It saves result to db
+   *
+   * @param dataset - dataset to compare
+   * @param callback - function to compare models, if not set it is compared by primary key value
+   */
+  public abstract intersection(dataset: R[], callback?: (a: R, b: R) => boolean): Promise<void>;
 
   /**
-   * Populates this relation
+   * Adds all items to this relation & adds to database
+   *
+   * @param dataset - data to add
+   * @param mode - insert mode
+   */
+  public abstract union(dataset: R[], mode?: InsertBehaviour): Promise<void>;
+
+  /**
+   *
+   * Calculates difference between data in this relation and provides set. Result is saved to db.
+   *
+   * @param dataset - data to compare
+   * @param callback - function to compare objects, if none provideded - primary key value is used
+   */
+  public abstract diff(dataset: R[], callback?: (a: R, b: R) => boolean): Promise<void>;
+
+  /**
+   *
+   * Clears data and replace it with new dataset.
+   *
+   * @param dataset - data for replace.
+   */
+  public abstract set(dataset: R[]): Promise<void>;
+
+  /**
+   * Populates this relation ( loads all data related to owner of this relation)
    */
   public async populate(callback?: (this: SelectQueryBuilder<this>) => void): Promise<void> {
     const query = (this.Relation.TargetModel as any).where(this.Relation.ForeignKey, this.owner.PrimaryKeyValue);
@@ -651,19 +692,18 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   public async remove(obj: T | T[]): Promise<void> {
     const self = this;
     const data = (Array.isArray(obj) ? obj : [obj]).map((d) => (d as ModelBase).PrimaryKeyValue);
-    const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
     const jmodelDescriptor = extractModelDescriptor(this.Relation.JunctionModel);
 
-    if (!driver) {
-      throw new InvalidArgument(`connection ${this.TargetModelDescriptor.Connection} not exists`);
-    }
-
-    const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.JunctionModel])
+    const query = this.Driver.del()
       .from(jmodelDescriptor.TableName)
       .where(function () {
         this.whereIn(self.Relation.JunctionModelTargetModelFKey_Name, data);
         this.andWhere(self.Relation.JunctionModelSourceModelFKey_Name, self.owner.PrimaryKeyValue);
       });
+
+    if (this.Driver.Options.Database) {
+      query.database(this.Driver.Options.Database);
+    }
 
     await query;
 
@@ -689,104 +729,68 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
 }
 
 export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
-  public async diff(obj: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
-    const result = callback ? _.differenceWith(obj, [...this], callback) : _.differenceBy(obj, [...this], this.TargetModelDescriptor.PrimaryKey);
-    const result2 = callback ? _.differenceWith([...this], obj, callback) : _.differenceBy([...this], obj, this.TargetModelDescriptor.PrimaryKey);
-    const finalDiff = [...result, ...result2];
+  protected async deleteRelationData(data: T[]) {
+    if (data.length === 0) {
+      return;
+    }
 
     const self = this;
-    const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
-    const relData = finalDiff.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
 
-    const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
-      if (relData.length !== 0) {
-        this.whereNotIn(self.Relation.PrimaryKey, relData);
-      }
+    const query = this.Driver.del()
+      .from(this.TargetModelDescriptor.TableName)
+      .andWhere(function () {
+        this.whereNotIn(
+          self.Relation.PrimaryKey,
+          data.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
+        );
+        this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
+      });
 
-      this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
-    });
-
-    query.setTable(this.TargetModelDescriptor.TableName);
-
-    if (driver.Options.Database) {
-      query.database(driver.Options.Database);
+    if (this.Driver.Options.Database) {
+      query.database(this.Driver.Options.Database);
     }
 
     await query;
-    this.empty();
 
-    await this.add(finalDiff), InsertBehaviour.InsertOrUpdate;
+    this.empty();
+  }
+
+  public async diff(dataset: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
+    // calculate difference between this data in relation and dataset ( objects from this relation)
+    const result = callback ? _.differenceWith(dataset, [...this], callback) : _.differenceBy(dataset, [...this], this.TargetModelDescriptor.PrimaryKey);
+
+    // calculate difference between dataset and data in this relation ( objects from dataset )
+    const result2 = callback ? _.differenceWith([...this], dataset, callback) : _.differenceBy([...this], dataset, this.TargetModelDescriptor.PrimaryKey);
+
+    // combine difference from two sets
+    const finalDiff = [...result, ...result2];
+
+    await this.deleteRelationData(finalDiff);
+    await this.add(finalDiff, InsertBehaviour.InsertOrUpdate);
   }
 
   public async set(obj: T[]): Promise<void> {
-    const self = this;
-    const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
-    const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
-      const relData = obj.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
-
-      if (relData.length !== 0) {
-        this.whereNotIn(self.Relation.PrimaryKey, relData);
-      }
-      this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
-    });
-
-    query.setTable(this.TargetModelDescriptor.TableName);
-
-    if (driver.Options.Database) {
-      query.database(driver.Options.Database);
-    }
-
-    await query;
-
-    this.empty();
-
+    await this.deleteRelationData(obj);
     await this.add(obj, InsertBehaviour.InsertOrUpdate);
   }
 
   public async intersection(obj: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
-    const self = this;
     const result = callback ? _.intersectionWith(obj, [...this], callback) : _.intersectionBy(obj, [...this], this.TargetModelDescriptor.PrimaryKey);
-    const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
-
-    const query = driver.Container.resolve(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).andWhere(function () {
-      const relData = result.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
-      if (relData.length !== 0) {
-        this.whereNotIn(self.Relation.PrimaryKey, relData);
-      }
-
-      this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
-    });
-
-    query.setTable(this.TargetModelDescriptor.TableName);
-
-    if (driver.Options.Database) {
-      query.database(driver.Options.Database);
-    }
-
-    await query;
-    this.empty();
-
+    await this.deleteRelationData(result);
     await this.add(result, InsertBehaviour.InsertOrUpdate);
   }
 
   public async union(obj: T[], mode?: InsertBehaviour): Promise<void> {
-    await this.add(obj, mode);
+    await this.add(obj, mode ?? InsertBehaviour.InsertOrIgnore);
   }
 
   public async remove(obj: T | T[]): Promise<void> {
     const data = (Array.isArray(obj) ? obj : [obj]).map((d) => (d as ModelBase).PrimaryKeyValue);
-    const driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
 
-    if (!driver) {
-      throw new InvalidArgument(`connection ${this.TargetModelDescriptor.Connection} not exists`);
-    }
+    const query = this.Driver.del().whereIn(this.Relation.ForeignKey, data).setTable(this.TargetModelDescriptor.TableName);
 
-    const query = driver.Container.resolve<DeleteQueryBuilder<T>>(DeleteQueryBuilder, [driver, this.Relation.TargetModel]).whereIn(this.Relation.ForeignKey, data);
-
-    query.setTable(this.TargetModelDescriptor.TableName);
-
-    if (driver.Options.Database) {
-      query.database(driver.Options.Database);
+    if (this.Driver.Options.Database) {
+      query.database(this.Driver.Options.Database);
     }
 
     await query;
@@ -801,23 +805,19 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
         return x;
       }
 
-      if (_.isFunction(this.model)) {
-        return new (this.model())(x);
+      if (this.IsModelAForwardRef) {
+        new ((this.Model as Function)())(x);
       }
 
-      return new this.model(x);
+      return new (this.Model as Constructor<T>)(x);
     }) as T[];
 
     data.forEach((d) => {
       (d as any)[this.Relation.ForeignKey] = this.owner.PrimaryKeyValue;
     });
 
-    for (const m of data) {
-      if (m.PrimaryKeyValue) {
-        await m.update();
-      } else {
-        await m.insert(mode);
-      }
+    for (const m of tInsert) {
+      await m.insertOrUpdate(mode);
     }
 
     this.push(...tInsert);

@@ -475,14 +475,13 @@ export class ModelBase<M = unknown> implements IModelBase {
    * If model can be in achived state - sets archived at date and saves it to db
    */
   public async archive() {
-    const { query } = this.createUpdateQuery();
-
     if (this.ModelDescriptor.Archived) {
       (this as any)[this.ModelDescriptor.Archived.ArchivedAt] = DateTime.now();
     } else {
       throw new OrmException('archived at column not exists in model');
     }
 
+    const { query } = this.createUpdateQuery();
     await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
   }
 
@@ -527,6 +526,21 @@ export class ModelBase<M = unknown> implements IModelBase {
     query.middleware(iMidleware);
 
     return query.values(this.toSql());
+  }
+
+  /**
+   *
+   * Shorthand for inserting model when no primary key exists, or update
+   * its value in db if primary key is set
+   *
+   * @param insertBehaviour - insert mode
+   */
+  public async insertOrUpdate(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
+    if (this.PrimaryKeyValue) {
+      await this.update();
+    } else {
+      await this.insert(insertBehaviour);
+    }
   }
 
   /**

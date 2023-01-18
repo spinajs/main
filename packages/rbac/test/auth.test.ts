@@ -9,7 +9,7 @@ import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
-import { TestConfiguration } from './common';
+import { TestConfiguration } from './common.test';
 import { DateTime } from 'luxon';
 
 chai.use(chaiAsPromised);

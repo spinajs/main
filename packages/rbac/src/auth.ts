@@ -55,7 +55,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
     const valid = await this.PasswordProvider.verify(result.Password, password);
     if (!valid) {
       return {
-        User: result,
+        User: undefined,
         ...eInvalidCredentials,
       };
     }

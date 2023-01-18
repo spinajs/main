@@ -102,8 +102,10 @@ function UserMetadataRelationFactory(model: ModelBase<User>, desc: IRelationDesc
         })
           .first()
           .then((res) => {
-            // add to this repo for cache
-            target.add(res);
+            if (res) {
+              // add to this repo for cache
+              target.push(res);
+            }
             return res;
           });
       }

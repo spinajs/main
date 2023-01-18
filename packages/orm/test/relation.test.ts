@@ -1001,7 +1001,9 @@ describe('Orm relations tests', () => {
     callback.restore();
   });
 
-  it('Setting Id for relation owner should set foreign key', () => {
+  it('Setting Id for relation owner should set foreign key', async () => {
+    await db();
+
     const m = new ModelNested1();
     const m2 = new ModelNested2();
     m.HasMany1.push(m2);
@@ -1092,7 +1094,7 @@ describe('Orm relations tests', () => {
     callback.restore();
   });
 
-  it('should find diff', async () => {
+  it('should find diff  in oneToMany', async () => {
     await db();
 
     const setA = new OneToManyRelationList(
@@ -1131,10 +1133,9 @@ describe('Orm relations tests', () => {
     expect(setA[0].Id).to.eq(3);
     expect(setA[1].Id).to.eq(4);
     expect(setA[2].Id).to.eq(2);
-
   });
 
-  it('should set', async () => {
+  it('should set  in oneToMany', async () => {
     await db();
 
     const setA = new OneToManyRelationList(
@@ -1175,7 +1176,7 @@ describe('Orm relations tests', () => {
     expect(setA[2].Id).to.eq(4);
   });
 
-  it('should find intersection', async () => {
+  it('should find intersection in oneToMany', async () => {
     await db();
 
     const setA = new OneToManyRelationList(
@@ -1212,5 +1213,47 @@ describe('Orm relations tests', () => {
     await setA.intersection(setB);
     expect(setA.length).to.eq(1);
     expect(setA[0].Id).to.eq(1);
+  });
+
+  it('Should union two relations  in oneToMany', async () => {
+    await db();
+
+    const setA = new OneToManyRelationList(
+      new Model1({ Id: 1 }),
+      Model1,
+      {
+        TargetModel: Model1,
+        TargetModelType: Model1,
+        Name: 'Translations',
+        Type: RelationType.Many,
+        SourceModel: null,
+        ForeignKey: 'IdA',
+        PrimaryKey: 'Id',
+        Recursive: false,
+      },
+      [new Model1({ Id: 1 }), new Model1({ Id: 2 })],
+    );
+    const setB = new OneToManyRelationList(
+      new Model1({ Id: 1 }),
+      Model1,
+      {
+        TargetModel: Model1,
+        TargetModelType: Model1,
+        Name: 'Translations',
+        Type: RelationType.Many,
+        SourceModel: null,
+        ForeignKey: 'IdA',
+        PrimaryKey: 'Id',
+        Recursive: false,
+      },
+      [new Model1({ Id: 3 }), new Model1({ Id: 4 })],
+    );
+
+    await setA.union(setB);
+    expect(setA.length).to.eq(4);
+    expect(setA[0].Id).to.eq(1);
+    expect(setA[1].Id).to.eq(2);
+    expect(setA[2].Id).to.eq(3);
+    expect(setA[3].Id).to.eq(4);
   });
 });
