@@ -1,4 +1,3 @@
-import { ICompilerOutput } from '@spinajs/orm';
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
@@ -9,7 +8,7 @@ import { TestMigration_2022_02_08_01_13_00 } from './migrations/TestMigration_20
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from './../src/index';
 import { DI } from '@spinajs/di';
-import { Orm, MigrationTransactionMode, Migration, OrmDriver, OrmMigration, QueryContext, InsertBehaviour } from '@spinajs/orm';
+import { Orm, MigrationTransactionMode, Migration, ICompilerOutput, OrmDriver, OrmMigration, QueryContext, InsertBehaviour } from '@spinajs/orm';
 import * as _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -335,7 +334,7 @@ describe('Sqlite model functions', () => {
 
     const check = await TestOwned.getOrFail(1);
     await check.Owner.populate();
-     
+
     expect(check.Owner.Value.constructor.name).to.eq('TestModel');
     expect(check.Owner.Value.Id).to.eq(2);
   });

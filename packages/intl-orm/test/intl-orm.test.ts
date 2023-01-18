@@ -1,3 +1,4 @@
+import 'mocha';
 import { DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -8,10 +9,10 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { TestConfiguration } from './common';
 import { Test } from './models/Test';
-import '../src/index';
 import { DbTranslationSource } from '../src/index';
 import { AsyncLocalStorage } from 'async_hooks';
 import { Test2 } from './models/Test2';
+import '../src/index';
 
 chai.use(chaiAsPromised);
 
@@ -154,7 +155,6 @@ describe('ORM intl tests', () => {
 
     expect(result[0].Owner.Value.Text).to.eq('owner hello');
     expect(result[0].Owner.Value.Owner.Value.Text).to.eq('owner2 hello');
-
   });
 
   it('Should load translations for entity', async () => {

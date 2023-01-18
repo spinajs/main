@@ -11,12 +11,13 @@ export * from './migrations/IntlOrm_2022_06_28_01_13_00';
 export * from './models/IntlResource';
 export * from './models/IntlTranslation';
 
+const { SelectQueryBuilder: SQB } = require('@spinajs/orm');
+
 declare module '@spinajs/orm' {
-  interface ISelectBuilderExtensions<T = any> {
-    translate(lang: string): this;
+  interface SelectQueryBuilder<T> {
+    translate(lang: string): SelectQueryBuilder<T>;
     translated: boolean;
   }
-
   interface IColumnDescriptor {
     Translate: boolean;
   }
@@ -124,7 +125,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
   }
 }
 
-(SelectQueryBuilder.prototype as any)['translate'] = function (this: SelectQueryBuilder, lang: string) {
+(SQB.prototype as any)['translate'] = function (this: SelectQueryBuilder, lang: string) {
   /**
    * Cannot translate query that cames from translation middleware  !
    */
@@ -151,12 +152,12 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
 @Injectable(QueryMiddleware)
 export class IntlQueryMiddleware extends QueryMiddleware {
   afterQueryCreation(builder: QueryBuilder) {
-    if (builder instanceof SelectQueryBuilder && !builder.translated) {
+    if (builder instanceof SQB && !(builder as any).translated) {
       const lang = guessLanguage();
       const dLang = defaultLanguage();
 
       if (lang && dLang !== lang) {
-        builder.translate(lang);
+        (builder as any).translate(lang);
       }
     }
   }

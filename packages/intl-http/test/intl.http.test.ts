@@ -7,7 +7,7 @@ import { Controllers, HttpServer } from '@spinajs/http';
 import { Intl } from '@spinajs/intl';
 import sinon from 'sinon';
 import { req, TestConfiguration } from './common';
-import './../src';
+import '../src';
 
 describe('http & controller tests', function () {
   this.timeout(25000);

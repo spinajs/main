@@ -672,9 +672,10 @@ export interface IGroupByBuilder {
 }
 
 /**
- * Dummy interface for allowing to add extensions for builder via declaration merging & mixins
+ * Dummy abstract class for allowing to add extensions for builder via declaration merging & mixins
  */
-export interface ISelectBuilderExtensions {}
+//@ts-ignore
+export interface ISelectBuilderExtensions<T> {}
 
 export interface IJoinBuilder {
   JoinStatements: IQueryStatement[];
@@ -725,7 +726,7 @@ export interface IJoinBuilder {
   crossJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
 }
 
-export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {
+export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, PromiseLike<T> {
   min(column: string, as?: string): this;
   max(column: string, as?: string): this;
   count(column: string, as?: string): this;
