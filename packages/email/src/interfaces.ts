@@ -1,12 +1,20 @@
-import { AsyncService, Autoinject } from '@spinajs/di';
+import { AsyncService, Autoinject, IInstanceCheck, IMappableService } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { QueueService } from '@spinajs/queue';
 import { EmailSend } from './jobs/EmailSend';
-export abstract class EmailSender extends AsyncService {
+export abstract class EmailSender extends AsyncService implements IInstanceCheck, IMappableService {
   public Options: EmailConnectionOptions;
 
+  public get ServiceName() {
+    return this.Options.name;
+  }
+
   abstract send(email: IEmail): Promise<void>;
+
+  public __checkInstance__(creationOptions: any): boolean {
+    return this.Options.name === creationOptions[0].name;
+  }
 }
 
 export interface IEmailAttachement {

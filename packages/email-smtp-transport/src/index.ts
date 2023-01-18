@@ -1,5 +1,5 @@
 import { IOFail } from '@spinajs/exceptions';
-import { Autoinject, Injectable, PerInstanceCheck, IInstanceCheck } from '@spinajs/di';
+import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { IEmail, EmailSender, EmailConnectionOptions } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
@@ -10,7 +10,7 @@ import { AutoinjectService, Config } from '@spinajs/configuration';
 
 @Injectable(EmailSender)
 @PerInstanceCheck()
-export class EmailSenderSmtp extends EmailSender implements IInstanceCheck {
+export class EmailSenderSmtp extends EmailSender {
   @Logger('email')
   protected Log: Log;
 
@@ -25,16 +25,8 @@ export class EmailSenderSmtp extends EmailSender implements IInstanceCheck {
 
   protected Transporter: nodemailer.Transporter;
 
-  public get Name(): string {
-    return this.Options.name;
-  }
-
   constructor(public Options: EmailConnectionOptions) {
     super();
-  }
-
-  public __checkInstance__(creationOptions: any): boolean {
-    return this.Name === creationOptions[0].name;
   }
 
   public async resolve(): Promise<void> {
