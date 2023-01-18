@@ -59,7 +59,6 @@ export class InternalLogger extends Bootstrapper {
     } else {
       // if not wait for event to occur
       DI.once("di.resolved.Configuration", () => {
-        debugger;
         write();
       });
     }
