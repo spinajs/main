@@ -3,7 +3,7 @@ import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession';
 import { InsertBehaviour } from '@spinajs/orm';
-import { reviver, replacer } from '@spinajs/util';
+import { replacer } from '@spinajs/util';
 import { Config } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
@@ -45,10 +45,12 @@ export class DbSessionStore extends SessionProvider {
       return null;
     }
 
+    const sData = JSON.parse(session.Data);
+
     return new Session({
       SessionId: session.SessionId,
       Creation: session.CreatedAt,
-      Data: JSON.parse(session.Data, reviver),
+      Data: new Map(Object.entries(sData)),
       Expiration: session.Expiration,
     });
   }

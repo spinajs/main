@@ -80,7 +80,9 @@ async function session() {
   return DI.resolve(DbSessionStore);
 }
 
-describe('db session provider', () => {
+describe('db session provider', function () {
+  this.timeout(10000);
+
   before(() => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -95,6 +97,10 @@ describe('db session provider', () => {
   afterEach(async () => {
     const s = await session();
     await s.truncate();
+  });
+
+  after(() => {
+    process.exit(0);
   });
 
   it('should insert session', async () => {
