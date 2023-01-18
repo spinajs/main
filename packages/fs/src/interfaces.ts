@@ -1,5 +1,5 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
-import { AsyncService } from '@spinajs/di';
+import { AsyncService, IInstanceCheck, IMappableService } from '@spinajs/di';
 import { ReadStream, WriteStream } from 'fs';
 import { DateTime } from 'luxon';
 import { PassThrough } from 'stream';
@@ -30,7 +30,17 @@ export interface IZipResult {
   asBase64(): string;
 }
 
-export abstract class fs extends AsyncService {
+export abstract class fs extends AsyncService implements IMappableService, IInstanceCheck {
+  public get ServiceName() {
+    return this.Name;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public __checkInstance__(creationOptions: any): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    return this.Name === creationOptions[0].name;
+  }
+
   public abstract Name: string;
   public abstract download(path: string): Promise<string>;
   public abstract read(path: string, encoding: BufferEncoding): Promise<string | Buffer>;
@@ -48,7 +58,7 @@ export abstract class fs extends AsyncService {
   public abstract stat(path: string): Promise<IStat>;
   public abstract list(path: string): Promise<string[]>;
   public abstract tmppath(): string;
-
+  public abstract append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void>;
   /**
    *
    * Compress specified file or dir in provided path. If

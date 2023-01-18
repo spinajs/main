@@ -7,6 +7,7 @@ import { DI } from '@spinajs/di';
 import '../src';
 import servers from './config';
 import { EmailSenderSmtp } from '../src';
+import '@spinajs/fs';
 import { expect } from 'chai';
 import '@spinajs/templates-handlebars';
 import '@spinajs/templates-pug';

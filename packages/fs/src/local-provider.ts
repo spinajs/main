@@ -1,9 +1,9 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
 import { constants, createReadStream, createWriteStream, readFile, readFileSync } from 'fs';
-import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open } from 'node:fs/promises';
+import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open, appendFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
-import { IInstanceCheck, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IStat, IZipResult } from './interfaces';
 import { basename, join } from 'path';
 import { ILog, Logger } from '@spinajs/log';
@@ -24,7 +24,7 @@ export interface IFsLocalOptions {
  */
 @Injectable('fs')
 @PerInstanceCheck()
-export class fsNative extends fs implements IInstanceCheck {
+export class fsNative extends fs {
   @Logger('fs')
   protected Logger: ILog;
 
@@ -38,12 +38,6 @@ export class fsNative extends fs implements IInstanceCheck {
 
   constructor(public Options: IFsLocalOptions) {
     super();
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  public __checkInstance__(creationOptions: any): boolean {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    return this.Name === creationOptions[0].name;
   }
 
   public async resolve() {
@@ -101,6 +95,10 @@ export class fsNative extends fs implements IInstanceCheck {
   public async write(path: string, data: string | Buffer, encoding: BufferEncoding) {
     const fDesc = await open(this.resolvePath(path), 'w');
     return await fDesc.writeFile(data, { encoding });
+  }
+
+  public async append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
+    await appendFile(path, data, encoding);
   }
 
   public writeStream(path: string, encoding?: BufferEncoding) {

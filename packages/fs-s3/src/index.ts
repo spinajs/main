@@ -1,8 +1,9 @@
+/* eslint-disable promise/always-return */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable security/detect-non-literal-fs-filename */
-import { DI, IInstanceCheck, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { ILog, Logger } from '@spinajs/log';
 import { fs, IStat, IZipResult } from '@spinajs/fs';
 import * as AWS from 'aws-sdk';
@@ -30,7 +31,7 @@ export interface IS3Config {
  */
 @Injectable('fs')
 @PerInstanceCheck()
-export class fsS3 extends fs implements IInstanceCheck {
+export class fsS3 extends fs {
   @Logger('fs')
   protected Logger: ILog;
 
@@ -57,12 +58,6 @@ export class fsS3 extends fs implements IInstanceCheck {
 
   constructor(public Options: IS3Config) {
     super();
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  public __checkInstance__(creationOptions: any): boolean {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    return this.Name === creationOptions[0].name;
   }
 
   public async resolve() {
@@ -137,6 +132,43 @@ export class fsS3 extends fs implements IInstanceCheck {
       Body: data,
       ContentEncoding: encoding,
     }).promise();
+  }
+
+  public async append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
+    /**
+     * We cannot append to file in s3 directly,
+     * we have to download file firs, append locally, then upload again new file
+     */
+    const fLocal = await this.download(path);
+
+    await this.TempFs.append(fLocal, data, encoding);
+
+    const wStream = await this.writeStream(path, encoding);
+    const rStream = await this.TempFs.readStream(fLocal, encoding);
+
+    return new Promise((resolve, reject) => {
+      rStream
+        .pipe(wStream)
+        .on('end', () => {
+          this.TempFs.rm(fLocal)
+            .then(() => {
+              resolve();
+            })
+            .catch(() => {
+              resolve();
+            });
+        })
+        .on('error', (err) => {
+          // eslint-disable-next-line promise/no-promise-in-callback
+          this.TempFs.rm(fLocal)
+            .then(() => {
+              reject(err);
+            })
+            .catch(() => {
+              reject(err);
+            });
+        });
+    });
   }
 
   public async writeStream(path: string, encoding?: BufferEncoding) {
