@@ -2,7 +2,7 @@
 import { ModelNested1 } from './mocks/models/ModelNested1';
 import { RelationRecursive } from './mocks/models/RelationRecursive';
 import { ManyToManyRelation, OneToManyRelationList, SingleRelation } from './../src/relations';
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator } from './../src/hydrators';
+import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from './../src/hydrators';
 import { Model1 } from './mocks/models/Model1';
 import { MODEL_DESCTRIPTION_SYMBOL } from './../src/decorators';
 import { Configuration } from '@spinajs/configuration';
@@ -45,6 +45,7 @@ describe('Orm relations tests', () => {
     DI.register(NonDbPropertyHydrator).as(ModelHydrator);
     DI.register(OneToOneRelationHydrator).as(ModelHydrator);
     DI.register(JunctionModelPropertyHydrator).as(ModelHydrator);
+    DI.register(OneToManyRelationHydrator).as(ModelHydrator);
 
     DI.resolve<Orm>(Orm);
 
@@ -772,7 +773,7 @@ describe('Orm relations tests', () => {
       );
 
     const result = await RelationModel2.where({ Id: 1 }).populate('Many').first();
-    const dehydrated = result.dehydrate() as any;
+    const dehydrated = result.dehydrateWithRelations();
 
     expect(dehydrated).to.be.not.null;
     expect(dehydrated.Many.length).to.be.not.eq(0);
@@ -799,7 +800,7 @@ describe('Orm relations tests', () => {
     );
 
     const result = await RelationModel1.where({ Id: 1 }).populate('Owner').first();
-    const dehydrated = result.dehydrate() as any;
+    const dehydrated = result.dehydrateWithRelations();
 
     expect(dehydrated).to.be.not.null;
     expect(dehydrated.Owner).to.be.not.null;

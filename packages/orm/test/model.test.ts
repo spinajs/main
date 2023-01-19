@@ -19,8 +19,9 @@ import chaiSubset from 'chai-subset';
 import { RawModel } from './mocks/models/RawModel';
 import { Model, Connection } from '../src/decorators';
 import { ModelBase } from './../src/model';
-import { Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models';
+import { Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models';
 import { ModelWithScope, ModelWithScopeQueryScope } from './mocks/models/ModelWithScope';
+import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -150,6 +151,125 @@ describe('General model tests', () => {
     expect(result[0]).instanceOf(Model1);
   });
 
+  it('Dehyration works', async () => {
+    sinon.stub(FakeSqliteDriver.prototype, 'tableInfo').returns(
+      new Promise((res) => {
+        res([
+          {
+            Type: 'INT',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'INT(10)',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'Id',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: false,
+            Ignore: false,
+          },
+          {
+            Type: 'INT',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'INT(10)',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'OwnerId',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: false,
+            Ignore: false,
+          },
+        ]);
+      }),
+    );
+
+    const dehydrate = sinon.spy(StandardModelDehydrator.prototype, 'dehydrate');
+    await db();
+
+    const model = new Model1({
+      Id: 1,
+    });
+
+    model.Owner.attach(new Model4({ Id: 10 }));
+
+    const data = model.dehydrate();
+
+    expect(data).to.be.not.null;
+    expect(data.Id).to.eq(1);
+    expect((data as any)['Owner']).to.be.undefined;
+    expect(dehydrate.calledOnce).to.be.true;
+  });
+
+  it('Dehydration with relation works', async () => {
+    sinon.stub(FakeSqliteDriver.prototype, 'tableInfo').returns(
+      new Promise((res) => {
+        res([
+          {
+            Type: 'INT',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'INT(10)',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'Id',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: false,
+            Ignore: false,
+          },
+          {
+            Type: 'INT',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'INT(10)',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'OwnerId',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: false,
+            Ignore: false,
+          },
+        ]);
+      }),
+    );
+
+    const dehydrate = sinon.spy(StandardModelWithRelationsDehydrator.prototype, 'dehydrate');
+    await db();
+
+    const model = new Model1({
+      Id: 1,
+    });
+
+    model.Owner.attach(new Model4({ Id: 10 }));
+
+    const data = model.dehydrateWithRelations();
+
+    expect(data).to.be.not.null;
+    expect(data.Id).to.eq(1);
+    expect(data.Owner).to.be.not.null;
+    expect(data.Owner.Id).to.eq(10);
+    expect(dehydrate.calledTwice).to.be.true;
+  });
+
   it('Converter should be executed when dehydrated', async () => {
     sinon.stub(FakeSqliteDriver.prototype, 'tableInfo').returns(
       new Promise((res) => {
@@ -159,7 +279,7 @@ describe('General model tests', () => {
             MaxLength: 0,
             Comment: '',
             DefaultValue: null,
-            NativeType: 'INT',
+            NativeType: 'INT(10)',
             Unsigned: false,
             Nullable: true,
             PrimaryKey: true,

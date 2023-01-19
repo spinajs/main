@@ -3,8 +3,8 @@ import { Log } from '@spinajs/log';
 import { IColumnDescriptor, IDriverOptions, QueryContext } from './interfaces';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder } from './builders';
-import { ModelHydrator, DbPropertyHydrator, OneToOneRelationHydrator, NonDbPropertyHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from './hydrators';
-import { ModelDehydrator, StandardModelDehydrator } from './dehydrators';
+import './hydrators';
+import './dehydrators';
 
 export type TransactionCallback = (driver: OrmDriver) => Promise<any>;
 
@@ -66,16 +66,6 @@ export abstract class OrmDriver extends SyncService {
     this.Log.addVariable('orm-database', this.Options.Database);
 
     this.Container = this.RootContainer.child();
-
-    /**
-     * Hydrators are registered globally
-     */
-    DI.register(DbPropertyHydrator).as(ModelHydrator);
-    DI.register(NonDbPropertyHydrator).as(ModelHydrator);
-    DI.register(OneToOneRelationHydrator).as(ModelHydrator);
-    DI.register(OneToManyRelationHydrator).as(ModelHydrator);
-    DI.register(JunctionModelPropertyHydrator).as(ModelHydrator);
-    DI.register(StandardModelDehydrator).as(ModelDehydrator);
   }
 
   /**

@@ -10,7 +10,7 @@ import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQuerySt
 import { PartialModel, PickRelations, WhereFunction } from './types';
 import { OrmDriver } from './driver';
 import { ModelBase, extractModelDescriptor } from './model';
-import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, Relation } from './relations';
+import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations';
 import { Orm } from './orm';
 import { DateTime } from 'luxon';
 
@@ -590,7 +590,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._tableAlias = tableAlias;
   }
 
-  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialModel<T> | PickRelations<T, Relation<any, any>>, operator?: SqlOperator | any, value?: any): this {
+  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialModel<T> | PickRelations<T>, operator?: SqlOperator | any, value?: any): this {
     const self = this;
 
     // Support "where true || where false"

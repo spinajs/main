@@ -1,4 +1,4 @@
-import { PickRelations } from './types';
+import { ModelData, ModelDataWithRelationData, PickRelations } from './types';
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
 import { SordOrder } from './enums';
@@ -13,7 +13,7 @@ import { ModelHydrator } from './hydrators';
 import * as _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { OrmException } from './exceptions';
-import { ModelDehydrator } from './dehydrators';
+import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './dehydrators';
 import { Wrap } from './statements';
 import { DateTime } from 'luxon';
 import { OrmDriver } from './driver';
@@ -78,9 +78,20 @@ export interface IModelBase {
   attach(data: ModelBase): void;
 
   /**
-   * Extracts all data from model. It takes only properties that exists in DB
+   * Extracts all data from model. It takes only properties that exists in DB. Does not dehydrate related data.
+   *
+   * @param omit - fields to omit
    */
-  dehydrate(omit?: string[]): Partial<this>;
+  dehydrate(omit?: string[]): ModelData<this>;
+
+  /**
+   *
+   * Extracts all data from model with relation data. Relation data are dehydrated recursively.
+   *
+   * @param omit - fields to omit
+   */
+  dehydrateWithRelations(omit?: string[]): ModelDataWithRelationData<this>;
+
   /**
    * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
    */
@@ -90,6 +101,9 @@ export interface IModelBase {
    */
   archive(): Promise<void>;
 
+  /**
+   * Updates model to db
+   */
   update(): Promise<void>;
 
   /**
@@ -114,6 +128,9 @@ export interface IModelBase {
    */
   refresh(): Promise<void>;
 
+  /**
+   * Used for JSON serialization
+   */
   toJSON(): any;
 
   driver(): OrmDriver;
@@ -236,7 +253,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    * @param _data - data to insert
    */
-  public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | PickRelations<T, Relation<any, any>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, _insertBehaviour: InsertBehaviour = InsertBehaviour.None): InsertQueryBuilder {
+  public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | PickRelations<T> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, _insertBehaviour: InsertBehaviour = InsertBehaviour.None): InsertQueryBuilder {
     throw new Error('Not implemented');
   }
 
@@ -248,13 +265,13 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param value - value to compare
    */
   public static where<T extends typeof ModelBase>(this: T, val: boolean): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, val: Partial<InstanceType<T>> | PickRelations<T, Relation<any, any>>): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, val: Partial<InstanceType<T>> | PickRelations<T>): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, func: WhereFunction<InstanceType<T>>): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, column: string, value: any): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
   public static where<T extends typeof ModelBase>(this: T, statement: Wrap): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T, Relation<any, any>>, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T, Relation<any, any>>, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
+  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T>, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T>, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
     throw new Error('Not implemented');
   }
 
@@ -434,8 +451,18 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Extracts all data from model. It takes only properties that exists in DB
    */
-  public dehydrate(omit?: string[]): Partial<this> {
-    return this.Container.resolve(ModelDehydrator).dehydrate(this, [...(omit ?? []), ...this._hidden]);
+  public dehydrate(omit?: string[]): ModelData<this> {
+    return this.Container.resolve(StandardModelDehydrator).dehydrate(this, [...(omit ?? []), ...this._hidden]) as ModelData<this>;
+  }
+
+  /**
+   *
+   * Extracts all data from model with relation data. Relation data are dehydrated recursively.
+   *
+   * @param omit - fields to omit
+   */
+  dehydrateWithRelations(omit?: string[]): ModelDataWithRelationData<this> {
+    return this.Container.resolve(StandardModelWithRelationsDehydrator).dehydrate(this, [...(omit ?? []), ...this._hidden]) as ModelDataWithRelationData<this>;
   }
 
   public toSql(): Partial<this> {
