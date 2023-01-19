@@ -1,5 +1,5 @@
 {
-  "version": "2.0.44",
+  "version": "2.0.45",
   "description": "Log lib for all spinejs related libs",
   "main": "lib/index.js",
   "private": false,
@@ -41,10 +41,10 @@
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "dependencies": {
-    "@spinajs/configuration-common": "^2.0.44",
-    "@spinajs/di": "^2.0.44",
-    "@spinajs/log": "^2.0.44",
-    "@spinajs/log-common": "^2.0.44",
+    "@spinajs/configuration-common": "^2.0.45",
+    "@spinajs/di": "^2.0.45",
+    "@spinajs/log": "^2.0.45",
+    "@spinajs/log-common": "^2.0.45",
     "axios": "^1.2.2",
     "lodash": "^4.17.21"
   }
