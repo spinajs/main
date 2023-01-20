@@ -336,7 +336,7 @@ export class Orm extends AsyncService {
       const migrationTableName = cn.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
       if (!cn.Options.Migration?.OnStartup) {
         if (!force) {
-          this.Log.warn(`Migration for connection ${md.Connection} is disabled on startup, please check conf file for db.migration.OnStartup property`);
+          this.Log.warn(`Migration for connection ${md.Connection} is disabled on startup, please check conf file for db.[connection].migration.OnStartup property`);
           continue;
         }
       }
@@ -362,6 +362,12 @@ export class Orm extends AsyncService {
 
         await callback(migration, cn);
       }
+    }
+  }
+
+  public async dispose(): Promise<void> {
+    for (const [, value] of this.Connections) {
+      await value.disconnect();
     }
   }
 }

@@ -8,7 +8,7 @@ import 'mocha';
 import { Orm } from '../src/orm';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler, FakeColumnQueryCompiler, mergeArrays, FakeTableExistsCompiler } from './misc';
 import * as sinon from 'sinon';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableExistsCompiler, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode } from '../src';
+import { ModelToSqlConverter, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableExistsCompiler, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter } from '../src';
 import { Migration1_2021_12_01_12_00_00, Migration2_2021_12_02_12_00_00 } from './mocks/migrations';
 import { OrmDriver } from '../src/driver';
 
@@ -34,6 +34,8 @@ describe('Orm migrations', () => {
 
     DI.register(DbPropertyHydrator).as(ModelHydrator);
     DI.register(NonDbPropertyHydrator).as(ModelHydrator);
+    DI.register(StandardModelToSqlConverter).as(ModelToSqlConverter);
+    DI.register(StandardObjectToSqlConverter).as(ObjectToSqlConverter);
   });
 
   afterEach(async () => {

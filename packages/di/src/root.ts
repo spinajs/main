@@ -86,6 +86,10 @@ export function clearCache() {
   RootContainer.clearCache();
 }
 
+export async function dispose() {
+  await RootContainer.dispose();
+}
+
 /**
  * Register class/interface to DI root container. If
  * @param type - interface object to register

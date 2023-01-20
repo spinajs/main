@@ -3,18 +3,8 @@ import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 @Migration('sqlite')
-export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
+export class test_config_data_2022_02_08_01_13_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
-    // await connection.schema().createTable('configuration', (table) => {
-    //   table.int('Id').primaryKey().autoIncrement();
-    //   table.string('Slug', 64).notNull();
-    //   table.text('Value');
-    //   table.string('Group', 32);
-    //   table.enum('Type', ['int', 'float', 'string', 'json', 'date', 'datetime', 'time', 'boolean']);
-    // });
-
-    // await connection.index().unique().table('configuration').name('configuration_unique_slug').columns(['Slug']);
-
     await connection
       .insert()
       .values({
@@ -22,6 +12,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
         Value: 'text-value-1',
         Group: 'db-conf',
         Type: 'string',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -32,6 +24,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
         Value: 1,
         Group: 'db-conf',
         Type: 'int',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -42,6 +36,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
         Value: 10.4,
         Group: 'db-conf',
         Type: 'float',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -52,6 +48,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
         Value: JSON.stringify({ hello: 'world' }),
         Group: 'db-conf',
         Type: 'json',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -59,9 +57,11 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
       .insert()
       .values({
         Slug: 'config5',
-        Value: DateTime.now().toFormat('dd-MM-YYYY'),
+        Value: DateTime.now().toFormat('dd-MM-yyyy'),
         Group: 'db-conf',
         Type: 'date',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -72,6 +72,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
         Value: DateTime.now().toFormat('HH:mm:ss'),
         Group: 'db-conf',
         Type: 'time',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -82,6 +84,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
         Value: DateTime.now().toISO(),
         Group: 'db-conf',
         Type: 'datetime',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -92,6 +96,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
         Value: false,
         Group: 'db-conf',
         Type: 'boolean',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -102,6 +108,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
         Value: DateTime.now().toFormat('dd-MM-yyyy') + ';' + DateTime.now().toFormat('dd-MM-yyyy'),
         Group: 'db-conf',
         Type: 'date-range',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -112,6 +120,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
         Value: DateTime.now().toFormat('HH:mm:ss') + ';' + DateTime.now().toFormat('HH:mm:ss'),
         Group: 'db-conf',
         Type: 'time-range',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -122,6 +132,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
         Value: DateTime.now().toISO() + ';' + DateTime.now().toISO(),
         Group: 'db-conf',
         Type: 'datetime-range',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -135,19 +147,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
           oneOf: ['hello', 'world'],
         }),
         Type: 'oneOf',
-      })
-      .into('configuration');
-
-    await connection
-      .insert()
-      .values({
-        Slug: 'config12',
-        Value: 'hello2',
-        Group: 'db-conf',
-        Meta: JSON.stringify({
-          oneOf: ['hello', 'hello2', 'hello3'],
-        }),
-        Type: 'manyOf',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
 
@@ -155,6 +156,21 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
       .insert()
       .values({
         Slug: 'config13',
+        Value: '["hello2","hello3"]',
+        Group: 'db-conf',
+        Meta: JSON.stringify({
+          oneOf: ['hello', 'hello2', 'hello3'],
+        }),
+        Type: 'manyOf',
+        Exposed: true,
+        Watch: false,
+      })
+      .into('configuration');
+
+    await connection
+      .insert()
+      .values({
+        Slug: 'config14',
         Value: 1,
         Group: 'db-conf',
         Meta: JSON.stringify({
@@ -162,6 +178,8 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
           max: 2,
         }),
         Type: 'range',
+        Exposed: true,
+        Watch: false,
       })
       .into('configuration');
   }

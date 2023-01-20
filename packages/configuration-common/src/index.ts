@@ -103,6 +103,15 @@ export abstract class Configuration extends AsyncService {
    * Reload configuration from all avaible sources
    */
   public abstract reload(): Promise<void>;
+
+  /**
+   *
+   * Called after configuration reload.
+   * Use it to merge custom configuration in custom configuration module.
+   * Usefull when writting tests
+   *
+   */
+  protected abstract onReload(): unknown;
 }
 
 export abstract class ConfigurationSource {

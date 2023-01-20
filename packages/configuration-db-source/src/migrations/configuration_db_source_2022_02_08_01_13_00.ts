@@ -8,12 +8,14 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
       table.int('Id').primaryKey().autoIncrement();
       table.string('Slug', 64).notNull();
       table.text('Value');
-      table.boolean('Required').notNull();
+      table.boolean('Required').default().value(0);
+      table.boolean('Exposed').notNull().default().value(0);
+      table.boolean('Watch').notNull().default().value(0);
       table.string('Group', 32);
       table.string('Label', 64);
       table.string('Description', 256);
       table.text('Meta');
-      table.enum('Type', ['int', 'float', 'string', 'json', 'date', 'datetime', 'time', 'boolean', 'time-range', 'date-range', 'datetime-range', 'range', 'oneOf', 'manyOf']);
+      table.enum('Type', ['int', 'float', 'string', 'json', 'date', 'datetime', 'time', 'boolean', 'time-range', 'date-range', 'datetime-range', 'range', 'oneOf', 'manyOf']).notNull();
     });
 
     await connection.index().unique().table('configuration').name('configuration_unique_slug').columns(['Slug']);

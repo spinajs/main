@@ -10,7 +10,7 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 import { LogLevel } from '@spinajs/log-common';
 export * from './compilers';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ObjectToSqlConverter } from '@spinajs/orm';
 import { Database, RunResult } from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -19,6 +19,7 @@ import { ResourceDuplicated } from '@spinajs/exceptions';
 import { IIndexInfo, IIndexInfoList, ITableInfo } from './types';
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders';
+import { SqliteModelToSqlConverter, SqliteObjectToSqlConverter } from './converters';
 
 @Injectable('orm-driver-sqlite')
 @NewInstance()
@@ -146,6 +147,10 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public async disconnect(): Promise<OrmDriver> {
+    if (!this.Db) {
+      return;
+    }
+
     return new Promise((resolve, reject) => {
       this.Db.close((err: any) => {
         if (err) {
@@ -171,6 +176,8 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(SqlLiteDefaultValueBuilder).as(DefaultValueBuilder);
     this.Container.register(SqliteTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
+    this.Container.register(SqliteModelToSqlConverter).as(ModelToSqlConverter);
+    this.Container.register(SqliteObjectToSqlConverter).as(ObjectToSqlConverter);
   }
 
   public async transaction(qrOrCallback: QueryBuilder[] | TransactionCallback) {

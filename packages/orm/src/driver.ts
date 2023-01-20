@@ -1,8 +1,9 @@
 import { Log } from '@spinajs/log';
 /* eslint-disable prettier/prettier */
-import { IColumnDescriptor, IDriverOptions, QueryContext } from './interfaces';
+import { IColumnDescriptor, IDriverOptions, QueryContext, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder } from './builders';
+import { StandardModelToSqlConverter, StandardObjectToSqlConverter } from './converters';
 import './hydrators';
 import './dehydrators';
 
@@ -66,6 +67,9 @@ export abstract class OrmDriver extends SyncService {
     this.Log.addVariable('orm-database', this.Options.Database);
 
     this.Container = this.RootContainer.child();
+    this.Container.register(StandardModelToSqlConverter).as(ModelToSqlConverter);
+    this.Container.register(StandardObjectToSqlConverter).as(ObjectToSqlConverter);
+
   }
 
   /**

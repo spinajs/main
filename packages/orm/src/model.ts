@@ -3,7 +3,7 @@ import { ModelData, ModelDataWithRelationData, PickRelations } from './types';
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
 import { SordOrder } from './enums';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel } from './interfaces';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces';
 import { WhereFunction } from './types';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
 import { Op } from './enums';
@@ -466,26 +466,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   public toSql(): Partial<this> {
-    const obj = {};
-    const relArr = [...this.ModelDescriptor.Relations.values()];
-
-    this.ModelDescriptor.Columns?.forEach((c) => {
-      const val = (this as any)[c.Name];
-      if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
-        throw new OrmException(`Field ${c.Name} cannot be null`);
-      }
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, this, this.ModelDescriptor.Converters.get(c.Name).Options) : val;
-    });
-
-    for (const val of relArr) {
-      if (val.Type === RelationType.One) {
-        if ((this as any)[val.Name].Value) {
-          (obj as any)[val.ForeignKey] = (this as any)[val.Name].Value.PrimaryKeyValue;
-        }
-      }
-    }
-
-    return obj;
+    return this.Container.resolve(ModelToSqlConverter).toSql(this) as Partial<this>;
   }
 
   /**
@@ -742,6 +723,7 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
     query: qr,
     description: dsc,
     model,
+    container: driver.Container,
   };
 }
 
@@ -795,7 +777,9 @@ export const MODEL_STATIC_MIXINS = {
    * Try to insert new value
    */
   async insert<T extends typeof ModelBase>(this: T, data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
-    const { query, description } = createQuery(this, InsertQueryBuilder);
+    const { query, description, container } = createQuery(this, InsertQueryBuilder);
+
+    const converter = container.resolve(ObjectToSqlConverter);
 
     if (Array.isArray(data)) {
       if (insertBehaviour !== InsertBehaviour.None) {
@@ -807,7 +791,7 @@ export const MODEL_STATIC_MIXINS = {
           if (d instanceof ModelBase) {
             return d.toSql();
           }
-          return d;
+          return converter.toSql(d);
         }),
       );
     } else {
@@ -826,7 +810,7 @@ export const MODEL_STATIC_MIXINS = {
       if (data instanceof ModelBase) {
         query.values(data.toSql());
       } else {
-        query.values(data);
+        query.values(converter.toSql(data));
       }
     }
 

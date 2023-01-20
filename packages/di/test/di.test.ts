@@ -2,7 +2,7 @@ import { IInstanceCheck } from './../src/interfaces';
 import { InvalidArgument } from '@spinajs/exceptions';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { mock } from 'sinon';
+import { mock, spy } from 'sinon';
 
 import 'mocha';
 import { Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, Singleton, IInjectDescriptor, AddDependency, Class, PerInstance, AsyncService, SyncService, PerInstanceCheck } from '../src';
@@ -1098,5 +1098,38 @@ describe('Dependency injection', () => {
 
     DI.resolve(TestClass);
     expect(targetMock.callCount).to.eq(4);
+  });
+
+  it('Should dispose sync service', async () => {
+    @Singleton()
+    class Foo extends SyncService {}
+
+    const dispose = spy(Foo.prototype, 'dispose');
+
+    DI.resolve(Foo);
+    await DI.dispose();
+
+    expect(dispose.calledOnce).to.be.true;
+  });
+
+  it('Should dispose async service', async () => {
+    @Singleton()
+    class Foo extends AsyncService {}
+
+    const dispose = spy(Foo.prototype, 'dispose');
+
+    await DI.resolve(Foo);
+    await DI.dispose();
+
+    expect(dispose.calledOnce).to.be.true;
+  });
+
+  it('Should emit event on dispose', async () => {
+    const dispose = mock();
+
+    DI.on('di.dispose', dispose);
+    await DI.dispose();
+
+    expect(dispose.calledOnce).to.be.true;
   });
 });

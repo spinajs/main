@@ -1,15 +1,19 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable security/detect-object-injection */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { InternalLogger } from '@spinajs/internal-logger';
 /* eslint-disable prettier/prettier */
 import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
-import { DI, NewInstance } from '@spinajs/di';
-import { IDriverOptions, OrmDriver } from '@spinajs/orm';
+import { DI, Injectable, Singleton } from '@spinajs/di';
+import { IDriverOptions, Orm, OrmDriver } from '@spinajs/orm';
 import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types';
 import * as _ from 'lodash';
-import { parse } from './models/DbConfigurationModel';
+import { parse } from './models/DbConfig';
 
-@NewInstance()
+@Singleton()
+@Injectable(ConfigurationSource)
 export class ConfiguratioDbSource extends ConfigurationSource {
   protected Connection: OrmDriver;
 
@@ -25,7 +29,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
   public async Load(configuration: Configuration): Promise<IConfigLike> {
     this.Configuration = configuration;
-    this.Options = this.Configuration.get('configuration-db-source', {
+    this.Options = this.Configuration.get('configuration_db_source', {
       connection: 'default',
       table: 'configuration',
     });
@@ -45,7 +49,8 @@ export class ConfiguratioDbSource extends ConfigurationSource {
   }
 
   protected async LoadConfigurationFromDB() {
-    const dbOptions = (await this.Connection.select().from(this.Options.table)) as IConfigurationEntry[];
+    const dbOptions = await this.Connection.select<IConfigurationEntry[]>().from(this.Options.table);
+
     dbOptions.forEach((entry) => {
       entry.Value = parse(entry.Value as unknown as string, entry.Type);
     });
@@ -80,8 +85,12 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
     InternalLogger.trace(`Using db connection ${dbConnection}`, 'Configuration-db-source');
 
-    // create raw connection to db
-    this.Connection = DI.resolve<OrmDriver>(cfgConnectionOptions.Driver, [cfgConnectionOptions]);
-    await this.Connection.connect();
+    // create or get connection
+    if (DI.has(Orm)) {
+      this.Connection = DI.get(Orm).Connections.get(dbConnection);
+    } else {
+      this.Connection = DI.resolve<OrmDriver>(cfgConnectionOptions.Driver, [cfgConnectionOptions]);
+      await this.Connection.connect();
+    }
   }
 }

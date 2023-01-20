@@ -6,6 +6,7 @@ import { Autoinject, Container, DI, IContainer, NewInstance, SyncService } from 
 import { ICommonTargetOptions, LogLevel, ILogOptions, ILogRule, ILogEntry, StrToLogLevel, LogVariables, createLogMessageObject, ILog, ILogTargetDesc, LogTarget } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
+import { InternalLoggerProxy } from "@spinajs/internal-logger";
 
 function wrapWrite(this: Log, level: LogLevel) {
   return (err: Error | string, message: string | any[], ...args: any[]) => {
@@ -26,13 +27,9 @@ function wrapWrite(this: Log, level: LogLevel) {
  */
 @NewInstance()
 export class Log extends SyncService implements ILog {
-  /**
-   *  STATIC METHODS FOR LOGGER, ALLOWS TO LOG TO ANY TARGET
-   *  EVEN BEFORE LOG MODULE INITIALIZATION.
-   *
-   *  Prevents from losing log message when initializing modules
-   */
   public static Loggers: Map<string, Log> = new Map();
+  public static InternalLoggers: Map<string, Log> = new Map();
+
   public Timers: Map<string, Date> = new Map<string, Date>();
   public Targets: ILogTargetDesc[];
 
@@ -212,6 +209,16 @@ export class Log extends SyncService implements ILog {
 const logFactoryFunction = (container: IContainer, logName: string) => {
   if (Log.Loggers.has(logName)) {
     return Log.Loggers.get(logName);
+  }
+
+  if (!DI.has(Configuration)) {
+    if (Log.InternalLoggers.has(logName)) {
+      return Log.InternalLoggers.get(logName);
+    }
+
+    const internalLogger = container.resolve(InternalLoggerProxy, [logName]);
+    Log.InternalLoggers.set(logName, this);
+    return internalLogger;
   }
 
   return container.resolve("__logImplementation__", [logName]);

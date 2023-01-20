@@ -53,5 +53,6 @@ export abstract class SqlDriver extends OrmDriver {
     this.Container.register(SqlDropEventQueryCompiler).as(DropEventQueryCompiler);
     this.Container.register(SqlEventQueryCompiler).as(EventQueryCompiler);
     this.Container.register(SqlTableHistoryQueryCompiler).as(TableHistoryQueryCompiler);
+ 
   }
 }

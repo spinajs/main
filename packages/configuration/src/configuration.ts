@@ -22,6 +22,7 @@ import config from './config/configuration';
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
+ 
   /**
    * Apps configuration base dir, where to look for app config
    */
@@ -129,6 +130,7 @@ export class FrameworkConfiguration extends Configuration {
      */
     this.loadSources();
     await this.reload();
+
     this.validate();
 
     /**
@@ -162,6 +164,8 @@ export class FrameworkConfiguration extends Configuration {
   public async reload() {
     this.Config = {};
 
+    _.mergeWith(this.Config, this.onReload(), mergeArrays);
+
     for (const source of this.Sources) {
       const rCfg = await source.Load(this);
 
@@ -171,8 +175,12 @@ export class FrameworkConfiguration extends Configuration {
     }
   }
 
+  protected onReload(): unknown {
+    return null;
+  }
+
   protected loadSources() {
-    this.Sources = this.Container.resolve<ConfigurationSource>(Array.ofType(ConfigurationSource), [
+    this.Sources = this.Container.resolve(Array.ofType(ConfigurationSource), [
       this.RunApp,
       this.CustomConfigPaths,
       this.AppBaseDir,
@@ -189,10 +197,21 @@ export class FrameworkConfiguration extends Configuration {
       const config = this.get(s.$configurationModule);
       const result = this.Validator.validate(s, config);
       if (!result) {
-        throw new InvalidConfiguration(
-          'invalid configuration ! Check config files and restart app.',
-          this.Validator.errors,
-        );
+        const error = new InvalidConfiguration('Validation error', this.Validator.errors);
+
+        this.Validator.errors.forEach((ve) => {
+          InternalLogger.error(
+            'Invalid configuration ! Message: %s, path: %s, keyword: %s, schemaPath: %s, configuration module: %s',
+            'Configuration',
+            ve.message,
+            ve.instancePath,
+            ve.keyword,
+            ve.schemaPath,
+            s.$configurationModule,
+          );
+        });
+
+        throw error;
       }
     });
   }

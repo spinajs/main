@@ -1,6 +1,6 @@
 const CONFIGURATION_SCHEMA = {
   $id: 'spinajs/configuration.db.source.schema.json',
-  $configurationModule: 'configuration-db-source',
+  $configurationModule: 'configuration_db_source',
   description: 'Configuration for cfg db source',
   type: 'object',
   properties: {

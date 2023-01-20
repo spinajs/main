@@ -14,13 +14,13 @@ export function Config(path: string, options?: IConfigEntryOptions) {
   return (target?: any, key?: string): any => {
     let config: Configuration = null;
 
+    // register conf, so we can expose eg. in db if config is set
+    DI.register({ path, options }).asValue('__configuration_property__');
+
     const getter = () => {
       if (!config) {
         config = DI.get(Configuration);
       }
-
-      // register conf, so we can expose eg. in db if config is set
-      DI.register({ path, options }).asValue('__configuration_property__');
 
       // try to return val
       return config.get(path, options ? options.defaultValue ?? undefined : undefined);

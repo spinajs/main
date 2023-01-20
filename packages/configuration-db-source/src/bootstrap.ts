@@ -1,16 +1,19 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/require-await */
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
-import { DbConfigurationModel } from './models/DbConfigurationModel';
+import { DbConfig } from './models/DbConfig';
 import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema';
-import { IConfigEntryOptions } from './types';
-import { Configuration, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
+import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
 import { InsertBehaviour } from '@spinajs/orm';
 import _ from 'lodash';
 
 /**
- * watch interval, default 5 min
+ * watch interval, default 3 min
  */
-const CONFIG_WATCH_TIMER_INTERVAL = 5 * 60 * 1000;
+const CONFIG_WATCH_TIMER_INTERVAL = 3 * 60 * 1000;
 
 @Injectable(Bootstrapper)
 export class DbConfigSourceBotstrapper extends Bootstrapper {
@@ -19,7 +22,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     DI.once('di.resolved.Orm', (container: IContainer) => {
       const vars = container
-        .get<{ path: string; options: IConfigEntryOptions & IConfigEntryOptionsCommon }[]>('__configuration_property__')
+        .get<{ path: string; options: IConfigEntryOptions & IConfigEntryOptionsCommon }>(Array.ofType('__configuration_property__'))
         .filter((x) => x.options)
         .filter((x) => x.options.expose);
 
@@ -28,42 +31,44 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
        */
       for (const v of vars) {
         if (v.options.expose) {
-          void DbConfigurationModel.insert(
+          void DbConfig.insert(
             {
               Slug: v.path,
               Value: v.options.defaultValue,
-              Group: v.options.exposeOptions.group,
-              Label: v.options.exposeOptions.label,
-              Description: v.options.exposeOptions.description,
-              Meta: v.options.exposeOptions.meta,
+              Group: v.options.exposeOptions?.group,
+              Label: v.options.exposeOptions?.label,
+              Description: v.options.exposeOptions?.description,
+              Meta: v.options.exposeOptions?.meta,
               Required: v.options.required,
-              Type: v.options.exposeOptions.type,
+              Type: v.options.exposeOptions?.type,
+              Watch: v.options.exposeOptions?.watch || false,
+              Exposed: true,
             },
             InsertBehaviour.InsertOrIgnore,
           );
         }
       }
+      const interval = DI.get('__config_watch_interval__');
 
       const watchTimer = setInterval(() => {
         const varsToWatch = vars.filter((x) => x.options.exposeOptions.watch);
         const cService = container.get(Configuration);
-
-        void DbConfigurationModel.query()
+        void DbConfig.query()
           .whereIn(
             'Slug',
             varsToWatch.map((x) => x.path),
           )
           .then((result: unknown) => {
-            (result as DbConfigurationModel[]).forEach((r) => {
-              const cfgVal = cService.get(r.Slug);
+            (result as DbConfig[]).forEach((r) => {
+              const cfgVal = cService.get(`${r.Group}.${r.Slug}`);
               if (!_.isEqual(cfgVal, r.Value)) {
-                cService.set(r.Slug, r.Value);
+                cService.set(`${r.Group}.${r.Slug}`, r.Value);
               }
             });
 
             return;
           });
-      }, CONFIG_WATCH_TIMER_INTERVAL);
+      }, (interval as any)?.value || CONFIG_WATCH_TIMER_INTERVAL);
 
       DI.once('di.dispose', () => {
         clearInterval(watchTimer);

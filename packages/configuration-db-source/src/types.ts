@@ -33,27 +33,29 @@ export interface IConfigurationEntryMeta {
   manyOf?: string[];
 }
 
-export interface IConfigEntryOptions {
-  /**
-   * Should value be exposed in db
-   */
-  expose?: boolean;
-
-  /**
-   * DB expose options
-   */
-  exposeOptions: {
-    slug?: string;
-    group?: string;
-    type?: ConfigurationEntryType;
-    meta?: IConfigurationEntryMeta;
-    description?: string;
-    label?: string;
+declare module '@spinajs/configuration-common' {
+  export interface IConfigEntryOptions {
+    /**
+     * Should value be exposed in db
+     */
+    expose?: boolean;
 
     /**
-     * Should we watch for config val change
-     * Usefull if we dont need to restart app when value changes
+     * DB expose options
      */
-    watch?: boolean;
-  };
+    exposeOptions?: {
+      slug?: string;
+      group?: string;
+      type: ConfigurationEntryType;
+      meta?: IConfigurationEntryMeta;
+      description?: string;
+      label?: string;
+
+      /**
+       * Should we watch for config val change
+       * Usefull if we dont need to restart app when value changes
+       */
+      watch?: boolean;
+    };
+  }
 }

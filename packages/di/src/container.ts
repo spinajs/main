@@ -71,8 +71,6 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     this.clearCache();
-    this.clearRegistry();
-
     this.emit('di.dispose');
   }
 

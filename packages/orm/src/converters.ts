@@ -1,6 +1,7 @@
 import _ from 'lodash';
 import { DateTime } from 'luxon';
-import { IUniversalConverterOptions, ValueConverter } from './interfaces';
+import { OrmException } from './exceptions';
+import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter } from './interfaces';
 import { ModelBase } from './model';
 
 /**
@@ -56,5 +57,36 @@ export class UniversalValueConverter extends ValueConverter {
       case 'json':
         return JSON.parse(value);
     }
+  }
+}
+
+export class StandardModelToSqlConverter extends ModelToSqlConverter {
+  public toSql(model: ModelBase<unknown>): unknown {
+    const obj = {};
+    const relArr = [...model.ModelDescriptor.Relations.values()];
+
+    model.ModelDescriptor.Columns?.forEach((c) => {
+      const val = (model as any)[c.Name];
+      if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
+        throw new OrmException(`Field ${c.Name} cannot be null`);
+      }
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, model.ModelDescriptor.Converters.get(c.Name).Options) : val;
+    });
+
+    for (const val of relArr) {
+      if (val.Type === RelationType.One) {
+        if ((model as any)[val.Name].Value) {
+          (obj as any)[val.ForeignKey] = (model as any)[val.Name].Value.PrimaryKeyValue;
+        }
+      }
+    }
+
+    return obj;
+  }
+}
+
+export class StandardObjectToSqlConverter extends ObjectToSqlConverter {
+  public toSql(model: unknown): unknown {
+    return model;
   }
 }

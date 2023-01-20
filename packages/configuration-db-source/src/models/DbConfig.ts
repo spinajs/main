@@ -10,7 +10,7 @@ import { ConfigurationEntryType, IConfigurationEntryMeta } from '../types';
 
 @Connection('default')
 @Model('configuration')
-export class DbConfigurationModel<T = unknown> extends ModelBase {
+export class DbConfig<T = unknown> extends ModelBase {
   @Primary()
   public Id: number;
 
@@ -30,6 +30,8 @@ export class DbConfigurationModel<T = unknown> extends ModelBase {
 
   public Type: ConfigurationEntryType;
 
+  public Watch: boolean;
+
   public hydrate(data: Partial<this>) {
     Object.assign(this, { ...data, Value: parse(data.Value as unknown as string, data.Type) });
   }
@@ -42,14 +44,10 @@ export class DbConfigurationModel<T = unknown> extends ModelBase {
   }
 
   private stringify(val: number | string | DateTime | boolean | unknown | DateTime[] | string[]) {
-    if (_.isString(val) || _.isNumber(val) || _.isBoolean(val)) {
-      return `${val}`;
-    }
-
     if (val instanceof DateTime) {
       switch (this.Type) {
         case 'date':
-          return val.toFormat('dd-MM-YYYY');
+          return val.toFormat('dd-MM-yyyy');
         case 'time':
           return val.toFormat('HH:mm:ss');
         case 'datetime':
@@ -60,12 +58,20 @@ export class DbConfigurationModel<T = unknown> extends ModelBase {
     if (_.isArray(val)) {
       switch (this.Type) {
         case 'date-range':
-          return val.map((x: DateTime) => x.toFormat('dd-MM-YYYY')).join(';');
+          return val.map((x: DateTime) => x.toFormat('dd-MM-yyyy')).join(';');
         case 'time-range':
           return val.map((x: DateTime) => x.toFormat('HH:mm:ss')).join(';');
         case 'datetime-range':
           return val.map((x: DateTime) => x.toISO()).join(';');
       }
+    }
+
+    if (this.Type === 'manyOf') {
+      return JSON.stringify(val);
+    }
+
+    if (_.isString(val) || _.isNumber(val) || _.isBoolean(val)) {
+      return `${val}`;
     }
 
     return JSON.stringify(val);
@@ -74,24 +80,28 @@ export class DbConfigurationModel<T = unknown> extends ModelBase {
 
 export function parse(input: string, type: string) {
   switch (type) {
+    case 'string':
+      return input;
+    case 'oneOf':
+      return input;
     case 'int':
     case 'float':
     case 'range':
       return Number(input);
     case 'boolean':
-      return input === 'true' ? true : false;
+      return input === '1' ? true : false;
     case 'datetime':
       return DateTime.fromISO(input);
     case 'time':
       return DateTime.fromFormat(input, 'HH:mm:ss');
     case 'date':
-      return DateTime.fromFormat(input, 'dd-MM-YYYY');
+      return DateTime.fromFormat(input, 'dd-MM-yyyy');
     case 'datetime-range':
       return input.split(';').map((x) => DateTime.fromISO(x));
     case 'time-range':
       return input.split(';').map((x) => DateTime.fromFormat(x, 'HH:mm:ss'));
     case 'date-range':
-      return input.split(';').map((x) => DateTime.fromFormat(x, 'dd-MM-YYYY'));
+      return input.split(';').map((x) => DateTime.fromFormat(x, 'dd-MM-yyyy'));
     default:
       return JSON.parse(input) as unknown;
   }

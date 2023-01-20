@@ -1002,3 +1002,11 @@ export interface IHistoricalModel {
   readonly __start__: DateTime;
   readonly __end__: DateTime;
 }
+
+export abstract class ModelToSqlConverter {
+  public abstract toSql(model: ModelBase<unknown>): unknown;
+}
+
+export abstract class ObjectToSqlConverter {
+  public abstract toSql(model: unknown): unknown;
+}
