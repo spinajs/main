@@ -39,7 +39,7 @@ export class ConnectionConf extends FrameworkConfiguration {
         targets: [
           {
             name: 'Empty',
-            type: 'ConsoleTarget',
+            type: 'BlackHoleTarget',
             layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
           },
         ],
