@@ -69,7 +69,6 @@ export abstract class OrmDriver extends SyncService {
     this.Container = this.RootContainer.child();
     this.Container.register(StandardModelToSqlConverter).as(ModelToSqlConverter);
     this.Container.register(StandardObjectToSqlConverter).as(ObjectToSqlConverter);
-
   }
 
   /**

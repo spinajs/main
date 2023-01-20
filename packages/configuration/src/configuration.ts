@@ -22,7 +22,6 @@ import config from './config/configuration';
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
- 
   /**
    * Apps configuration base dir, where to look for app config
    */

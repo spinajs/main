@@ -44,7 +44,15 @@ export const LogLevelStrings = {
 
 export interface ILogRule {
   name: string;
-  level: "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "security" | "success";
+  level:
+    | "trace"
+    | "debug"
+    | "info"
+    | "warn"
+    | "error"
+    | "fatal"
+    | "security"
+    | "success";
   target: string | string[];
 }
 
@@ -176,7 +184,9 @@ export interface ILogEntry {
   Variables: LogVariables;
 }
 
-export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncService {
+export abstract class LogTarget<
+  T extends ICommonTargetOptions
+> extends SyncService {
   public HasError = false;
   public Error: Error | null | unknown = null;
   public Options: T;
@@ -250,7 +260,14 @@ export interface ILog {
 
 export type LogVariables = ILogStaticVariables & ILogVariable;
 
-export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
+export function createLogMessageObject(
+  err: Error | string,
+  message: string | any[],
+  level: LogLevel,
+  logger: string,
+  variables: any,
+  ...args: any[]
+): ILogEntry {
   const sMsg = err instanceof Error || !err ? (message as string) : err;
   const tMsg = args.length !== 0 ? util.format(sMsg, ...args) : sMsg;
   const lName = logger ?? message;
