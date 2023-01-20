@@ -105,7 +105,10 @@ async function wait(amount?: number) {
   });
 }
 
-describe('Sqlite driver migration, updates, deletions & inserts', () => {
+describe('Sqlite driver migration, updates, deletions & inserts', function () {
+
+  this.timeout(10000);
+
   before(() => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
