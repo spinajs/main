@@ -1,17 +1,17 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import 'reflect-metadata';
-import { TypedArray } from './array';
-import { DI_DESCRIPTION_SYMBOL } from './decorators';
-import { ResolveType } from './enums';
-import { getTypeName, isAsyncService, isFactory, uniqBy, isTypedArray, isPromise } from './helpers';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, IInstanceCheck, Service } from './interfaces';
-import { Class, Factory } from './types';
+import { TypedArray } from './array.js';
+import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
+import { ResolveType } from './enums.js';
+import { getTypeName, isAsyncService, isFactory, uniqBy, isTypedArray, isPromise } from './helpers.js';
+import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, IInstanceCheck, Service } from './interfaces.js';
+import { Class, Factory } from './types.js';
 import { EventEmitter } from 'events';
-import { Binder } from './binder';
-import { Registry } from './registry';
-import { ContainerCache } from './container-cache';
+import { Binder } from './binder.js';
+import { Registry } from './registry.js';
+import { ContainerCache } from './container-cache.js';
 import { isArray } from 'lodash';
-import { ResolveException, ServiceNotFound } from './exceptions';
+import { ResolveException, ServiceNotFound } from './exceptions.js';
 
 /**
  * Dependency injection container implementation

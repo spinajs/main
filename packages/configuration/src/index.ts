@@ -3,7 +3,7 @@
  * and remember all this packages :)
  */
 export * from '@spinajs/configuration-common';
-export * from './sources';
-export * from './decorators';
-export * from './configuration';
-export * from './exception';
+export * from './sources.js';
+export * from './decorators.js';
+export * from './configuration.js';
+export * from './exception.js';

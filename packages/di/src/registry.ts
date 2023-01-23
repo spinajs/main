@@ -1,8 +1,8 @@
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { TypedArray } from './array';
-import { getTypeName, isConstructor, isFactory, isObject } from './helpers';
-import { IContainer } from './interfaces';
-import { Class, Factory } from './types';
+import { TypedArray } from './array.js';
+import { getTypeName, isConstructor, isFactory, isObject } from './helpers.js';
+import { IContainer } from './interfaces.js';
+import { Class, Factory } from './types.js';
 
 export class Registry {
   protected registry: Map<string, any[]> = new Map<string, any[]>();

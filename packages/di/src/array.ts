@@ -1,4 +1,4 @@
-import { Class } from './types';
+import { Class } from './types.js';
 
 declare global {
   interface ArrayConstructor {

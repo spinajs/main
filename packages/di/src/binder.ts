@@ -1,10 +1,9 @@
-import { BindException } from './exceptions';
-import { DI_DESCRIPTION_SYMBOL } from './decorators';
-import { ResolveType } from './enums';
-import { isFactory } from './helpers';
-import { IBind, IContainer, IInjectDescriptor, ResolvableObject } from './interfaces';
-import { Class, Factory } from './types';
-import { isConstructor } from './index';
+import { BindException } from './exceptions.js';
+import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
+import { ResolveType } from './enums.js';
+import { isFactory,isConstructor } from './helpers.js';
+import { IBind, IContainer, IInjectDescriptor, ResolvableObject } from './interfaces.js';
+import { Class, Factory } from './types.js';
 
 export class Binder<T> implements IBind {
   private isFactory: boolean;

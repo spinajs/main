@@ -1,9 +1,9 @@
-import { ResolveType } from './enums';
-import { IAutoinjectOptions, IInjectDescriptor } from './interfaces';
-import { Class } from './types';
-import { TypedArray } from './array';
-import * as DI from './root';
-import { isConstructor, isTypedArray } from './helpers';
+import { ResolveType } from './enums.js';
+import { IAutoinjectOptions, IInjectDescriptor } from './interfaces.js';
+import { Class } from './types.js';
+import { TypedArray } from './array.js';
+import * as DI from './root.js';
+import { isConstructor, isTypedArray } from './helpers.js';
 
 export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
 

@@ -1,6 +1,6 @@
-import { TypedArray } from './array';
-import { AsyncService, SyncService } from './interfaces';
-import { Factory, Class } from './types';
+import { TypedArray } from './array.js';
+import { AsyncService, SyncService } from './interfaces.js';
+import { Factory, Class } from './types.js';
 
 /**
  * Checks if value is constructable type.

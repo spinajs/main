@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { ResolveType } from './enums';
-import { Class, Factory } from './types';
+import { ResolveType } from './enums.js';
+import { Class, Factory } from './types.js';
 import { EventEmitter } from 'events';
-import { TypedArray } from './array';
-import { Registry } from './registry';
-import { ContainerCache } from './container-cache';
+import { TypedArray } from './array.js';
+import { Registry } from './registry.js';
+import { ContainerCache } from './container-cache.js';
 
 export interface IInstanceCheck {
   __checkInstance__(creationOptions: any): boolean;

@@ -1,7 +1,7 @@
-import { Container } from './container';
-import { IBind, IContainer, AsyncService, ResolvableObject } from './interfaces';
-import { Class, Factory } from './types';
-import { TypedArray } from './array';
+import { Container } from './container.js';
+import { IBind, IContainer, AsyncService, ResolvableObject } from './interfaces.js';
+import { Class, Factory } from './types.js';
+import { TypedArray } from './array.js';
 
 /**
  * App main DI container

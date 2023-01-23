@@ -1,8 +1,8 @@
 import _ from 'lodash';
-import { TypedArray } from './array';
-import { getTypeName } from './helpers';
-import { IContainer } from './interfaces';
-import { Class } from './types';
+import { TypedArray } from './array.js';
+import { getTypeName } from './helpers.js';
+import { IContainer } from './interfaces.js';
+import { Class } from './types.js';
 
 export class ContainerCache {
   private cache: Map<string, any[]>;

@@ -1,4 +1,4 @@
-import { IContainer } from './interfaces';
+import { IContainer } from './interfaces.js';
 
 /* eslint-disable */
 export type Abstract<T> = Function & { prototype: T };
