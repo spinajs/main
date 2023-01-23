@@ -214,7 +214,7 @@
       "request": "launch",
       "name": "EXCEPTIONS test",
       "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["--inspect-brk", "-u", "tdd", "--timeout", "999999", "--colors", "${workspaceFolder}/exceptions/spine/test"],
+      "args": ["--inspect-brk", "-u", "tdd", "--timeout", "999999", "--colors", "${workspaceFolder}/exceptions/spine/test/**/*.ts"],
       "internalConsoleOptions": "openOnSessionStart"
     },
 

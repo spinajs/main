@@ -2,8 +2,12 @@
   "name": "@spinajs/log",
   "version": "2.0.46",
   "description": "Log lib for all spinejs related libs",
-  "main": "lib/index.js",
+  "exports": "./lib/index.js",
+  "type": "module",
   "private": false,
+  "engines": {
+    "node": ">=16.11"
+  },
   "scripts": {
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",

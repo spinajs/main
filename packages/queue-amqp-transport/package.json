@@ -2,8 +2,12 @@
   "name": "@spinajs/jobs-amqp-transport",
   "version": "2.0.46",
   "description": "jobs rabbit mq support, it sends & reads messages from ampq compatible server",
-  "main": "lib/index.js",
+  "exports": "./lib/index.js",
+  "type": "module",
   "private": false,
+  "engines": {
+    "node": ">=16.11"
+  },
   "scripts": {
     "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views && cpx src/static/**/* lib/static",
     "compile": "tsc -p tsconfig.build.json",

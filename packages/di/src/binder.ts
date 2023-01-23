@@ -4,7 +4,7 @@ import { ResolveType } from './enums';
 import { isFactory } from './helpers';
 import { IBind, IContainer, IInjectDescriptor, ResolvableObject } from './interfaces';
 import { Class, Factory } from './types';
-import { isConstructor } from '.';
+import { isConstructor } from './index';
 
 export class Binder<T> implements IBind {
   private isFactory: boolean;

@@ -2,8 +2,11 @@
   "name": "@spinajs/intl-http",
   "version": "2.0.46",
   "description": "Internationalization support for http module",
-  "main": "lib/index.js",
+  "type": "module",
   "private": false,
+  "engines": {
+    "node": ">=16.11"
+  },
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -p tsconfig.build.json",

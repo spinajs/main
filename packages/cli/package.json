@@ -2,8 +2,12 @@
   "name": "@spinajs/cli",
   "version": "2.0.46",
   "description": "SpinaJS command line module",
-  "main": "lib/index.js",
+  "exports": "./lib/index.js",
+  "type": "module",
   "private": false,
+  "engines": {
+    "node": ">=16.11"
+  },
   "scripts": {
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
@@ -26,7 +30,7 @@
     "spinajs": "./lib/cli.js"
   },
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
-  "license": "MIT",
+  "license": "ISC",
   "bugs": {
     "url": "https://github.com/spinajs/reflection/issues"
   },

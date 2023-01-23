@@ -2,8 +2,12 @@
   "name": "@spinajs/templates-xlsx",
   "version": "2.0.46",
   "description": "templates support eg. html file generation",
-  "main": "lib/index.js",
+  "exports": "./lib/index.js",
+  "type": "module",
   "private": false,
+  "engines": {
+    "node": ">=16.11"
+  },
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -p tsconfig.build.json",

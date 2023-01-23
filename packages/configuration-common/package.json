@@ -5,8 +5,12 @@
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
   "license": "ISC",
-  "main": "lib/index.js",
+  "exports": "./lib/index.js",
+  "type": "module",
   "private": false,
+  "engines": {
+    "node": ">=16.11"
+  },
   "files": [
     "lib/**/*"
   ],
