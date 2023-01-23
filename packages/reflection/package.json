@@ -33,14 +33,14 @@
     "@spinajs/di": "^2.0.46",
     "@spinajs/exceptions": "^2.0.39",
     "@spinajs/log": "^2.0.46",
-    "glob": "^8.0.3",
+    "glob": "^8.1.0",
     "lodash": "^4.17.21",
-    "typescript": "^4.7.4",
+    "typescript": "^4.9.4",
     "typescript-mix": "^3.1.3"
   },
   "devDependencies": {
-    "@types/glob": "7.2.0",
-    "@types/node": "^16.11.11"
+    "@types/glob": "8.0.1",
+    "@types/node": "^18.11.18"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

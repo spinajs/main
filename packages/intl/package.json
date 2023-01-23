@@ -43,9 +43,9 @@
     "@spinajs/exceptions": "^2.0.39",
     "@spinajs/log": "^2.0.46",
     "@spinajs/reflection": "^2.0.46",
-    "glob": "^7.1.6",
-    "lodash": "^4.17.15",
-    "make-plural": "^6.0.1",
+    "glob": "^8.1.0",
+    "lodash": "^4.17.21",
+    "make-plural": "^7.2.0",
     "math-interval-parser": "^2.0.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

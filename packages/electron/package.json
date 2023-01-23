@@ -42,7 +42,7 @@
   },
   "homepage": "https://github.com/spinajs/di#readme",
   "devDependencies": {
-    "electron": "^17.0.0"
+    "electron": "^22.0.3"
   },
   "dependencies": {
     "@spinajs/configuration-common": "^2.0.46",

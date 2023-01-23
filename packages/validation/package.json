@@ -42,7 +42,7 @@
     "@spinajs/di": "^2.0.46",
     "@spinajs/exceptions": "^2.0.39",
     "@spinajs/log": "^2.0.46",
-    "ajv": "^8.11.0",
+    "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",
     "ajv-merge-patch": "^5.0.1",

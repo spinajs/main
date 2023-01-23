@@ -41,8 +41,8 @@
     "@spinajs/templates-handlebars": "^2.0.46",
     "@spinajs/templates-pug": "^2.0.46",
     "@types/luxon": "^3.2.0",
-    "@types/node": "^16.11.11",
-    "@types/nodemailer": "^6.4.4"
+    "@types/node": "^18.11.18",
+    "@types/nodemailer": "^6.4.7"
   },
   "dependencies": {
     "@spinajs/configuration": "^2.0.46",
@@ -55,7 +55,7 @@
     "@spinajs/log": "^2.0.46",
     "@spinajs/templates": "^2.0.46",
     "luxon": "^3.2.1",
-    "nodemailer": "^6.7.7"
+    "nodemailer": "^6.9.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

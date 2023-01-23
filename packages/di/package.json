@@ -44,7 +44,7 @@
     "reflect-metadata": "^0.1.13"
   },
   "devDependencies": {
-    "@types/lodash": "^4.14.136"
+    "@types/lodash": "^4.14.191"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

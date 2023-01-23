@@ -39,10 +39,10 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "@types/handlebars": "^4.1.0",
-    "@types/luxon": "^2.3.1",
-    "@types/mocha": "9.1.1",
-    "@types/node": "^16.11.11",
-    "@types/pug": "^2.0.4"
+    "@types/luxon": "^3.2.0",
+    "@types/mocha": "10.0.1",
+    "@types/node": "^18.11.18",
+    "@types/pug": "^2.0.6"
   },
   "dependencies": {
     "@spinajs/configuration": "^2.0.46",
@@ -52,7 +52,7 @@
     "@spinajs/intl": "^2.0.46",
     "@spinajs/log": "^2.0.46",
     "handlebars": "^4.7.7",
-    "tempfile": "3.0.0"
+    "tempfile": "4.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

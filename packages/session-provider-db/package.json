@@ -45,7 +45,7 @@
     "@spinajs/orm": "^2.0.46",
     "@spinajs/rbac": "^2.0.46",
     "@spinajs/reflection": "^2.0.46",
-    "luxon": "^2.4.0"
+    "luxon": "^3.2.1"
   },
   "devDependencies": {
     "@spinajs/orm-sqlite": "^2.0.46"

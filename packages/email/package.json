@@ -41,9 +41,9 @@
     "@spinajs/queue-stomp-transport": "^2.0.46",
     "@spinajs/templates-handlebars": "^2.0.46",
     "@spinajs/templates-pug": "^2.0.46",
-    "@types/luxon": "^2.3.1",
-    "@types/node": "^16.11.11",
-    "@types/nodemailer": "^6.4.4"
+    "@types/luxon": "^3.2.0",
+    "@types/node": "^18.11.18",
+    "@types/nodemailer": "^6.4.7"
   },
   "dependencies": {
     "@spinajs/cli": "^2.0.46",

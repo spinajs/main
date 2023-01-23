@@ -44,12 +44,12 @@
     "@spinajs/di": "^2.0.46",
     "@spinajs/exceptions": "^2.0.39",
     "@spinajs/internal-logger": "^2.0.46",
-    "ajv": "^8.11.0",
+    "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",
     "ajv-merge-patch": "^5.0.1",
-    "glob": "^7.1.4",
-    "lodash": "^4.17.14"
+    "glob": "^8.1.0",
+    "lodash": "^4.17.21"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
