@@ -216,7 +216,7 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected initValidator() {
-    this.Validator = new Ajv({
+    this.Validator = new Ajv.default({
       logger: {
         log: (msg: string) => InternalLogger.info(msg, 'Configuration'),
         warn: (msg: string) => InternalLogger.warn(msg, 'Configuration'),
