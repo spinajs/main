@@ -14,11 +14,12 @@ import {
 } from '@spinajs/configuration-common';
 import { mergeArrays, parseArgv } from './util.js';
 import * as _ from 'lodash';
-import Ajv from 'ajv';
 import { InvalidConfiguration } from './exception.js';
 import { InternalLogger } from '@spinajs/internal-logger';
 import './sources.js';
 import config from './config/configuration.js';
+import Ajv from 'ajv';
+
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {

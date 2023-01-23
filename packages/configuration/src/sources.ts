@@ -8,7 +8,7 @@ import { Injectable, DI } from '@spinajs/di';
 import { glob } from 'glob';
 import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
-import { findBasePath, mergeArrays, uncache } from './util';
+import { findBasePath, mergeArrays, uncache } from './util.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
