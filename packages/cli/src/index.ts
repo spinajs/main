@@ -1,11 +1,11 @@
-import { CliCommand, IArgument, ICommand, IOption } from './interfaces';
-import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators';
+import { CliCommand, IArgument, ICommand, IOption } from './interfaces.js';
+import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators.js';
 import { AsyncService, Class, DI } from '@spinajs/di';
 import { Logger, ILog } from '@spinajs/log';
 import { program } from 'commander';
 
-export * from './interfaces';
-export * from './decorators';
+export * from './interfaces.js';
+export * from './decorators.js';
 
 DI.register(() => {
   return process.argv;

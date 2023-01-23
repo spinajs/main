@@ -6,7 +6,7 @@
       "preserveConstEnums": true,
       "noUnusedLocals": true,
       "noUnusedParameters": true,
-      "moduleResolution": "node16",
+      "moduleResolution": "nodenext",
       "outDir": "lib/",
       "sourceMap": true,
       "target": "es2022",

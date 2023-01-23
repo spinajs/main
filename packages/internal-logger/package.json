@@ -25,7 +25,8 @@
   },
   "dependencies": {
     "@spinajs/di": "^2.0.46",
-    "lodash": "^4.17.21"
+    "lodash": "^4.17.21",
+    "chalk": "5.2.0"
   },
   "scripts": {
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",

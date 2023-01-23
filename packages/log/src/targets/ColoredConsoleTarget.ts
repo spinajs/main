@@ -1,6 +1,6 @@
 import { IColoredConsoleTargetOptions, ILogEntry, LogTarget } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
-import { LogLevel } from "..";
+import { LogLevel } from "./../index.js";
 import chalk from "chalk";
 import { format } from "@spinajs/configuration";
 

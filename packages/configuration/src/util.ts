@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/unbound-method */
 import * as fs from 'fs';
-import _ = require('lodash');
+import _ from 'lodash';
 import { dirname, join, resolve } from 'path';
 
 /**
