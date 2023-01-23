@@ -2,14 +2,13 @@ import { Injectable, NewInstance } from '@spinajs/di';
 import { extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation } from '@spinajs/orm';
 import { TranslationSource, guessLanguage, defaultLanguage } from '@spinajs/intl';
 import _ from 'lodash';
-import { IntlTranslation } from './models/IntlTranslation';
-import { IntlResource } from './models/IntlResource';
+import { IntlTranslation } from './models/IntlTranslation.js';
+import { IntlResource } from './models/IntlResource.js';
 
-export * from './decorators';
-export * from './model';
-export * from './migrations/IntlOrm_2022_06_28_01_13_00';
-export * from './models/IntlResource';
-export * from './models/IntlTranslation';
+export * from './decorators.js';
+export * from './migrations/IntlOrm_2022_06_28_01_13_00.js';
+export * from './models/IntlResource.js';
+export * from './models/IntlTranslation.js';
 
 const { SelectQueryBuilder: SQB } = require('@spinajs/orm');
 

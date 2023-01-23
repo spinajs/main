@@ -12,13 +12,13 @@ import {
   IConfigurable,
   IConfigurationSchema,
 } from '@spinajs/configuration-common';
-import { mergeArrays, parseArgv } from './util';
+import { mergeArrays, parseArgv } from './util.js';
 import * as _ from 'lodash';
 import Ajv from 'ajv';
-import { InvalidConfiguration } from './exception';
+import { InvalidConfiguration } from './exception.js';
 import { InternalLogger } from '@spinajs/internal-logger';
-import './sources';
-import config from './config/configuration';
+import './sources.js';
+import config from './config/configuration.js';
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {

@@ -1,8 +1,8 @@
 import _ from 'lodash';
 import { DateTime } from 'luxon';
-import { OrmException } from './exceptions';
-import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter } from './interfaces';
-import { ModelBase } from './model';
+import { OrmException } from './exceptions.js';
+import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter } from './interfaces.js';
+import { ModelBase } from './model.js';
 
 /**
  * UUid converter to & from db as binary

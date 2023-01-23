@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ParamsDictionary } from 'express-serve-static-core';
 import { ParsedQs } from 'qs';
-import { ServerMiddleware, Request as sRequest } from '../interfaces';
+import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
 import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 

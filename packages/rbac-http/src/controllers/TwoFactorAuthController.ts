@@ -1,14 +1,14 @@
-import { TokenDto } from './../dto/token-dto';
+import { TokenDto } from './../dto/token-dto.js';
 import { BaseController, BasePath, Cookie, Ok, Post, Unauthorized } from '@spinajs/http';
 import { SessionProvider, User as UserModel } from '@spinajs/rbac';
 import { Body, Policy } from '@spinajs/http';
 import _ from 'lodash';
-import { User } from '../decorators';
-import { TwoFacRouteEnabled } from '../policies/2FaPolicy';
+import { User } from '../decorators.js';
+import { TwoFacRouteEnabled } from '../policies/2FaPolicy.js';
 import { AutoinjectService } from '@spinajs/configuration';
-import { TwoFactorAuthProvider } from '../interfaces';
+import { TwoFactorAuthProvider } from '../interfaces.js';
 import { DateTime } from 'luxon';
-import { UserLoginSuccess } from '../events/UserLoginSuccess';
+import { UserLoginSuccess } from '../events/UserLoginSuccess.js';
 import { Autoinject } from '@spinajs/di';
 import { QueueClient } from '@spinajs/queue';
 

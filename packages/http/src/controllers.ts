@@ -1,16 +1,16 @@
-import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces';
+import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
 import { AsyncService, IContainer, Autoinject, DI, Container } from '@spinajs/di';
 import * as express from 'express';
-import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators';
+import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import { ClassInfo, TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
-import { HttpServer } from './server';
+import { HttpServer } from './server.js';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
-import { RouteArgs, FromFormBase } from './route-args';
+import { RouteArgs, FromFormBase } from './route-args.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isPromise } from 'node:util/types';
-import { Response } from './interfaces';
+import { Response } from './interfaces.js';
 
 export abstract class BaseController extends AsyncService implements IController {
   /**

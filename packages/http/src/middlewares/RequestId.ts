@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { ServerMiddleware, Request as sRequest } from '../interfaces';
+import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
 import * as express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { Injectable } from '@spinajs/di';

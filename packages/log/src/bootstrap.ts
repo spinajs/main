@@ -1,7 +1,7 @@
 import { Configuration } from "@spinajs/configuration";
 import { Injectable, Bootstrapper, DI } from "@spinajs/di";
-import { Log } from "./log";
-import CONFIGURATION_SCHEMA from "./schemas/log.configuration";
+import { Log } from "./log.js";
+import CONFIGURATION_SCHEMA from "./schemas/log.configuration.js";
 
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {

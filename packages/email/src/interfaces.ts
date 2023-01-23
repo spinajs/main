@@ -2,7 +2,7 @@ import { AsyncService, Autoinject, IInstanceCheck, IMappableService } from '@spi
 import { Log, Logger } from '@spinajs/log';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { QueueService } from '@spinajs/queue';
-import { EmailSend } from './jobs/EmailSend';
+import { EmailSend } from './jobs/EmailSend.js';
 export abstract class EmailSender extends AsyncService implements IInstanceCheck, IMappableService {
   public Options: EmailConnectionOptions;
 

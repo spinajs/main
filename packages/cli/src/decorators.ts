@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { CommandOptions } from 'commander';
-import { IArgument, IOption } from './interfaces';
+import { IArgument, IOption } from './interfaces.js';
 
 export const META_COMMAND = 'cli:command';
 export const META_ARGUMENT = 'cli:argument';

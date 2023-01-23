@@ -1,6 +1,6 @@
 import { BelongsTo, Connection, CreatedAt, Model, ModelBase, Primary, SingleRelation } from '@spinajs/orm';
 import { DateTime } from 'luxon';
-import type { User } from './User';
+import type { User } from './User.js';
 
 /**
  * Timeline table for storing user actions / interactions

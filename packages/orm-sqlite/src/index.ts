@@ -1,4 +1,4 @@
-import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler, SqliteTruncateTableQueryCompiler } from './compilers';
+import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler, SqliteTruncateTableQueryCompiler } from './compilers.js';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -8,18 +8,18 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 /* eslint-disable prettier/prettier */
 
 import { LogLevel } from '@spinajs/log-common';
-export * from './compilers';
+export * from './compilers.js';
 
 import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ObjectToSqlConverter } from '@spinajs/orm';
 import { Database, RunResult } from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { SqlLiteJoinStatement } from './statements';
+import { SqlLiteJoinStatement } from './statements.js';
 import { ResourceDuplicated } from '@spinajs/exceptions';
-import { IIndexInfo, IIndexInfoList, ITableInfo } from './types';
+import { IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
-import { SqlLiteDefaultValueBuilder } from './builders';
-import { SqliteModelToSqlConverter, SqliteObjectToSqlConverter } from './converters';
+import { SqlLiteDefaultValueBuilder } from './builders.js';
+import { SqliteModelToSqlConverter, SqliteObjectToSqlConverter } from './converters.js';
 
 @Injectable('orm-driver-sqlite')
 @NewInstance()

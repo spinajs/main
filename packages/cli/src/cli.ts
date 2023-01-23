@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
-import { Cli } from './index';
+import { Cli } from './index.js';
 
 async function cli() {
   const log = DI.resolve(Log, ['CLI']);

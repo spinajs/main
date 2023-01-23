@@ -1,5 +1,5 @@
 import { Injectable, NewInstance } from '@spinajs/di';
-import { EmailSender } from './interfaces';
+import { EmailSender } from './interfaces.js';
 
 /**
  * Transport that does nothing.

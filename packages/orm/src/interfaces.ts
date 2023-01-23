@@ -1,13 +1,13 @@
-import { Op } from './enums';
+import { Op } from './enums.js';
 /* eslint-disable prettier/prettier */
-import { QueryBuilder, RawQuery } from './builders';
-import { SordOrder, WhereBoolean } from './enums';
-import { IQueryStatement, Wrap } from './statements';
-import { PartialModel, Unbox, WhereFunction } from './types';
-import { Relation } from './relations';
-import { OrmDriver } from './driver';
+import { QueryBuilder, RawQuery } from './builders.js';
+import { SordOrder, WhereBoolean } from './enums.js';
+import { IQueryStatement, Wrap } from './statements.js';
+import { PartialModel, Unbox, WhereFunction } from './types.js';
+import { Relation } from './relations.js';
+import { OrmDriver } from './driver.js';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
-import { ModelBase } from './model';
+import { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 

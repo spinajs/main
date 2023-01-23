@@ -1,6 +1,6 @@
 import { BelongsTo, Connection, Model, ModelBase, Primary, SingleRelation, UniversalConverter } from '@spinajs/orm';
 import _ from 'lodash';
-import type { User } from './User';
+import type { User } from './User.js';
 
 @Connection('default')
 @Model('users_metadata')

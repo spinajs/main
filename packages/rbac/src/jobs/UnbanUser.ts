@@ -1,8 +1,8 @@
 import { Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { Job, QueueClient, QueueJob } from '@spinajs/queue';
-import { UserUnbanned } from '../events';
-import { User } from '../models/User';
+import { UserUnbanned } from '../events.js';
+import { User } from '../models/User.js';
 
 @Job()
 export class UnbanUser extends QueueJob {

@@ -1,5 +1,5 @@
 import { BaseController, BasePath } from '@spinajs/http';
-import { Resource } from './../decorators';
+import { Resource } from './../decorators.js';
 
 @Resource('user')
 @BasePath('user')

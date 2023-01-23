@@ -10,8 +10,7 @@ import * as glob from "glob";
 import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";
 import { pipeline } from "stream";
-import { Logger } from "./../decorators";
-
+import { Logger } from "./../decorators.js";
 import "@spinajs/configuration-common";
 
 enum FileTargetStatus {

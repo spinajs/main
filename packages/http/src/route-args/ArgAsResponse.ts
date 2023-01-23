@@ -1,5 +1,5 @@
-import { RouteArgs } from './RouteArgs';
-import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces';
+import { RouteArgs } from './RouteArgs.js';
+import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces.js';
 import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 

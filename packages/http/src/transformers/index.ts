@@ -1,1 +1,1 @@
-export * from './PureTransformer';
+export * from './PureTransformer.js';

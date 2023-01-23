@@ -4,7 +4,7 @@ import { constants, createReadStream, createWriteStream, readFile, readFileSync 
 import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open, appendFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
-import { fs, IStat, IZipResult } from './interfaces';
+import { fs, IStat, IZipResult } from './interfaces.js';
 import { basename, join } from 'path';
 import { ILog, Logger } from '@spinajs/log';
 import archiver from 'archiver';

@@ -8,9 +8,9 @@ import { InternalLogger } from '@spinajs/internal-logger';
 import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import { IDriverOptions, Orm, OrmDriver } from '@spinajs/orm';
-import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types';
+import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types.js';
 import * as _ from 'lodash';
-import { parse } from './models/DbConfig';
+import { parse } from './models/DbConfig.js';
 
 @Singleton()
 @Injectable(ConfigurationSource)

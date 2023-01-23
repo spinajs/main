@@ -1,7 +1,7 @@
 import { Autoinject, TypedArray } from '@spinajs/di';
-import { ParameterType, IRouteParameter, IRouteCall, IRoute, Request } from './../interfaces';
+import { ParameterType, IRouteParameter, IRouteCall, IRoute, Request } from './../interfaces.js';
 import * as express from 'express';
-import { ArgHydrator } from './ArgHydrator';
+import { ArgHydrator } from './ArgHydrator.js';
 import { DI } from '@spinajs/di';
 import _ from 'lodash';
 import { DateTime } from 'luxon';

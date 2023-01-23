@@ -1,5 +1,5 @@
 import * as express from 'express';
-import { HTTP_STATUS_CODE, HttpAcceptHeaders, DataTransformer } from './interfaces';
+import { HTTP_STATUS_CODE, HttpAcceptHeaders, DataTransformer } from './interfaces.js';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { ILog, Log } from '@spinajs/log';

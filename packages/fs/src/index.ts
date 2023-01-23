@@ -1,9 +1,9 @@
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
-import { fs, IFsConfiguration } from './interfaces';
+import { fs, IFsConfiguration } from './interfaces.js';
 
-export * from './interfaces';
-export * from './local-provider';
+export * from './interfaces.js';
+export * from './local-provider.js';
 
 @Injectable(Bootstrapper)
 export class FsBootsrapper extends Bootstrapper {

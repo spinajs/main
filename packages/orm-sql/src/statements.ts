@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { SqlWhereCompiler } from './compilers';
+import { SqlWhereCompiler } from './compilers.js';
 import { NewInstance } from '@spinajs/di';
 import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor } from '@spinajs/orm';
 

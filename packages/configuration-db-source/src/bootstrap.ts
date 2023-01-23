@@ -4,8 +4,8 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/require-await */
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
-import { DbConfig } from './models/DbConfig';
-import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema';
+import { DbConfig } from './models/DbConfig.js';
+import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
 import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
 import { InsertBehaviour } from '@spinajs/orm';
 import _ from 'lodash';

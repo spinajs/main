@@ -1,7 +1,7 @@
 import { Constructor } from '@spinajs/di';
-import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions } from './interfaces';
-import { ArgHydrator } from './route-args/ArgHydrator';
-import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas';
+import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions } from './interfaces.js';
+import { ArgHydrator } from './route-args/ArgHydrator.js';
+import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
 

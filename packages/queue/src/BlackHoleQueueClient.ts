@@ -1,5 +1,5 @@
 import { Constructor, Injectable, NewInstance } from '@spinajs/di';
-import { IQueueMessage, QueueClient, QueueMessage } from './interfaces';
+import { IQueueMessage, QueueClient, QueueMessage } from './interfaces.js';
 
 /**
  * Empty queue, does nothing.

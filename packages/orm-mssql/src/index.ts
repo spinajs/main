@@ -5,10 +5,10 @@ import { LogLevel } from '@spinajs/log-common';
 
 import { SqlDriver } from '@spinajs/orm-sql';
 import { connect, ConnectionPool, Request } from 'mssql';
-import { IIndexInfo, ITableColumnInfo } from './types';
-import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler } from './compilers';
-import { MssqlModelDehydrator } from './dehydrator';
-import { MsSqlDatetimeValueConverter } from './converters';
+import { IIndexInfo, ITableColumnInfo } from './types.js';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler } from './compilers.js';
+import { MssqlModelDehydrator } from './dehydrator.js';
+import { MsSqlDatetimeValueConverter } from './converters.js';
 
 @Injectable('orm-driver-mssql')
 export class MsSqlOrmDriver extends SqlDriver {

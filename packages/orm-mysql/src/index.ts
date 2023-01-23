@@ -5,8 +5,8 @@ import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCa
 import { SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket } from 'mysql2';
-import { MySqlTableExistsCompiler } from './compilers';
-import { IIndexInfo, ITableColumnInfo } from './types';
+import { MySqlTableExistsCompiler } from './compilers.js';
+import { IIndexInfo, ITableColumnInfo } from './types.js';
 
 @Injectable('orm-driver-mysql')
 export class MySqlOrmDriver extends SqlDriver {

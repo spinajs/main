@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { QueueJob, Job } from '@spinajs/queue';
-import { EmailService, IEmail, IEmailAttachement } from '../interfaces';
+import { EmailService, IEmail, IEmailAttachement } from '../interfaces.js';
 
 /**
  * Job for sending emails in background

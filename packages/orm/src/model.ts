@@ -1,22 +1,22 @@
-import { ModelData, ModelDataWithRelationData, PickRelations } from './types';
+import { ModelData, ModelDataWithRelationData, PickRelations } from './types.js';
 /* eslint-disable prettier/prettier */
-import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations';
-import { SordOrder } from './enums';
-import { MODEL_DESCTRIPTION_SYMBOL } from './decorators';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces';
-import { WhereFunction } from './types';
-import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders';
-import { Op } from './enums';
+import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations.js';
+import { SordOrder } from './enums.js';
+import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
+import { WhereFunction } from './types.js';
+import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders.js';
+import { Op } from './enums.js';
 import { DI, isConstructor, Class, IContainer } from '@spinajs/di';
-import { Orm } from './orm';
-import { ModelHydrator } from './hydrators';
+import { Orm } from './orm.js';
+import { ModelHydrator } from './hydrators.js';
 import * as _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
-import { OrmException } from './exceptions';
-import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './dehydrators';
-import { Wrap } from './statements';
+import { OrmException } from './exceptions.js';
+import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './dehydrators.js';
+import { Wrap } from './statements.js';
 import { DateTime } from 'luxon';
-import { OrmDriver } from './driver';
+import { OrmDriver } from './driver.js';
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;

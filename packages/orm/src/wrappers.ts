@@ -1,4 +1,4 @@
-import { Wrap, DateTimeWrapper, DateWrapper } from './statements';
+import { Wrap, DateTimeWrapper, DateWrapper } from './statements.js';
 
 export const Wrapper = {
   Date: (val: any) => {

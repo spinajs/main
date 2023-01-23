@@ -1,10 +1,10 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { AsyncService, Inject, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { TemplateRenderer } from './interfaces';
+import { TemplateRenderer } from './interfaces.js';
 import { extname } from 'path';
 import { Intl } from '@spinajs/intl';
-export * from './interfaces';
+export * from './interfaces.js';
 
 /**
  * Inject INTL module for language support. We does nothing but to initialize module for use in templates.

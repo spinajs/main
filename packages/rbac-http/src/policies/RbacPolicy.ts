@@ -1,8 +1,8 @@
 import { AccessControl, Permission } from 'accesscontrol';
 import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
-import { ACL_CONTROLLER_DESCRIPTOR } from '../decorators';
-import { IRbacDescriptor } from '../interfaces';
+import { ACL_CONTROLLER_DESCRIPTOR } from '../decorators.js';
+import { IRbacDescriptor } from '../interfaces.js';
 import { DI } from '@spinajs/di';
 import { User } from '@spinajs/rbac';
 

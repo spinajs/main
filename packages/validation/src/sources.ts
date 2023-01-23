@@ -3,7 +3,7 @@ import { Injectable } from '@spinajs/di';
 import * as fs from 'fs';
 import * as glob from 'glob';
 import * as path from 'path';
-import { ISchema, SchemaSource, ISchemaObject } from './types';
+import { ISchema, SchemaSource, ISchemaObject } from './types.js';
 
 @Injectable(SchemaSource)
 export class FileSystemSource extends SchemaSource {

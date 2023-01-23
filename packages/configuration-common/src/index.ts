@@ -1,6 +1,6 @@
 import { AsyncService, Class } from '@spinajs/di';
 
-export * from './variables';
+export * from './variables.js';
 
 /**
  * App version struct

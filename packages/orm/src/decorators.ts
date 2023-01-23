@@ -1,12 +1,12 @@
-import { IValueConverterDescriptor, JsonValueConverter } from './interfaces';
+import { IValueConverterDescriptor, JsonValueConverter } from './interfaces.js';
 /* eslint-disable prettier/prettier */
 import { UuidConverter } from './converters';
 import { Constructor, DI, IContainer } from '@spinajs/di';
-import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter } from './interfaces';
+import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter } from './interfaces.js';
 import 'reflect-metadata';
-import { ModelBase, extractModelDescriptor } from './model';
+import { ModelBase, extractModelDescriptor } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { Relation } from './relations';
+import { Relation } from './relations.js';
 
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');

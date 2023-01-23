@@ -1,9 +1,9 @@
 import * as express from 'express';
-import { httpResponse } from '../responses';
+import { httpResponse } from '../responses.js';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as cs from 'cookie-signature';
-import { HTTP_STATUS_CODE, ICookieOptions, Response } from '../interfaces';
+import { HTTP_STATUS_CODE, ICookieOptions, Response } from '../interfaces.js';
 import { CookieOptions } from 'express';
 
 /**

@@ -1,17 +1,17 @@
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces';
-import { JobModel } from './models/JobModel';
+import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces.js';
+import { JobModel } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 
-export * from './BlackHoleQueueClient';
-export * from './interfaces';
-export * from './decorators';
-export * from './models/JobModel';
-export * from './migrations/Queue_2022_10_18_01_13_00';
+export * from './BlackHoleQueueClient.js';
+export * from './interfaces.js';
+export * from './decorators.js';
+export * from './models/JobModel.js';
+export * from './migrations/Queue_2022_10_18_01_13_00.js';
 
 @Injectable(QueueService)
 export class DefaultQueueService extends QueueService {

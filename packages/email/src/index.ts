@@ -1,13 +1,13 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { DI, Bootstrapper, Injectable } from '@spinajs/di';
-import { IEmail, EmailService } from './interfaces';
-import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration';
-import { EmailSent } from './events/EmailSent';
-import { EmailSend } from './jobs/EmailSend';
+import { IEmail, EmailService } from './interfaces.js';
+import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration.js';
+import { EmailSent } from './events/EmailSent.js';
+import { EmailSend } from './jobs/EmailSend.js';
 
-export * from './interfaces';
-export * from './transports';
-export * from './jobs/EmailSend';
+export * from './interfaces.js';
+export * from './transports.js';
+export * from './jobs/EmailSend.js';
 
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {

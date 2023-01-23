@@ -3,13 +3,13 @@ import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { Server } from 'http';
 import { RequestHandler } from 'express';
-import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction } from './interfaces';
+import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction } from './interfaces.js';
 import * as fs from 'fs';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
-import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods';
+import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods/index.js;
 import Express = require('express');
 import { ValidationFailed } from '@spinajs/validation';
-import './transformers';
+import './transformers/index.js';
 import '@spinajs/templates-pug';
 import { Templates } from '@spinajs/templates';
 

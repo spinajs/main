@@ -1,8 +1,8 @@
 /* eslint-disable prettier/prettier */
-import { ForwardRefFunction, RelationType } from './interfaces';
-import { ModelBase } from './model';
+import { ForwardRefFunction, RelationType } from './interfaces.js';
+import { ModelBase } from './model.js';
 import { Injectable, isConstructor } from '@spinajs/di';
-import { OneToManyRelationList, SingleRelation } from './relations';
+import { OneToManyRelationList, SingleRelation } from './relations.js';
 
 export abstract class ModelHydrator {
   public abstract hydrate(target: any, values: any): void;

@@ -1,4 +1,4 @@
-import { IOFail, InvalidOperation } from '@spinajs/exceptions/src';
+import { IOFail, InvalidOperation } from '@spinajs/exceptions';
 import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
 import { InvalidArgument } from '@spinajs/exceptions';
 import * as fs from 'fs';

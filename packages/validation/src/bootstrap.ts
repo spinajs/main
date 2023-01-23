@@ -1,5 +1,5 @@
 import { Bootstrapper, DI, Injectable } from '@spinajs/di';
-import CONFIGURATION_SCHEMA from './schemas/validation';
+import CONFIGURATION_SCHEMA from './schemas/validation.js';
 
 @Injectable(Bootstrapper)
 export class ValidatorBootstraper extends Bootstrapper {

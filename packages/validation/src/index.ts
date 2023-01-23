@@ -6,8 +6,8 @@
  * When we export, we can see configuration variable
  * in webpack module cache and webpack config loader can see it
  */
-export { default } from './config/validation';
-export * from './decorators';
-export * from './exceptions';
-export * from './sources';
-export * from './validator';
+export { default } from './config/validation.js';
+export * from './decorators.js';
+export * from './exceptions/index.js';
+export * from './sources.js';
+export * from './validator.js';

@@ -1,11 +1,11 @@
 import { Log } from '@spinajs/log';
 /* eslint-disable prettier/prettier */
-import { IColumnDescriptor, IDriverOptions, QueryContext, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces';
+import { IColumnDescriptor, IDriverOptions, QueryContext, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
-import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder } from './builders';
-import { StandardModelToSqlConverter, StandardObjectToSqlConverter } from './converters';
-import './hydrators';
-import './dehydrators';
+import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder } from './builders.js';
+import { StandardModelToSqlConverter, StandardObjectToSqlConverter } from './converters.js';
+import './hydrators.js';
+import './dehydrators.js';
 
 export type TransactionCallback = (driver: OrmDriver) => Promise<any>;
 

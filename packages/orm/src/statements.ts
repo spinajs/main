@@ -1,12 +1,12 @@
-import { ISelectQueryBuilder } from './interfaces';
+import { ISelectQueryBuilder } from './interfaces.js';
 /* eslint-disable prettier/prettier */
-import { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders';
-import { ColumnMethods, SqlOperator, JoinMethod } from './enums';
+import { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders.js';
+import { ColumnMethods, SqlOperator, JoinMethod } from './enums.js';
 import { NewInstance, Container, Class, Constructor } from '@spinajs/di';
 import * as _ from 'lodash';
-import { IColumnDescriptor } from './interfaces';
-import { extractModelDescriptor, ModelBase } from './model';
-import { OrmException } from './exceptions';
+import { IColumnDescriptor } from './interfaces.js';
+import { extractModelDescriptor, ModelBase } from './model.js';
+import { OrmException } from './exceptions.js';
 
 export interface IQueryStatementResult {
   Statements: string[];

@@ -1,16 +1,16 @@
-import { DatetimeValueConverter } from './interfaces';
+import { DatetimeValueConverter } from './interfaces.js';
 /* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
 import { AsyncService, Autoinject, Container, Class, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { ClassInfo } from '@spinajs/reflection';
 import * as _ from 'lodash';
-import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode, IModelDescriptor } from './interfaces';
-import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor } from './model';
-import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from './decorators';
-import { OrmDriver } from './driver';
+import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode, IModelDescriptor } from './interfaces.js';
+import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor } from './model.js';
+import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
+import { OrmDriver } from './driver.js';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { OrmException } from './exceptions';
+import { OrmException } from './exceptions.js';
 import { DateTime } from 'luxon';
 
 /**

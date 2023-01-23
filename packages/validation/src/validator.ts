@@ -1,10 +1,10 @@
 import { SyncService, Autoinject, Container } from '@spinajs/di';
 import Ajv from 'ajv';
 import { Config } from '@spinajs/configuration';
-import { IValidationError, ValidationFailed } from './exceptions';
+import { IValidationError, ValidationFailed } from './exceptions/index.js';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { SCHEMA_SYMBOL } from './decorators';
-import { IValidationOptions, SchemaSource, ISchemaObject } from './types';
+import { SCHEMA_SYMBOL } from './decorators.js';
+import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, ILog } from '@spinajs/log';
 
 export class DataValidator extends SyncService {

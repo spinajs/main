@@ -1,5 +1,5 @@
-import { AthenticationErrorCodes, AuthProvider, IAuthenticationResult, PasswordProvider } from './interfaces';
-import { User } from './models/User';
+import { AthenticationErrorCodes, AuthProvider, IAuthenticationResult, PasswordProvider } from './interfaces.js';
+import { User } from './models/User.js';
 import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
 

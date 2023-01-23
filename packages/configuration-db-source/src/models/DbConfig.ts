@@ -6,7 +6,7 @@
 import { Connection, Primary, Model, ModelBase } from '@spinajs/orm';
 import _ from 'lodash';
 import { DateTime } from 'luxon';
-import { ConfigurationEntryType, IConfigurationEntryMeta } from '../types';
+import { ConfigurationEntryType, IConfigurationEntryMeta } from '../types.js';
 
 @Connection('default')
 @Model('configuration')

@@ -1,5 +1,5 @@
-import { IRouteArgs } from './RouteArgs';
-import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces';
+import { IRouteArgs } from './RouteArgs.js';
+import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces.js';
 import { AsyncService, IContainer, Inject, Injectable, Container } from '@spinajs/di';
 
 @Injectable()

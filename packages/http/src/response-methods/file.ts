@@ -3,7 +3,7 @@ import { ResourceNotFound } from '@spinajs/exceptions';
 import * as express from 'express';
 import * as _ from 'lodash';
 import { getType } from 'mime';
-import { IFileResponseOptions, Response } from './../interfaces';
+import { IFileResponseOptions, Response } from './../interfaces.js';
 import { fs } from '@spinajs/fs';
 
 export class ZipResponse extends Response {

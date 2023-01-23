@@ -4,8 +4,8 @@ import { BasePath, Get, Param, Body, Patch } from '@spinajs/http';
 import { extractModelDescriptor, ModelBase, SelectQueryBuilder, Orm, DeleteQueryBuilder, createQuery, UpdateQueryBuilder, InsertQueryBuilder, IModelDescriptor, RelationType } from '@spinajs/orm';
 import _ from 'lodash';
 import * as express from 'express';
-import { RepositoryMiddleware } from '../middleware';
-import { JsonApiIncomingObject } from '../interfaces';
+import { RepositoryMiddleware } from '../middleware.js';
+import { JsonApiIncomingObject } from '../interfaces.js';
 
 class IncludesHydrator extends ArgHydrator {
   public async hydrate(input: any): Promise<any> {

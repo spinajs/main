@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { DI } from "@spinajs/di";
-import { Log } from "./log";
+import { Log } from "./log.js";
 
 /**
  * Creates ( if not exists ) new logger instance with given name and optional variables

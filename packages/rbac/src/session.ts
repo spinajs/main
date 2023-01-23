@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { SessionProvider, ISession } from './interfaces';
+import { SessionProvider, ISession } from './interfaces.js';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { v4 as uuidv4 } from 'uuid';

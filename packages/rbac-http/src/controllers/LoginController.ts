@@ -1,22 +1,22 @@
 import { InvalidOperation } from '@spinajs/exceptions';
-import { UserLoginDto } from '../dto/userLogin-dto';
+import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, Header, Policy, Query, BadRequest, NotFound } from '@spinajs/http';
 import { AuthProvider, FederatedAuthProvider, PasswordProvider, PasswordValidationProvider, Session, SessionProvider, User, User as UserModel, UserMetadata, UserPasswordChanged } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { FingerprintProvider, TwoFactorAuthProvider } from '../interfaces';
+import { FingerprintProvider, TwoFactorAuthProvider } from '../interfaces.js';
 import { QueueClient } from '@spinajs/queue';
 
-import { NotLoggedPolicy } from '../policies/NotLoggedPolicy';
-import { LoggedPolicy } from '../policies/LoggedPolicy';
-import { UserPasswordRestore } from '../events/UserPassordRestore';
-import { RestorePasswordDto } from '../dto/restore-password-dto';
+import { NotLoggedPolicy } from '../policies/NotLoggedPolicy.js';
+import { LoggedPolicy } from '../policies/LoggedPolicy.js';
+import { UserPasswordRestore } from '../events/UserPassordRestore.js';
+import { RestorePasswordDto } from '../dto/restore-password-dto.js';
 
 import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
 import { UserAction } from '@spinajs/rbac';
-import { UserLoginSuccess } from '../events/UserLoginSuccess';
+import { UserLoginSuccess } from '../events/UserLoginSuccess.js';
 
 @BasePath('user/auth')
 export class LoginController extends BaseController {

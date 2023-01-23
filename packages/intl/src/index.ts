@@ -7,8 +7,8 @@ import * as _ from 'lodash';
 import * as util from 'util';
 import * as MakePlural from 'make-plural';
 import * as InvervalParser from 'math-interval-parser';
-import * as TranslatioSources from './sources';
-export * from './sources';
+import * as TranslatioSources from './sources.js';
+export * from './sources.js';
 
 const globalAny: any = global;
 

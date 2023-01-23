@@ -1,11 +1,11 @@
 /* eslint-disable prettier/prettier */
 import { InvalidOperation } from '@spinajs/exceptions';
-import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, ForwardRefFunction, IBuilderMiddleware } from './interfaces';
+import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, ForwardRefFunction, IBuilderMiddleware } from './interfaces.js';
 import { NewInstance, DI, Constructor, isConstructor } from '@spinajs/di';
-import { SelectQueryBuilder } from './builders';
-import { createQuery, extractModelDescriptor, IModelBase, ModelBase } from './model';
-import { Orm } from './orm';
-import { OrmDriver } from './driver';
+import { SelectQueryBuilder } from './builders.js';
+import { createQuery, extractModelDescriptor, IModelBase, ModelBase } from './model.js';
+import { Orm } from './orm.js';
+import { OrmDriver } from './driver.js';
 import * as _ from 'lodash';
 
 export interface IOrmRelation {

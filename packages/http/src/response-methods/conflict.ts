@@ -1,6 +1,6 @@
 import * as express from 'express';
-import { HTTP_STATUS_CODE, Response } from '../interfaces';
-import { httpResponse } from '../responses';
+import { HTTP_STATUS_CODE, Response } from '../interfaces.js';
+import { httpResponse } from '../responses.js';
 
 /**
  * Internall response function.

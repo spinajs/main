@@ -1,15 +1,15 @@
 import { SessionProvider, Session, ISession } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
-import { DbSession } from './models/DbSession';
+import { DbSession } from './models/DbSession.js';
 import { InsertBehaviour } from '@spinajs/orm';
 import { replacer } from '@spinajs/util';
 import { Config } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 
-export * from './models/DbSession';
-export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_01_01';
+export * from './models/DbSession.js';
+export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_01_01.js';
 
 @Injectable(SessionProvider)
 export class DbSessionStore extends SessionProvider {

@@ -1,4 +1,4 @@
-import { User } from './models/User';
+import { User } from './models/User.js';
 import { AsyncService } from '@spinajs/di';
 import { DateTime } from 'luxon';
 

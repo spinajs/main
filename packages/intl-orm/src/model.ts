@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import { InsertBehaviour, ModelBase } from '@spinajs/orm';
 import _ from 'lodash';
-import { IntlResource } from './models/IntlResource';
+import { IntlResource } from './models/IntlResource.js';
 import { Configuration } from '@spinajs/configuration';
 import { guessLanguage } from '@spinajs/intl';
 export class Translatable extends ModelBase {
