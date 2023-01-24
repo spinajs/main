@@ -3,8 +3,8 @@ import { QueueClient } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
-import { User } from '../models/User';
-import { UserDeleted } from '../events/UserDeleted';
+import { User } from '../models/User.js';
+import { UserDeleted } from '../events/UserDeleted.js';
 
 @Command('rbac:user-delete', 'Deletes user from database permanently')
 @Argument('idOrUuid', 'numeric id or uuid')

@@ -32,6 +32,7 @@
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+"prepare": "npm run build",
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
     "rimraf": "./node_modules/rimraf/bin.js",

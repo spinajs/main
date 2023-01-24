@@ -5,9 +5,9 @@ import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 import { Autoinject } from '@spinajs/di';
 import { v4 as uuidv4 } from 'uuid';
-import { PasswordProvider } from '../interfaces';
-import { User } from '../models/User';
-import { UserRegisteredMessage } from '../events/NewUser';
+import { PasswordProvider } from '../interfaces.js';
+import { User } from '../models/User.js';
+import { UserRegisteredMessage } from '../events/NewUser.js';
 
 interface UserCreationOptions {
   email: string;

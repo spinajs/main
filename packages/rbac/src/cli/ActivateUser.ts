@@ -1,11 +1,11 @@
-import { UserDeactivated } from './../events/UserDeactivated';
+import { UserDeactivated } from './../events/UserDeactivated.js';
 //import { UserBannedMessage } from './../messages/UserBanned';
 import { QueueClient } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
-import { User } from '../models/User';
-import { UserActivated } from '../events/UserActivated';
+import { User } from '../models/User.js';
+import { UserActivated } from '../events/UserActivated.js';
 
 @Command('rbac:user-activate', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')

@@ -1,12 +1,12 @@
-import { UserUnbanned } from './../events/UserUnbanned';
+import { UserUnbanned } from './../events/UserUnbanned.js';
 import { QueueClient } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
-import { User } from '../models/User';
-import { UserBanned } from '../events/UserBanned';
-import { UserMetadata } from '../models/UserMetadata';
-import { UnbanUser } from '../jobs/UnbanUser';
+import { User } from '../models/User.js';
+import { UserBanned } from '../events/UserBanned.js';
+import { UserMetadata } from '../models/UserMetadata.js';
+import { UnbanUser } from '../jobs/UnbanUser.js';
 import { DateTime } from 'luxon';
 
 @Command('rbac:user-ban', 'Sets active or inactive user')

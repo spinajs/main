@@ -1,7 +1,7 @@
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
-import { UserAction } from '../models/UserTimeline';
-import { User } from '../models/User';
+import { UserAction } from '../models/UserTimeline.js';
+import { User } from '../models/User.js';
 
 @Command('rbac:user-events', 'Shows latest user timelinet events')
 @Argument('idOrUuid', 'numeric id or uuid')

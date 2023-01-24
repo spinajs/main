@@ -2,9 +2,9 @@ import { QueueClient } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
-import { User } from '../models/User';
-import { UserRoleGranted } from '../events/UserRoleGranted';
-import { ResourceNotFound } from '../../../exceptions/lib/index.js';
+import { User } from '../models/User.js';
+import { UserRoleGranted } from '../events/UserRoleGranted.js';
+import { ResourceNotFound } from '@spinajs/exceptions';
 import _ from 'lodash';
 
 @Command('rbac:user-grant', 'Grants role to user')

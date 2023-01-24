@@ -2,7 +2,7 @@ import { Log, Logger } from '@spinajs/log';
 import { CliCommand, Command } from '@spinajs/cli';
 import { Config } from '@spinajs/configuration';
 import { CronJob } from 'cron';
-import { UserAction } from '../models/UserTimeline';
+import { UserAction } from '../models/UserTimeline.js';
 import { DateTime } from 'luxon';
 
 @Command('rbac:unban-schedule', 'Starts a schedule that automatically unbabns users')

@@ -11,6 +11,7 @@
         "sourceMap": true,
         "target": "es2022",
         "esModuleInterop":true,
+        "skipLibCheck": true,
         "lib": [
             "esnext",
             "dom"

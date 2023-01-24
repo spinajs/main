@@ -1,6 +1,6 @@
 import { Log, Logger } from '@spinajs/log';
 import { Option, CliCommand, Command } from '@spinajs/cli';
-import { User } from '../models/User';
+import { User } from '../models/User.js';
 
 interface UserOption {
   idOrUuid?: string;

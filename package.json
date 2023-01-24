@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "clean": "npm run clean --workspace=packages",
-    "test": "npm run test --workspace=packages"
+    "test": "npm run test --workspace=packages",
+    "build": "npm run build --workspace=packages"
   },
   "workspaces": [
     "packages/*"
@@ -58,7 +59,8 @@
     "ts-mocha": "^10.0.0",
     "ts-node": "^10.9.1",
     "typedoc": "^0.23.24",
-    "typescript": "4.9.4"
+    "typescript": "4.9.4",
+    "rimraf": "^4.1.2"
   },
   "dependencies": {
     "@spinajs/cli": "file:packages\\cli",

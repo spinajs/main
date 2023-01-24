@@ -1,11 +1,11 @@
-import { PasswordProvider, PasswordValidationProvider } from './interfaces';
-
 // tslint:disable-next-line: no-var-requires
-const { Entropy, charset32 } = require('entropy-string');
+
+import { PasswordProvider, PasswordValidationProvider } from './interfaces.js';
 import * as argon from 'argon2';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { DataValidator } from '@spinajs/validation';
+import { Entropy, charset32 } from 'entropy-string';
 
 /**
  * Simple password service that use argon2 hash alghoritm and entropy-string to generate password

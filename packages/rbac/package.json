@@ -16,7 +16,7 @@
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
-    
+    "prepare": "npm run build",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
     "prepublishOnly": "npm test && npm run lint",
@@ -59,7 +59,8 @@
   },
   "devDependencies": {
     "@spinajs/orm-sqlite": "^2.0.46",
-    "@types/cron": "^2.0.0"
+    "@types/cron": "^2.0.0",
+    "@types/entropy-string": "^4.2.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

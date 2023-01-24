@@ -3,9 +3,9 @@ import { QueueClient } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
-import { User } from '../models/User';
-import { PasswordProvider, PasswordValidationProvider } from '../interfaces';
-import { UserPasswordChanged } from '../events/UserPasswordChanged';
+import { User } from '../models/User.js';
+import { PasswordProvider, PasswordValidationProvider } from '../interfaces.js';
+import { UserPasswordChanged } from '../events/UserPasswordChanged.js';
 import { AutoinjectService } from '@spinajs/configuration';
 
 @Command('rbac:user-change-password', 'Sets active or inactive user')
