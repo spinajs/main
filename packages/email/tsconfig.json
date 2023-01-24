@@ -1,5 +1,10 @@
 {
   "extends": "../../tsconfig.json",
 
-  "compilerOptions": {}
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib"
+  },
+  "include": ["src/**/*"],
+  "references": [{ "path": "../cli" },{ "path": "../configuration" },{ "path": "../exceptions" },{ "path": "../intl" },{ "path": "../log" },{ "path": "../queue" }]
 }

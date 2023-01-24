@@ -43,9 +43,6 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/queue-stomp-transport": "^2.0.46",
-    "@spinajs/templates-handlebars": "^2.0.46",
-    "@spinajs/templates-pug": "^2.0.46",
     "@types/luxon": "^3.2.0",
     "@types/node": "^18.11.18",
     "@types/nodemailer": "^6.4.7"
@@ -55,7 +52,6 @@
     "@spinajs/configuration": "^2.0.46",
     "@spinajs/di": "^2.0.46",
     "@spinajs/exceptions": "^2.0.39",
-    "@spinajs/internal-logger": "^2.0.46",
     "@spinajs/intl": "^2.0.46",
     "@spinajs/log": "^2.0.46",
     "@spinajs/queue": "^2.0.46",

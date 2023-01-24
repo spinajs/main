@@ -1,4 +1,4 @@
-import { UnexpectedServerError, InvalidArgument } from '../../exceptions/lib/index.js';
+import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces.js';

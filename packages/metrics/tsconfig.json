@@ -2,5 +2,9 @@
   "extends": "../../tsconfig.json",
 
   "compilerOptions": {
-  }
+    "rootDir": "./src",
+    "outDir": "./lib"
+  },
+  "include": ["src/**/*"],
+  "references": [{ "path": "../http" }, { "path": "../di" }, { "path": "../exceptions" }]
 }

@@ -1,9 +1,10 @@
 {
   "extends": "../../tsconfig.json",
 
-  "compilerOptions":  {
-    "typeRoots": [
-      "./typings"
-  ]
-  }
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib"
+  },
+  "include": ["src/**/*"],
+  "references": [{ "path": "../configuration" }, { "path": "../di" }, { "path": "../exceptions" }, { "path": "../log" }, { "path": "intl" }, { "path": "reflection" }, { "path": "orm" }]
 }

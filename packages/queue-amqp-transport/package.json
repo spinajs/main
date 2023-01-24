@@ -52,8 +52,6 @@
     "@spinajs/configuration": "^2.0.46",
     "@spinajs/di": "^2.0.46",
     "@spinajs/exceptions": "^2.0.39",
-    "@spinajs/internal-logger": "^2.0.46",
-    "@spinajs/intl": "^2.0.46",
     "@spinajs/log": "^2.0.46",
     "luxon": "^2.3.0",
     "nodemailer": "^6.7.7",

@@ -1,5 +1,10 @@
 {
   "extends": "../../tsconfig.json",
 
-  "compilerOptions": {}
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib"
+  },
+  "include": ["src/**/*"],
+  "references": [{ "path": "../email" },{ "path": "../configuration" },{ "path": "../exceptions" },{ "path": "../log" },{ "path": "../templates" },{ "path": "../fs" },{ "path": "../di" }]
 }

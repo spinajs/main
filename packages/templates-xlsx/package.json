@@ -16,7 +16,6 @@
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
-    
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
     "prepublishOnly": "npm test && npm run lint",
@@ -52,8 +51,8 @@
     "@spinajs/configuration": "^2.0.46",
     "@spinajs/di": "^2.0.46",
     "@spinajs/exceptions": "^2.0.39",
-    "@spinajs/internal-logger": "^2.0.46",
     "@spinajs/log": "^2.0.46",
+    "@spinajs/templates": "^2.0.46",
     "tempfile": "4.0.0",
     "xlsx-renderer": "^2.4.4"
   },

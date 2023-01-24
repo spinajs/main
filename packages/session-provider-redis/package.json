@@ -52,7 +52,6 @@
     "@spinajs/configuration": "^2.0.46",
     "@spinajs/di": "^2.0.46",
     "@spinajs/exceptions": "^2.0.39",
-    "@spinajs/internal-logger": "^2.0.46",
     "@spinajs/log": "^2.0.46"
   },
   "gitHead": "027c4862bbc97c4dd4f8e468a712b804c80b07f9"

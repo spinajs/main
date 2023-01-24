@@ -1,6 +1,10 @@
 {
-    "extends": "../../tsconfig.json",
-  
-    "compilerOptions": {
-    }
-  }
+  "extends": "../../tsconfig.json",
+
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib"
+  },
+  "include": ["src/**/*"],
+  "references": [{ "path": "../configuration-common" }, { "path": "../di" }, { "path": "../log" }]
+}

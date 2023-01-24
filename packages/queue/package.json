@@ -51,7 +51,6 @@
     "@spinajs/di": "^2.0.46",
     "@spinajs/exceptions": "^2.0.39",
     "@spinajs/log": "^2.0.46",
-    "eventemitter3": "^5.0.0",
     "luxon": "^3.2.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

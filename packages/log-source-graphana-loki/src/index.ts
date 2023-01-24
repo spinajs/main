@@ -2,13 +2,7 @@
 /* eslint-disable security/detect-object-injection */
 import { format } from "@spinajs/configuration-common";
 import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
-import {
-  ILog,
-  ILogEntry,
-  LogTarget,
-  ICommonTargetOptions,
-} from "@spinajs/log-common";
-import { Logger } from "@spinajs/log";
+import { ILog, ILogEntry, LogTarget, ICommonTargetOptions } from "@spinajs/log";
 
 import axios from "axios";
 import _ from "lodash";
@@ -45,10 +39,7 @@ enum TargetStatus {
 // for different files/paths/logs but we dont want to create every time writer for same.
 @PerInstanceCheck()
 @Injectable("GraphanaLogTarget")
-export class GraphanaLokiLogTarget
-  extends LogTarget<IGraphanaOptions>
-  implements IInstanceCheck
-{
+export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implements IInstanceCheck {
   @Logger("LogLokiTarget")
   protected Log: ILog;
 
@@ -153,10 +144,7 @@ export class GraphanaLokiLogTarget
 
         batch.push(stream);
       }
-      stream.values.push([
-        entry.Variables["n_timestamp"],
-        JSON.stringify(format(entry.Variables, this.Options.layout)),
-      ]);
+      stream.values.push([entry.Variables["n_timestamp"], JSON.stringify(format(entry.Variables, this.Options.layout))]);
     });
 
     axios
@@ -171,9 +159,7 @@ export class GraphanaLokiLogTarget
         this.Entries = [];
         this.Status = TargetStatus.IDLE;
 
-        this.Log.trace(
-          `Wrote buffered messages to graphana target at url ${this.Options.options.host}`
-        );
+        this.Log.trace(`Wrote buffered messages to graphana target at url ${this.Options.options.host}`);
       })
       .catch((err) => {
         // log error message to others if applicable eg. console

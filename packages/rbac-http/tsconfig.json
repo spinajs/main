@@ -1,5 +1,10 @@
 {
   "extends": "../../tsconfig.json",
 
-  "compilerOptions": {}
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib"
+  },
+  "include": ["src/**/*"],
+  "references": [{ "path": "../configuration" }, { "path": "../di" }, { "path": "../exceptions" }, { "path": "../log" }, {"path": "../orm"}, {"path": "../orm-http"}, {"path": "../http"}, {"path": "../rbac"}, {"path": "../reflection"}]
 }
