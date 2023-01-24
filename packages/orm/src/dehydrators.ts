@@ -1,7 +1,7 @@
 import { OrmException } from './exceptions.js';
 import { RelationType } from './interfaces.js';
 import { ModelBase } from './model.js';
-import { Relation } from './relation.js';
+import { Relation } from './relations.js';
 
 export abstract class ModelDehydrator {
   public abstract dehydrate(model: ModelBase, omit?: string[]): any;

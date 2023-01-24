@@ -49,7 +49,6 @@ export class SqliteOrderByCompiler extends OrderByQueryCompiler {
 }
 @NewInstance()
 export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
-  protected _builder: OnDuplicateQueryBuilder;
 
   constructor(builder: OnDuplicateQueryBuilder) {
     super(builder);

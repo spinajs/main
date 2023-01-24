@@ -159,7 +159,6 @@ export abstract class JoinStatement extends QueryStatement {
   protected _primaryKey: string;
   protected _query: RawQuery;
   protected _alias: string;
-  protected _tableAlias: string;
   protected _model: Constructor<ModelBase>;
   protected _sourceModel: Constructor<ModelBase>;
   protected _whereCallback: (this: ISelectQueryBuilder<any>) => void;
@@ -287,7 +286,6 @@ export abstract class InSetStatement extends QueryStatement {
 export abstract class ColumnStatement extends QueryStatement {
   protected _column: string | RawQuery;
   protected _alias: string;
-  protected _tableAlias: string;
   protected _descriptor: IColumnDescriptor;
 
   constructor(column: string | RawQuery, alias: string, tableAlias: string, descriptor: IColumnDescriptor) {

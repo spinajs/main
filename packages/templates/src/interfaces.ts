@@ -1,4 +1,4 @@
-import { IMappableService } from './../../di/src/interfaces';
+import { IMappableService } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { AsyncService } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';

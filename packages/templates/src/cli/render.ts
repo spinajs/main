@@ -1,4 +1,4 @@
-import { Templates } from './../index';
+import { Templates } from './../index.js';
 import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import * as path from 'path';

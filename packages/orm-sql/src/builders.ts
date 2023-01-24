@@ -3,8 +3,6 @@ import { DefaultValueBuilder, RawQuery } from '@spinajs/orm';
 
 @NewInstance()
 export class SqlDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
-  public Query: RawQuery;
-  public Value: string | number;
 
   constructor(protected Owner: T) {
     super();

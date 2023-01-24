@@ -7,7 +7,7 @@ import { ClassInfo, TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflec
 import { HttpServer } from './server.js';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
-import { RouteArgs, FromFormBase } from './route-args.js';
+import { RouteArgs, FromFormBase } from './route-args/index.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isPromise } from 'node:util/types';
 import { Response } from './interfaces.js';

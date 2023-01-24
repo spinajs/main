@@ -6,7 +6,7 @@ const compression = require('compression');
 const cors = require('cors');
 
 import { join, normalize, resolve } from 'path';
-import { HttpAcceptHeaders } from '../interfaces';
+import { HttpAcceptHeaders } from '../interfaces.js';
 
 function dir(path: string) {
   return resolve(normalize(join(__dirname, path)));
