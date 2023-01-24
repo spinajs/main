@@ -1,5 +1,5 @@
-import { Queue } from './Queue';
-import { Event } from './Event';
+import { Queue } from './Queue.js';
+import { Event } from './Event.js';
 import { ModelBase, Primary, Connection, Model, HasManyToMany, ManyToManyRelationList } from '@spinajs/orm';
 
 /**

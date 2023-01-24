@@ -17,6 +17,7 @@
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "prepare": "npm run build",
+    
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
     "prepublishOnly": "npm test && npm run lint",

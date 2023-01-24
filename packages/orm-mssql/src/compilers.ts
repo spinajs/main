@@ -1,13 +1,11 @@
 import { Configuration } from '@spinajs/configuration';
 import { IContainer, Inject, NewInstance } from '@spinajs/di';
-import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, OnDuplicateQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException } from '@spinajs/orm';
+import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException } from '@spinajs/orm';
 import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 @NewInstance()
 export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
-  protected _builder: OnDuplicateQueryBuilder;
-
   public compile() {
     const table = this._builder.getParent().Container.resolve(TableAliasCompiler).compile(this._builder.getParent());
     const descriptor = extractModelDescriptor(this._builder.getParent().Model);

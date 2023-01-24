@@ -16,7 +16,8 @@
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
-"prepare": "npm run build",
+    "prepare": "npm run build",
+
     
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
@@ -51,6 +52,7 @@
     "@spinajs/orm": "^2.0.46",
     "@spinajs/rbac": "^2.0.46",
     "@spinajs/reflection": "^2.0.46",
+    "@spinajs/util":  "^2.0.46",
     "luxon": "^3.2.1"
   },
   "devDependencies": {

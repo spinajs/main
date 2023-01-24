@@ -5,7 +5,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import _ from 'lodash';
 import { TemplateRenderer } from '@spinajs/templates';
-import { Logger, Log } from '@spinajs/log';
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import * as Handlebars from 'handlebars';
@@ -13,8 +12,6 @@ import { normalize } from 'path';
 
 @Injectable(TemplateRenderer)
 export class HandlebarsRenderer extends TemplateRenderer {
-  @Logger('renderer')
-  protected Log: Log;
 
   @Config('templates.handlebars')
   protected Options: any;

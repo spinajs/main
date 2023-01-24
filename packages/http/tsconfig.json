@@ -6,5 +6,5 @@
     "outDir": "./lib"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../configuration" }, { "path": "../di" }, { "path": "../exceptions" }, { "path": "../fs" }, { "path": "../log" }, { "path": "../reflection" }, { "path": "../templates" }, { "path": "validation" }]
+  "references": [{ "path": "../configuration" }, { "path": "../di" }, { "path": "../exceptions" }, { "path": "../fs" }, { "path": "../log" }, { "path": "../reflection" }, { "path": "../templates" }, { "path": "../validation" }]
 }

@@ -6,7 +6,7 @@ import { InvalidArgument } from '../../exceptions/lib/index.js';
 import * as _ from 'lodash';
 import * as util from 'util';
 import * as MakePlural from 'make-plural';
-import * as InvervalParser from 'math-interval-parser';
+import intervalParse from 'math-interval-parser';
 import * as TranslatioSources from './sources.js';
 export * from './sources.js';
 
@@ -209,7 +209,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
        * [,20] - all numbers ≤20 (matches: 20, 21, 22, ...)
        */
       function _matchInterval(c: number, eq: string) {
-        const interval = InvervalParser.default(eq);
+        const interval = intervalParse.default(eq);
         if (interval) {
           if (interval.from.value === c) {
             return interval.from.included;

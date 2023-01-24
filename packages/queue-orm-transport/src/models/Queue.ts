@@ -1,6 +1,6 @@
-import { Subscriber } from './Subscriber';
+import { Subscriber } from './Subscriber.js';
 import { ModelBase, Connection, Model, BelongsTo, SingleRelation } from '@spinajs/orm';
-import type { Event } from './Event';
+import type { Event } from './Event.js';
 /**
  * Base model for users used by auth and ACL system
  *

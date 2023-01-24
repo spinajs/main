@@ -2,7 +2,7 @@
 /* eslint-disable security/detect-object-injection */
 import { format } from "@spinajs/configuration-common";
 import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
-import { ILog, ILogEntry, LogTarget, ICommonTargetOptions } from "@spinajs/log";
+import { ILog, ILogEntry, LogTarget, ICommonTargetOptions, Logger } from "@spinajs/log";
 
 import axios from "axios";
 import _ from "lodash";

@@ -1,6 +1,6 @@
 import { QueueEvent, Event } from '@spinajs/queue';
 import { DateTime } from 'luxon';
-import { IEmail } from '../interfaces';
+import { IEmail } from '../interfaces.js';
 
 @Event()
 export class EmailSent extends QueueEvent {
