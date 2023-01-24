@@ -1,5 +1,5 @@
 import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
-import { IOFail, InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { IOFail, InvalidArgument, InvalidOperation } from '../../exceptions/lib/index.js';
 import * as fs from 'fs';
 import * as pugTemplate from 'pug';
 import * as path from 'path';

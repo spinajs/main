@@ -1,4 +1,4 @@
-import { IOFail } from '@spinajs/exceptions';
+import { IOFail } from '../../exceptions/lib/index.js';
 import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { IEmail, EmailSender, EmailConnectionOptions } from '@spinajs/email';

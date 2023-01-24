@@ -9,7 +9,7 @@ import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactio
 import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor } from './model.js';
 import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
 import { OrmDriver } from './driver.js';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation } from '../../exceptions/lib/index.js';
 import { OrmException } from './exceptions.js';
 import { DateTime } from 'luxon';
 

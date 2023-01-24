@@ -16,7 +16,7 @@
     "compile": "tsc -p tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/",
-    "prepare": "npm run build",
+    
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.js --ext .ts src",
     "prepublishOnly": "npm run lint",

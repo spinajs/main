@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Container, Inject, NewInstance, Constructor, IContainer, DI } from '@spinajs/di';
-import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
+import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '../../exceptions/lib/index.js';
 import { OrmException } from './exceptions.js';
 import * as _ from 'lodash';
 import { use } from 'typescript-mix';

@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation } from '../../exceptions/lib/index.js';
 import { join, normalize, resolve } from 'path';
 import {
   ConfigurationSource,

@@ -1,4 +1,4 @@
-import { ResourceNotFound, InvalidArgument } from '@spinajs/exceptions';
+import { ResourceNotFound, InvalidArgument } from '../../../exceptions/lib/index.js';
 import { QueueClient } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';

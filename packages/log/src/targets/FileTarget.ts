@@ -5,7 +5,7 @@ import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
 import { IFileTargetOptions, ILog, ILogEntry, LogTarget } from "@spinajs/log-common";
 import * as fs from "fs";
 import * as path from "path";
-import { InvalidOption } from "@spinajs/exceptions";
+import { InvalidOption } from "../../../exceptions/lib/index.js";
 import * as glob from "glob";
 import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";

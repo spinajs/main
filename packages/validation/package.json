@@ -14,7 +14,7 @@
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "build": "npm run clean && npm run compile",
     "compile": "tsc -p tsconfig.build.json",
-    "prepare": "npm run build",
+    
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/",
     "format": "prettier --write \"src/**/*.ts\"",

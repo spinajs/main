@@ -4,7 +4,7 @@ import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 import { User } from '../models/User';
 import { UserRoleRevoked } from '../events/UserRoleRevoked';
-import { ResourceNotFound } from '@spinajs/exceptions';
+import { ResourceNotFound } from '../../../exceptions/lib/index.js';
 import _ from 'lodash';
 
 @Command('rbac:user-revoke', 'Sets active or inactive user')

@@ -1,7 +1,6 @@
 {
     "compilerOptions": {
         "composite": true,
-        "incremental": true,
         "module": "ES2022",
         "noImplicitAny": true,
         "removeComments": false,
@@ -17,6 +16,7 @@
             "dom"
         ],
         "declaration": true,
+        "declarationMap": true,
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
         "typeRoots": ["node_modules/@types", "./typings"]

@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation } from '../../exceptions/lib/index.js';
 import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, ForwardRefFunction, IBuilderMiddleware } from './interfaces.js';
 import { NewInstance, DI, Constructor, isConstructor } from '@spinajs/di';
 import { SelectQueryBuilder } from './builders.js';

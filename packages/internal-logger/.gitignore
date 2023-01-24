@@ -57,6 +57,9 @@ jspm_packages/
 # next.js build output
 .next
 
+# build info from compilation
+tsconfig.tsbuildinfo
+
 # doc
 docs
 

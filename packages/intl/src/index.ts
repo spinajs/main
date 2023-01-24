@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { Injectable, AsyncService, Autoinject, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument } from '../../exceptions/lib/index.js';
 import * as _ from 'lodash';
 import * as util from 'util';
 import * as MakePlural from 'make-plural';

@@ -4,14 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Configuration, format } from "@spinajs/configuration-common";
 import { Bootstrapper, DI, Injectable } from "@spinajs/di";
-import {
-  ILogEntry,
-  LogLevel,
-  createLogMessageObject,
-  ILog,
-  ILogTargetDesc,
-  LogVariables,
-} from "@spinajs/log-common";
+import { ILogEntry, LogLevel, createLogMessageObject, ILog, ILogTargetDesc, LogVariables } from "@spinajs/log-common";
 import * as _ from "lodash";
 import chalk from "chalk";
 
@@ -101,14 +94,7 @@ export class InternalLogger extends Bootstrapper {
 
       InternalLogger.LogBuffer.forEach((value, lName) => {
         value.forEach((entry) => {
-          this.StdConsoleCallbackMap[entry.Level](
-            (this.theme as any)[entry.Level](
-              format(
-                entry.Variables,
-                "${datetime} ${level} ${message} ${error} (" + lName + ")"
-              )
-            )
-          );
+          this.StdConsoleCallbackMap[entry.Level]((this.theme as any)[entry.Level](format(entry.Variables, "${datetime} ${level} ${message} ${error} (" + lName + ")")));
         });
       });
       InternalLogger.LogBuffer.clear();
@@ -117,13 +103,7 @@ export class InternalLogger extends Bootstrapper {
 
   protected static LogBuffer: Map<string, ILogEntry[]> = new Map();
 
-  private static _write(
-    err: Error | string,
-    message: string,
-    name: string,
-    level: LogLevel,
-    ...args: any[]
-  ) {
+  private static _write(err: Error | string, message: string, name: string, level: LogLevel, ...args: any[]) {
     if (err instanceof Error) {
       InternalLogger.write(err, message, level, name, {}, ...args);
     } else {
@@ -132,149 +112,55 @@ export class InternalLogger extends Bootstrapper {
   }
 
   public static trace(message: string, name: string, ...args: any[]): void;
-  public static trace(
-    err: Error,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void;
-  public static trace(
-    err: Error | string,
-    message: string | any[],
-    name: string,
-    ...args: any[]
-  ): void {
+  public static trace(err: Error, message: string, name: string, ...args: any[]): void;
+  public static trace(err: Error | string, message: string | any[], name: string, ...args: any[]): void {
     InternalLogger.write(err, message, LogLevel.Trace, name, {}, ...args);
   }
 
   public static debug(message: string, name: string, ...args: any[]): void;
-  public static debug(
-    err: Error,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void;
-  public static debug(
-    err: Error | string,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void {
+  public static debug(err: Error, message: string, name: string, ...args: any[]): void;
+  public static debug(err: Error | string, message: string, name: string, ...args: any[]): void {
     InternalLogger._write(err, message, name, LogLevel.Debug, ...args);
   }
 
   public static info(message: string, name: string, ...args: any[]): void;
-  public static info(
-    err: Error,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void;
-  public static info(
-    err: Error | string,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void {
+  public static info(err: Error, message: string, name: string, ...args: any[]): void;
+  public static info(err: Error | string, message: string, name: string, ...args: any[]): void {
     InternalLogger._write(err, message, name, LogLevel.Info, ...args);
   }
 
   public static warn(message: string, name: string, ...args: any[]): void;
-  public static warn(
-    err: Error,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void;
-  public static warn(
-    err: Error | string,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void {
+  public static warn(err: Error, message: string, name: string, ...args: any[]): void;
+  public static warn(err: Error | string, message: string, name: string, ...args: any[]): void {
     InternalLogger._write(err, message, name, LogLevel.Warn, ...args);
   }
 
   public static error(message: string, name: string, ...args: any[]): void;
-  public static error(
-    err: Error,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void;
-  public static error(
-    err: Error | string,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void {
+  public static error(err: Error, message: string, name: string, ...args: any[]): void;
+  public static error(err: Error | string, message: string, name: string, ...args: any[]): void {
     InternalLogger._write(err, message, name, LogLevel.Error, ...args);
   }
 
   public static fatal(message: string, name: string, ...args: any[]): void;
-  public static fatal(
-    err: Error,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void;
-  public static fatal(
-    err: Error | string,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void {
+  public static fatal(err: Error, message: string, name: string, ...args: any[]): void;
+  public static fatal(err: Error | string, message: string, name: string, ...args: any[]): void {
     InternalLogger._write(err, message, name, LogLevel.Fatal, ...args);
   }
 
   public static security(message: string, name: string, ...args: any[]): void;
-  public static security(
-    err: Error,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void;
-  public static security(
-    err: Error | string,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void {
+  public static security(err: Error, message: string, name: string, ...args: any[]): void;
+  public static security(err: Error | string, message: string, name: string, ...args: any[]): void {
     InternalLogger._write(err, message, name, LogLevel.Security, ...args);
   }
 
   public static success(message: string, name: string, ...args: any[]): void;
-  public static success(
-    err: Error,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void;
-  public static success(
-    err: Error | string,
-    message: string,
-    name: string,
-    ...args: any[]
-  ): void {
+  public static success(err: Error, message: string, name: string, ...args: any[]): void;
+  public static success(err: Error | string, message: string, name: string, ...args: any[]): void {
     InternalLogger._write(err, message, name, LogLevel.Success, ...args);
   }
 
-  public static write(
-    err: Error | string,
-    message: string | any[],
-    level: LogLevel,
-    name: string,
-    vars: Record<string, unknown>,
-    ...args: any[]
-  ) {
-    const msg = createLogMessageObject(
-      err,
-      message,
-      level,
-      name,
-      vars,
-      ...args
-    );
+  public static write(err: Error | string, message: string | any[], level: LogLevel, name: string, vars: Record<string, unknown>, ...args: any[]) {
+    const msg = createLogMessageObject(err, message, level, name, vars, ...args);
     InternalLogger.writeLogEntry(msg);
   }
 
@@ -309,11 +195,7 @@ export class InternalLoggerProxy implements ILog {
   protected Variables: Record<string, any> = {};
   public Timers: Map<string, Date> = new Map<string, Date>();
 
-  constructor(
-    public Name: string,
-    protected variables?: Record<string, unknown>,
-    protected Parent?: ILog
-  ) {}
+  constructor(public Name: string, protected variables?: Record<string, unknown>, protected Parent?: ILog) {}
 
   trace(message: string, ...args: any[]): void;
   trace(err: Error, message: string, ...args: any[]): void;

@@ -4,7 +4,7 @@ import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
 import { User } from '../models/User';
 import { UserRoleGranted } from '../events/UserRoleGranted';
-import { ResourceNotFound } from '@spinajs/exceptions';
+import { ResourceNotFound } from '../../../exceptions/lib/index.js';
 import _ from 'lodash';
 
 @Command('rbac:user-grant', 'Grants role to user')

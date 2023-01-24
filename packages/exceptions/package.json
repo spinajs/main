@@ -3,7 +3,7 @@
   "version": "2.0.39",
   "description": "exceptions definitions used all across framework modules",
   "exports": {
-    "node": "./lib/index.mjs"
+    "node": "./lib/index.js"
   },
   "type": "module",
   "private": false,
@@ -18,7 +18,7 @@
     "compile": "tsc -p tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/",
-    "prepare": "npm run build",
+    
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.js --ext .ts src",
     "prepublishOnly": "npm run lint",

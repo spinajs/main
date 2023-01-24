@@ -1,4 +1,4 @@
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation } from '../../exceptions/lib/index.js';
 import { DI, Bootstrapper, Injectable } from '@spinajs/di';
 import { IEmail, EmailService } from './interfaces.js';
 import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration.js';

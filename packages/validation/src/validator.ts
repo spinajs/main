@@ -2,7 +2,7 @@ import { SyncService, Autoinject, Container } from '@spinajs/di';
 import Ajv from 'ajv';
 import { Config } from '@spinajs/configuration';
 import { IValidationError, ValidationFailed } from './exceptions/index.js';
-import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '../../exceptions/lib/index.js';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, ILog } from '@spinajs/log';

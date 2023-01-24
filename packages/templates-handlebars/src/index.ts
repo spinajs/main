@@ -1,6 +1,6 @@
-import { IOFail, InvalidOperation } from '@spinajs/exceptions';
+import { IOFail, InvalidOperation } from '../../exceptions/lib/index.js';
 import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument } from '../../exceptions/lib/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import _ from 'lodash';

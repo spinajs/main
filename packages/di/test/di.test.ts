@@ -1,5 +1,5 @@
 import { IInstanceCheck } from './../src/interfaces';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument } from '../../exceptions/lib/index.js';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { mock, spy } from 'sinon';

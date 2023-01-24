@@ -18,13 +18,13 @@
     "url": "git+https://github.com/spinajs/main.git"
   },
   "devDependencies": {
-    "@spinajs/configuration": "^2.0.46",
-    "@spinajs/log": "^2.0.46",
     "chai": "^4.3.7",
     "sinon": "15.0.1"
   },
   "dependencies": {
     "@spinajs/di": "^2.0.46",
+    "@spinajs/log-common":"^2.0.46",
+    "@spinajs/configuration-common":"^2.0.46",
     "lodash": "^4.17.21",
     "chalk": "5.2.0"
   },
@@ -36,7 +36,7 @@
     "compile": "tsc -p tsconfig.build.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/",
-    "prepare": "npm run build",
+    
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.js --ext .ts src",
     "prepublishOnly": "npm test && npm run lint",
