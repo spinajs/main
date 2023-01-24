@@ -1,29 +1,5 @@
 {
-  "compilerOptions": {
-      "module": "ES2022",
-      "noImplicitAny": true,
-      "removeComments": false,
-      "preserveConstEnums": true,
-      "noUnusedLocals": true,
-      "noUnusedParameters": true,
-      "moduleResolution": "nodenext",
-      "outDir": "lib/",
-      "sourceMap": true,
-      "target": "es2022",
-      "esModuleInterop":true,
-      "lib": [
-          "esnext",
-          "dom"
-      ],
-      "declaration": true,
-      "experimentalDecorators": true,
-      "emitDecoratorMetadata": true,
-      "typeRoots": ["node_modules/@types", "./typings"]
-      
-  },
-  "exclude": [
-      "node_modules",
-      "lib",
-      "test"
-  ]
-}  
+   
+  "files": [],
+  "references": [{"path": "packages/di"},{"path": "packages/configuration-common"}]
+}

@@ -11,7 +11,8 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -p tsconfig.build.json",
-    "clean": "",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
@@ -45,18 +46,16 @@
     "@types/luxon": "^3.2.0",
     "@types/mocha": "10.0.1",
     "@types/node": "^18.11.18",
-    "@types/pug": "^2.0.6"
+    "@types/pug": "^2.0.6",
+    "rimraf": "^4.1.2"
   },
   "dependencies": {
     "@spinajs/cli": "^2.0.46",
     "@spinajs/configuration": "^2.0.46",
     "@spinajs/di": "^2.0.46",
     "@spinajs/exceptions": "^2.0.39",
-    "@spinajs/internal-logger": "^2.0.46",
     "@spinajs/intl": "^2.0.46",
     "@spinajs/log": "^2.0.46",
-    "handlebars": "^4.7.7",
-    "pug": "^3.0.2",
     "tempfile": "4.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
