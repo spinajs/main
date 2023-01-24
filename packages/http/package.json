@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views && cpx src/static/**/* lib/static",
-    "compile": "tsc -p tsconfig.build.json",
+    "compile": "tsc -b tsconfig.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",

@@ -33,7 +33,7 @@
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -p tsconfig.build.json",
+    "compile": "tsc -b tsconfig.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     
