@@ -9,7 +9,7 @@
     "node": ">=16.11"
   },
   "scripts": {
-    "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views && cpx src/static/**/* lib/static",
+    "build": "npm run clean && npm run compile",
     "compile": "tsc -p tsconfig.build.json",
     "clean": "",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",

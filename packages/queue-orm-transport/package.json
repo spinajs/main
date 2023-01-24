@@ -9,7 +9,7 @@
     "node": ">=16.11"
   },
   "scripts": {
-    "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views && cpx src/static/**/* lib/static",
+    "build": "npm run clean && npm run compile",
     "compile": "tsc -p tsconfig.build.json",
     "clean": "",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -42,7 +42,6 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.46",
     "@types/luxon": "^2.3.1",
     "@types/node": "^16.11.11"
   },

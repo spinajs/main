@@ -1,6 +1,13 @@
 {
   "name": "root",
   "private": true,
+  "scripts": {
+    "build": "lerna run --parallel build",
+    "clean": "lerna clean"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
   "devDependencies": {
     "@types/bunyan": "^1.8.8",
     "@types/chai": "^4.3.4",
@@ -92,8 +99,6 @@
     "@spinajs/validation": "file:packages\\validation",
     "@spinajs/docs": "file:packages\\docs",
     "@spinajs/metrics": "file:packages\\metrics",
-    "@stomp/stompjs": "^6.1.2",
-    "@spinajs/log-source-graphana-loki": "file:packages/log-source-graphana-loki",
-    "websocket": "^1.0.34"
+    "@spinajs/log-source-graphana-loki": "file:packages/log-source-graphana-loki"
   }
 }

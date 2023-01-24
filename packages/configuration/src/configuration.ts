@@ -42,7 +42,7 @@ export class FrameworkConfiguration extends Configuration {
 
   protected Sources: ConfigurationSource[];
 
-  protected Validator: Ajv;
+  protected Validator: Ajv.default;
 
   protected ValidationSchemas: IConfigurationSchema[];
 

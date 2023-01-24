@@ -2,7 +2,9 @@
   "name": "@spinajs/exceptions",
   "version": "2.0.39",
   "description": "exceptions definitions used all across framework modules",
-  "exports": "./lib/index.js",
+  "exports": {
+    "node": "./lib/index.mjs"
+  },
   "type": "module",
   "private": false,
   "engines": {

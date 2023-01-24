@@ -17,7 +17,7 @@ export class DataValidator extends SyncService {
   @Logger('validation')
   protected Log: ILog;
 
-  protected Validator: Ajv;
+  protected Validator: Ajv.default;
 
   @Autoinject()
   protected Container: Container;
@@ -37,7 +37,7 @@ export class DataValidator extends SyncService {
       $data: true,
     };
 
-    this.Validator = new Ajv(ajvConfig);
+    this.Validator = new Ajv.default(ajvConfig);
 
     // add $merge & $patch for json schema
     require('ajv-merge-patch')(this.Validator);
