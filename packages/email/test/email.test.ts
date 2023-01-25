@@ -1,20 +1,9 @@
-var Module = require('module');
-var originalRequire = Module.prototype.require;
-
-Module.prototype.require = function () {
-  //do your thing here
-  return originalRequire.apply(this, arguments);
-};
-
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { join, normalize, resolve } from 'path';
 import * as _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
-import '../src';
-import servers from './config';
-import { EmailSend, EmailService } from '../src';
 import '@spinajs/templates-handlebars';
 import '@spinajs/templates-pug';
 import '@spinajs/queue-stomp-transport';
@@ -25,6 +14,8 @@ import { DateTime } from 'luxon';
 import { JobModel, QueueService } from '@spinajs/queue';
 import * as sinon from 'sinon';
 import { expect } from 'chai';
+import { EmailSend, EmailService } from '../src/index.ts';
+
 
 chai.use(chaiAsPromised);
 
@@ -45,7 +36,24 @@ export class ConnectionConf extends FrameworkConfiguration {
           },
         },
         email: {
-          connections: servers,
+          connections: [
+            {
+              name: 'test',
+              service: 'EmailSenderSmtp',
+              host: 'smtp.mailtrap.io',
+              port: 2525,
+              user: process.env.SPINE_TEST_EMAIL_USER || '9dd1310b3e28cf',
+              pass: process.env.SPINE_TEST_EMAIL_PASSWORD || '2535b401d2ae2b',
+            },
+            {
+              name: 'test2',
+              service: 'EmailSenderSmtp',
+              host: 'smtp.mailtrap.io',
+              port: 2525,
+              user: process.env.SPINE_TEST_EMAIL_USER || '9dd1310b3e28cf',
+              pass: process.env.SPINE_TEST_EMAIL_PASSWORD || '2535b401d2ae2b',
+            },
+          ],
         },
         queue: {
           default: 'default-test-queue',

@@ -1,13 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import 'mocha';
-
 import * as chai from 'chai';
 import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { DateTime } from 'luxon';
+
 import { DI } from '@spinajs/di';
 import { format } from '@spinajs/configuration-common';
-import { DateTime } from 'luxon';
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 chai.use(chaiAsPromised);

@@ -4,36 +4,30 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-floating-promises */
-import { DbConfig } from './../src/models/DbConfig';
-import { Bootstrapper, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Config, Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
+
+import { Bootstrapper, DI } from '@spinajs/di';
+import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { Config, Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
-import './../src/migrations/configuration_db_source_2022_02_08_01_13_00';
-import './migration/test_config_data_2022_02_08_01_13_00';
-import './../src/bootstrap';
-import './../src/index';
+
+import './migration/test_config_data_2022_02_08_01_13_00.js';
+import { DbConfig } from './../src/index.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
-export function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return target.concat(source);
-  }
-}
+
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public onReload(): unknown {
+  public onLoad(): unknown {
     return {
       logger: {
         targets: [

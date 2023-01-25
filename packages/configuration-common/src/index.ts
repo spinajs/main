@@ -100,9 +100,9 @@ export abstract class Configuration extends AsyncService {
   public abstract mergeSource(source: Class<ConfigurationSource>): Promise<void>;
 
   /**
-   * Reload configuration from all avaible sources
+   * loads configuration from all avaible sources
    */
-  public abstract reload(): Promise<void>;
+  public abstract load(): Promise<void>;
 
   /**
    *
@@ -111,7 +111,7 @@ export abstract class Configuration extends AsyncService {
    * Usefull when writting tests
    *
    */
-  protected abstract onReload(): unknown;
+  protected abstract onLoad(): unknown;
 }
 
 export abstract class ConfigurationSource {

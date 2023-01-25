@@ -1,6 +1,6 @@
 import { Log, Logger } from '@spinajs/log';
-import { Command, Argument, Option } from './../../src/decorators';
-import { CliCommand } from './../../src/interfaces';
+import { Command, Argument, Option } from './../../src/decorators.js';
+import { CliCommand } from './../../src/interfaces.js';
 
 interface TestOptions {
   timeout: number;

@@ -1,24 +1,22 @@
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
-import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
-import { InvalidOperation } from '../../exceptions/lib/index.js';
 import { join, normalize, resolve } from 'path';
-import {
-  ConfigurationSource,
-  IConfigLike,
-  Configuration,
-  ConfigurationOptions,
-  IConfigurable,
-  IConfigurationSchema,
-} from '@spinajs/configuration-common';
-import { mergeArrays, parseArgv } from './util.js';
-import * as _ from 'lodash';
-import { InvalidConfiguration } from './exception.js';
-import { InternalLogger } from '@spinajs/internal-logger';
-import './sources.js';
-import config from './config/configuration.js';
 import Ajv from 'ajv';
+import * as _ from 'lodash';
+import { InternalLogger } from '@spinajs/internal-logger';
+import { InvalidOperation } from '@spinajs/exceptions';
+import { ConfigurationSource, IConfigLike, Configuration, ConfigurationOptions, IConfigurable, IConfigurationSchema, } from '@spinajs/configuration-common';
+import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
+
+import { InvalidConfiguration } from './exception.js';
+import { mergeArrays, parseArgv } from './util.js';
+import config from './config/configuration.js';
+import './sources.js';
+
+import { default as ajvMergePath } from 'ajv-merge-patch';
+import { default as ajvFormats } from 'ajv-formats';
+import { default as ajvKeywords } from 'ajv-keywords';
 
 
 @Injectable(Configuration)
@@ -64,7 +62,7 @@ export class FrameworkConfiguration extends Configuration {
 
     this.CustomConfigPaths = options?.cfgCustomPaths ?? [];
     this.RunApp = options?.app ?? parseArgv('--app');
-    this.AppBaseDir = options?.appBaseDir ?? parseArgv('--apppath') ?? join(__dirname, '../apps/');
+    this.AppBaseDir = options?.appBaseDir ?? parseArgv('--apppath') ?? join(process.cwd(), '../apps/');
   }
 
   /**
@@ -129,7 +127,7 @@ export class FrameworkConfiguration extends Configuration {
      * in proper order
      */
     this.loadSources();
-    await this.reload();
+    await this.load();
 
     this.validate();
 
@@ -161,10 +159,10 @@ export class FrameworkConfiguration extends Configuration {
   /**
    * Reloads configuration data
    */
-  public async reload() {
+  public async load() {
     this.Config = {};
 
-    _.mergeWith(this.Config, this.onReload(), mergeArrays);
+    _.mergeWith(this.Config, this.onLoad(), mergeArrays);
 
     for (const source of this.Sources) {
       const rCfg = await source.Load(this);
@@ -175,7 +173,7 @@ export class FrameworkConfiguration extends Configuration {
     }
   }
 
-  protected onReload(): unknown {
+  protected onLoad(): unknown {
     return null;
   }
 
@@ -238,13 +236,13 @@ export class FrameworkConfiguration extends Configuration {
     });
 
     // add $merge & $patch for json schema
-    require('ajv-merge-patch')(this.Validator);
+    ajvMergePath(this.Validator);
 
     // add common formats validation eg: date time
-    require('ajv-formats')(this.Validator);
+    ajvFormats.default(this.Validator);
 
     // add keywords
-    require('ajv-keywords')(this.Validator);
+    ajvKeywords.default(this.Validator);
 
     // in strict mode ajv will throw when
     // unknown keyword in schema is met

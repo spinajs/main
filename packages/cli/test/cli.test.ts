@@ -1,54 +1,45 @@
-import { TestCommand } from './commands/TestCommand';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { join, normalize, resolve } from 'path';
 import * as _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { DI } from '@spinajs/di';
-import { Cli } from './../src';
 import { spy } from 'sinon';
 import { expect } from 'chai';
+
+import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import '@spinajs/log';
+
+import { Cli } from './../src/index.js';
+import { TestCommand } from './commands/TestCommand.js';
+
 
 //const expect = chai.expect;
 chai.use(chaiAsPromised);
 
-export function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
-
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(),'test', path)));
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '${datetime} ${level} ${message} ${error} duration: ${duration} (${logger})',
-            },
-          ],
+  protected onLoad() {
+    return {
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+            layout: '${datetime} ${level} ${message} ${error} duration: ${duration} (${logger})',
+          },
+        ],
 
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
-        system: {
-          dirs: {
-            cli: [dir('./commands')],
-          },
+      },
+      system: {
+        dirs: {
+          cli: [dir('./commands')],
         },
       },
-      mergeArrays,
-    );
+    }
   }
 }
 

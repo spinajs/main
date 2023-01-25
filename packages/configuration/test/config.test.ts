@@ -1,16 +1,15 @@
-import { IMappableService } from '@spinajs/di';
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import 'mocha';
-
 import * as chai from 'chai';
 import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { join, normalize } from 'path';
-import { DI } from '@spinajs/di';
+import { DI, IMappableService } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration-common';
+
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { AutoinjectService } from './../src/decorators.js';
-import { Configuration } from '@spinajs/configuration-common';
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 chai.use(chaiAsPromised);
@@ -23,7 +22,7 @@ function cfgApp() {
   return DI.resolve<Configuration>(Configuration, [
     {
       app: 'testapp',
-      appBaseDir: normalize(join(__dirname, '/mocks/apps')),
+      appBaseDir: normalize(join(process.cwd(),'test', '/mocks/apps')),
     },
   ]);
 }
@@ -31,7 +30,7 @@ function cfgApp() {
 function cfgNoApp() {
   return DI.resolve<Configuration>(Configuration, [
     {
-      cfgCustomPaths: [normalize(join(__dirname, '/mocks/config'))],
+      cfgCustomPaths: [normalize(join(process.cwd(),'test', '/mocks/config'))],
     },
   ]);
 }
