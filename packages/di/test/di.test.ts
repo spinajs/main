@@ -107,6 +107,23 @@ LazyInjectDep.Counter = 0;
 class LazyInjectResolve {
   @LazyInject(LazyInjectDep)
   public Instance: LazyInjectDep;
+
+  public get Test() { 
+    return "fff";
+  }
+
+  public Foo = 11;
+}
+
+class LazyInjectResolve2 {
+  @LazyInject()
+  public Instance: LazyInjectDep;
+
+  public get Test() { 
+    return "fff";
+  }
+
+  public Foo = 11;
 }
 
 abstract class SampleBaseClass {
@@ -493,6 +510,15 @@ describe('Dependency injection', () => {
     const lazyinject = DI.resolve<LazyInjectResolve>(LazyInjectResolve);
 
     expect(LazyInjectDep.Counter).to.eq(0);
+
+    const dep = lazyinject.Instance;
+    expect(dep).to.be.instanceof(LazyInjectDep);
+  });
+
+  it('Lazy inject check withoud type set explicit', () => {
+    const lazyinject = DI.resolve<LazyInjectResolve2>(LazyInjectResolve2);
+
+    expect(LazyInjectDep.Counter).to.eq(1);
 
     const dep = lazyinject.Instance;
     expect(dep).to.be.instanceof(LazyInjectDep);

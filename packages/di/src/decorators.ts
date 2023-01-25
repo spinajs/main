@@ -188,21 +188,25 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | IAutoinjectOptions, opt
  *
  * ```
  */
-export function LazyInject(service: Class<any> | string) {
+export function LazyInject(service?: Class<any> | string) {
   return (target?: any, key?: string) => {
+    let type = Reflect.getMetadata('design:type', target, key) as Class<unknown>;
+
     // property getter
     const getter = () => {
-      if (typeof service === 'string') {
-        return DI.get(service);
+      if (!service) {
+        return DI.resolve(type);
       } else {
-        return DI.resolve(service);
+        if (typeof service === 'string') {
+          return DI.get(service);
+        } else {
+          return DI.resolve(service);
+        }
       }
     };
 
     // Create new property with getter and setter
     Object.defineProperty(target, key, {
-      configurable: true,
-      enumerable: false,
       get: getter,
     });
   };
