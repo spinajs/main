@@ -240,7 +240,7 @@
       "request": "launch",
       "name": "DI test",
       "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/di/test/**/*.ts"]
+      "args": ["--config", "${workspaceFolder}/packages/di/.mocharc.json"]
     },
     {
       "type": "node",

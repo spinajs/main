@@ -10,7 +10,7 @@ import { EventEmitter } from 'events';
 import { Binder } from './binder.js';
 import { Registry } from './registry.js';
 import { ContainerCache } from './container-cache.js';
-import { isArray } from 'lodash';
+import _ from 'lodash';
 import { ResolveException, ServiceNotFound } from './exceptions.js';
 
 /**
@@ -307,7 +307,7 @@ export class Container extends EventEmitter implements IContainer {
     const getCachedInstance = (e: string | Class<any> | TypedArray<any>, parent: boolean) => {
       if (this.isResolved(e, parent)) {
         const rArray = this.get(e as any, parent);
-        return isArray(rArray) ? rArray.find((x) => getTypeName(x) === getTypeName(targetType)) : rArray;
+        return _.isArray(rArray) ? rArray.find((x) => getTypeName(x) === getTypeName(targetType)) : rArray;
       }
 
       return null;
@@ -316,7 +316,7 @@ export class Container extends EventEmitter implements IContainer {
     const getCachedInstances = (e: string | Class<any> | TypedArray<any>, parent: boolean) => {
       if (this.isResolved(e, parent)) {
         const rArray = this.get(e as any, parent);
-        return isArray(rArray) ? rArray : [rArray];
+        return _.isArray(rArray) ? rArray : [rArray];
       }
 
       return null;
@@ -483,7 +483,7 @@ export class Container extends EventEmitter implements IContainer {
           throw new ServiceNotFound(`Service ${(t.inject as any).name} is not registered in DI container`);
         }
 
-        if (isArray(services)) {
+        if (_.isArray(services)) {
           tInject = services.map((x) => {
             return {
               type: types.find((t) => t.name === x.service),
@@ -499,7 +499,7 @@ export class Container extends EventEmitter implements IContainer {
       }
 
       let promiseOrVal = null;
-      if (isArray(tInject)) {
+      if (_.isArray(tInject)) {
         const pVals = tInject.map((x) => this.resolve(x.type as any, [t.options ?? x.options], false, x.type));
         if (pVals.some((x) => isPromise(x))) {
           promiseOrVal = Promise.all(pVals);
@@ -535,7 +535,7 @@ export class Container extends EventEmitter implements IContainer {
 
     function valOrMap(val: any, t: IToInject<unknown>) {
       let instance = val;
-      if (isArray(val) && t.mapFunc) {
+      if (_.isArray(val) && t.mapFunc) {
         instance = new Map<string, unknown>();
         for (const i of val) {
           (instance as Map<string, unknown>).set(t.mapFunc(i), i);

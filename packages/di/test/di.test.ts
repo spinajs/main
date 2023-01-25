@@ -1,11 +1,11 @@
-import { IInstanceCheck } from './../src/interfaces';
-import { InvalidArgument } from '../../exceptions/lib/index.js';
+import { IInstanceCheck } from './../src/interfaces.js';
+import { InvalidArgument } from '@spinajs/exceptions';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { mock, spy } from 'sinon';
 
 import 'mocha';
-import { Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, Singleton, IInjectDescriptor, AddDependency, Class, PerInstance, AsyncService, SyncService, PerInstanceCheck } from '../src';
+import { Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, Singleton, IInjectDescriptor, AddDependency, Class, PerInstance, AsyncService, SyncService, PerInstanceCheck } from '../src/index.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);

@@ -1,4 +1,4 @@
-import { isArray, isString } from 'lodash';
+import * as _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
 import { AddDependency, Class, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
@@ -66,13 +66,13 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
           throw new Error(`Configuration value ${path} is empty`);
         }
 
-        if (isString(cfgVal)) {
+        if (_.isString(cfgVal)) {
           return {
             service: cfgVal,
           };
         }
 
-        if (isArray(cfgVal)) {
+        if (_.isArray(cfgVal)) {
           return cfgVal.map((x) => {
             return {
               // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access

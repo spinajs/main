@@ -5,7 +5,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, DI } from '@spinajs/di';
-import { glob } from 'glob';
+import  glob  from 'glob';
 import * as _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import { findBasePath, mergeArrays, uncache } from './util.js';

@@ -1,7 +1,6 @@
 import { NotSupported, IOFail } from '../../exceptions/lib/index.js';
 import _ from 'lodash';
 import { TemplateRenderer } from '@spinajs/templates';
-import { Logger, Log } from '@spinajs/log';
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import { Renderer } from 'xlsx-renderer';
@@ -9,8 +8,6 @@ import * as fs from 'fs';
 
 @Injectable(TemplateRenderer)
 export class XlsxRenderer extends TemplateRenderer {
-  @Logger('renderer')
-  protected Log: Log;
 
   protected Templates: Map<string, string> = new Map<string, string>();
 
