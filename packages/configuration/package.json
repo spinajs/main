@@ -17,8 +17,6 @@
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "prepare": "",
-
-    
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.js --ext .ts src --fix",
     "prepublishOnly": "npm test && npm run lint",
@@ -46,6 +44,9 @@
     "url": "https://github.com/spinajs/configuration/issues"
   },
   "homepage": "https://github.com/spinajs/configuration#readme",
+  "devDependencies": {
+    "@types/ajv-merge-patch": "^4.1.2"
+  },
   "dependencies": {
     "@spinajs/configuration-common": "^2.0.46",
     "@spinajs/di": "^2.0.46",

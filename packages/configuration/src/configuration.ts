@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { join, normalize, resolve } from 'path';
 import Ajv from 'ajv';
-import * as _ from 'lodash';
+import { default as _ } from 'lodash';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { ConfigurationSource, IConfigLike, Configuration, ConfigurationOptions, IConfigurable, IConfigurationSchema, } from '@spinajs/configuration-common';

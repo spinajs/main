@@ -6,7 +6,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, DI } from '@spinajs/di';
 import  glob  from 'glob';
-import * as _ from 'lodash';
+import { default as _} from 'lodash';
 import { join, normalize, resolve } from 'path';
 import { findBasePath, mergeArrays, uncache } from './util.js';
 import * as fs from 'fs';
@@ -21,20 +21,18 @@ export abstract class BaseFileSource extends ConfigurationSource {
   public BaseDir = './';
 
   protected CommonDirs = [
-    // this module path
-    normalize(join(resolve(__dirname), '/../config')),
 
     // for tests, in src dir
-    normalize(join(resolve(__dirname), '/config')),
+    normalize(join(resolve(process.cwd()),'src', '/config')),
 
     // other @spinajs modules paths
-    'node_modules/@spinajs/*/lib/config',
+    normalize(join(resolve(process.cwd()),'node_modules/@spinajs/*/lib/config')),
 
     // project paths - last to allow overwrite @spinajs conf
-    'lib/config',
-    'dist/config',
-    'build/config',
-    'config',
+    normalize(join(resolve(process.cwd()),'src', 'lib/config')),
+    normalize(join(resolve(process.cwd()),'src', 'dist/config')),
+    normalize(join(resolve(process.cwd()),'src', 'build/config')),
+    normalize(join(resolve(process.cwd()),'src', 'config')),
   ];
 
   protected BasePath = '';
@@ -54,10 +52,6 @@ export abstract class BaseFileSource extends ConfigurationSource {
     // assume that process working dir is base path
     // eg. on electron environment
     this.BasePath = bPath === null ? process.cwd() : bPath;
-  }
-
-  protected load(extension: string, callback: (file: string) => any) {
-    const config = {};
 
     if (this.RunApp) {
       this.CommonDirs = this.CommonDirs.concat([join(this.appBaseDir, `/${this.RunApp}/config`)]);
@@ -66,10 +60,16 @@ export abstract class BaseFileSource extends ConfigurationSource {
     if (this.CustomConfigPaths) {
       this.CommonDirs = this.CommonDirs.concat(this.CustomConfigPaths);
     }
+  }
+
+  protected load(extension: string, callback: (file: string) => any) {
+    const config = {};
 
     this.CommonDirs.map((f) => (path.isAbsolute(f) ? f : join(this.BasePath, f)))
       // get all config files
-      .map((d) => glob.sync(path.join(d, `/**/${extension}`)))
+      .map((d) => {
+        return glob.sync(path.join(d, `/**/${extension}`).replace(/\\/g, '/'));
+      })
       // flatten files
       .reduce((prev, current) => {
         return prev.concat(_.flattenDeep(current));

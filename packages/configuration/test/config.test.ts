@@ -110,7 +110,7 @@ describe('Configuration tests', () => {
   });
 
   it('should merge app config with app from argv', async () => {
-    const dir = normalize(join(__dirname, '/mocks/apps'));
+    const dir = normalize(join(process.cwd(),'test','/mocks/apps'));
 
     process.argv.push('--app');
     process.argv.push('testapp');
