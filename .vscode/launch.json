@@ -5,193 +5,289 @@
       "type": "node",
       "request": "launch",
       "name": "[ EMAIL ] email service",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/email/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/email/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ EMAIL ] email-smtp-transport transport",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/email-smtp-transport/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/email-smtp-transport/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ QUEUE ] queue-orm-transport test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/queue-orm-transport/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/queue-orm-transport/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ QUEUE ] queue test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["--trace-warnings", "-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/queue/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/queue/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ QUEUE ] queue-stomp-transport test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/queue-stomp-transport/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/queue-stomp-transport/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ TEMPLATES ] PUG test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/templates-pug/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/templates-pug/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ TEMPLATES ] HANDLEBARS test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/templates-handlebars/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/templates-handlebars/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ TEMPLATES ] XLSX test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/templates-xlsx/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/templates-xlsx/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ CONFIGURATION ] configuration-common tests",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/configuration-common/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/configuration-common/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ CONFIGURATION ] configuration test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/configuration/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/configuration/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ CONFIGURATION ] configuration-db-source test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/configuration-db-source/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/configuration-db-source/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ ORM ] orm-http test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm-http/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/orm-http/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ ORM ] intl-orm test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/intl-orm/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/intl-orm/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ ORM ] orm-sql test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm-sql/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/orm-sql/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ ORM ] orm-sqlite test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm-sqlite/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/orm-sqlite/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ ORM ] orm-mssql test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm-mssql/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/orm-mssql/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ ORM ] orm-mysql test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm-mysql/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/orm-mysql/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ ORM ] orm test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/orm/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/orm/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ INTL ] intl test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/intl/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/intl/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
 
     {
       "type": "node",
       "request": "launch",
       "name": "[ SESSION ] session-provider-dynamodb test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/session-provider-dynamodb/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/session-provider-dynamodb/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ SESSION ] session-provider-db test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/session-provider-db/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/session-provider-db/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ HTTP ] rbac-http test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/rbac-http/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/rbac-http/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ HTTP ] intl-http test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/intl-http/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/intl-http/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
 
     {
       "type": "node",
       "request": "launch",
       "name": "[ HTTP ] http test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/http/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/http/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
 
     {
       "type": "node",
       "request": "launch",
       "name": "[ LOG ] log test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/log/test/**/*.ts", "--exit"],
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/log/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
       "env": {
-        "NODE_ENV": "development",
-        "TESTING": "true"
+        "NODE_ENV": "development"
       }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "[ LOG ] log-source-graphana test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/log-source-graphana-loki/test/**/*.ts", "--exit"],
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/log-source-graphana-loki/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
       "env": {
-        "NODE_ENV": "development",
-        "TESTING": "true"
+        "NODE_ENV": "development"
       }
     },
 
@@ -199,38 +295,54 @@
       "type": "node",
       "request": "launch",
       "name": "[ LOG ] internal-logger tests",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/internal-logger/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/internal-logger/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "RBAC test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/rbac/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/rbac/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "EXCEPTIONS test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["--inspect-brk", "-u", "tdd", "--timeout", "999999", "--colors", "${workspaceFolder}/exceptions/spine/test/**/*.ts"],
-      "internalConsoleOptions": "openOnSessionStart"
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/exceptions/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
 
     {
       "type": "node",
       "request": "launch",
       "name": "REFLECTION tests",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/reflection/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/reflection/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "VALIDATION test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/validation/test/**/*.ts"],
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/validation/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
       "env": {
         "NODE_ENV": "development"
       }
@@ -241,14 +353,21 @@
       "name": "DI test",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
       "cwd": "${workspaceFolder}/packages/di/",
-      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"]
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "type": "node",
       "request": "launch",
       "name": "CLI test",
-      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
-      "args": ["-r", "ts-node/register", "--timeout", "999999", "--colors", "${workspaceFolder}/packages/cli/test/**/*.ts"]
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/cli/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
     }
   ]
 }
