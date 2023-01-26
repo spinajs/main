@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-http",
-  "version": "2.0.46",
+  "version": "2.0.47",
   "description": "Orm extensions for HTTP module",
   "exports": "./lib/index.js",
   "type": "module",

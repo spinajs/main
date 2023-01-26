@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/electron",
-  "version": "2.0.46",
+  "version": "2.0.47",
   "description": "spinajs extensions for electron",
   "license": "ISC",
   "exports": "./lib/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac",
-  "version": "2.0.46",
+  "version": "2.0.47",
   "description": "Role and Attribute based Access Control for SpinaJS framework",
   "exports": "./lib/index.js",
   "type": "module",

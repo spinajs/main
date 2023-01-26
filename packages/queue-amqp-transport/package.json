@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/jobs-amqp-transport",
-  "version": "2.0.46",
+  "version": "2.0.47",
   "description": "jobs rabbit mq support, it sends & reads messages from ampq compatible server",
   "exports": "./lib/index.js",
   "type": "module",

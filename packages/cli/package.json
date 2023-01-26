@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/cli",
-  "version": "2.0.46",
+  "version": "2.0.47",
   "description": "SpinaJS command line module",
   "exports": "./lib/index.js",
   "type": "module",
