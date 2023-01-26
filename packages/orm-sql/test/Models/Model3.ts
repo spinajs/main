@@ -1,4 +1,4 @@
-import { Model4 } from './../../../orm/test/mocks/models/Model4.js';
+import { Model4 } from './Model4.js';
 import { Connection, ModelBase, Model, Primary, HasMany, Relation } from '@spinajs/orm';
 
 @Connection('sqlite')

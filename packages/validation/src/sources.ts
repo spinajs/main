@@ -14,7 +14,7 @@ export class FileSystemSource extends SchemaSource {
     if (!this.SchemaDirs) return [];
 
     return this.SchemaDirs.filter((dir) => fs.existsSync(dir))
-      .flatMap((d: string) => glob.sync(path.join(d, '/**/*.+(json|js)')))
+      .flatMap((d: string) => glob.sync(path.join(d, '/**/*.+(json|js)').replace(/\\/g, '/')))
       .map((f) => {
         return {
           schema: require(f) as ISchemaObject,

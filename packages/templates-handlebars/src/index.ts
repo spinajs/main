@@ -7,7 +7,7 @@ import _ from 'lodash';
 import { TemplateRenderer } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
-import * as Handlebars from 'handlebars';
+import Handlebars from 'handlebars';
 import { normalize } from 'path';
 
 @Injectable(TemplateRenderer)

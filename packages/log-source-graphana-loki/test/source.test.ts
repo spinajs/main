@@ -13,7 +13,7 @@ import "./../src/index";
 
 // importing type for only type annotation couset module to not load
 // eslint-disable-next-line import/no-duplicates
-import { GraphanaLokiLogTarget } from "./../src";
+import { GraphanaLokiLogTarget } from "./../src/index.js";
 
 export function mergeArrays(target: any, source: any) {
   if (_.isArray(target)) {

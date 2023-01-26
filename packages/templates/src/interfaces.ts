@@ -37,7 +37,7 @@ export abstract class TemplateRenderer extends AsyncService implements IMappable
 
   public async resolve(): Promise<void> {
     for (const path of this.TemplatePaths) {
-      const files = glob.sync(join(path, `/**/*${this.Extension}`));
+      const files = glob.sync(join(path, `/**/*${this.Extension}`).replace(/\\/g, '/'));
 
       for (const file of files) {
         const templateName = file.substring(path.length + 1, file.length);

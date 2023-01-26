@@ -214,7 +214,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
       const { name, ext } = path.parse(path.basename(lFiles[i].name));
 
       // get number of files with same name, eg. during a day, multiple log files can be produced
-      const lArchiFiles = glob.sync(path.join(this.ArchiveDirPath, `archived_${name}*{${ext},.gzip}`));
+      const lArchiFiles = glob.sync(path.join(this.ArchiveDirPath, `archived_${name}*{${ext},.gzip}`).replace(/\\/g, '/'));
       const archPath = path.join(this.ArchiveDirPath, `archived_${name}_${lArchiFiles.length + 1}${ext}`);
 
       fs.rename(lFiles[i].name, archPath, (err) => {

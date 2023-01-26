@@ -5,7 +5,7 @@ import * as chai from "chai";
 import * as sinon from "sinon";
 import * as _ from "lodash";
 import { BlackHoleTarget, LogLevel } from "@spinajs/log";
-import { InternalLogger } from "../src";
+import { InternalLogger } from "../src/index.js";
 
 const expect = chai.expect;
 

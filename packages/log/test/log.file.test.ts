@@ -6,9 +6,9 @@ import "mocha";
 import { DI } from "@spinajs/di";
 import { Configuration } from "@spinajs/configuration";
 import * as sinon from "sinon";
-import { FileTarget, Log, LogBotstrapper } from "../src";
+import { FileTarget, Log, LogBotstrapper } from "../src/index.js";
 import * as _ from "lodash";
-import { dir, TestConfiguration } from "./conf";
+import { dir, TestConfiguration } from "./conf.js";
 import { expect } from "chai";
 import { DateTime } from "luxon";
 

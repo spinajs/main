@@ -14,8 +14,8 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Config, Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 
-import './migration/test_config_data_2022_02_08_01_13_00.js';
 import { DbConfig } from './../src/index.js';
+import './migration/test_config_data_2022_02_08_01_13_00.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -119,7 +119,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     }
 
     await db();
-    await (await cfg()).reload();
+    await (await cfg()).load();
   });
 
   afterEach(async () => {

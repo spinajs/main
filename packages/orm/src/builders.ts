@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { Container, Inject, NewInstance, Constructor, IContainer, DI } from '@spinajs/di';
+import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '../../exceptions/lib/index.js';
 import { OrmException } from './exceptions.js';
 import _ from 'lodash';
@@ -754,6 +754,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 }
+@Injectable(SelectQueryBuilder)
 export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
    * column query props

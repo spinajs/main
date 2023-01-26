@@ -3,8 +3,9 @@ import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } fro
 import Stomp from '@stomp/stompjs';
 import _ from 'lodash';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
+import websocket from 'websocket';
 
-Object.assign(global, { WebSocket: require('websocket').w3cwebsocket });
+Object.assign(global, { WebSocket: websocket.w3cwebsocket });
 
 @PerInstanceCheck()
 @Injectable(QueueClient)

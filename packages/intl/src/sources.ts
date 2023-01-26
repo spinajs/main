@@ -25,7 +25,7 @@ export class JsonTranslationSource extends TranslationSource {
 
     localeDirs
       .filter((d) => fs.existsSync(d))
-      .map((d) => glob.sync(`${d}/**/*.json`))
+      .map((d) => glob.sync(`${d}/**/*.json`.replace(/\\/g, '/')))
       .reduce((prev, current) => {
         return prev.concat(_.flattenDeep(current));
       }, [])
@@ -65,7 +65,7 @@ export class JsTranslationSource extends TranslationSource {
 
     localeDirs
       .filter((d) => fs.existsSync(d))
-      .map((d) => glob.sync(`${d}/**/*.js`))
+      .map((d) => glob.sync(`${d}/**/*.js`.replace(/\\/g, '/')))
       .reduce((prev, current) => {
         return prev.concat(_.flattenDeep(current));
       }, [])

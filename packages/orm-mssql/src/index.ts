@@ -4,7 +4,7 @@ import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
 
 import { SqlDriver } from '@spinajs/orm-sql';
-import { connect, ConnectionPool, Request } from 'mssql';
+import  mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler } from './compilers.js';
 import { MssqlModelDehydrator } from './dehydrator.js';
@@ -12,9 +12,9 @@ import { MsSqlDatetimeValueConverter } from './converters.js';
 
 @Injectable('orm-driver-mssql')
 export class MsSqlOrmDriver extends SqlDriver {
-  protected _connectionPool: ConnectionPool = null;
+  protected _connectionPool: mssql.ConnectionPool = null;
   protected _executionId = 0;
-  protected _transactionRequest: Request = null;
+  protected _transactionRequest: mssql.Request = null;
 
   constructor(options: IDriverOptions) {
     super(Object.assign({ AliasSeparator: '#' }, options));
@@ -97,7 +97,7 @@ export class MsSqlOrmDriver extends SqlDriver {
   }
 
   public async connect(): Promise<OrmDriver> {
-    this._connectionPool = await connect({
+    this._connectionPool = await mssql.connect({
       user: this.Options.User,
       password: this.Options.Password,
       database: this.Options.Database,

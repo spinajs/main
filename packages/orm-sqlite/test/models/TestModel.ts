@@ -1,6 +1,6 @@
 import { ModelBase, Primary, Connection, Model, CreatedAt, HasMany, Relation } from '@spinajs/orm';
 import { DateTime } from 'luxon';
-import { TestMany } from './TestMany';
+import { TestMany } from './TestMany.js';
 
 @Connection('sqlite')
 @Model('test_model')
