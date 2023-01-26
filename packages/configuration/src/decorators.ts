@@ -1,4 +1,4 @@
-import * as _ from 'lodash';
+import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
 import { AddDependency, Class, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
