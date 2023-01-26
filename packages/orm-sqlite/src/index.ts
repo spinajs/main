@@ -15,7 +15,7 @@ import sqlite3 from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { SqlLiteJoinStatement } from './statements.js';
-import { ResourceDuplicated } from '@spinajs/exceptions';
+import { ResourceDuplicated } from '../../exceptions/lib/index.js';
 import { IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';

@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import * as sinon from 'sinon';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import { DataValidator } from '../src/validator';
 import { Schema } from '../src';

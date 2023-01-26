@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as ts from 'typescript';
 import { Configuration } from '@spinajs/configuration';
 import { AsyncService, Class, DI } from '@spinajs/di';
-import { InvalidArgument, Exception } from '@spinajs/exceptions';
+import { InvalidArgument, Exception } from '../../exceptions/lib/index.js';
 import { Log } from '@spinajs/log';
 
 export * from 'typescript-mix';

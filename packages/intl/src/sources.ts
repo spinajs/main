@@ -3,7 +3,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Autoinject, Injectable } from '@spinajs/di';
 import glob from 'glob';
 import * as fs from 'fs';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import { normalize, resolve, basename } from 'path';
 import { Logger } from '@spinajs/log';
 

@@ -10,7 +10,7 @@ import { Op } from './enums.js';
 import { DI, isConstructor, Class, IContainer } from '@spinajs/di';
 import { Orm } from './orm.js';
 import { ModelHydrator } from './hydrators.js';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { OrmException } from './exceptions.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './dehydrators.js';

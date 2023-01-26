@@ -1,4 +1,4 @@
-import { InvalidOperation } from '../@spinajs/exceptions';
+import { InvalidOperation } from '../../../exceptions/lib/index.js';
 import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, Header, Policy, Query, BadRequest, NotFound } from '@spinajs/http';
 import { AuthProvider, FederatedAuthProvider, PasswordProvider, PasswordValidationProvider, Session, SessionProvider, User, User as UserModel, UserMetadata, UserPasswordChanged } from '@spinajs/rbac';

@@ -3,7 +3,7 @@ import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
 import { Controllers } from '../src';
 import { join, normalize, resolve } from 'path';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
 

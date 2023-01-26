@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { Templates } from '@spinajs/templates';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { join, normalize, resolve } from 'path';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';

@@ -6,7 +6,7 @@
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 
 import { Bootstrapper, DI } from '@spinajs/di';

@@ -9,7 +9,7 @@ import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/config
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import { IDriverOptions, Orm, OrmDriver } from '@spinajs/orm';
 import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types.js';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import { parse } from './models/DbConfig.js';
 
 @Singleton()

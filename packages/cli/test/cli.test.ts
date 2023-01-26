@@ -1,5 +1,5 @@
 import { join, normalize, resolve } from 'path';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { spy } from 'sinon';

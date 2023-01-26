@@ -1,7 +1,7 @@
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
 import { join, normalize, resolve } from 'path';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import chaiAsPromised from 'chai-as-promised';
 chai.use(chaiAsPromised);
 

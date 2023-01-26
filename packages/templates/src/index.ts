@@ -1,4 +1,4 @@
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation } from '../../exceptions/lib/index.js';
 import { AsyncService, Inject, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { TemplateRenderer } from './interfaces.js';

@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
-import { ResourceNotFound } from '../@spinajs/exceptions';
+import { ResourceNotFound } from '../../../exceptions/lib/index.js';
 import * as express from 'express';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import { getType } from 'mime';
 import { IFileResponseOptions, Response } from './../interfaces.js';
 import { fs } from '@spinajs/fs';

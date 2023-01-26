@@ -3,7 +3,7 @@ import { NonDbPropertyHydrator } from './../src/hydrators.js';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/orm.js';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler, FakeColumnQueryCompiler, mergeArrays, FakeTableExistsCompiler } from './misc.js';

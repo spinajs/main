@@ -8,7 +8,7 @@ import { MODEL_DESCTRIPTION_SYMBOL } from './../src/decorators.js';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/index.js';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler } from './misc.js';
@@ -496,8 +496,6 @@ describe('General model tests', () => {
     );
 
     const scope = sinon.spy(ModelWithScopeQueryScope.prototype, 'whereIdIsGreaterThan');
-
-      ModelWithScope.query().whereIdIsGreaterThan(1);
 
     await ModelWithScope.query().whereIdIsGreaterThan(1);
 

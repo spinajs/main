@@ -1,10 +1,10 @@
 /* eslint-disable prettier/prettier */
-import { IWhereBuilder, QueryScope } from '@spinajs/orm';
+import { IWhereBuilder, QueryScope } from '../../../src/interfaces.js';
 import { Connection, Primary, Model } from '../../../src/decorators.js';
 import { ModelBase } from '../../../src/model.js';
 
 export class ModelWithScopeQueryScope implements QueryScope {
-  whereIdIsGreaterThan(this: IWhereBuilder<ModelWithScope> & ModelWithScopeQueryScope, val: number) : IWhereBuilder<ModelWithScope> & ModelWithScopeQueryScope {
+  whereIdIsGreaterThan(this: IWhereBuilder<ModelWithScope> & ModelWithScopeQueryScope, val: number): IWhereBuilder<ModelWithScope> & ModelWithScopeQueryScope {
     this.where('Id', '>=', val);
     return this;
   }

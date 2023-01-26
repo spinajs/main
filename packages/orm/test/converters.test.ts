@@ -1,6 +1,6 @@
 import { UuidConverter } from './../src/converters.js';
 import * as chai from 'chai';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import 'mocha';
 
 const expect = chai.expect;

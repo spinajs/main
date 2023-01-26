@@ -5,7 +5,7 @@ import { Server } from 'http';
 import { RequestHandler } from 'express';
 import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction } from './interfaces.js';
 import * as fs from 'fs';
-import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
+import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '../../exceptions/lib/index.js';
 import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods/index.js';
 import Express = require('express');
 import { ValidationFailed } from '@spinajs/validation';

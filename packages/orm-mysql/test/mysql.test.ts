@@ -1,5 +1,5 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { MySqlOrmDriver } from '../src/index';

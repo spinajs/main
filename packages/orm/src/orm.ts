@@ -4,12 +4,12 @@ import { Configuration } from '@spinajs/configuration';
 import { AsyncService, Autoinject, Container, Class, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { ClassInfo } from '@spinajs/reflection';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode, IModelDescriptor } from './interfaces.js';
 import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor } from './model.js';
 import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
 import { OrmDriver } from './driver.js';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation } from '../../exceptions/lib/index.js';
 import { OrmException } from './exceptions.js';
 import { DateTime } from 'luxon';
 

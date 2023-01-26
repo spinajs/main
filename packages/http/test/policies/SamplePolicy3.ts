@@ -1,6 +1,6 @@
 import { BasePolicy, IController, IRoute } from '../../src';
 import { Request } from 'express';
-import { Forbidden } from '../@spinajs/exceptions';
+import { Forbidden } from '../../../exceptions/lib/index.js';
 
 export class SamplePolicy3 extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {

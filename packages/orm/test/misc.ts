@@ -4,7 +4,7 @@ import { join, normalize, resolve } from 'path';
 import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder } from '../src/index.js';
 import { OrmDriver, TransactionCallback } from './../src/driver.js';
 import { FrameworkConfiguration } from '@spinajs/configuration';
-import * as _ from 'lodash';
+import _ from 'lodash';
 
 export function mergeArrays(target: any, source: any) {
   if (_.isArray(target)) {

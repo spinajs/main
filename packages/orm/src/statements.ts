@@ -2,7 +2,7 @@ import { ISelectQueryBuilder } from './interfaces.js';
 import type { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders.js';
 import { ColumnMethods, SqlOperator, JoinMethod } from './enums.js';
 import { NewInstance, Container, Class, Constructor } from '@spinajs/di';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import { IColumnDescriptor } from './interfaces.js';
 import { extractModelDescriptor, ModelBase } from './model.js';
 import { OrmException } from './exceptions.js';

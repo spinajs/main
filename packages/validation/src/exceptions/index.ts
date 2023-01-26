@@ -1,4 +1,4 @@
-import { Exception } from '../@spinajs/exceptions';
+import { Exception } from '../../../exceptions/lib/index.js';
 import { ErrorObject } from 'ajv';
 /**
  * The exception that is thrown when JSON entity is checked against schema and is invalid

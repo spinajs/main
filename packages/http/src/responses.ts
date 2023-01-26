@@ -3,7 +3,7 @@ import { HTTP_STATUS_CODE, HttpAcceptHeaders, DataTransformer } from './interfac
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { ILog, Log } from '@spinajs/log';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import * as randomstring from 'randomstring';
 import { __translate, __translateH, __translateL, __translateNumber } from '@spinajs/intl';
 import { Templates } from '@spinajs/templates';
