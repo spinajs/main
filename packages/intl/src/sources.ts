@@ -63,9 +63,9 @@ export class JsTranslationSource extends TranslationSource {
     const localeDirs = this.Configuration.get('system.dirs.locales', []);
     let translations = {};
 
-    localeDirs
+    const files = localeDirs
       .filter((d) => fs.existsSync(d))
-      .map((d) => glob.sync(`${d}/**/*.js`.replace(/\\/g, '/')))
+      .map((d) => glob.sync(`${d}/**/*.{js,cjs}`.replace(/\\/g, '/')))
       .reduce((prev, current) => {
         return prev.concat(_.flattenDeep(current));
       }, [])
@@ -73,18 +73,19 @@ export class JsTranslationSource extends TranslationSource {
       .map((f) => {
         this.Log.trace(`Found json localisation file at ${f}`);
         return f;
-      })
-      .forEach((f) => {
-        const lang = basename(f, '.js');
-        let data = require(f);
-
-        if (!data) {
-          this.Log.warn(`No localisation data at ${f} for lang ${lang}`);
-          return;
-        }
-
-        translations = _.merge({ [lang]: data }, translations);
       });
+
+    for (const f of files) {
+      const lang = basename(basename(f, '.js'), '.cjs');
+      let data = await import(`file://${f}`);
+
+      if (!data || !data.default) {
+        this.Log.warn(`No localisation data at ${f} for lang ${lang}`);
+        return;
+      }
+
+      translations = _.merge({ [lang]: data.default }, translations);
+    }
 
     return translations;
   }

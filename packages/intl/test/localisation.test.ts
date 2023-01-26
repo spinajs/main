@@ -14,10 +14,8 @@ export function dir(path: string) {
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.merge(this.Config, {
+  protected onLoad() {
+    return {
       logger: {
         targets: [
           {
@@ -36,7 +34,7 @@ export class ConnectionConf extends FrameworkConfiguration {
       intl: {
         defaultLocale: 'pl',
       },
-    });
+    };
   }
 }
 
