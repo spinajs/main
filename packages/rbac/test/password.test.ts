@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password';
 import { DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider } from '../src';
+import { PasswordProvider } from '../src/index.js';
 import { expect } from 'chai';
 
 chai.use(chaiAsPromised);

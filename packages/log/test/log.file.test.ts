@@ -13,7 +13,7 @@ import { expect } from "chai";
 import { DateTime } from "luxon";
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-var-requires
-import fs from 'fs';
+import fs from "fs";
 
 function logger(name?: string) {
   DI.resolve(LogBotstrapper).bootstrap();
@@ -206,7 +206,7 @@ describe("file target tests", function () {
     await wait(1000);
 
     expect(appendFile.called).to.eq(true);
-    expect((appendFile.args[0][1] as string[]).length).to.greaterThan(6000);
+    expect((appendFile.args[0][1] as unknown as string[]).length).to.greaterThan(6000);
   });
 
   it("Should write with big buffer size with few messages", async () => {
@@ -220,7 +220,7 @@ describe("file target tests", function () {
     await wait(2000);
 
     expect(appendFile.called).to.eq(true);
-    expect((appendFile.args[0][1] as string[]).length).to.greaterThan(600);
+    expect((appendFile.args[0][1] as unknown as string[]).length).to.greaterThan(600);
   });
 
   it("Should write formatted message", async () => {
@@ -293,7 +293,7 @@ describe("file target tests", function () {
 
     expect(appendFile.called).to.eq(true);
     appendFile.args.forEach((a) => {
-      expect((a[1] as string[]).length).to.greaterThan(60000);
+      expect((a[1] as unknown as string[]).length).to.greaterThan(60000);
     });
   });
 

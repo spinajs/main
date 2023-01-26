@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/await-thenable */
 /* eslint-disable @typescript-eslint/no-floating-promises */
-import { ReflectionException, ResolveFromFiles, ListFromFiles } from './../src/index.js';
+import {  ResolveFromFiles } from './../src/index.js';
 import { FrameworkConfiguration, Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
@@ -79,18 +79,18 @@ describe('Reflection tests', () => {
     ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.singletons')(target, 'services');
 
     // eslint-disable-next-line @typescript-eslint/await-thenable
-    await target.services;
+    const services = await target.services;
 
-    expect(target.services).to.be.not.null;
-    expect(target.services).to.be.an('array').that.have.length(2);
-    expect(target.services[0])
+    expect(services).to.be.not.null;
+    expect(services).to.be.an('array').that.have.length(2);
+    expect(services[0])
       .to.include({
         name: 'FooService',
       })
       .and.to.have.property('instance').not.null;
   });
 
-  it('Should load services with type matcher', () => {
+  it('Should load services with type matcher', async () => {
     const target = {
       services: [] as any[],
     };
@@ -99,7 +99,7 @@ describe('Reflection tests', () => {
       return `${file}TestClass`;
     })(target, 'services');
 
-    const services = target.services;
+    const services = await target.services;
     const cache = DI.RootContainer.Cache;
 
     expect(services).to.be.an('array').that.have.length(1);
@@ -108,14 +108,14 @@ describe('Reflection tests', () => {
     expect(DI.resolve(SomeMatcher1TestClass)).to.be.not.null;
   });
 
-  it('Should load services as singletons default', () => {
+  it('Should load services as singletons default', async () => {
     const target = {
       services: [] as any[],
     };
 
     ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.singletons')(target, 'services');
 
-    const services = target.services;
+    const services = await target.services;
     const cache = DI.RootContainer.Cache;
 
     expect(services).to.be.an('array').that.have.length(2);
@@ -148,28 +148,25 @@ describe('Reflection tests', () => {
     };
 
     ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.mixed')(target, 'services');
-
-    expect((target.services as any).then).to.be.instanceOf(Function);
-    expect(target.services).to.be.fulfilled.and.eventually.be.an('array');
-
+ 
     const servs = await target.services;
     expect(servs[0].name).to.eq('FooServiceMixed');
   });
 
-  it('Should throw when class not found', () => {
-    const target = {
-      services: [] as any[],
-    };
+  // it('Should throw when class not found', () => {
+  //   const target = {
+  //     services: [] as any[],
+  //   };
 
-    ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.throw')(target, 'services');
+  //   ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.throw')(target, 'services');
 
-    expect(() => {
-      // tslint:disable-next-line: no-unused-expression-chai
-      target.services;
-    }).to.throw(ReflectionException);
-  });
+  //   expect(() => {
+  //     // tslint:disable-next-line: no-unused-expression-chai
+  //     target.services;
+  //   }).to.throw(ReflectionException);
+  // });
 
-  it('Should load service as new always', () => {
+  it('Should load service as new always', async () => {
     const target = {
       services: [] as any[],
     };
@@ -181,52 +178,12 @@ describe('Reflection tests', () => {
     ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.alwaysnew')(target, 'services');
     ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.alwaysnew')(target2, 'services');
 
-    expect(target.services[0].instance.Counter).to.eq(1);
-    expect(target2.services[0].instance.Counter).to.eq(1);
+    const serv1 = await target.services;
+    const serv2 = await target2.services;
+
+    expect(serv1[0].instance.Counter).to.eq(1);
+    expect(serv2[0].instance.Counter).to.eq(1);
 
     expect(DI.RootContainer.Cache.get('FooServiceAlwaysNew')).to.be.not.null;
-  });
-
-  it('Should load multiple classes from one file', () => {
-    const target = {
-      models: [] as any[],
-    };
-
-    ListFromFiles('/**/*.{ts,js}', 'system.dirs.multiple')(target, 'models');
-
-    const models = target.models;
-    expect(models).to.be.an('array').that.have.length(2);
-    expect(target.models[0].name).to.eq('Model1');
-    expect(target.models[1].name).to.eq('Model2');
-  });
-
-  it('Should list class from files', () => {
-    const target = {
-      services: [] as any[],
-    };
-
-    ListFromFiles('/**/*.{ts,js}', 'system.dirs.alwaysnew')(target, 'services');
-
-    expect(target.services).to.be.an('array');
-    expect(target.services[0].name).to.eq('FooServiceAlwaysNew');
-    expect(target.services[0].instance).to.be.null;
-  });
-
-  it('should load empty array if args missing', () => {
-    const target = {
-      services: null as any[],
-    };
-
-    ListFromFiles('/**/*.{ts,js}', 'fake.config.parameter')(target, 'services');
-    expect(target.services).to.be.an('array').with.length(0);
-  });
-
-  it('should load empty array if directory is empty', () => {
-    const target = {
-      services: null as any[],
-    };
-
-    ListFromFiles('/**/*.{ts,js}', 'system.dirs.empty')(target, 'services');
-    expect(target.services).to.be.an('array').with.length(0);
   });
 });

@@ -1,4 +1,4 @@
-import { SyncService, Autoinject, Container } from '@spinajs/di';
+import { Autoinject, Container, AsyncService } from '@spinajs/di';
 import Ajv from 'ajv';
 import { Config } from '@spinajs/configuration';
 import { IValidationError, ValidationFailed } from './exceptions/index.js';
@@ -7,7 +7,11 @@ import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, ILog } from '@spinajs/log';
 
-export class DataValidator extends SyncService {
+import { default as ajvMergePath } from 'ajv-merge-patch';
+import { default as ajvFormats } from 'ajv-formats';
+import { default as ajvKeywords } from 'ajv-keywords';
+
+export class DataValidator extends AsyncService {
   @Config('validation')
   public Options: IValidationOptions;
 
@@ -22,7 +26,7 @@ export class DataValidator extends SyncService {
   @Autoinject()
   protected Container: Container;
 
-  public resolve() {
+  public async resolve() {
     if (!this.Sources || this.Sources.length === 0) {
       throw new InvalidOperation('No schema sources avaible. Register any in DI container');
     }
@@ -40,15 +44,18 @@ export class DataValidator extends SyncService {
     this.Validator = new Ajv.default(ajvConfig);
 
     // add $merge & $patch for json schema
-    require('ajv-merge-patch')(this.Validator);
+    ajvMergePath(this.Validator);
 
     // add common formats validation eg: date time
-    require('ajv-formats')(this.Validator);
+    ajvFormats.default(this.Validator);
 
     // add keywords
-    require('ajv-keywords')(this.Validator);
+    ajvKeywords.default(this.Validator);
 
-    this.Sources.map((x) => x.Load())
+    const pSources = this.Sources.map((x) => x.Load());
+    const result = await Promise.all(pSources);
+
+    result
       .reduce((prev, curr) => {
         return prev.concat(curr);
       }, [])

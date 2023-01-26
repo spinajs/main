@@ -3,7 +3,7 @@ import { Configuration, FrameworkConfiguration } from "@spinajs/configuration";
 import { DI } from "@spinajs/di";
 import * as chai from "chai";
 import * as sinon from "sinon";
-import * as _ from "lodash";
+import _ from "lodash";
 import { BlackHoleTarget, LogLevel } from "@spinajs/log";
 import { InternalLogger } from "../src/index.js";
 

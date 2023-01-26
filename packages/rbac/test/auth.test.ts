@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password';
 import { DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, AthenticationErrorCodes } from '../src';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, AthenticationErrorCodes } from '../src/index.js';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 

@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import * as glob from 'glob';
+import glob from 'glob';
 import * as path from 'path';
 import * as ts from 'typescript';
 import { Configuration } from '@spinajs/configuration';
@@ -115,24 +115,12 @@ export class TypescriptCompiler {
  *
  */
 export function ResolveFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string) => string) {
-  return _listOrResolveFromFiles(filter, configPath, true, typeMatcher);
-}
-
-/**
- * Returns list of class types found in specified path. It do not resolve / create instances
- *
- * @param filter - files to look at, uses glob pattern to search
- * @param configPath - dir paths taken from app config eg. "system.dirs.controllers". Path MUST be avaible in configuration
- *
- */
-export function ListFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string) => string) {
-  return _listOrResolveFromFiles(filter, configPath, false, typeMatcher);
+  return _listOrResolveFromFiles(filter, configPath, typeMatcher);
 }
 
 function _listOrResolveFromFiles(
   filter: string,
   configPath: string,
-  resolve: boolean,
   typeMatcher?: (fileName: string, type: string) => string,
 ) {
   return (target: any, propertyKey: string | symbol) => {
@@ -159,7 +147,7 @@ function _listOrResolveFromFiles(
       get: getter,
     });
 
-    function _loadInstances(): Promise<Array<ClassInfo<any>>> | Array<ClassInfo<any>> {
+    async function _loadInstances(): Promise<Array<ClassInfo<any>>> {
       const config = DI.get(Configuration);
       const logger = DI.resolve(Log, ['reflection']);
       let directories = config.get<string[]>(configPath);
@@ -172,9 +160,7 @@ function _listOrResolveFromFiles(
         directories = [directories];
       }
 
-      let promised = false;
-
-      const result = directories
+      const fPromises = await directories
         .filter((d: string) => {
           /* eslint-disable */
           const exists = fs.existsSync(path.normalize(d));
@@ -188,15 +174,12 @@ function _listOrResolveFromFiles(
           logger.trace(`Loading file ${f}`);
 
           /* eslint-disable */
-          const fTypes = require(f);
-          const types = [];
-          for (const key of Object.keys(fTypes)) {
-            const nameToResolve = typeMatcher ? typeMatcher(path.parse(f).name, key) : key;
-            const type = fTypes[`${nameToResolve}`] as Class<any>;
+          return import(`file://${f}`).then((fTypes) => {
+            for (const key of Object.keys(fTypes)) {
+              const nameToResolve = typeMatcher ? typeMatcher(path.parse(f).name, key) : key;
+              const type = fTypes[`${nameToResolve}`] as Class<any>;
 
-            if (resolve) {
               if (type.prototype instanceof AsyncService) {
-                promised = true;
                 return (DI.resolve(type) as any).then((instance: any) => {
                   return {
                     file: f,
@@ -206,24 +189,18 @@ function _listOrResolveFromFiles(
                   };
                 });
               }
+
+              return Promise.resolve({
+                file: f,
+                instance: DI.resolve(type),
+                name: nameToResolve,
+                type,
+              });
             }
-
-            types.push({
-              file: f,
-              instance: resolve ? DI.resolve(type) : null,
-              name: nameToResolve,
-              type,
-            });
-          }
-
-          if (types.length === 0) {
-            throw new ReflectionException(`cannot find any exported class in file ${f}`);
-          }
-
-          return types;
+          });
         });
 
-      return promised && resolve ? Promise.all(result) : result;
+      return Promise.all(fPromises);
     }
   };
 }

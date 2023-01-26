@@ -10,7 +10,7 @@ import '@spinajs/templates-pug';
 
 import { Controllers, HttpServer } from '../src/index.js';
 import { SampleMiddleware2 } from './middlewares/SampleMiddleware2.js';
-import { SamplePolicy2 } from './policies/SamplePolicy2';
+import { SamplePolicy2 } from './policies/SamplePolicy2.js';
 import { req, TestConfiguration } from './common.js';
 import { DataTransformer } from './../src/interfaces.js';
 import { TestTransformer } from './transformers/TestTransformer.js';

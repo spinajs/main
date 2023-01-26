@@ -9,7 +9,7 @@ export interface ISchemaObject {
 }
 
 export abstract class SchemaSource {
-  public abstract Load(): ISchema[];
+  public abstract Load(): Promise<ISchema[]>;
 }
 
 export interface IValidationOptions {

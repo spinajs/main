@@ -1,4 +1,4 @@
-import * as AWS from 'aws-sdk';
+import AWS from 'aws-sdk';
 import { DateTime } from 'luxon';
 
 import { SessionProvider, Session, ISession } from '@spinajs/rbac';

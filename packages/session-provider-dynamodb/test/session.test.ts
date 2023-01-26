@@ -5,7 +5,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import '../src';
-import { DynamoDbSessionProvider } from '../src';
+import { DynamoDbSessionProvider } from '../src/index.js';
 import { Session } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 

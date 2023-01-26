@@ -1,68 +1,54 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
-import 'mocha'; 
+import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import * as sinon from 'sinon';
 import _ from 'lodash';
 import { join, normalize, resolve } from 'path';
-import { DataValidator } from '../src/validator';
-import { Schema } from '../src';
+import { DataValidator } from '../src/validator.js';
+import { Schema } from '../src/index.js';
 
 function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
-function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
-
 class TestConfiguration extends FrameworkConfiguration {
-
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        system: {
-          dirs: {
-            schemas: [dir('./../test/schemas')],
-          },
-        },
-        logger: {
-          variables: [],
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-            },
-          ],
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
-        validation: {
-          // enable all errors on  validation, not only first one that occurred
-          allErrors: true,
-
-          // remove properties that are not defined in schema
-          removeAdditional: true,
-
-          // set default values if possible
-          useDefaults: true,
-
-          // The option coerceTypes allows you to have your data types coerced to the types specified in your schema type keywords
-          coerceTypes: true,
+  protected onLoad() {
+    return {
+      system: {
+        dirs: {
+          schemas: [dir('./../test/schemas')],
         },
       },
-      mergeArrays,
-    );
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+          },
+        ],
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
+      validation: {
+        // enable all errors on  validation, not only first one that occurred
+        allErrors: true,
+
+        // remove properties that are not defined in schema
+        removeAdditional: true,
+
+        // set default values if possible
+        useDefaults: true,
+
+        // The option coerceTypes allows you to have your data types coerced to the types specified in your schema type keywords
+        coerceTypes: true,
+      },
+    };
   }
 }
 
-function val() {
-  return DI.resolve(DataValidator);
+async function val() {
+  return await DI.resolve(DataValidator);
 }
 
 describe('validator tests', function () {
@@ -79,18 +65,18 @@ describe('validator tests', function () {
   });
 
   it('should resolve validator', async () => {
-    const v = val();
+    const v = await val();
     expect(v).to.be.not.null;
   });
 
   it('should load schemas from json and js files', async () => {
-    const v = val();
+    const v = await val();
     expect(v.hasSchema('http://spinajs/example_js.schema.js')).to.be.true;
     expect(v.hasSchema('http://spinajs/example_json.schema.json')).to.be.true;
   });
 
   it('should try to validate object with schema from file', async () => {
-    const v = val();
+    const v = await val();
 
     const [result, errors] = v.tryValidate('http://spinajs/example_json.schema.json', {
       productId: 1,
@@ -101,7 +87,7 @@ describe('validator tests', function () {
   });
 
   it('should validate object with schema from file', async () => {
-    const v = val();
+    const v = await val();
 
     const func = () =>
       v.validate('http://spinajs/example_json.schema.json', {
@@ -124,7 +110,7 @@ describe('validator tests', function () {
     const data = new foo();
     data.foo = 'test';
 
-    const v = val();
+    const v = await val();
 
     const [result, errors] = v.tryValidate(data);
     expect(result).to.be.true;
@@ -140,7 +126,7 @@ describe('validator tests', function () {
     const data = new foo();
     data.productId = 1;
 
-    const v = val();
+    const v = await val();
 
     const [result, errors] = v.tryValidate(data);
     expect(result).to.be.true;
@@ -148,7 +134,7 @@ describe('validator tests', function () {
   });
 
   it('trying to validate shouhld fail with proper error', async () => {
-    const v = val();
+    const v = await val();
 
     const [result, errors] = v.tryValidate('http://spinajs/example_json.schema.json', {
       productId: 'dasdas',
@@ -172,7 +158,7 @@ describe('validator tests', function () {
   });
 
   it('validate should throw on invalid data', async () => {
-    const v = val();
+    const v = await val();
 
     const func = () =>
       v.validate('http://spinajs/example_json.schema.json', {
