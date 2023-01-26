@@ -8,7 +8,7 @@ import { Relation } from './relations.js';
 import { OrmDriver } from './driver.js';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
 import { ModelBase } from './model.js';
-import { MethodNotImplemented } from '../../exceptions/lib/index.js';
+import { MethodNotImplemented } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 
 export enum QueryContext {

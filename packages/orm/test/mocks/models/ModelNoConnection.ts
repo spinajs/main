@@ -1,5 +1,5 @@
-import { Connection, Primary, Archived, CreatedAt, UpdatedAt, SoftDelete, Model } from '../../../src/decorators';
-import { ModelBase } from '../../../src/model';
+import { Connection, Primary, Archived, CreatedAt, UpdatedAt, SoftDelete, Model } from '../../../src/decorators.js';
+import { ModelBase } from '../../../src/model.js';
 import { DateTime } from 'luxon';
 @Connection('SampleConnectionNotExists')
 @Model('test_model')

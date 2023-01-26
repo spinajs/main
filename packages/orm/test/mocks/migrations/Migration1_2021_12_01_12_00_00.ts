@@ -1,5 +1,5 @@
-import { OrmMigration, Migration } from '../../../src';
-import { OrmDriver } from '../../../src/driver';
+import { OrmMigration, Migration } from '../../../src/index.js';
+import { OrmDriver } from '../../../src/driver.js';
 
 @Migration('sqlite')
 // @ts-ignore

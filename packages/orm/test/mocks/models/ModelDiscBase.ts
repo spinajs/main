@@ -1,7 +1,7 @@
-import { Connection, Primary, Model, DiscriminationMap } from '../../../src/decorators';
-import { ModelBase } from '../../../src/model';
-import { ModelDisc1 } from './ModelDisc1';
-import { ModelDisc2 } from './ModelDisc2';
+import { Connection, Primary, Model, DiscriminationMap } from '../../../src/decorators.js';
+import { ModelBase } from '../../../src/model.js';
+import { ModelDisc1 } from './ModelDisc1.js';
+import { ModelDisc2 } from './ModelDisc2.js';
 
 @Connection('sqlite')
 @Model('Discrimination')

@@ -1,27 +1,27 @@
 /* eslint-disable prettier/prettier */
-import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator } from './../src/hydrators';
-import { ModelNoConnection } from './mocks/models/ModelNoConnection';
-import { ModelNoDescription } from './mocks/models/ModelNoDescription';
-import { SelectQueryBuilder } from './../src/builders';
-import { Model1 } from './mocks/models/Model1';
-import { MODEL_DESCTRIPTION_SYMBOL } from './../src/decorators';
+import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator } from './../src/hydrators.js';
+import { ModelNoConnection } from './mocks/models/ModelNoConnection.js';
+import { ModelNoDescription } from './mocks/models/ModelNoDescription.js';
+import { SelectQueryBuilder } from './../src/builders.js';
+import { Model1 } from './mocks/models/Model1.js';
+import { MODEL_DESCTRIPTION_SYMBOL } from './../src/decorators.js';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import * as _ from 'lodash';
 import 'mocha';
-import { Orm } from '../src/orm';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler } from './misc';
-import { IModelDescriptor, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, InsertBehaviour, DatetimeValueConverter, TableQueryCompiler } from '../src/interfaces';
+import { Orm } from '../src/index.js';
+import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler } from './misc.js';
+import { IModelDescriptor, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, InsertBehaviour, DatetimeValueConverter, TableQueryCompiler } from '../src/interfaces.js';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
-import { RawModel } from './mocks/models/RawModel';
-import { Model, Connection } from '../src/decorators';
-import { ModelBase } from './../src/model';
-import { Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models';
-import { ModelWithScope, ModelWithScopeQueryScope } from './mocks/models/ModelWithScope';
-import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators';
+import { RawModel } from './mocks/models/RawModel.js';
+import { Model, Connection } from '../src/decorators.js';
+import { ModelBase } from './../src/model.js';
+import { Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models/index.js';
+import { ModelWithScope, ModelWithScopeQueryScope } from './mocks/models/ModelWithScope.js';
+import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -496,6 +496,8 @@ describe('General model tests', () => {
     );
 
     const scope = sinon.spy(ModelWithScopeQueryScope.prototype, 'whereIdIsGreaterThan');
+
+      ModelWithScope.query().whereIdIsGreaterThan(1);
 
     await ModelWithScope.query().whereIdIsGreaterThan(1);
 

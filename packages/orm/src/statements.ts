@@ -1,6 +1,5 @@
 import { ISelectQueryBuilder } from './interfaces.js';
-/* eslint-disable prettier/prettier */
-import { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders.js';
+import type { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders.js';
 import { ColumnMethods, SqlOperator, JoinMethod } from './enums.js';
 import { NewInstance, Container, Class, Constructor } from '@spinajs/di';
 import * as _ from 'lodash';
@@ -60,7 +59,6 @@ export abstract class WithRecursiveStatement extends QueryStatement {
 
   public abstract build(): IQueryStatementResult;
 }
-
 @NewInstance()
 export abstract class GroupByStatement extends QueryStatement {
   protected _expr: string | RawQuery;
@@ -180,10 +178,10 @@ export abstract class JoinStatement extends QueryStatement {
       this._primaryKey = primaryKey;
       this._alias = tableAlias;
       this._tableAlias = alias;
-    } else if (table instanceof RawQuery) {
-      this._query = table;
+    } else if (table.constructor.name === 'RawQuery') {
+      this._query = table as any;
     } else {
-      this._model = table;
+      this._model = table as any;
       this._sourceModel = sourceModel;
 
       const sDesc = extractModelDescriptor(this._sourceModel);
@@ -200,7 +198,7 @@ export abstract class JoinStatement extends QueryStatement {
 
         const driver = this._builder.Driver;
         const cnt = driver.Container;
-        this._whereBuilder = cnt.resolve<SelectQueryBuilder>(SelectQueryBuilder, [driver, this._model, this]);
+        this._whereBuilder = cnt.resolve<SelectQueryBuilder>("SelectQueryBuilder", [driver, this._model, this]);
         this._whereBuilder.setAlias(this._tableAlias);
 
         this._whereCallback.call(this._whereBuilder, [this]);
@@ -318,11 +316,11 @@ export abstract class ColumnStatement extends QueryStatement {
   }
 
   get IsWildcard() {
-    if (this._column instanceof RawQuery) {
+    if (this._column.constructor.name === 'RawQuery') {
       return false;
     }
 
-    return this._column && this._column.trim() === '*';
+    return this._column && (this._column as any).trim() === '*';
   }
 
   public abstract build(): IQueryStatementResult;

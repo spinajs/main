@@ -1,8 +1,8 @@
 /* eslint-disable prettier/prettier */
-import { ValueConverter } from './../src/interfaces';
+import { ValueConverter } from './../src/interfaces.js';
 import { join, normalize, resolve } from 'path';
-import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder } from '../src';
-import { OrmDriver, TransactionCallback } from './../src/driver';
+import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder } from '../src/index.js';
+import { OrmDriver, TransactionCallback } from './../src/driver.js';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import * as _ from 'lodash';
 

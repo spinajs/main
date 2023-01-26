@@ -1,8 +1,8 @@
-import { Connection, Primary, Model, HasManyToMany } from '../../../src/decorators';
-import { ModelBase } from '../../../src/model';
-import { Model5 } from './Model5';
-import { JunctionModel } from './JunctionModel';
-import { Relation } from '../../../src/relations';
+import { Connection, Primary, Model, HasManyToMany } from '../../../src/decorators.js';
+import { ModelBase } from '../../../src/model.js';
+import { Model5 } from './Model5.js';
+import { JunctionModel } from './JunctionModel.js';
+import { Relation } from '../../../src/relations.js';
 
 @Connection('sqlite')
 @Model('TestTable4')

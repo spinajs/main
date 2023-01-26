@@ -1,20 +1,21 @@
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { join, normalize, resolve } from 'path';
-import * as _ from 'lodash';
+import _ from 'lodash';
 import * as chai from 'chai';
+import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
+import { DateTime } from 'luxon';
+
+import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { JobModel, QueueService } from '@spinajs/queue';
 import { DI } from '@spinajs/di';
 import '@spinajs/templates-handlebars';
 import '@spinajs/templates-pug';
 import '@spinajs/queue-stomp-transport';
 import '@spinajs/email-smtp-transport';
 import '@spinajs/orm-sqlite';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
-import { DateTime } from 'luxon';
-import { JobModel, QueueService } from '@spinajs/queue';
-import * as sinon from 'sinon';
-import { expect } from 'chai';
-import { EmailSend, EmailService } from '../src/index.ts';
+
+import { EmailSend, EmailService } from '../src/index.js';
 
 
 chai.use(chaiAsPromised);
@@ -194,18 +195,18 @@ describe('smtp email transport', function () {
     const sExecute = sinon.spy(EmailSend.prototype, 'execute');
 
     let m = await JobModel.where('JobId', event.JobId).first();
-    expect(m).to.be.not.null;
-    expect(m.Name).to.eq('EmailSend');
-    expect(m.FinishedAt).to.eq(null);
-    expect(m.Progress).to.eq(0);
+    chai.expect(m).to.be.not.null;
+    chai.expect(m.Name).to.eq('EmailSend');
+    chai.expect(m.FinishedAt).to.eq(null);
+    chai.expect(m.Progress).to.eq(0);
 
     await e.processDefferedEmails();
     await wait(10000);
 
-    expect(sExecute.calledOnce).to.be.true;
+    chai.expect(sExecute.calledOnce).to.be.true;
     m = await JobModel.where('JobId', event.JobId).first();
-    expect(m.FinishedAt).to.be.not.null;
-    expect(m.Progress).to.eq(100);
+    chai.expect(m.FinishedAt).to.be.not.null;
+    chai.expect(m.Progress).to.eq(100);
   });
 
   it('Should connect to test email server', async () => {

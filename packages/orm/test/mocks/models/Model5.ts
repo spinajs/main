@@ -1,6 +1,6 @@
-import { JunctionModel } from './JunctionModel';
-import { Connection, Primary, Model, JunctionTable } from '../../../src/decorators';
-import { ModelBase } from '../../../src/model';
+import { JunctionModel } from './JunctionModel.js';
+import { Connection, Primary, Model, JunctionTable } from '../../../src/decorators.js';
+import { ModelBase } from '../../../src/model.js';
 
 @Connection('sqlite')
 @Model('TestTable5')

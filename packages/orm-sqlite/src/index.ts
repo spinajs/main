@@ -11,11 +11,11 @@ import { LogLevel } from '@spinajs/log-common';
 export * from './compilers.js';
 
 import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ObjectToSqlConverter } from '@spinajs/orm';
-import { Database, RunResult } from 'sqlite3';
+import sqlite3 from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { SqlLiteJoinStatement } from './statements.js';
-import { ResourceDuplicated } from '../../exceptions/lib/index.js';
+import { ResourceDuplicated } from '@spinajs/exceptions';
 import { IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
@@ -26,7 +26,7 @@ import { SqliteModelToSqlConverter, SqliteObjectToSqlConverter } from './convert
 export class SqliteOrmDriver extends SqlDriver {
   protected executionId = 0;
 
-  protected Db: Database;
+  protected Db: sqlite3.Database;
 
   public execute(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
@@ -42,7 +42,7 @@ export class SqliteOrmDriver extends SqlDriver {
       switch (queryContext) {
         case QueryContext.Update:
         case QueryContext.Delete:
-          this.Db.run(stmt, ...queryParams, function (this: RunResult, err: unknown) {
+          this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
               reject(err);
               return;
@@ -65,7 +65,7 @@ export class SqliteOrmDriver extends SqlDriver {
           });
           break;
         case QueryContext.Insert:
-          this.Db.run(stmt, ...queryParams, function (this: RunResult, err: any) {
+          this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: any) {
             if (err) {
               if (err.code === 'SQLITE_CONSTRAINT') {
                 reject(new ResourceDuplicated(err));
@@ -135,7 +135,7 @@ export class SqliteOrmDriver extends SqlDriver {
 
   public async connect(): Promise<OrmDriver> {
     return new Promise((resolve, reject) => {
-      this.Db = new Database(format({}, this.Options.Filename), (err: unknown) => {
+      this.Db = new sqlite3.Database(format({}, this.Options.Filename), (err: unknown) => {
         if (err) {
           reject(err);
           return;

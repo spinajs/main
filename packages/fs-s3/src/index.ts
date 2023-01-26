@@ -10,7 +10,7 @@ import * as AWS from 'aws-sdk';
 import { Config } from '@spinajs/configuration';
 import archiver from 'archiver';
 import { basename } from 'path';
-import { MethodNotImplemented } from '../../exceptions/lib/index.js';
+import { MethodNotImplemented } from '@spinajs/exceptions';
 import { createReadStream, readFileSync } from 'fs';
 import { DateTime } from 'luxon';
 import stream from 'stream';

@@ -1,6 +1,6 @@
-import { Connection, Primary, Model, BelongsTo, Recursive } from '../../../src/decorators';
-import { ModelBase } from '../../../src/model';
-import { SingleRelation } from '../../../src/relations';
+import { Connection, Primary, Model, BelongsTo, Recursive } from '../../../src/decorators.js';
+import { ModelBase } from '../../../src/model.js';
+import { SingleRelation } from '../../../src/relations.js';
 
 @Connection('sqlite')
 @Model('RelationRecursive')

@@ -3,7 +3,7 @@ import { Config } from '@spinajs/configuration';
 import { AsyncService } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { join } from 'path';
-import { glob } from 'glob';
+import glob from 'glob';
 import _ from 'lodash';
 
 export abstract class TemplateRenderer extends AsyncService implements IMappableService {

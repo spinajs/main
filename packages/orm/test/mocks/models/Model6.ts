@@ -1,5 +1,5 @@
-import { Connection, Primary, Model, Uuid } from '../../../src/decorators';
-import { ModelBase } from '../../../src/model';
+import { Connection, Primary, Model, Uuid } from '../../../src/decorators.js';
+import { ModelBase } from '../../../src/model.js';
 
 @Connection('sqlite')
 @Model('TestTable6')

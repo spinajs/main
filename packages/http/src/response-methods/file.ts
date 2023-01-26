@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { ResourceNotFound } from '../../../exceptions/lib/index.js';
+import { ResourceNotFound } from '../@spinajs/exceptions';
 import * as express from 'express';
 import * as _ from 'lodash';
 import { getType } from 'mime';

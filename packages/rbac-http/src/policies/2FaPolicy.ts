@@ -1,4 +1,4 @@
-import { InvalidOperation } from '../../../exceptions/lib/index.js';
+import { InvalidOperation } from '../@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
 import { BasePolicy } from '@spinajs/http';
 import { TwoFactorAuthConfig } from '../interfaces.js';

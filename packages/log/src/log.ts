@@ -5,7 +5,7 @@ import { Configuration } from "@spinajs/configuration";
 import { Autoinject, Container, DI, IContainer, NewInstance, SyncService } from "@spinajs/di";
 import { ICommonTargetOptions, LogLevel, ILogOptions, ILogRule, ILogEntry, StrToLogLevel, LogVariables, createLogMessageObject, ILog, ILogTargetDesc, LogTarget } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
-import { InvalidOperation, InvalidOption } from "../../exceptions/lib/index.js";
+import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
 
 function wrapWrite(this: Log, level: LogLevel) {

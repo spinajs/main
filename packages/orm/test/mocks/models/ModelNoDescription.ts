@@ -1,4 +1,4 @@
-import { ModelBase } from '../../../src/model';
+import { ModelBase } from '../../../src/model.js';
 import { DateTime } from 'luxon';
 
 export class ModelNoDescription extends ModelBase {

@@ -1,6 +1,6 @@
-import { UnexpectedServerError, InvalidArgument } from '../../exceptions/lib/index.js';
+import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
-import { Client, StompHeaders, StompSubscription } from '@stomp/stompjs';
+import Stomp from '@stomp/stompjs';
 import _ from 'lodash';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
 
@@ -9,16 +9,16 @@ Object.assign(global, { WebSocket: require('websocket').w3cwebsocket });
 @PerInstanceCheck()
 @Injectable(QueueClient)
 export class StompQueueClient extends QueueClient {
-  protected Client: Client;
+  protected Client: Stomp.Client;
 
-  protected Subscriptions = new Map<string, StompSubscription>();
+  protected Subscriptions = new Map<string, Stomp.StompSubscription>();
 
   constructor(options: IQueueConnectionOptions) {
     super(options);
   }
 
   public async resolve() {
-    this.Client = new Client({
+    this.Client = new Stomp.Client({
       brokerURL: this.Options.host,
       connectHeaders: {
         login: this.Options.login,
@@ -105,7 +105,7 @@ export class StompQueueClient extends QueueClient {
 
   public async emit(message: IQueueMessage) {
     const channels = this.getChannelForMessage(message);
-    const headers: StompHeaders = {};
+    const headers: Stomp.StompHeaders = {};
 
     if (message.ScheduleCron) {
       headers['AMQ_SCHEDULED_CRON'] = message.ScheduleCron;
