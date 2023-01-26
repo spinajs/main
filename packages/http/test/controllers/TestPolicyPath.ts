@@ -1,6 +1,6 @@
-import { SamplePolicy3 } from './../policies/SamplePolicy3';
-import { BaseController, Get, Ok, Policy } from '../../src';
-import { SamplePolicy2 } from '../policies/SamplePolicy2';
+import { SamplePolicy3 } from './../policies/SamplePolicy3.js';
+import { BaseController, Get, Ok, Policy } from '../../src/index.js';
+import { SamplePolicy2 } from '../policies/SamplePolicy2.js';
 
 export class TestPolicyPath extends BaseController {
   @Get()

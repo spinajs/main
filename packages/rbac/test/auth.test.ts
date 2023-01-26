@@ -9,13 +9,13 @@ import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
-import { TestConfiguration } from './common.test';
+import { TestConfiguration } from './common.test.js';
 import { DateTime } from 'luxon';
 
 chai.use(chaiAsPromised);
 
 function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 describe('Authorization provider tests', () => {

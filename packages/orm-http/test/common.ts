@@ -5,19 +5,21 @@ import _ from 'lodash';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
 
-import './migrations/Test_2022_06_28_01_13_00';
+import './migrations/Test_2022_06_28_01_13_00.js';
 
-const express = require('express');
+import express from 'express';
+import chaiSubset from 'chai-subset';
+import chaiLike from 'chai-like';
+import chaiThings from 'chai-things';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
-
-chai.use(require('chai-subset'));
-chai.use(require('chai-like'));
-chai.use(require('chai-things'));
+chai.use(chaiSubset);
+chai.use(chaiLike);
+chai.use(chaiThings);
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 export function req() {

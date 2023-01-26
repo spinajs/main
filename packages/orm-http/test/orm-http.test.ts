@@ -2,13 +2,13 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
-import { TestConfiguration, req } from './common';
-import { Simple } from './controllers/Simple';
+import { TestConfiguration, req } from './common.js';
+import { Simple } from './controllers/Simple.js';
 import { Controllers, HttpServer } from '@spinajs/http';
 import 'mocha';
 import sinon from 'sinon';
 import { expect } from 'chai';
-import { OrmHttpBootstrapper } from './../src/index';
+import { OrmHttpBootstrapper } from './../src/index.js';
 
 describe('Http orm tests', function () {
   this.timeout(15000);

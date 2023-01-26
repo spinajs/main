@@ -1,27 +1,26 @@
-import { SelectQueryBuilder } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-floating-promises */
 
-import { SqlInsertQueryCompiler, SqlUpdateQueryCompiler } from './../src/compilers';
+import { SqlInsertQueryCompiler, SqlUpdateQueryCompiler } from './../src/compilers.js';
 import { DI } from '@spinajs/di';
-import { ConnectionConf, FakeSqliteDriver } from './fixture';
+import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
 import { Configuration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+import { Orm, SelectQueryBuilder} from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 
-import './Models/JoinModel';
-import { Model1 } from './Models/Model1';
-import { Model2 } from './Models/Model2';
-import './Models/RelationModel';
-import './Models/RelationModel2';
-import './Models/RelationModel3';
-import './Models/RelationModel4';
-import { UuidModel } from './Models/UuidModel';
-import { Model3 } from './Models/Model3';
-import { Model4 } from './Models/Model4';
+import './Models/JoinModel.js';
+import { Model1 } from './Models/Model1.js';
+import { Model2 } from './Models/Model2.js';
+import './Models/RelationModel.js';
+import './Models/RelationModel2.js';
+import './Models/RelationModel3.js';
+import './Models/RelationModel4.js';
+import { UuidModel } from './Models/UuidModel.js';
+import { Model3 } from './Models/Model3.js';
+import { Model4 } from './Models/Model4.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);

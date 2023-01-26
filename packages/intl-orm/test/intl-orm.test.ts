@@ -1,5 +1,4 @@
 import 'mocha';
-import { DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
@@ -7,13 +6,14 @@ import { Configuration } from '@spinajs/configuration';
 
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
-import { TestConfiguration } from './common';
-import { Test } from './models/Test';
-import { DbTranslationSource } from '../src/index';
+import { DI } from '@spinajs/di';
+
+import { TestConfiguration } from './common.js';
+import { Test } from './models/Test.js';
+import { DbTranslationSource } from '../src/index.js';
 import { AsyncLocalStorage } from 'async_hooks';
-import { Test2 } from './models/Test2';
-import './migrations/Test_2022_06_28_01_13_00';
-import '../src/index';
+import { Test2 } from './models/Test2.js';
+import './migrations/Test_2022_06_28_01_13_00.js';
 
 chai.use(chaiAsPromised);
 

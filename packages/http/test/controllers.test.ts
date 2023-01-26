@@ -1,20 +1,21 @@
-import { DataTransformer } from './../src/interfaces';
-import { TestTransformer } from './transformers/TestTransformer';
-import { SamplePolicy } from './policies/SamplePolicy';
-import { SampleMiddleware } from './middlewares/SampleMiddleware';
 import 'mocha';
-
 import { expect } from 'chai';
+import sinon from 'sinon';
+
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Controllers, HttpServer } from '../src';
 import { Intl } from '@spinajs/intl';
-import sinon from 'sinon';
-import { SampleMiddleware2 } from './middlewares/SampleMiddleware2';
-import { SamplePolicy2 } from './policies/SamplePolicy2';
-import { req, TestConfiguration } from './common';
 import { FsBootsrapper } from '@spinajs/fs';
 import '@spinajs/templates-pug';
+
+import { Controllers, HttpServer } from '../src/index.js';
+import { SampleMiddleware2 } from './middlewares/SampleMiddleware2.js';
+import { SamplePolicy2 } from './policies/SamplePolicy2';
+import { req, TestConfiguration } from './common.js';
+import { DataTransformer } from './../src/interfaces.js';
+import { TestTransformer } from './transformers/TestTransformer.js';
+import { SamplePolicy } from './policies/SamplePolicy.js';
+import { SampleMiddleware } from './middlewares/SampleMiddleware.js';
 
 function ctr() {
   return DI.get(Controllers);

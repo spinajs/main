@@ -4,9 +4,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-floating-promises */
-import { TestMigration_2022_02_08_01_13_00 } from './migrations/TestMigration_2022_02_08_01_13_00';
+import { TestMigration_2022_02_08_01_13_00 } from './migrations/TestMigration_2022_02_08_01_13_00.js';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { SqliteOrmDriver } from './../src/index';
+import { SqliteOrmDriver } from './../src/index.js';
 import { DI } from '@spinajs/di';
 import { Orm, MigrationTransactionMode, Migration, ICompilerOutput, OrmDriver, OrmMigration, QueryContext, InsertBehaviour } from '@spinajs/orm';
 import _ from 'lodash';
@@ -14,11 +14,11 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import * as sinon from 'sinon';
 import { DateTime } from 'luxon';
-import { mergeArrays } from './util';
-import { TestModel } from './models/TestModel';
-import { TestOwned } from './models/TestOwned';
-import { TestMany } from './models/TestMany';
-import { User } from './models/User';
+import { mergeArrays } from './util.js';
+import { TestModel } from './models/TestModel.js';
+import { TestOwned } from './models/TestOwned.js';
+import { TestMany } from './models/TestMany.js';
+import { User } from './models/User.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);

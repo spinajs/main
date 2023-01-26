@@ -1,6 +1,6 @@
-import { Belongs } from './Belongs';
+import { Belongs } from './Belongs.js';
 import { Primary, Connection, Model, ModelBase, BelongsTo, Relation, HasMany, SingleRelation } from '@spinajs/orm';
-import { Test2 } from './Test2';
+import { Test2 } from './Test2.js';
 
 /**
  * Base modele for users used by ACL

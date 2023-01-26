@@ -1,5 +1,5 @@
-import { SampleMiddleware } from './../middlewares/SampleMiddleware';
-import { BaseController, Get, Ok, Middleware } from '../../src';
+import { SampleMiddleware } from './../middlewares/SampleMiddleware.js';
+import { BaseController, Get, Ok, Middleware } from '../../src/index.js';
 
 @Middleware(SampleMiddleware)
 export class TestMiddleware extends BaseController {

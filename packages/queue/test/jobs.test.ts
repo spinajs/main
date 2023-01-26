@@ -4,7 +4,7 @@ import _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { QueueEvent, QueueJob, Event, Job, QueueService, JobModel } from './../src';
+import { QueueEvent, QueueJob, Event, Job, QueueService, JobModel } from './../src/index.js';
 import { DateTime } from 'luxon';
 import { expect } from 'chai';
 import '@spinajs/orm-sqlite';
@@ -26,7 +26,7 @@ export function mergeArrays(target: any, source: any) {
 }
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 async function wait(amount?: number) {

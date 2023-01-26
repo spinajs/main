@@ -1,6 +1,6 @@
 import { Connection, ModelBase, Model, Primary, HasManyToMany } from '@spinajs/orm';
-import { RelationModel4 } from './RelationModel4';
-import { JoinModel } from './JoinModel';
+import { RelationModel4 } from './RelationModel4.js';
+import { JoinModel } from './JoinModel.js';
 
 @Connection('sqlite')
 @Model('RelationTable3')

@@ -2,12 +2,12 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
-import { TestConfiguration, req } from './common';
+import { TestConfiguration, req } from './common.js';
 import { Controllers, HttpServer } from '@spinajs/http';
 import 'mocha';
 import sinon from 'sinon';
 
-import { OrmHttpBootstrapper } from './../src/index';
+import { OrmHttpBootstrapper } from './../src/index.js';
 import { expect } from 'chai';
 
 describe('Http orm tests', function () {

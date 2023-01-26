@@ -1,8 +1,8 @@
 import { DI } from '@spinajs/di';
-import { MemorySessionStore, SessionProvider, Session } from '../src';
+import { MemorySessionStore, SessionProvider, Session } from '../src/index.js';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
-import { TestConfiguration } from './common.test';
+import { TestConfiguration } from './common.test.js';
 
 describe('Session provider tests', () => {
   before(async () => {

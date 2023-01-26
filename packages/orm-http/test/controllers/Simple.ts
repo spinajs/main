@@ -1,6 +1,6 @@
 import { BaseController, Get, Ok, BasePath, Post, Body } from '@spinajs/http';
-import { FromModel } from './../../src/index';
-import { Test } from '../models/Test';
+import { FromModel } from './../../src/index.js';
+import { Test } from '../models/Test.js';
 
 @BasePath('simple')
 export class Simple extends BaseController {

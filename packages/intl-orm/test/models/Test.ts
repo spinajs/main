@@ -1,6 +1,6 @@
-import { TestRelOneToMany } from './TestRelOneToMany';
-import { Translatable } from './../../src/model';
-import { Translate } from './../../src/decorators';
+import { TestRelOneToMany } from './TestRelOneToMany.js';
+import { Translatable } from './../../src/model.js';
+import { Translate } from './../../src/decorators.js';
 import { Primary, Connection, Model, HasMany, ModelBase } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 

@@ -1,8 +1,8 @@
-import { Translatable } from '../../src/model';
-import { Translate } from '../../src/decorators';
+import { Translatable } from '../../src/model.js';
+import { Translate } from '../../src/decorators.js';
 import { Primary, Connection, Model, ModelBase, SingleRelation, BelongsTo } from '@spinajs/orm';
 import { use } from 'typescript-mix';
-import { Owner2 } from './Owner2';
+import { Owner2 } from './Owner2.js';
 
 export interface Test extends Translatable {}
 

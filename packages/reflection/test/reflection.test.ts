@@ -1,19 +1,19 @@
 /* eslint-disable @typescript-eslint/await-thenable */
 /* eslint-disable @typescript-eslint/no-floating-promises */
-import { ReflectionException, ResolveFromFiles, ListFromFiles } from './../src/index';
+import { ReflectionException, ResolveFromFiles, ListFromFiles } from './../src/index.js';
 import { FrameworkConfiguration, Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
-import _ = require('lodash');
+import _ from 'lodash';
 import 'mocha';
 import { join, normalize, resolve } from 'path';
-import { FooService } from './test-services/singletons/FooService';
-import { SomeMatcher1TestClass } from './test-services/matcher/SomeMatcher1';
+import { FooService } from './test-services/singletons/FooService.js';
+import { SomeMatcher1TestClass } from './test-services/matcher/SomeMatcher1.js';
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 const expect = chai.expect;

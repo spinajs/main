@@ -7,31 +7,32 @@ import _ from 'lodash';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
 
-const express = require('express');
-const helmet = require('helmet');
-const cookieParser = require('cookie-parser');
-const compression = require('compression');
+import express from 'express';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
+import compression from 'compression';
+
+import chaiSubset from 'chai-subset';
+import chaiLike from 'chai-like';
+import chaiThings from 'chai-things';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
-
-chai.use(require('chai-subset'));
-chai.use(require('chai-like'));
-chai.use(require('chai-things'));
+chai.use(chaiSubset);
+chai.use(chaiLike);
+chai.use(chaiThings);
 
 export function req() {
   return chai.request('http://localhost:8888/');
 }
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 export class TestConfiguration extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    this.Config = {
+  protected onLoad() {
+    return {
       system: {
         dirs: {
           locales: [dir('./../src/locales'), dir('./locales')],
@@ -119,19 +120,19 @@ export class TestConfiguration extends FrameworkConfiguration {
          * in case if we cannot render any static files
          */
         FatalTemplate: `<html>
-                            <head>
-                                <title>Oooops !</title>
-                                </head>
-                            <body>
-                                <h1>HTTP 500 - Internal Server Error</h1>
-                                <div>Looks like we're having some server issues.</div>
-                                <hr />
-                                <div>
-                                    Go back to the previous page and try again. If you think something is broken, report a problem with fallowing ticket number:
-                                </div>
-                                <h3> TickeT no. {ticket}</h3>
-                            </body>
-                        </html>`,
+                              <head>
+                                  <title>Oooops !</title>
+                                  </head>
+                              <body>
+                                  <h1>HTTP 500 - Internal Server Error</h1>
+                                  <div>Looks like we're having some server issues.</div>
+                                  <hr />
+                                  <div>
+                                      Go back to the previous page and try again. If you think something is broken, report a problem with fallowing ticket number:
+                                  </div>
+                                  <h3> TickeT no. {ticket}</h3>
+                              </body>
+                          </html>`,
       },
     };
   }

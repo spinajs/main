@@ -7,24 +7,27 @@ import _ from 'lodash';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
 
-const express = require('express');
-const helmet = require('helmet');
-const cookieParser = require('cookie-parser');
-const compression = require('compression');
+import express from 'express';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
+import compression from 'compression';
+
+import chaiSubset from 'chai-subset';
+import chaiLike from 'chai-like';
+import chaiThings from 'chai-things';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
-
-chai.use(require('chai-subset'));
-chai.use(require('chai-like'));
-chai.use(require('chai-things'));
+chai.use(chaiSubset);
+chai.use(chaiLike);
+chai.use(chaiThings);
 
 export function req() {
   return chai.request('http://localhost:8888/');
 }
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 export class TestConfiguration extends FrameworkConfiguration {

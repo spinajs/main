@@ -10,7 +10,7 @@ import { DataValidator } from '../src/validator';
 import { Schema } from '../src';
 
 function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 function mergeArrays(target: any, source: any) {

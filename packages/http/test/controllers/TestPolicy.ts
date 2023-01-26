@@ -1,5 +1,5 @@
-import { SamplePolicy } from './../policies/SamplePolicy';
-import { BaseController, Get, Ok, Policy } from '../../src';
+import { SamplePolicy } from './../policies/SamplePolicy.js';
+import { BaseController, Get, Ok, Policy } from '../../src/index.js';
 
 @Policy(SamplePolicy)
 export class TestPolicy extends BaseController {

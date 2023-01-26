@@ -1,20 +1,22 @@
-import { QueryParams } from './controllers/params/QueryParams';
 import 'mocha';
+import * as fs from 'fs';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Controllers, HttpServer } from '../src';
 import { Intl } from '@spinajs/intl';
 import sinon, { assert } from 'sinon';
-import { dir, req, TestConfiguration } from './common';
 import { expect } from 'chai';
-import { SampleModel, SampleObject, SampleObjectWithSchema } from './dto';
-import { HeaderParams } from './controllers/params/HeaderParams';
-import { UrlParams } from './controllers/params/UrlParams';
-import { BodyParams } from './controllers/params/BodyParams';
-import { FormParams } from './controllers/params/FormParams';
-import * as fs from 'fs';
-import { CoockieParams } from './controllers/params/CoockieParams';
-import { VariousParams } from './controllers/params/VariousParams';
+
+import { dir, req, TestConfiguration } from './common.js';
+import { Controllers, HttpServer } from '../src/index.js';
+import { SampleModel, SampleObject, SampleObjectWithSchema } from './dto/index.js';
+import { HeaderParams } from './controllers/params/HeaderParams.js';
+import { UrlParams } from './controllers/params/UrlParams.js';
+import { BodyParams } from './controllers/params/BodyParams.js';
+import { FormParams } from './controllers/params/FormParams.js';
+import { QueryParams } from './controllers/params/QueryParams.js';
+
+import { CoockieParams } from './controllers/params/CoockieParams.js';
+import { VariousParams } from './controllers/params/VariousParams.js';
 
 describe('controller action test params', function () {
   this.timeout(15000);

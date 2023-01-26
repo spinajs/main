@@ -1,6 +1,6 @@
-import { SingleRelation } from './../../../orm/src/relations';
+import { SingleRelation } from './../../../orm/src/relations.js';
 import { ModelBase, Primary, Connection, Model, BelongsTo } from '@spinajs/orm';
-import { TestModel } from './TestModel';
+import { TestModel } from './TestModel.js';
 
 @Connection('sqlite')
 @Model('test_owned')

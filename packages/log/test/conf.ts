@@ -4,7 +4,7 @@ import { mergeArrays } from "./utils";
 import * as _ from "lodash";
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 export class TestConfiguration extends FrameworkConfiguration {

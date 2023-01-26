@@ -6,12 +6,12 @@ import 'mocha';
 import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { ConnectionConf, FakeSqliteDriver } from './fixture';
-import { RelationModel } from './Models/RelationModel';
+import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
+import { RelationModel } from './Models/RelationModel.js';
 import * as sinon from 'sinon';
-import { RelationModel3 } from './Models/RelationModel3';
+import { RelationModel3 } from './Models/RelationModel3.js';
 import { DateTime } from 'luxon';
-import { RelationModel2 } from './Models/RelationModel2';
+import { RelationModel2 } from './Models/RelationModel2.js';
 
 function sqb() {
   const connection = db().Connections.get('sqlite');
@@ -984,16 +984,16 @@ describe('schema building', () => {
 
     expect(result[0].expression).to.be.eq('CREATE TABLE `users` (`Id` INT NOT NULL AUTO_INCREMENT,`Name` VARCHAR(255) NOT NULL ,PRIMARY KEY (`Id`) )');
     expect(result[1].expression).to.be.eq('CREATE TABLE `users__history` LIKE `users`');
-    expect(result[2].expression.replace(r,' ')).to.be.eq(`ALTER TABLE \`users__history\` CHANGE COLUMN Id Id INT NOT NULL , DROP PRIMARY KEY;`);
-    expect(result[3].expression.replace(r,' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__`);
-    expect(result[4].expression.replace(r,' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD PRIMARY KEY (Id, __revision__)`);
-    expect(result[5].expression.replace(r,' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__history__insert_trigger BEFORE INSERT ON \`users__history\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); SET NEW.__revision__ = rev + 1; END;`);
-    expect(result[6].expression.replace(r,' ')).to.be.eq('DROP TRIGGER IF EXISTS users__insert_trigger');
-    expect(result[7].expression.replace(r,' ')).to.be.eq('DROP TRIGGER IF EXISTS users__update_trigger');
-    expect(result[8].expression.replace(r,' ')).to.be.eq('DROP TRIGGER IF EXISTS users__delete_trigger');
-    expect(result[9].expression.replace(r,' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__insert_trigger AFTER INSERT ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'insert', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
-    expect(result[10].expression.replace(r,' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__update_trigger AFTER UPDATE ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'update', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
-    expect(result[11].expression.replace(r,' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__delete_trigger BEFORE DELETE ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'delete', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
+    expect(result[2].expression.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` CHANGE COLUMN Id Id INT NOT NULL , DROP PRIMARY KEY;`);
+    expect(result[3].expression.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__`);
+    expect(result[4].expression.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD PRIMARY KEY (Id, __revision__)`);
+    expect(result[5].expression.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__history__insert_trigger BEFORE INSERT ON \`users__history\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); SET NEW.__revision__ = rev + 1; END;`);
+    expect(result[6].expression.replace(r, ' ')).to.be.eq('DROP TRIGGER IF EXISTS users__insert_trigger');
+    expect(result[7].expression.replace(r, ' ')).to.be.eq('DROP TRIGGER IF EXISTS users__update_trigger');
+    expect(result[8].expression.replace(r, ' ')).to.be.eq('DROP TRIGGER IF EXISTS users__delete_trigger');
+    expect(result[9].expression.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__insert_trigger AFTER INSERT ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'insert', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
+    expect(result[10].expression.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__update_trigger AFTER UPDATE ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'update', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
+    expect(result[11].expression.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__delete_trigger BEFORE DELETE ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'delete', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
   });
 
   it('should drop table', () => {

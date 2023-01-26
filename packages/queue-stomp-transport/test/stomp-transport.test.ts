@@ -23,7 +23,7 @@ export function mergeArrays(target: any, source: any) {
 }
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 async function wait(amount: number) {

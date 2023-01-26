@@ -1,16 +1,17 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { join, normalize, resolve } from 'path';
+import { expect } from 'chai';
 import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+
 import { DI } from '@spinajs/di';
-import '../src';
-import servers from './config';
-import { EmailSenderSmtp } from '../src';
 import '@spinajs/fs';
-import { expect } from 'chai';
 import '@spinajs/templates-handlebars';
 import '@spinajs/templates-pug';
+
+import servers from './config.js';
+import { EmailSenderSmtp } from '../src/index.js';
 
 chai.use(chaiAsPromised);
 
@@ -70,7 +71,7 @@ export function mergeArrays(target: any, source: any) {
 }
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 async function email() {

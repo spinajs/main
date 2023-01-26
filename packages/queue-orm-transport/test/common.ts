@@ -3,14 +3,18 @@ import chai from 'chai';
 import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import chaiAsPromised from 'chai-as-promised';
-chai.use(chaiAsPromised);
+import chaiSubset from 'chai-subset';
+import chaiLike from 'chai-like';
+import chaiThings from 'chai-things';
 
-chai.use(require('chai-subset'));
-chai.use(require('chai-like'));
-chai.use(require('chai-things'));
+chai.use(chaiAsPromised);
+chai.use(chaiSubset);
+chai.use(chaiLike);
+chai.use(chaiThings);
+
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 export class TestConfiguration extends FrameworkConfiguration {

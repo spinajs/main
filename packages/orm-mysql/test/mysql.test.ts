@@ -2,68 +2,62 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { MySqlOrmDriver } from '../src/index';
-import { mergeArrays } from './util';
+import { MySqlOrmDriver } from '../src/index.js';
+
 import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 
-import './migrations/TestMigration_2022_02_08_01_13_00';
-import './models/TestModel';
-import { User } from './models/User';
+import './migrations/TestMigration_2022_02_08_01_13_00.js';
+import './models/TestModel.js';
+import { User } from './models/User.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 export const TEST_MIGRATION_TABLE_NAME = 'orm_migrations';
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '{datetime} {level} {message} {error} duration: {duration} ms ({logger})',
-            },
-            // {
-            //   name: 'Console',
-            //   type: 'ConsoleTarget',
-            // },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Console' }],
-        },
-        db: {
-          Migration: {
-            Startup: false,
+  protected onLoad() {
+    return {
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+            layout: '{datetime} {level} {message} {error} duration: {duration} ms ({logger})',
           },
-          Connections: [
-            {
-              Driver: 'orm-driver-mysql',
-              Name: 'mysql',
-              Host: '127.0.0.1',
-              Password: 'root',
-              User: 'root',
-              Database: 'test',
-              Port: 3306,
-              Migration: {
-                Table: TEST_MIGRATION_TABLE_NAME,
-                OnStartup: true,
-                Transaction: {
-                  Mode: MigrationTransactionMode.PerMigration,
-                },
+          // {
+          //   name: 'Console',
+          //   type: 'ConsoleTarget',
+          // },
+        ],
+
+        rules: [{ name: '*', level: 'trace', target: 'Console' }],
+      },
+      db: {
+        Migration: {
+          Startup: false,
+        },
+        Connections: [
+          {
+            Driver: 'orm-driver-mysql',
+            Name: 'mysql',
+            Host: '127.0.0.1',
+            Password: 'root',
+            User: 'root',
+            Database: 'test',
+            Port: 3306,
+            Migration: {
+              Table: TEST_MIGRATION_TABLE_NAME,
+              OnStartup: true,
+              Transaction: {
+                Mode: MigrationTransactionMode.PerMigration,
               },
             },
-          ],
-        },
+          },
+        ],
       },
-      mergeArrays,
-    );
+    };
   }
 }
 

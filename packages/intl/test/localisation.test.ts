@@ -10,7 +10,7 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 
 export function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
