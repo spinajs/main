@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/exceptions",
-  "version": "2.0.50",
+  "version": "2.0.51",
   "description": "exceptions definitions used all across framework modules",
   "exports": {
     "node": "./lib/index.js"
@@ -22,7 +22,7 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src",
-    "postinstall": "npm run build"
+    
   },
   "files": [
     "lib/**/*"

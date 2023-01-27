@@ -1,5 +1,5 @@
 {
-  "version": "2.0.50",
+  "version": "2.0.51",
   "description": "Log lib for all spinejs related libs",
   "exports": "./lib/index.js",
   "type": "module",
@@ -19,7 +19,7 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src",
-    "postinstall": "npm run build"
+    
   },
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/log)",
   "license": "MIT",
