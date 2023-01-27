@@ -1,5 +1,5 @@
-import { BaseController, BasePath, Body, Ok, Post, Type } from '../../../src';
-import { SampleModel, SampleModelWithHydrator, SampleModelWithSchema, SampleObject } from '../../dto';
+import { BaseController, BasePath, Body, Ok, Post, Type } from '../../../src/index.js';
+import { SampleModel, SampleModelWithHydrator, SampleModelWithSchema, SampleObject } from '../../dto/index.js';
 
 @BasePath('params/body')
 export class BodyParams extends BaseController {

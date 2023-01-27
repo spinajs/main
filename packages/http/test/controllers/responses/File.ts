@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Get, FileResponse, ZipResponse, JsonFileResponse } from '../../../src';
+import { BaseController, BasePath, Get, FileResponse, ZipResponse, JsonFileResponse } from '../../../src/index.js';
 
 @BasePath('files')
 export class File extends BaseController {

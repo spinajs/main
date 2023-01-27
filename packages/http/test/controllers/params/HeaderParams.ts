@@ -1,5 +1,5 @@
-import { BasePath, BaseController, Get, Header, Ok } from '../../../src';
-import { SampleObject, SampleModel, SampleModelWithHydrator, SampleObjectWithSchema } from '../../dto';
+import { BasePath, BaseController, Get, Header, Ok } from '../../../src/index.js';
+import { SampleObject, SampleModel, SampleModelWithHydrator, SampleObjectWithSchema } from '../../dto/index.js';
 import { DateTime } from 'luxon';
 
 @BasePath('params/headers')

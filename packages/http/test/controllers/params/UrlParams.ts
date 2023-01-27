@@ -1,5 +1,5 @@
-import { BasePath, BaseController, Get, Ok, Param, PKey, Uuid } from '../../../src';
-import { SampleModelWithHydrator2 } from '../../dto';
+import { BasePath, BaseController, Get, Ok, Param, PKey, Uuid } from '../../../src/index.js';
+import { SampleModelWithHydrator2 } from '../../dto/index.js';
 
 @BasePath('params/url')
 export class UrlParams extends BaseController {

@@ -1,6 +1,6 @@
-import { BasePath, BaseController, Ok, JsonFile, Post } from '../../../src';
-import { SampleObject } from '../../dto';
-import { SampleModel, SampleModelWithSchema, SampleModelWithHydrator } from '../../dto';
+import { BasePath, BaseController, Ok, JsonFile, Post } from '../../../src/index.js';
+import { SampleObject } from '../../dto/index.js';
+import { SampleModel, SampleModelWithSchema, SampleModelWithHydrator } from '../../dto/index.js';
 
 @BasePath('params/v1/json')
 export class FromJsonFileParams extends BaseController {

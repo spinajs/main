@@ -1,4 +1,4 @@
-import { DataTransformer } from '../../src/interfaces';
+import { DataTransformer } from '../../src/interfaces.js';
 import { Singleton } from '@spinajs/di';
 import * as express from 'express';
 

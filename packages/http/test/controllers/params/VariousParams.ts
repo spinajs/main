@@ -1,6 +1,6 @@
-import { SomeService } from '../../service/SomeService';
-import { BasePath, BaseController, Post, Body, Param, Header, Query, Ok, Get, FromDI } from '../../../src';
-import { SampleModel } from '../../dto';
+import { SomeService } from '../../service/SomeService.js';
+import { BasePath, BaseController, Post, Body, Param, Header, Query, Ok, Get, FromDI } from '../../../src/index.js';
+import { SampleModel } from '../../dto/index.js';
 
 @BasePath('params/mixed')
 export class VariousParams extends BaseController {

@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
-import { ParameterType } from '../../../src/interfaces';
-import { BasePath, BaseController, Get, Query, Ok, Uuid, PKey } from '../../../src';
-import { SampleObject, SampleModel, SampleModelWithSchema } from '../../dto';
+import { ParameterType } from '../../../src/interfaces.js';
+import { BasePath, BaseController, Get, Query, Ok, Uuid, PKey } from '../../../src/index.js';
+import { SampleObject, SampleModel, SampleModelWithSchema } from '../../dto/index.js';
 
 @BasePath('params/query')
 export class QueryParams extends BaseController {

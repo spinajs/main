@@ -1,4 +1,4 @@
-import { BaseController, Get, Post, Head, Patch, Del, Put, Ok, BasePath } from '../../src';
+import { BaseController, Get, Post, Head, Patch, Del, Put, Ok, BasePath } from '../../src/index.js';
 
 @BasePath('test-base-path')
 export class TestBasePath extends BaseController {

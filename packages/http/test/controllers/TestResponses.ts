@@ -1,4 +1,4 @@
-import { BasePath, BaseController, Get, TemplateResponse, ServerError, Ok } from '../../src';
+import { BasePath, BaseController, Get, TemplateResponse, ServerError, Ok } from '../../src/index.js';
 
 @BasePath('responses')
 export class TestResponses extends BaseController {

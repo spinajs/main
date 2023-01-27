@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http",
-  "version": "2.0.52",
+  "version": "2.0.53",
   "description": "framework HTTP module base on express.js",
   "exports": "./lib/index.js",
   "type": "module",
@@ -20,7 +20,6 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "files": [
     "lib/**/*"
@@ -53,14 +52,15 @@
     "@types/uuid": "^9.0.0"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.52",
-    "@spinajs/di": "^2.0.52",
-    "@spinajs/exceptions": "^2.0.52",
-    "@spinajs/fs": "^2.0.52",
-    "@spinajs/log": "^2.0.52",
-    "@spinajs/reflection": "^2.0.52",
-    "@spinajs/templates": "^2.0.52",
-    "@spinajs/validation": "^2.0.52",
+    "@spinajs/configuration": "^2.0.53",
+    "@spinajs/di": "^2.0.53",
+    "@spinajs/exceptions": "^2.0.53",
+    "@spinajs/fs": "^2.0.53",
+    "@spinajs/log": "^2.0.53",
+    "@spinajs/reflection": "^2.0.53",
+    "@spinajs/templates": "^2.0.53",
+    "@spinajs/validation": "^2.0.53",
+    "@spinajs/templates-pug": "^2.0.53",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
     "cookie-signature": "^1.2.0",

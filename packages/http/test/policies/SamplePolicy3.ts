@@ -1,4 +1,4 @@
-import { BasePolicy, IController, IRoute } from '../../src';
+import { BasePolicy, IController, IRoute } from '../../src/index.js';
 import { Request } from 'express';
 import { Forbidden } from '../../../exceptions/lib/index.js';
 

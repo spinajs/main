@@ -1,4 +1,4 @@
-import { BasePath, BaseController, Ok, Cookie, Get } from '../../../src';
+import { BasePath, BaseController, Ok, Cookie, Get } from '../../../src/index.js';
 
 @BasePath('params/coockie')
 export class CoockieParams extends BaseController {

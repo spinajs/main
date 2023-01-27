@@ -1,4 +1,4 @@
-import { BaseController, Get, Post, Head, Patch, Del, Put, Ok } from '../../src';
+import { BaseController, Get, Post, Head, Patch, Del, Put, Ok } from '../../src/index.js';
 
 export class TestMethods extends BaseController {
   @Get()

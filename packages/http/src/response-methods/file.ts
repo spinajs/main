@@ -2,7 +2,7 @@ import { DI } from '@spinajs/di';
 import { ResourceNotFound } from '../../../exceptions/lib/index.js';
 import * as express from 'express';
 import _ from 'lodash';
-import { getType } from 'mime';
+import mime from 'mime';
 import { IFileResponseOptions, Response } from './../interfaces.js';
 import { fs } from '@spinajs/fs';
 
@@ -14,7 +14,7 @@ export class ZipResponse extends Response {
   constructor(protected Options: IFileResponseOptions) {
     super(null);
 
-    this.Options.mimeType = Options.mimeType ?? getType(Options.filename);
+    this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename);
   }
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
@@ -57,7 +57,7 @@ export class FileResponse extends Response {
   constructor(protected Options: IFileResponseOptions) {
     super(null);
 
-    this.Options.mimeType = Options.mimeType ?? getType(Options.filename);
+    this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename);
   }
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {

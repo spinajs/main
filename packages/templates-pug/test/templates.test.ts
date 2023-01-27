@@ -6,7 +6,7 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
-import './../src';
+import ../../src/index.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);

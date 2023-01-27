@@ -253,8 +253,10 @@ export class Controllers extends AsyncService {
 
     DI.register(DataValidator).asSelf().singleInstance();
 
+    const controllers = await this.Controllers;
+
     // extract parameters info from controllers source code & register in http server
-    for (const controller of await this.Controllers) {
+    for (const controller of controllers) {
       this.register(controller);
     }
   }

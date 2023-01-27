@@ -1,6 +1,6 @@
-import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFile } from '../../../src';
-import { SampleModelWithHydrator3, SampleObject } from '../../dto';
-import { SampleModel } from '../../dto';
+import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFile } from '../../../src/index.js';
+import { SampleModelWithHydrator3, SampleObject } from '../../dto/index.js';
+import { SampleModel } from '../../dto/index.js';
 
 @BasePath('params/forms')
 export class FormParams extends BaseController {

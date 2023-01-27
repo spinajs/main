@@ -1,4 +1,4 @@
-import { ArgHydrator, Hydrator } from '../../src';
+import { ArgHydrator, Hydrator } from '../../src/index.js';
 import { Schema } from '@spinajs/validation';
 import _ from 'lodash';
 

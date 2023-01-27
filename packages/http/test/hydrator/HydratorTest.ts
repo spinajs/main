@@ -1,4 +1,4 @@
-import { ArgHydrator, Hydrator } from '../../src';
+import { ArgHydrator, Hydrator } from '../../src/index.js';
 
 export class CustomArgHydrator extends ArgHydrator {
   public async hydrate(input: any): Promise<any> {

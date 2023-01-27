@@ -1,4 +1,4 @@
-import { RouteMiddleware, IRoute, IController, Response } from '../../src/interfaces';
+import { RouteMiddleware, IRoute, IController, Response } from '../../src/interfaces.js';
 import { Request } from 'express';
 
 export class SampleMiddleware extends RouteMiddleware {

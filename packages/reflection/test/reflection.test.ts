@@ -20,45 +20,35 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 chai.use(chaiSubset);
 
-function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
+ 
 
 export class MockCfg extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        system: {
-          dirs: {
-            singletons: [dir('./test-services/singletons')],
-            alwaysnew: [dir('./test-services/alwaysnew')],
-            async: [dir('./test-services/async')],
-            throw: [dir('./test-services/throw')],
-            mixed: [dir('./test-services/mixed')],
-            throwasync: [dir('./test-services/throwasync')],
-            empty: [dir('./test-services/empty')],
-            matcher: [dir('./test-services/matcher')],
-            multiple: [dir('./test-services/multiple')],
-          },
-        },
-        logger: {
-          variables: [],
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-            },
-          ],
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+  protected onLoad(): unknown {
+    return {
+      system: {
+        dirs: {
+          singletons: [dir('./test-services/singletons')],
+          alwaysnew: [dir('./test-services/alwaysnew')],
+          async: [dir('./test-services/async')],
+          throw: [dir('./test-services/throw')],
+          mixed: [dir('./test-services/mixed')],
+          throwasync: [dir('./test-services/throwasync')],
+          empty: [dir('./test-services/empty')],
+          matcher: [dir('./test-services/matcher')],
+          multiple: [dir('./test-services/multiple')],
         },
       },
-      mergeArrays,
-    );
+      logger: {
+        variables: [],
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+          },
+        ],
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
+    };
   }
 }
 
@@ -70,6 +60,10 @@ describe('Reflection tests', () => {
     await DI.resolve(Configuration);
     FooService.Counter = 0;
   });
+
+  // it('build', () => {
+  //   build();
+  // });
 
   it('Should load services', async () => {
     const target = {
@@ -148,7 +142,7 @@ describe('Reflection tests', () => {
     };
 
     ResolveFromFiles('/**/*.{ts,js}', 'system.dirs.mixed')(target, 'services');
- 
+
     const servs = await target.services;
     expect(servs[0].name).to.eq('FooServiceMixed');
   });
