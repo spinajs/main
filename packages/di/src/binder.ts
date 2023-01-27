@@ -1,9 +1,9 @@
 import { BindException } from './exceptions.js';
-import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { isFactory, isConstructor } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, ResolvableObject } from './interfaces.js';
 import { Class, Factory } from './types.js';
+import { DI } from './index.js';
 
 export class Binder<T> implements IBind {
   private isFactory: boolean;
@@ -79,15 +79,11 @@ export class Binder<T> implements IBind {
    * @returns this
    */
   singleInstance(): this {
-    const descriptor: IInjectDescriptor<unknown> = {
-      inject: [],
-      resolver: ResolveType.Singleton,
-    };
-
     if (this.isFactory || !this.isConstructor) {
       throw new BindException('Cannot bind factory function as singleton.');
     } else {
-      Reflect.defineMetadata(DI_DESCRIPTION_SYMBOL, descriptor, this.implementation);
+      const descriptor: IInjectDescriptor<unknown> = DI.RootContainer.extractDescriptor(this.implementation as Class<unknown>);
+      descriptor.resolver = ResolveType.Singleton;
     }
     return this;
   }

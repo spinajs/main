@@ -242,6 +242,21 @@ describe('Dependency injection', () => {
     Foo.initialize();
   });
 
+  it('Manual registering should preserve options from decoration', () => {
+    class _ZZ {}
+
+    class _DD {
+      @Autoinject(_ZZ)
+      public Z: _ZZ;
+    }
+
+    DI.register(_DD).asSelf().singleInstance();
+
+    const v = DI.resolve(_DD);
+
+    expect(v.Z).to.not.be.null;
+  });
+
   it('Should not leak dependencies when derived from base class', async () => {
     const inst1 = DI.resolve(DerivedFoo);
     const inst2 = DI.resolve(DerivedFoo2);

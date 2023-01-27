@@ -2,7 +2,7 @@
 import { Constructor, NewInstance } from '@spinajs/di';
 import { RawQuery, JoinMethod, ModelBase, SelectQueryBuilder } from '@spinajs/orm';
 import { SqlJoinStatement } from '@spinajs/orm-sql';
-import { NotSupported } from '../../exceptions/lib/index.js';
+import { NotSupported } from '@spinajs/exceptions';
 
 @NewInstance()
 export class SqlLiteJoinStatement extends SqlJoinStatement {

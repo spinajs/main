@@ -10,7 +10,7 @@ import {
 } from "@spinajs/log-common";
 import * as fs from "fs";
 import * as path from "path";
-import { InvalidOption } from "../../../exceptions/lib/index.js";
+import { InvalidOption } from "@spinajs/exceptions";
 import * as glob from "glob";
 import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";

@@ -546,7 +546,7 @@ export class Container extends EventEmitter implements IContainer {
     }
   }
 
-  protected extractDescriptor(type: Class<unknown>) {
+  public extractDescriptor(type: Class<unknown>) {
     const descriptor: IInjectDescriptor<unknown> = {
       inject: [],
       resolver: ResolveType.Singleton,

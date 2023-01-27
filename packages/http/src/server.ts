@@ -5,7 +5,7 @@ import { Server } from 'http';
 import { RequestHandler } from 'express';
 import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction } from './interfaces.js';
 import * as fs from 'fs';
-import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '../../exceptions/lib/index.js';
+import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods/index.js';
 import Express from 'express';
 import { ValidationFailed } from '@spinajs/validation';
@@ -81,8 +81,10 @@ export class HttpServer extends AsyncService {
         return;
       }
 
-      this.Log.info(`Serving static content from: ${s.Path} at prefix: ${s.Route}`);
-      this.Express.use(s.Route, Express.static(s.Path));
+      const sRoute = s.Route ?? '/static';
+
+      this.Log.info(`Serving static content from: ${s.Path} at path: ${sRoute}`);
+      this.Express.use(sRoute, Express.static(s.Path));
     });
   }
 

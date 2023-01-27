@@ -5,7 +5,7 @@ import { Constructor, DI, IContainer } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model.js';
-import { InvalidOperation, InvalidArgument } from '../../exceptions/lib/index.js';
+import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { Relation } from './relations.js';
 
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');

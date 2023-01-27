@@ -1,16 +1,20 @@
-import { Autoinject, Container, AsyncService } from '@spinajs/di';
+import { Autoinject, Container, AsyncService, Singleton } from '@spinajs/di';
 import Ajv from 'ajv';
 import { Config } from '@spinajs/configuration';
 import { IValidationError, ValidationFailed } from './exceptions/index.js';
-import { InvalidArgument, InvalidOperation } from '../../exceptions/lib/index.js';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
 import { Logger, ILog } from '@spinajs/log';
+
+// import default souces
+import './sources.js';
 
 import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
 import { default as ajvKeywords } from 'ajv-keywords';
 
+@Singleton()
 export class DataValidator extends AsyncService {
   @Config('validation')
   public Options: IValidationOptions;

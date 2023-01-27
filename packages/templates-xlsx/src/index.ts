@@ -1,4 +1,4 @@
-import { NotSupported, IOFail } from '../../exceptions/lib/index.js';
+import { NotSupported, IOFail } from '@spinajs/exceptions';
 import _ from 'lodash';
 import { TemplateRenderer } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';

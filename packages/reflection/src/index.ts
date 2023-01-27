@@ -5,7 +5,7 @@ import ts from 'typescript';
 import _ from 'lodash';
 import { Configuration } from '@spinajs/configuration';
 import { AsyncService, Class, DI } from '@spinajs/di';
-import { InvalidArgument, Exception } from '../../exceptions/lib/index.js';
+import { InvalidArgument, Exception } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
 
 export * from 'typescript-mix';

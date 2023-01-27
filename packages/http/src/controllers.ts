@@ -2,7 +2,7 @@ import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescrip
 import { AsyncService, IContainer, Autoinject, DI, Container } from '@spinajs/di';
 import * as express from 'express';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
-import { UnexpectedServerError } from '../../exceptions/lib/index.js';
+import { UnexpectedServerError } from '@spinajs/exceptions';
 import { ClassInfo, TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
 import { HttpServer } from './server.js';
 import { Logger, Log } from '@spinajs/log';
@@ -246,13 +246,6 @@ export class Controllers extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-    /**
-     * globally register controller validator, we use ajv lib
-     * we use factory func register as singlegon
-     */
-
-    DI.register(DataValidator).asSelf().singleInstance();
-
     const controllers = await this.Controllers;
 
     // extract parameters info from controllers source code & register in http server

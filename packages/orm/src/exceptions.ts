@@ -1,4 +1,4 @@
-import { Exception } from '../../exceptions/lib/index.js';
+import { Exception } from '@spinajs/exceptions';
 
 /**
  * Exception thrown when functionality is not supported

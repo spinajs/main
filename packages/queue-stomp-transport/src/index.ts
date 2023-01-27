@@ -1,4 +1,4 @@
-import { UnexpectedServerError, InvalidArgument } from '../../exceptions/lib/index.js';
+import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
 import Stomp from '@stomp/stompjs';
 import _ from 'lodash';

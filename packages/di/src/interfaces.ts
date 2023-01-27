@@ -87,6 +87,8 @@ export interface IContainer extends EventEmitter {
   resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean): Promise<T | T[]> | T | T[];
 
   dispose(): Promise<void>;
+
+  extractDescriptor(type: Class<unknown>): IInjectDescriptor<unknown>;
 }
 
 /**
