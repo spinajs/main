@@ -1,9 +1,9 @@
 import { join, normalize, resolve } from 'path';
 
 function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), path)));
 }
-module.exports = {
+const rbacHttp = {
   system: {
     dirs: {
       controllers: [dir('./../controllers')],
@@ -32,8 +32,10 @@ module.exports = {
     },
   },
   http: {
-    middlewares: [
-      // add global user from session middleware
-    ],
+    // middlewares: [
+    //   // add global user from session middleware
+    // ],
   },
 };
+
+export default rbacHttp;

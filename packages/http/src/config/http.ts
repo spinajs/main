@@ -9,7 +9,7 @@ import { join, normalize, resolve } from 'path';
 import { HttpAcceptHeaders } from '../interfaces.js';
 
 function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), path)));
 }
 
 const corsPath = resolve(normalize(join(process.cwd(), 'cors.json')));
@@ -28,7 +28,7 @@ const corsOptions = {
   credentials: true,
 };
 
-module.exports = {
+const http = {
   system: {
     dirs: {
       locales: [dir('./../locales')],
@@ -110,3 +110,5 @@ module.exports = {
                     </html>`,
   },
 };
+
+export default http;

@@ -1,4 +1,4 @@
-module.exports = {
+const sessionDb = {
   rbac: {
     session: {
       db: {
@@ -7,3 +7,5 @@ module.exports = {
     },
   },
 };
+
+export default sessionDb;

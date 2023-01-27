@@ -1,10 +1,10 @@
 import { join, normalize, resolve } from 'path';
 
 function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), path)));
 }
 
-module.exports = {
+const ormHttp = {
   system: {
     dirs: {
       controllers: [dir('./../controllers')],
@@ -12,3 +12,5 @@ module.exports = {
     },
   },
 };
+
+export default ormHttp;

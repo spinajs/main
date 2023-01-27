@@ -1,13 +1,13 @@
 import { join, normalize, resolve } from 'path';
 
 function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), path)));
 }
 
-module.exports = {
+const rbac = {
   system: {
     dirs: {
-      cli: [dir('./../cli')],
+      cli: [dir('node_modules/@spinajs/cli')],
     },
   },
   queue: {
@@ -123,3 +123,5 @@ module.exports = {
     },
   },
 };
+
+export default rbac;

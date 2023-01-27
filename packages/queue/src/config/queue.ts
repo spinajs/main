@@ -1,10 +1,4 @@
-//import { join, normalize, resolve } from 'path';
-
-// function dir(path: string) {
-//   return resolve(normalize(join(__dirname, path)));
-// }
-
-module.exports = {
+const queue = {
   queue: {
     // by default, all messages are sent to black hole
     // becouse some modules use queues to pass events eg. user login
@@ -18,3 +12,5 @@ module.exports = {
     ],
   },
 };
+
+export default queue;

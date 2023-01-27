@@ -1,7 +1,7 @@
 import { join, normalize, resolve } from 'path';
 
 function dir(path: string) {
-  return resolve(normalize(join(__dirname, path)));
+  return resolve(normalize(join(process.cwd(), path)));
 }
 
 const email = {
