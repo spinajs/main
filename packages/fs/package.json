@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/fs",
-  "version": "2.0.51",
+  "version": "2.0.52",
   "description": "wrapper for file operations",
   "exports": "./lib/index.js",
   "type": "module",

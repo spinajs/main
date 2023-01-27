@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/log",
-  "version": "2.0.51",
+  "version": "2.0.52",
   "description": "Log lib for all spinejs related libs",
   "exports": "./lib/index.js",
   "type": "module",
@@ -8,6 +8,9 @@
   "engines": {
     "node": ">=16.11"
   },
+  "files": [
+    "lib/**/*"
+  ],
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
@@ -30,11 +33,11 @@
   "homepage": "https://github.com/spinajs/log#readme",
   "dependencies": {
     "@colors/colors": "^1.5.0",
-    "@spinajs/configuration": "^2.0.46",
-    "@spinajs/di": "^2.0.46",
-    "@spinajs/exceptions": "^2.0.39",
-    "@spinajs/internal-logger": "^2.0.46",
-    "@spinajs/log-common": "^2.0.46",
+    "@spinajs/configuration": "^2.0.52",
+    "@spinajs/di": "^2.0.52",
+    "@spinajs/exceptions": "^2.0.52",
+    "@spinajs/internal-logger": "^2.0.52",
+    "@spinajs/log-common": "^2.0.52",
     "ajv": "^8.12.0",
     "chalk": "5.2.0",
     "glob": "^8.1.0",

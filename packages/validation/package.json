@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/validation",
-  "version": "2.0.51",
+  "version": "2.0.52",
   "description": "validation library for spinajs framework",
   "exports": "./lib/index.js",
   "type": "module",
@@ -41,10 +41,10 @@
   },
   "homepage": "https://github.com/spinajs/validation#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.46",
-    "@spinajs/di": "^2.0.46",
-    "@spinajs/exceptions": "^2.0.39",
-    "@spinajs/log": "^2.0.46",
+    "@spinajs/configuration": "^2.0.52",
+    "@spinajs/di": "^2.0.52",
+    "@spinajs/exceptions": "^2.0.52",
+    "@spinajs/log": "^2.0.52",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",
