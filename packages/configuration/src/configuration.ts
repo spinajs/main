@@ -6,7 +6,14 @@ import Ajv from 'ajv';
 import { default as _ } from 'lodash';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { ConfigurationSource, IConfigLike, Configuration, ConfigurationOptions, IConfigurable, IConfigurationSchema, } from '@spinajs/configuration-common';
+import {
+  ConfigurationSource,
+  IConfigLike,
+  Configuration,
+  ConfigurationOptions,
+  IConfigurable,
+  IConfigurationSchema,
+} from '@spinajs/configuration-common';
 import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
 
 import { InvalidConfiguration } from './exception.js';
@@ -17,7 +24,6 @@ import './sources.js';
 import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
 import { default as ajvKeywords } from 'ajv-keywords';
-
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {

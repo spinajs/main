@@ -1,6 +1,6 @@
 import { Patch, Post, BasePath, Ok, Forbidden } from '@spinajs/http';
 import { User as UserModel, UserMetadata } from '@spinajs/rbac';
-import { Permission, User, Resource} from '../decorators.js';
+import { Permission, User, Resource } from '../decorators.js';
 import { FromModel, AsModel } from '@spinajs/orm-http';
 
 @BasePath('user/:user/metadata')

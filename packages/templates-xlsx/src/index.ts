@@ -8,7 +8,6 @@ import * as fs from 'fs';
 
 @Injectable(TemplateRenderer)
 export class XlsxRenderer extends TemplateRenderer {
-
   protected Templates: Map<string, string> = new Map<string, string>();
 
   @Config('templates.xlsx')

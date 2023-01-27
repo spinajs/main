@@ -190,7 +190,7 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | IAutoinjectOptions, opt
  */
 export function LazyInject(service?: Class<any> | string) {
   return (target?: any, key?: string) => {
-    let type = Reflect.getMetadata('design:type', target, key) as Class<unknown>;
+    const type = Reflect.getMetadata('design:type', target, key) as Class<unknown>;
 
     // property getter
     const getter = () => {

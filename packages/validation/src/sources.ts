@@ -3,7 +3,7 @@ import { Injectable } from '@spinajs/di';
 import * as fs from 'fs';
 import glob from 'glob';
 import * as path from 'path';
-import { ISchema, SchemaSource } from './types.js';
+import { ISchema, ISchemaObject, SchemaSource } from './types.js';
 
 @Injectable(SchemaSource)
 export class FileSystemSource extends SchemaSource {
@@ -18,7 +18,7 @@ export class FileSystemSource extends SchemaSource {
       .map((f) => {
         return import(`file://${f}`).then((result) => {
           return {
-            result,
+            result: result as { default: unknown },
             file: path.basename(f),
           };
         });
@@ -27,7 +27,7 @@ export class FileSystemSource extends SchemaSource {
     const result = await Promise.all(promises);
     return result.map((x) => {
       return {
-        schema: x.result.default,
+        schema: x.result.default as ISchemaObject,
         file: x.file,
       };
     });
@@ -40,7 +40,7 @@ export class FileSystemSource extends SchemaSource {
       .flatMap((d: string) => glob.sync(path.join(d, '/**/*.+(json)').replace(/\\/g, '/')))
       .map((f) => {
         return {
-          schema: JSON.parse(fs.readFileSync(f, 'utf-8')),
+          schema: JSON.parse(fs.readFileSync(f, 'utf-8')) as ISchemaObject,
           file: path.basename(f),
         };
       });

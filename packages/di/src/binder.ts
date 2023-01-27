@@ -1,7 +1,7 @@
 import { BindException } from './exceptions.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
-import { isFactory,isConstructor } from './helpers.js';
+import { isFactory, isConstructor } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, ResolvableObject } from './interfaces.js';
 import { Class, Factory } from './types.js';
 

@@ -79,7 +79,7 @@ export class DataValidator extends AsyncService {
         this.addSchema(s.schema, s.schema.$id);
       });
 
-    super.resolve();
+    await super.resolve();
   }
 
   public addSchema(schemaObject: object, identifier: string) {

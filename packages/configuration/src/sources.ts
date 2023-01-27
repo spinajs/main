@@ -1,9 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, DI } from '@spinajs/di';
 import glob from 'glob';
 import { default as _ } from 'lodash';
@@ -12,7 +6,11 @@ import { findBasePath, mergeArrays } from './util.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
-import { ConfigurationSource } from '@spinajs/configuration-common';
+import { ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
+
+interface IDynamicImportType {
+  default: unknown;
+}
 
 export abstract class BaseFileSource extends ConfigurationSource {
   /**
@@ -61,7 +59,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
     }
   }
 
-  protected async load(extension: string, callback: (file: string) => Promise<any>) {
+  protected async load(extension: string, callback: (file: string) => Promise<unknown>) {
     const config = {};
 
     const toResolve = this.CommonDirs.map((f) => (path.isAbsolute(f) ? f : join(this.BasePath, f)))
@@ -75,15 +73,15 @@ export abstract class BaseFileSource extends ConfigurationSource {
       }, [])
       // normalize & resolve paths to be sure
       .map((f: string) => normalize(resolve(f)))
-      .filter((f: string, index: number, self: any[]) => self.indexOf(f) === index)
+      .filter((f: string, index: number, self: unknown[]) => self.indexOf(f) === index)
       .map(callback);
 
-    const result = await Promise.all(toResolve);
+    const result = await Promise.all<IDynamicImportType[] | unknown[]>(toResolve);
 
     result
-      .filter((v: any) => v !== null)
+      .filter((v: IDynamicImportType) => v !== null)
       // load & merge configs
-      .map((c: any) => _.mergeWith(config, c.default ?? c, mergeArrays));
+      .map((c: IDynamicImportType) => _.mergeWith(config, c.default ?? c, mergeArrays));
 
     return config;
   }
@@ -91,23 +89,21 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
 @Injectable(ConfigurationSource)
 export class JsFileSource extends BaseFileSource {
-  public async Load(): Promise<any> {
+  public async Load(): Promise<IConfigLike> {
     const common = await this.load('!(*.dev|*.prod).{cjs,js}', _load);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const dEnv = DI.get<any>('process.env') ?? process.env;
+    const dEnv = DI.get<NodeJS.ProcessEnv>('process.env') ?? process.env;
     const fExt = dEnv.NODE_ENV && dEnv.NODE_ENV === 'development' ? '*.dev.{cjs,js}' : '*.prod.{cjs,js}';
     const env = await this.load(fExt, _load);
-    return  _.mergeWith(common, env, mergeArrays);
+    return _.mergeWith(common, env, mergeArrays);
 
     async function _load(file: string) {
       try {
         InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
 
-        // eslint-disable -next-line security/detect-non-literal-require
-        const res = await import(`file://${file}`);
+        const res = (await import(`file://${file}`)) as IDynamicImportType;
         return res.default;
       } catch (err) {
-        InternalLogger.error(err, `error loading configuration file ${file}`);
+        InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
         return null;
       }
     }
@@ -116,10 +112,9 @@ export class JsFileSource extends BaseFileSource {
 
 @Injectable(ConfigurationSource)
 export class JsonFileSource extends BaseFileSource {
-  public async Load(): Promise<any> {
+  public async Load(): Promise<IConfigLike> {
     const common = await this.load('!(*.dev|*.prod).json', _load);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const dEnv = DI.get<any>('process.env') ?? process.env;
+    const dEnv = DI.get<NodeJS.ProcessEnv>('process.env') ?? process.env;
     const fExt = dEnv.NODE_ENV && dEnv.NODE_ENV === 'development' ? '*.dev.json' : '*.prod.json';
     const env = await this.load(fExt, _load);
     return _.mergeWith(common, env, mergeArrays);
@@ -128,7 +123,7 @@ export class JsonFileSource extends BaseFileSource {
       try {
         InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
 
-        return JSON.parse(fs.readFileSync(file, 'utf-8'));
+        return Promise.resolve(JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown);
       } catch (err) {
         console.error(`error loading configuration file ${file}, reasoun: ${(err as Error).message}`);
         return null;

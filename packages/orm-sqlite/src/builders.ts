@@ -3,7 +3,6 @@ import { DefaultValueBuilder, RawQuery } from '@spinajs/orm';
 
 @NewInstance()
 export class SqlLiteDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
-
   constructor(protected Owner: T) {
     super();
   }

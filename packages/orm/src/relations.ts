@@ -318,8 +318,6 @@ export class DiscriminationMapMiddleware implements IBuilderMiddleware {
 
 @NewInstance()
 export class BelongsToRelation extends OrmRelation {
-  
-
   constructor(_orm: Orm, _query: SelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: OrmRelation) {
     super(_orm, _query, _description, _parentRelation);
 
@@ -359,8 +357,6 @@ export class BelongsToRelation extends OrmRelation {
 
 @NewInstance()
 export class BelongsToRecursiveRelation extends OrmRelation {
-
-
   constructor(_orm: Orm, _query: SelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: OrmRelation) {
     super(_orm, _query, _description, _parentRelation);
 

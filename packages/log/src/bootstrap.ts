@@ -20,7 +20,9 @@ export class LogBotstrapper extends Bootstrapper {
           const log = DI.resolve(Log, ["process"]);
           log.fatal(err, "Unhandled exception occured");
         } else {
-          console.error("Unhandled exception occured, reason:" + JSON.stringify(err));
+          console.error(
+            "Unhandled exception occured, reason:" + JSON.stringify(err)
+          );
         }
       });
 
@@ -32,7 +34,10 @@ export class LogBotstrapper extends Bootstrapper {
           const log = DI.resolve(Log, ["process"]);
           log.fatal(reason as Error, "Unhandled rejection at Promise %s", p);
         } else {
-          console.error("Unhandled rejection at Promise %s, reason: " + JSON.stringify(reason));
+          console.error(
+            "Unhandled rejection at Promise %s, reason: " +
+              JSON.stringify(reason)
+          );
         }
       });
     }

@@ -198,7 +198,7 @@ export abstract class JoinStatement extends QueryStatement {
 
         const driver = this._builder.Driver;
         const cnt = driver.Container;
-        this._whereBuilder = cnt.resolve<SelectQueryBuilder>("SelectQueryBuilder", [driver, this._model, this]);
+        this._whereBuilder = cnt.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, this._model, this]);
         this._whereBuilder.setAlias(this._tableAlias);
 
         this._whereCallback.call(this._whereBuilder, [this]);

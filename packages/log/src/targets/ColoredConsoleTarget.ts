@@ -1,4 +1,8 @@
-import { IColoredConsoleTargetOptions, ILogEntry, LogTarget } from "@spinajs/log-common";
+import {
+  IColoredConsoleTargetOptions,
+  ILogEntry,
+  LogTarget,
+} from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 import { LogLevel } from "./../index.js";
 import chalk from "chalk";
@@ -57,7 +61,9 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
        * we are safe to call, disable eslint
        */
       /* eslint-disable */
-      (this.theme as any)[data.Level](format(data.Variables, this.Options.layout))
+      (this.theme as any)[data.Level](
+        format(data.Variables, this.Options.layout)
+      )
     );
   }
 }

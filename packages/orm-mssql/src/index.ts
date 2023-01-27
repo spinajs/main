@@ -4,7 +4,7 @@ import { Injectable } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
 
 import { SqlDriver } from '@spinajs/orm-sql';
-import  mssql from 'mssql';
+import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler } from './compilers.js';
 import { MssqlModelDehydrator } from './dehydrator.js';

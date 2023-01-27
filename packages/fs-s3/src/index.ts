@@ -1,8 +1,3 @@
-/* eslint-disable promise/always-return */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable security/detect-non-literal-fs-filename */
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { ILog, Logger } from '@spinajs/log';
 import { fs, IStat, IZipResult } from '@spinajs/fs';
@@ -71,7 +66,7 @@ export class fsS3 extends fs {
 
     this.S3 = new AWS.S3();
 
-    this.TempFs = await DI.resolve('__file_provider__', ['fs-temp']);
+    this.TempFs = await DI.resolve<Promise<fs>>('__file_provider__', ['fs-temp']);
   }
 
   /**
@@ -110,7 +105,7 @@ export class fsS3 extends fs {
    */
   public async read(path: string, encoding: BufferEncoding) {
     const fLocal = await this.download(path);
-    const content = this.TempFs.read(fLocal, encoding);
+    const content = await this.TempFs.read(fLocal, encoding);
 
     await this.TempFs.unlink(fLocal);
 
@@ -152,7 +147,7 @@ export class fsS3 extends fs {
         .on('end', () => {
           this.TempFs.rm(fLocal)
             .then(() => {
-              resolve();
+              return resolve();
             })
             .catch(() => {
               resolve();
@@ -162,7 +157,7 @@ export class fsS3 extends fs {
           // eslint-disable-next-line promise/no-promise-in-callback
           this.TempFs.rm(fLocal)
             .then(() => {
-              reject(err);
+              return reject(err);
             })
             .catch(() => {
               reject(err);
@@ -202,7 +197,7 @@ export class fsS3 extends fs {
         Key: path,
       }).promise();
     } catch (err) {
-      if (err.name === 'ResourceNotFoundException') {
+      if ((err as Error).name === 'ResourceNotFoundException') {
         return false;
       }
     }
@@ -359,10 +354,10 @@ export class fsS3 extends fs {
         return zTmpName;
       },
       asStream: (encoding?: BufferEncoding) => {
-        return createReadStream(zTmpName, encoding);
+        return createReadStream(`${zTmpName}`, encoding);
       },
       asBase64: () => {
-        return readFileSync(zTmpName, 'base64');
+        return readFileSync(`${zTmpName}`, 'base64');
       },
     };
   }

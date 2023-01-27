@@ -12,7 +12,6 @@ import { normalize } from 'path';
 
 @Injectable(TemplateRenderer)
 export class HandlebarsRenderer extends TemplateRenderer {
-
   @Config('templates.handlebars')
   protected Options: any;
 

@@ -160,7 +160,8 @@ function _listOrResolveFromFiles(
         directories = [directories];
       }
 
-      const fPromises = await directories
+      // eslint-disable -next-line @typescript-eslint/await-thenable
+      const fPromises = directories
         .filter((d: string) => {
           /* eslint-disable */
           const exists = fs.existsSync(path.normalize(d));
