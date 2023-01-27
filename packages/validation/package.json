@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/validation",
-  "version": "2.0.47",
+  "version": "2.0.50",
   "description": "validation library for spinajs framework",
   "exports": "./lib/index.js",
   "type": "module",
@@ -9,22 +9,18 @@
     "node": ">=16.11"
   },
   "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
-    "prepare": "npm run build",
-
-    "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.json",
-    
-    "rimraf": "./node_modules/rimraf/bin.js",
-    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "format": "prettier --write \"src/**/*.ts\"",
-    "lint": "eslint -c .eslintrc.js --ext .ts src",
-    "prepublishOnly": "npm test && npm run lint",
+    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src",
-    "postversion": "git push && git push --tags"
+    "postinstall": "npm run build"
   },
   "files": [
     "lib/**/*"

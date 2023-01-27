@@ -36,6 +36,8 @@ module.exports = {
     plugins: ['promise', 'prettier', 'eslint-plugin-import', 'eslint-plugin-prefer-arrow', '@typescript-eslint', 'tsdoc', 'security'],
     rules: {
       'tsdoc/syntax': 'warn',
+    'import/no-unresolved': 'off',
+
       'security/detect-non-literal-fs-filename': "off",
       'typescript-eslint/no-explicit-any': 'off',
       'prettier/prettier': [

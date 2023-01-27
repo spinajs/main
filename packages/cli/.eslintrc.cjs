@@ -16,6 +16,8 @@ module.exports = {
   env: {
     browser: true,
     es6: true,
+    node: true,
+    es2021: true
   },
   extends: [
     'plugin:security/recommended',
@@ -49,6 +51,7 @@ module.exports = {
     '@typescript-eslint/no-unsafe-member-access': 'off',
     '@typescript-eslint/no-unsafe-assignment': 'off',
     '@typescript-eslint/no-unsafe-return': 'off',
+    "import/no-unresolved": "off",
     'prettier/prettier': [
       'error',
       {

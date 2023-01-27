@@ -36,6 +36,8 @@ module.exports = {
   plugins: ['promise', 'prettier', 'eslint-plugin-import', 'eslint-plugin-prefer-arrow', '@typescript-eslint', 'tsdoc', 'security'],
   rules: {
     'tsdoc/syntax': 'warn',
+    'import/no-unresolved': 'off',
+
 
     // disable couse its hard to
     // implement DI without some ugly hacks :)

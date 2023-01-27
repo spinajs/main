@@ -35,6 +35,8 @@ module.exports = {
     plugins: ['promise', 'prettier', 'eslint-plugin-import', 'eslint-plugin-prefer-arrow', '@typescript-eslint', 'tsdoc', 'security'],
     rules: {
       'tsdoc/syntax': 'warn',
+    'import/no-unresolved': 'off',
+
       '@typescript-eslint/no-unsafe-argument': "off",
       "@typescript-eslint/require-await": "off",
       "security/detect-unsafe-regex" : "off",

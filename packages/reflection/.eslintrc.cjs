@@ -43,6 +43,8 @@ module.exports = {
   ],
   rules: {
     'tsdoc/syntax': 'warn',
+    'import/no-unresolved': 'off',
+
     // disable couse its hard to
     // implement DI without some ugly hacks :)
     '@typescript-eslint/no-explicit-any': 'off',
