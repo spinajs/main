@@ -26,10 +26,10 @@ export abstract class BaseFileSource extends ConfigurationSource {
     normalize(join(resolve(process.cwd()), 'node_modules/@spinajs/*/lib/config')),
 
     // project paths - last to allow overwrite @spinajs conf
-    normalize(join(resolve(process.cwd()), 'src', 'lib/config')),
-    normalize(join(resolve(process.cwd()), 'src', 'dist/config')),
-    normalize(join(resolve(process.cwd()), 'src', 'build/config')),
-    normalize(join(resolve(process.cwd()), 'src', 'config')),
+    normalize(join(resolve(process.cwd()), 'lib/config')),
+    normalize(join(resolve(process.cwd()), 'dist/config')),
+    normalize(join(resolve(process.cwd()), 'build/config')),
+    normalize(join(resolve(process.cwd()), 'config')),
   ];
 
   protected BasePath = '';
@@ -79,7 +79,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
     const result = await Promise.all<IDynamicImportType[] | unknown[]>(toResolve);
 
     result
-      .filter((v: IDynamicImportType) => v !== null)
+      .filter((v: IDynamicImportType) => v !== undefined && v !== null)
       // load & merge configs
       .map((c: IDynamicImportType) => _.mergeWith(config, c.default ?? c, mergeArrays));
 

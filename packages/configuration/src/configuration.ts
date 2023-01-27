@@ -5,7 +5,7 @@ import { join, normalize, resolve } from 'path';
 import Ajv from 'ajv';
 import { default as _ } from 'lodash';
 import { InternalLogger } from '@spinajs/internal-logger';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import {
   ConfigurationSource,
   IConfigLike,
@@ -110,6 +110,12 @@ export class FrameworkConfiguration extends Configuration {
     }
 
     if (this.CustomConfigPaths) {
+      // when using DI for resolving, options are injected and not type checked
+      // double check for this
+      if (!Array.isArray(this.CustomConfigPaths)) {
+        throw new InvalidArgument(`ConfigurationConfigPaths should be an array`);
+      }
+
       this.CustomConfigPaths.forEach((p) => {
         InternalLogger.trace(`Custom config path at: ${p}`, 'Configuration');
       });
@@ -199,6 +205,16 @@ export class FrameworkConfiguration extends Configuration {
   protected validate() {
     this.ValidationSchemas.forEach((s) => {
       const config = this.get(s.$configurationModule);
+
+      if (!config) {
+        InternalLogger.warn(
+          `Cannot validate configuration for module ${s.$configurationModule}, configuration is not set`,
+          'Configuration',
+        );
+
+        return;
+      }
+
       const result = this.Validator.validate(s, config);
       if (!result) {
         const error = new InvalidConfiguration('Validation error', this.Validator.errors);

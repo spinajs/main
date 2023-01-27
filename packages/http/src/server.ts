@@ -12,6 +12,7 @@ import { ValidationFailed } from '@spinajs/validation';
 import './transformers/index.js';
 import '@spinajs/templates-pug';
 import { Templates } from '@spinajs/templates';
+import _ from 'lodash';
 
 @Injectable()
 @Inject(Templates)
@@ -74,9 +75,9 @@ export class HttpServer extends AsyncService {
     /**
      * Server static files
      */
-    this.Configuration.get<IHttpStaticFileConfiguration[]>('http.Static', []).forEach((s) => {
+    _.uniq(this.Configuration.get<IHttpStaticFileConfiguration[]>('http.Static', [])).forEach((s) => {
       if (!fs.existsSync(s.Path)) {
-        this.Log.error(`static file path ${s.Path} not exists`);
+        this.Log.warn(`static file path ${s.Path} not exists`);
         return;
       }
 

@@ -7,16 +7,34 @@ import { isConstructor, isTypedArray } from './helpers.js';
 
 export const DI_DESCRIPTION_SYMBOL = '__DI_INJECTION_DESCRIPTOR__';
 
-export function AddDependency(callback?: (descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => void): any {
+export function AddDependencyForProperty(callback?: (descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
-    let descriptor = (target as any).__DI_INJECTION_DESCRIPTOR__ as IInjectDescriptor<unknown>;
+    let descriptor = Reflect.getOwnMetadata(DI_DESCRIPTION_SYMBOL, target.constructor) as IInjectDescriptor<unknown>;
     if (!descriptor) {
       descriptor = {
         inject: [],
         resolver: ResolveType.Singleton,
       };
 
-      (target as any)[`${DI_DESCRIPTION_SYMBOL}`] = descriptor;
+      Reflect.defineMetadata(DI_DESCRIPTION_SYMBOL, descriptor, target.constructor);
+    }
+
+    if (callback) {
+      callback(descriptor, target, propertyKey, indexOrDescriptor);
+    }
+  };
+}
+
+export function AddDependency(callback?: (descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => void): any {
+  return (target: Class<unknown>, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
+    let descriptor = Reflect.getOwnMetadata(DI_DESCRIPTION_SYMBOL, target) as IInjectDescriptor<unknown>;
+    if (!descriptor) {
+      descriptor = {
+        inject: [],
+        resolver: ResolveType.Singleton,
+      };
+
+      Reflect.defineMetadata(DI_DESCRIPTION_SYMBOL, descriptor, target);
     }
 
     if (callback) {
@@ -142,7 +160,7 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
  * ```
  */
 export function Autoinject<T>(typeOrOptions?: Class<T> | IAutoinjectOptions, options?: IAutoinjectOptions) {
-  return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
     let type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
     const isArray = type.name === 'Array' || type.name === 'Map';
     let opt = options;

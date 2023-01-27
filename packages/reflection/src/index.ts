@@ -2,61 +2,13 @@ import * as fs from 'fs';
 import glob from 'glob';
 import * as path from 'path';
 import ts from 'typescript';
+import _ from 'lodash';
 import { Configuration } from '@spinajs/configuration';
 import { AsyncService, Class, DI } from '@spinajs/di';
 import { InvalidArgument, Exception } from '../../exceptions/lib/index.js';
 import { Log } from '@spinajs/log';
 
 export * from 'typescript-mix';
-
-export function build(
-  override: {
-    compilerOptions?: ts.CompilerOptions;
-    include?: string[];
-    exclude?: string[];
-    files?: string[];
-    extends?: string;
-  } = {},
-  currentDir = process.cwd(),
-) {
-  const configFile = ts.findConfigFile(
-    currentDir,
-    (path) => {
-      return ts.sys.fileExists(path);
-    },
-    'tsconfig.json',
-  );
-  if (!configFile) throw Error('tsconfig.json not found');
-  const { config } = ts.readConfigFile(configFile, (path) => {
-    return ts.sys.readFile(path);
-  });
-
-  config.compilerOptions = Object.assign({}, config.compilerOptions, override.compilerOptions);
-  if (override.include) config.include = override.include;
-  if (override.exclude) config.exclude = override.exclude;
-  if (override.files) config.files = override.files;
-  if (override.extends) config.files = override.extends;
-
-  const { options, fileNames, errors } = ts.parseJsonConfigFileContent(config, ts.sys, currentDir);
-
-  const program = ts.createProgram({ options, rootNames: fileNames, configFileParsingDiagnostics: errors });
-
-  const { diagnostics, emitSkipped } = program.emit();
-
-  const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(diagnostics, errors);
-
-  if (allDiagnostics.length) {
-    const formatHost: ts.FormatDiagnosticsHost = {
-      getCanonicalFileName: (path) => path,
-      getCurrentDirectory: ts.sys.getCurrentDirectory,
-      getNewLine: () => ts.sys.newLine,
-    };
-    const message = ts.formatDiagnostics(allDiagnostics, formatHost);
-    console.warn(message);
-  }
-
-  if (emitSkipped) process.exit(1);
-}
 
 /**
  * Class info structure
@@ -210,7 +162,7 @@ function _listOrResolveFromFiles(
       }
 
       // eslint-disable -next-line @typescript-eslint/await-thenable
-      const fPromises = directories
+      const fPromises = _.uniq(directories)
         .filter((d: string) => {
           /* eslint-disable */
           const exists = fs.existsSync(path.normalize(d));

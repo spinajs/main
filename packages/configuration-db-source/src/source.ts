@@ -76,6 +76,11 @@ export class ConfiguratioDbSource extends ConfigurationSource {
     // we use raw connection instead of ORM,
     // ORM requires configuration module to load first
     const dbConnections = this.Configuration.get<IDriverOptions[]>('db.Connections');
+
+    if (!dbConnections) {
+      throw new Error(`db.Connections configuration is not set, please check your config files or set proper db connection options`);
+    }
+
     const dbConnection = this.Options.connection === 'default' ? this.Configuration.get<string>('db.DefaultConnection', this.Options.connection) : this.Options.connection;
     const cfgConnectionOptions = dbConnections.find((x) => x.Name === dbConnection);
 

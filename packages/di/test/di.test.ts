@@ -5,7 +5,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { mock, spy } from 'sinon';
 
 import 'mocha';
-import { Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, Singleton, IInjectDescriptor, AddDependency, Class, PerInstance, AsyncService, SyncService, PerInstanceCheck } from '../src/index.js';
+import { Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance, PerChildInstance, Singleton, IInjectDescriptor, AddDependencyForProperty, Class, PerInstance, AsyncService, SyncService, PerInstanceCheck } from '../src/index.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -32,8 +32,6 @@ class Foo {
   }
 }
 
-Foo.initialize();
-
 @NewInstance()
 class BarFar {
   public static Counter: number;
@@ -54,6 +52,7 @@ class InhZar {
   @Autoinject()
   public Foo: Foo;
 }
+
 @NewInstance()
 class BarFarZar extends InhZar {
   public static Counter: number;
@@ -108,8 +107,8 @@ class LazyInjectResolve {
   @LazyInject(LazyInjectDep)
   public Instance: LazyInjectDep;
 
-  public get Test() { 
-    return "fff";
+  public get Test() {
+    return 'fff';
   }
 
   public Foo = 11;
@@ -119,8 +118,8 @@ class LazyInjectResolve2 {
   @LazyInject()
   public Instance: LazyInjectDep;
 
-  public get Test() { 
-    return "fff";
+  public get Test() {
+    return 'fff';
   }
 
   public Foo = 11;
@@ -177,7 +176,7 @@ class ChildClass extends BaseClass {}
 
 export function AutoinjectService(service: string) {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
     descriptor.inject.push({
       autoinject: true,
@@ -195,7 +194,7 @@ export function AutoinjectService(service: string) {
 
 export function AutoinjectServiceArray(service: string[], type?: Class<unknown>) {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
     const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
     descriptor.inject.push({
       autoinject: true,
@@ -216,9 +215,42 @@ export function AutoinjectServiceArray(service: string[], type?: Class<unknown>)
   });
 }
 
+class __A {}
+class __B {}
+class __C {}
+
+class BaseFoo {
+  @Autoinject(__A)
+  public Foo: __A;
+}
+
+class DerivedFoo extends BaseFoo {
+  @Autoinject(__B)
+  public Foo1: __B;
+
+  @Autoinject(__B)
+  public Foo2: __B;
+}
+class DerivedFoo2 extends BaseFoo {
+  @Autoinject(__C)
+  public Foo1: __C;
+}
+
 describe('Dependency injection', () => {
   beforeEach(() => {
     DI.clear();
+    Foo.initialize();
+  });
+
+  it('Should not leak dependencies when derived from base class', async () => {
+    const inst1 = DI.resolve(DerivedFoo);
+    const inst2 = DI.resolve(DerivedFoo2);
+
+    expect(inst1.Foo.constructor.name).to.eq('__A');
+    expect(inst1.Foo1.constructor.name).to.eq('__B');
+    expect(inst1.Foo2.constructor.name).to.eq('__B');
+    expect(inst2.Foo.constructor.name).to.eq('__A');
+    expect(inst2.Foo1.constructor.name).to.eq('__C');
   });
 
   it('Inject container', () => {

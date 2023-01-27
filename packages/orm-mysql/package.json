@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-mysql",
-  "version": "2.0.56",
+  "version": "2.0.62",
   "description": "orm mysql integration",
   "exports": "./lib/index.js",
   "type": "module",
@@ -47,10 +47,10 @@
     "chai-as-promised": "^7.1.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.56",
-    "@spinajs/di": "^2.0.56",
-    "@spinajs/orm": "^2.0.56",
-    "@spinajs/orm-sql": "^2.0.56",
+    "@spinajs/configuration": "^2.0.62",
+    "@spinajs/di": "^2.0.62",
+    "@spinajs/orm": "^2.0.62",
+    "@spinajs/orm-sql": "^2.0.62",
     "mysql2": "^3.0.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

@@ -3,7 +3,7 @@ import 'reflect-metadata';
 import { TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
-import { getTypeName, isAsyncService, isFactory, uniqBy, isTypedArray, isPromise } from './helpers.js';
+import { getTypeName, isAsyncService, isFactory, isTypedArray, isPromise } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, IInstanceCheck, Service } from './interfaces.js';
 import { Class, Factory } from './types.js';
 import { EventEmitter } from 'events';
@@ -552,31 +552,26 @@ export class Container extends EventEmitter implements IContainer {
       resolver: ResolveType.Singleton,
     };
 
-    reduce(type);
+    const rootMeta = Reflect.getMetadata(DI_DESCRIPTION_SYMBOL, type) as IInjectDescriptor<unknown>;
+    if (rootMeta) {
+      descriptor.resolver = rootMeta.resolver;
+    }
 
-    descriptor.inject = uniqBy(descriptor.inject, (a, b) => {
-      if (a.inject instanceof TypedArray && b.inject instanceof TypedArray) {
-        return getTypeName(a.inject.Type) === getTypeName(b.inject.Type);
-      } else {
-        return (a.inject as Class<unknown>).name === (b.inject as Class<unknown>).name;
+    function geAllTypes(clz: Record<string, any>): string[] {
+      if (!clz) return undefined;
+      const toInject: IInjectDescriptor<unknown> = Reflect.getMetadata(DI_DESCRIPTION_SYMBOL, clz);
+      if (toInject) {
+        toInject.inject.forEach((x) => {
+          descriptor.inject.push(x);
+        });
       }
-    });
+
+      // get `__proto__` and (recursively) all parent classes
+      geAllTypes(Object.getPrototypeOf(clz));
+    }
+
+    geAllTypes(type);
 
     return descriptor;
-
-    function reduce(t: Class<unknown>) {
-      if (t) {
-        // for descriptors defined on class declarations
-        reduce((t as Function).prototype);
-
-        // for descriptors defined on class properties eg. @Autoinject()
-        reduce((t as any).__proto__);
-
-        if ((t as any)[`${DI_DESCRIPTION_SYMBOL}`]) {
-          descriptor.inject = descriptor.inject.concat((t as any)[`${DI_DESCRIPTION_SYMBOL}`].inject);
-          descriptor.resolver = (t as any)[`${DI_DESCRIPTION_SYMBOL}`].resolver;
-        }
-      }
-    }
   }
 }

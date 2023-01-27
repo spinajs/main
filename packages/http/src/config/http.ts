@@ -1,19 +1,18 @@
-// tslint:disable: no-var-requires
-const express = require('express');
-const helmet = require('helmet');
-const cookieParser = require('cookie-parser');
-const compression = require('compression');
-const cors = require('cors');
-
+import express from 'express';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
+import compression from 'compression';
+import cors from 'cors';
 import { join, normalize, resolve } from 'path';
 import { HttpAcceptHeaders } from '../interfaces.js';
+import fs from 'fs';
 
 function dir(path: string) {
   return resolve(normalize(join(process.cwd(), path)));
 }
 
 const corsPath = resolve(normalize(join(process.cwd(), 'cors.json')));
-const cOptions = require(corsPath);
+const cOptions = JSON.parse(fs.readFileSync(corsPath, 'utf-8'));
 
 const corsOptions = {
   origin(origin: any, callback: any) {

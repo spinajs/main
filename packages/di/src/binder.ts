@@ -87,7 +87,7 @@ export class Binder<T> implements IBind {
     if (this.isFactory || !this.isConstructor) {
       throw new BindException('Cannot bind factory function as singleton.');
     } else {
-      (this.implementation as any)[`${DI_DESCRIPTION_SYMBOL}`] = descriptor;
+      Reflect.defineMetadata(DI_DESCRIPTION_SYMBOL, descriptor, this.implementation);
     }
     return this;
   }

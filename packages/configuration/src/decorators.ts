@@ -1,7 +1,7 @@
 import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
-import { AddDependency, Class, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
+import { AddDependencyForProperty, Class, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
 
 /**
  * Injects configuration value to given class property
@@ -46,7 +46,7 @@ export function Config(path: string, options?: IConfigEntryOptions) {
  */
 export function AutoinjectService(path: string, type?: Class<unknown>) {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return AddDependency((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
     const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
     descriptor.inject.push({
       autoinject: true,
