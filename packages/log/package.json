@@ -19,7 +19,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
-    "version": "npm run format && git add -A src",
+    "version": "npm run format && git add -A src"
     
   },
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/log)",
