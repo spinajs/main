@@ -1,6 +1,6 @@
 import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, LimitQueryCompiler, IDriverOptions } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
-import { Injectable } from '@spinajs/di';
+import { Injectable, NewInstance } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
 
 import { SqlDriver } from '@spinajs/orm-sql';
@@ -11,6 +11,7 @@ import { MssqlModelDehydrator } from './dehydrator.js';
 import { MsSqlDatetimeValueConverter } from './converters.js';
 
 @Injectable('orm-driver-mssql')
+@NewInstance()
 export class MsSqlOrmDriver extends SqlDriver {
   protected _connectionPool: mssql.ConnectionPool = null;
   protected _executionId = 0;

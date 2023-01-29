@@ -252,7 +252,7 @@ export class Orm extends AsyncService {
       await driver.connect();
 
 
-      this.Connections.set(c.Options.Name, driver);
+      this.Connections.set(c.Name, driver);
       this.Log.success(`Created ORM connection ${c.Name} with parametes ${JSON.stringify(_.pick(c, CFG_PROPS))}`);
     }
 

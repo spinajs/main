@@ -1,5 +1,5 @@
 /* eslint-disable promise/no-promise-in-callback */
-import { Injectable } from '@spinajs/di';
+import { Injectable, NewInstance } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log';
 import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
@@ -9,6 +9,7 @@ import { MySqlTableExistsCompiler } from './compilers.js';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
 
 @Injectable('orm-driver-mysql')
+@NewInstance()
 export class MySqlOrmDriver extends SqlDriver {
   protected Pool: mysql.Pool;
   protected _executionId = 0;
