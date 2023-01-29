@@ -4,6 +4,7 @@ import { fs, IFsConfiguration } from './interfaces.js';
 
 export * from './interfaces.js';
 export * from './local-provider.js';
+export * from './decorators.js';
 
 @Injectable(Bootstrapper)
 export class FsBootsrapper extends Bootstrapper {
