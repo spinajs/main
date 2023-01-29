@@ -562,7 +562,18 @@ export class Container extends EventEmitter implements IContainer {
       const toInject: IInjectDescriptor<unknown> = Reflect.getMetadata(DI_DESCRIPTION_SYMBOL, clz);
       if (toInject) {
         toInject.inject.forEach((x) => {
-          descriptor.inject.push(x);
+          const xTypeName = getTypeName(x.inject);
+
+          // if we do it by autoinject, skip filtering injection props
+          // autoinject can have multiple fields of same type and its identified by prop key
+          // we cannot override injection props in derived class
+          if (x.autoinject === true) {
+            descriptor.inject.push(x);
+          } else if (descriptor.inject.find(i => getTypeName(i.inject) === xTypeName) === undefined) {
+            descriptor.inject.push(x);
+          }
+
+
         });
       }
 

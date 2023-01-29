@@ -300,6 +300,7 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
 export interface SqlUpdateQueryCompiler extends IWhereCompiler {}
 
 @NewInstance()
+@Inject(Container)
 export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<unknown>> {
   @use(SqlWhereCompiler, TableAliasCompiler) this: this;
 

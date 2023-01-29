@@ -10,14 +10,14 @@ import { Autoinject, Container, DI, Inject, Injectable, LazyInject, NewInstance,
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
-class NoRegisteredType {}
+class NoRegisteredType { }
 
-class InjectableBase {}
+class InjectableBase { }
 @Injectable(InjectableBase)
-export class InjectableTest {}
+export class InjectableTest { }
 
 @Injectable(InjectableBase)
-export class InjectableTest2 {}
+export class InjectableTest2 { }
 
 @Singleton()
 class Foo {
@@ -84,9 +84,9 @@ class Far {
 }
 Far.initialize();
 
-class Zar {}
+class Zar { }
 
-class AutoinjectBar {}
+class AutoinjectBar { }
 
 class AutoinjectClass {
   @Autoinject()
@@ -157,7 +157,7 @@ class TestModule extends SyncService {
 
 @Inject(Container)
 class TestInjectContainerAsParameter {
-  constructor(public container: Container) {}
+  constructor(public container: Container) { }
 }
 
 class TestInjectContainerAsProperty {
@@ -165,14 +165,14 @@ class TestInjectContainerAsProperty {
   public container: Container;
 }
 
-class BaseInject {}
+class BaseInject { }
 
 @Inject(BaseInject)
 class BaseClass {
-  constructor(public baseInject: BaseInject) {}
+  constructor(public baseInject: BaseInject) { }
 }
 
-class ChildClass extends BaseClass {}
+class ChildClass extends BaseClass { }
 
 export function AutoinjectService(service: string) {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
@@ -215,9 +215,9 @@ export function AutoinjectServiceArray(service: string[], type?: Class<unknown>)
   });
 }
 
-class __A {}
-class __B {}
-class __C {}
+class __A { }
+class __B { }
+class __C { }
 
 class BaseFoo {
   @Autoinject(__A)
@@ -242,8 +242,30 @@ describe('Dependency injection', () => {
     Foo.initialize();
   });
 
+  it('Should not inject multiple times same dep when using @Inject with inheritance', () => {
+
+    class _AA { };
+
+    @Inject(_AA)
+    class _ZZ {
+      constructor(public a: _AA) { }
+    }
+
+    @Inject(_AA)
+    class _ZY extends _ZZ {
+      constructor(public a: _AA, public b: _AA) {
+        super(a);
+      }
+    }
+
+    const val = DI.resolve(_ZY);
+
+    expect(val.a).to.be.not.undefined;
+    expect(val.b).to.be.undefined;
+  })
+
   it('Manual registering should preserve options from decoration', () => {
-    class _ZZ {}
+    class _ZZ { }
 
     class _DD {
       @Autoinject(_ZZ)
@@ -278,7 +300,7 @@ describe('Dependency injection', () => {
 
   it('Injectable should register class', () => {
     @Injectable()
-    class InjectableTest {}
+    class InjectableTest { }
 
     const registry = DI.RootContainer.Registry;
 
@@ -288,10 +310,10 @@ describe('Dependency injection', () => {
   });
 
   it('Injectable should register class as another', () => {
-    class InjectableBase {}
+    class InjectableBase { }
 
     @Injectable(InjectableBase)
-    class InjectableTest {}
+    class InjectableTest { }
 
     const registry = DI.RootContainer.Registry;
 
@@ -302,13 +324,13 @@ describe('Dependency injection', () => {
   });
 
   it('Injectable should register multiple class as another', () => {
-    class InjectableBase {}
+    class InjectableBase { }
 
     @Injectable(InjectableBase)
-    class InjectableTest {}
+    class InjectableTest { }
 
     @Injectable(InjectableBase)
-    class InjectableTest2 {}
+    class InjectableTest2 { }
 
     const registry = DI.RootContainer.Registry;
 
@@ -673,8 +695,8 @@ describe('Dependency injection', () => {
   });
 
   it('Register type as implementation of another', () => {
-    class RegisterBase {}
-    class RegisterImpl implements RegisterBase {}
+    class RegisterBase { }
+    class RegisterImpl implements RegisterBase { }
 
     DI.register(RegisterImpl).as(RegisterBase);
 
@@ -751,7 +773,7 @@ describe('Dependency injection', () => {
   });
 
   it('Should clear container', () => {
-    class Test {}
+    class Test { }
 
     DI.resolve(Test);
     expect(DI.get('Test')).to.be.not.null;
@@ -760,7 +782,7 @@ describe('Dependency injection', () => {
   });
 
   it('Should get if type is already resolved', () => {
-    class Test {}
+    class Test { }
 
     DI.resolve(Test);
 
@@ -776,9 +798,9 @@ describe('Dependency injection', () => {
   });
 
   it('Should resolve from factory func', () => {
-    class IDatabase {}
+    class IDatabase { }
 
-    class DatabaseImpl implements IDatabase {}
+    class DatabaseImpl implements IDatabase { }
 
     DI.register((container: Container, connString: string) => {
       expect(container).to.be.not.null;
@@ -793,9 +815,9 @@ describe('Dependency injection', () => {
   });
 
   it('Should resolve from factory func with no args', () => {
-    class IDatabase {}
+    class IDatabase { }
 
-    class DatabaseImpl implements IDatabase {}
+    class DatabaseImpl implements IDatabase { }
 
     DI.register((container: Container) => {
       expect(container).to.be.not.null;
@@ -809,9 +831,9 @@ describe('Dependency injection', () => {
   });
 
   it('Should resolve from factory as different objects', () => {
-    class IDatabase {}
+    class IDatabase { }
 
-    class DatabaseImpl implements IDatabase {}
+    class DatabaseImpl implements IDatabase { }
 
     const factory = (container: Container) => {
       expect(container).to.be.not.null;
@@ -830,7 +852,7 @@ describe('Dependency injection', () => {
   });
 
   it('Should inject options at resolve', () => {
-    class Bar {}
+    class Bar { }
 
     @Inject(Bar)
     class Test {
@@ -867,9 +889,9 @@ describe('Dependency injection', () => {
 
   it('Should check if registered', () => {
     @Injectable()
-    class FooBar {}
+    class FooBar { }
 
-    class ZarFar {}
+    class ZarFar { }
 
     expect(DI.check(FooBar)).to.eq(true);
     expect(DI.check(ZarFar)).to.eq(false);
@@ -877,9 +899,9 @@ describe('Dependency injection', () => {
 
   it('Should check if registered with parent', () => {
     @Injectable()
-    class FooBar {}
+    class FooBar { }
 
-    class ZarFar {}
+    class ZarFar { }
 
     {
       const child = DI.child();
@@ -893,20 +915,20 @@ describe('Dependency injection', () => {
   });
 
   it('Should throw if resolving with check', () => {
-    class FooBar {}
+    class FooBar { }
     expect(() => {
       DI.resolve(FooBar, true);
     }).to.throw;
   });
 
   it('Should get All with Array.typeOf', async () => {
-    class InjectableBase {}
+    class InjectableBase { }
 
     @Injectable(InjectableBase)
-    class InjectableTest {}
+    class InjectableTest { }
 
     @Injectable(InjectableBase)
-    class InjectableTest2 {}
+    class InjectableTest2 { }
 
     await DI.resolve(Array.ofType(InjectableBase));
 
@@ -942,7 +964,7 @@ describe('Dependency injection', () => {
   });
 
   it('Should throw when resolve with check', () => {
-    class BarFart {}
+    class BarFart { }
 
     expect(() => {
       DI.resolve(BarFart, true);
@@ -954,7 +976,7 @@ describe('Dependency injection', () => {
   });
 
   it('Should register singleton at resolve', () => {
-    class PisFart {}
+    class PisFart { }
 
     DI.resolve(PisFart);
 
@@ -963,7 +985,7 @@ describe('Dependency injection', () => {
 
   it('Should not register at resolve @NewInstance', () => {
     @NewInstance()
-    class POFart {}
+    class POFart { }
 
     DI.resolve(POFart);
 
@@ -971,7 +993,7 @@ describe('Dependency injection', () => {
   });
 
   it('Should register class with as string name', () => {
-    class FuPIS {}
+    class FuPIS { }
 
     DI.register(FuPIS).as('FuPIS');
 
@@ -982,16 +1004,16 @@ describe('Dependency injection', () => {
   });
 
   it('should resolve on multiple inheritance with mixed decorators', () => {
-    class Foo {}
+    class Foo { }
 
-    class Bar {}
+    class Bar { }
 
     class A {
       @Autoinject(Foo)
       public Foo: Foo;
     }
 
-    class B extends A {}
+    class B extends A { }
 
     @Inject(Bar)
     class C extends B {
@@ -1030,7 +1052,7 @@ describe('Dependency injection', () => {
   });
 
   it('Resolve should check for resolved services in parent containers', () => {
-    class Foo {}
+    class Foo { }
 
     class Bar extends Foo {
       constructor() {
@@ -1111,7 +1133,7 @@ describe('Dependency injection', () => {
   it('Should resolve per name', () => {
     @PerInstanceCheck()
     class A implements IInstanceCheck {
-      constructor(public Name: string) {}
+      constructor(public Name: string) { }
       __checkInstance__(creationOptions: any): boolean {
         return this.Name === creationOptions[0];
       }
@@ -1134,9 +1156,9 @@ describe('Dependency injection', () => {
     const baseMock = mock();
     const targetMock = mock();
 
-    class TestClassBase {}
+    class TestClassBase { }
     @Injectable(TestClassBase)
-    class TestClass {}
+    class TestClass { }
 
     DI.once('di.resolved.TestClass', targetMock);
     DI.once('di.resolved.TestClassBase', baseMock);
@@ -1154,10 +1176,10 @@ describe('Dependency injection', () => {
     const baseMock = mock().atLeast(1);
     const targetMock = mock().atLeast(1);
 
-    class TestClassBase {}
+    class TestClassBase { }
     @Injectable(TestClassBase)
     @NewInstance()
-    class TestClass {}
+    class TestClass { }
 
     DI.on('di.resolved.TestClass', targetMock);
     DI.on('di.resolved.TestClassBase', baseMock);
@@ -1175,7 +1197,7 @@ describe('Dependency injection', () => {
 
   it('Should dispose sync service', async () => {
     @Singleton()
-    class Foo extends SyncService {}
+    class Foo extends SyncService { }
 
     const dispose = spy(Foo.prototype, 'dispose');
 
@@ -1187,7 +1209,7 @@ describe('Dependency injection', () => {
 
   it('Should dispose async service', async () => {
     @Singleton()
-    class Foo extends AsyncService {}
+    class Foo extends AsyncService { }
 
     const dispose = spy(Foo.prototype, 'dispose');
 
