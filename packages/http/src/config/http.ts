@@ -8,7 +8,7 @@ import { HttpAcceptHeaders } from '../interfaces.js';
 import fs from 'fs';
 
 function dir(path: string) {
-  return resolve(normalize(join(process.cwd(), path)));
+  return resolve(normalize(join(process.cwd(), "node_modules", "@spinajs", "http", path)));
 }
 
 const corsPath = resolve(normalize(join(process.cwd(), 'cors.json')));
@@ -30,9 +30,9 @@ const corsOptions = {
 const http = {
   system: {
     dirs: {
-      locales: [dir('./../locales')],
-      templates: [dir('./../views')],
-      controllers: [dir('./../controllers')],
+      locales: [dir('locales')],
+      templates: [dir('views')],
+      controllers: [dir('controllers')],
     },
   },
   cookie: {

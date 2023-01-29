@@ -85,7 +85,8 @@ export class ConfiguratioDbSource extends ConfigurationSource {
     const cfgConnectionOptions = dbConnections.find((x) => x.Name === dbConnection);
 
     if (!cfgConnectionOptions) {
-      throw new Error(`Connection for configuration-db-source named ${dbConnection} not exists`);
+      throw new Error(`Connection for configuration-db-source named ${dbConnection} not exists, please check your default connection name or if ${dbConnection} exists in configuration.`);
+
     }
 
     InternalLogger.trace(`Using db connection ${dbConnection}`, 'Configuration-db-source');

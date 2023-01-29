@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 
-@Migration('sqlite')
+@Migration('default')
 export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('configuration', (table) => {
