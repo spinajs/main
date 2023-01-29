@@ -9,7 +9,7 @@
     "node": ">=16.11"
   },
   "scripts": {
-    "build": "npm run clean && npm run compile",
+    "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views &&  cpx src/static/**/* lib/static",
     "compile": "tsc -b tsconfig.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
@@ -49,7 +49,8 @@
     "@types/luxon": "^3.2.0",
     "@types/node": "^18.11.18",
     "@types/pug": "^2.0.6",
-    "@types/uuid": "^9.0.0"
+    "@types/uuid": "^9.0.0",
+    "cpx": "1.5.0"
   },
   "dependencies": {
     "@spinajs/configuration": "^2.0.68",
