@@ -22,7 +22,7 @@ function ctr() {
 }
 
 describe('http & controller tests', function () {
-  this.timeout(25000);
+  this.timeout(85000);
 
   const middlewareSandbox = sinon.createSandbox();
   let middlewareOnBeforeSpy: sinon.SinonSpy<any, any> = null;

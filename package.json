@@ -6,7 +6,7 @@
     "test": "npm run test --workspace=packages",
     "build": "npm run clean && tsc -b tsconfig.build.json && npm run copy-static",
     "publish": "npm run build && npm publish --workspaces",
-    "copy-static": "cpx packages/http/src/views/**/* packages/http/lib/views &&  cpx packages/http/src/static/**/* packages/http/lib/static && &&  cpx packages/http/src/locales/**/* packages/http/lib/locales"
+    "copy-static": "cpx packages/http/src/views/**/* packages/http/lib/views &&  cpx packages/http/src/static/**/* packages/http/lib/static && cpx packages/http/src/locales/**/* packages/http/lib/locales"
   },
   "workspaces": [
     "packages/*"

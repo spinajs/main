@@ -41,29 +41,30 @@ export abstract class RouteArgs implements IRouteArgs {
 
   protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter, route: IRoute) {
     let result = null;
-
     // first validate route parameter / body params etc
     if (route.Schema && route.Schema[routeParameter.Name]) {
       this.Validator.validate(route.Schema[routeParameter.Name], arg);
-    } else {
+    }
+    else {
       if (routeParameter.RouteParamSchema) {
         this.Validator.validate(routeParameter.RouteParamSchema, arg);
       }
     }
 
-    const [hydrated, hValue] = await this.tryHydrateObject(arg, routeParameter);
-    if (hydrated) {
-      result = hValue;
-    } else {
-      result = this.fromRuntimeType(routeParameter, arg);
-    }
-
     // if we have complex object,
     // validate hydrated result
     if (routeParameter.Schema) {
-      this.Validator.validate(routeParameter.Schema, result);
-    } else if (_.isObject(result)) {
-      this.Validator.validate(result);
+      this.Validator.validate(routeParameter.Schema, arg);
+    }
+
+    const [hydrated, hValue] = await this.tryHydrateObject(arg, routeParameter);
+    if (hydrated) {
+      result = hValue;
+      this.Validator.validate(result, arg);
+
+    }
+    else {
+      result = this.fromRuntimeType(routeParameter, arg);
     }
 
     return result;

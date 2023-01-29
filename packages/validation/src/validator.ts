@@ -125,7 +125,7 @@ export class DataValidator extends AsyncService {
       schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject;
     } else {
       if (typeof schemaOrData === 'object') {
-        schema = schemaOrData as ISchemaObject;
+        schema = (Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) ?? schemaOrData) as ISchemaObject;
       } else if (typeof schemaOrData === 'string') {
         /* eslint-disable */
         schema = (this.Validator.getSchema(schemaOrData) as any)?.schema ?? null;
