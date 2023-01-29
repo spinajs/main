@@ -595,4 +595,9 @@ export interface IFileResponseOptions {
    * If not provided, it will be guessed
    */
   mimeType?: string;
+
+  /**
+   * Should delete file after downloaded eg. generated temp file
+   */
+  deleteAfterDownload?: boolean;
 }

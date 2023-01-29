@@ -72,18 +72,28 @@ export class FileResponse extends Response {
 
     return new Promise((resolve, reject) => {
       res.download(file, this.Options.filename, (err: Error) => {
-        provider
-          .unlink(this.Options.path, true)
-          .then(() => {
-            if (!_.isNil(err)) {
+
+        if (this.Options.deleteAfterDownload) {
+          provider
+            .unlink(this.Options.path, true)
+            .then(() => {
+              if (!_.isNil(err)) {
+                reject(err);
+              } else {
+                resolve();
+              }
+            })
+            .catch((err) => {
               reject(err);
-            } else {
-              resolve();
-            }
-          })
-          .catch((err) => {
+            });
+        } else {
+          if (!_.isNil(err)) {
             reject(err);
-          });
+          } else {
+            resolve();
+          }
+        }
+
       });
     });
   }
