@@ -1152,6 +1152,16 @@ describe('Dependency injection', () => {
     expect(b == c).to.be.false;
   });
 
+  it('Sould emit on registering value', () =>{ 
+    const baseMock = mock();
+
+    DI.once('di.registered.test', baseMock);
+
+    DI.register({ Hello: "world"}).asValue("test");
+
+    expect(baseMock.calledOnce).to.be.true;
+  })
+
   it('should emit event on resolve', () => {
     const baseMock = mock();
     const targetMock = mock();

@@ -1,6 +1,6 @@
 import { BindException } from './exceptions.js';
 import { ResolveType } from './enums.js';
-import { isFactory, isConstructor } from './helpers.js';
+import { isFactory, isConstructor, getTypeName } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, ResolvableObject } from './interfaces.js';
 import { Class, Factory } from './types.js';
 import { DI } from './index.js';
@@ -16,6 +16,13 @@ export class Binder<T> implements IBind {
 
   as<T>(type: string | Class<T>): this {
     this.container.Registry.register(type, this.implementation);
+
+    const iType = getTypeName(this.implementation);
+    const tType = getTypeName(type);
+    this.container.emit(`di.registered.${iType}`, this.implementation);
+    this.container.emit(`di.registered.${tType}`, this.implementation);
+
+
     return this;
   }
 
@@ -33,6 +40,10 @@ export class Binder<T> implements IBind {
       }
     }
     this.container.Cache.add(type, this.implementation);
+
+    const tType = getTypeName(type);
+    this.container.emit(`di.registered.${tType}`, this.implementation);
+
     return this;
   }
 
@@ -56,6 +67,12 @@ export class Binder<T> implements IBind {
 
     map.set(key, this.implementation);
 
+    
+    const iType = getTypeName(this.implementation);
+    const tType = getTypeName(type);
+    this.container.emit(`di.registered.${iType}`, this.implementation);
+    this.container.emit(`di.registered.${tType}`, this.implementation);
+
     return this;
   }
 
@@ -71,6 +88,9 @@ export class Binder<T> implements IBind {
 
     // we can safly cast to any, we checked params earlier
     this.container.Registry.register(this.implementation as any, this.implementation);
+
+    const iType = getTypeName(this.implementation);
+    this.container.emit(`di.registered.${iType}`, this.implementation);
     return this;
   }
 
