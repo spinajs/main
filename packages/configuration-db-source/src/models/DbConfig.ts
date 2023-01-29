@@ -81,7 +81,7 @@ export class DbConfig<T = unknown> extends ModelBase {
 export function parse(input: string, type: string) {
   switch (type) {
     case 'string':
-      return input;
+    case 'file':
     case 'oneOf':
       return input;
     case 'int':
