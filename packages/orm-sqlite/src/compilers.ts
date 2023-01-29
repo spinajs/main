@@ -67,13 +67,13 @@ export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler 
       }
     });
 
+    const parent = this._builder.getParent() as InsertQueryBuilder;
+     
     const bindings = _.flatMap(this._builder.getColumnsToUpdate(), (c: string | RawQuery) => {
       if (_.isString(c)) {
-        const cIndex = this._builder
-          .getParent()
-          .getColumns()
+        const cIndex = parent.getColumns()
           .findIndex((col: ColumnStatement) => (_.isString(col.Column) ? col.Column === c : null));
-        return this._builder.getParent().Values[0][cIndex];
+        return parent.Values[0][cIndex];
       } else {
         return c.Bindings;
       }

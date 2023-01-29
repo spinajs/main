@@ -25,20 +25,20 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
       })
       .join(',');
 
-    const valueMap = this._builder
-      .getParent()
-      .getColumns()
+    const parent = this._builder.getParent() as InsertQueryBuilder;
+
+    const valueMap = parent.getColumns()
       .map((c: ColumnStatement) => c.Column);
     const bindings = this._builder.getColumnsToUpdate().map((c: string | RawQuery): any => {
       if (_.isString(c)) {
-        return this._builder.getParent().Values[0][valueMap.indexOf(c)];
+        return parent.Values[0][valueMap.indexOf(c)];
       } else {
         return c.Bindings;
       }
     });
 
     const wBindings = this._builder.getColumn().map((c) => {
-      return this._builder.getParent().Values[0][valueMap.indexOf(c)];
+      return parent.Values[0][valueMap.indexOf(c)];
     });
 
     return {

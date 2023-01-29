@@ -296,6 +296,46 @@ describe('Where query builder', () => {
     }).to.throw();
   });
 
+  it('where object with datetime', () => {
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .where({
+        created_at: DateTime.fromFormat('29/01/2023', 'dd/MM/yyyy'),
+      })
+      .toDB();
+
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE created_at = ?');
+    expect(result.bindings).to.be.an('array').to.include('2023-01-29 00:00:00.000');
+  });
+
+  it('where object should filter out undefined vals and empty arrays', () => {
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .where({
+        id: undefined,
+        active: [],
+      })
+      .toDB();
+
+    expect(result.expression).to.equal('SELECT * FROM `users`');
+
+  });
+
+  it('where object with arrays', () => {
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .where({
+        id: [1],
+        active: [true],
+      })
+      .toDB();
+
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE id IN (?) AND active IN (?)');
+  });
+
   it('where object as argument', () => {
     const result = sqb()
       .select('*')
@@ -787,7 +827,7 @@ describe('Select query builder', () => {
       .from('users')
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       // eslint-disable-next-line @typescript-eslint/no-empty-function
-      .where(function (_builder: IWhereBuilder<unknown>) {})
+      .where(function (_builder: IWhereBuilder<unknown>) { })
       .toDB();
 
     expect(result.expression).to.eq('SELECT * FROM `users`');
@@ -949,7 +989,7 @@ describe('insert query builder', () => {
       })
       .onDuplicate('id')
       .update(['email', 'active'])
-      .toDB();
+      .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?) ON DUPLICATE KEY UPDATE `email` = ?,`active` = ?');
     expect(result.bindings).to.be.an('array').to.include.members([1, true, 'spine@spine.pl', 'spine@spine.pl', true]);
