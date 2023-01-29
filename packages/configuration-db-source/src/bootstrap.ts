@@ -53,6 +53,11 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       const watchTimer = setInterval(() => {
         const varsToWatch = vars.filter((x) => x.options.exposeOptions.watch);
         const cService = container.get(Configuration);
+
+        if (varsToWatch.length === 0) {
+          return;
+        }
+
         void DbConfig.query()
           .whereIn(
             'Slug',

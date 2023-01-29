@@ -270,6 +270,23 @@ export class Orm extends AsyncService {
 
       this.Connections.set('default', this.Connections.get(defaultConnection));
     }
+
+    // wire connection aliases
+    // for example if we have module that uses conn name of db-user-session
+    // and we want to wire it to some existinc connection instead creating new one
+    const aliases = this.Configuration.get<any>('db.Aliases');
+    if (aliases) {
+      for (const a in aliases) {
+        const conn = aliases[a];
+        if (!this.Connections.has(conn)) {
+          throw new InvalidOperation(`default connection ${conn} not exists`);
+        }
+
+        this.Connections.set(a, this.Connections.get(conn));
+      }
+    }
+
+
   }
 
   private applyModelMixins() {
