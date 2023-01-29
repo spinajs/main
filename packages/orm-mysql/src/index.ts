@@ -6,7 +6,7 @@ import { SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket } from 'mysql2';
 import { MySqlTableExistsCompiler } from './compilers.js';
-import { IIndexInfo, ITableColumnInfo } from './types.js';
+import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
 
 @Injectable('orm-driver-mysql')
 @NewInstance()
@@ -113,9 +113,16 @@ export class MySqlOrmDriver extends SqlDriver {
       });
     });
   }
+
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
     const tblInfo = (await this.execute(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? ${schema ? 'AND TABLE_SCHEMA=?' : ''} `, schema ? [name, schema] : [name], QueryContext.Select)) as ITableColumnInfo;
-    const indexInfo = (await this.execute(`SHOW INDEXES FROM ${name}`, [], QueryContext.Select)) as IIndexInfo[];
+    const isView = (await this.execute(`SHOW FULL TABLES where Tables_in_${schema}='${name}'`, [name], QueryContext.Select)) as ITableTypeInfo[];
+    let indexInfo: IIndexInfo[] = [];
+
+    if (isView && isView[0].Table_type === 'VIEW') {
+      this.Log.trace(`Table ${schema}.${name} is a VIEW and dont have indexes set.`)
+      indexInfo = (await this.execute(`SHOW INDEXES FROM ${name}`, [], QueryContext.Select)) as IIndexInfo[];
+    }
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
       return null;

@@ -432,7 +432,7 @@ export class RawQuery {
     this._bindings = bindings;
   }
 }
-
+@NewInstance()
 export class GroupByBuilder implements IGroupByBuilder {
   protected _container: Container;
   protected _groupStatements: IQueryStatement[] = [];
@@ -453,6 +453,7 @@ export class GroupByBuilder implements IGroupByBuilder {
   }
 }
 
+@NewInstance()
 export class JoinBuilder implements IJoinBuilder {
   protected _model?: Constructor<ModelBase>;
 
@@ -979,6 +980,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
 export class SelectQueryBuilderC<T = any> extends SelectQueryBuilder<T> {}
 
+@NewInstance()
 export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
   /**
    * where query props
@@ -1012,16 +1014,17 @@ export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
   }
 }
 
+@NewInstance()
 export class OnDuplicateQueryBuilder {
   protected _column: string[];
 
-  protected _parent: InsertQueryBuilder;
+  protected _parent: QueryBuilder;
 
   protected _columnsToUpdate: Array<string | RawQuery>;
 
   protected _container: IContainer;
 
-  constructor(container: IContainer, insertQueryBuilder: InsertQueryBuilder, column?: string | string[]) {
+  constructor(container: IContainer, insertQueryBuilder: QueryBuilder, column?: string | string[]) {
     this._parent = insertQueryBuilder;
     this._container = container;
 
@@ -1049,11 +1052,12 @@ export class OnDuplicateQueryBuilder {
     return this._parent.then(onfulfilled, onrejected);
   }
 
-  public toDB(): ICompilerOutput {
+  public toDB(): ICompilerOutput | ICompilerOutput[] {
     return this._parent.toDB();
   }
 }
 
+@NewInstance()
 export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
   /**
    * where query props
@@ -1093,6 +1097,7 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
   }
 }
 
+@NewInstance()
 export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   public DuplicateQueryBuilder: OnDuplicateQueryBuilder;
 
@@ -1409,6 +1414,7 @@ export class ColumnQueryBuilder {
 }
 
 @Inject(Container)
+@NewInstance()
 export class AlterColumnQueryBuilder extends ColumnQueryBuilder {
   public AlterType: ColumnAlterationType;
   public AfterColumn: string;
@@ -1446,6 +1452,7 @@ export class AlterColumnQueryBuilder extends ColumnQueryBuilder {
   }
 }
 
+@NewInstance()
 export class TableExistsQueryBuilder extends QueryBuilder {
   constructor(container: Container, driver: OrmDriver, name: string) {
     super(container, driver, null);
@@ -1459,6 +1466,7 @@ export class TableExistsQueryBuilder extends QueryBuilder {
   }
 }
 
+@NewInstance()
 export class DropTableQueryBuilder extends QueryBuilder {
   public Exists: boolean;
 
@@ -1485,6 +1493,7 @@ export class DropTableQueryBuilder extends QueryBuilder {
   }
 }
 
+@NewInstance()
 export class AlterTableQueryBuilder extends QueryBuilder {
   protected _columns: ColumnQueryBuilder[];
 
@@ -1556,6 +1565,7 @@ export class AlterTableQueryBuilder extends QueryBuilder {
   }
 }
 
+@NewInstance()
 export class TableQueryBuilder extends QueryBuilder {
   public int: (name: string) => ColumnQueryBuilder;
   public bigint: (name: string) => ColumnQueryBuilder;

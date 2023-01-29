@@ -12,6 +12,10 @@ export interface ITableColumnInfo {
   COLUMN_COMMENT: string;
 }
 
+export interface ITableTypeInfo {
+  Table_type: "VIEW" | "BASE TABLE";
+}
+
 export interface IIndexInfo {
   Key_name: string;
   Column_name: string;

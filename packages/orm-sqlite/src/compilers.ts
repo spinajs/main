@@ -6,6 +6,7 @@ import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDupl
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 
+@NewInstance()
 export class SqliteTruncateTableQueryCompiler extends TableQueryCompiler {
   constructor(protected container: Container, protected builder: TableQueryBuilder) {
     super();

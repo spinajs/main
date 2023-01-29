@@ -120,6 +120,7 @@ export abstract class WhereStatement extends QueryStatement {
   public abstract build(): IQueryStatementResult;
 }
 
+@NewInstance()
 export class Wrap {
   public Column: string;
   public Wrapper: Class<WrapStatement>;

@@ -191,6 +191,7 @@ export class SqlColumnMethodStatement extends ColumnMethodStatement {
   }
 }
 
+@NewInstance()
 export abstract class SqlDateWrapper extends DateWrapper {
   public wrap(): string {
     if (this._tableAlias) {
@@ -221,6 +222,7 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
   }
 }
 
+@NewInstance()
 export class SqlWhereQueryStatement extends WhereQueryStatement {
   public build() {
     const _compiler = new SqlWhereCompiler();

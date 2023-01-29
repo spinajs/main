@@ -229,6 +229,7 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
 }
 
 @Inject(Configuration)
+@NewInstance()
 export class MsSqlTableAliasCompiler implements TableAliasCompiler {
   public compile(builder: IQueryBuilder, tbl?: string) {
     let table = '';
