@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue",
-  "version": "2.0.78",
+  "version": "2.0.80",
   "description": "queue sending & pulling made easy",
   "exports": "./lib/index.js",
   "type": "module",
@@ -45,11 +45,11 @@
     "@types/node": "^18.11.18"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.78",
-    "@spinajs/di": "^2.0.78",
-    "@spinajs/exceptions": "^2.0.78",
-    "@spinajs/log": "^2.0.78",
-    "@spinajs/orm": "^2.0.78",
+    "@spinajs/configuration": "^2.0.80",
+    "@spinajs/di": "^2.0.80",
+    "@spinajs/exceptions": "^2.0.80",
+    "@spinajs/log": "^2.0.80",
+    "@spinajs/orm": "^2.0.80",
     "luxon": "^3.2.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

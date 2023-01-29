@@ -7,6 +7,7 @@ import _ from 'lodash';
 import * as randomstring from 'randomstring';
 import { __translate, __translateH, __translateL, __translateNumber } from '@spinajs/intl';
 import { Templates } from '@spinajs/templates';
+import { fs } from '@spinajs/fs';
 
 /**
  * Sends data & sets proper header as json
@@ -55,16 +56,20 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
 
   return (req: express.Request, res: express.Response) => {
     if (!req.accepts('html')) {
-      httpResponse(
-        {
-          error: {
-            message: 'invalid request content type',
-            code: 400,
+      const fs = DI.resolve<fs>("__file_provider__", ['__fs_http_response_templates__']);
+      fs.download('serverError.pug').then((file) => {
+        httpResponse(
+          {
+            error: {
+              message: 'invalid request content type',
+              code: 400,
+            },
           },
-        },
-        HTTP_STATUS_CODE.BAD_REQUEST,
-        'responses/serverError.pug',
-      )(req, res);
+          HTTP_STATUS_CODE.BAD_REQUEST,
+          file,
+        )(req, res);
+      });
+
       return;
     }
 
@@ -75,18 +80,22 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
 
       log.warn(`Cannot render html file ${file}, error: ${err.message}:${err.stack}`, err);
 
-      // try to render server error response
-      _render('responses/serverError.pug', { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR).catch((err2) => {
-        const log: ILog = DI.resolve(Log, ['http']);
+      const fs = DI.resolve<fs>("__file_provider__", ['__fs_http_response_templates__']);
+      fs.download('serverError.pug').then((file) => {
+        // try to render server error response
+        _render(file, { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR).catch((err2) => {
+          const log: ILog = DI.resolve(Log, ['http']);
 
-        // final fallback rendering error fails, we render embedded html error page
-        const ticketNo = randomstring.generate(7);
+          // final fallback rendering error fails, we render embedded html error page
+          const ticketNo = randomstring.generate(7);
 
-        log.warn(`Cannot render pug file error: ${err2.message}, ticket: ${ticketNo}`, err);
+          log.warn(`Cannot render pug file error: ${err2.message}, ticket: ${ticketNo}`, err);
 
-        res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
-        res.send(cfg.get<string>('http.FatalTemplate').replace('{ticket}', ticketNo));
-      });
+          res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
+          res.send(cfg.get<string>('http.FatalTemplate').replace('{ticket}', ticketNo));
+        });
+      })
+
     });
 
     function _render(f: string, m: any, c: HTTP_STATUS_CODE) {
@@ -115,7 +124,7 @@ export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: strin
   const transformers = DI.resolve(Array.ofType(DataTransformer));
   return (req: express.Request, res: express.Response) => {
     if (req.accepts('html') && (acceptedHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
-      htmlResponse(`${template}.pug`, model, code)(req, res);
+      htmlResponse(template, model, code)(req, res);
     } else if (req.accepts('json') && (acceptedHeaders & HttpAcceptHeaders.JSON) === HttpAcceptHeaders.JSON) {
       if (req.headers['x-data-transform']) {
         const transformer = transformers.find((t) => t.Type === req.headers['x-data-transform']);

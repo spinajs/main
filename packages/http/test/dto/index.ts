@@ -76,7 +76,7 @@ export class ModelArgHydrator3 extends ArgHydrator {
   public async hydrate(input: any): Promise<any> {
     return new SampleModelWithHydrator3({
       ...input,
-      args: input.args.map((x: string) => Number(x)),
+      args: parseInt(input.args)
     });
   }
 }

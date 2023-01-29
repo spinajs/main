@@ -6,54 +6,42 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
-import ../../src/index.js';
+import '../src/index.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
-
-export function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
 
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
+  protected onLoad() {
+    return {
+      intl: {
+        defaultLocale: 'pl',
 
-    _.mergeWith(
-      this.Config,
-      {
-        intl: {
-          defaultLocale: 'pl',
-
-          // supported locales
-          locales: ['en'],
-        },
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '{datetime} {level} {message} {error} duration: {duration} ({logger})',
-            },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
-        system: {
-          dirs: {
-            locales: [dir('./lang')],
-            templates: [dir('./templates')],
+        // supported locales
+        locales: ['en'],
+      },
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+            layout: '{datetime} {level} {message} {error} duration: {duration} ({logger})',
           },
+        ],
+
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
+      system: {
+        dirs: {
+          locales: [dir('./lang')],
+          templates: [dir('./templates')],
         },
       },
-      mergeArrays,
-    );
+    };
   }
 }
 
@@ -65,19 +53,20 @@ describe('templates', () => {
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
+
     await DI.resolve(Configuration);
   });
 
   it('should render handlebar', async () => {
     const t = await tp();
-    const result = await t.render('template.handlebars', { hello: 'world' });
+    const result = await t.render(dir('templates/template.handlebars'), { hello: 'world' });
 
     expect(result).to.eq('hello world');
   });
 
   it('should render handlebar with lang', async () => {
     const t = await tp();
-    const result = await t.render('template.handlebars', { hello: 'world' }, 'en');
+    const result = await t.render(dir('templates/template.handlebars'), { hello: 'world' }, 'en');
 
     expect(result).to.eq('hello world en_US');
   });
@@ -90,7 +79,7 @@ describe('templates', () => {
       },
       async () => {
         const t = await tp();
-        return await t.render('template.handlebars', { hello: 'world' });
+        return await t.render(dir('templates/template.handlebars'), { hello: 'world' });
       },
     );
 
@@ -99,6 +88,6 @@ describe('templates', () => {
 
   it('should fail when template not exists', async () => {
     const t = await tp();
-    expect(t.render('template_not_exists.handlebars', { hello: 'world' })).to.be.rejected;
+    expect(t.render(dir('template_not_exists.handlebars'), { hello: 'world' })).to.be.rejected;
   });
 });

@@ -12,55 +12,55 @@ import '@spinajs/templates-pug';
 
 import servers from './config.js';
 import { EmailSenderSmtp } from '../src/index.js';
+import { FsBootsrapper } from '@spinajs/fs';
 
 chai.use(chaiAsPromised);
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        system: {
-          dirs: {
-            templates: [dir('./templates')],
-            locales: [dir('./locales')],
-          },
-        },
-        email: {
-          connections: servers,
-        },
-        fs: {
-          default: 'fs-local',
-          providers: [
-            {
-              service: 'fsNative',
-              name: 'fs-local',
-              basePath: dir('./files'),
-            },
-          ],
-        },
-        intl: {
-          defaultLocale: 'pl',
-
-          // supported locales
-          locales: ['en'],
-        },
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '${datetime} ${level} ${message} ${error} duration: ${duration} (${logger})',
-            },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+  protected onLoad() {
+    return {
+      system: {
+        dirs: {
+          templates: [dir('./templates')],
+          locales: [dir('./locales')],
         },
       },
-      mergeArrays,
-    );
+      email: {
+        connections: servers,
+      },
+      fs: {
+        default: 'fs-local',
+        providers: [
+          {
+            service: 'fsNative',
+            name: 'fs-local',
+            basePath: dir('./files'),
+          },
+          {
+            service: 'fsNative',
+            name: 'fs-template',
+            basePath: dir('./templates'),
+          },
+        ],
+      },
+      intl: {
+        defaultLocale: 'pl',
+
+        // supported locales
+        locales: ['en'],
+      },
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+            layout: '${datetime} ${level} ${message} ${error} duration: ${duration} (${logger})',
+          },
+        ],
+
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
+    };
   }
 }
 
@@ -99,6 +99,10 @@ describe('smtp email transport', function () {
 
   beforeEach(async () => {
     DI.clearCache();
+
+    const b = await DI.resolve(FsBootsrapper);
+    await b.bootstrap();
+
     await DI.resolve(Configuration);
   });
 
@@ -123,6 +127,8 @@ describe('smtp email transport', function () {
 
   it('Should send email with pug template', async () => {
     const e = await email();
+    const f = await DI.resolve('__file_provider__', 'fs-templates');
+    const file = await f.download('test.pug');
 
     await e.send({
       to: ['test@spinajs.com'],
@@ -132,7 +138,7 @@ describe('smtp email transport', function () {
       model: {
         hello: 'world',
       },
-      template: 'test.pug',
+      template: file,
     });
   });
 

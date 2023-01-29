@@ -1,4 +1,4 @@
-import { IOFail, InvalidOperation } from '@spinajs/exceptions';
+import { IOFail } from '@spinajs/exceptions';
 import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
 import { InvalidArgument } from '@spinajs/exceptions';
 import * as fs from 'fs';
@@ -64,10 +64,12 @@ export class HandlebarsRenderer extends TemplateRenderer {
       throw new InvalidArgument('template parameter cannot be null or empty');
     }
 
-    const fTemplate = this.Templates.get(normalize(templateName));
-    if (!fTemplate) {
-      throw new InvalidOperation(`Template ${templateName} is not found ( check if exists & compiled )`);
+    let fTemplate = null;
+    if (!this.Templates.has(normalize(templateName))) {
+      await this.compile(normalize(templateName));
     }
+
+    fTemplate = this.Templates.get(normalize(templateName));
 
     const lang = language ? language : guessLanguage();
     const tLang = lang ?? defaultLanguage();
@@ -84,7 +86,7 @@ export class HandlebarsRenderer extends TemplateRenderer {
     return Promise.resolve(content);
   }
 
-  protected async compile(templateName: string, path: string): Promise<void> {
+  protected async compile(path: string): Promise<void> {
     const tContent = fs.readFileSync(path, 'utf-8');
 
     if (tContent.length === 0) {
@@ -94,9 +96,9 @@ export class HandlebarsRenderer extends TemplateRenderer {
     const tCompiled = Handlebars.compile(tContent, this.Options);
 
     if (!tCompiled) {
-      throw new IOFail(`Cannot compile handlebars template ${templateName} from path ${path}`);
+      throw new IOFail(`Cannot compile handlebars template from path ${path}`);
     }
 
-    this.Templates.set(templateName, tCompiled);
+    this.Templates.set(path, tCompiled);
   }
 }

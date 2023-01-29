@@ -13,6 +13,7 @@ export class NoContent extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    return await httpResponse(this.responseData, HTTP_STATUS_CODE.NO_CONTENT, 'responses/noContent');
+    const file = await this.fs.download('noContent.pug');
+    return await httpResponse(this.responseData, HTTP_STATUS_CODE.NO_CONTENT, file);
   }
 }

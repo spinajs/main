@@ -16,6 +16,7 @@ import '@spinajs/email-smtp-transport';
 import '@spinajs/orm-sqlite';
 
 import { EmailService } from '../src/index.js';
+import { fs, FsBootsrapper } from '@spinajs/fs';
 
 chai.use(chaiAsPromised);
 
@@ -27,7 +28,6 @@ export class ConnectionConf extends FrameworkConfiguration {
     return {
       system: {
         dirs: {
-          templates: [dir('./templates')],
           locales: [dir('./locales')],
         },
       },
@@ -108,6 +108,11 @@ export class ConnectionConf extends FrameworkConfiguration {
             name: 'fs-local',
             basePath: dir('./files'),
           },
+          {
+            service: 'fsNative',
+            name: 'fs-template',
+            basePath: dir('./templates'),
+          },
         ],
       },
       intl: {
@@ -162,6 +167,9 @@ describe('smtp email transport', function () {
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
+
+    const b = await DI.resolve(FsBootsrapper);
+    await b.bootstrap();
 
     await DI.resolve(Configuration);
     await DI.resolve(Orm);
@@ -226,7 +234,8 @@ describe('smtp email transport', function () {
 
   it('Should send email with pug template', async () => {
     const e = await email();
-
+    const fs = await DI.resolve('__file_provider__', ['fs-templates']);
+    const file = await fs.download('test.pug');
     await e.send({
       to: ['test@spinajs.com'],
       from: 'test@spinajs.com',
@@ -235,13 +244,14 @@ describe('smtp email transport', function () {
       model: {
         hello: 'world',
       },
-      template: 'test.pug',
+      template: file,
     });
   });
 
   it('Should send email with handlebar template', async () => {
     const e = await email();
-
+    const fs = await DI.resolve('__file_provider__', ['fs-templates']);
+    const file = await fs.download('test.handlebars');
     await e.send({
       to: ['test@spinajs.com'],
       from: 'test@spinajs.com',
@@ -250,7 +260,7 @@ describe('smtp email transport', function () {
       model: {
         hello: 'world',
       },
-      template: 'test.handlebars',
+      template: file,
     });
   });
 
@@ -274,7 +284,8 @@ describe('smtp email transport', function () {
 
   it('should sent email template with lang', async () => {
     const e = await email();
-
+    const f = await DI.resolve<fs>('__file_provider__', ['fs-templates']);
+    const file = await f.download('test-lang.pug');
     await e.send({
       to: ['test@spinajs.com'],
       from: 'test@spinajs.com',
@@ -283,7 +294,7 @@ describe('smtp email transport', function () {
       model: {
         hello: 'world',
       },
-      template: 'test-lang.pug',
+      template: file,
       lang: 'en',
     });
   });

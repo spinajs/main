@@ -124,13 +124,11 @@ export class DataValidator extends AsyncService {
     if (data === null || data === undefined) {
       schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject;
     } else {
-      if (typeof schemaOrData === 'object') {
-        schema = (Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) ?? schemaOrData) as ISchemaObject;
-      } else if (typeof schemaOrData === 'string') {
+      if (typeof schemaOrData === 'string') {
         /* eslint-disable */
         schema = (this.Validator.getSchema(schemaOrData) as any)?.schema ?? null;
       } else {
-        schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject;
+        schema = schemaOrData as ISchemaObject;
       }
     }
 
@@ -142,6 +140,10 @@ export class DataValidator extends AsyncService {
     }
 
     return [true, null];
+  }
+
+  public extractSchema(object: unknown) {
+    return Reflect.getMetadata(SCHEMA_SYMBOL, object) as ISchemaObject
   }
 
   /**

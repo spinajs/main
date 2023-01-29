@@ -147,7 +147,7 @@ export class HttpServer extends AsyncService {
         .execute(req, res)
         .then((callback: ResponseFunction) => {
           if (callback) {
-            callback(req, res);
+            return callback(req, res);
           }
         })
         .catch((err: Error) => {

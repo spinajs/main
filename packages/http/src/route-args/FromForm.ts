@@ -38,11 +38,13 @@ export abstract class FromFormBase extends RouteArgs {
   public Data: FormData;
 
   protected FileService: fs;
+  ;
 
   protected async parseForm(callData: IRouteCall, param: IRouteParameter, req: Request) {
     if (callData && callData.Payload && callData.Payload.Form) {
       this.Data = callData.Payload.Form;
     }
+
 
     if (!this.Data) {
       await this.parse(req, param.Options);
@@ -256,6 +258,8 @@ export class FromFormField extends FromFormBase {
       await this.parseForm(callData, param, req);
     }
 
+    const data = this.Data.Fields[param.Name];
+
     return {
       CallData: {
         ...callData,
@@ -263,7 +267,11 @@ export class FromFormField extends FromFormBase {
           Form: this.Data,
         },
       },
-      Args: this.Data.Fields[param.Name],
+
+      // by default form field is returned in array,
+      // we assume that if length is 1 we want single param
+      // when route param is not array
+      Args: data.length === 1 && param.RuntimeType.name !== 'Array' ? data[0] : data,
     };
   }
 }
@@ -284,11 +292,17 @@ export class FromForm extends FromFormBase {
       await this.parseForm(callData, param, req);
     }
 
-    let result = this.Data.Fields;
-    const [hydrated, hValue] = await this.tryHydrateObject(this.Data.Fields, param);
-    if (hydrated) {
-      result = hValue;
-    }
+    // todo 
+    // refactor to support arrays in object
+    // and array of objects
+
+    const data = Object.fromEntries(
+      Object.entries(this.Data.Fields).map(([key, value]) => {
+        return [key, value[0]];
+      }),
+    );
+
+    const result = await this.tryHydrateObject(data, param);
 
     return {
       CallData: {

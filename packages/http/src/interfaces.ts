@@ -1,6 +1,7 @@
 import * as express from 'express';
-import { Constructor, AsyncService } from '@spinajs/di';
+import { Constructor, AsyncService, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { fs } from '@spinajs/fs';
 
 /**
  * Accept header enum
@@ -501,7 +502,11 @@ export interface IPolicyDescriptor {
 export type ResponseFunction = (req: express.Request, res: express.Response) => void;
 
 export abstract class Response {
-  constructor(protected responseData: any) {}
+
+  protected fs: fs;
+  constructor(protected responseData: any) {
+    this.fs = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
+  }
 
   public abstract execute(req: express.Request, res: express.Response, next?: express.NextFunction): Promise<ResponseFunction | void>;
 }
@@ -600,4 +605,9 @@ export interface IFileResponseOptions {
    * Should delete file after downloaded eg. generated temp file
    */
   deleteAfterDownload?: boolean;
+}
+
+export interface ITemplateResponseOptions {
+  template: string;
+  provider?: string;
 }

@@ -54,16 +54,21 @@ describe('controller action test params', function () {
 
     it('simple query', async () => {
       await req().get('params/query/simple?a=hello&b=true&c=666');
-      assert.calledWith(DI.get(QueryParams).simple as sinon.SinonSpy, 'hello', true, 666);
+      const spy = DI.get(QueryParams).simple as sinon.SinonSpy;
+
+      expect(spy.args[0][0]).to.eq("hello");
+      expect(spy.args[0][1]).to.eq(true);
+      expect(spy.args[0][2]).to.eq(666);
     });
 
     it('queryObject', async () => {
       await req().get('params/query/queryObject?a={"id":1,"name":"test"}');
-      assert.calledWith(DI.get(QueryParams).queryObject as sinon.SinonSpy, {
-        id: 1,
-        name: 'test',
-      });
+
+      const spy = DI.get(QueryParams).queryObject as sinon.SinonSpy;
+      expect(spy.args[0][0].id).to.eq(1);
+      expect(spy.args[0][0].name).to.eq('test');
     });
+
     it('queryModel', async () => {
       await req().get('params/query/queryModel?a={"id":1,"name":"test","args":[1,2,3]}');
       const spy = DI.get(QueryParams).queryModel as sinon.SinonSpy;
@@ -488,14 +493,11 @@ describe('controller action test params', function () {
         .field({
           id: 1,
           name: 'test',
-          'args[0]': 1,
-          'args[1]': 2,
-          'args[2]': 3,
+          args: 1,
         })
         .type('form');
       expect(spy.args[0][0].id).to.eq('1');
       expect(spy.args[0][0].name).to.eq('test');
-      expect(spy.args[0][0].args).to.include.members(['1', '2', '3']);
     });
 
     it('formModelWithHydrator', async () => {
@@ -505,16 +507,14 @@ describe('controller action test params', function () {
         .field({
           id: 1,
           name: 'test',
-          'args[0]': 1,
-          'args[1]': 2,
-          'args[2]': 3,
+          args: 1
         })
         .type('form');
 
       expect(spy.args[0][0].constructor.name).to.eq('SampleModelWithHydrator3');
       expect(spy.args[0][0].id).to.eq('1');
       expect(spy.args[0][0].name).to.eq('test');
-      expect(spy.args[0][0].args).to.include.members([1, 2, 3]);
+      expect(spy.args[0][0].args).to.eq(1);
     });
 
     it('formWithFile', async () => {
@@ -579,7 +579,7 @@ describe('controller action test params', function () {
     });
   });
 
-  describe('from cvs file', function () {});
+  describe('from cvs file', function () { });
 
-  describe('from json files', function () {});
+  describe('from json files', function () { });
 });

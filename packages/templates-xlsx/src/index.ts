@@ -30,17 +30,15 @@ export class XlsxRenderer extends TemplateRenderer {
       throw new IOFail(`Cannot find template file ${template}`);
     }
 
-    const tFile = this.Templates.get(template);
-
-    if (!fs.existsSync(tFile)) {
-      throw new IOFail(`File for template ${template} at path ${tFile} not exists`);
+    if (!fs.existsSync(template)) {
+      throw new IOFail(`File for template at path ${template} not exists`);
     }
 
     this.Log.trace(`Rendering xlsx template ${template}`);
     this.Log.timeStart(`XlsxTemplate.render.start.${template}`);
 
     const renderer = new Renderer();
-    const result = await renderer.renderFromFile(this.Templates.get(template), model);
+    const result = await renderer.renderFromFile(template, model);
 
     await result.xlsx.writeFile(filePath);
 
@@ -52,12 +50,7 @@ export class XlsxRenderer extends TemplateRenderer {
     return Promise.reject(new NotSupported('Cannot render xlsx to memory'));
   }
 
-  protected compile(templateName: string, path: string): Promise<void> {
-    // we cannot precompile xlsx files, just empty resolve
-    // and add to template list
-
-    this.Templates.set(templateName, path);
-
+  protected compile(_path: string): Promise<void> {
     return Promise.resolve();
   }
 }

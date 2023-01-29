@@ -13,6 +13,7 @@ export class Ok extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    return await httpResponse(this.responseData, HTTP_STATUS_CODE.OK, 'responses/ok');
+    const file = await this.fs.download('ok.pug');
+    return await httpResponse(this.responseData, HTTP_STATUS_CODE.OK, file);
   }
 }

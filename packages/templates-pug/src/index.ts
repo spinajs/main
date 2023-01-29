@@ -1,5 +1,5 @@
 import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
-import { IOFail, InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { IOFail, InvalidArgument } from '@spinajs/exceptions';
 import * as fs from 'fs';
 import * as pugTemplate from 'pug';
 import * as path from 'path';
@@ -48,10 +48,12 @@ export class PugRenderer extends TemplateRenderer {
       throw new InvalidArgument('template parameter cannot be null or empty');
     }
 
-    const fTemplate = this.Templates.get(normalize(templateName));
-    if (!fTemplate) {
-      throw new InvalidOperation(`Template ${templateName} is not found ( check if exists & compiled )`);
+    let fTemplate = null;
+    if (!this.Templates.has(normalize(templateName))) {
+      await this.compile(normalize(templateName));
     }
+
+    fTemplate = this.Templates.get(normalize(templateName));
     const lang = language ? language : guessLanguage();
     const tLang = lang ?? defaultLanguage();
 
@@ -70,9 +72,9 @@ export class PugRenderer extends TemplateRenderer {
     return Promise.resolve(content);
   }
 
-  protected async compile(templateName: string, path: string) {
+  protected async compile(path: string) {
     const tCompiled = pugTemplate.compileFile(path, this.Options);
-    const pNormalized = normalize(templateName);
+    const pNormalized = normalize(path);
 
     if (!tCompiled) {
       throw new IOFail(`Cannot compile handlebars template ${pNormalized} from path ${path}`);

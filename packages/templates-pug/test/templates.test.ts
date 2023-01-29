@@ -6,54 +6,43 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
-import ../../src/index.js';
+import '../src/index.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
-export function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
 
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
+  protected onLoad() {
+    return {
+      intl: {
+        defaultLocale: 'pl',
 
-    _.mergeWith(
-      this.Config,
-      {
-        intl: {
-          defaultLocale: 'pl',
-
-          // supported locales
-          locales: ['en'],
-        },
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '{datetime} {level} {message} {error} duration: {duration} ({logger})',
-            },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
-        system: {
-          dirs: {
-            locales: [dir('./lang')],
-            templates: [dir('./templates'), dir('templates_2')],
+        // supported locales
+        locales: ['en'],
+      },
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+            layout: '{datetime} {level} {message} {error} duration: {duration} ({logger})',
           },
+        ],
+
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
+      system: {
+        dirs: {
+          locales: [dir('./lang')],
+          templates: [dir('./templates'), dir('templates_2')],
         },
       },
-      mergeArrays,
-    );
+    };
   }
 }
 
@@ -70,14 +59,14 @@ describe('templates', () => {
 
   it('should render pug', async () => {
     const t = await tp();
-    const result = await t.render('template.pug', { hello: 'world' });
+    const result = await t.render(dir('templates/template.pug'), { hello: 'world' });
 
     expect(result).to.eq('<p>hello world</p>');
   });
 
   it('should render pug with lang', async () => {
     const t = await tp();
-    const result = await t.render('template.pug', { hello: 'world' }, 'en');
+    const result = await t.render(dir('templates/template.pug'), { hello: 'world' }, 'en');
 
     expect(result).to.eq('<p>hello world en_US</p>');
   });
@@ -90,7 +79,7 @@ describe('templates', () => {
       },
       async () => {
         const t = await tp();
-        return await t.render('template.pug', { hello: 'world' });
+        return await t.render(dir('templates/template.pug'), { hello: 'world' });
       },
     );
 
@@ -99,13 +88,6 @@ describe('templates', () => {
 
   it('should fail when template not exists', async () => {
     const t = await tp();
-    expect(t.render('handlebars/template_not_exists.handlebars', { hello: 'world' })).to.be.rejected;
-  });
-
-  it('should override template', async () => {
-    const t = await tp();
-    const result = await t.render('template_2.pug', { hello: 'world' });
-
-    expect(result).to.eq('<p>hello world overriden</p>');
+    expect(t.render(dir('templates/handlebars/template_not_exists.handlebars'), { hello: 'world' })).to.be.rejected;
   });
 });

@@ -31,7 +31,6 @@ const http = {
   system: {
     dirs: {
       locales: [dir('locales')],
-      templates: [dir('views')],
       controllers: [dir('controllers')],
     },
   },
@@ -41,6 +40,15 @@ const http = {
       maxAge: 900000,
       httpOnly: true,
     },
+  },
+  fs: {
+    providers: [
+      {
+        service: 'fsNative',
+        name: '__fs_http_response_templates__',
+        basePath: dir('./views/responses'),
+      },
+    ]
   },
   http: {
     port: 1337,

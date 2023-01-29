@@ -16,7 +16,7 @@ import _ from 'lodash';
 const CONFIG_WATCH_TIMER_INTERVAL = 3 * 60 * 1000;
 
 type __dbCOnfigOptions = { path: string; options: IConfigEntryOptions & IConfigEntryOptionsCommon };
-function __saveCongigOption(v: __dbCOnfigOptions) {
+function __saveConfigOptions(v: __dbCOnfigOptions) {
   if (v.options.expose) {
     void DbConfig.insert(
       {
@@ -45,8 +45,16 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     // as we go ( eg. resolved service )
     DI.on('di.registered.__configuration_property__', (v: __dbCOnfigOptions) => {
       if (v.options && v.options.expose) {
-        __saveCongigOption(v);
+        __saveConfigOptions(v);
+
+        void DbConfig.where("Slug", v.path).first().then((result: DbConfig) => {
+          const cService = DI.get(Configuration);
+          cService.set(v.path, result.Value)
+        });
       }
+
+
+
     });
 
     // register vals added before orm is resolved eg. at bostrap phase
@@ -60,7 +68,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
        * Insert to db all exposed config options
        */
       for (const v of vars) {
-        __saveCongigOption(v);
+        __saveConfigOptions(v);
       }
 
       const interval = DI.get('__config_watch_interval__');

@@ -11,9 +11,12 @@ import { httpResponse } from '../responses.js';
 export class ServerError extends Response {
   constructor(data: any) {
     super(data);
+
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    return await httpResponse({ error: this.responseData }, HTTP_STATUS_CODE.INTERNAL_ERROR, 'responses/serverError');
+
+    const file = await this.fs.download('serverError.pug');
+    return await httpResponse({ error: this.responseData }, HTTP_STATUS_CODE.INTERNAL_ERROR, file);
   }
 }

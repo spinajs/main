@@ -41,29 +41,33 @@ export abstract class RouteArgs implements IRouteArgs {
 
   protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter, route: IRoute) {
     let result = null;
+    let schema = null;
+
     // first validate route parameter / body params etc
     if (route.Schema && route.Schema[routeParameter.Name]) {
-      this.Validator.validate(route.Schema[routeParameter.Name], arg);
+      schema = route.Schema[routeParameter.Name];
+    } else if (routeParameter.Schema) {
+      schema = routeParameter.Schema;
     }
-    else {
-      if (routeParameter.RouteParamSchema) {
-        this.Validator.validate(routeParameter.RouteParamSchema, arg);
+    else if (routeParameter.RouteParamSchema) {
+      schema = routeParameter.RouteParamSchema;
+    }
+
+    result = await this.tryHydrateObject(arg, routeParameter);
+    if (result) {
+      schema = this.Validator.extractSchema(result);
+    }
+
+    if (schema) {
+      if (result) {
+        this.Validator.validate(schema, result);
+      }
+      else {
+        this.Validator.validate(schema, arg);
       }
     }
 
-    // if we have complex object,
-    // validate hydrated result
-    if (routeParameter.Schema) {
-      this.Validator.validate(routeParameter.Schema, arg);
-    }
-
-    const [hydrated, hValue] = await this.tryHydrateObject(arg, routeParameter);
-    if (hydrated) {
-      result = hValue;
-      this.Validator.validate(result, arg);
-
-    }
-    else {
+    if (!result) {
       result = this.fromRuntimeType(routeParameter, arg);
     }
 
@@ -80,22 +84,20 @@ export abstract class RouteArgs implements IRouteArgs {
 
     if (hydrator) {
       const hInstance = await DI.resolve<ArgHydrator>(hydrator.hydrator, hydrator.options);
-      const result = await hInstance.hydrate(arg, param);
-
-      return [true, result];
+      return await hInstance.hydrate(arg, param);
     } else if (param.RuntimeType.name === 'Object' || param.RuntimeType.name === 'Array') {
-      return [true, _.isString(arg) ? JSON.parse(arg) : arg];
+      return _.isString(arg) ? JSON.parse(arg) : arg;
     } else if (param.RuntimeType.name === 'DateTime') {
-      return [true, this.handleDate(arg)];
+      return this.handleDate(arg);
     } else if (param.RuntimeType instanceof TypedArray) {
       const type = (param.RuntimeType as TypedArray<any>).Type as any;
       const arrData = _.isString(arg) ? JSON.parse(arg) : arg;
-      return [true, arrData ? arrData.map((x: any) => new type(x)) : []];
+      return arrData ? arrData.map((x: any) => new type(x)) : [];
     } else if (['Number', 'String', 'Boolean', 'Null', 'Undefined', 'BigInt', 'Symbol'].indexOf(param.RuntimeType.name) === -1) {
-      return [true, new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg)];
+      return new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg);
     }
 
-    return [false, null];
+    return undefined;
   }
 
   protected fromRuntimeType(param: IRouteParameter, arg: any) {

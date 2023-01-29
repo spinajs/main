@@ -38,7 +38,6 @@ export class TestConfiguration extends FrameworkConfiguration {
       system: {
         dirs: {
           locales: [dir('./../src/locales'), dir('./locales')],
-          templates: [dir('./../src/views'), dir('./views')],
           controllers: [dir('./controllers')],
         },
       },
@@ -55,6 +54,17 @@ export class TestConfiguration extends FrameworkConfiguration {
             name: 'fs-temp',
             basePath: dir('./files'),
           },
+          {
+            service: 'fsNative',
+            name: '__fs_http_response_templates__',
+            basePath: dir('./../src/views/responses'),
+          },
+          {
+            service: 'fsNative',
+            name: '__fs_http_templates__',
+            basePath: dir('./views'),
+
+          }
         ],
       },
       intl: {
@@ -70,7 +80,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         targets: [
           {
             name: 'Empty',
-            type: 'ConsoleTarget',
+            type: 'BlackHoleTarget',
           },
         ],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
