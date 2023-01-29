@@ -9,7 +9,7 @@
     "node": ">=16.11"
   },
   "scripts": {
-    "build": "npm run clean && npm run compile && cpx src/views/**/* lib/views &&  cpx src/static/**/* lib/static",
+    "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",

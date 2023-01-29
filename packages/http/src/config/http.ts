@@ -8,7 +8,7 @@ import { HttpAcceptHeaders } from '../interfaces.js';
 import fs from 'fs';
 
 function dir(path: string) {
-  return resolve(normalize(join(process.cwd(), "node_modules", "@spinajs", "http", path)));
+  return resolve(normalize(join(process.cwd(), "node_modules", "@spinajs", "http", "lib", path)));
 }
 
 const corsPath = resolve(normalize(join(process.cwd(), 'cors.json')));
