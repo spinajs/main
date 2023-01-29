@@ -238,29 +238,24 @@ export class Orm extends AsyncService {
   }
 
   private async createConnections() {
-    const connections = await Promise.all(
-      this.Configuration.get<IDriverOptions[]>('db.Connections', [])
-        .map((c) => {
-          if (!this.Container.hasRegistered(c.Driver)) {
-            this.Log.warn(`ORM connection driver ${c.Driver} not registerd`);
-          }
 
-          this.Log.trace(`Trying to create connection name: ${c.Name}, driver: ${c.Driver}`);
-          return this.Container.resolve<OrmDriver>(c.Driver, [c]);
-        })
-        .filter((c) => c !== null)
-        .map((c) => {
-          return c.connect().then((d) => {
-            this.Log.trace(`Connection succesyfully created ${d.Options.Name}`);
-            return d;
-          });
-        }),
-    );
+    const cConnections = this.Configuration.get<IDriverOptions[]>('db.Connections', []);
 
-    connections.forEach((c) => {
-      this.Connections.set(c.Options.Name, c);
-      this.Log.info(`Found ORM driver ${c.Options.Name} with parameters ${JSON.stringify(_.pick(c.Options, CFG_PROPS))}`);
-    });
+    for (const c of cConnections) {
+      this.Log.trace(`Trying to create connection name: ${c.Name}, driver: ${c.Driver}`);
+
+      if (!this.Container.hasRegistered(c.Driver)) {
+        throw new OrmException(`ORM connection driver ${c.Driver} not registerd`);
+      }
+
+      const driver = await this.Container.resolve<OrmDriver>(c.Driver, [c]);
+      await driver.connect();
+
+
+      this.Connections.set(c.Options.Name, driver);
+      this.Log.success(`Created ORM connection ${c.Name} with parametes ${JSON.stringify(_.pick(c, CFG_PROPS))}`);
+    }
+
 
     const defaultConnection = this.Configuration.get<string>('db.DefaultConnection');
     if (defaultConnection) {
