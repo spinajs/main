@@ -635,7 +635,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         throw new InvalidArgument(`value cannot be undefined`);
       }
 
-      if (isNaN(sVal)) {
+      if (Number.isNaN(sVal)) {
         throw new InvalidArgument(`value cannot be NaN`);
       }
 
@@ -667,7 +667,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         throw new InvalidArgument(`column is not of type string or wrapped.`);
       }
 
-      if (isNaN(sVal)) {
+      if (Number.isNaN(sVal)) {
         throw new InvalidArgument(`value cannot be NaN`);
       }
 

@@ -28,7 +28,7 @@ export abstract class RouteArgs implements IRouteArgs {
 
   protected handleDate(arg: any): DateTime {
     const milis = Number(arg);
-    if (!isNaN(milis)) {
+    if (!Number.isNaN(milis)) {
       return DateTime.fromSeconds(milis);
     }
 

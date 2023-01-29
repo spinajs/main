@@ -44,7 +44,9 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     // register all conf options
     // as we go ( eg. resolved service )
     DI.on('di.registered.__configuration_property__', (v: __dbCOnfigOptions) => {
-      __saveCongigOption(v);
+      if (v.options && v.options.expose) {
+        __saveCongigOption(v);
+      }
     });
 
     // register vals added before orm is resolved eg. at bostrap phase
