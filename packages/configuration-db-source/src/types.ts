@@ -5,7 +5,7 @@ export interface IConfiguratioDbSourceConfig {
   table: string;
 }
 
-export type ConfigurationEntryType = 'int' | 'float' | 'string' | 'json' | 'date' | 'datetime' | 'time' | 'boolean' | 'time-range' | 'date-range' | 'datetime-range' | 'range' | 'oneOf' | 'manyOf';
+export type ConfigurationEntryType = 'int' | 'float' | 'string' | 'json' | 'date' | 'datetime' | 'time' | 'boolean' | 'time-range' | 'date-range' | 'datetime-range' | 'range' | 'oneOf' | 'manyOf' | 'file';
 
 export interface IConfigurationEntry {
   Id: number;
