@@ -53,18 +53,20 @@ export abstract class RouteArgs implements IRouteArgs {
       schema = routeParameter.RouteParamSchema;
     }
 
+    // TODO:
+    // extract schema without hydrating
+    // to prevent creating object if data is invalid
     result = await this.tryHydrateObject(arg, routeParameter);
     if (result) {
       schema = this.Validator.extractSchema(result);
     }
 
     if (schema) {
-      if (result) {
-        this.Validator.validate(schema, result);
-      }
-      else {
-        this.Validator.validate(schema, arg);
-      }
+      this.Validator.validate(schema, arg);
+    }
+
+    if (!result) {
+      result = this.fromRuntimeType(routeParameter, arg);
     }
 
     if (!result) {

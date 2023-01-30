@@ -26,10 +26,6 @@ export class XlsxRenderer extends TemplateRenderer {
   }
 
   public async renderToFile(template: string, model: unknown, filePath: string, _language?: string): Promise<void> {
-    if (!this.Templates.has(template)) {
-      throw new IOFail(`Cannot find template file ${template}`);
-    }
-
     if (!fs.existsSync(template)) {
       throw new IOFail(`File for template at path ${template} not exists`);
     }
