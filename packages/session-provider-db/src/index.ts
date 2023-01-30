@@ -28,7 +28,7 @@ export class DbSessionStore extends SessionProvider {
     setInterval(async () => {
       const c = await DbSession.destroy().where('Expiration', '<=', DateTime.now());
 
-      this.Log.info(`Cleaned up expired session, count: ${c}`);
+      this.Log.info(`Cleaned up expired session, count: ${c.RowsAffected}`);
     }, this.CleanupInterval);
   }
 
