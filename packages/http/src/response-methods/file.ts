@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { ResourceNotFound } from '@spinajs/exceptions';
+import { IOFail, ResourceNotFound } from '@spinajs/exceptions';
 import * as express from 'express';
 import _ from 'lodash';
 import mime from 'mime';
@@ -62,6 +62,10 @@ export class FileResponse extends Response {
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
     const provider = await DI.resolve<fs>('__file_provider__', [this.Options.provider]);
+    if (!provider) {
+      throw new IOFail(`Provider ${this.Options.provider} not registered in configuration. Use default or check configuration.`)
+    }
+
     const exists = await provider.exists(this.Options.path);
 
     if (!exists) {
