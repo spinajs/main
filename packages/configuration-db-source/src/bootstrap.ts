@@ -29,7 +29,7 @@ function __saveConfigOptions(v: __dbCOnfigOptions) {
         Required: v.options.required,
         Type: v.options.exposeOptions?.type,
         Watch: v.options.exposeOptions?.watch ?? false,
-        Default: v.options.exposeOptions?.default ?? undefined,
+        Default: v.options.defaultValue ?? undefined,
         Exposed: true,
       },
       InsertBehaviour.InsertOrIgnore,
@@ -50,7 +50,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
         void DbConfig.where("Slug", v.path).first().then((result: DbConfig) => {
           const cService = DI.get(Configuration);
-          cService.set(v.path, result.Value)
+          cService.set(v.path, result.Value ?? result.Default)
         });
       }
 

@@ -50,7 +50,6 @@ declare module '@spinajs/configuration-common' {
       meta?: IConfigurationEntryMeta;
       description?: string;
       label?: string;
-      default?: any;
 
       /**
        * Should we watch for config val change

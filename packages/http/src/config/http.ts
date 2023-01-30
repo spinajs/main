@@ -2,7 +2,6 @@ import express from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import compression from 'compression';
-import cors from 'cors';
 import { join, normalize, resolve } from 'path';
 import { HttpAcceptHeaders } from '../interfaces.js';
 
