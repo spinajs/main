@@ -58,19 +58,13 @@ export abstract class RouteArgs implements IRouteArgs {
     // to prevent creating object if data is invalid
     result = await this.tryHydrateObject(arg, routeParameter);
     if (result) {
-      schema = this.Validator.extractSchema(result);
+        schema = this.Validator.extractSchema(result);
     }
-
     if (schema) {
-      this.Validator.validate(schema, arg);
+            this.Validator.validate(schema, arg);
     }
-
     if (!result) {
-      result = this.fromRuntimeType(routeParameter, arg);
-    }
-
-    if (!result) {
-      result = this.fromRuntimeType(routeParameter, arg);
+        result = this.fromRuntimeType(routeParameter, arg);
     }
 
     return result;

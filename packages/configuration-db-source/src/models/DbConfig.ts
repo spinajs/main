@@ -32,14 +32,21 @@ export class DbConfig<T = unknown> extends ModelBase {
 
   public Watch: boolean;
 
+  public Default?: T;
+
   public hydrate(data: Partial<this>) {
-    Object.assign(this, { ...data, Value: parse(data.Value as unknown as string, data.Type) });
+    Object.assign(this, {
+      ...data,
+      Value: parse(data.Value as unknown as string, data.Type),
+      Default: parse(data.Value as unknown as string, data.Type)
+    });
   }
 
   public dehydrate(_omit?: string[]) {
     return {
       ...this,
       Value: this.stringify(this.Value),
+      Default: this.stringify(this.Default)
     } as any;
   }
 

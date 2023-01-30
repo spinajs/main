@@ -23,7 +23,7 @@ export class RbacMiddleware extends ServerMiddleware {
   public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
     return async (req: sRequest, _res: express.Response, next: express.NextFunction) => {
       try {
-        if (req.cookies.ssid) {
+        if (req.cookies?.ssid) {
           const ssid: string | false = cs.unsign(req.cookies.ssid, this.CoockieSecret);
           if (ssid) {
             const session = await this.SessionProvider.restore(ssid);

@@ -5,27 +5,10 @@ import compression from 'compression';
 import cors from 'cors';
 import { join, normalize, resolve } from 'path';
 import { HttpAcceptHeaders } from '../interfaces.js';
-import fs from 'fs';
 
 function dir(path: string) {
   return resolve(normalize(join(process.cwd(), "node_modules", "@spinajs", "http", "lib", path)));
 }
-
-const corsPath = resolve(normalize(join(process.cwd(), 'cors.json')));
-const cOptions = JSON.parse(fs.readFileSync(corsPath, 'utf-8'));
-
-const corsOptions = {
-  origin(origin: any, callback: any) {
-    if (!cOptions || cOptions.origins.length === 0 || cOptions.origins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('cors not allowed'));
-    }
-  },
-  exposedHeaders: cOptions.exposedHeaders,
-  allowedHeaders: cOptions.allowedHeaders,
-  credentials: true,
-};
 
 const http = {
   system: {
@@ -62,7 +45,6 @@ const http = {
       }),
       cookieParser(),
       compression(),
-      cors(corsOptions),
     ],
 
     /**

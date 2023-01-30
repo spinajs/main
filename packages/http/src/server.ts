@@ -5,6 +5,7 @@ import { Server } from 'http';
 import { RequestHandler } from 'express';
 import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction } from './interfaces.js';
 import * as fs from 'fs';
+import cors from 'cors';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods/index.js';
 import Express from 'express';
@@ -13,6 +14,8 @@ import './transformers/index.js';
 import '@spinajs/templates-pug';
 import { Templates } from '@spinajs/templates';
 import _ from 'lodash';
+
+
 
 @Injectable()
 @Inject(Templates)
@@ -55,6 +58,30 @@ export class HttpServer extends AsyncService {
     this.Configuration.get<any[]>('http.middlewares', []).forEach((m) => {
       this.use(m);
     });
+
+    /**
+     * Register cors options
+     */
+
+    const cors = this.Configuration.get<any>('http.cors', undefined);
+    if (!cors) {
+      this.Log.warn(`CORS options not set, server may be unavaible from outside ! Please set http.cors configuration option.`)
+    } else {
+      const corsOptions = {
+        origin(origin: any, callback: any) {
+          if (!cors || cors.origins.length === 0 || cors.origins.indexOf(origin) !== -1) {
+            callback(null, true);
+          } else {
+            callback(new Error('cors not allowed'));
+          }
+        },
+        exposedHeaders: cors.exposedHeaders,
+        allowedHeaders: cors.allowedHeaders,
+        credentials: true,
+      };
+
+      this.use(cors(corsOptions));
+    }
 
     // create storage prop in req
     this.use((req: any, _res: any, next: Express.NextFunction) => {
