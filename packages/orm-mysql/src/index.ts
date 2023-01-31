@@ -116,11 +116,11 @@ export class MySqlOrmDriver extends SqlDriver {
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
     const tblInfo = (await this.execute(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? ${schema ? 'AND TABLE_SCHEMA=?' : ''} `, schema ? [name, schema] : [name], QueryContext.Select)) as ITableColumnInfo;
-    const isView = (await this.execute(`SHOW FULL TABLES where Tables_in_${schema}='${schema}'`, [], QueryContext.Select)) as ITableTypeInfo[];
+    const isView = (await this.execute(`SHOW FULL TABLES where \`Tables_in_${schema}\`='${name}'`, [], QueryContext.Select)) as ITableTypeInfo[];
     let indexInfo: IIndexInfo[] = [];
 
     if (isView && isView[0].Table_type === 'VIEW') {
-      this.Log.trace(`Table ${schema}.${name} is a VIEW and dont have indexes set.`)
+      this.Log.trace(`Table ${schema}.${name} is a VIEW and dont have indexes set.`);
       indexInfo = (await this.execute(`SHOW INDEXES FROM ${name}`, [], QueryContext.Select)) as IIndexInfo[];
     }
 
