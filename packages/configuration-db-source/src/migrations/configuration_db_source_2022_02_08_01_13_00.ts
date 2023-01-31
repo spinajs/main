@@ -8,6 +8,7 @@ export class configuration_db_source_2022_02_08_01_13_00 extends OrmMigration {
       table.int('Id').primaryKey().autoIncrement();
       table.string('Slug', 64).notNull();
       table.text('Value');
+      table.text('Default');
       table.boolean('Required').default().value(0);
       table.boolean('Exposed').notNull().default().value(0);
       table.boolean('Watch').notNull().default().value(0);

@@ -27,11 +27,13 @@ export interface IGraphanaOptions extends ICommonTargetOptions {
 
 interface Stream {
   labels: {
+    [label: string]: unknown;
+  };
+  stream: {
     app: string;
     level: string;
     logger: string;
-    [label: string]: unknown;
-  };
+  },
   values: unknown[];
 }
 
@@ -47,8 +49,7 @@ enum TargetStatus {
 @Injectable("GraphanaLogTarget")
 export class GraphanaLokiLogTarget
   extends LogTarget<IGraphanaOptions>
-  implements IInstanceCheck
-{
+  implements IInstanceCheck {
   @Logger("LogLokiTarget")
   protected Log: ILog;
 
@@ -143,10 +144,12 @@ export class GraphanaLokiLogTarget
       if (!stream) {
         stream = {
           labels: {
-            app: this.Options.options.labels.app,
+            ...this.Options.options.labels,
+          },
+          stream: {
             logger: entry.Variables.logger,
             level: entry.Variables.level,
-            ...this.Options.options.labels,
+            app: this.Options.options.labels.app,
           },
           values: [],
         };
@@ -165,7 +168,7 @@ export class GraphanaLokiLogTarget
           "Content-Type": "application/json",
         },
         timeout: this.Options.options.timeout,
-        data: batch,
+        data: { streams: batch },
       })
       .then(() => {
         this.Entries = [];
