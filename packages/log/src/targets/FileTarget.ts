@@ -11,7 +11,7 @@ import {
 import * as fs from "fs";
 import * as path from "path";
 import { InvalidOption } from "@spinajs/exceptions";
-import * as glob from "glob";
+import glob from "glob";
 import * as zlib from "zlib";
 import { format } from "@spinajs/configuration";
 import { pipeline } from "stream";
