@@ -133,11 +133,10 @@ export class GraphanaLokiLogTarget
 
     this.Entries.forEach((entry) => {
       let stream = batch.find((b) =>
-        _.isEqual(b.labels, {
+        _.isEqual(b.stream, {
           app: this.Options.options.labels.app,
           logger: entry.Variables.logger,
           level: entry.Variables.level,
-          ...this.Options.options.labels,
         })
       );
 
@@ -157,7 +156,7 @@ export class GraphanaLokiLogTarget
         batch.push(stream);
       }
       stream.values.push([
-        entry.Variables["n_timestamp"],
+        entry.Variables["n_timestamp"].toString(),
         JSON.stringify(format(entry.Variables, this.Options.layout)),
       ]);
     });

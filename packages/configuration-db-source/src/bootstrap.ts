@@ -50,7 +50,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
         void DbConfig.where("Slug", v.path).first().then((result: DbConfig) => {
           const cService = DI.get(Configuration);
-          cService.set(v.path, result.Value ?? result.Default)
+          cService.set(v.path, result?.Value ?? result.Default)
         });
       }
 
