@@ -19,12 +19,6 @@ const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
 const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
 const QUEUE_WAIT_TIME_MS = 5 * 1000;
 
-export function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
-
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
@@ -38,80 +32,74 @@ async function wait(amount?: number) {
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        db: {
-          DefaultConnection: 'sqlite',
-          Connections: [
-            // queue DB
-            {
-              Driver: 'orm-driver-sqlite',
-              Filename: ':memory:',
-              Name: 'queue',
-              Migration: {
-                OnStartup: true,
-                Table: 'orm_migrations',
-                Transaction: {
-                  Mode: MigrationTransactionMode.PerMigration,
-                },
+  protected onLoad(): unknown {
+    return {
+      db: {
+        DefaultConnection: 'sqlite',
+        Connections: [
+          // queue DB
+          {
+            Driver: 'orm-driver-sqlite',
+            Filename: ':memory:',
+            Name: 'queue',
+            Migration: {
+              OnStartup: true,
+              Table: 'orm_migrations',
+              Transaction: {
+                Mode: MigrationTransactionMode.PerMigration,
               },
-            },
-
-            // default connection
-            {
-              Driver: 'orm-driver-sqlite',
-              Filename: ':memory:',
-              Name: 'sqlite',
-              Migration: {
-                OnStartup: true,
-                Table: 'orm_migrations',
-                Transaction: {
-                  Mode: MigrationTransactionMode.PerMigration,
-                },
-              },
-            },
-          ],
-        },
-        queue: {
-          default: 'default-test-queue',
-          routing: {
-            TestEventDurable: '/topic/durable',
-            TestEventRouted: '/topic/routed',
-            TestJobRouted: '/queue/routed',
-            TestSecond: {
-              connection: 'second-test-connection',
-              channel: '/queue/routed',
             },
           },
-          connections: [
-            {
-              service: 'StompQueueClient',
-              host: 'ws://localhost:61614/ws',
-              name: `default-test-queue`,
-              debug: true,
-              defaultQueueChannel: TestJobChannelName,
-              defaultTopicChannel: TestEventChannelName,
-            },
-          ],
-        },
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
-            },
-          ],
 
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
+          // default connection
+          {
+            Driver: 'orm-driver-sqlite',
+            Filename: ':memory:',
+            Name: 'sqlite',
+            Migration: {
+              OnStartup: true,
+              Table: 'orm_migrations',
+              Transaction: {
+                Mode: MigrationTransactionMode.PerMigration,
+              },
+            },
+          },
+        ],
       },
-      mergeArrays,
-    );
+      queue: {
+        default: 'default-test-queue',
+        routing: {
+          TestEventDurable: '/topic/durable',
+          TestEventRouted: '/topic/routed',
+          TestJobRouted: '/queue/routed',
+          TestSecond: {
+            connection: 'second-test-connection',
+            channel: '/queue/routed',
+          },
+        },
+        connections: [
+          {
+            service: 'StompQueueClient',
+            host: 'ws://localhost:61614/ws',
+            name: `default-test-queue`,
+            debug: true,
+            defaultQueueChannel: TestJobChannelName,
+            defaultTopicChannel: TestEventChannelName,
+          },
+        ],
+      },
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+            layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
+          },
+        ],
+
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
+    };
   }
 }
 

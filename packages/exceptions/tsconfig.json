@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "./src",
-    "outDir": "./lib/mts",
+    "outDir": "./lib/mjs",
     "module": "esnext"
   },
   "include": ["src/**/*"]

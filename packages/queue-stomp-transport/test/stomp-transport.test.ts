@@ -16,12 +16,6 @@ const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
 const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
 const QUEUE_WAIT_TIME_MS = 1000;
 
-export function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
-
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
@@ -35,33 +29,27 @@ async function wait(amount: number) {
 }
 
 export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        queue: {
-          routing: {
-            TestEventDurable: '/topic/durable',
-            TestEventRouted: '/topic/routed',
-            TestJobRouted: '/queue/routed',
-          },
-        },
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
-            },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+  protected onLoad(): unknown {
+    return {
+      queue: {
+        routing: {
+          TestEventDurable: '/topic/durable',
+          TestEventRouted: '/topic/routed',
+          TestJobRouted: '/queue/routed',
         },
       },
-      mergeArrays,
-    );
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+            layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
+          },
+        ],
+
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
+    };
   }
 }
 
