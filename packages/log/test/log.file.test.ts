@@ -3,16 +3,14 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 /* eslint-disable @typescript-eslint/no-empty-function */
 import "mocha";
-import { DI } from "@spinajs/di";
-import { Configuration } from "@spinajs/configuration";
-import * as sinon from "sinon";
-import { FileTarget, Log, LogBotstrapper } from "../src/index.js";
-import * as _ from "lodash";
-import { dir, TestConfiguration } from "./conf.js";
 import { expect } from "chai";
+import * as sinon from "sinon";
+import _ from "lodash";
 import { DateTime } from "luxon";
-
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-var-requires
+import { Configuration } from "@spinajs/configuration";
+import { DI } from "@spinajs/di";
+import { dir, TestConfiguration } from "./conf.js";
+import { FileTarget, Log, LogBotstrapper } from "../src/index.js";
 import fs from "fs";
 
 function logger(name?: string) {
@@ -37,8 +35,8 @@ describe("file target tests", function () {
     await DI.resolve(Configuration);
   });
 
-  beforeEach(() => {
-    Log.clearLoggers();
+  beforeEach(async () => {
+    await Log.clearLoggers();
     DI.uncache("__log_file_targets__");
   });
 

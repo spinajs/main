@@ -4,16 +4,11 @@ import { DI } from "@spinajs/di";
 import * as sinon from "sinon";
 import { expect } from "chai";
 import { Log, LogBotstrapper } from "@spinajs/log";
-import * as _ from "lodash";
+import _ from "lodash";
 import axios from "axios";
 import { Configuration, FrameworkConfiguration } from "@spinajs/configuration";
 
-// eslint-disable-next-line import/no-duplicates
-import "./../src/index";
-
-// importing type for only type annotation couset module to not load
-// eslint-disable-next-line import/no-duplicates
-import { GraphanaLokiLogTarget } from "./../src/index.js";
+import "./../src/index.js";
 
 export function mergeArrays(target: any, source: any) {
   if (_.isArray(target)) {
@@ -28,33 +23,38 @@ function logger(name?: string) {
 }
 
 export class TestConfiguration extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        logger: {
-          targets: [
-            {
-              name: "Graphana",
-              type: "GraphanaLogTarget",
-              options: {
-                interval: 500,
-                timeout: 1000,
-                host: "http://localhost",
-                labels: {
-                  app: "spinajs-test",
-                },
+  protected onLoad() {
+    return {
+      logger: {
+        targets: [
+          {
+            name: "Console",
+            type: "BlackHoleTarget",
+          },
+          {
+            name: "Graphana",
+            type: "GraphanaLogTarget",
+            options: {
+              interval: 500,
+              timeout: 1000,
+              host: "http://localhost",
+              auth: {
+                username: "admin",
+                password: "admin",
+              },
+              labels: {
+                app: "spinajs-test",
               },
             },
-          ],
+          },
+        ],
 
-          rules: [{ name: "*", level: "trace", target: "Graphana" }],
-        },
+        rules: [
+          { name: "graphana", level: "trace", target: "Graphana" },
+          { name: "graphana", level: "trace", target: "Console" }
+        ],
       },
-      mergeArrays
-    );
+    }
   }
 }
 
@@ -76,14 +76,12 @@ describe("logger tests", function () {
   });
 
   beforeEach(() => {
-    Log.clearLoggers();
   });
 
   afterEach(async () => {
     sinon.restore();
+    Log.clearLoggers();
 
-    const target = DI.get<GraphanaLokiLogTarget>("GraphanaLogTarget");
-    await target.dispose();
   });
 
   after(() => {
@@ -95,18 +93,17 @@ describe("logger tests", function () {
     const log1 = logger("graphana");
 
     log1.info("Hello world 1");
-
     await wait(1000);
 
     expect(request.args[0][0]).to.equal("http://localhost/loki/api/v1/push");
-    expect((request.args[0][1] as any).data[0].labels).to.include({
+    expect((request.args[0][1] as any).data.streams[0].stream).to.include({
       app: "spinajs-test",
       logger: "graphana",
       level: "INFO",
     });
 
-    expect((request.args[0][1] as any).data[0].values[0][0]).to.be.a("number");
-    expect((request.args[0][1] as any).data[0].values[0][1]).to.contain("INFO Hello world 1  (graphana)");
+    expect(parseInt((request.args[0][1] as any).data.streams[0].values[0][0])).to.be.a("number");
+    expect((request.args[0][1] as any).data.streams[0].values[0][1]).to.contain("INFO Hello world 1  (graphana)");
   });
 
   it("Should send multiple log entries", async () => {
@@ -118,23 +115,23 @@ describe("logger tests", function () {
 
     await wait(1000);
 
-    expect((request.args[0][1] as any).data[0].labels).to.include({
+    expect((request.args[0][1] as any).data.streams[0].stream).to.include({
       app: "spinajs-test",
-      logger: "graphana",
       level: "INFO",
-    });
-
-    expect((request.args[0][1] as any).data[1].labels).to.include({
-      app: "spinajs-test",
       logger: "graphana",
-      level: "WARN",
     });
 
-    expect((request.args[0][1] as any).data[0].values[0][0]).to.be.a("number");
-    expect((request.args[0][1] as any).data[0].values[0][1]).to.contain("INFO Hello world 1  (graphana)");
+    expect((request.args[0][1] as any).data.streams[1].stream).to.include({
+      app: "spinajs-test",
+      level: "WARN",
+      logger: "graphana",
+    });
 
-    expect((request.args[0][1] as any).data[1].values[0][0]).to.be.a("number");
-    expect((request.args[0][1] as any).data[1].values[0][1]).to.contain("WARN Hello warn  (graphana)");
+    expect(parseInt((request.args[0][1] as any).data.streams[0].values[0][0])).to.be.a("number");
+    expect((request.args[0][1] as any).data.streams[0].values[0][1]).to.contain("INFO Hello world 1  (graphana)");
+
+    expect(parseInt((request.args[0][1] as any).data.streams[1].values[0][0])).to.be.a("number");
+    expect((request.args[0][1] as any).data.streams[1].values[0][1]).to.contain("WARN Hello warn  (graphana)");
   });
 
   it("Should add same item in same stream", async () => {
@@ -147,29 +144,30 @@ describe("logger tests", function () {
 
     await wait(1000);
 
-    expect((request.args[0][1] as any).data[0].labels).to.include({
+    expect((request.args[0][1] as any).data.streams[0].stream).to.include({
       app: "spinajs-test",
-      logger: "graphana",
       level: "INFO",
+      logger: "graphana",
     });
 
-    expect((request.args[0][1] as any).data[0].values[0][0]).to.be.a("number");
-    expect((request.args[0][1] as any).data[0].values[0][1]).to.contain("INFO Hello world 1  (graphana)");
+    expect(parseInt((request.args[0][1] as any).data.streams[0].values[0][0])).to.be.a("number");
+    expect((request.args[0][1] as any).data.streams[0].values[0][1]).to.contain("INFO Hello world 1  (graphana)");
 
-    expect((request.args[0][1] as any).data[0].values[1][0]).to.be.a("number");
-    expect((request.args[0][1] as any).data[0].values[1][1]).to.contain("INFO Hello world 2  (graphana)");
+    expect(parseInt((request.args[0][1] as any).data.streams[0].values[1][0])).to.be.a("number");
+    expect((request.args[0][1] as any).data.streams[0].values[1][1]).to.contain("INFO Hello world 2  (graphana)");
 
-    expect((request.args[0][1] as any).data[0].values[2][0]).to.be.a("number");
-    expect((request.args[0][1] as any).data[0].values[2][1]).to.contain("INFO Hello world 3  (graphana)");
+    expect(parseInt((request.args[0][1] as any).data.streams[0].values[2][0])).to.be.a("number");
+    expect((request.args[0][1] as any).data.streams[0].values[2][1]).to.contain("INFO Hello world 3  (graphana)");
   });
 
   it("Should not clear buffer after send failed", async () => {
     const request = sinon
       .stub(axios, "post")
       .onCall(0)
-      .callsFake(() => Promise.reject({ status: 500 }))
+      .returns(Promise.reject({ status: 500 }))
       .onCall(1)
-      .callsFake(() => Promise.resolve({ status: 200 }));
+      .returns(Promise.resolve({ status: 200 }));
+
     const log1 = logger("graphana");
 
     log1.info("Hello world 1");
@@ -180,19 +178,19 @@ describe("logger tests", function () {
 
     expect(request.calledTwice).to.be.true;
 
-    expect((request.args[1][1] as any).data[0].labels).to.include({
+    expect((request.args[1][1] as any).data.streams[0].stream).to.include({
       app: "spinajs-test",
-      logger: "graphana",
       level: "INFO",
+      logger: "graphana",
     });
 
-    expect((request.args[1][1] as any).data[0].values[0][0]).to.be.a("number");
-    expect((request.args[1][1] as any).data[0].values[0][1]).to.contain("INFO Hello world 1  (graphana)");
+    expect(parseInt((request.args[1][1] as any).data.streams[0].values[0][0])).to.be.a("number");
+    expect((request.args[1][1] as any).data.streams[0].values[0][1]).to.contain("INFO Hello world 1  (graphana)");
 
-    expect((request.args[1][1] as any).data[0].values[1][0]).to.be.a("number");
-    expect((request.args[1][1] as any).data[0].values[1][1]).to.contain("INFO Hello world 2  (graphana)");
+    expect(parseInt((request.args[1][1] as any).data.streams[0].values[1][0])).to.be.a("number");
+    expect((request.args[1][1] as any).data.streams[0].values[1][1]).to.contain("INFO Hello world 2  (graphana)");
 
-    expect((request.args[1][1] as any).data[0].values[2][0]).to.be.a("number");
-    expect((request.args[1][1] as any).data[0].values[2][1]).to.contain("INFO Hello world 3  (graphana)");
+    expect(parseInt((request.args[1][1] as any).data.streams[0].values[2][0])).to.be.a("number");
+    expect((request.args[1][1] as any).data.streams[0].values[2][1]).to.contain("INFO Hello world 3  (graphana)");
   });
 });

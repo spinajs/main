@@ -4,7 +4,7 @@ import { format } from "@spinajs/configuration-common";
 import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
 import { ILog, ILogEntry, LogTarget, ICommonTargetOptions, Logger, } from "@spinajs/log";
 
-import axios from "axios";
+import axios, { Axios } from "axios";
 import _ from "lodash";
 
 export interface IGraphanaOptions extends ICommonTargetOptions {
@@ -49,10 +49,12 @@ export class GraphanaLokiLogTarget
   protected Log: ILog;
 
   protected Entries: ILogEntry[] = [];
+  protected WriteEntries: ILogEntry[] = [];
 
   protected Status: TargetStatus = TargetStatus.IDLE;
 
   protected FlushTimer: NodeJS.Timer;
+  protected AxiosInstance : Axios;
 
   constructor(options: IGraphanaOptions) {
     super(options);
@@ -72,11 +74,24 @@ export class GraphanaLokiLogTarget
   }
 
   public resolve(): void {
+
+    this.AxiosInstance = axios.create({
+      baseURL: this.Options.options.host,
+      headers: {
+        "Content-Type": "application/json",
+        'Authorization': `Basic ${Buffer.from(`${this.Options.options.auth.username}:${this.Options.options.auth.password}`).toString('base64')}`,
+      },
+      timeout: this.Options.options.timeout,
+    })
+
     this.FlushTimer = setInterval(() => {
       // do not flush, if we already writting to file
       if (this.Status !== TargetStatus.IDLE) {
         return;
       }
+
+      this.WriteEntries = [...this.WriteEntries, ...this.Entries];
+      this.Entries = [];
 
       setImmediate(() => {
         this.flush();
@@ -101,6 +116,9 @@ export class GraphanaLokiLogTarget
     if (this.Entries.length >= this.Options.options.bufferSize) {
       this.Status = TargetStatus.PENDING;
 
+      this.WriteEntries = [...this.WriteEntries, ...this.Entries];
+      this.Entries = [];
+
       // write at end of nodejs event loop all buffered messages at once
       setImmediate(() => {
         this.flush();
@@ -112,19 +130,24 @@ export class GraphanaLokiLogTarget
     // stop flush timer
     clearInterval(this.FlushTimer);
 
+    this.WriteEntries = [...this.WriteEntries, ...this.Entries];
+    this.Entries = [];
+
     // write all messages from buffer
     this.flush();
   }
 
   protected flush() {
 
-    if (this.Entries.length === 0) {
+    if (this.WriteEntries.length === 0) {
       this.Status = TargetStatus.IDLE;
       return;
     }
 
     const streams: Map<string, Stream> = new Map<string, Stream>();
-    const keyFor = (x: ILogEntry) => `${this.Options.options.labels.app}-${x.Variables.logger}-${x.Variables.level}`;
+    const keyFor = (x: ILogEntry) => {
+      return [this.Options.options.labels.app, x.Variables.logger, x.Variables.level, ...Object.values(this.Options.options.labels)].join('-')
+    };
     const valFor = (x: ILogEntry) => [
       x.Variables['n_timestamp'].toString(),
       format(x.Variables, this.Options.layout)
@@ -132,7 +155,7 @@ export class GraphanaLokiLogTarget
 
     this.Status = TargetStatus.WRITTING;
 
-    this.Entries.forEach(x => {
+    this.WriteEntries.forEach(x => {
 
       const key = keyFor(x);
       const stream = streams.get(key);
@@ -154,21 +177,14 @@ export class GraphanaLokiLogTarget
       stream.values.push(valFor(x));
     });
 
-    axios
-      .post(this.Options.options.host + "/loki/api/v1/push", {
-        headers: {
-          "Content-Type": "application/json",
-          'Authorization': `Basic ${Buffer.from(`${this.Options.options.auth.username}:${this.Options.options.auth.password}`).toString('base64')}`,
-        },
-        timeout: this.Options.options.timeout,
-        data: { streams: [...streams.values()] },
-      })
+    this.AxiosInstance
+      .post("/loki/api/v1/push",{ streams: [...streams.values()] })
       .then(() => {
         this.Status = TargetStatus.IDLE;
         this.Log.trace(
-          `Wrote buffered messages to graphana target at url ${this.Options.options.host}, ${this.Entries.length} messages.`
+          `Wrote buffered messages to graphana target at url ${this.Options.options.host}, ${this.WriteEntries.length} messages.`
         );
-        this.Entries = [];
+        this.WriteEntries = [];
       })
       .catch((err) => {
         // log error message to others if applicable eg. console
