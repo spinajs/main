@@ -1,8 +1,16 @@
 {
   "name": "@spinajs/session-provider-dynamodb",
-  "version": "2.0.86",
+  "version": "2.0.90",
   "description": "dynamo db session store",
-  "exports": "./lib/index.js",
+  
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -11,6 +19,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -25,7 +34,7 @@
   "files": [
     "lib/**/*"
   ],
-  "types": "lib",
+  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -47,11 +56,12 @@
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.86",
-    "@spinajs/di": "^2.0.86",
-    "@spinajs/exceptions": "^2.0.86",
-    "@spinajs/log": "^2.0.86",
-    "@spinajs/util": "^2.0.86",
+    "@spinajs/configuration": "^2.0.90",
+    "@spinajs/di": "^2.0.90",
+    "@spinajs/exceptions": "^2.0.90",
+    "@spinajs/log": "^2.0.90",
+    "@spinajs/util": "^2.0.90",
+    "@spinajs/rbac": "^2.0.90",
     "aws-sdk": "^2.1299.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

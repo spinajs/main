@@ -1,8 +1,16 @@
 {
   "name": "@spinajs/validation",
-  "version": "2.0.86",
+  "version": "2.0.90",
   "description": "validation library for spinajs framework",
-  "exports": "./lib/index.js",
+  
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -11,6 +19,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -41,10 +50,10 @@
   },
   "homepage": "https://github.com/spinajs/validation#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.86",
-    "@spinajs/di": "^2.0.86",
-    "@spinajs/exceptions": "^2.0.86",
-    "@spinajs/log": "^2.0.86",
+    "@spinajs/configuration": "^2.0.90",
+    "@spinajs/di": "^2.0.90",
+    "@spinajs/exceptions": "^2.0.90",
+    "@spinajs/log": "^2.0.90",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",

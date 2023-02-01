@@ -1,10 +1,18 @@
 {
   "extends": "../../tsconfig.json",
-
   "compilerOptions": {
     "rootDir": "./src",
-    "outDir": "./lib"
+    "outDir": "./lib/mjs",
+    "module": "node16",
+    "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../configuration" }, { "path": "../di" }, { "path": "../exceptions" }, { "path": "../log" }, { "path": "../reflection" }]
+  "references": [
+    { "path": "../configuration/tsconfig.json" },
+    { "path": "../di/tsconfig.json" },
+    { "path": "../exceptions/tsconfig.json" },
+    { "path": "../log/tsconfig.json" },
+    { "path": "../reflection/tsconfig.json" }
+  ]
 }
+

@@ -1,8 +1,16 @@
 {
   "name": "@spinajs/fs",
-  "version": "2.0.86",
+  "version": "2.0.90",
   "description": "wrapper for file operations",
-  "exports": "./lib/index.js",
+  
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -11,6 +19,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -43,7 +52,7 @@
   "homepage": "https://github.com/spinajs/exceptions#readme",
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "dependencies": {
-    "@spinajs/exceptions": "2.0.86",
+    "@spinajs/exceptions": "2.0.90",
     "archiver": "^5.3.1",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1",

@@ -209,7 +209,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
        * [,20] - all numbers ≤20 (matches: 20, 21, 22, ...)
        */
       function _matchInterval(c: number, eq: string) {
-        const interval = intervalParse.default(eq);
+        const interval = (intervalParse as any).default ? (intervalParse as any).default(eq) : (intervalParse as any)(eq);
         if (interval) {
           if (interval.from.value === c) {
             return interval.from.included;

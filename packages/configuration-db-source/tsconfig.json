@@ -1,10 +1,17 @@
 {
   "extends": "../../tsconfig.json",
-
   "compilerOptions": {
     "rootDir": "./src",
-    "outDir": "./lib"
+    "outDir": "./lib/mjs",
+    "module": "node16",
+    "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../di" },{ "path": "../internal-logger" },{ "path": "../orm" }, { "path": "../configuration-common" }]
+  "references": [
+    { "path": "../configuration-common/tsconfig.json" },
+    { "path": "../di/tsconfig.json" },
+    { "path": "../internal-logger/tsconfig.json" },
+    { "path": "../orm/tsconfig.json" },
+  ]
 }
+

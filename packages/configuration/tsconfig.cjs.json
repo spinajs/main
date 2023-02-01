@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib/cjs",
+    "module": "commonjs",
+    "moduleResolution": "node"
+  },
+  "include": ["src/**/*"],
+    "references": [
+    { "path": "../exceptions/tsconfig.cjs.json" },
+    { "path": "../configuration-common/tsconfig.cjs.json" },
+    { "path": "../internal-logger/tsconfig.cjs.json" },
+    { "path": "../di/tsconfig.cjs.json" }
+  ]
+}

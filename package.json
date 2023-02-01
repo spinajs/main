@@ -4,9 +4,9 @@
   "scripts": {
     "clean": "npm run clean --workspace=packages",
     "test": "npm run test --workspace=packages",
-    "build": "npm run clean && tsc -b tsconfig.build.json && npm run copy-static && npm run copy-package --workspace=packages",
+    "build": "npm run clean && tsc -b tsconfig.build.json &&  tsc -b tsconfig.build.cjs.json && npm run copy-static",
     "publish": "npm run build && npm publish --workspaces",
-    "copy-static": "cpx packages/http/src/views/**/* packages/http/lib/views &&  cpx packages/http/src/static/**/* packages/http/lib/static && cpx packages/http/src/locales/**/* packages/http/lib/locales"
+    "copy-static": "cpx packages/http/src/views/**/* packages/http/lib/mjs/views &&  cpx packages/http/src/static/**/* packages/http/lib/mjs/static && cpx packages/http/src/locales/**/* packages/http/lib/mjs/locales && cpx packages/http/src/views/**/* packages/http/lib/cjs/views &&  cpx packages/http/src/static/**/* packages/http/lib/cjs/static && cpx packages/http/src/locales/**/* packages/http/lib/cjs/locales"
   },
   "workspaces": [
     "packages/*"

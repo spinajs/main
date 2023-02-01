@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+ 	],
+	"settings": {
+		"mocha.files.glob": "test/**/*.ts",
+		"mocha.requires": [
+			"ts-node/register"
+		],
+		"mocha.env": {
+			"TS_NODE_PROJECT": "tsconfig.json"
+		}
+	}
+}

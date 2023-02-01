@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib/cjs",
+    "module": "commonjs"
+  },
+  "include": ["src/**/*"],
+  "references": [{ "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../log/tsconfig.cjs.json" }, { "path": "../reflection/tsconfig.cjs.json" }, { "path": "../fs/tsconfig.cjs.json" }, { "path": "../templates/tsconfig.cjs.json" }, { "path": "../validation/tsconfig.cjs.json" }, { "path": "../templates-pug/tsconfig.cjs.json" }]
+}

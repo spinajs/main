@@ -14,6 +14,12 @@ export const RootContainer: IContainer = new Container();
  * Allows to use event listener stuff on root container
  */
 
+export function setESMModuleSupport() {
+  RootContainer.register({
+    mjs: true,
+  }).asValue('__esmMode__');
+}
+
 export function on(event: string, listener: (...args: unknown[]) => void) {
   return RootContainer.on(event, listener);
 }

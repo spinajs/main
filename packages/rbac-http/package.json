@@ -1,8 +1,16 @@
 {
   "name": "@spinajs/rbac-http",
-  "version": "2.0.86",
+  "version": "2.0.90",
   "description": "HTTP API for user session & permissions",
-  "exports": "./lib/index.js",
+  
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -11,6 +19,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -25,7 +34,7 @@
   "files": [
     "lib/**/*"
   ],
-  "types": "lib",
+  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -41,15 +50,15 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.86",
-    "@spinajs/di": "^2.0.86",
-    "@spinajs/exceptions": "^2.0.86",
-    "@spinajs/http": "^2.0.86",
-    "@spinajs/log": "^2.0.86",
-    "@spinajs/orm": "^2.0.86",
-    "@spinajs/orm-http": "^2.0.86",
-    "@spinajs/rbac": "^2.0.86",
-    "@spinajs/reflection": "^2.0.86",
+    "@spinajs/configuration": "^2.0.90",
+    "@spinajs/di": "^2.0.90",
+    "@spinajs/exceptions": "^2.0.90",
+    "@spinajs/http": "^2.0.90",
+    "@spinajs/log": "^2.0.90",
+    "@spinajs/orm": "^2.0.90",
+    "@spinajs/orm-http": "^2.0.90",
+    "@spinajs/rbac": "^2.0.90",
+    "@spinajs/reflection": "^2.0.90",
     "accesscontrol": "^2.2.1",
     "luxon": "^3.2.1",
     "qrcode": "^1.5.1",
@@ -57,7 +66,7 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.86",
+    "@spinajs/orm-sqlite": "^2.0.90",
     "@types/qrcode": "^1.5.0",
     "@types/speakeasy": "^2.0.7",
     "@types/uuid": "^9.0.0"

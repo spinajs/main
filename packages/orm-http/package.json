@@ -1,8 +1,16 @@
 {
   "name": "@spinajs/orm-http",
-  "version": "2.0.86",
+  "version": "2.0.90",
   "description": "Orm extensions for HTTP module",
-  "exports": "./lib/index.js",
+  
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -11,6 +19,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -25,7 +34,7 @@
   "files": [
     "lib/**/*"
   ],
-  "types": "lib",
+  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -41,18 +50,18 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.86",
-    "@spinajs/di": "^2.0.86",
-    "@spinajs/exceptions": "^2.0.86",
-    "@spinajs/http": "^2.0.86",
-    "@spinajs/intl-orm": "^2.0.86",
-    "@spinajs/log": "^2.0.86",
-    "@spinajs/orm": "^2.0.86",
+    "@spinajs/configuration": "^2.0.90",
+    "@spinajs/di": "^2.0.90",
+    "@spinajs/exceptions": "^2.0.90",
+    "@spinajs/http": "^2.0.90",
+    "@spinajs/intl-orm": "^2.0.90",
+    "@spinajs/log": "^2.0.90",
+    "@spinajs/orm": "^2.0.90",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.86"
+    "@spinajs/orm-sqlite": "^2.0.90"
   },
   "gitHead": "b0f038aa2814b69b242ab9a277b26d73d39544d2"
 }

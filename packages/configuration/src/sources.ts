@@ -11,26 +11,14 @@ import { ConfigurationSource, IConfigLike } from '@spinajs/configuration-common'
 interface IDynamicImportType {
   default: unknown;
 }
-
+ 
 export abstract class BaseFileSource extends ConfigurationSource {
   /**
    * Configuration base dir, where to look for app config
    */
   public BaseDir = './';
 
-  protected CommonDirs = [
-    // for tests, in src dir
-    normalize(join(resolve(process.cwd()), 'src', '/config')),
-
-    // other @spinajs modules paths
-    normalize(join(resolve(process.cwd()), 'node_modules/@spinajs/*/lib/config')),
-
-    // project paths - last to allow overwrite @spinajs conf
-    normalize(join(resolve(process.cwd()), 'lib/config')),
-    normalize(join(resolve(process.cwd()), 'dist/config')),
-    normalize(join(resolve(process.cwd()), 'build/config')),
-    normalize(join(resolve(process.cwd()), 'config')),
-  ];
+  protected CommonDirs: string[] = [];
 
   protected BasePath = '';
 
@@ -40,6 +28,27 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
   constructor(protected RunApp?: string, protected CustomConfigPaths?: string[], protected appBaseDir?: string) {
     super();
+
+    const isESMMode = DI.get<boolean>('__esmMode__');
+
+    this.CommonDirs = [
+      // for tests, in src dir
+      normalize(join(resolve(process.cwd()), 'src', '/config')),
+
+      // other @spinajs modules paths
+      normalize(
+        join(
+          resolve(process.cwd()),
+          isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config',
+        ),
+      ),
+
+      // project paths - last to allow overwrite @spinajs conf
+      normalize(join(resolve(process.cwd()), 'lib/config')),
+      normalize(join(resolve(process.cwd()), 'dist/config')),
+      normalize(join(resolve(process.cwd()), 'build/config')),
+      normalize(join(resolve(process.cwd()), 'config')),
+    ];
 
     // try to find root folder with node_modules
     // on server environment

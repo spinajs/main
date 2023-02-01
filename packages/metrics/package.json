@@ -1,8 +1,16 @@
 {
   "name": "@spinajs/metrics",
-  "version": "2.0.86",
+  "version": "2.0.90",
   "description": "metrics integration for spinajs using prometheus",
-  "exports": "./lib/index.js",
+  
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -11,6 +19,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -25,7 +34,7 @@
   "files": [
     "lib/**/*"
   ],
-  "types": "lib",
+  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -41,9 +50,9 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/di": "^2.0.86",
-    "@spinajs/exceptions": "^2.0.86",
-    "@spinajs/http": "^2.0.86",
+    "@spinajs/di": "^2.0.90",
+    "@spinajs/exceptions": "^2.0.90",
+    "@spinajs/http": "^2.0.90",
     "express-prom-bundle": "^6.6.0",
     "prom-client": "^14.1.1"
   },
