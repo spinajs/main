@@ -1,17 +1,19 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-import { TestWildcard } from "./targets/TestWildcard";
-import { TestLevel } from "./targets/TestLevel";
-import { BlackHoleTarget } from "./../src/targets/BlackHoleTarget";
 import "mocha";
+import * as sinon from "sinon";
+import { expect } from "chai";
+import _ from "lodash";
+import { DateTime } from "luxon";
 import { DI, Injectable } from "@spinajs/di";
 import { Configuration, ConfigVariable } from "@spinajs/configuration";
-import * as sinon from "sinon";
-import { LogLevel, Log } from "../src";
-import { expect } from "chai";
-import * as _ from "lodash";
-import { TestTarget } from "./targets/TestTarget";
-import { DateTime } from "luxon";
-import { TestConfiguration } from "./conf";
+import { TestConfiguration } from "./conf.js";
+import { TestWildcard } from "./targets/TestWildcard.js";
+import { TestLevel } from "./targets/TestLevel.js";
+import { BlackHoleTarget } from "./../src/targets/BlackHoleTarget.js";
+import { TestTarget } from "./targets/TestTarget.js";
+import { LogLevel, Log } from "../src/index.js";
+
+
 
 @Injectable(ConfigVariable)
 export class CustomVariable extends ConfigVariable {
@@ -38,8 +40,8 @@ describe("logger tests", function () {
     await DI.resolve(Configuration);
   });
 
-  beforeEach(() => {
-    Log.clearLoggers();
+  beforeEach(async () => {
+    await Log.clearLoggers();
   });
 
   afterEach(() => {

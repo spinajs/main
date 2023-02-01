@@ -4,7 +4,7 @@
   "scripts": {
     "clean": "npm run clean --workspace=packages",
     "test": "npm run test --workspace=packages",
-    "build": "npm run clean && tsc -b tsconfig.build.json && npm run copy-static",
+    "build": "npm run clean && tsc -b tsconfig.build.json && npm run copy-static && npm run copy-package --workspace=packages",
     "publish": "npm run build && npm publish --workspaces",
     "copy-static": "cpx packages/http/src/views/**/* packages/http/lib/views &&  cpx packages/http/src/static/**/* packages/http/lib/static && cpx packages/http/src/locales/**/* packages/http/lib/locales"
   },

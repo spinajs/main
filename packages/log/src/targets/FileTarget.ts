@@ -1,22 +1,16 @@
 /* eslint-disable security/detect-object-injection */
 import { EOL } from "os";
-/* eslint security/detect-non-literal-fs-filename:0 -- Safe as no value holds user input */
-import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
-import {
-  IFileTargetOptions,
-  ILog,
-  ILogEntry,
-  LogTarget,
-} from "@spinajs/log-common";
-import * as fs from "fs";
+import fs from "fs";
 import * as path from "path";
-import { InvalidOption } from "@spinajs/exceptions";
 import glob from "glob";
 import * as zlib from "zlib";
-import { format } from "@spinajs/configuration";
 import { pipeline } from "stream";
+import { format } from "@spinajs/configuration";
+import { InvalidOption } from "@spinajs/exceptions";
+import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
+import { IFileTargetOptions, ILog, ILogEntry, LogTarget, } from "@spinajs/log-common";
 import { Logger } from "./../decorators.js";
-import "@spinajs/configuration-common";
+import _ from "lodash";
 
 enum FileTargetStatus {
   WRITTING,
@@ -30,8 +24,7 @@ enum FileTargetStatus {
 @Injectable("FileTarget")
 export class FileTarget
   extends LogTarget<IFileTargetOptions>
-  implements IInstanceCheck
-{
+  implements IInstanceCheck {
   @Logger("LogFileTarget")
   protected Log: ILog;
 
@@ -40,6 +33,7 @@ export class FileTarget
 
   protected WriteStream: fs.WriteStream;
   protected Buffer: string[] = [];
+  protected WriteBuffer: string[] = [];
 
   protected ArchiveTimer: NodeJS.Timer;
   protected FlushTimer: NodeJS.Timer;
@@ -95,6 +89,9 @@ export class FileTarget
         return;
       }
 
+      this.WriteBuffer = [...this.WriteBuffer, ...this.Buffer];
+      this.Buffer = [];
+
       setImmediate(() => {
         this.flush();
       });
@@ -122,7 +119,7 @@ export class FileTarget
   }
 
   protected flush() {
-    if (this.Buffer.length === 0) {
+    if (this.WriteBuffer.length === 0) {
       this.Status = FileTargetStatus.IDLE;
       return;
     }
@@ -137,7 +134,7 @@ export class FileTarget
     );
     const logPath = path.join(this.LogDirPath, logFileName);
 
-    fs.appendFile(logPath, this.Buffer.join(EOL) + EOL, (err) => {
+    fs.appendFile(logPath, this.WriteBuffer.join(EOL) + EOL, (err) => {
       // log error message to others if applicable eg. console
       if (err) {
         this.Log.error(
@@ -150,7 +147,7 @@ export class FileTarget
         `Wrote buffered messages to log file at path ${logPath}, buffer size: ${this.Options.options.maxBufferSize}`
       );
 
-      this.Buffer = [];
+      this.WriteBuffer = [];
       this.Status = FileTargetStatus.IDLE;
     });
   }
@@ -163,6 +160,7 @@ export class FileTarget
     clearInterval(this.FlushTimer);
 
     // write all messages from buffer
+    this.WriteBuffer = [...this.WriteBuffer, ...this.Buffer];
     this.flush();
   }
 
@@ -186,6 +184,8 @@ export class FileTarget
 
     if (this.Buffer.length >= this.Options.options.maxBufferSize) {
       this.Status = FileTargetStatus.PENDING;
+      this.WriteBuffer = [...this.WriteBuffer, ...this.Buffer];
+      this.Buffer = [];
 
       // write at end of nodejs event loop all buffered messages at once
       setImmediate(() => {
@@ -198,7 +198,7 @@ export class FileTarget
     const { ext } = path.parse(path.basename(this.Options.options.path));
 
     const aFiles = glob
-      .sync(path.join(this.ArchiveDirPath, `archived_*{${ext},.gzip}`))
+      .sync(path.join(this.ArchiveDirPath, `archived_*{${ext},.gzip}`).replace(/\\/g, '/'))
       .map((f: string) => {
         return {
           name: f,
@@ -208,7 +208,7 @@ export class FileTarget
       .sort((a, b) => a.stat.mtime.getTime() - b.stat.mtime.getTime());
 
     const lFiles = glob
-      .sync(path.join(this.LogDirPath, `*${ext}`))
+      .sync(path.join(this.LogDirPath, `*${ext}`).replace(/\\/g, '/'))
       .map((f: string) => {
         return {
           name: f,
@@ -256,11 +256,23 @@ export class FileTarget
       const lArchiFiles = glob.sync(
         path
           .join(this.ArchiveDirPath, `archived_${name}*{${ext},.gzip}`)
-          .replace(/\\/g, "/")
+          .replace(/\\/g, "/") 
       );
+
+
+      const fIndex = _.max(lArchiFiles.map((f) => {
+        const result = [...f.matchAll(/(\d+)(\.txt|\.gzip)/gm)];
+
+        if (result && result.length > 0) {
+          return parseInt(result[0][1] as unknown as string);
+        }
+
+        return 0;
+      }));
+
       const archPath = path.join(
         this.ArchiveDirPath,
-        `archived_${name}_${lArchiFiles.length + 1}${ext}`
+        `archived_${name}_${(fIndex ?? 0) + 1}${ext}`
       );
 
       fs.rename(lFiles[i].name, archPath, (err) => {

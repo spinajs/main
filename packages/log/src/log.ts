@@ -80,7 +80,11 @@ export class Log extends SyncService implements ILog {
   public Targets: ILogTargetDesc[];
 
   public static clearLoggers() {
-    Log.Loggers.clear();
+    return Promise.all([...Log.Loggers.values()].map((l) => l.dispose())).then(() => {
+      Log.Loggers.clear();
+    }).then(() => {
+      return [...Log.InternalLoggers.values()].map((l) => l.dispose());
+    })
   }
 
   protected static AttachedToExitEvents = false;

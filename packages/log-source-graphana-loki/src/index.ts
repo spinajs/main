@@ -2,15 +2,9 @@
 /* eslint-disable security/detect-object-injection */
 import { format } from "@spinajs/configuration-common";
 import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
-import {
-  ILog,
-  ILogEntry,
-  LogTarget,
-  ICommonTargetOptions,
-  Logger,
-} from "@spinajs/log";
+import { ILog, ILogEntry, LogTarget, ICommonTargetOptions, Logger, } from "@spinajs/log";
 
-import axios from "axios";
+import axios, { Axios } from "axios";
 import _ from "lodash";
 
 export interface IGraphanaOptions extends ICommonTargetOptions {
@@ -19,6 +13,10 @@ export interface IGraphanaOptions extends ICommonTargetOptions {
     bufferSize: number;
     timeout: number;
     host: string;
+    auth: {
+      username: string;
+      password: string;
+    },
     labels: {
       app: string;
     };
@@ -26,9 +24,6 @@ export interface IGraphanaOptions extends ICommonTargetOptions {
 }
 
 interface Stream {
-  labels: {
-    [label: string]: unknown;
-  };
   stream: {
     app: string;
     level: string;
@@ -54,10 +49,12 @@ export class GraphanaLokiLogTarget
   protected Log: ILog;
 
   protected Entries: ILogEntry[] = [];
+  protected WriteEntries: ILogEntry[] = [];
 
   protected Status: TargetStatus = TargetStatus.IDLE;
 
   protected FlushTimer: NodeJS.Timer;
+  protected AxiosInstance : Axios;
 
   constructor(options: IGraphanaOptions) {
     super(options);
@@ -77,11 +74,24 @@ export class GraphanaLokiLogTarget
   }
 
   public resolve(): void {
+
+    this.AxiosInstance = axios.create({
+      baseURL: this.Options.options.host,
+      headers: {
+        "Content-Type": "application/json",
+        'Authorization': `Basic ${Buffer.from(`${this.Options.options.auth.username}:${this.Options.options.auth.password}`).toString('base64')}`,
+      },
+      timeout: this.Options.options.timeout,
+    })
+
     this.FlushTimer = setInterval(() => {
       // do not flush, if we already writting to file
       if (this.Status !== TargetStatus.IDLE) {
         return;
       }
+
+      this.WriteEntries = [...this.WriteEntries, ...this.Entries];
+      this.Entries = [];
 
       setImmediate(() => {
         this.flush();
@@ -106,6 +116,9 @@ export class GraphanaLokiLogTarget
     if (this.Entries.length >= this.Options.options.bufferSize) {
       this.Status = TargetStatus.PENDING;
 
+      this.WriteEntries = [...this.WriteEntries, ...this.Entries];
+      this.Entries = [];
+
       // write at end of nodejs event loop all buffered messages at once
       setImmediate(() => {
         this.flush();
@@ -117,65 +130,61 @@ export class GraphanaLokiLogTarget
     // stop flush timer
     clearInterval(this.FlushTimer);
 
+    this.WriteEntries = [...this.WriteEntries, ...this.Entries];
+    this.Entries = [];
+
     // write all messages from buffer
     this.flush();
   }
 
   protected flush() {
-    const batch: Stream[] = [];
 
-    if (this.Entries.length === 0) {
+    if (this.WriteEntries.length === 0) {
       this.Status = TargetStatus.IDLE;
       return;
     }
 
+    const streams: Map<string, Stream> = new Map<string, Stream>();
+    const keyFor = (x: ILogEntry) => {
+      return [this.Options.options.labels.app, x.Variables.logger, x.Variables.level, ...Object.values(this.Options.options.labels)].join('-')
+    };
+    const valFor = (x: ILogEntry) => [
+      x.Variables['n_timestamp'].toString(),
+      format(x.Variables, this.Options.layout)
+    ];
+
     this.Status = TargetStatus.WRITTING;
 
-    this.Entries.forEach((entry) => {
-      let stream = batch.find((b) =>
-        _.isEqual(b.stream, {
-          app: this.Options.options.labels.app,
-          logger: entry.Variables.logger,
-          level: entry.Variables.level,
-        })
-      );
+    this.WriteEntries.forEach(x => {
+
+      const key = keyFor(x);
+      const stream = streams.get(key);
 
       if (!stream) {
-        stream = {
-          labels: {
+        streams.set(key, {
+          stream: {
+            logger: x.Variables.logger,
+            level: x.Variables.level,
+            app: this.Options.options.labels.app,
             ...this.Options.options.labels,
           },
-          stream: {
-            logger: entry.Variables.logger,
-            level: entry.Variables.level,
-            app: this.Options.options.labels.app,
-          },
-          values: [],
-        };
+          values: [valFor(x)],
+        });
 
-        batch.push(stream);
+        return;
       }
-      stream.values.push([
-        entry.Variables["n_timestamp"].toString(),
-        JSON.stringify(format(entry.Variables, this.Options.layout)),
-      ]);
+
+      stream.values.push(valFor(x));
     });
 
-    axios
-      .post(this.Options.options.host + "/loki/api/v1/push", {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        timeout: this.Options.options.timeout,
-        data: { streams: batch },
-      })
+    this.AxiosInstance
+      .post("/loki/api/v1/push",{ streams: [...streams.values()] })
       .then(() => {
-        this.Entries = [];
         this.Status = TargetStatus.IDLE;
-
         this.Log.trace(
-          `Wrote buffered messages to graphana target at url ${this.Options.options.host}`
+          `Wrote buffered messages to graphana target at url ${this.Options.options.host}, ${this.WriteEntries.length} messages.`
         );
+        this.WriteEntries = [];
       })
       .catch((err) => {
         // log error message to others if applicable eg. console
