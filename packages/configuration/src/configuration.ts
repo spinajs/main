@@ -149,16 +149,6 @@ export class FrameworkConfiguration extends Configuration {
     // so we dont need to import it
     this.set('configuration', config);
 
-    // add env variables to config
-    const env = DI.get<NodeJS.ProcessEnv>('process.env');
-    this.set('process.env', {
-      ...process.env,
-      ...env,
-      APP_ENV: env?.APP_ENV ?? process.env.NODE_ENV ?? 'development',
-    });
-
-    InternalLogger.info(`APP_ENV set to ${this.get<string>('process.env.APP_ENV')}`, 'Configuration');
-
     /**
      * Load and validate data from cfg sources
      * in proper order
@@ -167,18 +157,6 @@ export class FrameworkConfiguration extends Configuration {
     await this.load();
 
     this.validate();
-
-    /**
-     * Merge from DI container
-     * eg. when custom modules have config and dont want to use files
-     * eg. in webpack environment
-     */
-    this.Container.resolve(Array.ofType('__configuration__')).forEach((c: IConfigLike) => {
-      Object.keys(c).forEach((k) => {
-        this.merge(k, c[`${k}`]);
-      });
-    });
-
     this.configure();
   }
 
@@ -199,6 +177,16 @@ export class FrameworkConfiguration extends Configuration {
   public async load() {
     this.Config = {};
 
+    // add env variables to config
+    const env = DI.get<NodeJS.ProcessEnv>('process.env');
+    this.set('process.env', {
+      ...process.env,
+      ...env,
+      APP_ENV: env?.APP_ENV ?? process.env.NODE_ENV ?? 'development',
+    });
+
+    InternalLogger.info(`APP_ENV set to ${this.get<string>('process.env.APP_ENV')}`, 'Configuration');
+
     _.mergeWith(this.Config, this.onLoad(), mergeArrays);
 
     for (const source of this.Sources) {
@@ -208,6 +196,17 @@ export class FrameworkConfiguration extends Configuration {
         _.mergeWith(this.Config, rCfg, mergeArrays);
       }
     }
+
+    /**
+     * Merge from DI container
+     * eg. when custom modules have config and dont want to use files
+     * eg. in webpack environment
+     */
+    this.Container.resolve(Array.ofType('__configuration__')).forEach((c: IConfigLike) => {
+      Object.keys(c).forEach((k) => {
+        this.merge(k, c[`${k}`]);
+      });
+    });
   }
 
   protected onLoad(): unknown {

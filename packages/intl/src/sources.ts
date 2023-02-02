@@ -1,6 +1,6 @@
 import { ILog } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
-import { Autoinject, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import glob from 'glob';
 import * as fs from 'fs';
 import _ from 'lodash';
@@ -77,14 +77,14 @@ export class JsTranslationSource extends TranslationSource {
 
     for (const f of files) {
       const lang = basename(basename(f, '.js'), '.cjs');
-      let data = await import(`file://${f}`);
+      let data = await DI.__spinajs_require__(f);
 
-      if (!data || !data.default) {
+      if (!data) {
         this.Log.warn(`No localisation data at ${f} for lang ${lang}`);
         return;
       }
 
-      translations = _.merge({ [lang]: data.default }, translations);
+      translations = _.merge({ [lang]: data }, translations);
     }
 
     return translations;

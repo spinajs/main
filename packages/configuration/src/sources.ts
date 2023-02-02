@@ -109,8 +109,7 @@ export class JsFileSource extends BaseFileSource {
       try {
         InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
 
-        const res = (await import(`file://${file}`)) as IDynamicImportType;
-        return res.default;
+        return await DI.__spinajs_require__(file);
       } catch (err) {
         InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
         return null;

@@ -22,7 +22,7 @@ function cfgApp() {
   return DI.resolve<Configuration>(Configuration, [
     {
       app: 'testapp',
-      appBaseDir: normalize(join(process.cwd(),'test', '/mocks/apps')),
+      appBaseDir: normalize(join(process.cwd(), 'test', '/mocks/apps')),
     },
   ]);
 }
@@ -30,7 +30,7 @@ function cfgApp() {
 function cfgNoApp() {
   return DI.resolve<Configuration>(Configuration, [
     {
-      cfgCustomPaths: [normalize(join(process.cwd(),'test', '/mocks/config'))],
+      cfgCustomPaths: [normalize(join(process.cwd(), 'test', '/mocks/config'))],
     },
   ]);
 }
@@ -44,6 +44,7 @@ describe('Configuration tests', () => {
 
   beforeEach(() => {
     DI.clearCache();
+    DI.setESMModuleSupport();
   });
 
   it('Should load multiple nested files', async () => {
@@ -110,7 +111,7 @@ describe('Configuration tests', () => {
   });
 
   it('should merge app config with app from argv', async () => {
-    const dir = normalize(join(process.cwd(),'test','/mocks/apps'));
+    const dir = normalize(join(process.cwd(), 'test', '/mocks/apps'));
 
     process.argv.push('--app');
     process.argv.push('testapp');
