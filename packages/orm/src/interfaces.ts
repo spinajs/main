@@ -934,6 +934,7 @@ export interface IBuilderMiddleware<T = any[]> {
 
 export abstract class QueryMiddleware {
   abstract afterQueryCreation(query: QueryBuilder): void;
+  abstract beforeQueryExecution(query: QueryBuilder): void;
 }
 
 export abstract class ModelMiddleware {

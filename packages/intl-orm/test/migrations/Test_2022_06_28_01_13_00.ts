@@ -45,6 +45,8 @@ export class Test_2022_06_28_01_13_00 extends OrmMigration {
 
     await connection.insert().into('intl_resources').values({ ResourceId: 1, Resource: 'Test', Column: 'Text', Lang: 'en_GB', Value: 'hello' });
     await connection.insert().into('intl_resources').values({ ResourceId: 2, Resource: 'Test', Column: 'Text', Lang: 'en_GB', Value: 'world' });
+    await connection.insert().into('intl_resources').values({ ResourceId: 1, Resource: 'Test2', Column: 'Text', Lang: 'en_GB', Value: 'world' });
+
 
     await connection.insert().into('test_rel_many').values({ Text: 'raz', test_id: 1 });
     await connection.insert().into('test_rel_many').values({ Text: 'dwa', test_id: 2 });

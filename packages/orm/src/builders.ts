@@ -877,6 +877,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._distinct = this._distinct;
     builder._table = this._table;
     builder._tableAlias = this._tableAlias;
+    builder._queryMiddlewares = [...this.this._queryMiddlewares];
 
     return builder as any;
   }
@@ -972,11 +973,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return compiler.compile();
   }
 
-  public async all() : Promise<T[]> {
+  public async all(): Promise<T[]> {
     return (await this) as any;
   }
 
   public then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
+    this._queryMiddlewares.forEach((x) => x.beforeQueryExecution(this));
+
     return super.then((result: T) => {
       if (this._first) {
         if (Array.isArray(result)) {

@@ -1,21 +1,31 @@
-import { Injectable, NewInstance } from '@spinajs/di';
-import { extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation } from '@spinajs/orm';
-import { TranslationSource, guessLanguage, defaultLanguage } from '@spinajs/intl';
+import { DI, Injectable, NewInstance } from '@spinajs/di';
+import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation } from '@spinajs/orm';
+import { TranslationSource, guessLanguage, defaultLanguage, IIntlAsyncStorage } from '@spinajs/intl';
 import _ from 'lodash';
 import { IntlTranslation } from './models/IntlTranslation.js';
 import { IntlResource } from './models/IntlResource.js';
+import { Configuration } from '@spinajs/configuration';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 export * from './decorators.js';
 export * from './migrations/IntlOrm_2022_06_28_01_13_00.js';
 export * from './models/IntlResource.js';
 export * from './models/IntlTranslation.js';
 
-const { SelectQueryBuilder: SQB } = require('@spinajs/orm');
-
 declare module '@spinajs/orm' {
-  interface SelectQueryBuilder<T> {
+  interface ISelectQueryBuilder<T> {
+    /**
+     * 
+     * Translates model to given language.
+     * Working only with queries thata are model related ( created by model orm functions )
+     * TODO: in future it should work with raw queries, by passing relation information for translation
+     * TODO: fallback for translation from normal sources ( like config files )
+     * 
+     * @param lang translate to language
+     */
     translate(lang: string): SelectQueryBuilder<T>;
     translated: boolean;
+    AllowTranslate: boolean;
   }
   interface IColumnDescriptor {
     Translate: boolean;
@@ -54,7 +64,9 @@ export class IntlModelRelation extends OrmRelation {
 }
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
-  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) {}
+  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) {
+    console.log("dsad");
+  }
 
   public afterQueryCreation(_query: QueryBuilder<any>): void {}
 
@@ -132,7 +144,11 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
     return;
   }
 
-  this.translated = true;
+  if (!this.Model) {
+    return;
+  }
+
+  (this as any).translated = true;
   const descriptor = extractModelDescriptor(this._model);
   const relInstance = this._container.resolve(IntlModelRelation, [lang, this._container.get(Orm), this, descriptor, this._owner]);
   relInstance.execute();
@@ -140,7 +156,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
   // translate all other relations automatically
   this._relations.forEach((r) => {
     r.executeOnQuery(function () {
-      this.translate(lang);
+      (this as any).translate(lang);
     });
   });
 
@@ -148,18 +164,53 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
   return this;
 };
 
+/**
+ * Middleware for automatic query translations
+ * for modes. If query is standalone ( not created by model related function )
+ * skips translation completely.
+ * When AsyncStorage is set & language property is present
+ * 
+ */
 @Injectable(QueryMiddleware)
 export class IntlQueryMiddleware extends QueryMiddleware {
-  afterQueryCreation(builder: QueryBuilder) {
+  beforeQueryExecution(builder: QueryBuilder<any>): void {
+    // if we dont have configuration module
+    // we cannot guess default language
+    // so skip trying to translate
+    if (!DI.has(Configuration)) {
+      return;
+    }
+
+    // if something has set to no translate
+    // eg route decorator
+    const store = DI.get<IIntlAsyncStorage>(AsyncLocalStorage);
+    if (store && store.noTranslate === false) {
+      return;
+    }
+
+    // something has set to not translate manually for query
+    if ((builder as any).AllowTranslate === false) {
+      return;
+    }
+
+    // finaly, if its not query for model
+    if (!builder.Model) {
+      return;
+    }
+
+    // and translate only selects
     if (builder instanceof SQB && !(builder as any).translated) {
       const lang = guessLanguage();
       const dLang = defaultLanguage();
 
+      // if we requested non-default language ?
+      // if not we should translate
       if (lang && dLang !== lang) {
         (builder as any).translate(lang);
       }
     }
   }
+  afterQueryCreation(_builder: QueryBuilder) {}
 }
 
 @Injectable(TranslationSource)

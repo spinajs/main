@@ -33,6 +33,12 @@ export class TestConfiguration extends FrameworkConfiguration {
 
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
+      intl: {
+        // supported locales
+        locales: ['en_GB', 'pl_PL'],
+
+        defaultLocale: 'pl_PL',
+      },
       db: {
         DefaultConnection: 'sqlite',
         Connections: [

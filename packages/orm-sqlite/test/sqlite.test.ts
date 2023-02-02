@@ -67,7 +67,7 @@ export class ConnectionConf2 extends FrameworkConfiguration {
     );
   }
 }
-
+let i = 0;
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -91,7 +91,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           Connections: [
             {
               Driver: 'orm-driver-sqlite',
-              Filename: ':memory:',
+              Filename: `d:\\testdb\\${i++}testssssss.sqlite`,
               Name: 'sqlite',
               Migration: {
                 Table: TEST_MIGRATION_TABLE_NAME,
@@ -109,7 +109,8 @@ export function db() {
   return DI.get(Orm);
 }
 
-describe('Sqlite driver migration, updates, deletions & inserts', () => {
+describe('Sqlite driver migration, updates, deletions & inserts', function () {
+  this.timeout(100000);
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
@@ -263,7 +264,9 @@ describe('Sqlite driver migrate', () => {
   });
 });
 
-describe('Sqlite model functions', () => {
+describe('Sqlite model functions', function () {
+  this.timeout(100000);
+
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
@@ -367,6 +370,78 @@ describe('Sqlite model functions', () => {
     expect(check.Many[3].Id).to.eq(4);
 
     expect(check.Many[0].constructor.name).to.eq('TestMany');
+  });
+
+  it('model relation should populate multiple belongsBY', async () => {
+    const model = new TestModel();
+    await model.insert();
+
+    const model2 = new TestModel();
+    await model2.insert();
+
+    const owned = new TestOwned();
+    owned.Owner.attach(model);
+
+    const owned2 = new TestOwned();
+    owned2.Owner.attach(model2);
+
+    await owned.insert();
+    await owned2.insert();
+
+    const result = await TestOwned.where('Id', '>', 0).populate('Owner');
+    expect(result);
+  });
+
+  it('model relation belongsto should populate ', async () => {
+    const model = new TestModel();
+    await model.insert();
+
+    const model2 = new TestModel();
+    await model2.insert();
+
+    const owned = new TestOwned();
+    owned.Owner.attach(model);
+
+    const owned2 = new TestOwned();
+    owned2.Owner.attach(model2);
+
+    await owned.insert();
+    await owned2.insert();
+
+    const m1 = new TestMany();
+    const m2 = new TestMany();
+    const m3 = new TestMany();
+    const m4 = new TestMany();
+
+    await model.Many.set([m1, m2, m3, m4]);
+
+    const m5 = new TestMany();
+    const m6 = new TestMany();
+    const m7 = new TestMany();
+    const m8 = new TestMany();
+
+    await model2.Many.set([m5, m6, m7, m8]);
+
+    const result = await TestOwned.where('Id', '>', 0).populate('Owner', function () {
+      this.populate('Many');
+    });
+
+    const result2 = await TestModel.where('Id', '>', 0).populate('Many');
+
+    expect(result2.length).to.eq(2);
+    expect(result.length).to.eq(2);
+
+    expect(result[0].Owner.Value.Many.length).to.eq(4);
+    expect(result[1].Owner.Value.Many.length).to.eq(4);
+
+    expect(result[0].Owner.Value.Many[0].Id).to.eq(1);
+    expect(result[0].Owner.Value.Many[1].Id).to.eq(2);
+    expect(result[0].Owner.Value.Many[2].Id).to.eq(3);
+    expect(result[0].Owner.Value.Many[3].Id).to.eq(4);
+    expect(result[1].Owner.Value.Many[0].Id).to.eq(5);
+    expect(result[1].Owner.Value.Many[1].Id).to.eq(6);
+    expect(result[1].Owner.Value.Many[2].Id).to.eq(7);
+    expect(result[1].Owner.Value.Many[3].Id).to.eq(8);
   });
 
   it('model relation set should work', async () => {

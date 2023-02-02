@@ -296,7 +296,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    * Orders by Primary key, if pk not exists then by unique constraints and lastly by CreateAt if no unique columns exists.
    */
-  public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<number>;
+  public static first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
   public static first<T extends typeof ModelBase>(this: T): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
