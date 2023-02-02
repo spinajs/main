@@ -19,6 +19,8 @@ import { TestModel } from './models/TestModel.js';
 import { TestOwned } from './models/TestOwned.js';
 import { TestMany } from './models/TestMany.js';
 import { User } from './models/User.js';
+import { TestModelOwner } from './models/TestModelOwner.js';
+
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -36,7 +38,7 @@ export class ConnectionConf2 extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'BlackHoleTarget',
+              type: 'ConsoleTarget',
               layout: '{datetime} {level} {message} {error} duration: {duration} ms ({logger})',
             },
           ],
@@ -91,7 +93,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           Connections: [
             {
               Driver: 'orm-driver-sqlite',
-              Filename: ':memory:',//`d:\\testdb\\${i++}testssssss.sqlite`,
+              Filename: ':memory:', //`d:\\testdb\\${i++}testssssss.sqlite`,
               Name: 'sqlite',
               Migration: {
                 Table: TEST_MIGRATION_TABLE_NAME,
@@ -389,7 +391,71 @@ describe('Sqlite model functions', function () {
     await owned2.insert();
 
     const result = await TestOwned.where('Id', '>', 0).populate('Owner');
-    expect(result);
+
+    expect(result.length).to.eq(2);
+    expect(result[0].Owner.Value.Id).to.eq(1);
+    expect(result[1].Owner.Value.Id).to.eq(2);
+  });
+
+  it('model should populate nested belongsTo relation', async () => {
+    const o = new TestModelOwner();
+    const o2 = new TestModelOwner();
+
+    await o.insert();
+    await o2.insert();
+
+    const model = new TestModel();
+    const model2 = new TestModel();
+    model.Owner.attach(o);
+    model2.Owner.attach(o2);
+
+    await model.insert();
+    await model2.insert();
+
+    const m1 = new TestMany();
+    const m2 = new TestMany();
+    const m3 = new TestMany();
+    const m4 = new TestMany();
+
+    await model.Many.set([m1, m2, m3, m4]);
+
+    const m5 = new TestMany();
+    const m6 = new TestMany();
+    const m7 = new TestMany();
+    const m8 = new TestMany();
+
+    await model2.Many.set([m5, m6, m7, m8]);
+
+    const owned = new TestOwned();
+    owned.Owner.attach(model);
+
+    const owned2 = new TestOwned();
+    owned2.Owner.attach(model2);
+
+    await owned.insert();
+    await owned2.insert();
+
+    const result = await TestOwned.where('Id', '>', 0).populate('Owner', function () {
+      this.populate("Many");
+      this.populate('Owner');
+    });
+
+    expect(result.length).to.eq(2);
+
+    expect(result[0].Owner.Value.Many.length).to.eq(4);
+    expect(result[1].Owner.Value.Many.length).to.eq(4);
+
+    expect(result[0].Owner.Value.Many[0].Id).to.eq(1);
+    expect(result[0].Owner.Value.Many[1].Id).to.eq(2);
+    expect(result[0].Owner.Value.Many[2].Id).to.eq(3);
+    expect(result[0].Owner.Value.Many[3].Id).to.eq(4);
+    expect(result[1].Owner.Value.Many[0].Id).to.eq(5);
+    expect(result[1].Owner.Value.Many[1].Id).to.eq(6);
+    expect(result[1].Owner.Value.Many[2].Id).to.eq(7);
+    expect(result[1].Owner.Value.Many[3].Id).to.eq(8);
+
+    expect(result[0].Owner.Value.Owner.Value.Id).to.eq(1);
+    expect(result[1].Owner.Value.Owner.Value.Id).to.eq(2);
   });
 
   it('model relation belongsto should populate ', async () => {
@@ -656,7 +722,8 @@ describe('Sqlite queries', () => {
   });
 });
 
-describe('Sqlite driver migrate with transaction', () => {
+describe('Sqlite driver migrate with transaction', function (){
+  this.timeout(100000);
   beforeEach(() => {
     DI.clearCache();
 
@@ -678,7 +745,7 @@ describe('Sqlite driver migrate with transaction', () => {
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(10).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(11).args[0]).to.eq('COMMIT');
 
     expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 

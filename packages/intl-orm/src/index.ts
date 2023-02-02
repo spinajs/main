@@ -65,7 +65,6 @@ export class IntlModelRelation extends OrmRelation {
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
   constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) {
-    console.log('dsad');
   }
 
   public afterQueryCreation(_query: QueryBuilder<any>): void {}
@@ -101,7 +100,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
             if (self._owner && self._owner instanceof BelongsToRelation) {
               val[rd.Column] = rd.Value;
             } else {
-              (d as any)[rd.Column] = rd.Value;
+              (d as any)[(rd.Column] = rd.Value;
             }
           });
 

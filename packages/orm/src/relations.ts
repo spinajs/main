@@ -251,7 +251,7 @@ class BelongsToRelationResultTransformMiddleware implements IBuilderMiddleware {
       })
       .reduce((prev, current) => {
         return prev.concat(current);
-      });
+      }, []);
     return Promise.all(
       middlewares.map((x: any) => {
         return x.afterHydration(relData);
@@ -295,9 +295,7 @@ class BelongsToRelationResultTransformOneToManyMiddleware extends BelongsToRelat
 }
 
 export class DiscriminationMapMiddleware implements IBuilderMiddleware {
-  constructor(protected _description: IModelDescriptor) {
-    console.log('dd');
-  }
+  constructor(protected _description: IModelDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
