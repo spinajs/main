@@ -1,4 +1,4 @@
-import { ModelData, ModelDataWithRelationData, PickRelations } from './types.js';
+import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations.js';
 import { SordOrder } from './enums.js';
@@ -264,14 +264,14 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param operator - boolean operator
    * @param value - value to compare
    */
-  public static where<T extends typeof ModelBase>(this: T, val: boolean): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, val: Partial<InstanceType<T>> | PickRelations<T>): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, func: WhereFunction<InstanceType<T>>): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, column: string, value: any): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, statement: Wrap): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T>, operator?: Op | any, value?: any): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
-  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | Partial<InstanceType<T>> | Wrap | PickRelations<T>, _operator?: Op | any, _value?: any): SelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
+  public static where<T extends typeof ModelBase>(this: T, val: boolean): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, func: WhereFunction<InstanceType<T>>): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, column: string, operator: Op, value: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, column: string, value: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, statement: Wrap): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | PickRelations<T>, operator?: Op | any, value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'];
+  public static where<T extends typeof ModelBase>(this: T, _column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | PickRelations<T>, _operator?: Op | any, _value?: any): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
     throw new Error('Not implemented');
   }
 
@@ -371,7 +371,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * Creates query on this model. used for quering db for partial data, to perform some kind of operations
    * that dont need full ORM model to involve, or other non standard operations eg. joins or raw data queries based on this model
    */
-  public static query<T extends typeof ModelBase>(this: T): SelectQueryBuilder<InstanceType<T>> & T['_queryScopes'] {
+  public static query<T extends typeof ModelBase>(this: T): ISelectQueryBuilder<InstanceType<T>> & T['_queryScopes'] {
     throw new Error('Not implemented');
   }
 

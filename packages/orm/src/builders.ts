@@ -5,9 +5,9 @@ import { OrmException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SordOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap } from './statements.js';
-import { PartialModel, PickRelations, WhereFunction } from './types.js';
+import { PartialArray, PartialModel, PickRelations, WhereFunction } from './types.js';
 import { OrmDriver } from './driver.js';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations.js';
@@ -32,7 +32,7 @@ function isWhereOperator(val: any) {
 
 @NewInstance()
 @Inject(Container)
-export class Builder<T = any> implements PromiseLike<T> {
+export class Builder<T = any> implements IBuilder<T> {
   protected _driver: OrmDriver;
   protected _container: IContainer;
   protected _model?: Constructor<ModelBase>;
@@ -591,7 +591,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._tableAlias = tableAlias;
   }
 
-  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialModel<T> | PickRelations<T>, operator?: SqlOperator | any, value?: any): this {
+  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>> | PickRelations<T>, operator?: SqlOperator | any, value?: any): this {
     const self = this;
 
     // Support "where true || where false"
@@ -685,12 +685,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
   }
 
-  public orWhere(column: string | boolean | WhereFunction<T> | {}, ..._args: any[]) {
+  public orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap |PartialArray<PartialModel<T>>, ..._args: any[]) {
     this._boolean = WhereBoolean.OR;
     return this.where(column, ...Array.from(arguments).slice(1));
   }
 
-  public andWhere(column: string | boolean | WhereFunction<T> | {}, ..._args: any[]) {
+  public andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap |PartialArray<PartialModel<T>>, ..._args: any[]) {
     this._boolean = WhereBoolean.AND;
     return this.where(column, ...Array.from(arguments).slice(1));
   }
@@ -882,7 +882,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return builder as any;
   }
 
-  public populate<R = this>(relation: string, callback?: (this: SelectQueryBuilder<R>, relation: OrmRelation) => void) {
+  public populate<R = this>(relation: string, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void) {
     // if relation was already populated, just call callback on it
     const fRelation = this._relations.find((r) => r.Name === relation);
     if (fRelation) {

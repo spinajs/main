@@ -20,8 +20,9 @@ import { RawModel } from './mocks/models/RawModel.js';
 import { Model, Connection } from '../src/decorators.js';
 import { ModelBase } from './../src/model.js';
 import { Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models/index.js';
-import { ModelWithScope, ModelWithScopeQueryScope } from './mocks/models/ModelWithScope.js';
+import { ModelWithScopeQueryScope } from './mocks/models/ModelWithScope.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators.js';
+import { ModelWithScope } from './mocks/models/ModelWithScope.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -78,8 +79,8 @@ describe('General model tests', () => {
     const a = new Model_AA();
     const b = new Model_BB();
 
-    expect(a.ModelDescriptor.Name).to.eq('test_model_conn_1');
-    expect(b.ModelDescriptor.Name).to.eq('test_model_conn_2');
+    expect(a.ModelDescriptor.Connection).to.eq('test_model_conn_1');
+    expect(b.ModelDescriptor.Connection).to.eq('test_model_conn_2');
 
 
   })

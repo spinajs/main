@@ -106,6 +106,7 @@ export function Model(tableName: string) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any) => {
     DI.register(target).as('__models__');
     model.TableName = tableName;
+    model.Name = target.name;
   }, true);
 }
 
