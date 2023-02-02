@@ -11,7 +11,7 @@ import { ConfigurationSource, IConfigLike } from '@spinajs/configuration-common'
 interface IDynamicImportType {
   default: unknown;
 }
- 
+
 export abstract class BaseFileSource extends ConfigurationSource {
   /**
    * Configuration base dir, where to look for app config
@@ -101,7 +101,8 @@ export class JsFileSource extends BaseFileSource {
   public async Load(): Promise<IConfigLike> {
     const common = await this.load('!(*.dev|*.prod).{cjs,js}', _load);
     const dEnv = DI.get<NodeJS.ProcessEnv>('process.env') ?? process.env;
-    const fExt = dEnv.NODE_ENV && dEnv.NODE_ENV === 'development' ? '*.dev.{cjs,js}' : '*.prod.{cjs,js}';
+    const env = dEnv.APP_ENV ? dEnv.APP_ENV : dEnv.NODE_ENV;
+    const fExt = env === 'development' ? '*.dev.{cjs,js}' : '*.prod.{cjs,js}';
     const env = await this.load(fExt, _load);
     return _.mergeWith(common, env, mergeArrays);
 
@@ -124,7 +125,8 @@ export class JsonFileSource extends BaseFileSource {
   public async Load(): Promise<IConfigLike> {
     const common = await this.load('!(*.dev|*.prod).json', _load);
     const dEnv = DI.get<NodeJS.ProcessEnv>('process.env') ?? process.env;
-    const fExt = dEnv.NODE_ENV && dEnv.NODE_ENV === 'development' ? '*.dev.json' : '*.prod.json';
+    const env = dEnv.APP_ENV ? dEnv.APP_ENV : dEnv.NODE_ENV;
+    const fExt = env === 'development' ? '*.dev.json' : '*.prod.json';
     const env = await this.load(fExt, _load);
     return _.mergeWith(common, env, mergeArrays);
 
