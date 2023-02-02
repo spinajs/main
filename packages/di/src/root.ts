@@ -197,6 +197,6 @@ export async function __spinajs_require__(module: string): Promise<unknown> {
     const result = await import(`file://${module}`);
     return result.default;
   } else {
-    return Promise.resolve(() => require(module));
+    return Promise.resolve(require(module));
   }
 }
