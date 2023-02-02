@@ -67,7 +67,7 @@ export class ConnectionConf2 extends FrameworkConfiguration {
     );
   }
 }
-let i = 0;
+//let i = 0;
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -91,7 +91,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           Connections: [
             {
               Driver: 'orm-driver-sqlite',
-              Filename: `d:\\testdb\\${i++}testssssss.sqlite`,
+              Filename: ':memory:',//`d:\\testdb\\${i++}testssssss.sqlite`,
               Name: 'sqlite',
               Migration: {
                 Table: TEST_MIGRATION_TABLE_NAME,

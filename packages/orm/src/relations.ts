@@ -78,20 +78,10 @@ class HasManyRelationMiddleware implements IBuilderMiddleware {
 
   public async afterHydration(data: ModelBase[]): Promise<any[]> {
     const self = this;
-    const pks = data.map((d) => {
-      let _v = null;
-      if (this._path) {
-        _v = _.get(d as any, this._path);
-      } else {
-        _v = d as any;
-      }
-
-      if (_v instanceof SingleRelation) {
-        return _v.Value[this._description.PrimaryKey];
-      } else {
-        return _v[this._description.PrimaryKey];
-      }
+    const pks = data.map((d: any) => {
+      return d[this._description.PrimaryKey];
     });
+
     const hydrateMiddleware = {
       afterQuery(data: any[]) {
         return data;
@@ -101,21 +91,12 @@ class HasManyRelationMiddleware implements IBuilderMiddleware {
       },
       async afterHydration(relationData: ModelBase[]) {
         relationData.forEach((d) => ((d as any).__relationKey__ = self._description.Name));
-        data.forEach((d) => {
-          let _vv: any = null;
-          if (self._path) {
-            _vv = _.get(d as any, self._path);
-          } else {
-            _vv = d as any;
-          }
-
-          _vv = _vv instanceof SingleRelation ? _vv.Value : _vv;
-
+        data.forEach((d: any) => {
           const relData = relationData.filter((rd) => {
-            return _vv[self._description.PrimaryKey] === (rd as any)[self._description.ForeignKey];
+            return d[self._description.PrimaryKey] === (rd as any)[self._description.ForeignKey];
           });
 
-          _vv[self._description.Name] = new OneToManyRelationList(d, self._description.TargetModel, self._description, relData);
+          d[self._description.Name] = new OneToManyRelationList(d, self._description.TargetModel, self._description, relData);
         });
       },
     };
@@ -263,20 +244,19 @@ class BelongsToRelationResultTransformMiddleware implements IBuilderMiddleware {
 
   // tslint:disable-next-line: no-empty
   public async afterHydration(_data: Array<ModelBase>) {
-    // const relData = _data.map((d: any) => d[this._description.Name as any].Value).filter((x) => x !== null);
-    // const middlewares = ((this.relation as any)._relationQuery.Relations as any[])
-    //   .map((x) => {
-    //     return x._query._middlewares;
-    //   })
-    //   .reduce((prev, current) => {
-    //     return prev.concat(current);
-    //   });
-    // return Promise.all(
-    //   middlewares.map((x: any) => {
-    //     return x.afterHydration(relData);
-    //   }),
-    // );
-    // console.log(middlewares);
+    const relData = _data.map((d: any) => d[this._description.Name as any].Value).filter((x) => x !== null);
+    const middlewares = ((this.relation as any)._relationQuery.Relations as any[])
+      .map((x) => {
+        return x._query._middlewares;
+      })
+      .reduce((prev, current) => {
+        return prev.concat(current);
+      });
+    return Promise.all(
+      middlewares.map((x: any) => {
+        return x.afterHydration(relData);
+      }),
+    );
   }
 
   /**
@@ -315,7 +295,9 @@ class BelongsToRelationResultTransformOneToManyMiddleware extends BelongsToRelat
 }
 
 export class DiscriminationMapMiddleware implements IBuilderMiddleware {
-  constructor(protected _description: IModelDescriptor) {}
+  constructor(protected _description: IModelDescriptor) {
+    console.log('dd');
+  }
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -416,19 +398,19 @@ export class OneToManyRelation extends OrmRelation {
       this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
     }
 
-    const path = [];
-    let cur = this.parentRelation;
-    while (cur && !(cur instanceof OneToManyRelation)) {
-      path.push(cur._description.Name);
-      cur = cur.parentRelation;
-    }
+    // const path = [];
+    // let cur = this.parentRelation;
+    // while (cur && !(cur instanceof OneToManyRelation)) {
+    //   path.push(cur._description.Name);
+    //   cur = cur.parentRelation;
+    // }
 
     if (callback) {
       callback.call(this._relationQuery, [this]);
     }
 
     this._query.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
-    this._query.middleware(new HasManyRelationMiddleware(this._relationQuery, this._description, path.join('.')));
+    this._query.middleware(new HasManyRelationMiddleware(this._relationQuery, this._description, null));
   }
 }
 

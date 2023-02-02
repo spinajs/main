@@ -15,12 +15,12 @@ export * from './models/IntlTranslation.js';
 declare module '@spinajs/orm' {
   interface ISelectQueryBuilder<T> {
     /**
-     * 
+     *
      * Translates model to given language.
      * Working only with queries thata are model related ( created by model orm functions )
      * TODO: in future it should work with raw queries, by passing relation information for translation
      * TODO: fallback for translation from normal sources ( like config files )
-     * 
+     *
      * @param lang translate to language
      */
     translate(lang: string): SelectQueryBuilder<T>;
@@ -65,7 +65,7 @@ export class IntlModelRelation extends OrmRelation {
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
   constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) {
-    console.log("dsad");
+    console.log('dsad');
   }
 
   public afterQueryCreation(_query: QueryBuilder<any>): void {}
@@ -92,34 +92,20 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
       },
       async afterHydration(relationData: ModelBase[]) {
         data.forEach((d) => {
+          let val = d as any;
           const relData = relationData.filter((rd) => {
-            return (rd as any)['ResourceId'] === (d as any)[self._description.PrimaryKey];
+            return (rd as any)['ResourceId'] === val[self._description.PrimaryKey];
           });
 
-          relData.forEach((rd) => {
+          relData.forEach((rd: IntlResource) => {
             if (self._owner && self._owner instanceof BelongsToRelation) {
-              let val = d as any;
-              let rel = self._owner as OrmRelation;
-
-              let relArr = [];
-              while (rel) {
-                relArr.push(rel);
-                rel = rel.parentRelation;
-              }
-
-              relArr = relArr.reverse();
-              relArr.forEach((r) => {
-                val = val[r.Name].Value;
-              });
-
-              val[(rd as any).Column] = (rd as any).Value;
-              val.setLanguage(self._lang);
+              val[rd.Column] = rd.Value;
             } else {
-              (d as any)[(rd as any).Column] = (rd as any).Value;
+              (d as any)[rd.Column] = rd.Value;
             }
           });
 
-          (d as any).Language = self._lang;
+          val.setLanguage(self._lang);
         });
       },
     };
@@ -169,7 +155,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
  * for modes. If query is standalone ( not created by model related function )
  * skips translation completely.
  * When AsyncStorage is set & language property is present
- * 
+ *
  */
 @Injectable(QueryMiddleware)
 export class IntlQueryMiddleware extends QueryMiddleware {

@@ -931,7 +931,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._columns = this._columns.concat(builder._columns);
     this._statements = this._statements.concat(builder._statements);
     this._relations = this._relations.concat(builder._relations);
-    this._middlewares = this._middlewares.concat(builder._middlewares);
+    //this._middlewares = this._middlewares.concat(builder._middlewares);
   }
 
   public min(column: string, as?: string): this {
