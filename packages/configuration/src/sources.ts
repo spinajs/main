@@ -1,4 +1,4 @@
-import { Injectable, DI, Autoinject } from '@spinajs/di';
+import { Injectable, DI } from '@spinajs/di';
 import glob from 'glob';
 import { default as _ } from 'lodash';
 import { join, normalize, resolve } from 'path';

@@ -39,7 +39,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
   protected Status: FileTargetStatus = FileTargetStatus.IDLE;
   protected ArchiveStatus: FileTargetStatus = FileTargetStatus.IDLE;
 
-  __checkInstance__(creationOptions: IFileTargetOptions): boolean {
+  __checkInstance__(creationOptions: IFileTargetOptions[]): boolean {
     return this.Options.name === creationOptions[0].name;
   }
 

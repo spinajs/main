@@ -67,8 +67,8 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
     );
   }
 
-  __checkInstance__(creationOptions: IGraphanaOptions): boolean {
-    return this.Options.name === creationOptions.name;
+  __checkInstance__(creationOptions: IGraphanaOptions[]): boolean {
+    return this.Options.name === creationOptions[0].name;
   }
 
   public resolve(): void {
