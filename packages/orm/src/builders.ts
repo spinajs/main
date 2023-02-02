@@ -21,10 +21,10 @@ import { DateTime } from 'luxon';
  *  We use mixins to extend functionality of builder eg. insert query builder uses function from columns builder
  *  and so on...
  */
-export interface InsertQueryBuilder extends IColumnsBuilder { }
-export interface DeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
-export interface UpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
-export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder { }
+export interface InsertQueryBuilder extends IColumnsBuilder {}
+export interface DeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
+export interface UpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {}
+export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {}
 
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
@@ -685,12 +685,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
   }
 
-  public orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap |PartialArray<PartialModel<T>>, ..._args: any[]) {
+  public orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>>, ..._args: any[]) {
     this._boolean = WhereBoolean.OR;
     return this.where(column, ...Array.from(arguments).slice(1));
   }
 
-  public andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap |PartialArray<PartialModel<T>>, ..._args: any[]) {
+  public andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>>, ..._args: any[]) {
     this._boolean = WhereBoolean.AND;
     return this.where(column, ...Array.from(arguments).slice(1));
   }
@@ -698,8 +698,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   public whereObject(obj: any) {
     this._boolean = WhereBoolean.AND;
 
-    for (const key of Object.keys(obj).filter(x => obj[x] !== undefined)) {
-
+    for (const key of Object.keys(obj).filter((x) => obj[x] !== undefined)) {
       const val = obj[key];
       if (Array.isArray(val)) {
         if (val.length !== 0) {
@@ -973,6 +972,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return compiler.compile();
   }
 
+  public async all() : Promise<T[]> {
+    return (await this) as any;
+  }
+
   public then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
     return super.then((result: T) => {
       if (this._first) {
@@ -996,7 +999,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 }
 
-export class SelectQueryBuilderC<T = any> extends SelectQueryBuilder<T> { }
+export class SelectQueryBuilderC<T = any> extends SelectQueryBuilder<T> {}
 
 @NewInstance()
 export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
@@ -1906,7 +1909,7 @@ export class DropEventQueryBuilder extends QueryBuilder {
 @NewInstance()
 @Inject(Container)
 export class ScheduleQueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver) { }
+  constructor(protected container: Container, protected driver: OrmDriver) {}
 
   public create(name: string, callback: (event: EventQueryBuilder) => void) {
     const builder = new EventQueryBuilder(this.container, this.driver, name);
@@ -1923,7 +1926,7 @@ export class ScheduleQueryBuilder {
 @NewInstance()
 @Inject(Container)
 export class SchemaQueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver) { }
+  constructor(protected container: Container, protected driver: OrmDriver) {}
 
   public createTable(name: string, callback: (table: TableQueryBuilder) => void) {
     const builder = new TableQueryBuilder(this.container, this.driver, name);

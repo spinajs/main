@@ -633,7 +633,7 @@ export interface IWhereBuilder<T> {
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
   orWhere(statement: Wrap): this;
-  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap |PartialArray<PartialModel<T>>, operator?: Op | any, value?: any): this;
+  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>>, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
   andWhere(val: PartialArray<PartialModel<T>>): this;
@@ -739,7 +739,12 @@ export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder
   avg(column: string, as?: string): this;
   distinct(): this;
   clone(): this;
-  populate<R = this>(relation: string, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void) :this;
+  populate<R = this>(relation: string, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+
+  /**
+   * Returns all records. Its for type castin when using with scopes mostly.
+   */
+  all(): Promise<T[]>;
 }
 
 export interface ICompilerOutput {

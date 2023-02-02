@@ -63,16 +63,14 @@ describe('General model tests', () => {
     expect(models.length).to.eq(19);
   });
 
-  it('Should set different connections to model', async () =>{
-
-
+  it('Should set different connections to model', async () => {
     @Connection('test_model_conn_1')
     @Model('model_aa')
-    class Model_AA extends ModelBase{}
+    class Model_AA extends ModelBase {}
 
     @Connection('test_model_conn_2')
     @Model('model_aa')
-    class Model_BB extends ModelBase{}
+    class Model_BB extends ModelBase {}
 
     await db();
 
@@ -81,9 +79,7 @@ describe('General model tests', () => {
 
     expect(a.ModelDescriptor.Connection).to.eq('test_model_conn_1');
     expect(b.ModelDescriptor.Connection).to.eq('test_model_conn_2');
-
-
-  })
+  });
 
   it('Models should have added mixins', async () => {
     expect(Model1.all).to.be.an('function');
