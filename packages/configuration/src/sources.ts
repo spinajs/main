@@ -1,4 +1,4 @@
-import { Injectable, DI } from '@spinajs/di';
+import { Injectable, DI, Autoinject } from '@spinajs/di';
 import glob from 'glob';
 import { default as _ } from 'lodash';
 import { join, normalize, resolve } from 'path';
@@ -6,7 +6,7 @@ import { findBasePath, mergeArrays } from './util.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
-import { ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
+import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
 
 interface IDynamicImportType {
   default: unknown;
@@ -98,13 +98,12 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
 @Injectable(ConfigurationSource)
 export class JsFileSource extends BaseFileSource {
-  public async Load(): Promise<IConfigLike> {
+  public async Load(config: Configuration): Promise<IConfigLike> {
     const common = await this.load('!(*.dev|*.prod).{cjs,js}', _load);
-    const dEnv = DI.get<NodeJS.ProcessEnv>('process.env') ?? process.env;
-    const env = dEnv.APP_ENV ? dEnv.APP_ENV : dEnv.NODE_ENV;
+    const env = config.get<string>('process.env.APP_ENV', 'production');
     const fExt = env === 'development' ? '*.dev.{cjs,js}' : '*.prod.{cjs,js}';
-    const env = await this.load(fExt, _load);
-    return _.mergeWith(common, env, mergeArrays);
+    const cfg = await this.load(fExt, _load);
+    return _.mergeWith(common, cfg, mergeArrays);
 
     async function _load(file: string) {
       try {
@@ -122,13 +121,12 @@ export class JsFileSource extends BaseFileSource {
 
 @Injectable(ConfigurationSource)
 export class JsonFileSource extends BaseFileSource {
-  public async Load(): Promise<IConfigLike> {
+  public async Load(config: Configuration): Promise<IConfigLike> {
     const common = await this.load('!(*.dev|*.prod).json', _load);
-    const dEnv = DI.get<NodeJS.ProcessEnv>('process.env') ?? process.env;
-    const env = dEnv.APP_ENV ? dEnv.APP_ENV : dEnv.NODE_ENV;
+    const env = config.get<string>('process.env.APP_ENV', 'production');
     const fExt = env === 'development' ? '*.dev.json' : '*.prod.json';
-    const env = await this.load(fExt, _load);
-    return _.mergeWith(common, env, mergeArrays);
+    const cfg = await this.load(fExt, _load);
+    return _.mergeWith(common, cfg, mergeArrays);
 
     function _load(file: string) {
       try {

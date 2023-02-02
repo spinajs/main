@@ -56,8 +56,8 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
 
   return (req: express.Request, res: express.Response) => {
     if (!req.accepts('html')) {
-      const fs = DI.resolve<fs>("__file_provider__", ['__fs_http_response_templates__']);
-      fs.download('serverError.pug').then((file) => {
+      const f = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
+      f.download('serverError.pug').then((file) => {
         httpResponse(
           {
             error: {
@@ -80,7 +80,7 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
 
       log.warn(`Cannot render html file ${file}, error: ${err.message}:${err.stack}`, err);
 
-      const fs = DI.resolve<fs>("__file_provider__", ['__fs_http_response_templates__']);
+      const fs = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
       fs.download('serverError.pug').then((file) => {
         // try to render server error response
         _render(file, { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR).catch((err2) => {
@@ -94,8 +94,7 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
           res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
           res.send(cfg.get<string>('http.FatalTemplate').replace('{ticket}', ticketNo));
         });
-      })
-
+      });
     });
 
     function _render(f: string, m: any, c: HTTP_STATUS_CODE) {

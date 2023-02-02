@@ -18,7 +18,7 @@ import {
   IConfigurable,
   IConfigurationSchema,
 } from '@spinajs/configuration-common';
-import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
+import { Autoinject, Class, Container, Injectable, DI } from '@spinajs/di';
 
 import { InvalidConfiguration } from './exception.js';
 import { mergeArrays, parseArgv } from './util.js';
@@ -28,7 +28,6 @@ import './sources.js';
 import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
 import { default as ajvKeywords } from 'ajv-keywords';
-
 
 /**
  * HACK:
@@ -138,10 +137,10 @@ export class FrameworkConfiguration extends Configuration {
     }
 
     if (this.RunApp) {
-      InternalLogger.trace(`Run app is ${this.RunApp}`, 'Configuration');
+      InternalLogger.info(`Run app is ${this.RunApp}`, 'Configuration');
     }
 
-    InternalLogger.trace(`App base dir is ${this.AppBaseDir}`, 'Configuration');
+    InternalLogger.info(`App base dir is ${this.AppBaseDir}`, 'Configuration');
 
     this.initValidator();
     this.applyAppDirs();
@@ -149,6 +148,16 @@ export class FrameworkConfiguration extends Configuration {
     // add default configuration of this module
     // so we dont need to import it
     this.set('configuration', config);
+
+    // add env variables to config
+    const env = DI.get<NodeJS.ProcessEnv>('process.env');
+    this.set('process.env', {
+      ...process.env,
+      ...env,
+      APP_ENV: env.APP_ENV ?? process.env.NODE_ENV ?? 'development',
+    });
+
+    InternalLogger.info(`APP_ENV set to ${this.get<string>('process.env.APP_ENV')}`, 'Configuration');
 
     /**
      * Load and validate data from cfg sources
