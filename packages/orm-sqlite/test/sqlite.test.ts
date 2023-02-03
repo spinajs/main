@@ -20,7 +20,7 @@ import { TestOwned } from './models/TestOwned.js';
 import { TestMany } from './models/TestMany.js';
 import { User } from './models/User.js';
 import { TestModelOwner } from './models/TestModelOwner.js';
-
+import { Category } from './models/Category.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -69,7 +69,7 @@ export class ConnectionConf2 extends FrameworkConfiguration {
     );
   }
 }
-//let i = 0;
+
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -93,7 +93,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           Connections: [
             {
               Driver: 'orm-driver-sqlite',
-              Filename: ':memory:', //`d:\\testdb\\${i++}testssssss.sqlite`,
+              Filename: ':memory:',
               Name: 'sqlite',
               Migration: {
                 Table: TEST_MIGRATION_TABLE_NAME,
@@ -112,7 +112,7 @@ export function db() {
 }
 
 describe('Sqlite driver migration, updates, deletions & inserts', function () {
-  this.timeout(100000);
+  this.timeout(10000);
   beforeEach(async () => {
     DI.clearCache();
     DI.register(ConnectionConf).as(Configuration);
@@ -267,7 +267,7 @@ describe('Sqlite driver migrate', () => {
 });
 
 describe('Sqlite model functions', function () {
-  this.timeout(100000);
+  this.timeout(10000);
 
   beforeEach(async () => {
     DI.clearCache();
@@ -374,6 +374,38 @@ describe('Sqlite model functions', function () {
     expect(check.Many[0].constructor.name).to.eq('TestMany');
   });
 
+  it('Model should populate recursive relations', async () => {
+    const cat1 = new Category({
+      Name: 'cat1',
+    });
+
+    await cat1.insert();
+
+    const cat2 = new Category({
+      Name: 'cat2',
+    });
+
+    const cat4 = new Category({
+      Name: 'cat4',
+    });
+
+    await cat1.Children.add(cat2);
+    await cat1.Children.add(cat4);
+
+    const cat3 = new Category({
+      Name: 'cat3',
+    });
+    await cat2.Children.add(cat3);
+
+    const result = await Category.query().whereNull('parent_id').populate('Children').first();
+
+    expect(result.Children.length).to.eq(2);
+    expect(result.Children[0].Name).to.eq('cat2');
+    expect(result.Children[1].Name).to.eq('cat4');
+    expect(result.Children[0].Children.length).to.eq(1);
+    expect(result.Children[0].Children[0].Name).to.eq('cat3');
+  });
+
   it('model relation should populate multiple belongsBY', async () => {
     const model = new TestModel();
     await model.insert();
@@ -436,7 +468,7 @@ describe('Sqlite model functions', function () {
     await owned2.insert();
 
     const result = await TestOwned.where('Id', '>', 0).populate('Owner', function () {
-      this.populate("Many");
+      this.populate('Many');
       this.populate('Owner');
     });
 
@@ -722,8 +754,8 @@ describe('Sqlite queries', () => {
   });
 });
 
-describe('Sqlite driver migrate with transaction', function (){
-  this.timeout(100000);
+describe('Sqlite driver migrate with transaction', function () {
+  this.timeout(10000);
   beforeEach(() => {
     DI.clearCache();
 
@@ -745,7 +777,7 @@ describe('Sqlite driver migrate with transaction', function (){
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(11).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(12).args[0]).to.eq('COMMIT');
 
     expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 

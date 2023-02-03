@@ -877,7 +877,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._distinct = this._distinct;
     builder._table = this._table;
     builder._tableAlias = this._tableAlias;
-    builder._queryMiddlewares = [...this.this._queryMiddlewares];
+    builder._queryMiddlewares = [...this._queryMiddlewares];
 
     return builder as any;
   }
@@ -898,13 +898,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
 
     const relDescription = descriptor.Relations.get(relation);
-    if (relDescription.Type === RelationType.One && relDescription.Recursive) {
+    if (relDescription.Recursive) {
       relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this._container.get(Orm), this, relDescription, this._owner]);
     } else {
-      if (relDescription.Recursive) {
-        throw new InvalidOperation(`cannot mark relation as recursive with non one-to-one relation type`);
-      }
-
       switch (relDescription.Type) {
         case RelationType.One:
           relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this._container.get(Orm), this, relDescription, this._owner]);
@@ -926,12 +922,18 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
-  public mergeStatements(builder: SelectQueryBuilder) {
+  public mergeBuilder(builder: SelectQueryBuilder) {
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._columns = this._columns.concat(builder._columns);
     this._statements = this._statements.concat(builder._statements);
-    this._relations = this._relations.concat(builder._relations);
-    //this._middlewares = this._middlewares.concat(builder._middlewares);
+  }
+
+  public mergeStatements(builder: SelectQueryBuilder, callback?: (statement: IQueryStatement) => boolean) {
+    if (callback) {
+      this._statements = this._statements.concat(builder._statements.filter(callback));
+    } else {
+      this._statements = this._statements.concat(builder._statements);
+    }
   }
 
   public min(column: string, as?: string): this {

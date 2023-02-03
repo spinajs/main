@@ -64,7 +64,15 @@ export class IntlModelRelation extends OrmRelation {
 }
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
+
+  public static COUNT = 0;
+  protected instance = 0;
+
   constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) {
+    IntlModelMiddleware.COUNT = IntlModelMiddleware.COUNT + 1;
+
+    this.instance = IntlModelMiddleware.COUNT;
+    
   }
 
   public afterQueryCreation(_query: QueryBuilder<any>): void {}
@@ -100,7 +108,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
             if (self._owner && self._owner instanceof BelongsToRelation) {
               val[rd.Column] = rd.Value;
             } else {
-              (d as any)[(rd.Column] = rd.Value;
+              (d as any)[rd.Column] = rd.Value;
             }
           });
 

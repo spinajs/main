@@ -1,7 +1,7 @@
 import { ISelectQueryBuilder } from './interfaces.js';
 import type { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders.js';
 import { ColumnMethods, SqlOperator, JoinMethod } from './enums.js';
-import { NewInstance, Container, Class, Constructor } from '@spinajs/di';
+import { NewInstance, Container, Class, Constructor, Inject, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 import { IColumnDescriptor } from './interfaces.js';
 import { extractModelDescriptor, ModelBase } from './model.js';
@@ -52,8 +52,9 @@ export abstract class RawQueryStatement extends QueryStatement {
 }
 
 @NewInstance()
+@Inject(Container)
 export abstract class WithRecursiveStatement extends QueryStatement {
-  constructor(protected _name: string, protected _query: SelectQueryBuilder, protected _rcKeyName: string, protected _pkName: string) {
+  constructor(protected container: IContainer, protected _name: string, protected _query: SelectQueryBuilder, protected _rcKeyName: string, protected _pkName: string) {
     super(null);
   }
 
@@ -204,7 +205,7 @@ export abstract class JoinStatement extends QueryStatement {
 
         this._whereCallback.call(this._whereBuilder, [this]);
 
-        this._builder.mergeStatements(this._whereBuilder);
+        this._builder.mergeBuilder(this._whereBuilder);
       }
 
       const relation = Array.from(sDesc.Relations, ([key, value]) => ({ key, value })).find((x) => x.value.TargetModel.name === this._model.name);

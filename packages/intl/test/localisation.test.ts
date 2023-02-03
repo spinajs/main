@@ -42,6 +42,8 @@ describe('Internationalization tests', () => {
   beforeEach(async () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SpineJsInternationalizationFromJson).as(Intl);
+
+    DI.setESMModuleSupport();
   });
 
   afterEach(async () => {

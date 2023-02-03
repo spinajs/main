@@ -35,6 +35,13 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.int('testmodel_id');
     });
 
+
+    await connection.schema().createTable('category', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Name');
+      table.int('parent_id');
+    });
+
     await connection.index().unique().name('user_id_idx').columns(['Id', 'Name']).table('user');
   }
 

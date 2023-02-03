@@ -10,7 +10,7 @@ import { DI } from '@spinajs/di';
 
 import { TestConfiguration } from './common.js';
 import { Test } from './models/Test.js';
-import { DbTranslationSource } from '../src/index.js';
+import { DbTranslationSource, IntlModelMiddleware } from '../src/index.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { Test2 } from './models/Test2.js';
 import './migrations/Test_2022_06_28_01_13_00.js';
@@ -163,15 +163,18 @@ describe('ORM intl tests', function () {
   });
 
   it('Should translate belongsTo relation nested automatically', async () => {
+    IntlModelMiddleware.COUNT = 0;
     const store = DI.resolve(AsyncLocalStorage);
     const result = await store.run(
       {
         language: 'en_GB',
       },
       async () => {
-        return await Test2.where('Id', '>', 0).populate('Owner', function () {
+        const query = Test2.where('Id', '>', 0).populate('Owner', function () {
           this.populate('Owner');
         });
+
+        return await query;
       },
     );
 

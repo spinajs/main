@@ -1,6 +1,5 @@
 /* eslint-disable prettier/prettier */
 import { ModelNested1 } from './mocks/models/ModelNested1.js';
-import { RelationRecursive } from './mocks/models/RelationRecursive.js';
 import { ManyToManyRelation, OneToManyRelationList, SingleRelation } from './../src/relations.js';
 import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from './../src/hydrators.js';
 import { Model1 } from './mocks/models/Model1.js';
@@ -814,56 +813,6 @@ describe('Orm relations tests', () => {
         Bar: 'bar',
       },
     });
-  });
-
-  it('BelongsTo recursive should work', async () => {
-    await db();
-
-    sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
-      .onFirstCall()
-      .returns(
-        new Promise((res) => {
-          res([
-            {
-              Id: 3,
-              Value: 'Leaf',
-              parent_id: 2,
-            },
-          ]);
-        }),
-      )
-      .onSecondCall()
-      .returns(
-        new Promise((res) => {
-          res([
-            {
-              Id: 3,
-              Value: 'Leaf',
-              parent_id: 2,
-            },
-            {
-              Id: 2,
-              parent_id: 1,
-              Value: 'Child1',
-            },
-            {
-              Id: 1,
-              Value: 'Root',
-              parent_id: null,
-            },
-          ]);
-        }),
-      );
-
-    const result = await RelationRecursive.where({ Id: 3 }).populate('Parent').first();
-
-    expect(result).to.be.not.null;
-    expect(result.Id).to.eq(3);
-    expect(result.Parent.Value.Id).to.eq(2);
-    expect(result.Parent.Value.Value).to.eq('Child1');
-    expect(result.Parent.Value.Parent.Value.Id).to.eq(1);
-    expect(result.Parent.Value.Parent.Value.Value).to.eq('Root');
   });
 
   it('populate should load missing relation data', async () => {

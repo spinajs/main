@@ -1,3 +1,4 @@
+import { ICompilerOutput } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-floating-promises */
 
@@ -61,7 +62,7 @@ describe('model generated queries', () => {
           Bar: 1,
         });
       })
-      .toDB();
+      .toDB()  as ICompilerOutput;
 
     const result2 = Model3.query()
       .leftJoin(Model4, function () {
@@ -69,7 +70,7 @@ describe('model generated queries', () => {
           Bar: 1,
         });
       })
-      .toDB();
+      .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal('SELECT * FROM `TestTable3` as `$Model3$` INNER JOIN `TestTable4` as `$Model4$` ON `$Model3$`.Id = `$Model4$`.model3_id WHERE `$Model4$`.Bar = ?');
     expect(result2.expression).to.equal('SELECT * FROM `TestTable3` as `$Model3$` LEFT JOIN `TestTable4` as `$Model4$` ON `$Model3$`.Id = `$Model4$`.model3_id WHERE `$Model4$`.Bar = ?');
