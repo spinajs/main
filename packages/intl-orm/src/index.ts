@@ -9,6 +9,7 @@ export * from './decorators.js';
 export * from './migrations/IntlOrm_2022_06_28_01_13_00.js';
 export * from './models/IntlResource.js';
 export * from './models/IntlTranslation.js';
+export * from './model.js';
 
 const { SelectQueryBuilder: SQB } = require('@spinajs/orm');
 
