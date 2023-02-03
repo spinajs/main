@@ -64,16 +64,7 @@ export class IntlModelRelation extends OrmRelation {
 }
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
-
-  public static COUNT = 0;
-  protected instance = 0;
-
-  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) {
-    IntlModelMiddleware.COUNT = IntlModelMiddleware.COUNT + 1;
-
-    this.instance = IntlModelMiddleware.COUNT;
-    
-  }
+  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) {}
 
   public afterQueryCreation(_query: QueryBuilder<any>): void {}
 

@@ -163,7 +163,6 @@ describe('ORM intl tests', function () {
   });
 
   it('Should translate belongsTo relation nested automatically', async () => {
-    IntlModelMiddleware.COUNT = 0;
     const store = DI.resolve(AsyncLocalStorage);
     const result = await store.run(
       {
