@@ -19,6 +19,11 @@ export interface IPhraseWithOptions {
 
 export interface IIntlAsyncStorage {
   language?: string;
+
+  /**
+   * Even if we have detected langage, sometimes we dont want to translate
+   */
+  noTranslate?: boolean;
 }
 
 export abstract class Intl extends AsyncService {
@@ -209,7 +214,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
        * [,20] - all numbers ≤20 (matches: 20, 21, 22, ...)
        */
       function _matchInterval(c: number, eq: string) {
-        const interval = intervalParse.default(eq);
+        const interval = (intervalParse as any).default ? (intervalParse as any).default(eq) : (intervalParse as any)(eq);
         if (interval) {
           if (interval.from.value === c) {
             return interval.from.included;
@@ -348,22 +353,17 @@ export function __translateH(text: string) {
 }
 
 export function guessLanguage(lang?: string) {
-  let selectedLang = lang;
-  if (!selectedLang) {
+  if (!lang) {
     const store = DI.get(AsyncLocalStorage);
     if (store) {
       const storage = DI.get(AsyncLocalStorage).getStore() as IIntlAsyncStorage;
-      if (!storage || !storage.language) {
-        selectedLang = DI.get(Configuration).get<string>('intl.defaultLocale');
-      } else {
-        selectedLang = storage.language;
+      if (storage && storage.language) {
+        return storage.language;
       }
-    } else {
-      selectedLang = DI.get(Configuration).get<string>('intl.defaultLocale');
     }
   }
 
-  return selectedLang;
+  return lang ?? DI.get(Configuration).get<string>('intl.defaultLocale');
 }
 
 export function defaultLanguage() {

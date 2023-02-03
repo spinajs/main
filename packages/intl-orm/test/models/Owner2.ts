@@ -1,5 +1,5 @@
-import { Translatable } from '../../src/model';
-import { Translate } from '../../src/decorators';
+import { Translatable } from '../../src/model.js';
+import { Translate } from '../../src/decorators.js';
 import { Primary, Connection, Model, ModelBase } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 

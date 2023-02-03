@@ -4,6 +4,17 @@
     {
       "type": "node",
       "request": "launch",
+      "name": "[ BUILD SCRIPT ] add package.json to modules",
+      "program": "${workspaceFolder}/scripts/generate-packages-for-modules.mjs",
+      "cwd": "${workspaceFolder}/scripts",
+      "args": [],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+    {
+      "type": "node",
+      "request": "launch",
       "name": "[ FS ] fs common & local",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
       "cwd": "${workspaceFolder}/packages/fs/",

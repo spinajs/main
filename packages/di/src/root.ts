@@ -14,6 +14,12 @@ export const RootContainer: IContainer = new Container();
  * Allows to use event listener stuff on root container
  */
 
+export function setESMModuleSupport() {
+  RootContainer.register({
+    mjs: true,
+  }).asValue('__esmMode__');
+}
+
 export function on(event: string, listener: (...args: unknown[]) => void) {
   return RootContainer.on(event, listener);
 }
@@ -183,4 +189,14 @@ export function checkType<T>(source: Class<any> | string | TypedArray<any>, type
  */
 export function child(): IContainer {
   return RootContainer.child();
+}
+
+export async function __spinajs_require__(module: string): Promise<unknown> {
+  const isESM = RootContainer.get<{ mjs: boolean }>('__esmMode__');
+  if (isESM && isESM.mjs) {
+    const result = await import(`file://${module}`);
+    return result.default;
+  } else {
+    return Promise.resolve(require(module));
+  }
 }

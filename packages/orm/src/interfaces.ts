@@ -3,8 +3,8 @@ import { Op } from './enums.js';
 import { QueryBuilder, RawQuery } from './builders.js';
 import { SordOrder, WhereBoolean } from './enums.js';
 import { IQueryStatement, Wrap } from './statements.js';
-import { PartialModel, Unbox, WhereFunction } from './types.js';
-import { Relation } from './relations.js';
+import { PartialArray, PartialModel, Unbox, WhereFunction } from './types.js';
+import { Relation, IOrmRelation } from './relations.js';
 import { OrmDriver } from './driver.js';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
 import { ModelBase } from './model.js';
@@ -620,28 +620,28 @@ export interface IWhereBuilder<T> {
   Op: WhereBoolean;
 
   where(val: boolean): this;
-  where(val: PartialModel<T>): this;
+  where(val: PartialArray<PartialModel<T>>): this;
   where(func: WhereFunction<T>): this;
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
   where(statement: Wrap): this;
-  where(column: string | boolean | WhereFunction<T> | RawQuery | PartialModel<T> | Wrap, operator?: Op | any, value?: any): this;
+  where(column: string | boolean | WhereFunction<T> | RawQuery | PartialArray<PartialModel<T>> | Wrap, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
-  orWhere(val: PartialModel<T>): this;
+  orWhere(val: PartialArray<PartialModel<T>>): this;
   orWhere(func: WhereFunction<T>): this;
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
   orWhere(statement: Wrap): this;
-  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialModel<T>, operator?: Op | any, value?: any): this;
+  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>>, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
-  andWhere(val: PartialModel<T>): this;
+  andWhere(val: PartialArray<PartialModel<T>>): this;
   andWhere(func: WhereFunction<T>): this;
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
   andWhere(statement: Wrap): this;
-  andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialModel<T>, operator?: Op | any, value?: any): this;
+  andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>>, operator?: Op | any, value?: any): this;
 
   whereObject(obj: any): this;
   whereNotNull(column: string): this;
@@ -726,7 +726,12 @@ export interface IJoinBuilder {
   crossJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
 }
 
-export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, PromiseLike<T> {
+export interface IBuilder<T> extends PromiseLike<T> {
+  middleware(middleware: IBuilderMiddleware<T>): this;
+  toDB(): ICompilerOutput | ICompilerOutput[];
+}
+
+export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IBuilder<T> {
   min(column: string, as?: string): this;
   max(column: string, as?: string): this;
   count(column: string, as?: string): this;
@@ -734,6 +739,12 @@ export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder
   avg(column: string, as?: string): this;
   distinct(): this;
   clone(): this;
+  populate<R = this>(relation: string, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+
+  /**
+   * Returns all records. Its for type castin when using with scopes mostly.
+   */
+  all(): Promise<T[]>;
 }
 
 export interface ICompilerOutput {
@@ -923,6 +934,7 @@ export interface IBuilderMiddleware<T = any[]> {
 
 export abstract class QueryMiddleware {
   abstract afterQueryCreation(query: QueryBuilder): void;
+  abstract beforeQueryExecution(query: QueryBuilder): void;
 }
 
 export abstract class ModelMiddleware {

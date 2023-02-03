@@ -6,7 +6,7 @@ import { findBasePath, mergeArrays } from './util.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
-import { ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
+import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
 
 interface IDynamicImportType {
   default: unknown;
@@ -18,19 +18,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
    */
   public BaseDir = './';
 
-  protected CommonDirs = [
-    // for tests, in src dir
-    normalize(join(resolve(process.cwd()), 'src', '/config')),
-
-    // other @spinajs modules paths
-    normalize(join(resolve(process.cwd()), 'node_modules/@spinajs/*/lib/config')),
-
-    // project paths - last to allow overwrite @spinajs conf
-    normalize(join(resolve(process.cwd()), 'lib/config')),
-    normalize(join(resolve(process.cwd()), 'dist/config')),
-    normalize(join(resolve(process.cwd()), 'build/config')),
-    normalize(join(resolve(process.cwd()), 'config')),
-  ];
+  protected CommonDirs: string[] = [];
 
   protected BasePath = '';
 
@@ -40,6 +28,27 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
   constructor(protected RunApp?: string, protected CustomConfigPaths?: string[], protected appBaseDir?: string) {
     super();
+
+    const isESMMode = DI.get<boolean>('__esmMode__');
+
+    this.CommonDirs = [
+      // for tests, in src dir
+      normalize(join(resolve(process.cwd()), 'src', '/config')),
+
+      // other @spinajs modules paths
+      normalize(
+        join(
+          resolve(process.cwd()),
+          isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config',
+        ),
+      ),
+
+      // project paths - last to allow overwrite @spinajs conf
+      normalize(join(resolve(process.cwd()), 'lib/config')),
+      normalize(join(resolve(process.cwd()), 'dist/config')),
+      normalize(join(resolve(process.cwd()), 'build/config')),
+      normalize(join(resolve(process.cwd()), 'config')),
+    ];
 
     // try to find root folder with node_modules
     // on server environment
@@ -89,19 +98,18 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
 @Injectable(ConfigurationSource)
 export class JsFileSource extends BaseFileSource {
-  public async Load(): Promise<IConfigLike> {
+  public async Load(config: Configuration): Promise<IConfigLike> {
     const common = await this.load('!(*.dev|*.prod).{cjs,js}', _load);
-    const dEnv = DI.get<NodeJS.ProcessEnv>('process.env') ?? process.env;
-    const fExt = dEnv.NODE_ENV && dEnv.NODE_ENV === 'development' ? '*.dev.{cjs,js}' : '*.prod.{cjs,js}';
-    const env = await this.load(fExt, _load);
-    return _.mergeWith(common, env, mergeArrays);
+    const env = config.get<string>('process.env.APP_ENV', 'production');
+    const fExt = env === 'development' ? '*.dev.{cjs,js}' : '*.prod.{cjs,js}';
+    const cfg = await this.load(fExt, _load);
+    return _.mergeWith(common, cfg, mergeArrays);
 
     async function _load(file: string) {
       try {
         InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
 
-        const res = (await import(`file://${file}`)) as IDynamicImportType;
-        return res.default;
+        return await DI.__spinajs_require__(file);
       } catch (err) {
         InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
         return null;
@@ -112,12 +120,12 @@ export class JsFileSource extends BaseFileSource {
 
 @Injectable(ConfigurationSource)
 export class JsonFileSource extends BaseFileSource {
-  public async Load(): Promise<IConfigLike> {
+  public async Load(config: Configuration): Promise<IConfigLike> {
     const common = await this.load('!(*.dev|*.prod).json', _load);
-    const dEnv = DI.get<NodeJS.ProcessEnv>('process.env') ?? process.env;
-    const fExt = dEnv.NODE_ENV && dEnv.NODE_ENV === 'development' ? '*.dev.json' : '*.prod.json';
-    const env = await this.load(fExt, _load);
-    return _.mergeWith(common, env, mergeArrays);
+    const env = config.get<string>('process.env.APP_ENV', 'production');
+    const fExt = env === 'development' ? '*.dev.json' : '*.prod.json';
+    const cfg = await this.load(fExt, _load);
+    return _.mergeWith(common, cfg, mergeArrays);
 
     function _load(file: string) {
       try {

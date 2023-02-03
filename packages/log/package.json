@@ -1,8 +1,16 @@
 {
   "name": "@spinajs/log",
-  "version": "2.0.85",
+  "version": "2.0.98",
   "description": "Log lib for all spinejs related libs",
-  "exports": "./lib/index.js",
+  
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -14,6 +22,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -33,11 +42,11 @@
   "homepage": "https://github.com/spinajs/log#readme",
   "dependencies": {
     "@colors/colors": "^1.5.0",
-    "@spinajs/configuration": "^2.0.85",
-    "@spinajs/di": "^2.0.85",
-    "@spinajs/exceptions": "^2.0.85",
-    "@spinajs/internal-logger": "^2.0.85",
-    "@spinajs/log-common": "^2.0.85",
+    "@spinajs/configuration": "^2.0.98",
+    "@spinajs/di": "^2.0.98",
+    "@spinajs/exceptions": "^2.0.98",
+    "@spinajs/internal-logger": "^2.0.98",
+    "@spinajs/log-common": "^2.0.98",
     "ajv": "^8.12.0",
     "chalk": "5.2.0",
     "glob": "^8.1.0",

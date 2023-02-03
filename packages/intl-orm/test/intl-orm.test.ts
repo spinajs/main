@@ -5,19 +5,22 @@ import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm } from '@spinajs/orm';
+import { Orm, SelectQueryBuilder } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 
 import { TestConfiguration } from './common.js';
 import { Test } from './models/Test.js';
-import { DbTranslationSource } from '../src/index.js';
+import { DbTranslationSource, IntlModelMiddleware } from '../src/index.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { Test2 } from './models/Test2.js';
 import './migrations/Test_2022_06_28_01_13_00.js';
+import sinon from 'sinon';
 
 chai.use(chaiAsPromised);
 
-describe('ORM intl tests', () => {
+describe('ORM intl tests', function () {
+  this.timeout(60 * 10000);
+
   before(async () => {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -29,6 +32,27 @@ describe('ORM intl tests', () => {
 
   afterEach(async () => {
     DI.clearCache();
+    sinon.restore();
+  });
+
+  it('Should not execute translation or raw queries', async () => {
+    const spy = sinon.spy(SelectQueryBuilder.prototype as any, 'translate');
+
+    await Test.all();
+
+    expect(spy.calledOnce).to.be.false;
+  });
+
+  it('Shoult not load translation until asked on model', async () => {
+    const spy = sinon.spy(SelectQueryBuilder.prototype as any, 'translate');
+
+    await Test.all();
+
+    expect(spy.calledOnce).to.be.false;
+
+    await Test.query().translate('en_GB');
+
+    expect(spy.calledOnce).to.be.true;
   });
 
   it('Should load translation for model', async () => {
@@ -145,9 +169,11 @@ describe('ORM intl tests', () => {
         language: 'en_GB',
       },
       async () => {
-        return await Test2.where('Id', '>', 0).populate('Owner', function () {
+        const query = Test2.where('Id', '>', 0).populate('Owner', function () {
           this.populate('Owner');
         });
+
+        return await query;
       },
     );
 

@@ -13,8 +13,15 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
 
     await connection.schema().createTable('test_model', (table) => {
       table.int('Id').primaryKey().autoIncrement();
+      table.int('owner_id');
       table.dateTime('CreatedAt').notNull();
     });
+
+    await connection.schema().createTable('test_model_owner', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.dateTime('CreatedAt').notNull();
+    });
+
 
     await connection.schema().createTable('test_owned', (table) => {
       table.int('Id').primaryKey().autoIncrement();
@@ -26,6 +33,13 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.int('Id').primaryKey().autoIncrement().unique();
       table.string('Val');
       table.int('testmodel_id');
+    });
+
+
+    await connection.schema().createTable('category', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Name');
+      table.int('parent_id');
     });
 
     await connection.index().unique().name('user_id_idx').columns(['Id', 'Name']).table('user');

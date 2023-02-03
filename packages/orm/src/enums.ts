@@ -76,6 +76,8 @@ export enum JoinMethod {
   RIGHT_OUTER = 'RIGHT OUTER JOIN',
   FULL_OUTER = 'FULL OUTER JOIN',
   CROSS = 'CROSS JOIN',
+  // recursive join must have switched ON clause
+  RECURSIVE = "RECURSIVE"
 }
 
 /**

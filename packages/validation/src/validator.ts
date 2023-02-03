@@ -10,9 +10,18 @@ import { Logger, ILog } from '@spinajs/log';
 // import default souces
 import './sources.js';
 
+
 import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
 import { default as ajvKeywords } from 'ajv-keywords';
+
+
+/**
+ * HACK:
+ * Becouse of ajv not supporting esm default exports we need to
+ * check for default export module property and if not provided use module itself
+ */
+
 
 @Singleton()
 export class DataValidator extends AsyncService {
@@ -25,7 +34,12 @@ export class DataValidator extends AsyncService {
   @Logger('validation')
   protected Log: ILog;
 
-  protected Validator: Ajv.default;
+  /**
+   * We ignore this error because ajv have problems with
+   * commonjs / esm default exports
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  protected Validator: any;
 
   @Autoinject()
   protected Container: Container;
@@ -45,7 +59,17 @@ export class DataValidator extends AsyncService {
       $data: true,
     };
 
-    this.Validator = new Ajv.default(ajvConfig);
+
+     // @ts-ignore
+     if (Ajv.default) {
+      // @ts-ignore
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      this.Validator = new Ajv.default(ajvConfig);
+    } else {
+      // @ts-ignore
+      this.Validator = new Ajv(ajvConfig);
+    }
+   
 
     // add $merge & $patch for json schema
     ajvMergePath(this.Validator);

@@ -1,7 +1,15 @@
 {
   "name": "@spinajs/intl-http",
-  "version": "2.0.85",
+  "version": "2.0.98",
   "description": "Internationalization support for http module",
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -10,6 +18,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -24,7 +33,7 @@
   "files": [
     "lib/**/*"
   ],
-  "types": "lib",
+  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -40,16 +49,16 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.85",
-    "@spinajs/di": "^2.0.85",
-    "@spinajs/exceptions": "^2.0.85",
-    "@spinajs/http": "^2.0.85",
-    "@spinajs/intl": "^2.0.85",
-    "@spinajs/log": "^2.0.85",
-    "@spinajs/reflection": "^2.0.85"
+    "@spinajs/configuration": "^2.0.98",
+    "@spinajs/di": "^2.0.98",
+    "@spinajs/exceptions": "^2.0.98",
+    "@spinajs/http": "^2.0.98",
+    "@spinajs/intl": "^2.0.98",
+    "@spinajs/log": "^2.0.98",
+    "@spinajs/reflection": "^2.0.98"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.85"
+    "@spinajs/orm-sqlite": "^2.0.98"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

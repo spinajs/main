@@ -1,8 +1,16 @@
 {
   "name": "@spinajs/orm-sql",
-  "version": "2.0.85",
+  "version": "2.0.98",
   "description": "framework orm sql language module",
-  "exports": "./lib/index.js",
+  
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -11,6 +19,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -25,7 +34,7 @@
   "files": [
     "lib/**/*"
   ],
-  "types": "lib",
+  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -43,9 +52,9 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.85",
-    "@spinajs/di": "^2.0.85",
-    "@spinajs/orm": "^2.0.85",
+    "@spinajs/configuration": "^2.0.98",
+    "@spinajs/di": "^2.0.98",
+    "@spinajs/orm": "^2.0.98",
     "luxon": "^3.2.1",
     "typescript-mix": "^3.1.3"
   },

@@ -78,13 +78,10 @@ class HasManyRelationMiddleware implements IBuilderMiddleware {
 
   public async afterHydration(data: ModelBase[]): Promise<any[]> {
     const self = this;
-    const pks = data.map((d) => {
-      if (this._path) {
-        return _.get(d as any, this._path)[this._description.PrimaryKey];
-      } else {
-        return (d as any)[this._description.PrimaryKey];
-      }
+    const pks = data.map((d: any) => {
+      return d[this._description.PrimaryKey];
     });
+
     const hydrateMiddleware = {
       afterQuery(data: any[]) {
         return data;
@@ -94,20 +91,12 @@ class HasManyRelationMiddleware implements IBuilderMiddleware {
       },
       async afterHydration(relationData: ModelBase[]) {
         relationData.forEach((d) => ((d as any).__relationKey__ = self._description.Name));
-        data.forEach((d) => {
+        data.forEach((d: any) => {
           const relData = relationData.filter((rd) => {
-            if (self._path) {
-              return _.get(d as any, self._path)[self._description.PrimaryKey] === (rd as any)[self._description.ForeignKey];
-            } else {
-              return (rd as any)[self._description.ForeignKey] === (d as any)[self._description.PrimaryKey];
-            }
+            return d[self._description.PrimaryKey] === (rd as any)[self._description.ForeignKey];
           });
 
-          if (self._path) {
-            _.get(d as any, self._path)[self._description.Name] = new OneToManyRelationList(d, self._description.TargetModel, self._description, relData);
-          } else {
-            (d as any)[self._description.Name] = new OneToManyRelationList(d, self._description.TargetModel, self._description, relData);
-          }
+          d[self._description.Name] = new OneToManyRelationList(d, self._description.TargetModel, self._description, relData);
         });
       },
     };
@@ -136,6 +125,10 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
   public async afterHydration(data: ModelBase[]): Promise<any[]> {
     const self = this;
     const pks = data.map((d) => (d as any)[this._description.PrimaryKey]);
+    const fKey = this._description.ForeignKey;
+    const key = this._description.PrimaryKey;
+    const name = this._description.Name;
+
     const hydrateMiddleware = {
       afterQuery(data: any[]) {
         return data;
@@ -146,26 +139,43 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
       async afterHydration(relationData: ModelBase[]) {
         relationData.forEach((d) => ((d as any).__relationKey__ = self._description.Name));
 
-        const roots = relationData.filter((rd) => (rd as any)[self._description.ForeignKey] === 0 || (rd as any)[self._description.ForeignKey] === null);
-        const leafs = roots.map((r) => {
-          return fillRecursive(r);
+        function buildRelationTree(_d: any[], parent?: any): unknown[] {
+          const branch: unknown[] = [];
 
-          function fillRecursive(parent: any): any {
-            const child = relationData.find((rd) => (rd as any)[self._description.ForeignKey] === parent[self._description.PrimaryKey]);
-            if (!child) {
-              return parent;
+          _d.forEach((d) => {
+            if (d[fKey] === parent) {
+              const children = buildRelationTree(_d, d[key]);
+              if (children) {
+                // TODO:
+                // implement RecursiveRelation list to allow for
+                // manipulation of the recursive data
+                d[name] = new OneToManyRelationList(
+                  d,
+                  d.Model,
+                  {
+                    Name: name,
+                    Type: RelationType.Many,
+                    TargetModelType: d.Model,
+                    TargetModel: d.Model,
+                    SourceModel: d.Model,
+                    ForeignKey: fKey,
+                    PrimaryKey: key,
+                    Recursive: false,
+                  },
+                  children as ModelBase<unknown>[],
+                );
+              }
+              branch.push(d);
             }
+          });
+          return branch;
+        }
 
-            (child as any)[self._description.Name] = new SingleRelation(child, self._description.TargetModel, self._description, parent);
-            return fillRecursive(child);
-          }
+        const result = buildRelationTree(relationData, null);
+        data.forEach((d : any) => {
+          d[name] = (result.find((r : any) => r[key] === d[key]) as any )[name];
         });
-
-        data.forEach((d) => {
-          const val = leafs.find((l) => l[self._description.PrimaryKey] === (d as any)[self._description.PrimaryKey])[self._description.Name];
-          const rel = val;
-          (d as any)[self._description.Name] = rel;
-        });
+        console.log("da");
       },
     };
 
@@ -211,7 +221,7 @@ class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 
     if (pks.length !== 0) {
       this._relationQuery.whereIn(this._description.ForeignKey, pks);
-      this._relationQuery.middleware(new BelongsToRelationResultTransformMiddleware(this._description));
+      this._relationQuery.middleware(new BelongsToRelationResultTransformMiddleware(this._description, null));
       this._relationQuery.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
       this._relationQuery.middleware(hydrateMiddleware);
       return await this._relationQuery;
@@ -232,8 +242,34 @@ class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
   }
 }
 
+class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
+  constructor(protected _description: IRelationDescriptor, protected relation: BelongsToRelation) {}
+
+  afterQuery(data: any[]): any[] {
+    return data;
+  }
+  modelCreation(_: any): ModelBase<unknown> {
+    return null;
+  }
+  afterHydration(data: ModelBase<unknown>[]): Promise<void | any[]> {
+    const relData = data.map((d: any) => d[this._description.Name as any].Value).filter((x) => x !== null);
+    const middlewares = ((this.relation as any)._relationQuery.Relations as any[])
+      .map((x) => {
+        return x._query._middlewares;
+      })
+      .reduce((prev, current) => {
+        return prev.concat(current);
+      }, []);
+    return Promise.all(
+      middlewares.map((x: any) => {
+        return x.afterHydration(relData);
+      }),
+    );
+  }
+}
+
 class BelongsToRelationResultTransformMiddleware implements IBuilderMiddleware {
-  constructor(protected _description: IRelationDescriptor) {}
+  constructor(protected _description: IRelationDescriptor, protected relation: BelongsToRelation) {}
 
   public afterQuery(data: any[]): any[] {
     return data.map((d) => {
@@ -280,12 +316,6 @@ class BelongsToRelationResultTransformMiddleware implements IBuilderMiddleware {
     }, obj);
   }
 
-  protected keyTransform(key: string) {
-    return key.replace(/\$+/g, '').split('.');
-  }
-}
-
-class BelongsToRelationResultTransformOneToManyMiddleware extends BelongsToRelationResultTransformMiddleware {
   protected keyTransform(key: string) {
     return key.replace(/\$+/g, '').split('.');
   }
@@ -338,19 +368,15 @@ export class BelongsToRelation extends OrmRelation {
       callback.call(this._relationQuery, [this]);
     }
 
-    this._query.mergeStatements(this._relationQuery);
+    this._query.mergeBuilder(this._relationQuery);
 
+    this._query.middleware(new BelongsToPopulateDataMiddleware(this._description, this));
     if (!this.parentRelation) {
       // if we are on top of the belongsTo relation stack
       // add transform middleware
       // we do this becouse belongsTo modifies query (not creating new like oneToMany and manyToMany)
       // and we only need to run transform once
-      this._query.middleware(new BelongsToRelationResultTransformMiddleware(this._description));
-    } else if (!this.parentRelation.parentRelation && this.parentRelation instanceof OneToManyRelation) {
-      // if we called populate from OneToMany relation
-      // we must use different path transform ( couse onetomany is separate query)
-      // otherwise we would fill invalid property on entity
-      this._query.middleware(new BelongsToRelationResultTransformOneToManyMiddleware(this._description));
+      this._query.middleware(new BelongsToRelationResultTransformMiddleware(this._description, this));
     }
   }
 }
@@ -393,19 +419,12 @@ export class OneToManyRelation extends OrmRelation {
       this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
     }
 
-    const path = [];
-    let cur = this.parentRelation;
-    while (cur && !(cur instanceof OneToManyRelation)) {
-      path.push(cur._description.Name);
-      cur = cur.parentRelation;
-    }
-
     if (callback) {
       callback.call(this._relationQuery, [this]);
     }
 
     this._query.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
-    this._query.middleware(new HasManyRelationMiddleware(this._relationQuery, this._description, path.join('.')));
+    this._query.middleware(new HasManyRelationMiddleware(this._relationQuery, this._description, null));
   }
 }
 
@@ -475,7 +494,7 @@ export class ManyToManyRelation extends OrmRelation {
       Recursive: false,
     };
 
-    this._joinQuery.mergeStatements(this._relationQuery);
+    this._joinQuery.mergeBuilder(this._relationQuery);
 
     this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor));
   }

@@ -2,7 +2,7 @@
 /* eslint-disable security/detect-object-injection */
 import { format } from "@spinajs/configuration-common";
 import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
-import { ILog, ILogEntry, LogTarget, ICommonTargetOptions, Logger, } from "@spinajs/log";
+import { ILog, ILogEntry, LogTarget, ICommonTargetOptions, Logger } from "@spinajs/log";
 
 import axios, { Axios } from "axios";
 import _ from "lodash";
@@ -16,7 +16,7 @@ export interface IGraphanaOptions extends ICommonTargetOptions {
     auth: {
       username: string;
       password: string;
-    },
+    };
     labels: {
       app: string;
     };
@@ -28,7 +28,7 @@ interface Stream {
     app: string;
     level: string;
     logger: string;
-  },
+  };
   values: unknown[];
 }
 
@@ -42,9 +42,7 @@ enum TargetStatus {
 // for different files/paths/logs but we dont want to create every time writer for same.
 @PerInstanceCheck()
 @Injectable("GraphanaLogTarget")
-export class GraphanaLokiLogTarget
-  extends LogTarget<IGraphanaOptions>
-  implements IInstanceCheck {
+export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implements IInstanceCheck {
   @Logger("LogLokiTarget")
   protected Log: ILog;
 
@@ -54,7 +52,7 @@ export class GraphanaLokiLogTarget
   protected Status: TargetStatus = TargetStatus.IDLE;
 
   protected FlushTimer: NodeJS.Timer;
-  protected AxiosInstance : Axios;
+  protected AxiosInstance: Axios;
 
   constructor(options: IGraphanaOptions) {
     super(options);
@@ -69,20 +67,19 @@ export class GraphanaLokiLogTarget
     );
   }
 
-  __checkInstance__(creationOptions: IGraphanaOptions): boolean {
-    return this.Options.name === creationOptions.name;
+  __checkInstance__(creationOptions: IGraphanaOptions[]): boolean {
+    return this.Options.name === creationOptions[0].name;
   }
 
   public resolve(): void {
-
     this.AxiosInstance = axios.create({
       baseURL: this.Options.options.host,
       headers: {
         "Content-Type": "application/json",
-        'Authorization': `Basic ${Buffer.from(`${this.Options.options.auth.username}:${this.Options.options.auth.password}`).toString('base64')}`,
+        Authorization: `Basic ${Buffer.from(`${this.Options.options.auth.username}:${this.Options.options.auth.password}`).toString("base64")}`,
       },
       timeout: this.Options.options.timeout,
-    })
+    });
 
     this.FlushTimer = setInterval(() => {
       // do not flush, if we already writting to file
@@ -138,7 +135,6 @@ export class GraphanaLokiLogTarget
   }
 
   protected flush() {
-
     if (this.WriteEntries.length === 0) {
       this.Status = TargetStatus.IDLE;
       return;
@@ -146,17 +142,13 @@ export class GraphanaLokiLogTarget
 
     const streams: Map<string, Stream> = new Map<string, Stream>();
     const keyFor = (x: ILogEntry) => {
-      return [this.Options.options.labels.app, x.Variables.logger, x.Variables.level, ...Object.values(this.Options.options.labels)].join('-')
+      return [this.Options.options.labels.app, x.Variables.logger, x.Variables.level, ...Object.values(this.Options.options.labels)].join("-");
     };
-    const valFor = (x: ILogEntry) => [
-      x.Variables['n_timestamp'].toString(),
-      format(x.Variables, this.Options.layout)
-    ];
+    const valFor = (x: ILogEntry) => [x.Variables["n_timestamp"].toString(), format(x.Variables, this.Options.layout)];
 
     this.Status = TargetStatus.WRITTING;
 
-    this.WriteEntries.forEach(x => {
-
+    this.WriteEntries.forEach((x) => {
       const key = keyFor(x);
       const stream = streams.get(key);
 
@@ -177,13 +169,10 @@ export class GraphanaLokiLogTarget
       stream.values.push(valFor(x));
     });
 
-    this.AxiosInstance
-      .post("/loki/api/v1/push",{ streams: [...streams.values()] })
+    this.AxiosInstance.post("/loki/api/v1/push", { streams: [...streams.values()] })
       .then(() => {
         this.Status = TargetStatus.IDLE;
-        this.Log.trace(
-          `Wrote buffered messages to graphana target at url ${this.Options.options.host}, ${this.WriteEntries.length} messages.`
-        );
+        this.Log.trace(`Wrote buffered messages to graphana target at url ${this.Options.options.host}, ${this.WriteEntries.length} messages.`);
         this.WriteEntries = [];
       })
       .catch((err) => {

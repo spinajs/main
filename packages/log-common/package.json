@@ -1,7 +1,15 @@
 {
-  "version": "2.0.85",
+  "version": "2.0.98",
   "description": "Log lib for all spinejs related libs",
-  "exports": "./lib/index.js",
+  
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -10,6 +18,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -44,6 +53,6 @@
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "dependencies": {
-    "@spinajs/di": "^2.0.85"
+    "@spinajs/di": "^2.0.98"
   }
 }

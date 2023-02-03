@@ -1,8 +1,15 @@
 {
   "name": "@spinajs/cli",
-  "version": "2.0.85",
+  "version": "2.0.98",
   "description": "SpinaJS command line module",
-  "exports": "./lib/index.js",
+  "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+    ".": {
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -11,6 +18,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -20,7 +28,6 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "files": [
     "lib/**/*"
@@ -35,11 +42,11 @@
   },
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.85",
-    "@spinajs/di": "^2.0.85",
-    "@spinajs/exceptions": "^2.0.85",
-    "@spinajs/log": "^2.0.85",
-    "@spinajs/reflection": "^2.0.85",
+    "@spinajs/configuration": "^2.0.98",
+    "@spinajs/di": "^2.0.98",
+    "@spinajs/exceptions": "^2.0.98",
+    "@spinajs/log": "^2.0.98",
+    "@spinajs/reflection": "^2.0.98",
     "commander": "10.0.0",
     "reflect-metadata": "^0.1.13"
   },

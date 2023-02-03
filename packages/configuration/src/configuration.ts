@@ -1,9 +1,13 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { join, normalize, resolve } from 'path';
 import Ajv from 'ajv';
-import { default as _ } from 'lodash';
+import _ from 'lodash';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import {
@@ -14,7 +18,7 @@ import {
   IConfigurable,
   IConfigurationSchema,
 } from '@spinajs/configuration-common';
-import { Autoinject, Class, Container, Injectable } from '@spinajs/di';
+import { Autoinject, Class, Container, Injectable, DI } from '@spinajs/di';
 
 import { InvalidConfiguration } from './exception.js';
 import { mergeArrays, parseArgv } from './util.js';
@@ -24,6 +28,12 @@ import './sources.js';
 import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
 import { default as ajvKeywords } from 'ajv-keywords';
+
+/**
+ * HACK:
+ * Becouse of ajv not supporting esm default exports we need to
+ * check for default export module property and if not provided use module itself
+ */
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
@@ -46,7 +56,12 @@ export class FrameworkConfiguration extends Configuration {
 
   protected Sources: ConfigurationSource[];
 
-  protected Validator: Ajv.default;
+  /**
+   * We ignore this error because ajv have problems with
+   * commonjs / esm default exports
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  protected Validator: any;
 
   protected ValidationSchemas: IConfigurationSchema[];
 
@@ -122,10 +137,10 @@ export class FrameworkConfiguration extends Configuration {
     }
 
     if (this.RunApp) {
-      InternalLogger.trace(`Run app is ${this.RunApp}`, 'Configuration');
+      InternalLogger.info(`Run app is ${this.RunApp}`, 'Configuration');
     }
 
-    InternalLogger.trace(`App base dir is ${this.AppBaseDir}`, 'Configuration');
+    InternalLogger.info(`App base dir is ${this.AppBaseDir}`, 'Configuration');
 
     this.initValidator();
     this.applyAppDirs();
@@ -142,18 +157,6 @@ export class FrameworkConfiguration extends Configuration {
     await this.load();
 
     this.validate();
-
-    /**
-     * Merge from DI container
-     * eg. when custom modules have config and dont want to use files
-     * eg. in webpack environment
-     */
-    this.Container.resolve(Array.ofType('__configuration__')).forEach((c: IConfigLike) => {
-      Object.keys(c).forEach((k) => {
-        this.merge(k, c[`${k}`]);
-      });
-    });
-
     this.configure();
   }
 
@@ -174,6 +177,16 @@ export class FrameworkConfiguration extends Configuration {
   public async load() {
     this.Config = {};
 
+    // add env variables to config
+    const env = DI.get<NodeJS.ProcessEnv>('process.env');
+    this.set('process.env', {
+      ...process.env,
+      ...env,
+      APP_ENV: env?.APP_ENV ?? process.env.NODE_ENV ?? 'development',
+    });
+
+    InternalLogger.info(`APP_ENV set to ${this.get<string>('process.env.APP_ENV')}`, 'Configuration');
+
     _.mergeWith(this.Config, this.onLoad(), mergeArrays);
 
     for (const source of this.Sources) {
@@ -183,6 +196,17 @@ export class FrameworkConfiguration extends Configuration {
         _.mergeWith(this.Config, rCfg, mergeArrays);
       }
     }
+
+    /**
+     * Merge from DI container
+     * eg. when custom modules have config and dont want to use files
+     * eg. in webpack environment
+     */
+    this.Container.resolve(Array.ofType('__configuration__')).forEach((c: IConfigLike) => {
+      Object.keys(c).forEach((k) => {
+        this.merge(k, c[`${k}`]);
+      });
+    });
   }
 
   protected onLoad(): unknown {
@@ -219,6 +243,7 @@ export class FrameworkConfiguration extends Configuration {
       if (!result) {
         const error = new InvalidConfiguration('Validation error', this.Validator.errors);
 
+        // @ts-ignore
         this.Validator.errors.forEach((ve) => {
           InternalLogger.error(
             'Invalid configuration ! Message: %s, path: %s, keyword: %s, schemaPath: %s, configuration module: %s',
@@ -237,7 +262,7 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected initValidator() {
-    this.Validator = new Ajv.default({
+    const options = {
       logger: {
         log: (msg: string) => InternalLogger.info(msg, 'Configuration'),
         warn: (msg: string) => InternalLogger.warn(msg, 'Configuration'),
@@ -255,7 +280,17 @@ export class FrameworkConfiguration extends Configuration {
 
       // The option coerceTypes allows you to have your data types coerced to the types specified in your schema type keywords
       coerceTypes: true,
-    });
+    };
+
+    // @ts-ignore
+    if (Ajv.default) {
+      // @ts-ignore
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      this.Validator = new Ajv.default(options);
+    } else {
+      // @ts-ignore
+      this.Validator = new Ajv(options);
+    }
 
     // add $merge & $patch for json schema
     ajvMergePath(this.Validator);

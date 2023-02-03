@@ -26,12 +26,18 @@ export class TestConfiguration extends FrameworkConfiguration {
         targets: [
           {
             name: 'Empty',
-            type: 'ConsoleTarget',
+            type: 'BlackHoleTarget',
             layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
           },
         ],
 
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
+      intl: {
+        // supported locales
+        locales: ['en_GB', 'pl_PL'],
+
+        defaultLocale: 'pl_PL',
       },
       db: {
         DefaultConnection: 'sqlite',

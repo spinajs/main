@@ -5,9 +5,9 @@ import { OrmException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SordOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap } from './statements.js';
-import { PartialModel, PickRelations, WhereFunction } from './types.js';
+import { PartialArray, PartialModel, PickRelations, WhereFunction } from './types.js';
 import { OrmDriver } from './driver.js';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations.js';
@@ -21,10 +21,10 @@ import { DateTime } from 'luxon';
  *  We use mixins to extend functionality of builder eg. insert query builder uses function from columns builder
  *  and so on...
  */
-export interface InsertQueryBuilder extends IColumnsBuilder { }
-export interface DeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
-export interface UpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
-export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder { }
+export interface InsertQueryBuilder extends IColumnsBuilder {}
+export interface DeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
+export interface UpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {}
+export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {}
 
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
@@ -32,7 +32,7 @@ function isWhereOperator(val: any) {
 
 @NewInstance()
 @Inject(Container)
-export class Builder<T = any> implements PromiseLike<T> {
+export class Builder<T = any> implements IBuilder<T> {
   protected _driver: OrmDriver;
   protected _container: IContainer;
   protected _model?: Constructor<ModelBase>;
@@ -591,7 +591,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._tableAlias = tableAlias;
   }
 
-  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialModel<T> | PickRelations<T>, operator?: SqlOperator | any, value?: any): this {
+  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>> | PickRelations<T>, operator?: SqlOperator | any, value?: any): this {
     const self = this;
 
     // Support "where true || where false"
@@ -685,12 +685,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
   }
 
-  public orWhere(column: string | boolean | WhereFunction<T> | {}, ..._args: any[]) {
+  public orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>>, ..._args: any[]) {
     this._boolean = WhereBoolean.OR;
     return this.where(column, ...Array.from(arguments).slice(1));
   }
 
-  public andWhere(column: string | boolean | WhereFunction<T> | {}, ..._args: any[]) {
+  public andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>>, ..._args: any[]) {
     this._boolean = WhereBoolean.AND;
     return this.where(column, ...Array.from(arguments).slice(1));
   }
@@ -698,8 +698,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   public whereObject(obj: any) {
     this._boolean = WhereBoolean.AND;
 
-    for (const key of Object.keys(obj).filter(x => obj[x] !== undefined)) {
-
+    for (const key of Object.keys(obj).filter((x) => obj[x] !== undefined)) {
       const val = obj[key];
       if (Array.isArray(val)) {
         if (val.length !== 0) {
@@ -878,11 +877,12 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._distinct = this._distinct;
     builder._table = this._table;
     builder._tableAlias = this._tableAlias;
+    builder._queryMiddlewares = [...this._queryMiddlewares];
 
     return builder as any;
   }
 
-  public populate<R = this>(relation: string, callback?: (this: SelectQueryBuilder<R>, relation: OrmRelation) => void) {
+  public populate<R = this>(relation: string, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void) {
     // if relation was already populated, just call callback on it
     const fRelation = this._relations.find((r) => r.Name === relation);
     if (fRelation) {
@@ -898,13 +898,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
 
     const relDescription = descriptor.Relations.get(relation);
-    if (relDescription.Type === RelationType.One && relDescription.Recursive) {
+    if (relDescription.Recursive) {
       relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this._container.get(Orm), this, relDescription, this._owner]);
     } else {
-      if (relDescription.Recursive) {
-        throw new InvalidOperation(`cannot mark relation as recursive with non one-to-one relation type`);
-      }
-
       switch (relDescription.Type) {
         case RelationType.One:
           relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this._container.get(Orm), this, relDescription, this._owner]);
@@ -926,12 +922,18 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
-  public mergeStatements(builder: SelectQueryBuilder) {
+  public mergeBuilder(builder: SelectQueryBuilder) {
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._columns = this._columns.concat(builder._columns);
     this._statements = this._statements.concat(builder._statements);
-    this._relations = this._relations.concat(builder._relations);
-    this._middlewares = this._middlewares.concat(builder._middlewares);
+  }
+
+  public mergeStatements(builder: SelectQueryBuilder, callback?: (statement: IQueryStatement) => boolean) {
+    if (callback) {
+      this._statements = this._statements.concat(builder._statements.filter(callback));
+    } else {
+      this._statements = this._statements.concat(builder._statements);
+    }
   }
 
   public min(column: string, as?: string): this {
@@ -973,7 +975,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return compiler.compile();
   }
 
+  public async all(): Promise<T[]> {
+    return (await this) as any;
+  }
+
   public then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
+    this._queryMiddlewares.forEach((x) => x.beforeQueryExecution(this));
+
     return super.then((result: T) => {
       if (this._first) {
         if (Array.isArray(result)) {
@@ -996,7 +1004,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 }
 
-export class SelectQueryBuilderC<T = any> extends SelectQueryBuilder<T> { }
+export class SelectQueryBuilderC<T = any> extends SelectQueryBuilder<T> {}
 
 @NewInstance()
 export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
@@ -1906,7 +1914,7 @@ export class DropEventQueryBuilder extends QueryBuilder {
 @NewInstance()
 @Inject(Container)
 export class ScheduleQueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver) { }
+  constructor(protected container: Container, protected driver: OrmDriver) {}
 
   public create(name: string, callback: (event: EventQueryBuilder) => void) {
     const builder = new EventQueryBuilder(this.container, this.driver, name);
@@ -1923,7 +1931,7 @@ export class ScheduleQueryBuilder {
 @NewInstance()
 @Inject(Container)
 export class SchemaQueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver) { }
+  constructor(protected container: Container, protected driver: OrmDriver) {}
 
   public createTable(name: string, callback: (table: TableQueryBuilder) => void) {
     const builder = new TableQueryBuilder(this.container, this.driver, name);

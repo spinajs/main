@@ -1,3 +1,4 @@
+import { JoinMethod } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { NewInstance } from '@spinajs/di';
@@ -17,7 +18,11 @@ export class SqlRawStatement extends RawQueryStatement {
 export class SqlWithRecursiveStatement extends WithRecursiveStatement {
   public build(): IQueryStatementResult {
     const initialQuery = this._query.clone().clearJoins().toDB();
-    const additionalQuery = this._query.clone().clearWhere().clearJoins().setAlias('$recursive$').innerJoin('recursive_cte', '$recursive_cte$', this._pkName, this._rcKeyName).toDB();
+ 
+
+    const joinStmt = this.container.resolve(JoinStatement, [this._query, this._query.Model,'recursive_cte', JoinMethod.RECURSIVE, this._pkName, this._rcKeyName,'$recursive$','$recursive_cte$']);
+    this._query.JoinStatements.push(joinStmt);
+    const additionalQuery = this._query.clone().clearWhere().setAlias('$recursive$').toDB();
     const cte_columns = this._query
       .getColumns()
       .map((c: ColumnStatement) => c.Column)
@@ -104,10 +109,13 @@ export class SqlWhereStatement extends WhereStatement {
 @NewInstance()
 export class SqlJoinStatement extends JoinStatement {
   public build(): IQueryStatementResult {
+
+    const method =  this._method === JoinMethod.RECURSIVE ? JoinMethod.INNER : this._method;
+
     if (this._query) {
       return {
         Bindings: this._query.Bindings,
-        Statements: [`${this._method} ${this._query.Query}`],
+        Statements: [`${method} ${this._query.Query}`],
       };
     }
 
@@ -120,13 +128,13 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     if (this._tableAlias) {
-      table = `\`${this._table}\` as \`${this._tableAlias}\``;
+      table = `\`${this._table}\` as \`${this._method === JoinMethod.RECURSIVE ? this._alias: this._tableAlias}\``;
       foreignKey = `\`${this._tableAlias}\`.${this._primaryKey}`;
     }
 
     return {
       Bindings: [],
-      Statements: [`${this._method} ${table} ON ${primaryKey} = ${foreignKey}`],
+      Statements: [`${method} ${table} ON ${primaryKey} = ${foreignKey}`],
     };
   }
 }

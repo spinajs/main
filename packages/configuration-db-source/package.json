@@ -1,11 +1,19 @@
 {
   "name": "@spinajs/configuration-db-source",
-  "version": "2.0.85",
+  "version": "2.0.98",
   "description": "> TODO: description",
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
   "license": "ISC",
-  "exports": "./lib/index.js",
+  
+    "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
+  },
   "type": "module",
   "private": false,
   "engines": {
@@ -14,7 +22,7 @@
   "files": [
     "lib/**/*"
   ],
-  "types": "lib",
+  
   "publishConfig": {
     "access": "public"
   },
@@ -25,6 +33,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -44,10 +53,10 @@
     "@types/luxon": "^3.2.0"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "^2.0.85",
-    "@spinajs/di": "^2.0.85",
-    "@spinajs/internal-logger": "^2.0.85",
-    "@spinajs/orm": "^2.0.85",
+    "@spinajs/configuration-common": "^2.0.98",
+    "@spinajs/di": "^2.0.98",
+    "@spinajs/internal-logger": "^2.0.98",
+    "@spinajs/orm": "^2.0.98",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1"
   },

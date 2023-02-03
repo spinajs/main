@@ -23,3 +23,6 @@ export type NonFunctionPropertyNames<T> = { [K in keyof T]: T[K] extends Functio
 export type ExcludedModelProperties = 'PrimaryKeyValue' | 'PrimaryKeyName' | 'ModelDescriptor' | 'Container' | 'JunctionModelProps';
 export type ModelData<T> = Omit<Pick<T, NonFunctionAndRelationPropertyNames<T>>, ExcludedModelProperties>;
 export type ModelDataWithRelationData<T> = Omit<Pick<T, NonFunctionAndRelationPropertyNames<T>>, ExcludedModelProperties> & PickRelationsWithModelData<T>;
+export type PartialArray<T> = {
+  [P in keyof T]: T[P] | T[P][];
+};

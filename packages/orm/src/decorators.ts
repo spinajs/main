@@ -106,6 +106,7 @@ export function Model(tableName: string) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any) => {
     DI.register(target).as('__models__');
     model.TableName = tableName;
+    model.Name = target.name;
   }, true);
 }
 
@@ -269,13 +270,7 @@ export function Recursive() {
     if (!model.Relations.has(propertyKey)) {
       throw new InvalidOperation(`cannot set recursive on not existing relation ( relation ${propertyKey} on model ${model.Name} )`);
     }
-
     const relation = model.Relations.get(propertyKey);
-
-    if (relation.Type !== RelationType.One) {
-      throw new InvalidOperation(`cannot set recursive on non one-to-one relation ( relation ${propertyKey} on model ${model.Name} )`);
-    }
-
     relation.Recursive = true;
   });
 }

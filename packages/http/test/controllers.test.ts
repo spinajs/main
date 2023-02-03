@@ -25,16 +25,16 @@ describe('http & controller tests', function () {
   this.timeout(85000);
 
   const middlewareSandbox = sinon.createSandbox();
-  let middlewareOnBeforeSpy: sinon.SinonSpy<any, any> = null;
-  let middlewareOnAfterSpy: sinon.SinonSpy<any, any> = null;
-  let middlewareOnResponseSpy: sinon.SinonSpy<any, any> = null;
+  let middlewareOnBeforeSpy: sinon.SinonSpy<any, any>;
+  let middlewareOnAfterSpy: sinon.SinonSpy<any, any>;
+  let middlewareOnResponseSpy: sinon.SinonSpy<any, any>;
 
-  let middleware2OnBeforeSpy: sinon.SinonSpy<any, any> = null;
-  let middleware2OnAfterSpy: sinon.SinonSpy<any, any> = null;
-  let middleware2OnResponseSpy: sinon.SinonSpy<any, any> = null;
+  let middleware2OnBeforeSpy: sinon.SinonSpy<any, any>;
+  let middleware2OnAfterSpy: sinon.SinonSpy<any, any>;
+  let middleware2OnResponseSpy: sinon.SinonSpy<any, any>;
 
-  let samplePolicyExecuteSpy: sinon.SinonSpy<any, any> = null;
-  let samplePolicy2ExecuteSpy: sinon.SinonSpy<any, any> = null;
+  let samplePolicyExecuteSpy: sinon.SinonSpy<any, any>;
+  let samplePolicy2ExecuteSpy: sinon.SinonSpy<any, any>;
 
   before(async () => {
     const bootstrapper = DI.resolve(FsBootsrapper);
@@ -73,8 +73,8 @@ describe('http & controller tests', function () {
   });
 
   it('should load controllers from dir', async () => {
-    const controllers = await ctr().Controllers;
-    expect(controllers.length).to.eq(18);
+    const controllers = await ctr()?.Controllers;
+    expect(controllers?.length).to.eq(18);
   });
 
   it('should server static files', async () => {
@@ -188,7 +188,7 @@ describe('http & controller tests', function () {
     const response = await req().get('responses/data').set('Accept', 'text/html').send();
     expect(response).to.have.status(200);
     expect(response).to.be.html;
-    expect(response.text).to.eq('<html><head><link rel="icon" type="image/x-icon" href="/static/favicon.png"/><title> All ok</title><link href="/static/style.css" rel="stylesheet"/></head><body>   <div class="container"><div class="item"><div class="entry"><h1>200 - All ok</h1></div></div></div></body></html>');
+    expect(response.text).to.eq('<html><head><link rel="icon" type="image/x-icon" href="/_static/favicon.png"/><title> All ok</title><link href="/_static/style.css" rel="stylesheet"/></head><body>   <div class="container"><div class="item"><div class="entry"><h1>200 - All ok</h1></div></div></div></body></html>');
   });
 
   it('json response should work', async () => {

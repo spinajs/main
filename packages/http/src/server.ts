@@ -1,10 +1,11 @@
-import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject } from '@spinajs/di';
+import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { Server } from 'http';
 import { RequestHandler } from 'express';
-import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction } from './interfaces.js';
-import * as fs from 'fs';
+import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders } from './interfaces.js';
+import { existsSync } from 'fs';
+import { fsNative } from '@spinajs/fs';
 import cors from 'cors';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods/index.js';
@@ -14,8 +15,7 @@ import './transformers/index.js';
 import '@spinajs/templates-pug';
 import { Templates } from '@spinajs/templates';
 import _ from 'lodash';
-
-
+import randomstring from 'randomstring';
 
 @Injectable()
 @Inject(Templates)
@@ -51,6 +51,8 @@ export class HttpServer extends AsyncService {
 
   public async resolve(): Promise<void> {
     this.Express = Express();
+    const f = DI.resolve<fsNative>('__file_provider__', ['__fs_http_response_templates__']);
+    this.Log.info(`Response templates path at ${f.Options.basePath}`);
 
     /**
      * Register default middlewares from cfg
@@ -65,7 +67,7 @@ export class HttpServer extends AsyncService {
 
     const cOptions = this.Configuration.get<any>('http.cors', undefined);
     if (!cOptions) {
-      this.Log.warn(`CORS options not set, server may be unavaible from outside ! Please set http.cors configuration option.`)
+      this.Log.warn(`CORS options not set, server may be unavaible from outside ! Please set http.cors configuration option.`);
     } else {
       const corsOptions = {
         origin(origin: any, callback: any) {
@@ -103,7 +105,7 @@ export class HttpServer extends AsyncService {
      * Server static files
      */
     _.uniq(this.Configuration.get<IHttpStaticFileConfiguration[]>('http.Static', [])).forEach((s) => {
-      if (!fs.existsSync(s.Path)) {
+      if (!existsSync(s.Path)) {
         this.Log.warn(`static file path ${s.Path} not exists`);
         return;
       }
@@ -199,7 +201,7 @@ export class HttpServer extends AsyncService {
         return next();
       }
 
-      this.Log.error(`Route error: ${err}, stack: ${err.stack}`, err.parameter);
+      this.Log.error(err, `Route error: ${err}, stack: ${err.stack}`);
 
       const error = {
         ...err,
@@ -207,6 +209,7 @@ export class HttpServer extends AsyncService {
         stack: {},
       };
 
+      this.Configuration.get('process.env.APP_ENV', 'development');
       if (process.env.NODE_ENV === 'development') {
         error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
       }
@@ -241,11 +244,28 @@ export class HttpServer extends AsyncService {
           break;
       }
 
-      response.execute(req, res).then((callback?: ResponseFunction | void) => {
-        if (callback) {
-          callback(req, res);
-        }
-      });
+      response
+        .execute(req, res)
+        .then((callback?: ResponseFunction | void) => {
+          if (callback) {
+            callback(req, res);
+          }
+        })
+        .catch((err: Error) => {
+          // last resort error handling
+
+          this.Log.fatal(err, `Cannot send error response`);
+          const acceptedHeaders = this.Configuration.get<HttpAcceptHeaders>('http.AcceptHeaders');
+          res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
+
+          if (req.accepts('html') && (acceptedHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
+            // final fallback rendering error fails, we render embedded html error page
+            const ticketNo = randomstring.generate(7);
+            res.send(this.Configuration.get<string>('http.FatalTemplate').replace('{ticket}', ticketNo));
+          } else {
+            res.json(error);
+          }
+        });
     };
 
     Object.defineProperty(wrapper, 'name', {

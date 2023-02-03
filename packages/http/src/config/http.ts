@@ -28,7 +28,7 @@ const http = {
       {
         service: 'fsNative',
         name: '__fs_http_response_templates__',
-        basePath: dir('./views/responses'),
+        basePath: dir('views/responses'),
       },
     ]
   },
@@ -53,7 +53,7 @@ const http = {
       MaxSize: 1024 * 1024, // 1 MB by default
 
       // default place where incoming files are copied, can be overriden in @File() options
-      BasePath: dir('./../../data/files'),
+      BasePath: dir('./../../../data/files'),
     },
 
     /**
@@ -64,12 +64,12 @@ const http = {
         /**
          * virtual prefix in url eg. http://localhost:3000/static/images/kitten.jpg
          */
-        Route: '/static',
+        Route: '/_static',
 
         /**
          * full path to folder with static content
          */
-        Path: dir('/../static'),
+        Path: dir('static'),
       },
     ],
 

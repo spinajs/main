@@ -1,5 +1,4 @@
 import { DatetimeValueConverter } from './interfaces.js';
-/* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
 import { AsyncService, Autoinject, Container, Class, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
