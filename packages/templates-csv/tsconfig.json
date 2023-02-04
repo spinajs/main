@@ -6,6 +6,13 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "./types"],
+  "references": [
+    { "path": "../configuration/tsconfig.json" },
+    { "path": "../di/tsconfig.json" },
+    { "path": "../exceptions/tsconfig.json" },
+    { "path": "../log/tsconfig.json" },
+    { "path": "../templates/tsconfig.json"}
+  ]
 }
 

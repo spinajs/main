@@ -234,7 +234,7 @@ describe('smtp email transport', function () {
 
   it('Should send email with pug template', async () => {
     const e = await email();
-    const fs = await DI.resolve('__file_provider__', ['fs-templates']);
+    const fs = await DI.resolve<fs>('__file_provider__', ['fs-template']);
     const file = await fs.download('test.pug');
     await e.send({
       to: ['test@spinajs.com'],
@@ -250,7 +250,7 @@ describe('smtp email transport', function () {
 
   it('Should send email with handlebar template', async () => {
     const e = await email();
-    const fs = await DI.resolve('__file_provider__', ['fs-templates']);
+    const fs = await DI.resolve<fs>('__file_provider__', ['fs-template']);
     const file = await fs.download('test.handlebars');
     await e.send({
       to: ['test@spinajs.com'],

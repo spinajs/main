@@ -19,7 +19,11 @@ export class Templates extends AsyncService {
   })
   protected Renderers: Map<string, TemplateRenderer>;
 
-  public async render(template: string, model: unknown, language?: string): Promise<string> {
+  public getRendererFor(extname: string): TemplateRenderer {
+    return this.Renderers.get(extname);
+  }
+
+  public async render(template: string , model: unknown, language?: string): Promise<string> {
     const extension = extname(template);
     if (!this.Renderers.has(extension)) {
       throw new InvalidOperation(`No renderer for file ${template} with extension ${extension}`);

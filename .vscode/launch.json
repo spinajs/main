@@ -92,6 +92,28 @@
     {
       "type": "node",
       "request": "launch",
+      "name": "[ TEMPLATES ] PDF test",
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/templates-pdf/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "[ TEMPLATES ] CSV test",
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/templates-csv/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+    {
+      "type": "node",
+      "request": "launch",
       "name": "[ TEMPLATES ] HANDLEBARS test",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
       "cwd": "${workspaceFolder}/packages/templates-handlebars/",

@@ -110,6 +110,8 @@
     "@spinajs/validation": "file:packages\\validation",
     "@spinajs/docs": "file:packages\\docs",
     "@spinajs/metrics": "file:packages\\metrics",
-    "@spinajs/log-source-graphana-loki": "file:packages/log-source-graphana-loki"
+    "@spinajs/log-source-graphana-loki": "file:packages/log-source-graphana-loki",
+    "@spinajs/templates-cvs": "files:packages/templates-cvs",
+    "@spinajs/templates-pdf": "files:packages/templates-pdf"
   }
 }
