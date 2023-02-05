@@ -1,9 +1,9 @@
 import { Orm, ModelBase, OrmException } from '@spinajs/orm';
-import { IRouteArgs, IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest } from '@spinajs/http';
-import { AsyncService, IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
+import { IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest, RouteArgs } from '@spinajs/http';
+import { IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
 
 @Injectable()
-export class AsDbModel implements IRouteArgs {
+export class AsDbModel extends RouteArgs {
   public get SupportedType(): string {
     return 'AsDbModel';
   }
@@ -16,7 +16,7 @@ export class AsDbModel implements IRouteArgs {
 }
 
 @Injectable()
-export class FromDbModel extends AsyncService implements IRouteArgs {
+export class FromDbModel extends RouteArgs {
   @Autoinject(Container)
   protected Container: IContainer;
 

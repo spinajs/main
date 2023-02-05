@@ -41,6 +41,8 @@
     { "path": "./packages/templates-pug/tsconfig.cjs.json" },
     { "path": "./packages/templates-xlsx/tsconfig.cjs.json" },
     { "path": "./packages/util/tsconfig.cjs.json" },
-    { "path": "./packages/validation/tsconfig.cjs.json" }
+    { "path": "./packages/validation/tsconfig.cjs.json" },
+    { "path": "packages/templates-pdf/tsconfig.cjs.json" },
+    { "path": "packages/templates-csv/tsconfig.cjs.json" }
   ]
 }

@@ -177,6 +177,42 @@ export function FromDI() {
   return Route(Parameter(ParameterType.FromDi));
 }
 
+
+/**
+ * Gets whole body field
+ * @returns body field of request
+ */
+export function BodyField() {
+  return Route(Parameter(ParameterType.BodyField));
+}
+
+/**
+ * Gets all headers field ot type express.IncommingHttpHeaders
+ * @returns headers field of request
+ */
+export function HeadersField() {
+  return Route(Parameter(ParameterType.Headers));
+}
+
+/**
+ * Get whole query field from request.
+ * 
+ * @returns whole request field of request
+ */
+export function QueryField() {
+  return Route(Parameter(ParameterType.QueryField));
+}
+
+/**
+ * Get whole params field from request.
+ * @returns whole request field of request
+ */
+export function ParamField() {
+  return Route(Parameter(ParameterType.ParamField));
+}
+
+
+
 /**
  * Route parameter taken from query string eg. route?id=1
  *

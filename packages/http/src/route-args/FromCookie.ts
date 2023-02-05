@@ -1,5 +1,5 @@
 import { RouteArgs } from './RouteArgs.js';
-import { IRouteParameter, ParameterType, IRouteCall, IRoute, Request } from '../interfaces.js';
+import { IRouteParameter, ParameterType, IRouteCall, IRoute } from '../interfaces.js';
 import * as express from 'express';
 import { Inject, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
@@ -20,7 +20,7 @@ export class FromCookie extends RouteArgs {
     return ParameterType.FromCookie;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request, _res: express.Response, route: IRoute) {
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     const arg = req.cookies[param.Name];
 
     if (arg !== null) {

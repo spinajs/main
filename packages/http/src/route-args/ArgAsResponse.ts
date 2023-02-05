@@ -1,5 +1,5 @@
 import { RouteArgs } from './RouteArgs.js';
-import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces.js';
+import { IRouteParameter, ParameterType, IRouteCall } from '../interfaces.js';
 import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 
@@ -9,7 +9,7 @@ export class ArgAsResponse extends RouteArgs {
     return ParameterType.Res;
   }
 
-  public async extract(callData: IRouteCall, _param: IRouteParameter, _req: Request, res: express.Response) {
+  public async extract(callData: IRouteCall, _param: IRouteParameter, _req: express.Request, res: express.Response) {
     return { CallData: callData, Args: res };
   }
 }

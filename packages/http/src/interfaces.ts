@@ -206,6 +206,15 @@ export enum UuidVersion {
  * Avaible route parameters type
  */
 export enum ParameterType {
+
+  /**
+   * Standard request whole fields
+   */
+  BodyField = "BodyField",
+  QueryField = "QueryField",
+  ParamField = "ParamField",
+  Headers = "Headers",
+
   /**
    * Parameter is injected from DI container & resolved
    */
