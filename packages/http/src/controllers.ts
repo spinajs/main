@@ -99,22 +99,31 @@ export abstract class BaseController extends AsyncService implements IController
         try {
           await this._actionLocalStorage.run(req.storage, async () => {
             const args = (await _extractRouteArgs(route, req, res)).concat([req, res, next]);
-            const result = this[route.Method].call(this, ...args);
 
-            if (isPromise(result)) {
-              result.then((r) => {
-                if (r instanceof Response) {
-                  enabledMiddlewares.forEach((x) => x.onResponse(r, route, this));
+            try {
+              const result = this[route.Method].call(this, ...args);
+
+              if (isPromise(result)) {
+                result
+                  .then((r) => {
+                    if (r instanceof Response) {
+                      enabledMiddlewares.forEach((x) => x.onResponse(r, route, this));
+                    }
+                    res.locals.response = r;
+                    next();
+                  })
+                  .catch((err) => {
+                    next(err);
+                  });
+              } else {
+                if (result instanceof Response) {
+                  enabledMiddlewares.forEach((x) => x.onResponse(result, route, this));
                 }
-                res.locals.response = r;
+                res.locals.response = result;
                 next();
-              });
-            } else {
-              if (result instanceof Response) {
-                enabledMiddlewares.forEach((x) => x.onResponse(result, route, this));
               }
-              res.locals.response = result;
-              next();
+            } catch (err) {
+              next(err);
             }
           });
         } catch (err) {

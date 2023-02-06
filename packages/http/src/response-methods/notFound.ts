@@ -13,8 +13,6 @@ export class NotFound extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-
-    const file = await this.fs.download('notFound.pug');
-    return await httpResponse(this.responseData, HTTP_STATUS_CODE.NOT_FOUND, file);
+    return await httpResponse(this.responseData, HTTP_STATUS_CODE.NOT_FOUND, 'notFound.pug');
   }
 }

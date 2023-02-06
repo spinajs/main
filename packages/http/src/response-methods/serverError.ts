@@ -15,8 +15,6 @@ export class ServerError extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-
-    const file = await this.fs.download('serverError.pug');
-    return await httpResponse({ error: this.responseData }, HTTP_STATUS_CODE.INTERNAL_ERROR, file);
+    return await httpResponse({ error: this.responseData }, HTTP_STATUS_CODE.INTERNAL_ERROR, 'serverError.pug');
   }
 }

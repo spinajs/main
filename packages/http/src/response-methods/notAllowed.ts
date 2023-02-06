@@ -14,7 +14,6 @@ export class NotAllowed extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    const file = await this.fs.download('not-allowed.pug');
-    return await httpResponse(this.responseData, HTTP_STATUS_CODE.NOT_ALLOWED, file);
+    return await httpResponse(this.responseData, HTTP_STATUS_CODE.NOT_ALLOWED, 'not-allowed.pug');
   }
 }

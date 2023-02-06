@@ -121,9 +121,23 @@ export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: strin
   const cfg: Configuration = DI.get(Configuration);
   const acceptedHeaders = cfg.get<HttpAcceptHeaders>('http.AcceptHeaders');
   const transformers = DI.resolve(Array.ofType(DataTransformer));
+
   return (req: express.Request, res: express.Response) => {
     if (req.accepts('html') && (acceptedHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
-      htmlResponse(template, model, code)(req, res);
+      const fs = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
+      fs.download(template)
+        .then((file) => {
+          htmlResponse(file, model, code)(req, res);
+        })
+        .catch((err) => {
+          const log: ILog = DI.resolve(Log, ['http']);
+
+          log.warn(`Cannot render html file ${template}, error: ${err.message}:${err.stack}`, err);
+          fs.download('serverError.pug').then((file) => {
+            // try to render server error response
+            htmlResponse(file, { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR)(req, res);
+          });
+        });
     } else if (req.accepts('json') && (acceptedHeaders & HttpAcceptHeaders.JSON) === HttpAcceptHeaders.JSON) {
       if (req.headers['x-data-transform']) {
         const transformer = transformers.find((t) => t.Type === req.headers['x-data-transform']);

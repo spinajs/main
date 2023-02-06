@@ -14,7 +14,6 @@ export class BadRequest extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    const file = await this.fs.download('badRequest.pug');
-    return await httpResponse(this.responseData, HTTP_STATUS_CODE.BAD_REQUEST, file);
+    return await httpResponse(this.responseData, HTTP_STATUS_CODE.BAD_REQUEST, 'badRequest.pug');
   }
 }

@@ -62,6 +62,9 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
         ],
         AcceptHeaders: 1 | 2,
+        cookie: {
+          secret: 'dasdasdas',
+        },
       },
       db: {
         DefaultConnection: 'sqlite',

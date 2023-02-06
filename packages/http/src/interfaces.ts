@@ -1,7 +1,6 @@
 import * as express from 'express';
-import { Constructor, AsyncService, DI } from '@spinajs/di';
+import { Constructor, AsyncService } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { fs } from '@spinajs/fs';
 
 /**
  * Accept header enum
@@ -206,14 +205,13 @@ export enum UuidVersion {
  * Avaible route parameters type
  */
 export enum ParameterType {
-
   /**
    * Standard request whole fields
    */
-  BodyField = "BodyField",
-  QueryField = "QueryField",
-  ParamField = "ParamField",
-  Headers = "Headers",
+  BodyField = 'BodyField',
+  QueryField = 'QueryField',
+  ParamField = 'ParamField',
+  Headers = 'Headers',
 
   /**
    * Parameter is injected from DI container & resolved
@@ -511,11 +509,7 @@ export interface IPolicyDescriptor {
 export type ResponseFunction = (req: express.Request, res: express.Response) => void;
 
 export abstract class Response {
-
-  protected fs: fs;
-  constructor(protected responseData: any) {
-    this.fs = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
-  }
+  constructor(protected responseData: any) {}
 
   public abstract execute(req: express.Request, res: express.Response, next?: express.NextFunction): Promise<ResponseFunction | void>;
 }

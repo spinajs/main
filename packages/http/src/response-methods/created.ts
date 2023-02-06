@@ -13,7 +13,6 @@ export class Created extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    const file = await this.fs.download('created.pug');
-    return await httpResponse(this.responseData, HTTP_STATUS_CODE.CREATED, file);
+    return await httpResponse(this.responseData, HTTP_STATUS_CODE.CREATED, 'created.pug');
   }
 }

@@ -112,7 +112,11 @@ export class Builder<T = any> implements IBuilder<T> {
 
               if (this._middlewares.length > 0) {
                 Promise.all(afterMiddlewarePromises).then(() => {
-                  onfulfilled(models as unknown as T);
+                  try {
+                    onfulfilled(models as unknown as T);
+                  } catch (err) {
+                    onrejected(err);
+                  }
                 }, onrejected);
               } else {
                 onfulfilled(models as unknown as T);
@@ -988,7 +992,11 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
           if (result.length !== 0) {
             return onfulfilled(result ? result[0] : null);
           } else {
-            return onfulfilled(undefined);
+            try {
+              return onfulfilled(undefined);
+            } catch (err) {
+              onrejected(err);
+            }
           }
         } else {
           return onfulfilled(result);

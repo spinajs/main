@@ -2,13 +2,12 @@ import { IModelDescriptor, IOrmRelation, IUpdateResult, ModelBase, MODEL_DESCTRI
 import { BaseController, Get, BasePath, Ok, Post, Query, Del, Body, Put, PKey, ParameterType, NotFound, Policy, BodyField, Param, ArgHydrator, Hydrator } from '@spinajs/http';
 import { Resource, Permission } from '@spinajs/rbac-http';
 import { Autoinject } from '@spinajs/di';
-import { FindModelType } from '../policies/FindModelType.js';
-import { ModelType } from '../route-args/ModelTypeRouteArgs.js';
 import { ClassInfo } from '@spinajs/reflection';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
 import _ from 'lodash';
 import { Schema } from '@spinajs/validation';
+import { FindModelType, ModelType } from '../index.js';
 
 const GetSchemaDTO = {
   type: 'object',
@@ -22,7 +21,10 @@ const GetSchemaDTO = {
 
 export class GetFilterHydrator extends ArgHydrator {
   public async hydrate(input: string): Promise<any> {
-    return new GetFilter(JSON.parse(input));
+    if (input) {
+      return new GetFilter(JSON.parse(input));
+    }
+    return new GetFilter({});
   }
 }
 
@@ -56,7 +58,7 @@ export class BasicRestOrmApi extends BaseController {
 
   // --------------------- DELETE functions --------------------- //
 
-  @Del('/:model/:id')
+  @Del(':model/:id')
   @Permission('deleteAny')
   public async del(@ModelType() model: ClassInfo<ModelBase<unknown>>, @PKey(ParameterType.FromQuery) id: number) {
     const result = (await model.type['delete'](id)) as IUpdateResult;
@@ -71,7 +73,7 @@ export class BasicRestOrmApi extends BaseController {
     });
   }
 
-  @Del('/:model/:id/:relation/:relationId')
+  @Del(':model/:id/:relation/:relationId')
   @Permission('deleteAny')
   public async deleteRelation(@ModelType() model: ClassInfo<ModelBase<unknown>>, @PKey(ParameterType.FromQuery) id: any, @Query() relation: string, @PKey(ParameterType.FromQuery) relationId: number) {
     const { relation: tRelation, query } = this.prepareRelationAction(model, relation, id, function () {
@@ -95,7 +97,7 @@ export class BasicRestOrmApi extends BaseController {
     });
   }
 
-  @Post('/:model/:id/:relation/:relatioName:deleteBatch')
+  @Post(':model/:id/:relation/:relatioName:deleteBatch')
   @Permission('deleteAny')
   public async deleteRelationBatch(@ModelType() model: ClassInfo<ModelBase<unknown>>, @PKey(ParameterType.FromQuery) id: any, @Query() relatioName: string, @Body() relationIds: any[]) {
     const {
@@ -130,7 +132,7 @@ export class BasicRestOrmApi extends BaseController {
     });
   }
 
-  @Post('/:model:batchDelete')
+  @Post(':model:batchDelete')
   public async batchDelete(@ModelType() model: ClassInfo<ModelBase<unknown>>, @Body() ids: any[]) {
     const result = (await model.type['delete'](ids)) as IUpdateResult;
     if (result.RowsAffected !== ids.length) {
@@ -156,13 +158,13 @@ export class BasicRestOrmApi extends BaseController {
     }
   }
 
-  @Get('/:model')
+  @Get(':model')
   @Permission('readAny')
   public async getAll(@ModelType() model: ClassInfo<ModelBase<unknown>>, @Query() getParams: GetDto, @Query() filters: GetFilter) {
     const query = model.type['where'](filters) as SelectQueryBuilder;
-    const cQuery = model.type['where'](filters) as SelectQueryBuilder;
+    const cQuery = query.clone();
 
-    cQuery.select(RawQuery.create('count(*) as count'));
+    cQuery.clearColumns().select(RawQuery.create('count(*) as count'));
 
     if (getParams.order) {
       query.order(getParams.order, getParams.orderDirection ?? SortOrder.ASC);
@@ -183,9 +185,9 @@ export class BasicRestOrmApi extends BaseController {
 
   @Get(':model/:id')
   @Permission('readAny')
-  public async get(@ModelType() model: ClassInfo<ModelBase<unknown>>, id: number) {
+  public async get(@ModelType() model: ClassInfo<ModelBase<unknown>>, @Param() id: number) {
     const descriptor = this.getModelDescriptor(model);
-    const query = model.type['where'](id) as SelectQueryBuilder;
+    const query = model.type['where'](descriptor.PrimaryKey, id) as SelectQueryBuilder;
 
     const result = await query.firstOrThrow(
       new ResourceNotFound(`Record with id ${id} not found`, {
@@ -193,6 +195,7 @@ export class BasicRestOrmApi extends BaseController {
         [descriptor.PrimaryKey]: id,
       }),
     );
+
     return new Ok(result);
   }
 
@@ -249,7 +252,7 @@ export class BasicRestOrmApi extends BaseController {
 
   // --------------------- POST functions --------------------- //
 
-  @Post('/:model')
+  @Post(':model')
   @Permission('createAny')
   public async save(@ModelType() model: ClassInfo<ModelBase<unknown>>, @BodyField() data: unknown) {
     let toInsert: ModelBase<unknown>[] = [];
@@ -263,7 +266,7 @@ export class BasicRestOrmApi extends BaseController {
     return new Ok(toInsert.map((x) => x.toJSON()));
   }
 
-  @Post('/:model/:id/relation/:relation')
+  @Post(':model/:id/relation/:relation')
   @Permission('createAny')
   public async insertRelation(@ModelType() model: ClassInfo<ModelBase<unknown>>, @Param() id: any, @Param() relation: string, @BodyField() data: unknown) {
     const { query } = this.prepareRelationAction(model, relation, id, null);
@@ -282,7 +285,7 @@ export class BasicRestOrmApi extends BaseController {
     return new Ok(toInsert.toJSON());
   }
 
-  @Post('/:model/:id/relation/:relation:bulkInsert')
+  @Post(':model/:id/relation/:relation:bulkInsert')
   @Permission('createAny')
   public async insertRelationBulk(@ModelType() model: ClassInfo<ModelBase<unknown>>, @Param() id: any, @Param() relation: string, @BodyField() data: unknown[]) {
     const { query } = this.prepareRelationAction(model, relation, id, null);
@@ -303,7 +306,7 @@ export class BasicRestOrmApi extends BaseController {
 
   // --------------------- PUT functions --------------------- //
 
-  @Put('/:model/:id')
+  @Put(':model/:id')
   @Permission('updateAny')
   public async update(@ModelType() model: ClassInfo<ModelBase<unknown>>, @Param() id: number, @BodyField() data: unknown) {
     const descriptor = this.getModelDescriptor(model);
@@ -322,7 +325,7 @@ export class BasicRestOrmApi extends BaseController {
     return new Ok(result.toJSON());
   }
 
-  @Put('/:model/:id/relation/:relationId')
+  @Put(':model/:id/relation/:relationId')
   @Permission('updateAny')
   public async updateRelation(@ModelType() model: ClassInfo<ModelBase<unknown>>, @Param() id: number, @Param() relation: string, @Param() relationId: any, @BodyField() data: unknown) {
     const {
