@@ -175,8 +175,7 @@ function _listOrResolveFromFiles(
         .flatMap((f: string) => {
           logger.trace(`Loading file ${f}`);
 
-          /* eslint-disable */
-          return import(`file://${f}`).then((fTypes) => {
+          return DI.__spinajs_require__(f).then((fTypes: any) => {
             for (const key of Object.keys(fTypes)) {
               const nameToResolve = typeMatcher ? typeMatcher(path.parse(f).name, key) : key;
               const type = fTypes[`${nameToResolve}`] as Class<any>;

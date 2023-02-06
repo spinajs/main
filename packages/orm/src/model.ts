@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 /* eslint-disable prettier/prettier */
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations.js';
-import { SordOrder } from './enums.js';
+import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
 import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
 import { WhereFunction } from './types.js';
@@ -651,17 +651,17 @@ function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuild
   }
 }
 
-function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, order?: SordOrder) {
+function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, order?: SortOrder) {
   if (description.PrimaryKey) {
-    query.order(description.PrimaryKey, order ?? SordOrder.DESC);
+    query.order(description.PrimaryKey, order ?? SortOrder.DESC);
   } else {
     const unique = description.Columns.filter((c) => c.Unique);
     if (unique.length !== 0) {
-      unique.forEach((c) => query.order(c.Name, order ?? SordOrder.DESC));
+      unique.forEach((c) => query.order(c.Name, order ?? SortOrder.DESC));
     } else if (description.Timestamps?.CreatedAt) {
-      query.order(description.Timestamps.CreatedAt, order ?? SordOrder.DESC);
+      query.order(description.Timestamps.CreatedAt, order ?? SortOrder.DESC);
     } else if (description.Timestamps?.UpdatedAt) {
-      query.order(description.Timestamps.UpdatedAt, order ?? SordOrder.DESC);
+      query.order(description.Timestamps.UpdatedAt, order ?? SortOrder.DESC);
     }
   }
 }
@@ -964,7 +964,7 @@ export const MODEL_STATIC_MIXINS = {
 
   async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    _prepareOrderBy(description, query, SordOrder.ASC);
+    _prepareOrderBy(description, query, SortOrder.ASC);
 
     if (callback) {
       callback(query);
@@ -975,7 +975,7 @@ export const MODEL_STATIC_MIXINS = {
 
   async last<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    _prepareOrderBy(description, query, SordOrder.DESC);
+    _prepareOrderBy(description, query, SortOrder.DESC);
 
     if (callback) {
       callback(query);
@@ -988,7 +988,7 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
-      query.order(description.Timestamps.CreatedAt, SordOrder.DESC);
+      query.order(description.Timestamps.CreatedAt, SortOrder.DESC);
     } else {
       throw new OrmException('cannot fetch newest entity - CreateAt column not exists in model/db');
     }
@@ -1004,7 +1004,7 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     if (description.Timestamps?.CreatedAt) {
-      query.order(description.Timestamps.CreatedAt, SordOrder.ASC);
+      query.order(description.Timestamps.CreatedAt, SortOrder.ASC);
     } else {
       throw new OrmException('cannot fetch oldest entity - CreateAt column not exists in model/db');
     }

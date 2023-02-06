@@ -16,6 +16,9 @@ import { DataTransformer } from './../src/interfaces.js';
 import { TestTransformer } from './transformers/TestTransformer.js';
 import { SamplePolicy } from './policies/SamplePolicy.js';
 import { SampleMiddleware } from './middlewares/SampleMiddleware.js';
+import { join } from 'path';
+
+import { dir } from './common.js';
 
 function ctr() {
   return DI.get(Controllers);
@@ -51,15 +54,16 @@ describe('http & controller tests', function () {
     samplePolicyExecuteSpy = middlewareSandbox.spy(SamplePolicy.prototype, 'execute');
     samplePolicy2ExecuteSpy = middlewareSandbox.spy(SamplePolicy2.prototype, 'execute');
 
+    DI.setESMModuleSupport();
+
     DI.register(TestConfiguration).as(Configuration);
     DI.register(TestTransformer).as(DataTransformer);
 
     await DI.resolve(Intl);
     await DI.resolve(Controllers);
-    const server = await DI.resolve(HttpServer);
 
-    server.start();
   });
+
 
   after(async () => {
     const server = await DI.resolve(HttpServer);
@@ -70,6 +74,19 @@ describe('http & controller tests', function () {
 
   afterEach(() => {
     sinon.restore();
+  });
+
+  it('should manual register controller', async () => {
+    const c = await ctr();
+    await c?.registerFromFile(join(dir('controllers2'), 'TestMethods2.ts'));
+    
+    const server = await DI.resolve(HttpServer);
+    server.start();
+    
+    let response = await req().get('testmethods2/testGet2');
+    expect(response).to.have.status(200);
+
+  
   });
 
   it('should load controllers from dir', async () => {

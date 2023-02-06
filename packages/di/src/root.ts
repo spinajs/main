@@ -195,7 +195,7 @@ export async function __spinajs_require__(module: string): Promise<unknown> {
   const isESM = RootContainer.get<{ mjs: boolean }>('__esmMode__');
   if (isESM && isESM.mjs) {
     const result = await import(`file://${module}`);
-    return result.default;
+    return result.default ?? result;
   } else {
     return Promise.resolve(require(module));
   }

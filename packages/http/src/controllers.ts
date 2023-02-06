@@ -2,7 +2,7 @@ import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescrip
 import { AsyncService, IContainer, Autoinject, DI, Container } from '@spinajs/di';
 import * as express from 'express';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
-import { UnexpectedServerError } from '@spinajs/exceptions';
+import { UnexpectedServerError, IOFail } from '@spinajs/exceptions';
 import { ClassInfo, TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
 import { HttpServer } from './server.js';
 import { Logger, Log } from '@spinajs/log';
@@ -11,6 +11,9 @@ import { RouteArgs, FromFormBase } from './route-args/index.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isPromise } from 'node:util/types';
 import { Response } from './interfaces.js';
+
+import * as fs from 'fs';
+import { basename } from 'node:path';
 
 export abstract class BaseController extends AsyncService implements IController {
   /**
@@ -216,6 +219,25 @@ export class Controllers extends AsyncService {
 
   @Autoinject()
   protected Server: HttpServer;
+
+  public async registerFromFile(file: string) {
+    if (!fs.existsSync(file)) {
+      throw new IOFail(`Controller file at path ${file} not found`);
+    }
+
+    const types = await DI.__spinajs_require__(file.replace('.js', '.d.ts'));
+    const typeName = basename(basename(file, '.js'), '.ts');
+    const type = (types as any)[typeName];
+    const instance = await DI.resolve<BaseController>(type);
+    const ci = new ClassInfo<BaseController>();
+
+    ci.file = file.replace('.js', '.d.ts');
+    ci.instance = instance;
+    ci.name = typeName;
+    ci.type = type;
+
+    return await this.register(ci);
+  }
 
   public async register(controller: ClassInfo<BaseController>) {
     this.Log.trace(`Loading controller: ${controller.name}`);

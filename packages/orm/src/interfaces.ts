@@ -1,7 +1,7 @@
 import { Op } from './enums.js';
 /* eslint-disable prettier/prettier */
 import { QueryBuilder, RawQuery } from './builders.js';
-import { SordOrder, WhereBoolean } from './enums.js';
+import { SortOrder, WhereBoolean } from './enums.js';
 import { IQueryStatement, Wrap } from './statements.js';
 import { PartialArray, PartialModel, Unbox, WhereFunction } from './types.js';
 import { Relation, IOrmRelation } from './relations.js';
@@ -538,7 +538,7 @@ export interface IQueryLimit {
 
 export interface ISort {
   column: string;
-  order: SordOrder;
+  order: SortOrder;
 }
 
 export interface IQueryBuilder {

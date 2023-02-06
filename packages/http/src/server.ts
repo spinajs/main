@@ -52,7 +52,11 @@ export class HttpServer extends AsyncService {
   public async resolve(): Promise<void> {
     this.Express = Express();
     const f = DI.resolve<fsNative>('__file_provider__', ['__fs_http_response_templates__']);
-    this.Log.info(`Response templates path at ${f.Options.basePath}`);
+    if (!f) {
+      this.Log.info(`No fs provider for __fs_http_response_templates__ registered, response templates will not be available.`);
+    } else {
+      this.Log.info(`Response templates path at ${f.Options.basePath}`);
+    }
 
     /**
      * Register default middlewares from cfg

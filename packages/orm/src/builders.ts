@@ -4,7 +4,7 @@ import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinaj
 import { OrmException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
-import { ColumnMethods, ColumnType, QueryMethod, SordOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
+import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
 import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap } from './statements.js';
 import { PartialArray, PartialModel, PickRelations, WhereFunction } from './types.js';
@@ -320,11 +320,11 @@ export class OrderByBuilder implements IOrderByBuilder {
   constructor() {
     this._sort = {
       column: '',
-      order: SordOrder.ASC,
+      order: SortOrder.ASC,
     };
   }
 
-  public order(column: string, direction: SordOrder) {
+  public order(column: string, direction: SortOrder) {
     this._sort = {
       column,
       order: direction,
@@ -335,7 +335,7 @@ export class OrderByBuilder implements IOrderByBuilder {
   public orderBy(column: string) {
     this._sort = {
       column,
-      order: SordOrder.ASC,
+      order: SortOrder.ASC,
     };
     return this;
   }
@@ -343,7 +343,7 @@ export class OrderByBuilder implements IOrderByBuilder {
   public orderByDescending(column: string) {
     this._sort = {
       column,
-      order: SordOrder.DESC,
+      order: SortOrder.DESC,
     };
     return this;
   }
@@ -835,7 +835,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     this._sort = {
       column: '',
-      order: SordOrder.ASC,
+      order: SortOrder.ASC,
     };
 
     this._first = false;

@@ -4,7 +4,10 @@
     "rootDir": "./src",
     "outDir": "./lib/mjs",
     "module": "node16",
-    "moduleResolution": "node16"
+    "moduleResolution": "node16",
+    "paths": {
+      "@spinajs": ["../"]
+    }
   },
   "include": ["src/**/*"],
   "references": [{ "path": "../configuration/tsconfig.json" }, { "path": "../di/tsconfig.json" }, { "path": "../exceptions/tsconfig.json" }, { "path": "../log/tsconfig.json" }, { "path": "../reflection/tsconfig.json" }, { "path": "../fs/tsconfig.json" }, { "path": "../templates/tsconfig.json" }, { "path": "../validation/tsconfig.json" }, { "path": "../templates-pug/tsconfig.json" }]

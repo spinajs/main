@@ -123,7 +123,7 @@ export enum ColumnType {
   LONG_BLOB = 'longblob',
 }
 
-export enum SordOrder {
+export enum SortOrder {
   ASC = 'ASC',
   DESC = 'DESC',
 }
