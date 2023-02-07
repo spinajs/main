@@ -6,7 +6,7 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": ["src/**/*"],
   "references": [
     { "path": "../configuration/tsconfig.json" },
     { "path": "../di/tsconfig.json" },
@@ -15,3 +15,4 @@
     { "path": "../reflection/tsconfig.json" }
   ]
 }
+
