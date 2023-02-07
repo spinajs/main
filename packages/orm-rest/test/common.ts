@@ -27,14 +27,12 @@ export function req() {
 }
 
 export class TestConfiguration extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    this.Config = {
+  protected onLoad() {
+    return {
       system: {
-        dirs: {
-          controllers: [dir('./../src/controllers'), dir('./controllers')],
-        },
+          dirs: {
+            controllers: [dir('./../src/controllers'), dir('./controllers')],
+          },
       },
       logger: {
         targets: [
@@ -44,7 +42,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
         ],
 
-        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+        rules: [{ name: '*', level: 'error', target: 'Empty' }],
       },
       http: {
         middlewares: [

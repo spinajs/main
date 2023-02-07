@@ -371,7 +371,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * Creates query on this model. used for quering db for partial data, to perform some kind of operations
    * that dont need full ORM model to involve, or other non standard operations eg. joins or raw data queries based on this model
    */
-  public static query<T extends typeof ModelBase>(this: T): ISelectQueryBuilder<InstanceType<T>> & T['_queryScopes'] {
+  public static query<T extends typeof ModelBase>(this: T): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
     throw new Error('Not implemented');
   }
 

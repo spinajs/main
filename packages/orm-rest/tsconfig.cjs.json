@@ -6,5 +6,5 @@
     "module": "commonjs"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../http/tsconfig.cjs.json" }, { "path": "../intl-orm/tsconfig.cjs.json" }, { "path": "../log/tsconfig.cjs.json" }, { "path": "../orm/tsconfig.cjs.json" }]
+  "references": [{ "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../http/tsconfig.cjs.json" }, { "path": "../log/tsconfig.cjs.json" }, { "path": "../orm/tsconfig.cjs.json" }]
 }
