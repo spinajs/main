@@ -16,7 +16,7 @@ export class RbacMiddleware extends ServerMiddleware {
 
   public async resolve() {
     if (!this.CoockieSecret) {
-      throw new Error('http.cookie.secres is not set, cannot start UserFromSessionMiddleware. Set this value in configuration file !');
+      throw new Error('http.cookie.secrets is not set, cannot start UserFromSessionMiddleware. Set this value in configuration file !');
     }
   }
 

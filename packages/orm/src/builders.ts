@@ -1746,7 +1746,7 @@ export class TruncateTableQueryBuilder extends QueryBuilder {
   }
 
   public toDB(): ICompilerOutput {
-    return this._container.resolve<TruncateTableQueryCompiler>(TruncateTableQueryCompiler, [this]).compile();
+    return this._container.resolve<TruncateTableQueryCompiler>(TruncateTableQueryCompiler, [this.Container, this]).compile();
   }
 }
 

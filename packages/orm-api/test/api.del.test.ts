@@ -5,6 +5,7 @@ import { Orm } from '@spinajs/orm';
 import { TestConfiguration, req, FakeRbacPolicy } from './common.js';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { RbacPolicy } from '@spinajs/rbac-http';
+import './../src/PlainJsonCollectionTransformer.js';
 
 import 'mocha';
 import sinon from 'sinon';
@@ -41,9 +42,7 @@ describe('crud delete tests', function () {
     DI.clearCache();
   });
 
-  afterEach(async () => {
-    sinon.restore();
-
+  beforeEach(async () => {
     await Test.truncate();
     await Test2.truncate();
     await Belongs.truncate();
@@ -60,17 +59,19 @@ describe('crud delete tests', function () {
       { Text: 'Test2-3', test_id: 2 },
     ]);
   });
+  
+  afterEach(async () => {
+    sinon.restore();
+  });
 
   it('DEL /:model', async () => {
     // const m = new Test({ Text: 'added1' });
     // await m.insert();
-
     // const result = await req()
     //   .del('repository/test/' + m.Id)
     //   .set('Accept', 'application/json')
     //   .send();
     // expect(result).to.have.status(200);
-
     // const m2 = Test.where('Id', m.Id);
     // expect(m2).to.be.null;
   });

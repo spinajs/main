@@ -56,7 +56,17 @@ export class TestConfiguration extends FrameworkConfiguration {
 
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
+      api: {
+        endpoint: {
+          transformer: {
+            service: 'PlainJsonCollectionTransformer',
+          },
+        },
+      },
       http: {
+        cookie: {
+          secret: 'dsa12!@E#!$',
+        },
         middlewares: [
           express.json({
             limit: '5mb',
