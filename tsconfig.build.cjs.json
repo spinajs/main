@@ -44,7 +44,7 @@
     { "path": "./packages/validation/tsconfig.cjs.json" },
     { "path": "packages/templates-pdf/tsconfig.cjs.json" },
     { "path": "packages/templates-csv/tsconfig.cjs.json" },
-    { "path": "packages/orm-rest/tsconfig.cjs.json" }
+    { "path": "packages/orm-api/tsconfig.cjs.json" }
 
   ]
 }

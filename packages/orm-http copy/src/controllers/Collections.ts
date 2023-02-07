@@ -1,19 +1,18 @@
-import { IModelDescriptor, IModelStatic, IOrmRelation, IRelationDescriptor, ISelectQueryBuilder, IUpdateResult, ModelBase, MODEL_DESCTRIPTION_SYMBOL, Orm, OrmException, RawQuery, Relation, RelationType, SelectQueryBuilder, SortOrder } from '@spinajs/orm';
-import { BaseController, Get, BasePath, Ok, Post, Query, Del, Body, Put, PKey, ParameterType, NotFound, Policy, BodyField, Param } from '@spinajs/http';
+import { IModelDescriptor, IModelStatic, IOrmRelation, ISelectQueryBuilder, ModelBase, MODEL_DESCTRIPTION_SYMBOL, Orm, OrmException, RawQuery, RelationType, SelectQueryBuilder, SortOrder } from '@spinajs/orm';
+import { BaseController, Get, BasePath, Ok, Post, Query, Del, Body, Put, PKey, ParameterType, Policy, BodyField, Param } from '@spinajs/http';
 import { Resource, Permission } from '@spinajs/rbac-http';
-import { Autoinject, Constructor } from '@spinajs/di';
-import { ClassInfo } from '@spinajs/reflection';
+import { Autoinject } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
-import _, { filter } from 'lodash';
-import { ModelType } from '../route-args/ModelType.js';
-import { FindModelType } from '../policies/FindModelType.js';
-import { QueryArgs } from '../dto/QueryArgs.js';
-import { QueryFilter } from '../dto/QueryFilter.js';
-import { CollectionApiTransformer } from '../interfaces.js';
+import _ from 'lodash';
+import { ModelType } from '../route-args/ModelType.js.js';
+import { FindModelType } from '../policies/FindModelType.js.js';
+import { QueryArgs } from '../dto/QueryArgs.js.js';
+import { QueryFilter } from '../dto/QueryFilter.js.js';
+import { CollectionApiTransformer } from '../interfaces.js.js';
 import { AutoinjectService } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
-import { QueryIncludes } from '../dto/QueryIncludes.js';
+import { QueryIncludes } from '../dto/QueryIncludes.js.js';
 
 function applyIncludes(query: ISelectQueryBuilder<unknown>, includes: QueryIncludes) {
   for (const i in includes) {

@@ -1,5 +1,5 @@
 {
-  "name": "@spinajs/orm-http",
+  "name": "@spinajs/orm-api",
   "version": "2.0.102",
   "description": "Orm extensions for HTTP module",
   

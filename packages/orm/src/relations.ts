@@ -3,7 +3,8 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, ForwardRefFunction, IBuilderMiddleware } from './interfaces.js';
 import { NewInstance, DI, Constructor, isConstructor } from '@spinajs/di';
 import { SelectQueryBuilder } from './builders.js';
-import { createQuery, extractModelDescriptor, IModelBase, ModelBase } from './model.js';
+import { createQuery, extractModelDescriptor, ModelBase } from './model.js';
+import { IModelBase } from "./interfaces.js";
 import { Orm } from './orm.js';
 import { OrmDriver } from './driver.js';
 import _ from 'lodash';
@@ -487,8 +488,8 @@ export class ManyToManyRelation extends OrmRelation {
       Name: this._description.Name,
       Type: RelationType.Many,
       TargetModelType: this._description.JunctionModel,
-      TargetModel: this._description.JunctionModel,
-      SourceModel: this._description.SourceModel,
+      TargetModel: this._description.JunctionModel as any,
+      SourceModel: this._description.SourceModel as any,
       ForeignKey: this._description.JunctionModelSourceModelFKey_Name,
       PrimaryKey: this._description.PrimaryKey,
       Recursive: false,

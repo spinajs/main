@@ -4,6 +4,7 @@ import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
+import { BasePolicy, Request as sRequest } from '@spinajs/http';
 
 import './migrations/Test_2022_06_28_01_13_00.js';
 
@@ -26,7 +27,14 @@ export function req() {
   return chai.request('http://localhost:1337/');
 }
 
- 
+export class FakeRbacPolicy extends BasePolicy {
+  isEnabled(): boolean {
+    return true;
+  }
+  execute(_req: sRequest): Promise<void> {
+    return Promise.resolve();
+  }
+}
 
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {

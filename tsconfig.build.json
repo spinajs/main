@@ -23,7 +23,7 @@
     { "path": "packages/log-source-graphana-loki/tsconfig.json" },
     { "path": "packages/metrics/tsconfig.json" },
     { "path": "packages/orm/tsconfig.json" },
-    { "path": "packages/orm-http/tsconfig.json" },
+    { "path": "packages/orm-http/tsconfig.mjs.json" },
     { "path": "packages/orm-mssql/tsconfig.json" },
     { "path": "packages/orm-mysql/tsconfig.json" },
     { "path": "packages/orm-sql/tsconfig.json" },
@@ -44,7 +44,6 @@
     { "path": "packages/validation/tsconfig.json" },
     { "path": "packages/templates-pdf/tsconfig.json" },
     { "path": "packages/templates-csv/tsconfig.json" },
-    { "path": "packages/orm-rest/tsconfig.json" }
-
+    { "path": "packages/orm-api/tsconfig.mjs.json" }
   ]
 }
