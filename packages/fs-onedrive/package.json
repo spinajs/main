@@ -1,7 +1,7 @@
 {
-  "name": "@spinajs/orm-rest",
+  "name": "@spinajs/fs-onedrive",
   "version": "2.0.102",
-  "description": "REST endpoint for orm data",
+  "description": "wrapper for file operations in onedrive",
   
     "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -18,7 +18,7 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.mjs.json",
+    "compile": "tsc -b tsconfig.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
@@ -34,35 +34,40 @@
   "files": [
     "lib/**/*"
   ],
-  
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/spinajs/main.git"
+    "url": "git+https://github.com/spinajs/exceptions.git"
   },
   "keywords": [
+    "di",
+    "container",
     "spinajs",
-    "rbac"
+    "di"
   ],
-  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/spinajs/main/issues"
+    "url": "https://github.com/spinajs/exceptions/issues"
   },
-  "homepage": "https://github.com/spinajs/main#readme",
+  "homepage": "https://github.com/spinajs/exceptions#readme",
+  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.102",
-    "@spinajs/di": "^2.0.102",
-    "@spinajs/exceptions": "^2.0.102",
-    "@spinajs/http": "^2.0.102",
-    "@spinajs/intl-orm": "^2.0.102",
-    "@spinajs/log": "^2.0.102",
-    "@spinajs/orm": "^2.0.102",
-    "@spinajs/validation": "2.0.102",
+    "@spinajs/exceptions": "2.0.102",
+    "@spinajs/log": "2.0.102",
+    "@spinajs/configuration": "2.0.102",
+    "@spinajs/fs": "2.0.102",
+    "@spinajs/di": "2.0.102",
+    "@azure/identity": "^3.1.3",
+    "@azure/msal-node": "^1.9.1",
+    "@microsoft/microsoft-graph-client": "^3.0.5",
+    "archiver": "^5.3.1",
     "lodash": "^4.17.21",
-    "luxon": "^3.2.1"
+    "luxon": "^3.2.1",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.102"
-  },
-  "gitHead": "b0f038aa2814b69b242ab9a277b26d73d39544d2"
+    "@types/archiver": "^5.3.1",
+    "@types/luxon": "^3.2.0",
+    "@types/uuid": "^9.0.0"
+  }
 }

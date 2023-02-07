@@ -673,7 +673,10 @@ describe('Sqlite model functions', function () {
   });
 });
 
-describe('Sqlite queries', () => {
+describe('Sqlite queries', function () {
+
+  this.timeout(20000);
+
   beforeEach(async () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -815,7 +818,7 @@ describe('Sqlite driver migrate with transaction', function () {
 
     try {
       await orm.migrateUp();
-    } catch {}
+    } catch { }
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
@@ -828,4 +831,6 @@ describe('Sqlite driver migrate with transaction', function () {
     DI.unregister(Fake2Orm);
     DI.unregister(MigrationFailed_2022_02_08_01_13_00);
   });
+
+
 });

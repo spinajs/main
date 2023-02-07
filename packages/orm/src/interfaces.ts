@@ -3,7 +3,7 @@ import { Op } from './enums.js';
 import { QueryBuilder, RawQuery } from './builders.js';
 import { SortOrder, WhereBoolean } from './enums.js';
 import { IQueryStatement, Wrap } from './statements.js';
-import { PartialArray, PartialModel, Unbox, WhereFunction } from './types.js';
+import { ModelData, ModelDataWithRelationData, PartialArray, PartialModel, PickRelations, Unbox, WhereFunction } from './types.js';
 import { Relation, IOrmRelation } from './relations.js';
 import { OrmDriver } from './driver.js';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
@@ -332,12 +332,12 @@ export interface IRelationDescriptor {
   /**
    * Relation model (  foreign )
    */
-  TargetModel: Constructor<ModelBase>;
+  TargetModel: Constructor<ModelBase> & IModelStatic;
 
   /**
    * Relation owner
    */
-  SourceModel: Constructor<ModelBase>;
+  SourceModel: Constructor<ModelBase> & IModelStatic;
 
   /**
    * Relation foreign key (one to one, one to many)
@@ -375,6 +375,107 @@ export interface IRelationDescriptor {
    *  that is passed in this property
    */
   RelationClass?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>>;
+}
+
+export interface IModelStatic extends Constructor<ModelBase<unknown>> {
+  where<T extends typeof ModelBase>(val: boolean): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  where<T extends typeof ModelBase>(val: PartialArray<InstanceType<T>> | PickRelations<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  where<T extends typeof ModelBase>(func: WhereFunction<InstanceType<T>>): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  where<T extends typeof ModelBase>(column: string, operator: Op, value: any): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  where<T extends typeof ModelBase>(column: string, value: any): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  where<T extends typeof ModelBase>(statement: Wrap): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  where<T extends typeof ModelBase>(column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | PickRelations<T>, operator?: Op | any, value?: any): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  where<T extends typeof ModelBase>(column: string | boolean | WhereFunction<InstanceType<T>> | RawQuery | PartialArray<InstanceType<T>> | Wrap | PickRelations<T>, _operator?: Op | any, _value?: any): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  destroy<T extends typeof ModelBase>(pk?: any | any[]): IDeleteQueryBuilder<InstanceType<T>> & Promise<IUpdateResult>;
+  create<T extends typeof ModelBase>(data: Partial<InstanceType<T>>): Promise<InstanceType<T>>;
+  query<T extends typeof ModelBase>(): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  count<T extends typeof ModelBase>(callback?: (builder: IWhereBuilder<T>) => void): Promise<number>;
+  count(): Promise<number>;
+  update<T extends typeof ModelBase>(data: Partial<InstanceType<T>>): IUpdateQueryBuilder<InstanceType<T>>;
+  exists(pk: any): Promise<boolean>;
+  get<T extends typeof ModelBase>(pk: any): Promise<InstanceType<T>>;
+  insert<T extends typeof ModelBase>(data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour?: InsertBehaviour) : Promise<IUpdateResult>;
+}
+
+export interface IModelBase {
+  ModelDescriptor: IModelDescriptor;
+  Container: IContainer;
+  PrimaryKeyName: string;
+  PrimaryKeyValue: any;
+  getFlattenRelationModels(): IModelBase[];
+
+  /**
+   * Fills model with data. It only fills properties that exists in database
+   *
+   * @param data - data to fill
+   */
+  hydrate(data: Partial<this>): void;
+
+  /**
+   *
+   * Attachess model to proper relation an sets foreign key
+   *
+   * @param data - model to attach
+   */
+  attach(data: ModelBase): void;
+
+  /**
+   * Extracts all data from model. It takes only properties that exists in DB. Does not dehydrate related data.
+   *
+   * @param omit - fields to omit
+   */
+  dehydrate(omit?: string[]): ModelData<this>;
+
+  /**
+   *
+   * Extracts all data from model with relation data. Relation data are dehydrated recursively.
+   *
+   * @param omit - fields to omit
+   */
+  dehydrateWithRelations(omit?: string[]): ModelDataWithRelationData<this>;
+
+  /**
+   * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
+   */
+  destroy(): Promise<void>;
+  /**
+   * If model can be in achived state - sets archived at date and saves it to db
+   */
+  archive(): Promise<void>;
+
+  /**
+   * Updates model to db
+   */
+  update(): Promise<void>;
+
+  /**
+   * Save all changes to db. It creates new entry id db or updates existing one if
+   * primary key exists
+   */
+  insert(insertBehaviour: InsertBehaviour): Promise<IUpdateResult>;
+
+  /**
+   * Gets model data from database and returns as fresh instance.
+   *
+   * If primary key is not fetched, tries to load by columns with unique constraint.
+   * If there is no unique columns or primary key, throws error
+   */
+  fresh(): Promise<this>;
+
+  /**
+   * Refresh model from database.
+   *
+   * If no primary key is set, tries to fetch data base on columns
+   * with unique constraints. If none exists, throws exception
+   */
+  refresh(): Promise<void>;
+
+  /**
+   * Used for JSON serialization
+   */
+  toJSON(): any;
+
+  driver(): OrmDriver;
 }
 
 export interface IJunctionProperty {
@@ -675,7 +776,7 @@ export interface IGroupByBuilder {
  * Dummy abstract class for allowing to add extensions for builder via declaration merging & mixins
  */
 //@ts-ignore
-export interface ISelectBuilderExtensions<T> {}
+export interface ISelectBuilderExtensions<T> { }
 
 export interface IJoinBuilder {
   JoinStatements: IQueryStatement[];
@@ -731,6 +832,10 @@ export interface IBuilder<T> extends PromiseLike<T> {
   toDB(): ICompilerOutput | ICompilerOutput[];
 }
 
+export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
+
+export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
+
 export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IBuilder<T> {
   min(column: string, as?: string): this;
   max(column: string, as?: string): this;
@@ -740,7 +845,7 @@ export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder
   distinct(): this;
   clone(): this;
   populate<R = this>(relation: string, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
-
+  asRaw<T>(): Promise<T>;
   /**
    * Returns all records. Its for type castin when using with scopes mostly.
    */
@@ -967,7 +1072,7 @@ export class ValueConverter implements IValueConverter {
 /**
  * Converter for DATETIME field (eg. mysql datetime)
  */
-export class DatetimeValueConverter extends ValueConverter {}
+export class DatetimeValueConverter extends ValueConverter { }
 
 export class JsonValueConverter extends ValueConverter {
   /**
@@ -992,7 +1097,7 @@ export class JsonValueConverter extends ValueConverter {
 /**
  * Converter for set field (eg. mysql SET)
  */
-export class SetValueConverter extends ValueConverter {}
+export class SetValueConverter extends ValueConverter { }
 
 @Singleton()
 export abstract class TableAliasCompiler {
@@ -1006,7 +1111,7 @@ export interface IUniversalConverterOptions {
 /**
  * base class for select & where builder for defining scopes
  */
-export abstract class QueryScope {}
+export abstract class QueryScope { }
 
 export interface IHistoricalModel {
   readonly __action__: 'insert' | 'update' | 'delete';

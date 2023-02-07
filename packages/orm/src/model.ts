@@ -3,7 +3,7 @@ import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } fro
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders.js';
 import { Op } from './enums.js';
@@ -53,87 +53,6 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
     _reduce(t.prototype);
     _reduce(t.__proto__);
   }
-}
-
-export interface IModelBase {
-  ModelDescriptor: IModelDescriptor;
-  Container: IContainer;
-  PrimaryKeyName: string;
-  PrimaryKeyValue: any;
-  getFlattenRelationModels(): IModelBase[];
-
-  /**
-   * Fills model with data. It only fills properties that exists in database
-   *
-   * @param data - data to fill
-   */
-  hydrate(data: Partial<this>): void;
-
-  /**
-   *
-   * Attachess model to proper relation an sets foreign key
-   *
-   * @param data - model to attach
-   */
-  attach(data: ModelBase): void;
-
-  /**
-   * Extracts all data from model. It takes only properties that exists in DB. Does not dehydrate related data.
-   *
-   * @param omit - fields to omit
-   */
-  dehydrate(omit?: string[]): ModelData<this>;
-
-  /**
-   *
-   * Extracts all data from model with relation data. Relation data are dehydrated recursively.
-   *
-   * @param omit - fields to omit
-   */
-  dehydrateWithRelations(omit?: string[]): ModelDataWithRelationData<this>;
-
-  /**
-   * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
-   */
-  destroy(): Promise<void>;
-  /**
-   * If model can be in achived state - sets archived at date and saves it to db
-   */
-  archive(): Promise<void>;
-
-  /**
-   * Updates model to db
-   */
-  update(): Promise<void>;
-
-  /**
-   * Save all changes to db. It creates new entry id db or updates existing one if
-   * primary key exists
-   */
-  insert(insertBehaviour: InsertBehaviour): Promise<IUpdateResult>;
-
-  /**
-   * Gets model data from database and returns as fresh instance.
-   *
-   * If primary key is not fetched, tries to load by columns with unique constraint.
-   * If there is no unique columns or primary key, throws error
-   */
-  fresh(): Promise<this>;
-
-  /**
-   * Refresh model from database.
-   *
-   * If no primary key is set, tries to fetch data base on columns
-   * with unique constraints. If none exists, throws exception
-   */
-  refresh(): Promise<void>;
-
-  /**
-   * Used for JSON serialization
-   */
-  toJSON(): any;
-
-  driver(): OrmDriver;
 }
 
 export class ModelBase<M = unknown> implements IModelBase {
@@ -330,7 +249,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Returns total count of entries in db for this model
    */
-  public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<InstanceType<T>>;
+  public static count<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T> & T['_queryScopes']) => void): Promise<number>;
   public static count<T extends typeof ModelBase>(this: T): Promise<number> {
     throw new Error('Not implemented');
   }
@@ -402,6 +321,13 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
 
   public static destroy<T extends typeof ModelBase>(this: T, _pk?: any | any[]): DeleteQueryBuilder<InstanceType<T>> & T['_queryScopes'] {
+    throw new Error('Not implemented');
+  }
+
+  /**
+   * Checks if model exists in db
+   */
+  public static exists(): Promise<boolean> {
     throw new Error('Not implemented');
   }
 
@@ -960,6 +886,21 @@ export const MODEL_STATIC_MIXINS = {
     }
 
     return entity;
+  },
+
+  async exists<T extends typeof ModelBase>(this: T, pk: any) {
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
+    // pk constrain
+    if (description.PrimaryKey && pk !== null) {
+      query.where(description.PrimaryKey, pk);
+    }
+
+    const result = query.clearColumns().select(description.PrimaryKey).first();
+    if (result) {
+      return true;
+    }
+
+    return false;
   },
 
   async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {

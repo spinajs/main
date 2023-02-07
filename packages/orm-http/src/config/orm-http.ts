@@ -11,6 +11,14 @@ const ormHttp = {
       schemas: [dir('./../schemas')],
     },
   },
+
+  api: {
+    endpoint: {
+      transformer: {
+        service: 'JsonApiCollectionTransofrmer',
+      }
+    }
+  }
 };
 
 export default ormHttp;
