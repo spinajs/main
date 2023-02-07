@@ -1,5 +1,5 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "../../tsconfig.mjs.json",
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./lib/mjs",
@@ -11,16 +11,16 @@
   ],
   "references": [
     {
-      "path": "../configuration/tsconfig.json"
+      "path": "../configuration/tsconfig.mjs.json"
     },
     {
-      "path": "../di/tsconfig.json"
+      "path": "../di/tsconfig.mjs.json"
     },
     {
-      "path": "../fs/tsconfig.json"
+      "path": "../fs/tsconfig.mjs.json"
     },
     {
-      "path": "../log/tsconfig.json"
+      "path": "../log/tsconfig.mjs.json"
     },
   ]
 }

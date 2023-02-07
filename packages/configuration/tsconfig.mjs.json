@@ -1,5 +1,5 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "../../tsconfig.mjs.json",
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./lib/mjs",
@@ -8,9 +8,9 @@
   },
   "include": ["src/**/*"],
   "references": [
-    { "path": "../exceptions/tsconfig.json" },
-    { "path": "../configuration-common/tsconfig.json" },
-    { "path": "../internal-logger/tsconfig.json" },
-    { "path": "../di/tsconfig.json" }
+    { "path": "../exceptions/tsconfig.mjs.json" },
+    { "path": "../configuration-common/tsconfig.mjs.json" },
+    { "path": "../internal-logger/tsconfig.mjs.json" },
+    { "path": "../di/tsconfig.mjs.json" }
   ]
 }

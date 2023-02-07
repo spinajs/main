@@ -1,11 +1,11 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "../../tsconfig.mjs.json",
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./lib/mjs",
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "references": [{ "path": "../exceptions/tsconfig.json" }],
+  "references": [{ "path": "../exceptions/tsconfig.mjs.json" }],
   "include": ["src/**/*"]
 }

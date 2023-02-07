@@ -6,6 +6,6 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*","test/**/*"],
   "references": [{ "path": "../configuration/tsconfig.json" }, { "path": "../di/tsconfig.json" }, { "path": "../exceptions/tsconfig.json" }, { "path": "../log/tsconfig.json" }, { "path": "../orm/tsconfig.json" }]
 }
