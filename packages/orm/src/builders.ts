@@ -283,11 +283,15 @@ export class LimitBuilder<T> implements ILimitBuilder<T> {
     return this;
   }
 
-  public async first() {
+  public takeFirst() {
     this._first = true;
     this._limit.limit = 1;
 
-    return (await this) as any;
+    return this;
+  }
+
+  public async first() {
+    return (await this.takeFirst()) as any;
   }
 
   public async firstOrFail() {
@@ -329,6 +333,10 @@ export class OrderByBuilder implements IOrderByBuilder {
   }
 
   public order(column: string, direction: SortOrder) {
+    if (!column) {
+      return this;
+    }
+
     this._sort = {
       column,
       order: direction,
@@ -595,8 +603,21 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._tableAlias = tableAlias;
   }
 
+  public when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this {
+    if (condition) {
+      if (callback) callback.call(this);
+    } else if (callbackElse) {
+      callbackElse.call(this);
+    }
+    return this;
+  }
+
   public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>> | PickRelations<T>, operator?: SqlOperator | any, value?: any): this {
     const self = this;
+
+    if (column === null || (undefined && arguments.length === 1)) {
+      return;
+    }
 
     // Support "where true || where false"
     if (_.isBoolean(column)) {
@@ -886,34 +907,56 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return builder as any;
   }
 
-  public populate<R = this>(relation: string, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void) {
+  public populate<R = this>(relation: {} | null, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
+  public populate<R = this>(relation: string, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {
+    if (!relation) {
+      return this;
+    }
+
+    if (typeof relation === 'object') {
+      for (const i in relation) {
+        this.populate(i, () => {
+          if (relation) this.populate(relation[i]);
+        });
+      }
+
+      return this;
+    }
+
     // if relation was already populated, just call callback on it
     const fRelation = this._relations.find((r) => r.Name === relation);
     if (fRelation) {
       fRelation.executeOnQuery(callback);
-      return;
+      return this;
     }
 
     let relInstance: OrmRelation = null;
     const descriptor = extractModelDescriptor(this._model);
 
-    if (!descriptor.Relations.has(relation)) {
+    let rDescriptor = null;
+    for (const [key, value] of descriptor.Relations) {
+      if (key.toLowerCase() === relation.toLowerCase().trim()) {
+        rDescriptor = value;
+        break;
+      }
+    }
+
+    if (!rDescriptor) {
       throw new InvalidArgument(`Relation ${relation} not exists in model ${this._model?.constructor.name}`);
     }
 
-    const relDescription = descriptor.Relations.get(relation);
-    if (relDescription.Recursive) {
-      relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this._container.get(Orm), this, relDescription, this._owner]);
+    if (rDescriptor.Recursive) {
+      relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this._container.get(Orm), this, rDescriptor, this._owner]);
     } else {
-      switch (relDescription.Type) {
+      switch (rDescriptor.Type) {
         case RelationType.One:
-          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this._container.get(Orm), this, relDescription, this._owner]);
+          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this._container.get(Orm), this, rDescriptor, this._owner]);
           break;
         case RelationType.Many:
-          relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this._container.get(Orm), this, relDescription, this._owner]);
+          relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this._container.get(Orm), this, rDescriptor, this._owner]);
           break;
         case RelationType.ManyToMany:
-          relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [this._container.get(Orm), this, relDescription, null]);
+          relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [this._container.get(Orm), this, rDescriptor, null]);
           break;
       }
     }

@@ -394,7 +394,7 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
   update<T extends typeof ModelBase>(data: Partial<InstanceType<T>>): IUpdateQueryBuilder<InstanceType<T>>;
   exists(pk: any): Promise<boolean>;
   get<T extends typeof ModelBase>(pk: any): Promise<InstanceType<T>>;
-  insert<T extends typeof ModelBase>(data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour?: InsertBehaviour) : Promise<IUpdateResult>;
+  insert<T extends typeof ModelBase>(data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour?: InsertBehaviour): Promise<IUpdateResult>;
 }
 
 export interface IModelBase {
@@ -658,6 +658,7 @@ export interface ILimitBuilder<T> {
   take(count: number): this;
   skip(count: number): this;
   first(): Promise<Unbox<T>>;
+  takeFirst(): this;
   firstOrFail(): Promise<Unbox<T>>;
   firstOrThrow(error: Error): Promise<Unbox<T>>;
   orThrow(error: Error): Promise<Unbox<T>>;
@@ -720,6 +721,15 @@ export interface IWhereBuilder<T> {
 
   Op: WhereBoolean;
 
+  when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this;
+  where(val: boolean): this;
+  where(val: PartialArray<PartialModel<T>>): this;
+  where(func: WhereFunction<T>): this;
+  where(column: string, operator: Op, value: any): this;
+  where(column: string, value: any): this;
+  where(statement: Wrap): this;
+  where(column: string | boolean | WhereFunction<T> | RawQuery | PartialArray<PartialModel<T>> | Wrap, operator?: Op | any, value?: any): this;
+
   where(val: boolean): this;
   where(val: PartialArray<PartialModel<T>>): this;
   where(func: WhereFunction<T>): this;
@@ -776,7 +786,7 @@ export interface IGroupByBuilder {
  * Dummy abstract class for allowing to add extensions for builder via declaration merging & mixins
  */
 //@ts-ignore
-export interface ISelectBuilderExtensions<T> { }
+export interface ISelectBuilderExtensions<T> {}
 
 export interface IJoinBuilder {
   JoinStatements: IQueryStatement[];
@@ -832,9 +842,9 @@ export interface IBuilder<T> extends PromiseLike<T> {
   toDB(): ICompilerOutput | ICompilerOutput[];
 }
 
-export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
+export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {}
 
-export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
+export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
 
 export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IBuilder<T> {
   min(column: string, as?: string): this;
@@ -844,6 +854,8 @@ export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder
   avg(column: string, as?: string): this;
   distinct(): this;
   clone(): this;
+
+  populate<R = this>(relation: {} | null, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   populate<R = this>(relation: string, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   asRaw<T>(): Promise<T>;
   /**
@@ -1072,7 +1084,7 @@ export class ValueConverter implements IValueConverter {
 /**
  * Converter for DATETIME field (eg. mysql datetime)
  */
-export class DatetimeValueConverter extends ValueConverter { }
+export class DatetimeValueConverter extends ValueConverter {}
 
 export class JsonValueConverter extends ValueConverter {
   /**
@@ -1097,7 +1109,7 @@ export class JsonValueConverter extends ValueConverter {
 /**
  * Converter for set field (eg. mysql SET)
  */
-export class SetValueConverter extends ValueConverter { }
+export class SetValueConverter extends ValueConverter {}
 
 @Singleton()
 export abstract class TableAliasCompiler {
@@ -1111,7 +1123,7 @@ export interface IUniversalConverterOptions {
 /**
  * base class for select & where builder for defining scopes
  */
-export abstract class QueryScope { }
+export abstract class QueryScope {}
 
 export interface IHistoricalModel {
   readonly __action__: 'insert' | 'update' | 'delete';

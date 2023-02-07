@@ -57,7 +57,7 @@ export abstract class RouteArgs implements IRouteArgs {
     // extract schema without hydrating
     // to prevent creating object if data is invalid
     result = await this.tryHydrateObject(arg, routeParameter);
-    if (result) {
+    if (result && typeof result === 'object') {
         schema = this.Validator.extractSchema(result);
     }
     if (schema) {

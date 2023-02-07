@@ -2,20 +2,18 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
-import { TestConfiguration, req, FakeRbacPolicy } from './common.js';
+import { TestConfiguration, FakeRbacPolicy, req } from './common.js';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { RbacPolicy } from '@spinajs/rbac-http';
-import './../src/PlainJsonCollectionTransformer.js';
-
-import 'mocha';
-import sinon from 'sinon';
-
-import '../src/index.js';
-
 import { expect } from 'chai';
+import sinon from 'sinon';
+import 'mocha';
+
 import { Belongs } from './models/Belongs.js';
 import { Test } from './models/Test.js';
 import { Test2 } from './models/Test2.js';
+import './../src/PlainJsonCollectionTransformer.js';
+import '../src/index.js';
 
 describe('crud delete tests', function () {
   this.timeout(105000);
@@ -29,7 +27,7 @@ describe('crud delete tests', function () {
     DI.register(FakeRbacPolicy).as(RbacPolicy);
 
     await DI.resolve(Configuration);
-    await DI.resolve(Orm);
+
     await DI.resolve(Controllers);
     const server = await DI.resolve(HttpServer);
     server.start();
@@ -39,10 +37,15 @@ describe('crud delete tests', function () {
     const server = await DI.resolve<HttpServer>(HttpServer);
     server.stop();
 
-    DI.clearCache();
+    const orm = DI.get(Orm);
+    orm.dispose();
+
+    DI.uncache(Orm);
   });
 
   beforeEach(async () => {
+    await DI.resolve(Orm);
+
     await Test.truncate();
     await Test2.truncate();
     await Belongs.truncate();
@@ -57,47 +60,57 @@ describe('crud delete tests', function () {
       { Text: 'Test2-1', test_id: 1 },
       { Text: 'Test2-2', test_id: 1 },
       { Text: 'Test2-3', test_id: 2 },
+      { Text: 'Test2-4', test_id: 2 },
+      { Text: 'Test2-5', test_id: 3 },
     ]);
   });
-  
+
   afterEach(async () => {
     sinon.restore();
   });
 
   it('DEL /:model', async () => {
-    // const m = new Test({ Text: 'added1' });
-    // await m.insert();
-    // const result = await req()
-    //   .del('repository/test/' + m.Id)
-    //   .set('Accept', 'application/json')
-    //   .send();
-    // expect(result).to.have.status(200);
-    // const m2 = Test.where('Id', m.Id);
-    // expect(m2).to.be.null;
+    const result = await req().del('collection/test/1').set('Accept', 'application/json').send();
+    expect(result).to.have.status(200);
+    const m2 = await Test.where('Id', 1).first();
+    expect(m2).to.be.undefined;
   });
 
-  it('DEL /:model:bulkDelete', async () => {});
+  it('DEL /:model/__batchDelete', async () => {
+    const result = await req().post('collection/test/__batchDelete').set('Accept', 'application/json').send([1, 2, 3]);
+    expect(result).to.have.status(200);
+    const m2 = await Test.query().whereIn('Id', [1, 2, 3]);
+    expect(m2.length).to.eq(0);
+  });
 
-  it('DEL /:model/:id/:relation/:id', async () => {});
+  it('DEL /:model/:id/:relation/:id', async () => {
+    const result = await req().del('collection/test/1/teststwos/1').set('Accept', 'application/json').send();
+    expect(result).to.have.status(200);
+    const m2 = await Test2.query().where('Id', 1).first();
+    expect(m2).to.be.undefined;
+  });
 
-  it('DEL /:model/:id/:relation/:id oneToOne relation', async () => {});
+  it('DEL /:model/:id/:relation/:id should throw if parent not exists', async () => {
+    const result = await req().del('collection/test/111/teststwos/1').set('Accept', 'application/json').send();
+    expect(result).to.have.status(404);
+  });
 
-  it('DEL /:model/:id/:relation/:id:bulkDelete', async () => {
-    const m = new Test2({ Text: 'added1' });
-    await m.insert();
-
-    const m2 = new Test2({ Text: 'added2' });
-    await m2.insert();
-
-    const result = await req().post('repository/test/1/testtwos:deleteBulk').set('Accept', 'application/json').send([m.Id, m2.Id]);
-
+  it('DEL /:model/:id/:relation/:id oneToOne relation', async () => {
+    const result = await req().del('collection/test/1/belongs/1').set('Accept', 'application/json').send();
     expect(result).to.have.status(200);
 
-    const r = await Test2.query().whereIn('Id', [m.Id, m2.Id]);
-    expect(r.length).to.eq(0);
+    const m2 = await Belongs.query().where('Id', 1).first();
+    expect(m2).to.be.undefined;
+
+    const m3 = await Test.query().where('Id', 1).populate('Belongs').first();
+    expect(m3).to.not.be.undefined;
+    expect(m3.Belongs.Value).to.be.undefined;
   });
 
-  it('DEL /:model/:id should throw', async () => {});
-
-  it('DEL /:model/:id/:relation/:id should throw when no owner', async () => {});
+  it('DEL /:model/:id/:relation/__batchDelete', async () => {
+    const result = await req().post('collection/test/1/teststwos/__batchDelete').set('Accept', 'application/json').send([1, 2]);
+    expect(result).to.have.status(200);
+    const m2 = await Test2.query().whereIn('Id', [1, 2]);
+    expect(m2.length).to.be.eq(0);
+  });
 });

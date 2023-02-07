@@ -50,7 +50,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         targets: [
           {
             name: 'Empty',
-            type: 'ConsoleTarget',
+            type: 'BlackHoleTarget',
           },
         ],
 

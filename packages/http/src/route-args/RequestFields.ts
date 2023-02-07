@@ -5,7 +5,7 @@ import { Injectable } from '@spinajs/di';
 import _ from 'lodash';
 
 @Injectable()
-export class BodyField extends RouteArgs {
+export class BodyFieldRouteArgs extends RouteArgs {
   public get SupportedType(): ParameterType {
     return ParameterType.BodyField;
   }
@@ -18,7 +18,7 @@ export class BodyField extends RouteArgs {
 }
 
 @Injectable()
-export class QueryField extends RouteArgs {
+export class QueryFieldRouteArg extends RouteArgs {
   public get SupportedType(): ParameterType {
     return ParameterType.QueryField;
   }
@@ -32,7 +32,7 @@ export class QueryField extends RouteArgs {
 
 
 @Injectable()
-export class HeadersField extends RouteArgs {
+export class HeadersFieldRouteArg extends RouteArgs {
   public get SupportedType(): ParameterType {
     return ParameterType.Headers;
   }
@@ -46,7 +46,7 @@ export class HeadersField extends RouteArgs {
 
 
 @Injectable()
-export class ParamField extends RouteArgs {
+export class ParamFieldRouteArg extends RouteArgs {
   public get SupportedType(): ParameterType {
     return ParameterType.ParamField;
   }
