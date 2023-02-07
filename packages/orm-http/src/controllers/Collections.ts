@@ -5,7 +5,7 @@ import { Autoinject, Constructor } from '@spinajs/di';
 import { ClassInfo } from '@spinajs/reflection';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
-import _ from 'lodash';
+import _, { filter } from 'lodash';
 import { ModelType } from '../route-args/ModelType.js';
 import { FindModelType } from '../policies/FindModelType.js';
 import { QueryArgs } from '../dto/QueryArgs.js';
@@ -212,49 +212,71 @@ export class Collections extends BaseController {
   @Get(':model/:id/relation/:relationId')
   @Permission('readAny')
   public async getRelation(@ModelType() model: IModelStatic, @Query() id: any, @Query() relation: string, @Query() relationId: any, @Query() includes: QueryIncludes) {
-    const descriptor = this.getRelationDescriptor(model, relation);
-    const result = await query.firstOrThrow(
-      new ResourceNotFound(`Record with id ${id} not found`, {
-        Resource: model.name,
-        Id: id,
-      }),
-    );
 
-    return new Ok((result as any)[relation]);
+    const mDescriptor = this.getModelDescriptor(model);
+    const rDescriptor = this.getRelationDescriptor(model, relation);
+    const rmDescriptor = this.getModelDescriptor(rDescriptor.TargetModel);
+    const result = await model.where(mDescriptor.PrimaryKey, id)
+      .populate(relation, function () {
+        applyIncludes(this, includes);
+        if (rDescriptor.Type === RelationType.Many) {
+          this.where(rmDescriptor.PrimaryKey, relationId);
+        }
+      }).firstOrThrow(new ResourceNotFound(`Record with id ${id} not found`, {
+        Resource: model.name,
+        [mDescriptor.PrimaryKey]: id,
+      }));
+
+
+    return new Ok(rDescriptor.Type === RelationType.Many ? (result as any)[relation] : (result as any)[relation][0]);
   }
 
   @Get(':model/:id/:relation')
   @Permission('readAny')
-  public async getRelations(@ModelType() model: ClassInfo<ModelBase<unknown>>, @Param() id: any, @Param() relation: string, @Param() relationId: any, @Query() params: QueryArgs, @Query() filters: QueryFilter) {
-    const self = this;
-    let cQuery = null;
-    const { relation: dRelation, query } = this.prepareQuery(model, relation, id, function () {
-      this.where(dRelation.ForeignKey, relationId);
-      self.applyFilters(this, filters);
+  public async getRelations(@ModelType() model: IModelStatic, @Param() id: any, @Param() relation: string, @Query() params: QueryArgs, @Query() filters: QueryFilter, @Query() includes: QueryIncludes) {
+    const mDescriptor = this.getModelDescriptor(model);
+    const rDescriptor = this.getRelationDescriptor(model, relation);
 
-      cQuery = this.clone().select(RawQuery.create('count(*) as count'));
+    let cQuery: ISelectQueryBuilder<ISelectQueryBuilder<ModelBase<unknown>[]>> = null;
 
-      if (params.order) {
-        this.order(params.order, params.orderDirection ?? SortOrder.ASC);
-      }
+    const result = await model.where(mDescriptor.PrimaryKey, id)
+      .populate(relation, function () {
+        applyIncludes(this, includes);
+        this.where(filters);
 
-      if (params.page) {
-        this.skip(params.page * params.perPage ?? 10).take(params.perPage ?? 10);
-      }
-    });
+        if (params.order) {
+          this.order(params.order, params.orderDirection ?? SortOrder.ASC);
+        }
 
-    const result = await query.firstOrThrow(
-      new ResourceNotFound(`Record with id ${id} not found`, {
+        if (params.page) {
+          this.skip(params.page * params.perPage ?? 10).take(params.perPage ?? 10);
+        }
+
+        if (rDescriptor.Type === RelationType.Many) {
+          cQuery = this.clone();
+          cQuery.clearColumns().select(RawQuery.create('count(*) as count'));
+        }
+      }).firstOrThrow(new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        Id: id,
-      }),
-    );
-    const count = (await (cQuery as SelectQueryBuilder).asRaw()) as { count: number }[];
+        [mDescriptor.PrimaryKey]: id,
+      }));
 
-    return new Ok({
-      Data: (result as any)[relation],
-      Total: count[0].count,
-    });
+    let count = 1;
+    if (cQuery) {
+      count = (await cQuery.asRaw() as { count: number }[])[0].count;
+    }
+
+    if (rDescriptor.Type === RelationType.Many) {
+      return new Ok({
+        Data: (result as any)[relation],
+        Total: count,
+      });
+    } else if (rDescriptor.Type === RelationType.One) {
+      return new Ok({
+        Data: [(result as any)[relation]],
+        Total: 1,
+      });
+    }
   }
 
   // --------------------- POST functions --------------------- //
@@ -275,41 +297,32 @@ export class Collections extends BaseController {
 
   @Post(':model/:id/relation/:relation')
   @Permission('createAny')
-  public async insertRelation(@ModelType() model: ClassInfo<ModelBase<unknown>>, @Param() id: any, @Param() relation: string, @BodyField() data: unknown) {
-    const { query } = this.prepareQuery(model, relation, id, null);
-    const toInsert = model.type['create'](data) as ModelBase<any>;
+  public async insertRelation(@ModelType() model: IModelStatic, @Param() id: any, @Param() relation: string, @BodyField() data: unknown) {
 
-    const result = await query.firstOrThrow(
+    const mDescriptor = this.getModelDescriptor(model);
+    const rDescriptor = this.getRelationDescriptor(model, relation);
+    let toInsert: ModelBase<unknown>[] = [];
+    if (Array.isArray(data)) {
+      toInsert = data.map((x) => new rDescriptor.TargetModel(x));
+    } else {
+      toInsert = [new rDescriptor.TargetModel(data)];
+    }
+
+    const result = await model.where(mDescriptor.PrimaryKey, id).firstOrThrow(
       new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
         Id: id,
       }),
     );
 
-    result.attach(toInsert);
-    await toInsert.insert();
+    toInsert.forEach((x) => {
+      result.attach(x);
+    });
+    await Promise.all(toInsert.map(x => x.insert()));
 
-    return new Ok(toInsert.toJSON());
+    return new Ok(toInsert.map(x => x.toJSON()));
   }
 
-  @Post(':model/:id/relation/:relation:bulkInsert')
-  @Permission('createAny')
-  public async insertRelationBulk(@ModelType() model: ClassInfo<ModelBase<unknown>>, @Param() id: any, @Param() relation: string, @BodyField() data: unknown[]) {
-    const { query } = this.prepareQuery(model, relation, id, null);
-    const toInsert = data.map((x) => model.type['create'](x) as ModelBase<any>);
-
-    const result = await query.firstOrThrow(
-      new ResourceNotFound(`Record with id ${id} not found`, {
-        Resource: model.name,
-        Id: id,
-      }),
-    );
-
-    toInsert.forEach((x) => result.attach(x));
-    await model.type['insert'](toInsert);
-
-    return new Ok(toInsert.map((x) => x.toJSON()));
-  }
 
   // --------------------- PUT functions --------------------- //
 
