@@ -1,6 +1,6 @@
 import { Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { Job, QueueClient, QueueJob } from '@spinajs/queue';
+import { Job, QueueService, QueueJob } from '@spinajs/queue';
 import { UserUnbanned } from '../events/index.js';
 import { User } from '../models/User.js';
 

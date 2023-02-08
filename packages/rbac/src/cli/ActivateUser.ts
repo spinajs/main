@@ -1,6 +1,6 @@
 import { UserDeactivated } from './../events/UserDeactivated.js';
 //import { UserBannedMessage } from './../messages/UserBanned';
-import { QueueClient, QueueService } from '@spinajs/Queue';
+import { QueueService } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';

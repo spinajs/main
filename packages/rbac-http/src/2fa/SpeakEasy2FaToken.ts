@@ -5,7 +5,7 @@ import { User } from '@spinajs/rbac';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 
-@Injectable()
+@Injectable(TwoFactorAuthProvider)
 export class SpeakEasy2FaToken extends TwoFactorAuthProvider {
   @Config('rbac.speakeasy')
   protected Config: any;

@@ -40,7 +40,7 @@ export class LoginController extends BaseController {
   @AutoinjectService('rbac.twoFactorAuth')
   protected TwoFactorAuthProvider: TwoFactorAuthProvider;
 
-  @AutoinjectService('rbac.fingerprint.provider')
+  @AutoinjectService('rbac.fingerprint')
   protected FingerprintProvider: FingerprintProvider;
 
   @AutoinjectService('rbac.password.validation')

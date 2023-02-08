@@ -1,5 +1,5 @@
 import { UserUnbanned } from './../events/UserUnbanned.js';
-import { QueueClient } from '@spinajs/Queue';
+import { QueueService } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';

@@ -10,7 +10,7 @@ import { TwoFactorAuthProvider } from '../interfaces.js';
 import { DateTime } from 'luxon';
 import { UserLoginSuccess } from '../events/UserLoginSuccess.js';
 import { Autoinject } from '@spinajs/di';
-import { QueueClient } from '@spinajs/queue';
+import { QueueService } from '@spinajs/queue';
 
 @BasePath('user/auth')
 @Policy(TwoFacRouteEnabled)
