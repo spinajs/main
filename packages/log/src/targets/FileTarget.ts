@@ -62,12 +62,12 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     }
 
     if (!fs.existsSync(this.LogDirPath)) {
-      fs.mkdirSync(this.LogDirPath);
+      fs.mkdirSync(this.LogDirPath, { recursive: true });
     }
 
     if (this.ArchiveDirPath) {
       if (!fs.existsSync(this.ArchiveDirPath)) {
-        fs.mkdirSync(this.ArchiveDirPath);
+        fs.mkdirSync(this.ArchiveDirPath, { recursive: true });
       }
     }
 
