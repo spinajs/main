@@ -15,8 +15,8 @@ export class ChangeUserPassword extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
-  @Autoinject(QueueClient)
-  protected Queue: QueueClient;
+  @Autoinject(QueueService)
+  protected Queue: QueueService;
 
   @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;

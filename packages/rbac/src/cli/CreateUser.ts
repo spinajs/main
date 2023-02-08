@@ -28,8 +28,8 @@ export class CreateUser extends CliCommand {
   @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;
 
-  @Autoinject(QueueClient)
-  protected Queue: QueueClient;
+  @Autoinject(QueueService)
+  protected Queue: QueueService;
 
   public async execute(options: UserCreationOptions): Promise<void> {
     const user = new User({

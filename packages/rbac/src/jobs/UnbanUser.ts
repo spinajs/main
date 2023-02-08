@@ -9,8 +9,8 @@ export class UnbanUser extends QueueJob {
   @Logger('rbac')
   protected Log: Log;
 
-  @Autoinject(QueueClient)
-  protected Queue: QueueClient;
+  @Autoinject(QueueService)
+  protected Queue: QueueService;
 
   constructor(public UserUUID: string) {
     super();

@@ -15,8 +15,8 @@ import { QueueClient } from '@spinajs/queue';
 @BasePath('user/auth')
 @Policy(TwoFacRouteEnabled)
 export class TwoFactorAuthController extends BaseController {
-  @Autoinject(QueueClient)
-  protected Queue: QueueClient;
+  @Autoinject(QueueService)
+  protected Queue: QueueService;
 
   @AutoinjectService('rbac.session')
   protected SessionProvider: SessionProvider;

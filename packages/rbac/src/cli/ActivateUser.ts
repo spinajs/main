@@ -1,6 +1,6 @@
 import { UserDeactivated } from './../events/UserDeactivated.js';
 //import { UserBannedMessage } from './../messages/UserBanned';
-import { QueueClient } from '@spinajs/Queue';
+import { QueueClient, QueueService } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
@@ -14,8 +14,8 @@ export class ActivateUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
-  @Autoinject(QueueClient)
-  protected Queue: QueueClient;
+  @Autoinject(QueueService)
+  protected Queue: QueueService;
 
   public async execute(idOrUuid: string, active: boolean): Promise<void> {
     const result = await User.update({ IsActive: active }).where('Id', idOrUuid).orWhere('Uuid', idOrUuid);
