@@ -3,7 +3,7 @@ import { Op } from './enums.js';
 import { QueryBuilder, RawQuery } from './builders.js';
 import { SortOrder, WhereBoolean } from './enums.js';
 import { IQueryStatement, Wrap } from './statements.js';
-import { ModelData, ModelDataWithRelationData, PartialArray, PartialModel, PickRelations, Unbox, WhereFunction } from './types.js';
+import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
 import { Relation, IOrmRelation } from './relations.js';
 import { OrmDriver } from './driver.js';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
@@ -722,50 +722,43 @@ export interface IWhereBuilder<T> {
   Op: WhereBoolean;
 
   when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this;
-  where(val: boolean): this;
-  where(val: PartialArray<PartialModel<T>>): this;
-  where(func: WhereFunction<T>): this;
-  where(column: string, operator: Op, value: any): this;
-  where(column: string, value: any): this;
-  where(statement: Wrap): this;
-  where(column: string | boolean | WhereFunction<T> | RawQuery | PartialArray<PartialModel<T>> | Wrap, operator?: Op | any, value?: any): this;
 
   where(val: boolean): this;
-  where(val: PartialArray<PartialModel<T>>): this;
+  where(val: Partial<ModelData<Unbox<T>>>): this;
   where(func: WhereFunction<T>): this;
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
   where(statement: Wrap): this;
-  where(column: string | boolean | WhereFunction<T> | RawQuery | PartialArray<PartialModel<T>> | Wrap, operator?: Op | any, value?: any): this;
+  where(column: string | boolean | WhereFunction<T> | RawQuery | Partial<ModelData<Unbox<T>>> | Wrap, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
-  orWhere(val: PartialArray<PartialModel<T>>): this;
+  orWhere(val: Partial<ModelData<Unbox<T>>>): this;
   orWhere(func: WhereFunction<T>): this;
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
   orWhere(statement: Wrap): this;
-  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>>, operator?: Op | any, value?: any): this;
+  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
-  andWhere(val: PartialArray<PartialModel<T>>): this;
+  andWhere(val: Partial<ModelData<Unbox<T>>>): this;
   andWhere(func: WhereFunction<T>): this;
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
   andWhere(statement: Wrap): this;
-  andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | PartialArray<PartialModel<T>>, operator?: Op | any, value?: any): this;
+  andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: Op | any, value?: any): this;
 
-  whereObject(obj: any): this;
+  whereObject(obj: Partial<ModelData<Unbox<T>>>): this;
   whereNotNull(column: string): this;
   whereNull(column: string): this;
-  whereNot(column: string, val: any): this;
-  whereIn(column: string, val: any[]): this;
-  whereNotIn(column: string, val: any[]): this;
+  whereNot(column: string, val: unknown): this;
+  whereIn(column: string, val: unknown[]): this;
+  whereNotIn(column: string, val: unknown[]): this;
   whereExist(query: ISelectQueryBuilder<T>): this;
   whereNotExists(query: ISelectQueryBuilder<T>): this;
-  whereBetween(column: string, val: any[]): this;
-  whereNotBetween(column: string, val: any[]): this;
-  whereInSet(column: string, val: any[]): this;
-  whereNotInSet(column: string, val: any[]): this;
+  whereBetween(column: string, val: unknown[]): this;
+  whereNotBetween(column: string, val: unknown[]): this;
+  whereInSet(column: string, val: unknown[]): this;
+  whereNotInSet(column: string, val: unknown[]): this;
   clearWhere(): this;
 }
 

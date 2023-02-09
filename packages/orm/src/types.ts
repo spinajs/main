@@ -26,3 +26,5 @@ export type ModelDataWithRelationData<T> = Omit<Pick<T, NonFunctionAndRelationPr
 export type PartialArray<T> = {
   [P in keyof T]: T[P] | T[P][];
 };
+
+ 

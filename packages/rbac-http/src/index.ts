@@ -7,3 +7,4 @@ export * from './controllers/UserController.js';
 export * from './transformers.js';
 export * from './route-args.js';
 export * from './2fa/SpeakEasy2FaToken.js';
+export * from "./fingerprint/FingerprintJs.js";
