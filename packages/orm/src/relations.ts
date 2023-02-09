@@ -4,7 +4,7 @@ import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, F
 import { NewInstance, DI, Constructor, isConstructor } from '@spinajs/di';
 import { SelectQueryBuilder } from './builders.js';
 import { createQuery, extractModelDescriptor, ModelBase } from './model.js';
-import { IModelBase } from "./interfaces.js";
+import { IModelBase } from './interfaces.js';
 import { Orm } from './orm.js';
 import { OrmDriver } from './driver.js';
 import _ from 'lodash';
@@ -173,10 +173,9 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
         }
 
         const result = buildRelationTree(relationData, null);
-        data.forEach((d : any) => {
-          d[name] = (result.find((r : any) => r[key] === d[key]) as any )[name];
+        data.forEach((d: any) => {
+          d[name] = (result.find((r: any) => r[key] === d[key]) as any)[name];
         });
-        console.log("da");
       },
     };
 
@@ -372,7 +371,7 @@ export class BelongsToRelation extends OrmRelation {
     this._query.mergeBuilder(this._relationQuery);
 
     this._query.middleware(new BelongsToPopulateDataMiddleware(this._description, this));
-    if (!this.parentRelation) {
+    if (!this.parentRelation || !(this.parentRelation instanceof BelongsToRelation)) {
       // if we are on top of the belongsTo relation stack
       // add transform middleware
       // we do this becouse belongsTo modifies query (not creating new like oneToMany and manyToMany)

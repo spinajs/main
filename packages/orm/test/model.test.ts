@@ -10,7 +10,7 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
-import { Orm } from '../src/index.js';
+import { ExcludedModelProperties, ModelDataWithRelationData, Orm } from '../src/index.js';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler } from './misc.js';
 import { IModelDescriptor, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, InsertBehaviour, DatetimeValueConverter, TableQueryCompiler } from '../src/interfaces.js';
 import * as sinon from 'sinon';
@@ -517,7 +517,7 @@ describe('General model tests', () => {
     const scope = sinon.spy(ModelWithScopeQueryScope.prototype, 'whereIdIsGreaterThan');
 
     await ModelWithScope.query().whereIdIsGreaterThan(1);
-
+   
     expect(execute.calledOnce).to.be.true;
     expect(scope.calledOnce).to.be.true;
   });
@@ -614,6 +614,13 @@ describe('General model tests', () => {
     expect(result).instanceOf(Model1);
     expect(result.PrimaryKeyValue).to.eq(1);
     expect(result.Bar).to.eq('hello');
+
+    const  t: Omit<ModelDataWithRelationData<Model1>, ExcludedModelProperties> = null;
+
+    Model1.query().where({
+      Bar: "ss",
+      Owner: 1
+    })
   });
 
   it('getOrNew with data should work', async () => {

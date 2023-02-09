@@ -724,23 +724,23 @@ export interface IWhereBuilder<T> {
   when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this;
 
   where(val: boolean): this;
-  where(val: Partial<ModelData<Unbox<T>>>): this;
+  where(val: Partial<ModelDataWithRelationData<Unbox<T>>>): this;
   where(func: WhereFunction<T>): this;
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
   where(statement: Wrap): this;
-  where(column: string | boolean | WhereFunction<T> | RawQuery | Partial<ModelData<Unbox<T>>> | Wrap, operator?: Op | any, value?: any): this;
+  where(column: string | boolean | WhereFunction<T> | RawQuery | Partial<ModelDataWithRelationData<Unbox<T>>> | Wrap, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
-  orWhere(val: Partial<ModelData<Unbox<T>>>): this;
+  orWhere(val: Partial<ModelDataWithRelationData<Unbox<T>>>): this;
   orWhere(func: WhereFunction<T>): this;
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
   orWhere(statement: Wrap): this;
-  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: Op | any, value?: any): this;
+  orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationData<Unbox<T>>>, operator?: Op | any, value?: any): this;
 
   andWhere(val: boolean): this;
-  andWhere(val: Partial<ModelData<Unbox<T>>>): this;
+  andWhere(val: Partial<ModelDataWithRelationData<Unbox<T>>>): this;
   andWhere(func: WhereFunction<T>): this;
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;

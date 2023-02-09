@@ -7,7 +7,7 @@ import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
 import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap } from './statements.js';
-import { ModelData, PickRelations, Unbox, WhereFunction } from './types.js';
+import {  ModelDataWithRelationData, PickRelations, Unbox, WhereFunction } from './types.js';
 import { OrmDriver } from './driver.js';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations.js';
@@ -612,7 +612,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>> | PickRelations<T>, operator?: SqlOperator | any, value?: any): this {
+  public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationData<Unbox<T>>> | PickRelations<T>, operator?: SqlOperator | any, value?: any): this {
     const self = this;
 
     if (column === null || (undefined && arguments.length === 1)) {
@@ -710,12 +710,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
   }
 
-  public orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, ..._args: any[]) {
+  public orWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationData<Unbox<T>>>, ..._args: any[]) {
     this._boolean = WhereBoolean.OR;
     return this.where(column, ...Array.from(arguments).slice(1));
   }
 
-  public andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, ..._args: any[]) {
+  public andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationData<Unbox<T>>>, ..._args: any[]) {
     this._boolean = WhereBoolean.AND;
     return this.where(column, ...Array.from(arguments).slice(1));
   }
@@ -934,6 +934,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const descriptor = extractModelDescriptor(this._model);
 
     let rDescriptor = null;
+    
     for (const [key, value] of descriptor.Relations) {
       if (key.toLowerCase() === relation.toLowerCase().trim()) {
         rDescriptor = value;
@@ -950,7 +951,11 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     } else {
       switch (rDescriptor.Type) {
         case RelationType.One:
-          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this._container.get(Orm), this, rDescriptor, this._owner]);
+          // if relation is one to one, and owner is belongs to, we set parent relation to 
+          // proper column aliases. If any other relation, then we set it to null
+          // becouse it is a new relation query anyway
+          // if we set parent relation, column aliases will be messed up when hydrating
+          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this._container.get(Orm), this, rDescriptor, this._owner instanceof BelongsToRelation ? this._owner : null]);
           break;
         case RelationType.Many:
           relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this._container.get(Orm), this, rDescriptor, this._owner]);
