@@ -118,7 +118,7 @@ export function CreatedAt() {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
     if (type.name !== 'DateTime') {
-      throw Error('Proprety CreatedAt must be DateTime type');
+      throw Error(`Proprety ${propertyKey} marked as CreatedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
 
     model.Timestamps.CreatedAt = propertyKey;
@@ -138,7 +138,7 @@ export function UpdatedAt() {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
     if (type.name !== 'DateTime') {
-      throw Error('Proprety UpdatedAt must be DateTime type');
+      throw Error(`Proprety ${propertyKey} marked as UpdatedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
 
     model.Timestamps.UpdatedAt = propertyKey;
@@ -158,7 +158,7 @@ export function SoftDelete() {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
     if (type.name !== 'DateTime') {
-      throw Error('Proprety DeletedAt must be DateTime type');
+      throw Error(`Proprety ${propertyKey} marked as DeletedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
 
     model.SoftDelete.DeletedAt = propertyKey;
@@ -179,7 +179,7 @@ export function Archived() {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target, propertyKey);
     if (type.name !== 'DateTime') {
-      throw Error('Proprety DeletedAt must be Date type');
+      throw Error(`Proprety ${propertyKey} marked as ArchivedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
 
     model.Archived.ArchivedAt = propertyKey;
