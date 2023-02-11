@@ -1,4 +1,4 @@
-import { ILog } from '@spinajs/log';
+import { Log } from '@spinajs/log-common';
 import { Configuration } from '@spinajs/configuration';
 import { Autoinject, DI, Injectable } from '@spinajs/di';
 import glob from 'glob';
@@ -12,7 +12,7 @@ export abstract class TranslationSource {
   protected Configuration: Configuration;
 
   @Logger('intl')
-  protected Log: ILog;
+  protected Log: Log;
 
   public abstract load(): Promise<{}>;
 }

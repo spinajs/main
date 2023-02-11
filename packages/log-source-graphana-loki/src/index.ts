@@ -2,7 +2,8 @@
 /* eslint-disable security/detect-object-injection */
 import { format } from "@spinajs/configuration-common";
 import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
-import { ILog, ILogEntry, LogTarget, ICommonTargetOptions, Logger } from "@spinajs/log";
+import { Log, ILogEntry, LogTarget, ICommonTargetOptions, Logger } from "@spinajs/log";
+
 
 import axios, { Axios } from "axios";
 import _ from "lodash";
@@ -44,7 +45,7 @@ enum TargetStatus {
 @Injectable("GraphanaLogTarget")
 export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implements IInstanceCheck {
   @Logger("LogLokiTarget")
-  protected Log: ILog;
+  protected Log: Log;
 
   protected Entries: ILogEntry[] = [];
   protected WriteEntries: ILogEntry[] = [];

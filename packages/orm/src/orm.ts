@@ -1,8 +1,7 @@
 import { DatetimeValueConverter } from './interfaces.js';
 import { Configuration } from '@spinajs/configuration-common';
-import { AsyncService, Autoinject, Container, Class, DI } from '@spinajs/di';
+import { AsyncService,ClassInfo, Autoinject, Container, Class, DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { ClassInfo } from '@spinajs/reflection';
 import _ from 'lodash';
 import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode, IModelDescriptor } from './interfaces.js';
 import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor } from './model.js';

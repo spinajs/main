@@ -5,7 +5,7 @@ import { IValidationError, ValidationFailed } from './exceptions/index.js';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SCHEMA_SYMBOL } from './decorators.js';
 import { IValidationOptions, SchemaSource, ISchemaObject } from './types.js';
-import { Logger, ILog } from '@spinajs/log';
+import { Logger, Log } from '@spinajs/log-common';
 
 // import default souces
 import './sources.js';
@@ -32,7 +32,7 @@ export class DataValidator extends AsyncService {
   protected Sources: SchemaSource[];
 
   @Logger('validation')
-  protected Log: ILog;
+  protected Log: Log;
 
   /**
    * We ignore this error because ajv have problems with

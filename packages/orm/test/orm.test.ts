@@ -7,6 +7,8 @@ import 'mocha';
 import { Orm, TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, DropTableCompiler } from '../src/index.js';
 import { ConnectionConf, FakeSqliteDriver, FakeMysqlDriver, FakeTableQueryCompiler, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, FakeDropTableCompiler } from './misc.js';
 import * as sinon from 'sinon';
+import "@spinajs/log";
+import { LogBotstrapper } from '@spinajs/log';
 
 const expect = chai.expect;
 
@@ -25,6 +27,8 @@ describe('Orm general', () => {
     DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
     DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
     DI.register(FakeDropTableCompiler).as(DropTableCompiler);
+
+    DI.resolve(LogBotstrapper).bootstrap();
   });
 
   afterEach(async () => {

@@ -1,5 +1,5 @@
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
-import { ILog, Logger } from '@spinajs/log';
+import { Log, Logger } from '@spinajs/log-common';
 import { fs, IStat, IZipResult } from '@spinajs/fs';
 import * as AWS from 'aws-sdk';
 import { Config } from '@spinajs/configuration';
@@ -28,7 +28,7 @@ export interface IS3Config {
 @PerInstanceCheck()
 export class fsS3 extends fs {
   @Logger('fs')
-  protected Logger: ILog;
+  protected Logger: Log;
 
   protected S3: AWS.S3;
 
