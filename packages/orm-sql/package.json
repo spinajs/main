@@ -52,9 +52,9 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.109",
     "@spinajs/di": "^2.0.109",
     "@spinajs/orm": "^2.0.109",
+    "@spinajs/exceptions": "^2.0.109",
     "luxon": "^3.2.1",
     "typescript-mix": "^3.1.3"
   },

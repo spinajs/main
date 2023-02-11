@@ -2,7 +2,7 @@ import * as express from 'express';
 import { HTTP_STATUS_CODE, HttpAcceptHeaders, DataTransformer } from './interfaces.js';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { ILog, Log } from '@spinajs/log';
+import { Log } from '@spinajs/log-common';
 import _ from 'lodash';
 import * as randomstring from 'randomstring';
 import { __translate, __translateH, __translateL, __translateNumber } from '@spinajs/intl';
@@ -76,7 +76,7 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
     res.set('Content-Type', 'text/html');
 
     _render(file, model, status).catch((err) => {
-      const log: ILog = DI.resolve(Log, ['http']);
+      const log: Log = DI.resolve(Log, ['http']);
 
       log.warn(`Cannot render html file ${file}, error: ${err.message}:${err.stack}`, err);
 
@@ -84,7 +84,7 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
       fs.download('serverError.pug').then((file) => {
         // try to render server error response
         _render(file, { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR).catch((err2) => {
-          const log: ILog = DI.resolve(Log, ['http']);
+          const log: Log = DI.resolve(Log, ['http']);
 
           // final fallback rendering error fails, we render embedded html error page
           const ticketNo = randomstring.generate(7);
@@ -130,7 +130,7 @@ export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: strin
           htmlResponse(file, model, code)(req, res);
         })
         .catch((err) => {
-          const log: ILog = DI.resolve(Log, ['http']);
+          const log: Log = DI.resolve(Log, ['http']);
 
           log.warn(`Cannot render html file ${template}, error: ${err.message}:${err.stack}`, err);
           fs.download('serverError.pug').then((file) => {

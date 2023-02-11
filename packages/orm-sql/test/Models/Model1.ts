@@ -1,7 +1,7 @@
 import { Connection, ModelBase, Model, Primary, QueryScope, IWhereBuilder } from '@spinajs/orm';
 
 export class Model1QueryScope implements QueryScope {
-  whereIdIsGreaterThan(this: IWhereBuilder<Model1>, val: number) {
+  whereIdIsGreaterThan(this: IWhereBuilder<Array<Model1>>, val: number) {
     this.where('Id', '>=', val);
     return this;
   }

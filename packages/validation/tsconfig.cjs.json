@@ -10,6 +10,6 @@
     { "path": "../configuration/tsconfig.cjs.json" },
     { "path": "../di/tsconfig.cjs.json" },
     { "path": "../exceptions/tsconfig.cjs.json" },
-    { "path": "../log/tsconfig.cjs.json" }
+    { "path": "../log-common/tsconfig.cjs.json" }
   ]
 }

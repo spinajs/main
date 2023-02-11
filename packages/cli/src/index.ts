@@ -1,7 +1,7 @@
 import { CliCommand, IArgument, ICommand, IOption } from './interfaces.js';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators.js';
 import { AsyncService, Class, DI } from '@spinajs/di';
-import { Logger, ILog } from '@spinajs/log';
+import { Logger, Log } from '@spinajs/log-common';
 import { program } from 'commander';
 
 export * from './interfaces.js';
@@ -13,7 +13,7 @@ DI.register(() => {
 
 export class Cli extends AsyncService {
   @Logger('CLI')
-  protected Log: ILog;
+  protected Log: Log;
 
   public Commands: Array<Class<CliCommand>> = [];
 

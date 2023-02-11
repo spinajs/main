@@ -21,7 +21,7 @@ export interface IIntlAsyncStorage {
   language?: string;
 
   /**
-   * Even if we have detected langage, sometimes we dont want to translate
+   * Even if we have detected language, sometimes we dont want to translate
    */
   noTranslate?: boolean;
 }

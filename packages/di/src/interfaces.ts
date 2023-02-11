@@ -11,6 +11,29 @@ export interface IInstanceCheck {
 }
 
 /**
+ * Class info structure
+ */
+export class ClassInfo<T> {
+  /**
+   * Full file path of loaded class
+   */
+  public file: string;
+  /**
+   * Class name
+   */
+  public name: string;
+  /**
+   * Javascript class object
+   */
+  public type: any;
+
+  /**
+   * Resolved instance
+   */
+  public instance?: T;
+}
+
+/**
  * Interface to describe DI binding behaviour
  */
 export interface IBind {
