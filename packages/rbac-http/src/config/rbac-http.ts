@@ -1,4 +1,7 @@
+import { DI } from '@spinajs/di';
 import { join, normalize, resolve } from 'path';
+
+const isESMMode = DI.get<boolean>('__esmMode__');
 
 function dir(path: string) {
   return resolve(normalize(join(process.cwd(), path)));
@@ -6,9 +9,9 @@ function dir(path: string) {
 const rbacHttp = {
   system: {
     dirs: {
-      controllers: [dir('./../controllers')],
-      locales: [dir('./../locales')],
-      views: [dir('./../views')],
+      controllers: [dir(`node_modules/@spinajs/rbac-http/lib/${isESMMode ? 'mjs/controllers' : 'cjs/controllers'}`)],
+      locales: [dir(`node_modules/@spinajs/rbac-http/lib/${isESMMode ? 'mjs/locales' : 'cjs/locales'}`)],
+      views: [dir(`node_modules/@spinajs/rbac-http/lib/${isESMMode ? 'mjs/views' : 'cjs/views'}`)],
     },
   },
   rbac: {

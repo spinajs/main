@@ -2,15 +2,16 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { MySqlOrmDriver } from '../src/index.js';
 
 import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 
+import { MySqlOrmDriver } from '../src/index.js';
+import { User } from './models/User.js';
+
 import './migrations/TestMigration_2022_02_08_01_13_00.js';
 import './models/TestModel.js';
-import { User } from './models/User.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);

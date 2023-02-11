@@ -1,5 +1,5 @@
 import { UserUnbanned } from './../events/UserUnbanned.js';
-import { QueueClient } from '@spinajs/Queue';
+import { QueueService } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
@@ -17,8 +17,8 @@ export class BanUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
-  @Autoinject(QueueClient)
-  protected Queue: QueueClient;
+  @Autoinject(QueueService)
+  protected Queue: QueueService;
 
   public async execute(idOrUuid: string, ban: boolean, duration: number): Promise<void> {
     const user = await User.where('Id', idOrUuid).orWhere('Uuid', idOrUuid).firstOrThrow(new Error('User not found'));

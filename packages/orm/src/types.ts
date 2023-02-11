@@ -6,12 +6,16 @@ export type WhereFunction<T> = (this: IWhereBuilder<T>) => void;
 export type Unbox<T> = T extends Array<infer U> ? U : T;
 
 export type UnboxRelation<T> = T extends Relation<infer U, any> ? U[] : T extends SingleRelation<infer Z> ? Z : never;
+export type UnboxRelationWithModelDataSearchable<T> = T extends Relation<infer U, any> ? Omit<ModelDataWithRelationData<U>, ExcludedModelProperties>[] : T extends SingleRelation<infer Z> ? Omit<ModelDataWithRelationData<Z>, ExcludedModelProperties> | number : T;
 export type UnboxRelationWithModelData<T> = T extends Relation<infer U, any> ? Omit<ModelDataWithRelationData<U>, ExcludedModelProperties>[] : T extends SingleRelation<infer Z> ? Omit<ModelDataWithRelationData<Z>, ExcludedModelProperties> : T;
 
 export type PickRelations<T> = {
   [P in keyof T as T[P] extends Relation<any, any> | SingleRelation<any> ? P : never]: UnboxRelation<T[P]>;
 };
 
+export type PickRelationsWithModelDataSearchable<T> = {
+  [P in keyof T as T[P] extends Relation<any, any> | SingleRelation<any> ? P : never]: UnboxRelationWithModelDataSearchable<T[P]>;
+};
 export type PickRelationsWithModelData<T> = {
   [P in keyof T as T[P] extends Relation<any, any> | SingleRelation<any> ? P : never]: UnboxRelationWithModelData<T[P]>;
 };
@@ -23,6 +27,10 @@ export type NonFunctionPropertyNames<T> = { [K in keyof T]: T[K] extends Functio
 export type ExcludedModelProperties = 'PrimaryKeyValue' | 'PrimaryKeyName' | 'ModelDescriptor' | 'Container' | 'JunctionModelProps';
 export type ModelData<T> = Omit<Pick<T, NonFunctionAndRelationPropertyNames<T>>, ExcludedModelProperties>;
 export type ModelDataWithRelationData<T> = Omit<Pick<T, NonFunctionAndRelationPropertyNames<T>>, ExcludedModelProperties> & PickRelationsWithModelData<T>;
+export type ModelDataWithRelationDataSearchable<T> = Omit<Pick<T, NonFunctionAndRelationPropertyNames<T>>, ExcludedModelProperties> & PickRelationsWithModelDataSearchable<T>;
+
 export type PartialArray<T> = {
   [P in keyof T]: T[P] | T[P][];
 };
+
+ 

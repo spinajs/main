@@ -208,10 +208,10 @@ export enum ParameterType {
   /**
    * Standard request whole fields
    */
-  BodyField = 'BodyField',
-  QueryField = 'QueryField',
-  ParamField = 'ParamField',
-  Headers = 'Headers',
+  BodyField = 'BodyFieldRouteArgs',
+  QueryField = 'QueryFieldRouteArgs',
+  ParamField = 'ParamFieldRouteArgs',
+  Headers = 'HeadersFieldRouteArgs',
 
   /**
    * Parameter is injected from DI container & resolved

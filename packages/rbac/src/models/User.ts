@@ -38,13 +38,13 @@ class UserMetadataRelation extends OneToManyRelationList<UserMetadata, User> {
     if (key instanceof RegExp) {
       await UserMetadata.destroy()
         .where({
-          User: this.owner,
+          User: this.owner as any, // TODO FIX THIS !!!!!!!!!!!
         })
         .andWhere('Key', 'rlike', key.source);
     } else {
       await UserMetadata.destroy().where({
         Key: key,
-        User: this.owner,
+        User: this.owner as any,
       });
     }
 

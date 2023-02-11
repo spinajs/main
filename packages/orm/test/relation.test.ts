@@ -1051,7 +1051,7 @@ describe('Orm relations tests', () => {
       new Model1({ Id: 1 }),
       Model1,
       {
-        TargetModel: Model1,
+        TargetModel: Model1 as any,
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
@@ -1066,7 +1066,7 @@ describe('Orm relations tests', () => {
       new Model1({ Id: 1 }),
       Model1,
       {
-        TargetModel: Model1,
+        TargetModel: Model1 as any,
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
@@ -1092,7 +1092,7 @@ describe('Orm relations tests', () => {
       new Model1({ Id: 1 }),
       Model1,
       {
-        TargetModel: Model1,
+        TargetModel: Model1 as any,
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
@@ -1107,7 +1107,7 @@ describe('Orm relations tests', () => {
       new Model1({ Id: 1 }),
       Model1,
       {
-        TargetModel: Model1,
+        TargetModel: Model1 as any,
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
@@ -1133,7 +1133,7 @@ describe('Orm relations tests', () => {
       new Model1({ Id: 1 }),
       Model1,
       {
-        TargetModel: Model1,
+        TargetModel: Model1 as any,
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
@@ -1148,7 +1148,7 @@ describe('Orm relations tests', () => {
       new Model1({ Id: 1 }),
       Model1,
       {
-        TargetModel: Model1,
+        TargetModel: Model1 as any,
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
@@ -1172,7 +1172,7 @@ describe('Orm relations tests', () => {
       new Model1({ Id: 1 }),
       Model1,
       {
-        TargetModel: Model1,
+        TargetModel: Model1 as any,
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
@@ -1187,7 +1187,7 @@ describe('Orm relations tests', () => {
       new Model1({ Id: 1 }),
       Model1,
       {
-        TargetModel: Model1,
+        TargetModel: Model1 as any,
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,

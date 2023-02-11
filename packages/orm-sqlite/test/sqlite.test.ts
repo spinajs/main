@@ -21,6 +21,7 @@ import { TestMany } from './models/TestMany.js';
 import { User } from './models/User.js';
 import { TestModelOwner } from './models/TestModelOwner.js';
 import { Category } from './models/Category.js';
+import { has_many_1, owned_by_has_many_1, owned_by_owned_by_has_many_1 } from './models/HasMany1.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -397,6 +398,7 @@ describe('Sqlite model functions', function () {
     });
     await cat2.Children.add(cat3);
 
+    // @ts-expect-error
     const result = await Category.query().whereNull('parent_id').populate('Children').first();
 
     expect(result.Children.length).to.eq(2);
@@ -427,6 +429,51 @@ describe('Sqlite model functions', function () {
     expect(result.length).to.eq(2);
     expect(result[0].Owner.Value.Id).to.eq(1);
     expect(result[1].Owner.Value.Id).to.eq(2);
+  });
+
+  it('Should hydrate single belongs to', async () =>{ 
+    const o2 = new owned_by_owned_by_has_many_1();
+    o2.Val = "leaf";
+
+    await o2.insert();
+    const o1 = new owned_by_has_many_1();
+    o1.Val = "middle";
+
+    o1.attach(o2);
+    await o1.insert();
+
+    const result = await owned_by_has_many_1.where('Id', '>', 0).populate('File');
+    expect(result.length).to.eq(1);
+    expect(result[0].File.Value.Val).to.eq("leaf");
+
+  })
+  
+  it('Should proper hydrate hasMany with belongsTo relation', async () => {
+
+    const h1 = new has_many_1();
+    h1.Val = "root";
+
+    await h1.insert();
+    const o2 = new owned_by_owned_by_has_many_1();
+    o2.Val = "leaf";
+
+    await o2.insert();
+    const o1 = new owned_by_has_many_1();
+    o1.Val = "middle";
+
+    h1.attach(o1);
+    o1.attach(o2);
+
+    await o1.insert();
+
+    const result = await has_many_1.where('Id', '>', 0).populate('Informations', function() {
+      this.populate('File');
+    });
+
+    expect(result.length).to.eq(1);
+    expect(result[0].Informations.length).to.eq(1);
+    expect(result[0].Informations[0].File).to.be.not.null;
+
   });
 
   it('model should populate nested belongsTo relation', async () => {
@@ -780,7 +827,7 @@ describe('Sqlite driver migrate with transaction', function () {
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(12).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(15).args[0]).to.eq('COMMIT');
 
     expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 

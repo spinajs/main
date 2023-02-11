@@ -1,4 +1,4 @@
-import { BasicPasswordProvider } from '../src/password';
+import { BasicPasswordProvider } from '../src/password.js';
 import { DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';

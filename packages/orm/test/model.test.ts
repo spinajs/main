@@ -517,7 +517,7 @@ describe('General model tests', () => {
     const scope = sinon.spy(ModelWithScopeQueryScope.prototype, 'whereIdIsGreaterThan');
 
     await ModelWithScope.query().whereIdIsGreaterThan(1);
-
+   
     expect(execute.calledOnce).to.be.true;
     expect(scope.calledOnce).to.be.true;
   });
@@ -614,6 +614,11 @@ describe('General model tests', () => {
     expect(result).instanceOf(Model1);
     expect(result.PrimaryKeyValue).to.eq(1);
     expect(result.Bar).to.eq('hello');
+
+    Model1.query().where({
+      Bar: "ss",
+      Owner: 1
+    })
   });
 
   it('getOrNew with data should work', async () => {

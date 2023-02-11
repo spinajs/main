@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/session-provider-db",
-  "version": "2.0.102",
+  "version": "2.0.109",
   "description": "Simple session provider based on relational db. Usefull for testing or small projects",
   
     "main": "lib/cjs/index.js",
@@ -18,7 +18,7 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.json",
+    "compile": "tsc -b tsconfig.mjs.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
@@ -50,18 +50,18 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.102",
-    "@spinajs/di": "^2.0.102",
-    "@spinajs/exceptions": "^2.0.102",
-    "@spinajs/log": "^2.0.102",
-    "@spinajs/orm": "^2.0.102",
-    "@spinajs/rbac": "^2.0.102",
-    "@spinajs/reflection": "^2.0.102",
-    "@spinajs/util": "^2.0.102",
+    "@spinajs/configuration": "^2.0.109",
+    "@spinajs/di": "^2.0.109",
+    "@spinajs/exceptions": "^2.0.109",
+    "@spinajs/log": "^2.0.109",
+    "@spinajs/orm": "^2.0.109",
+    "@spinajs/rbac": "^2.0.109",
+    "@spinajs/reflection": "^2.0.109",
+    "@spinajs/util": "^2.0.109",
     "luxon": "^3.2.1"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.102"
+    "@spinajs/orm-sqlite": "^2.0.109"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

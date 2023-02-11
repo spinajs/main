@@ -25,10 +25,3 @@ export interface ITransformOptions {
   model: Class<ModelBase<unknown>>;
 }
 
-/**
- * Data collection transformer. Used to transform collection of models to specific api format eg. json api
- * By default transforms to simple json representation
- */
-export abstract class CollectionApiTransformer {
-  public abstract transform(data: ModelBase<unknown>[] | ModelBase<unknown>, options?: ITransformOptions): unknown;
-}

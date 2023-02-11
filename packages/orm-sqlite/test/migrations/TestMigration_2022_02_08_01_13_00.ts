@@ -35,6 +35,25 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.int('testmodel_id');
     });
 
+    await connection.schema().createTable('has_many_1', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Val');
+    });
+
+    await connection.schema().createTable('owned_by_has_many_1', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Val');
+      table.int('file_id');
+      table.int('has_many_1_id');
+    });
+
+    await connection.schema().createTable('owned_by_owned_by_has_many_1', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Val');
+    });
+
+
+
 
     await connection.schema().createTable('category', (table) => {
       table.int('Id').primaryKey().autoIncrement().unique();

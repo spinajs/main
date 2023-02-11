@@ -169,9 +169,9 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "[ ORM ] orm-rest test",
+      "name": "[ ORM ] orm-api test",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
-      "cwd": "${workspaceFolder}/packages/orm-rest/",
+      "cwd": "${workspaceFolder}/packages/orm-api/",
       "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
       "env": {
         "NODE_ENV": "development"
