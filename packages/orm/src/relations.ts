@@ -3,7 +3,8 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, ForwardRefFunction, IBuilderMiddleware } from './interfaces.js';
 import { NewInstance, DI, Constructor, isConstructor } from '@spinajs/di';
 import { SelectQueryBuilder } from './builders.js';
-import { createQuery, extractModelDescriptor, IModelBase, ModelBase } from './model.js';
+import { createQuery, extractModelDescriptor, ModelBase } from './model.js';
+import { IModelBase } from './interfaces.js';
 import { Orm } from './orm.js';
 import { OrmDriver } from './driver.js';
 import _ from 'lodash';
@@ -172,10 +173,9 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
         }
 
         const result = buildRelationTree(relationData, null);
-        data.forEach((d : any) => {
-          d[name] = (result.find((r : any) => r[key] === d[key]) as any )[name];
+        data.forEach((d: any) => {
+          d[name] = (result.find((r: any) => r[key] === d[key]) as any)[name];
         });
-        console.log("da");
       },
     };
 
@@ -371,7 +371,7 @@ export class BelongsToRelation extends OrmRelation {
     this._query.mergeBuilder(this._relationQuery);
 
     this._query.middleware(new BelongsToPopulateDataMiddleware(this._description, this));
-    if (!this.parentRelation) {
+    if (!this.parentRelation || !(this.parentRelation instanceof BelongsToRelation)) {
       // if we are on top of the belongsTo relation stack
       // add transform middleware
       // we do this becouse belongsTo modifies query (not creating new like oneToMany and manyToMany)
@@ -487,8 +487,8 @@ export class ManyToManyRelation extends OrmRelation {
       Name: this._description.Name,
       Type: RelationType.Many,
       TargetModelType: this._description.JunctionModel,
-      TargetModel: this._description.JunctionModel,
-      SourceModel: this._description.SourceModel,
+      TargetModel: this._description.JunctionModel as any,
+      SourceModel: this._description.SourceModel as any,
       ForeignKey: this._description.JunctionModelSourceModelFKey_Name,
       PrimaryKey: this._description.PrimaryKey,
       Recursive: false,

@@ -1,4 +1,4 @@
-import { QueueClient } from '@spinajs/queue';
+import { QueueService } from '@spinajs/queue';
 import { Log, Logger } from '@spinajs/log';
 import { CliCommand, Command, Option } from '@spinajs/cli';
 import { AutoinjectService } from '@spinajs/configuration';
@@ -28,8 +28,8 @@ export class CreateUser extends CliCommand {
   @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;
 
-  @Autoinject(QueueClient)
-  protected Queue: QueueClient;
+  @Autoinject(QueueService)
+  protected Queue: QueueService;
 
   public async execute(options: UserCreationOptions): Promise<void> {
     const user = new User({

@@ -4,7 +4,7 @@ import type { User } from './User.js';
 
 @Connection('default')
 @Model('users_metadata')
-export class UserMetadata extends ModelBase<UserMetadata> {
+export class UserMetadata extends ModelBase {
   @Primary()
   public Id: number;
 

@@ -40,7 +40,7 @@ export class IntlModelRelation extends OrmRelation {
       _orm,
       _query,
       {
-        TargetModel: IntlResource,
+        TargetModel: IntlResource as any,
         TargetModelType: IntlResource,
         Name: 'Translations',
         Type: RelationType.Many,

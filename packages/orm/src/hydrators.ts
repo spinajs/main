@@ -94,9 +94,13 @@ export class OneToOneRelationHydrator extends ModelHydrator {
 
       if (values[key] != null) {
         const entity = target as any;
-        const tEntity = !isConstructor(val.TargetModel) ? new ((val.TargetModel as ForwardRefFunction)())() : new (val.TargetModel as any)();
-        tEntity.hydrate(values[key]);
-        (tEntity as any)['__relationKey__'] = key;
+        let tEntity = undefined;
+        if (!Object.values(values[key]).every((x) => x === null)) {
+          tEntity = !isConstructor(val.TargetModel) ? new ((val.TargetModel as ForwardRefFunction)())() : new (val.TargetModel as any)();
+          tEntity.hydrate(values[key]);
+          (tEntity as any)['__relationKey__'] = key;
+        }
+
         const rel = new SingleRelation(target, val.TargetModel, val, tEntity);
         entity[key] = rel;
         delete (target as any)[val.ForeignKey];

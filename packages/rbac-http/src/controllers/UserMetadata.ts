@@ -1,4 +1,4 @@
-import { Patch, Post, BasePath, Ok, Forbidden } from '@spinajs/http';
+import { Put, Post, BasePath, Ok, Forbidden } from '@spinajs/http';
 import { User as UserModel, UserMetadata } from '@spinajs/rbac';
 import { Permission, User, Resource } from '../decorators.js';
 import { FromModel, AsModel } from '@spinajs/orm-http';
@@ -6,6 +6,7 @@ import { FromModel, AsModel } from '@spinajs/orm-http';
 @BasePath('user/:user/metadata')
 @Resource('user.metadata')
 export class UserMetaController {
+  
   @Post()
   @Permission('updateOwn')
   public async addMetadata(@User() logged: UserModel, @FromModel() user: UserModel, @AsModel() meta: UserMetadata) {
@@ -17,7 +18,7 @@ export class UserMetaController {
     return new Ok(meta);
   }
 
-  @Patch('user/:user/metadata/:meta')
+  @Put('user/:user/metadata/:meta')
   @Permission('updateOwn')
   public async updateMetadata(@User() logged: UserModel, @FromModel() user: UserModel, @FromModel() meta: UserMetadata) {
     if (logged.Id !== user.Id) {

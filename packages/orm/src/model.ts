@@ -745,7 +745,7 @@ export const MODEL_STATIC_MIXINS = {
         if (Array.isArray(data)) {
           (data as Array<InstanceType<T>>).forEach((v, idx) => {
             if (v instanceof ModelBase) {
-              v.PrimaryKeyValue = v.PrimaryKeyValue ?? result.LastInsertId - data.length + idx;
+              v.PrimaryKeyValue = v.PrimaryKeyValue ?? result.LastInsertId - data.length + idx + 1;
             }
           });
         } else if (data instanceof ModelBase) {
@@ -895,7 +895,7 @@ export const MODEL_STATIC_MIXINS = {
       query.where(description.PrimaryKey, pk);
     }
 
-    const result = query.clearColumns().select(description.PrimaryKey).first();
+    const result = await query.clearColumns().select(description.PrimaryKey).first();
     if (result) {
       return true;
     }

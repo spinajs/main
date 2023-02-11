@@ -26,6 +26,8 @@ export function req() {
   return chai.request('http://localhost:1337/');
 }
 
+ 
+
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();

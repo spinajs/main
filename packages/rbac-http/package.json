@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac-http",
-  "version": "2.0.102",
+  "version": "2.0.109",
   "description": "HTTP API for user session & permissions",
   
     "main": "lib/cjs/index.js",
@@ -18,7 +18,7 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "compile": "tsc -b tsconfig.json",
+    "compile": "tsc -b tsconfig.mjs.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
@@ -50,15 +50,15 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.102",
-    "@spinajs/di": "^2.0.102",
-    "@spinajs/exceptions": "^2.0.102",
-    "@spinajs/http": "^2.0.102",
-    "@spinajs/log": "^2.0.102",
-    "@spinajs/orm": "^2.0.102",
-    "@spinajs/orm-http": "^2.0.102",
-    "@spinajs/rbac": "^2.0.102",
-    "@spinajs/reflection": "^2.0.102",
+    "@spinajs/configuration": "^2.0.109",
+    "@spinajs/di": "^2.0.109",
+    "@spinajs/exceptions": "^2.0.109",
+    "@spinajs/http": "^2.0.109",
+    "@spinajs/log": "^2.0.109",
+    "@spinajs/orm": "^2.0.109",
+    "@spinajs/orm-http": "^2.0.109",
+    "@spinajs/rbac": "^2.0.109",
+    "@spinajs/reflection": "^2.0.109",
     "accesscontrol": "^2.2.1",
     "luxon": "^3.2.1",
     "qrcode": "^1.5.1",
@@ -66,7 +66,7 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.102",
+    "@spinajs/orm-sqlite": "^2.0.109",
     "@types/qrcode": "^1.5.0",
     "@types/speakeasy": "^2.0.7",
     "@types/uuid": "^9.0.0"

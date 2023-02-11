@@ -5,7 +5,7 @@ import { CollectionApiTransformer, ITransformOptions } from "./interfaces.js";
 /**
  * Plain json collection transformer, used by default.
  */
-@Injectable()
+@Injectable(CollectionApiTransformer)
 export class PlainJsonCollectionTransformer extends CollectionApiTransformer {
     public transform(data: ModelBase<unknown> | ModelBase<unknown>[], options?: ITransformOptions): unknown {
 

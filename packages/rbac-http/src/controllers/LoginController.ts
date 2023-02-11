@@ -6,7 +6,7 @@ import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
 import { FingerprintProvider, TwoFactorAuthProvider } from '../interfaces.js';
-import { QueueClient } from '@spinajs/queue';
+import { QueueService } from '@spinajs/queue';
 
 import { NotLoggedPolicy } from '../policies/NotLoggedPolicy.js';
 import { LoggedPolicy } from '../policies/LoggedPolicy.js';
@@ -40,7 +40,7 @@ export class LoginController extends BaseController {
   @AutoinjectService('rbac.twoFactorAuth')
   protected TwoFactorAuthProvider: TwoFactorAuthProvider;
 
-  @AutoinjectService('rbac.fingerprint.provider')
+  @AutoinjectService('rbac.fingerprint')
   protected FingerprintProvider: FingerprintProvider;
 
   @AutoinjectService('rbac.password.validation')
@@ -52,8 +52,8 @@ export class LoginController extends BaseController {
   @Autoinject()
   protected PasswordProvider: PasswordProvider;
 
-  @Autoinject(QueueClient)
-  protected Queue: QueueClient;
+  @Autoinject(QueueService)
+  protected Queue: QueueService;
 
   @Post('federated-login')
   @Policy(NotLoggedPolicy)

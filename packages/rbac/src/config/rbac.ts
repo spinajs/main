@@ -1,4 +1,7 @@
 import { join, normalize, resolve } from 'path';
+import { DI } from '@spinajs/di';
+
+const isESMMode = DI.get<boolean>('__esmMode__');
 
 function dir(path: string) {
   return resolve(normalize(join(process.cwd(), path)));
@@ -7,7 +10,7 @@ function dir(path: string) {
 const rbac = {
   system: {
     dirs: {
-      cli: [dir('node_modules/@spinajs/cli')],
+      cli: [dir(`node_modules/@spinajs/cli/${isESMMode ? 'mjs/cli' : 'cjs/cli'}`)],
     },
   },
   queue: {

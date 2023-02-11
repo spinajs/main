@@ -9,3 +9,4 @@ export * from './FromHeaderArg.js';
 export * from './FromParams.js';
 export * from './FromQuery.js';
 export * from './RouteArgs.js';
+export * from './RequestFields.js';

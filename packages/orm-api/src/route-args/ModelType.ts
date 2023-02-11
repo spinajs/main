@@ -13,7 +13,7 @@ export class ModelTypeRouteArgs extends RouteArgs {
     protected Orm: Orm;
 
     public get SupportedType(): string {
-        return 'ModelType';
+        return 'ModelTypeRouteArgs';
     }
 
     public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, _route?: IRoute) {
