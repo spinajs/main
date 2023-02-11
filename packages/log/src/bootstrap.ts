@@ -1,13 +1,15 @@
 import { Configuration } from "@spinajs/configuration";
 import { Injectable, Bootstrapper, DI } from "@spinajs/di";
-import { Log } from "./log.js";
+import { Log } from "@spinajs/log-common";
+import { FrameworkLogger } from "./log.js";
 import CONFIGURATION_SCHEMA from "./schemas/log.configuration.js";
 
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
   public bootstrap(): void {
     DI.register(CONFIGURATION_SCHEMA).asValue("__configurationSchema__");
-
+    DI.register(FrameworkLogger).as(Log);
+    
     // check if we run tests,
     // hook for uncaughtException causes to not showing
     // mocha errors in console

@@ -57,12 +57,10 @@
     "@types/uuid": "9.0.0"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.102",
+    "@spinajs/configuration-common": "^2.0.102",
     "@spinajs/di": "^2.0.102",
     "@spinajs/exceptions": "^2.0.102",
     "@spinajs/log": "^2.0.102",
-    "@spinajs/reflection": "^2.0.102",
-    "glob": "^8.1.0",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1",
     "uuid": "^9.0.0"

@@ -3,7 +3,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { IRelationDescriptor, IModelDescriptor, RelationType, InsertBehaviour, ForwardRefFunction, IBuilderMiddleware } from './interfaces.js';
 import { NewInstance, DI, Constructor, isConstructor } from '@spinajs/di';
 import { SelectQueryBuilder } from './builders.js';
-import { createQuery, extractModelDescriptor, IModelBase, ModelBase } from './model.js';
+import { createQuery, extractModelDescriptor, ModelBase } from './model.js';
 import { Orm } from './orm.js';
 import { OrmDriver } from './driver.js';
 import _ from 'lodash';
@@ -496,7 +496,7 @@ export class ManyToManyRelation extends OrmRelation {
 
     this._joinQuery.mergeBuilder(this._relationQuery);
 
-    this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor));
+    this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor as any, this._targetModelDescriptor));
   }
 }
 
@@ -509,7 +509,7 @@ export interface IRelation {
   Populated: boolean;
 }
 
-export class SingleRelation<R extends IModelBase> implements IRelation {
+export class SingleRelation<R extends ModelBase> implements IRelation {
   public TargetModelDescriptor: IModelDescriptor;
 
   protected Orm: Orm;

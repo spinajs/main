@@ -1,4 +1,4 @@
-import { SyncService } from "@spinajs/di";
+import { Autoinject, Container, DI, SyncService } from "@spinajs/di";
 import _ from "lodash";
 import * as util from "util";
 
@@ -45,14 +45,14 @@ export const LogLevelStrings = {
 export interface ILogRule {
   name: string;
   level:
-    | "trace"
-    | "debug"
-    | "info"
-    | "warn"
-    | "error"
-    | "fatal"
-    | "security"
-    | "success";
+  | "trace"
+  | "debug"
+  | "info"
+  | "warn"
+  | "error"
+  | "fatal"
+  | "security"
+  | "success";
   target: string | string[];
 }
 
@@ -213,52 +213,6 @@ export interface ILogTargetDesc {
   options?: ITargetsOption;
   rule: ILogRule;
 }
-export interface ILog {
-  Targets: ILogTargetDesc[];
-
-  trace(message: string, ...args: any[]): void;
-  trace(err: Error, message: string, ...args: any[]): void;
-  trace(err: Error | string, message: string | any[], ...args: any[]): void;
-
-  debug(message: string, ...args: any[]): void;
-  debug(err: Error, message: string, ...args: any[]): void;
-  debug(err: Error | string, message: string | any[], ...args: any[]): void;
-
-  info(message: string, ...args: any[]): void;
-  info(err: Error, message: string, ...args: any[]): void;
-  info(err: Error | string, message: string | any[], ...args: any[]): void;
-
-  warn(message: string, ...args: any[]): void;
-  warn(err: Error, message: string, ...args: any[]): void;
-  warn(err: Error | string, message: string | any[], ...args: any[]): void;
-
-  error(message: string, ...args: any[]): void;
-  error(err: Error, message: string, ...args: any[]): void;
-  error(err: Error | string, message: string | any[], ...args: any[]): void;
-
-  fatal(message: string, ...args: any[]): void;
-  fatal(err: Error, message: string, ...args: any[]): void;
-  fatal(err: Error | string, message: string | any[], ...args: any[]): void;
-
-  security(message: string, ...args: any[]): void;
-  security(err: Error, message: string, ...args: any[]): void;
-  security(err: Error | string, message: string | any[], ...args: any[]): void;
-
-  success(message: string, ...args: any[]): void;
-  success(err: Error, message: string, ...args: any[]): void;
-  success(err: Error | string, message: string | any[], ...args: any[]): void;
-
-  child(name: string, variables?: LogVariables): ILog;
-
-  write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;
-
-  addVariable(name: string, value: unknown): void;
-
-  timeStart(name: string): void;
-  timeEnd(name: string): number;
-}
-
-export type LogVariables = ILogStaticVariables & ILogVariable;
 
 export function createLogMessageObject(
   err: Error | string,
@@ -283,3 +237,143 @@ export function createLogMessageObject(
     },
   };
 }
+
+export abstract class Log extends SyncService {
+
+  public static Loggers: Map<string, Log> = new Map();
+  public static InternalLoggers: Map<string, Log> = new Map();
+
+  public Timers: Map<string, Date> = new Map<string, Date>();
+  protected Targets: ILogTargetDesc[];
+  public Name: string;
+
+
+  protected static AttachedToExitEvents = false;
+
+  protected Options: ILogOptions;
+
+  protected Rules: ILogRule[];
+
+  @Autoinject()
+  protected Container: Container;
+
+  protected Variables: Record<string, any> = {};
+
+  public static clearLoggers() {
+    return Promise.all([...Log.Loggers.values()].map((l) => l.dispose())).then(() => {
+      Log.Loggers.clear();
+    }).then(() => {
+      return [...Log.InternalLoggers.values()].map((l) => l.dispose());
+    })
+  }
+
+
+  public addVariable(name: string, value: unknown) {
+    this.Variables[`${name}`] = value;
+  }
+
+  public timeStart(name: string): void {
+    if (this.Timers.has(name)) {
+      return;
+    }
+
+    this.Timers.set(name, new Date());
+  }
+
+  public timeEnd(name: string): number {
+    if (this.Timers.has(name)) {
+      const cTime = new Date();
+      const diff = cTime.getTime() - this.Timers.get(name).getTime();
+
+      this.Timers.delete(name);
+
+      return diff;
+    }
+
+    return 0;
+  }
+
+
+  public child(name: string, variables?: LogVariables): Log {
+    return DI.resolve(Log, [
+      `${this.Name}.${name}`,
+      {
+        ...this.Variables,
+        ...variables,
+      },
+      this,
+    ]);
+  }
+
+  public abstract trace(message: string, ...args: any[]): void;
+  public abstract trace(err: Error, message: string, ...args: any[]): void;
+  public abstract trace(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  public abstract debug(message: string, ...args: any[]): void;
+  public abstract debug(err: Error, message: string, ...args: any[]): void;
+  public abstract debug(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  public abstract info(message: string, ...args: any[]): void;
+  public abstract info(err: Error, message: string, ...args: any[]): void;
+  public abstract info(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  public abstract warn(message: string, ...args: any[]): void;
+  public abstract warn(err: Error, message: string, ...args: any[]): void;
+  public abstract warn(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  public abstract error(message: string, ...args: any[]): void;
+  public abstract error(err: Error, message: string, ...args: any[]): void;
+  public abstract error(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  public abstract fatal(message: string, ...args: any[]): void;
+  public abstract fatal(err: Error, message: string, ...args: any[]): void;
+  public abstract fatal(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  public abstract security(message: string, ...args: any[]): void;
+  public abstract security(err: Error, message: string, ...args: any[]): void;
+  public abstract security(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  public abstract success(message: string, ...args: any[]): void;
+  public abstract success(err: Error, message: string, ...args: any[]): void;
+  public abstract success(err: Error | string, message: string | any[], ...args: any[]): void;
+
+  public abstract write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;
+}
+
+
+/**
+ * Creates ( if not exists ) new logger instance with given name and optional variables
+ * @param name - name of logger
+ * @param variables - optional log variables
+ */
+export function Logger(name: string, variables?: Record<string, unknown>) {
+  return (target: any, key: string): any => {
+    let logger: Log;
+
+    // property getter
+    const getter = () => {
+      if (!logger) {
+        const allLoggers = DI.get(Array.ofType(Log));
+        const found = allLoggers.find((l) => l.Name === name);
+
+        if (found) {
+          logger = found;
+        } else {
+          logger = DI.resolve(Log, [name, variables]);
+        }
+      }
+      return logger;
+    };
+
+    // Create new property with getter and setter
+    Object.defineProperty(target, key, {
+      get: getter,
+      enumerable: false,
+      configurable: false,
+    });
+  };
+}
+
+
+export type LogVariables = ILogStaticVariables & ILogVariable;
+

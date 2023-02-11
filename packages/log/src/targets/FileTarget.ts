@@ -8,8 +8,8 @@ import { pipeline } from "stream";
 import { format } from "@spinajs/configuration";
 import { InvalidOption } from "@spinajs/exceptions";
 import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
-import { IFileTargetOptions, ILog, ILogEntry, LogTarget } from "@spinajs/log-common";
-import { Logger } from "./../decorators.js";
+import { IFileTargetOptions, Logger, Log, ILogEntry, LogTarget } from "@spinajs/log-common";
+
 import _ from "lodash";
 
 enum FileTargetStatus {
@@ -24,7 +24,7 @@ enum FileTargetStatus {
 @Injectable("FileTarget")
 export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstanceCheck {
   @Logger("LogFileTarget")
-  protected Log: ILog;
+  protected Log: Log;
 
   public LogDirPath: string;
   public ArchiveDirPath: string;

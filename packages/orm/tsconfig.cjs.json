@@ -7,10 +7,9 @@
   },
   "include": ["src/**/*"],
   "references": [
-    { "path": "../configuration/tsconfig.cjs.json" },
+    { "path": "../configuration-common/tsconfig.cjs.json" },
     { "path": "../di/tsconfig.cjs.json" },
     { "path": "../exceptions/tsconfig.cjs.json" },
     { "path": "../log/tsconfig.cjs.json" },
-    { "path": "../reflection/tsconfig.cjs.json" }
   ]
 }

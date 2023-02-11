@@ -4,7 +4,7 @@ import { Connection, Primary, Model } from '../../../src/decorators.js';
 import { ModelBase } from '../../../src/model.js';
 
 export class ModelWithScopeQueryScope implements QueryScope {
-  whereIdIsGreaterThan(this: ISelectQueryBuilder<ModelWithScope> & ModelWithScopeQueryScope, val: number): ISelectQueryBuilder<ModelWithScope> & ModelWithScopeQueryScope {
+  whereIdIsGreaterThan(this: ISelectQueryBuilder<Array<ModelWithScope>> & ModelWithScopeQueryScope, val: number): ISelectQueryBuilder<Array<ModelWithScope>> & ModelWithScopeQueryScope {
     this.where('Id', '>=', val);
     return this;
   }

@@ -3,25 +3,20 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
 import {
-  Autoinject,
-  Container,
   DI,
   IContainer,
   NewInstance,
-  SyncService,
 } from "@spinajs/di";
 import {
   ICommonTargetOptions,
   LogLevel,
   ILogOptions,
-  ILogRule,
   ILogEntry,
   StrToLogLevel,
-  LogVariables,
   createLogMessageObject,
-  ILog,
   ILogTargetDesc,
   LogTarget,
+  Log,
 } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
@@ -72,31 +67,7 @@ function wrapWrite(this: Log, level: LogLevel) {
  * Default log implementation interface. Taken from bunyan. Feel free to implement own.
  */
 @NewInstance()
-export class Log extends SyncService implements ILog {
-  public static Loggers: Map<string, Log> = new Map();
-  public static InternalLoggers: Map<string, Log> = new Map();
-
-  public Timers: Map<string, Date> = new Map<string, Date>();
-  public Targets: ILogTargetDesc[];
-
-  public static clearLoggers() {
-    return Promise.all([...Log.Loggers.values()].map((l) => l.dispose())).then(() => {
-      Log.Loggers.clear();
-    }).then(() => {
-      return [...Log.InternalLoggers.values()].map((l) => l.dispose());
-    })
-  }
-
-  protected static AttachedToExitEvents = false;
-
-  protected Options: ILogOptions;
-
-  protected Rules: ILogRule[];
-
-  protected Variables: Record<string, any> = {};
-
-  @Autoinject()
-  protected Container: Container;
+export class FrameworkLogger extends Log {
 
   constructor(
     public Name: string,
@@ -106,30 +77,6 @@ export class Log extends SyncService implements ILog {
     super();
 
     this.Variables = variables ?? {};
-  }
-
-  public addVariable(name: string, value: unknown) {
-    this.Variables[`${name}`] = value;
-  }
-
-  public timeStart(name: string): void {
-    if (this.Timers.has(name)) {
-      return;
-    }
-
-    this.Timers.set(name, new Date());
-  }
-  public timeEnd(name: string): number {
-    if (this.Timers.has(name)) {
-      const cTime = new Date();
-      const diff = cTime.getTime() - this.Timers.get(name).getTime();
-
-      this.Timers.delete(name);
-
-      return diff;
-    }
-
-    return 0;
   }
 
   public resolve(): void {
@@ -255,17 +202,6 @@ export class Log extends SyncService implements ILog {
         })
       );
     }
-  }
-
-  public child(name: string, variables?: LogVariables): Log {
-    return DI.resolve(Log, [
-      `${this.Name}.${name}`,
-      {
-        ...this.Variables,
-        ...variables,
-      },
-      this,
-    ]);
   }
 
   protected resolveLogTargets() {
