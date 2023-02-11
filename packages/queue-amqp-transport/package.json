@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/jobs-amqp-transport",
-  "version": "2.0.109",
+  "version": "2.0.111",
   "description": "jobs rabbit mq support, it sends & reads messages from ampq compatible server",
   
     "main": "lib/cjs/index.js",
@@ -56,10 +56,10 @@
     "@types/pug": "^2.0.4"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.109",
-    "@spinajs/di": "^2.0.109",
-    "@spinajs/exceptions": "^2.0.109",
-    "@spinajs/log": "^2.0.109",
+    "@spinajs/configuration": "^2.0.111",
+    "@spinajs/di": "^2.0.111",
+    "@spinajs/exceptions": "^2.0.111",
+    "@spinajs/log": "^2.0.111",
     "luxon": "^2.3.0",
     "nodemailer": "^6.7.7",
     "pug": "^3.0.0",
