@@ -2,7 +2,6 @@ import { IColumnDescriptor, Orm, QueryBuilder, QueryContext, TransactionCallback
 import { SqlDriver } from "@spinajs/orm-sql";
 import { Injectable } from "@spinajs/di";
 
-@Injectable(SqlDriver)
 export class RendererOrmDriverBridge extends SqlDriver {
     execute(stmt: string | object, params: any[], context: QueryContext): Promise<any> {
         return window.ipc.__spinaJsIpcBridge.callOnOrmConnection(this.Options.Name, "execute", stmt, params, context);

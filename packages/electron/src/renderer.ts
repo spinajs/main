@@ -12,8 +12,37 @@ import { EmailService } from './electronEmail.js';
 
 export interface IpcRenderer {
     __spinaJsIpcBridge: {
+
+        /**
+         * Calls asynchronously method on given service
+         * 
+         * @param method method to call on service
+         * @param service service name 
+         * @param resovleArgs service resolve args ( if its about to create )
+         * @param args args to method invoked on service
+         */
         call(method: string, service: string, resovleArgs: any[], ...args: any[]): Promise<any>;
+
+        /**
+         * Calls synchronously method on given service
+         * 
+         * @param method method to call on service
+         * @param service service name
+         * @param resovleArgs servie resolve args ( if its about to create )
+         * @param args args to method invoked on service
+         */
         callSync(method: string, service: string, resovleArgs: any[], ...args: any[]): any;
+
+        /**
+         * Special case for calling methods on Orm connections. Call is made not 
+         * on service but on connection itself, and its identified by connection name.
+         * 
+         * We do this, because OrmDriver are not singleton and we are not tracking them in DI container.
+         * 
+         * @param connection orm connection name
+         * @param method method to call on connection
+         * @param args method args
+         */
         callOnOrmConnection(connection: string, method: string, ...args: any[]): Promise<any>;
     }
 }
@@ -47,8 +76,15 @@ DI.register(logFactoryFunction).as(Log);
 // so we can resolve Log class
 // it should not be used in production code
 DI.register(ElectronRendererLogger).as("__logImplementation__");
+
+/**
+ * Register all services that are available in renderer process by default
+ */
+
+// register fake drivers for various databases types
 DI.register(RendererOrmDriverBridge).as('orm-driver-sqlite');
-DI.register(ElectronRendererOrm).as(Orm);
-DI.register(ElectronRendererConfiguration).as(Configuration);
-DI.register(EmailService).asSelf();
-DI.register(ElectronRendererIntl).as(Intl);
+DI.register(RendererOrmDriverBridge).as('orm-driver-mysql');
+DI.register(RendererOrmDriverBridge).as('orm-driver-mssql');
+
+
+// others services are regiseredd via @Injectable() decorator

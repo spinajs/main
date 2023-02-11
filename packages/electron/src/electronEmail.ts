@@ -1,4 +1,12 @@
 
+/**
+ * We redeclare thees interfaces & class, to not include whole Intl package.
+ * It can cause probles because it uses native nodejs modules & functions.
+ * Its easier that way to fake it
+ */
+
+import { Injectable } from "@spinajs/di";
+
 export interface IEmailAttachement {
     /**
      * - filename to be reported as the name of the attached file. Use of unicode is allowed.
@@ -71,6 +79,7 @@ export interface IEmail {
 }
 
 
+@Injectable()
 export class EmailService {
 
     /**
