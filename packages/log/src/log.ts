@@ -271,4 +271,4 @@ DI.register(logFactoryFunction).as(Log);
 // register Log class as string literal
 // so we can resolve Log class
 // it should not be used in production code
-DI.register(Log).as("__logImplementation__");
+DI.register(FrameworkLogger).as("__logImplementation__");

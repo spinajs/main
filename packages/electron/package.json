@@ -59,6 +59,9 @@
   },
   "dependencies": {
     "@spinajs/configuration-common": "^2.0.109",
+    "@spinajs/orm": "^2.0.110",
+    "@spinajs/orm-sql": "^2.0.110",
+    "@spinajs/log-common": "2.0.110",
     "@spinajs/di": "^2.0.109"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

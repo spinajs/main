@@ -54,7 +54,7 @@
     "@spinajs/exceptions": "^2.0.109",
     "@spinajs/http": "^2.0.109",
     "@spinajs/intl": "^2.0.109",
-    "@spinajs/log": "^2.0.109",
+    "@spinajs/log-common": "^2.0.109",
     "@spinajs/reflection": "^2.0.109"
   },
   "devDependencies": {

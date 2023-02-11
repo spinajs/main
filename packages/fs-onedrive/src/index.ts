@@ -3,7 +3,7 @@ import { Client, OneDriveLargeFileUploadOptions, OneDriveLargeFileUploadTask, St
 import { TokenCredentialAuthenticationProvider, TokenCredentialAuthenticationProviderOptions } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials";
 
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
-import { ILog, Logger } from '@spinajs/log';
+import { Log, Logger } from '@spinajs/log-common';
 import { fs, IStat, IZipResult } from '@spinajs/fs';
 import { Config } from '@spinajs/configuration';
 import archiver from 'archiver';
