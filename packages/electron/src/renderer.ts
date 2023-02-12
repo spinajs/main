@@ -2,7 +2,7 @@ import { DI, IContainer } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
 import { RendererOrmDriverBridge } from './electronRendererOrm.js';
 
-import './electronRendererLogger.js';
+import { ElectronRendererLogger } from './electronRendererLogger.js';
 import './electronRendererConfiguration.js';
 
 export * from './electronEmail.js';
