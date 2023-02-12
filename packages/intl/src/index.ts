@@ -7,8 +7,7 @@ import _ from 'lodash';
 import * as util from 'util';
 import * as MakePlural from 'make-plural';
 import intervalParse from 'math-interval-parser';
-import * as TranslatioSources from './sources.js';
-export * from './sources.js';
+import { TranslationSource } from './interfaces.js';
 
 const globalAny: any = global;
 
@@ -111,7 +110,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
   public async resolve() {
     this.CurrentLocale = this.Configuration.get('intl.defaultLocale', 'en');
 
-    const sources = await DI.resolve(Array.ofType(TranslatioSources.TranslationSource));
+    const sources = await DI.resolve(Array.ofType(TranslationSource));
 
     for (const s of sources) {
       const translations = await s.load();
