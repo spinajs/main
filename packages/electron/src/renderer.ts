@@ -9,7 +9,7 @@ export * from "./electronRendererIntl.js"
 export * from './electronRendererOrm.js';
 export * from './electronRendererConfiguration.js';
 export * from './electronRendererLogger.js';
-export * from './electronTemplates';
+export * from './electronTemplates.js';
 
 
 export interface IpcRenderer {
@@ -55,7 +55,6 @@ declare global {
     }
 }
 
-
 const logFactoryFunction = (container: IContainer, logName: string) => {
     if (ElectronRendererLogger.Loggers.has(logName)) {
         return ElectronRendererLogger.Loggers.get(logName);
@@ -89,4 +88,3 @@ DI.register(RendererOrmDriverBridge).as('orm-driver-mysql');
 DI.register(RendererOrmDriverBridge).as('orm-driver-mssql');
 
 
-// others services are regiseredd via @Injectable() decorator
