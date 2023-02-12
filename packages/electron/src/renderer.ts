@@ -9,6 +9,7 @@ export * from "./electronRendererIntl.js"
 export * from './electronRendererOrm.js';
 export * from './electronRendererConfiguration.js';
 export * from './electronRendererLogger.js';
+export * from './electronTemplates';
 
 
 export interface IpcRenderer {
