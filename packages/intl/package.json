@@ -6,10 +6,14 @@
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+      "node": {
+          "import": "./lib/mjs/index.node.js",
+          "require": "./lib/cjs/index.node.js"
+      },
+      "browser": {
+        "import": "./lib/mjs/index.browser.js",
+        "require": "./lib/cjs/index.browser.js"
+    }
   },
   "type": "module",
   "private": false,
