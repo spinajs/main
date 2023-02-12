@@ -7,6 +7,9 @@ import './electronRendererConfiguration.js';
 
 export * from './electronEmail.js';
 export * from "./electronRendererIntl.js"
+export * from './electronRendererOrm.js';
+export * from './electronRendererConfiguration.js';
+export * from './electronRendererLogger.js';
 
 
 export interface IpcRenderer {
