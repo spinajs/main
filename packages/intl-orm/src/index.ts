@@ -4,8 +4,8 @@ import { TranslationSource, guessLanguage, defaultLanguage, IIntlAsyncStorage } 
 import _ from 'lodash';
 import { IntlTranslation } from './models/IntlTranslation.js';
 import { IntlResource } from './models/IntlResource.js';
-import { Configuration } from '@spinajs/configuration';
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { Configuration } from '@spinajs/configuration-common';
+import { AsyncLocalStorage } from 'async_hooks';
 
 export * from './decorators.js';
 export * from './migrations/IntlOrm_2022_06_28_01_13_00.js';
@@ -65,9 +65,9 @@ export class IntlModelRelation extends OrmRelation {
 }
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
-  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) {}
+  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) { }
 
-  public afterQueryCreation(_query: QueryBuilder<any>): void {}
+  public afterQueryCreation(_query: QueryBuilder<any>): void { }
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -166,12 +166,18 @@ export class IntlQueryMiddleware extends QueryMiddleware {
       return;
     }
 
-    // if something has set to no translate
-    // eg route decorator
-    const store = DI.get<IIntlAsyncStorage>(AsyncLocalStorage);
-    if (store && store.noTranslate === false) {
-      return;
+
+    // if async storage is avaible ( node env)
+    // on browser and electron skip this, as we dont have async storage
+    if (typeof AsyncLocalStorage === 'function') {
+      // if something has set to no translate
+      // eg route decorator
+      const store = DI.get<IIntlAsyncStorage>(AsyncLocalStorage);
+      if (store && store.noTranslate === false) {
+        return;
+      }
     }
+
 
     // something has set to not translate manually for query
     if ((builder as any).AllowTranslate === false) {
@@ -195,7 +201,7 @@ export class IntlQueryMiddleware extends QueryMiddleware {
       }
     }
   }
-  afterQueryCreation(_builder: QueryBuilder) {}
+  afterQueryCreation(_builder: QueryBuilder) { }
 }
 
 @Injectable(TranslationSource)

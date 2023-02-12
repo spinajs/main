@@ -3,14 +3,12 @@ import glob from 'glob';
 import * as path from 'path';
 import ts from 'typescript';
 import _ from 'lodash';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration-common';
 import { AsyncService, Class, ClassInfo, DI } from '@spinajs/di';
 import { InvalidArgument, Exception } from '@spinajs/exceptions';
-import { Log } from '@spinajs/log';
+import { Log } from '@spinajs/log-common';
 
 export * from 'typescript-mix';
-
-
 
 /**
  * Exception thrown when some error during reflection occurs

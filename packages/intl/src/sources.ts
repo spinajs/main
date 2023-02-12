@@ -1,11 +1,10 @@
-import { Log } from '@spinajs/log-common';
-import { Configuration } from '@spinajs/configuration';
+import { Log,Logger} from '@spinajs/log-common';
+import { Configuration } from '@spinajs/configuration-common';
 import { Autoinject, DI, Injectable } from '@spinajs/di';
 import glob from 'glob';
 import * as fs from 'fs';
 import _ from 'lodash';
 import { normalize, resolve, basename } from 'path';
-import { Logger } from '@spinajs/log';
 
 export abstract class TranslationSource {
   @Autoinject()

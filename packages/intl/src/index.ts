@@ -1,7 +1,7 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { AsyncLocalStorage } from 'async_hooks';
 import { Injectable, AsyncService, Autoinject, DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { Log, Logger } from '@spinajs/log';
+import { Configuration } from '@spinajs/configuration-common';
+import { Log, Logger } from '@spinajs/log-common';
 import { InvalidArgument } from '@spinajs/exceptions';
 import _ from 'lodash';
 import * as util from 'util';
@@ -354,13 +354,17 @@ export function __translateH(text: string) {
 
 export function guessLanguage(lang?: string) {
   if (!lang) {
-    const store = DI.get(AsyncLocalStorage);
-    if (store) {
-      const storage = DI.get(AsyncLocalStorage).getStore() as IIntlAsyncStorage;
-      if (storage && storage.language) {
-        return storage.language;
+
+    if (typeof AsyncLocalStorage === 'function') {
+      const store = DI.get(AsyncLocalStorage);
+      if (store) {
+        const storage = DI.get(AsyncLocalStorage).getStore() as IIntlAsyncStorage;
+        if (storage && storage.language) {
+          return storage.language;
+        }
       }
     }
+
   }
 
   return lang ?? DI.get(Configuration).get<string>('intl.defaultLocale');
