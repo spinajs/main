@@ -1,13 +1,12 @@
 import { DI, IContainer } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
-import { Orm } from '@spinajs/orm';
-import { Configuration } from "@spinajs/configuration-common";
+import { RendererOrmDriverBridge } from './electronRendererOrm.js';
 
-import { ElectronRendererLogger } from './electronRendererLogger.js';
-import { ElectronRendererConfiguration } from './electronRendererConfiguration.js';
-import { ElectronRendererIntl, Intl } from "./electronRendererIntl.js"
-import { ElectronRendererOrm, RendererOrmDriverBridge } from './electronRendererOrm.js';
-import { EmailService } from './electronEmail.js';
+import './electronRendererLogger.js';
+import './electronRendererConfiguration.js';
+
+export * from './electronEmail.js';
+export * from "./electronRendererIntl.js"
 
 
 export interface IpcRenderer {
