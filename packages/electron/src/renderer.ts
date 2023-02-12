@@ -33,7 +33,7 @@ export interface IpcRenderer {
          * @param resovleArgs servie resolve args ( if its about to create )
          * @param args args to method invoked on service
          */
-        callSync(method: string, service: string, resovleArgs: any[], ...args: any[]): any;
+        callSync(method: string, service: string, ...args: any[]): any;
 
         /**
          * Special case for calling methods on Orm connections. Call is made not 

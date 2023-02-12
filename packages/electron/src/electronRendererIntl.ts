@@ -21,6 +21,6 @@ export abstract class Intl {
 @Injectable(Intl)
 export class ElectronRendererIntl extends Intl {
     public __(text: string | IPhraseWithOptions, ...args: any[]): string {
-        return window.ipc.__spinaJsIpcBridge.callSync("__", "Intl", null, text, ...args);
+        return window.ipc.__spinaJsIpcBridge.callSync("__", "Intl", text, ...args);
     }
 }

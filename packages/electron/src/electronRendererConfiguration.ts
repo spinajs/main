@@ -59,6 +59,6 @@ export class ElectronRendererConfiguration extends Configuration {
 
 
     public get<T>(path: string[] | string, defaultValue?: T): T {
-        return window.ipc.__spinaJsIpcBridge.callSync("get", "Configuration", null, path, defaultValue);
+        return window.ipc.__spinaJsIpcBridge.callSync("get", "Configuration", path, defaultValue);
     }
 }

@@ -89,7 +89,7 @@ export class EmailService {
      * @param email - email to send
      */
     public send(email: IEmail): Promise<void> {
-        return window.ipc.__spinaJsIpcBridge.callSync("send", "EmailService", null, email);
+        return window.ipc.__spinaJsIpcBridge.callSync("send", "EmailService", email);
 
     }
 

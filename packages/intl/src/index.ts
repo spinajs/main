@@ -9,6 +9,8 @@ import * as MakePlural from 'make-plural';
 import intervalParse from 'math-interval-parser';
 import { TranslationSource } from './interfaces.js';
 
+export * from "./interfaces.js"
+
 const globalAny: any = global;
 
 export interface IPhraseWithOptions {
