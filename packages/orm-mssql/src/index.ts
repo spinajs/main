@@ -163,6 +163,8 @@ export class MsSqlOrmDriver extends SqlDriver {
         PrimaryKey: isPrimary,
         Uuid: false,
         Ignore: false,
+        IsForeignKey: false,
+        ForeignKeyDescription: null,
 
         // simply assumpt that integer pkeys are autoincement / auto fill  by default
         AutoIncrement: isPrimary && r.DATA_TYPE === 'int',

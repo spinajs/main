@@ -431,49 +431,46 @@ describe('Sqlite model functions', function () {
     expect(result[1].Owner.Value.Id).to.eq(2);
   });
 
-  it('Should hydrate single belongs to', async () =>{ 
+  it('Should hydrate single belongs to', async () => {
     const o2 = new owned_by_owned_by_has_many_1();
-    o2.Val = "leaf";
+    o2.Val = 'leaf';
 
     await o2.insert();
     const o1 = new owned_by_has_many_1();
-    o1.Val = "middle";
+    o1.Val = 'middle';
 
     o1.attach(o2);
     await o1.insert();
 
     const result = await owned_by_has_many_1.where('Id', '>', 0).populate('File');
     expect(result.length).to.eq(1);
-    expect(result[0].File.Value.Val).to.eq("leaf");
+    expect(result[0].File.Value.Val).to.eq('leaf');
+  });
 
-  })
-  
   it('Should proper hydrate hasMany with belongsTo relation', async () => {
-
     const h1 = new has_many_1();
-    h1.Val = "root";
+    h1.Val = 'root';
 
     await h1.insert();
     const o2 = new owned_by_owned_by_has_many_1();
-    o2.Val = "leaf";
+    o2.Val = 'leaf';
 
     await o2.insert();
     const o1 = new owned_by_has_many_1();
-    o1.Val = "middle";
+    o1.Val = 'middle';
 
     h1.attach(o1);
     o1.attach(o2);
 
     await o1.insert();
 
-    const result = await has_many_1.where('Id', '>', 0).populate('Informations', function() {
+    const result = await has_many_1.where('Id', '>', 0).populate('Informations', function () {
       this.populate('File');
     });
 
     expect(result.length).to.eq(1);
     expect(result[0].Informations.length).to.eq(1);
     expect(result[0].Informations[0].File).to.be.not.null;
-
   });
 
   it('model should populate nested belongsTo relation', async () => {
@@ -721,7 +718,6 @@ describe('Sqlite model functions', function () {
 });
 
 describe('Sqlite queries', function () {
-
   this.timeout(20000);
 
   beforeEach(async () => {
@@ -865,7 +861,7 @@ describe('Sqlite driver migrate with transaction', function () {
 
     try {
       await orm.migrateUp();
-    } catch { }
+    } catch {}
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
@@ -878,6 +874,4 @@ describe('Sqlite driver migrate with transaction', function () {
     DI.unregister(Fake2Orm);
     DI.unregister(MigrationFailed_2022_02_08_01_13_00);
   });
-
-
 });
