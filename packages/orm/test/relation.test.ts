@@ -69,6 +69,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'INT',
@@ -86,6 +88,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -103,6 +107,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -127,6 +133,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'INT',
@@ -144,6 +152,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -161,6 +171,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -184,6 +196,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -201,6 +215,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -224,6 +240,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'INT',
@@ -241,6 +259,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'INT',
@@ -258,6 +278,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -281,6 +303,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -298,6 +322,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -321,6 +347,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -338,6 +366,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -361,6 +391,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -378,6 +410,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -401,6 +435,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -418,6 +454,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -442,6 +480,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -459,6 +499,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'INT',
@@ -476,6 +518,8 @@ describe('Orm relations tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),

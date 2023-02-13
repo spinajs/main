@@ -190,6 +190,8 @@ describe('General model tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'INT',
@@ -207,6 +209,8 @@ describe('General model tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -249,6 +253,8 @@ describe('General model tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'INT',
@@ -266,6 +272,8 @@ describe('General model tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -309,6 +317,8 @@ describe('General model tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -353,6 +363,8 @@ describe('General model tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -799,6 +811,8 @@ describe('General model tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -816,6 +830,8 @@ describe('General model tests', () => {
             Unique: true,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -852,6 +868,8 @@ describe('General model tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -869,6 +887,8 @@ describe('General model tests', () => {
             Unique: true,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
@@ -1130,6 +1150,8 @@ describe('Model discrimination tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -1147,6 +1169,8 @@ describe('Model discrimination tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -1164,6 +1188,8 @@ describe('Model discrimination tests', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),

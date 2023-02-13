@@ -359,8 +359,6 @@ export class ModelBase<M = unknown> implements IModelBase {
     // do this as map or smth
     for (const [_, v] of this.ModelDescriptor.Relations.entries()) {
       if (v.TargetModel.name === (data as any).constructor.name) {
-        (data as any)[v.ForeignKey] = this.PrimaryKeyValue;
-
         switch (v.Type) {
           case RelationType.One:
             ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);

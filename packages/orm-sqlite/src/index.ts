@@ -16,7 +16,7 @@ import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { SqlLiteJoinStatement } from './statements.js';
 import { ResourceDuplicated } from '@spinajs/exceptions';
-import { IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
+import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
 import { SqliteModelToSqlConverter, SqliteObjectToSqlConverter } from './converters.js';
@@ -227,7 +227,12 @@ export class SqliteOrmDriver extends SqlDriver {
       uIndices = iInfo.map((x) => x.name);
     }
 
+    // get all foreign keys
+    const foreignKeys = (await this.execute(`PRAGMA foreign_key_list("${name}")`, null, QueryContext.Select)) as IForeignKeyList[];
+
+
     return tblInfo.map((r: ITableInfo) => {
+      const fk = foreignKeys.find((i) => i.from === r.name);
       return {
         Type: r.type,
         MaxLength: -1,
@@ -239,7 +244,12 @@ export class SqliteOrmDriver extends SqlDriver {
         PrimaryKey: r.pk === 1,
         Uuid: false,
         Ignore: false,
-
+        IsForeignKey: fk !== undefined,
+        ForeignKeyDescription: fk ? {
+          From: fk.from,
+          Table: fk.table,
+          To: fk.to
+        } : null,
         // simply assumpt that integer pkeys are autoincement / auto fill  by default
         AutoIncrement: r.pk === 1 && r.type === 'INTEGER',
         Name: r.name,

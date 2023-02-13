@@ -560,6 +560,15 @@ export interface IColumnDescriptor {
 
   // should be skipped when serializing to json
   Ignore: boolean;
+
+  // is this column a foreign key
+  IsForeignKey:  boolean;
+
+  ForeignKeyDescription: { 
+    From :string;
+    To: string;
+    Table: string;
+  }
 }
 
 /**
