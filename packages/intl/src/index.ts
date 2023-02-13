@@ -1,14 +1,15 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { AsyncLocalStorage } from 'async_hooks';
 import { Injectable, AsyncService, Autoinject, DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { Log, Logger } from '@spinajs/log';
+import { Configuration } from '@spinajs/configuration-common';
+import { Log, Logger } from '@spinajs/log-common';
 import { InvalidArgument } from '@spinajs/exceptions';
 import _ from 'lodash';
 import * as util from 'util';
 import * as MakePlural from 'make-plural';
 import intervalParse from 'math-interval-parser';
-import * as TranslatioSources from './sources.js';
-export * from './sources.js';
+import { TranslationSource } from './interfaces.js';
+
+export * from "./interfaces.js"
 
 const globalAny: any = global;
 
@@ -21,7 +22,7 @@ export interface IIntlAsyncStorage {
   language?: string;
 
   /**
-   * Even if we have detected langage, sometimes we dont want to translate
+   * Even if we have detected language, sometimes we dont want to translate
    */
   noTranslate?: boolean;
 }
@@ -111,7 +112,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
   public async resolve() {
     this.CurrentLocale = this.Configuration.get('intl.defaultLocale', 'en');
 
-    const sources = await DI.resolve(Array.ofType(TranslatioSources.TranslationSource));
+    const sources = await DI.resolve(Array.ofType(TranslationSource));
 
     for (const s of sources) {
       const translations = await s.load();
@@ -354,13 +355,17 @@ export function __translateH(text: string) {
 
 export function guessLanguage(lang?: string) {
   if (!lang) {
-    const store = DI.get(AsyncLocalStorage);
-    if (store) {
-      const storage = DI.get(AsyncLocalStorage).getStore() as IIntlAsyncStorage;
-      if (storage && storage.language) {
-        return storage.language;
+
+    if (typeof AsyncLocalStorage === 'function') {
+      const store = DI.get(AsyncLocalStorage);
+      if (store) {
+        const storage = DI.get(AsyncLocalStorage).getStore() as IIntlAsyncStorage;
+        if (storage && storage.language) {
+          return storage.language;
+        }
       }
     }
+
   }
 
   return lang ?? DI.get(Configuration).get<string>('intl.defaultLocale');

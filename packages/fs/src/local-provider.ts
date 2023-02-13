@@ -6,7 +6,7 @@ import { DateTime } from 'luxon';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IStat, IZipResult } from './interfaces.js';
 import { basename, join } from 'path';
-import { ILog, Logger } from '@spinajs/log';
+import { Log, Logger } from '@spinajs/log-common';
 import archiver from 'archiver';
 export interface IFsLocalOptions {
   basePath: string;
@@ -26,7 +26,7 @@ export interface IFsLocalOptions {
 @PerInstanceCheck()
 export class fsNative extends fs {
   @Logger('fs')
-  protected Logger: ILog;
+  protected Logger: Log;
 
   /**
    * Name of provider. We can have multiple providers of the same type but with different options.

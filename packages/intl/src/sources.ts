@@ -1,21 +1,10 @@
-import { ILog } from '@spinajs/log';
-import { Configuration } from '@spinajs/configuration';
-import { Autoinject, DI, Injectable } from '@spinajs/di';
+ import { DI, Injectable } from '@spinajs/di';
 import glob from 'glob';
 import * as fs from 'fs';
 import _ from 'lodash';
 import { normalize, resolve, basename } from 'path';
-import { Logger } from '@spinajs/log';
+import { TranslationSource } from "./interfaces.js";
 
-export abstract class TranslationSource {
-  @Autoinject()
-  protected Configuration: Configuration;
-
-  @Logger('intl')
-  protected Log: ILog;
-
-  public abstract load(): Promise<{}>;
-}
 
 @Injectable(TranslationSource)
 export class JsonTranslationSource extends TranslationSource {

@@ -4,7 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Bootstrapper, DI, Injectable } from "@spinajs/di";
 import { Configuration, format } from "@spinajs/configuration-common";
-import { ILogEntry, LogLevel, createLogMessageObject, ILog, ILogTargetDesc, LogVariables } from "@spinajs/log-common";
+import { ILogEntry, LogLevel, createLogMessageObject, Log, ILogTargetDesc, LogVariables } from "@spinajs/log-common";
 import _ from "lodash";
 import chalk from "chalk";
 
@@ -17,7 +17,7 @@ import chalk from "chalk";
  */
 
 function writeLogEntry(entry: ILogEntry, logName: string) {
-  const logger: ILog = DI.resolve("__log__", [logName]);
+  const logger: Log = DI.resolve("__log__", [logName]);
   if (logger) {
     logger
       .write(entry)
@@ -191,12 +191,14 @@ export class InternalLogger extends Bootstrapper {
   }
 }
 
-export class InternalLoggerProxy implements ILog {
+export class InternalLoggerProxy extends Log {
   public Targets: ILogTargetDesc[];
   protected Variables: Record<string, any> = {};
   public Timers: Map<string, Date> = new Map<string, Date>();
 
-  constructor(public Name: string, protected variables?: Record<string, unknown>, protected Parent?: ILog) {}
+  constructor(public Name: string, protected variables?: Record<string, unknown>, protected Parent?: Log) {
+    super();
+  }
 
   trace(message: string, ...args: any[]): void;
   trace(err: Error, message: string, ...args: any[]): void;
@@ -253,7 +255,7 @@ export class InternalLoggerProxy implements ILog {
   success(err: unknown, message?: unknown, ...args: unknown[]): void {
     InternalLogger.success(err as any, message as any, this.Name, ...args);
   }
-  child(_name: string, _variables?: LogVariables): ILog {
+  child(_name: string, _variables?: LogVariables): Log {
     return this;
   }
   write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]> {

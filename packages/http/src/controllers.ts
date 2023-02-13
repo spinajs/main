@@ -1,9 +1,9 @@
 import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
-import { AsyncService, IContainer, Autoinject, DI, Container } from '@spinajs/di';
+import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container } from '@spinajs/di';
 import * as express from 'express';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { UnexpectedServerError, IOFail } from '@spinajs/exceptions';
-import { ClassInfo, TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
+import { TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
 import { HttpServer } from './server.js';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';

@@ -1,4 +1,4 @@
-import { Log } from '@spinajs/log';
+import { Log } from '@spinajs/log-common';
 /* eslint-disable prettier/prettier */
 import { IColumnDescriptor, IDriverOptions, QueryContext, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';

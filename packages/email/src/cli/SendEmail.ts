@@ -1,7 +1,7 @@
 import { CliCommand, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import * as fs from 'fs';
-import { Logger, ILog } from '@spinajs/log';
+import { Logger, Log } from '@spinajs/log-common';
 import { DefaultEmailService } from './../index.js';
 
 interface EmailOptions {
@@ -24,7 +24,7 @@ interface EmailOptions {
 @Option('-c, --content [content]', false, 'text content if template is not provided')
 export class SendEmailCommand extends CliCommand {
   @Logger('email')
-  protected Log: ILog;
+  protected Log: Log;
 
   public async execute(options: EmailOptions): Promise<void> {
     this.Log.trace(`Sending email with options options: ${JSON.stringify(options)}`);

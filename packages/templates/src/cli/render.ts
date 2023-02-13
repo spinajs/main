@@ -3,7 +3,7 @@ import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Logger, ILog } from '@spinajs/log';
+import { Logger, Log } from '@spinajs/log-common';
 
 interface RenderOptions {
   file?: string;
@@ -18,7 +18,7 @@ interface RenderOptions {
 @Option('-l, --lang [lang]', false, 'optional language. Language data must be in directories configured in intl module. If none provided, default language is used')
 export class RenderTemplateCommand extends CliCommand {
   @Logger('templates')
-  protected Log: ILog;
+  protected Log: Log;
 
   public async execute(template: string, options: RenderOptions): Promise<void> {
     this.Log.trace(`Rendering ${template}, options: ${JSON.stringify(options)}`);
