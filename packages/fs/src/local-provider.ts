@@ -63,11 +63,12 @@ export class fsNative extends fs {
    * @param path - file to download
    */
   public async download(path: string): Promise<string> {
-    const exists = await this.exists(this.resolvePath(path));
+    const p = this.resolvePath(path);
+    const exists = await this.exists(path);
     if (!exists) {
-      throw new IOFail(`file ${path} does not exists`);
+      throw new IOFail(`file ${p} does not exists`);
     }
-    return this.resolvePath(path);
+    return p;
   }
 
   /**
