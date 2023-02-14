@@ -113,7 +113,8 @@
     "@spinajs/log-source-graphana-loki": "file:packages/log-source-graphana-loki",
     "@spinajs/templates-cvs": "files:packages/templates-cvs",
     "@spinajs/templates-pdf": "files:packages/templates-pdf",
-    "@spinajs/orm-api": "files:packages/templates-pdf"
+    "@spinajs/orm-api": "files:packages/templates-pdf",
+    "@spinajs/templates-txt": "files:packages/templates-txt"
 
   }
 }

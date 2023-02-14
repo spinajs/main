@@ -42,6 +42,24 @@ export class HandlebarsRenderer extends TemplateRenderer {
       return __translateH(context);
     });
 
+    Handlebars.registerHelper('__textRight', (context: string, length) => {
+      if (context.length > length) {
+        return context.substring(0, length);
+      }
+      return context.padStart(length, ' ');
+    });
+
+    Handlebars.registerHelper('__textCenter', (context: string, length) => {
+      if (context.length > length) {
+        return context.substring(0, length);
+      } else if (context.length == length) {
+        return context;
+      } else {
+        const leftPadding = (length - context.length) / 2;
+        return context.padStart(leftPadding + context.length, ' ').padEnd(length, ' ');
+      }
+    });
+
     await super.resolve();
   }
 

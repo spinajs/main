@@ -90,4 +90,11 @@ describe('templates', () => {
     const t = await tp();
     expect(t.render(dir('template_not_exists.handlebars'), { hello: 'world' })).to.be.rejected;
   });
+
+  it('should render text center & right', async() =>{ 
+    const t = await tp();
+    const result = await t.render(dir('templates/text.handlebars'), { hello: 'world' });
+    expect(result).to.eq('       world        \r\n               world\r\n');
+
+  });
 });
