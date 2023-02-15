@@ -934,7 +934,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const descriptor = extractModelDescriptor(this._model);
 
     let rDescriptor = null;
-    
+
     for (const [key, value] of descriptor.Relations) {
       if (key.toLowerCase() === relation.toLowerCase().trim()) {
         rDescriptor = value;

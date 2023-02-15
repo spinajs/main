@@ -562,13 +562,13 @@ export interface IColumnDescriptor {
   Ignore: boolean;
 
   // is this column a foreign key
-  IsForeignKey:  boolean;
+  IsForeignKey: boolean;
 
-  ForeignKeyDescription: { 
-    From :string;
+  ForeignKeyDescription: {
+    From: string;
     To: string;
     Table: string;
-  }
+  };
 }
 
 /**
@@ -854,6 +854,8 @@ export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder
   count(column: string, as?: string): this;
   sum(column: string, as?: string): this;
   avg(column: string, as?: string): this;
+  setAlias(alias: string): this;
+  setTable(table: string, alias?: string) : this;
   distinct(): this;
   clone(): this;
 

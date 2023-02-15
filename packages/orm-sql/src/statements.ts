@@ -52,7 +52,7 @@ export class SqlGroupByStatement extends GroupByStatement {
   build(): IQueryStatementResult {
     if (this._expr instanceof RawQuery) {
       return {
-        Bindings: this._expr.Bindings,
+        Bindings: this._expr.Bindings ?? [],
         Statements: [`${this._expr.Query}`],
       };
     } else {
@@ -114,7 +114,7 @@ export class SqlJoinStatement extends JoinStatement {
 
     if (this._query) {
       return {
-        Bindings: this._query.Bindings,
+        Bindings: this._query.Bindings ?? [],
         Statements: [`${method} ${this._query.Query}`],
       };
     }
