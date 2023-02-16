@@ -44,15 +44,7 @@ export const LogLevelStrings = {
 
 export interface ILogRule {
   name: string;
-  level:
-  | "trace"
-  | "debug"
-  | "info"
-  | "warn"
-  | "error"
-  | "fatal"
-  | "security"
-  | "success";
+  level: "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "security" | "success";
   target: string | string[];
 }
 
@@ -184,9 +176,7 @@ export interface ILogEntry {
   Variables: LogVariables;
 }
 
-export abstract class LogTarget<
-  T extends ICommonTargetOptions
-> extends SyncService {
+export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncService {
   public HasError = false;
   public Error: Error | null | unknown = null;
   public Options: T;
@@ -214,14 +204,7 @@ export interface ILogTargetDesc {
   rule: ILogRule;
 }
 
-export function createLogMessageObject(
-  err: Error | string,
-  message: string | any[],
-  level: LogLevel,
-  logger: string,
-  variables: any,
-  ...args: any[]
-): ILogEntry {
+export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
   const sMsg = err instanceof Error || !err ? (message as string) : err;
   const tMsg = args.length !== 0 ? util.format(sMsg, ...args) : sMsg;
   const lName = logger ?? message;
@@ -239,14 +222,12 @@ export function createLogMessageObject(
 }
 
 export abstract class Log extends SyncService {
-
   public static Loggers: Map<string, Log> = new Map();
   public static InternalLoggers: Map<string, Log> = new Map();
 
   public Timers: Map<string, Date> = new Map<string, Date>();
   protected Targets: ILogTargetDesc[];
   public Name: string;
-
 
   protected static AttachedToExitEvents = false;
 
@@ -260,13 +241,14 @@ export abstract class Log extends SyncService {
   protected Variables: Record<string, any> = {};
 
   public static clearLoggers() {
-    return Promise.all([...Log.Loggers.values()].map((l) => l.dispose())).then(() => {
-      Log.Loggers.clear();
-    }).then(() => {
-      return [...Log.InternalLoggers.values()].map((l) => l.dispose());
-    })
+    return Promise.all([...Log.Loggers.values()].map((l) => l.dispose()))
+      .then(() => {
+        Log.Loggers.clear();
+      })
+      .then(() => {
+        return [...Log.InternalLoggers.values()].map((l) => l.dispose());
+      });
   }
-
 
   public addVariable(name: string, value: unknown) {
     this.Variables[`${name}`] = value;
@@ -292,7 +274,6 @@ export abstract class Log extends SyncService {
 
     return 0;
   }
-
 
   public child(name: string, variables?: LogVariables): Log {
     return DI.resolve(Log, [
@@ -340,7 +321,6 @@ export abstract class Log extends SyncService {
   public abstract write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;
 }
 
-
 /**
  * Creates ( if not exists ) new logger instance with given name and optional variables
  * @param name - name of logger
@@ -373,7 +353,6 @@ export function Logger(name: string, variables?: Record<string, unknown>) {
     });
   };
 }
-
 
 export type LogVariables = ILogStaticVariables & ILogVariable;
 
