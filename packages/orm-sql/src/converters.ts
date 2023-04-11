@@ -1,4 +1,5 @@
 import { DatetimeValueConverter, IValueConverter } from '@spinajs/orm';
+import { isNumber } from 'lodash';
 import { DateTime } from 'luxon';
 
 export class SqlSetConverter implements IValueConverter {
@@ -30,7 +31,7 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
     return null;
   }
 
-  public fromDB(value: string | DateTime | Date) {
+  public fromDB(value: string | DateTime | Date | number) {
     if (!value) {
       return null;
     }
@@ -43,6 +44,10 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
 
     if (value instanceof Date) {
       return DateTime.fromJSDate(value);
+    }
+
+    if (isNumber(value)) {
+      return DateTime.fromMillis(value);
     }
 
     return DateTime.fromSQL(value);
