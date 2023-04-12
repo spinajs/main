@@ -3,7 +3,7 @@ import { Log } from '@spinajs/log-common';
 import { IColumnDescriptor, IDriverOptions, QueryContext, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder } from './builders.js';
-import { StandardModelToSqlConverter, StandardObjectToSqlConverter } from './converters.js';
+import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import './hydrators.js';
 import './dehydrators.js';
 
@@ -69,6 +69,9 @@ export abstract class OrmDriver extends SyncService {
     this.Container = this.RootContainer.child();
     this.Container.register(StandardModelToSqlConverter).as(ModelToSqlConverter);
     this.Container.register(StandardObjectToSqlConverter).as(ObjectToSqlConverter);
+    this.Container.register(JsonValueConverter).as(JsonValueConverter);
+    this.Container.register(UuidConverter).as(UuidConverter);
+    this.Container.register(UniversalValueConverter).as(UniversalValueConverter);
   }
 
   /**

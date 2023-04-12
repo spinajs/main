@@ -4,6 +4,26 @@ import { OrmException } from './exceptions.js';
 import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter } from './interfaces.js';
 import { ModelBase } from './model.js';
 
+export class JsonValueConverter extends ValueConverter {
+  /**
+   * Converts value to database type
+   *
+   * @param value - value to convert
+   */
+  public toDB(value: any): any {
+    return JSON.stringify(value);
+  }
+
+  /**
+   * Converts value from database type eg. mysql timestamp to DateTime
+   *
+   * @param value - value to convert
+   */
+  public fromDB(value: any): any {
+    return JSON.parse(value);
+  }
+}
+
 /**
  * UUid converter to & from db as binary
  */
@@ -65,7 +85,7 @@ export class StandardModelToSqlConverter extends ModelToSqlConverter {
     const obj = {};
     const relArr = [...model.ModelDescriptor.Relations.values()];
 
-    model.ModelDescriptor.Columns?.filter( x=> !x.IsForeignKey).forEach((c) => {
+    model.ModelDescriptor.Columns?.filter((x) => !x.IsForeignKey).forEach((c) => {
       const val = (model as any)[c.Name];
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
