@@ -1,3 +1,4 @@
+import { Message } from '@spinajs/queue';
 import { IOFail } from '@spinajs/exceptions';
 import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
@@ -48,9 +49,13 @@ export class EmailSenderSmtp extends EmailSender {
       ),
     );
 
-    const result = await this.Transporter.verify();
-    if (!result) {
-      throw new Error(`cannot send smtp emails, varify() failed. Pleas check email smtp configuration for connection ${this.Options.name}`);
+    try {
+      // verify returns Promise<true> so always is true
+      // we must catch exception
+      await this.Transporter.verify();
+    } catch (err) {
+      this.Log.error(`Cannot connect to smtp server. Error: ${err.Message}, connection: ${this.Options.name}`);
+      throw new Error(`cannot send smtp emails, verify() failed. Pleas check email smtp configuration for connection ${this.Options.name}`);
     }
 
     this.Log.success(`Email smtp connection ${this.Options.name} on host ${this.Options.host} established !`);
