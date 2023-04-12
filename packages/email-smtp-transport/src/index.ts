@@ -1,4 +1,3 @@
-import { Message } from '@spinajs/queue';
 import { IOFail } from '@spinajs/exceptions';
 import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
