@@ -1,5 +1,5 @@
 import { DatetimeValueConverter, IValueConverter } from '@spinajs/orm';
-import { isNumber } from 'lodash';
+import isNumber from 'lodash';
 import { DateTime } from 'luxon';
 
 export class SqlSetConverter implements IValueConverter {

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/util",
-  "version": "2.0.122",
+  "version": "2.0.123",
   "description": "utility functions shared across @spinajs framework",
   
     "main": "lib/cjs/index.js",
