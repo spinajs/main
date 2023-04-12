@@ -362,7 +362,7 @@ export class BelongsToRelation extends OrmRelation {
       this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
     }
 
-    this._query.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.ForeignKey, `${this._description.PrimaryKey}`);
+    this._query.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.ForeignKey, `${this._description.PrimaryKey}`, this._targetModelDescriptor.Driver.Options.Database);
 
     if (callback) {
       callback.call(this._relationQuery, [this]);
@@ -454,7 +454,7 @@ export class ManyToManyRelation extends OrmRelation {
     this._joinModelDescriptor = extractModelDescriptor(this._joinModel);
 
     const orm = DI.get<Orm>(Orm);
-    const driver = orm.Connections.get(this._targetModelDescriptor.Connection);
+    const driver = orm.Connections.get(this._joinModelDescriptor.Connection);
 
     const cnt = driver.Container;
     this._joinQuery = cnt.resolve<SelectQueryBuilder>(SelectQueryBuilder, [driver, this._targetModel, this]);
@@ -477,7 +477,7 @@ export class ManyToManyRelation extends OrmRelation {
   }
 
   public execute(callback?: (this: SelectQueryBuilder<any>, relation: OrmRelation) => void): void {
-    this._joinQuery.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey);
+    this._joinQuery.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
 
     if (callback) {
       callback.call(this._relationQuery, [this]);

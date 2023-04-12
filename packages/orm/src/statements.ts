@@ -164,8 +164,9 @@ export abstract class JoinStatement extends QueryStatement {
   protected _whereCallback: (this: ISelectQueryBuilder<any>) => void;
   protected _builder: SelectQueryBuilder<any>;
   protected _whereBuilder: SelectQueryBuilder<any>;
+  protected _database: string;
 
-  constructor(builder: SelectQueryBuilder<any>, sourceModel: Constructor<ModelBase>, table: string | RawQuery | Constructor<ModelBase>, method: JoinMethod, foreignKey: string | ((this: SelectQueryBuilder) => void), primaryKey: string, alias: string, tableAlias: string) {
+  constructor(builder: SelectQueryBuilder<any>, sourceModel: Constructor<ModelBase>, table: string | RawQuery | Constructor<ModelBase>, method: JoinMethod, foreignKey: string | ((this: SelectQueryBuilder) => void), primaryKey: string, alias: string, tableAlias: string, database?: string) {
     super(tableAlias);
 
     this._method = method;
@@ -180,6 +181,7 @@ export abstract class JoinStatement extends QueryStatement {
       this._primaryKey = primaryKey;
       this._alias = tableAlias;
       this._tableAlias = alias;
+      this._database = database;
     } else if (table.constructor.name === 'RawQuery') {
       this._query = table as any;
     } else {
@@ -190,6 +192,7 @@ export abstract class JoinStatement extends QueryStatement {
       const tDesc = extractModelDescriptor(this._model);
       const sAlias = `${sDesc.Driver.Options.AliasSeparator}${sDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
       this._tableAlias = `${sDesc.Driver.Options.AliasSeparator}${tDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
+      this._database = tDesc.Driver.Options.Database;
 
       if (!this._builder.TableAlias) {
         this._builder.setAlias(sAlias);
@@ -200,6 +203,7 @@ export abstract class JoinStatement extends QueryStatement {
 
         const driver = this._builder.Driver;
         const cnt = driver.Container;
+        this._database = driver.Options.Database;
         this._whereBuilder = cnt.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, this._model, this]);
         this._whereBuilder.setAlias(this._tableAlias);
 
