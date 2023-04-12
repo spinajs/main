@@ -53,7 +53,7 @@ export class EmailSenderSmtp extends EmailSender {
       // we must catch exception
       await this.Transporter.verify();
     } catch (err) {
-      this.Log.error(`Cannot connect to smtp server. Error: ${err.Message}, connection: ${this.Options.name}`);
+      this.Log.error(`Cannot connect to smtp server. Error: ${err.message}, connection: ${this.Options.name}`);
       throw new Error(`cannot send smtp emails, verify() failed. Pleas check email smtp configuration for connection ${this.Options.name}`);
     }
 
