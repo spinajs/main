@@ -1,6 +1,6 @@
-import { IValueConverterDescriptor, JsonValueConverter } from './interfaces.js';
+import { IValueConverterDescriptor } from './interfaces.js';
 /* eslint-disable prettier/prettier */
-import { UuidConverter } from './converters.js';
+import { JsonValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter } from './interfaces.js';
 import 'reflect-metadata';
