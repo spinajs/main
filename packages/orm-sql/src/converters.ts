@@ -45,8 +45,9 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
       return DateTime.fromJSDate(value);
     }
 
+    // assume that we have unix timestamp
     if (Number.isInteger(value)) {
-      return DateTime.fromMillis(value as number);
+      return DateTime.fromSeconds(value as number);
     }
 
     return DateTime.fromSQL(value as string);
