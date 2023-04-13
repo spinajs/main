@@ -479,8 +479,10 @@ export class ManyToManyRelation extends OrmRelation {
   public execute(callback?: (this: SelectQueryBuilder<any>, relation: OrmRelation) => void): void {
     this._joinQuery.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
 
+    // execute callbacks on join query that is executed
+    // for junction model, so we can execute any further queries on it after relation is populated
     if (callback) {
-      callback.call(this._relationQuery, [this]);
+      callback.call(this._joinQuery, [this]);
     }
 
     const joinRelationDescriptor = {
