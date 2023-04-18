@@ -4,12 +4,11 @@ import { LogLevel } from '@spinajs/log';
 import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
-import { OkPacket } from 'mysql2';
+import { OkPacket, PoolOptions } from 'mysql2';
 import { MySqlTableExistsCompiler } from './compilers.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
-import { Client as SSHClient } from "ssh2";
-import fs from "fs";
-
+import { Client as SSHClient } from 'ssh2';
+import fs from 'fs';
 
 @Injectable('orm-driver-mysql')
 @NewInstance()
@@ -93,7 +92,6 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public connect(): Promise<OrmDriver> {
-
     this.Pool = mysql.createPool({
       host: this.Options.Host,
       user: this.Options.User,
@@ -127,6 +125,7 @@ export class MySqlOrmDriver extends SqlDriver {
 
     if (isView && isView[0].Table_type === 'VIEW') {
       this.Log.trace(`Table ${schema}.${name} is a VIEW and dont have indexes set.`);
+    } else {
       indexInfo = (await this.execute(`SHOW INDEXES FROM ${name}`, [], QueryContext.Select)) as IIndexInfo[];
     }
 
@@ -201,7 +200,6 @@ export class MySqlOrmDriver extends SqlDriver {
 @Injectable('orm-driver-mysql-ssh')
 @NewInstance()
 export class MySqlSSHOrmDriver extends MySqlOrmDriver {
-
   protected SshClient: SSHClient;
 
   public resolve() {
@@ -227,19 +225,18 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
   }
 
   public connect(): Promise<OrmDriver> {
-
     return new Promise((resolve, reject) => {
-      this.SshClient = new SSHClient()
+      this.SshClient = new SSHClient();
 
       this.SshClient.on('ready', () => {
-        this.SshClient.forwardOut("127.0.0.1", 12345, this.Options.Host, this.Options.Port, (err, stream) => {
+        this.SshClient.forwardOut('127.0.0.1', 12345, this.Options.Host, this.Options.Port, (err, stream) => {
           if (err) {
             reject(err);
             return;
           }
 
           this.Pool = mysql.createPool({
-            host: "localhos", // we tunnel via ssh so we use localhost
+            host: 'localhost', // we tunnel via ssh so we use localhost
             user: this.Options.User,
             password: this.Options.Password,
             port: this.Options.Port,
@@ -247,8 +244,8 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
             waitForConnections: true,
             connectionLimit: this.Options.PoolLimit,
             queueLimit: 0,
-            stream: stream
-          });
+            stream: stream,
+          } as PoolOptions);
 
           resolve(this);
         });
@@ -263,7 +260,7 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
         port: this.Options.SSH.Port,
         username: this.Options.SSH.User,
         privateKey: fs.readFileSync(this.Options.SSH.PrivateKey),
-      })
-    })
+      });
+    });
   }
 }
