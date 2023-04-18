@@ -1,12 +1,15 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable, NewInstance } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log';
-import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket } from 'mysql2';
 import { MySqlTableExistsCompiler } from './compilers.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
+import { Client as SSHClient } from "ssh2";
+import fs from "fs";
+
 
 @Injectable('orm-driver-mysql')
 @NewInstance()
@@ -88,7 +91,9 @@ export class MySqlOrmDriver extends SqlDriver {
       return false;
     }
   }
+
   public connect(): Promise<OrmDriver> {
+
     this.Pool = mysql.createPool({
       host: this.Options.Host,
       user: this.Options.User,
@@ -102,6 +107,7 @@ export class MySqlOrmDriver extends SqlDriver {
 
     return Promise.resolve(this);
   }
+
   public disconnect(): Promise<OrmDriver> {
     return new Promise((resolve, reject) => {
       this.Pool.end((err) => {
@@ -189,5 +195,75 @@ export class MySqlOrmDriver extends SqlDriver {
         }
       });
     });
+  }
+}
+
+@Injectable('orm-driver-mysql-ssh')
+@NewInstance()
+export class MySqlSSHOrmDriver extends MySqlOrmDriver {
+
+  protected SshClient: SSHClient;
+
+  public resolve() {
+    super.resolve();
+
+    if (!this.Options.SSH) {
+      throw new OrmException(`SSH options are not set for MySqlSSHOrmDriver`);
+    }
+
+    if (!fs.existsSync(this.Options.SSH.PrivateKey)) {
+      throw new OrmException(`SSH private key file ${this.Options.SSH.PrivateKey} does not exist`);
+    }
+  }
+
+  public async disconnect() {
+    await super.disconnect();
+
+    if (this.SshClient) {
+      this.SshClient.end();
+    }
+
+    return this;
+  }
+
+  public connect(): Promise<OrmDriver> {
+
+    return new Promise((resolve, reject) => {
+      this.SshClient = new SSHClient()
+
+      this.SshClient.on('ready', () => {
+        this.SshClient.forwardOut("127.0.0.1", 12345, this.Options.Host, this.Options.Port, (err, stream) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          this.Pool = mysql.createPool({
+            host: "localhos", // we tunnel via ssh so we use localhost
+            user: this.Options.User,
+            password: this.Options.Password,
+            port: this.Options.Port,
+            database: this.Options.Database,
+            waitForConnections: true,
+            connectionLimit: this.Options.PoolLimit,
+            queueLimit: 0,
+            stream: stream
+          });
+
+          resolve(this);
+        });
+      });
+
+      this.SshClient.on('error', (err) => {
+        reject(err);
+      });
+
+      this.SshClient.connect({
+        host: this.Options.SSH.Host,
+        port: this.Options.SSH.Port,
+        username: this.Options.SSH.User,
+        privateKey: fs.readFileSync(this.Options.SSH.PrivateKey),
+      })
+    })
   }
 }

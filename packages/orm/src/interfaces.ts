@@ -159,6 +159,19 @@ export interface IDriverOptions {
    */
   Options?: any;
 
+  /**
+ * If this is set, database connection will be made by ssh tunnel
+ */
+  SSH?: {
+    // ssh host
+    Host: string,
+    Port: number,
+
+    // path to private key for ssh connection
+    PrivateKey: string;
+    User: string;
+  }
+
   Migration?: {
     /**
      * Should run migration on startup
@@ -788,7 +801,7 @@ export interface IGroupByBuilder {
  * Dummy abstract class for allowing to add extensions for builder via declaration merging & mixins
  */
 //@ts-ignore
-export interface ISelectBuilderExtensions<T> {}
+export interface ISelectBuilderExtensions<T> { }
 
 export interface IJoinBuilder {
   JoinStatements: IQueryStatement[];
@@ -844,9 +857,9 @@ export interface IBuilder<T> extends PromiseLike<T> {
   toDB(): ICompilerOutput | ICompilerOutput[];
 }
 
-export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {}
+export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
 
-export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
+export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 
 export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IBuilder<T> {
   min(column: string, as?: string): this;
@@ -1088,12 +1101,12 @@ export class ValueConverter implements IValueConverter {
 /**
  * Converter for DATETIME field (eg. mysql datetime)
  */
-export class DatetimeValueConverter extends ValueConverter {}
+export class DatetimeValueConverter extends ValueConverter { }
 
 /**
  * Converter for set field (eg. mysql SET)
  */
-export class SetValueConverter extends ValueConverter {}
+export class SetValueConverter extends ValueConverter { }
 
 @Singleton()
 export abstract class TableAliasCompiler {
@@ -1107,7 +1120,7 @@ export interface IUniversalConverterOptions {
 /**
  * base class for select & where builder for defining scopes
  */
-export abstract class QueryScope {}
+export abstract class QueryScope { }
 
 export interface IHistoricalModel {
   readonly __action__: 'insert' | 'update' | 'delete';

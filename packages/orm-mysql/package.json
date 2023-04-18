@@ -53,14 +53,16 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "chai": "^4.3.7",
-    "chai-as-promised": "^7.1.1"
+    "chai-as-promised": "^7.1.1",
+    "@types/ssh2": "^1.5.0"
   },
   "dependencies": {
     "@spinajs/configuration": "^2.0.129",
     "@spinajs/di": "^2.0.129",
     "@spinajs/orm": "^2.0.129",
     "@spinajs/orm-sql": "^2.0.129",
-    "mysql2": "^3.0.1"
+    "mysql2": "^3.0.1",
+    "ssh2": "^1.5.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
