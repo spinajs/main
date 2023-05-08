@@ -24,6 +24,39 @@ export interface IStat {
   AdditionalData?: unknown;
 }
 
+export interface IFsLocalOptions {
+  /**
+   * Full path to local directory where files are hold.
+   * All paths will be relative to this directory
+   */
+  basePath: string;
+
+  /**
+   * Instance name of this filesystem. Used to share fs instances.
+   */
+  name: string;
+}
+
+export interface IFsLocalTempOptions extends IFsLocalOptions {
+
+  /**
+   * Should cleanup of old temp files be enabled
+   */
+  cleanup: boolean;
+
+  /**
+   * Cleanup interval in seconds
+   * Default is 10 minutes
+   */
+  cleanupInterval: number;
+
+  /**
+   * Max temp file age in seconds. Older thant this will be deleted. 
+   * Default is 1 hour
+   */
+  maxFileAge : number;
+}
+
 export interface IZipResult {
   asFilePath(): string;
   asStream(): ReadStream;

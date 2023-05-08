@@ -11,7 +11,7 @@ import { FileSystem } from '../src/decorators.js';
 
 
 
-describe('http & controller tests', function () {
+describe('general fs tests', function () {
     this.timeout(15000);
 
     before(async () => {
@@ -29,6 +29,10 @@ describe('http & controller tests', function () {
         sinon.restore();
     });
 
+    it('should create only one instance of the same filesystem', async () =>{ 
+
+    });
+
     it('should create multiple filesystems at startup', async () => {
 
 
@@ -44,8 +48,6 @@ describe('http & controller tests', function () {
     });
 
     it('should inject filesystem via decorator', async () => {
-
-
         class Foo {
             @FileSystem('fs-temp')
             public Temp: fs;
@@ -55,8 +57,7 @@ describe('http & controller tests', function () {
 
         expect(instance.Temp).to.be.not.null;
         expect(instance.Temp.ServiceName).to.eq('fs-temp')
-
-
     });
-
 });
+
+

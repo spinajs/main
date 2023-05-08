@@ -23,6 +23,7 @@
         "**/.nyc_output": true,
         "package-lock.json": true
     },
+    "eslint.enable": false,
     "mocha.files.glob": "test/**/*.ts",
     "mocha.requires": [
         "ts-node/register"

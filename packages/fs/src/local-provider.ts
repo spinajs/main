@@ -4,14 +4,11 @@ import { constants, createReadStream, createWriteStream, readFile, readFileSync 
 import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open, appendFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
-import { fs, IStat, IZipResult } from './interfaces.js';
+import { fs, IFsLocalOptions, IStat, IZipResult } from './interfaces.js';
 import { basename, join } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
 import archiver from 'archiver';
-export interface IFsLocalOptions {
-  basePath: string;
-  name: string;
-}
+
 
 /**
  * Abstract layer for file operations.
@@ -24,7 +21,7 @@ export interface IFsLocalOptions {
  */
 @Injectable('fs')
 @PerInstanceCheck()
-export class fsNative extends fs {
+export class fsNative<T extends IFsLocalOptions> extends fs {
   @Logger('fs')
   protected Logger: Log;
 
@@ -36,7 +33,7 @@ export class fsNative extends fs {
     return this.Options.name;
   }
 
-  constructor(public Options: IFsLocalOptions) {
+  constructor(public Options: T) {
     super();
   }
 

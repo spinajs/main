@@ -5,6 +5,11 @@ function dir(path: string) {
 }
 
 const fs = {
+  system: { 
+    dirs: { 
+      cli: [dir('./../cli')],
+    }
+  },
   fs: {
     defaultProvider: 'fs-local',
     providers: [
