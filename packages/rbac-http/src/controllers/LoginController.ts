@@ -1,6 +1,6 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { UserLoginDto } from '../dto/userLogin-dto.js';
-import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, Header, Policy, Query, BadRequest, NotFound } from '@spinajs/http';
+import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, CookieResponse, Unauthorized, Policy, Query, BadRequest, NotFound } from '@spinajs/http';
 import { AuthProvider, FederatedAuthProvider, PasswordProvider, PasswordValidationProvider, Session, SessionProvider, User, User as UserModel, UserMetadata, UserPasswordChanged } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
@@ -54,35 +54,6 @@ export class LoginController extends BaseController {
 
   @Autoinject(QueueService)
   protected Queue: QueueService;
-
-  @Post('federated-login')
-  @Policy(NotLoggedPolicy)
-  public async loginFederated(@Body() credentials: unknown, @Header('Host') caller: string) {
-    const strategy = this.FederatedLoginStrategies.find((x) => x.callerCheck(caller));
-    if (!strategy) {
-      throw new InvalidOperation(`No auth stragegy registered for caller ${caller}`);
-    }
-
-    const result = await strategy.authenticate(credentials);
-    if (!result.Error) {
-      // proceed with standard authentication
-      return await this.authenticate(result.User);
-    }
-
-    return new Unauthorized(result.Error);
-  }
-
-  /**
-   *
-   * Api call for listing avaible federated login strategies
-   *
-   * @returns response with avaible login strategies
-   */
-  @Get()
-  @Policy(NotLoggedPolicy)
-  public async federatedLoginList() {
-    return new Ok(this.FederatedLoginStrategies.map((x) => x.Name));
-  }
 
   @Post()
   @Policy(NotLoggedPolicy)

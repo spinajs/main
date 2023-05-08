@@ -33,6 +33,10 @@ const rbacHttp = {
        */
       blockAfterAttempts: 3,
     },
+    /**
+     * Should federated login be enabled ? eg. facebook
+     */
+    allowFederated: false,
   },
   http: {
     // middlewares: [
