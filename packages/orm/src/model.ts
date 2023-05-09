@@ -121,6 +121,10 @@ export class ModelBase<M = unknown> implements IModelBase {
     });
   }
 
+  public valueOf() {
+    return this.PrimaryKeyValue;
+  }
+
   public driver(): OrmDriver {
     const orm = DI.get<Orm>(Orm);
     const driver = orm.Connections.get(this.ModelDescriptor.Connection);
@@ -359,7 +363,6 @@ export class ModelBase<M = unknown> implements IModelBase {
     // do this as map or smth
     for (const [_, v] of this.ModelDescriptor.Relations.entries()) {
       if (v.TargetModel.name === (data as any).constructor.name) {
-
         // TODO: refactor this, so we dont update foreign key
         // instead we must use belongsTo relation on data model to update
         (data as any)[v.ForeignKey] = this.PrimaryKeyValue;

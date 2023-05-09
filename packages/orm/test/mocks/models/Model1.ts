@@ -7,7 +7,7 @@ import { DateTime as lDateTime } from 'luxon';
 
 @Connection('sqlite')
 @Model('TestTable1')
-export class Model1 extends ModelBase {
+export class Model1 extends ModelBase<Model1> {
   @Primary()
   public Id: number;
 

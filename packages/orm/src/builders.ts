@@ -2025,11 +2025,11 @@ export class SchemaQueryBuilder {
     return exists !== null && exists.length === 1;
   }
 
-  public async event(name: string) {
+  public event(name: string) {
     return new EventQueryBuilder(this.container, this.driver, name);
   }
 
-  public async dropEvent(name: string) {
+  public dropEvent(name: string) {
     return new DropEventQueryBuilder(this.container, this.driver, name);
   }
 }

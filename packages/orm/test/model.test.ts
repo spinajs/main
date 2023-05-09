@@ -191,7 +191,7 @@ describe('General model tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
           {
             Type: 'INT',
@@ -210,7 +210,7 @@ describe('General model tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
         ]);
       }),
@@ -254,7 +254,7 @@ describe('General model tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
           {
             Type: 'INT',
@@ -273,7 +273,7 @@ describe('General model tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
         ]);
       }),
@@ -318,7 +318,7 @@ describe('General model tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
         ]);
       }),
@@ -364,7 +364,7 @@ describe('General model tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
         ]);
       }),
@@ -492,6 +492,77 @@ describe('General model tests', () => {
     expect(Model1.findOrFail([1])).to.be.rejected;
   });
 
+  it('FirstOrThrow shouhld work', async () => {
+    // @ts-ignore
+    const orm = await db();
+
+    const compile = sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([
+          {
+            a: 1,
+          },
+        ]);
+      }),
+    );
+
+    const result = await Model1.where({ id: 1 }).firstOrThrow(new Error('Not found'));
+
+    expect(compile.calledOnce).to.be.true;
+    expect(execute.calledOnce).to.be.true;
+    expect(result).to.be.an('array').with.lengthOf(1);
+    expect(result).instanceof(Model1);
+  });
+
+  it('FirstOrThrow should throw', async () => {
+    // @ts-ignore
+    const orm = await db();
+
+    sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([]);
+      }),
+    );
+
+    expect(Model1.where({ id: 1 }).firstOrThrow(new Error('Not found'))).to.be.rejectedWith(new Error('Not found'));
+  });
+
+  it('Should compare two models by primary key', () => {
+    const model1 = new Model1({
+      Id: 1,
+    });
+
+    const model2 = new Model1({
+      Id: 1,
+    });
+
+    const model3 = new Model1({
+      Id: 2
+    });
+
+    expect(model1 === model2).to.be.true;
+    expect(model1 === model3).to.be.false;
+  });
+
+  it('Should compare model by primary key  value', () => {
+    const model1 = new Model1({
+      Id: 1,
+    });
+
+    expect(+model1 === 1).to.be.true;
+    expect(+model1 === 2).to.be.false;
+  });
+
   it('destroy mixin should work', async () => {
     // @ts-ignore
     const orm = await db();
@@ -529,7 +600,7 @@ describe('General model tests', () => {
     const scope = sinon.spy(ModelWithScopeQueryScope.prototype, 'whereIdIsGreaterThan');
 
     await ModelWithScope.query().whereIdIsGreaterThan(1);
-   
+
     expect(execute.calledOnce).to.be.true;
     expect(scope.calledOnce).to.be.true;
   });
@@ -628,9 +699,9 @@ describe('General model tests', () => {
     expect(result.Bar).to.eq('hello');
 
     Model1.query().where({
-      Bar: "ss",
-      Owner: 1
-    })
+      Bar: 'ss',
+      Owner: 1,
+    });
   });
 
   it('getOrNew with data should work', async () => {
@@ -810,7 +881,7 @@ describe('General model tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
           {
             Type: 'VARCHAR',
@@ -829,7 +900,7 @@ describe('General model tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
         ]);
       }),
@@ -867,7 +938,7 @@ describe('General model tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
           {
             Type: 'VARCHAR',
@@ -886,7 +957,7 @@ describe('General model tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
         ]);
       }),
@@ -1149,7 +1220,7 @@ describe('Model discrimination tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
           {
             Type: 'VARCHAR',
@@ -1168,7 +1239,7 @@ describe('Model discrimination tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
           {
             Type: 'VARCHAR',
@@ -1187,7 +1258,7 @@ describe('Model discrimination tests', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
           },
         ]);
       }),
