@@ -34,6 +34,8 @@ export class DbConfig<T = unknown> extends ModelBase {
 
   public Default?: T;
 
+  public Environment?: string;
+
   public hydrate(data: Partial<this>) {
     Object.assign(this, {
       ...data,
