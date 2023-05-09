@@ -320,7 +320,6 @@ describe('Where query builder', () => {
       .toDB();
 
     expect(result.expression).to.equal('SELECT * FROM `users`');
-
   });
 
   it('where object with arrays', () => {
@@ -413,6 +412,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
             {
               Type: 'INT',
@@ -430,6 +431,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
             {
               Type: 'INT',
@@ -447,6 +450,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
           ]);
         }),
@@ -471,6 +476,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
             {
               Type: 'VARCHAR',
@@ -488,6 +495,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
           ]);
         }),
@@ -512,6 +521,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
             {
               Type: 'VARCHAR',
@@ -529,6 +540,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
           ]);
         }),
@@ -553,6 +566,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
             {
               Type: 'INT',
@@ -570,6 +585,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
             {
               Type: 'INT',
@@ -587,6 +604,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
           ]);
         }),
@@ -611,6 +630,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
             {
               Type: 'VARCHAR',
@@ -628,6 +649,8 @@ describe('Relations query builder', () => {
               Unique: false,
               Uuid: false,
               Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
             },
           ]);
         }),
@@ -642,25 +665,25 @@ describe('Relations query builder', () => {
   });
 
   it('should query by relation in where', () => {
-    const result = RelationModel.where({ Relation: 1 }).toDB()  as ICompilerOutput;
+    const result = RelationModel.where({ Relation: 1 }).toDB() as ICompilerOutput;
     expect(result.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
     expect(result.bindings[0]).to.equal(1);
 
-    const result2 = RelationModel.where({ Relation: new RelationModel2({ Id: 2 }) }).toDB()  as ICompilerOutput;
+    const result2 = RelationModel.where({ Relation: new RelationModel2({ Id: 2 }) }).toDB() as ICompilerOutput;
     expect(result2.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
     expect(result2.bindings[0]).to.equal(2);
 
-    const result3 = RelationModel.where('Relation', 1).toDB()  as ICompilerOutput;
+    const result3 = RelationModel.where('Relation', 1).toDB() as ICompilerOutput;
     expect(result3.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
     expect(result3.bindings[0]).to.equal(1);
 
-    const result4 = RelationModel.where('Relation', new RelationModel2({ Id: 2 })).toDB()  as ICompilerOutput;
+    const result4 = RelationModel.where('Relation', new RelationModel2({ Id: 2 })).toDB() as ICompilerOutput;
     expect(result4.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
     expect(result4.bindings[0]).to.equal(2);
   });
 
   it('belongsTo simple', () => {
-    const result = RelationModel.where('Id', 1).populate('Relation').toDB()  as ICompilerOutput;
+    const result = RelationModel.where('Id', 1).populate('Relation').toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id WHERE `$RelationModel$`.Id = ?');
   });
@@ -676,7 +699,7 @@ describe('Relations query builder', () => {
   });
 
   it('belongsTo with custom keys', () => {
-    const result = RelationModel.where('Id', 1).populate('Relation2').toDB()  as ICompilerOutput;
+    const result = RelationModel.where('Id', 1).populate('Relation2').toDB() as ICompilerOutput;
     expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation2$`.`Id` as `$Relation2$.Id`,`$Relation2$`.`RelationProperty` as `$Relation2$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation2$` ON `$RelationModel$`.fK_Id = `$Relation2$`.pK_Id WHERE `$RelationModel$`.Id = ?');
   });
 
@@ -827,7 +850,7 @@ describe('Select query builder', () => {
       .from('users')
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       // eslint-disable-next-line @typescript-eslint/no-empty-function
-      .where(function (_builder: IWhereBuilder<unknown>) { })
+      .where(function (_builder: IWhereBuilder<unknown>) {})
       .toDB();
 
     expect(result.expression).to.eq('SELECT * FROM `users`');

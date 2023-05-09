@@ -160,17 +160,17 @@ export interface IDriverOptions {
   Options?: any;
 
   /**
- * If this is set, database connection will be made by ssh tunnel
- */
+   * If this is set, database connection will be made by ssh tunnel
+   */
   SSH?: {
     // ssh host
-    Host: string,
-    Port: number,
+    Host: string;
+    Port: number;
 
     // path to private key for ssh connection
     PrivateKey: string;
     User: string;
-  }
+  };
 
   Migration?: {
     /**
@@ -801,7 +801,7 @@ export interface IGroupByBuilder {
  * Dummy abstract class for allowing to add extensions for builder via declaration merging & mixins
  */
 //@ts-ignore
-export interface ISelectBuilderExtensions<T> { }
+export interface ISelectBuilderExtensions<T> {}
 
 export interface IJoinBuilder {
   JoinStatements: IQueryStatement[];
@@ -816,40 +816,40 @@ export interface IJoinBuilder {
 
   leftJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   leftJoin(query: RawQuery): this;
-  leftJoin(table: string, foreignKey: string, primaryKey: string, database: string): this;
+  leftJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
 
   // tslint:disable-next-line: unified-signatures
-  leftJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database: string): this;
+  leftJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
 
   leftOuterJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   leftOuterJoin(query: RawQuery): this;
-  leftOuterJoin(table: string, foreignKey: string, primaryKey: string, database: string): this;
+  leftOuterJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
   // tslint:disable-next-line: unified-signatures
-  leftOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database: string): this;
+  leftOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
 
   rightJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   rightJoin(query: RawQuery): this;
-  rightJoin(table: string, foreignKey: string, primaryKey: string, database: string): this;
+  rightJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
   // tslint:disable-next-line: unified-signatures
-  rightJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database: string): this;
+  rightJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
 
   rightOuterJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   rightOuterJoin(query: RawQuery): this;
-  rightOuterJoin(table: string, foreignKey: string, primaryKey: string, database: string): this;
+  rightOuterJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
   // tslint:disable-next-line: unified-signatures
-  rightOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database: string): this;
+  rightOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
 
   fullOuterJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   fullOuterJoin(query: RawQuery): this;
-  fullOuterJoin(table: string, foreignKey: string, primaryKey: string, database: string): this;
+  fullOuterJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
   // tslint:disable-next-line: unified-signatures
-  fullOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database: string): this;
+  fullOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
 
   crossJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
   crossJoin(query: RawQuery): this;
-  crossJoin(table: string, foreignKey: string, primaryKey: string, database: string): this;
+  crossJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
   // tslint:disable-next-line: unified-signatures
-  crossJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database: string): this;
+  crossJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
 }
 
 export interface IBuilder<T> extends PromiseLike<T> {
@@ -857,9 +857,9 @@ export interface IBuilder<T> extends PromiseLike<T> {
   toDB(): ICompilerOutput | ICompilerOutput[];
 }
 
-export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
+export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {}
 
-export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
+export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
 
 export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IBuilder<T> {
   min(column: string, as?: string): this;
@@ -1101,12 +1101,12 @@ export class ValueConverter implements IValueConverter {
 /**
  * Converter for DATETIME field (eg. mysql datetime)
  */
-export class DatetimeValueConverter extends ValueConverter { }
+export class DatetimeValueConverter extends ValueConverter {}
 
 /**
  * Converter for set field (eg. mysql SET)
  */
-export class SetValueConverter extends ValueConverter { }
+export class SetValueConverter extends ValueConverter {}
 
 @Singleton()
 export abstract class TableAliasCompiler {
@@ -1120,7 +1120,7 @@ export interface IUniversalConverterOptions {
 /**
  * base class for select & where builder for defining scopes
  */
-export abstract class QueryScope { }
+export abstract class QueryScope {}
 
 export interface IHistoricalModel {
   readonly __action__: 'insert' | 'update' | 'delete';
