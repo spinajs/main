@@ -45,7 +45,6 @@ export function Config(path: string, options?: IConfigEntryOptions) {
  * @param type - if type is provided, it will override type obtain from reflection. Use it specific with arrays and maps, becouse ts reflection module cannot extract array and map type data
  */
 export function AutoinjectService(path: string, type?: Class<unknown>) {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
     const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
     descriptor.inject.push({
@@ -54,12 +53,10 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
       inject: t,
       data: path,
       mapFunc: (x: IMappableService) => {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
         return x.ServiceName || x.constructor.name;
       },
       serviceFunc: (path: string, container: IContainer) => {
         const cfg = container.get(Configuration);
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         const cfgVal = cfg.get<any>(path);
 
         if (!cfgVal) {
@@ -75,18 +72,14 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
         if (_.isArray(cfgVal)) {
           return cfgVal.map((x) => {
             return {
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
               service: x.service as string,
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
               options: x,
             };
           });
         }
 
         return {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
           service: cfgVal.service as string,
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           options: cfgVal,
         };
       },

@@ -23,11 +23,11 @@ import { Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/m
 import { ModelWithScopeQueryScope } from './mocks/models/ModelWithScope.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators.js';
 import { ModelWithScope } from './mocks/models/ModelWithScope.js';
+import { DateTime } from 'luxon';
 
-const expect = chai.expect;
 chai.use(chaiAsPromised);
 chai.use(chaiSubset);
-
+const expect = chai.expect;
 async function db() {
   return await DI.resolve(Orm);
 }
@@ -334,7 +334,7 @@ describe('General model tests', () => {
     const toDb = sinon.spy(FakeConverter.prototype, 'toDB');
 
     const model = new Model1({
-      ArchivedAt: new Date(),
+      ArchivedAt: DateTime.now(),
     });
 
     await model.insert();
@@ -515,7 +515,6 @@ describe('General model tests', () => {
 
     expect(compile.calledOnce).to.be.true;
     expect(execute.calledOnce).to.be.true;
-    expect(result).to.be.an('array').with.lengthOf(1);
     expect(result).instanceof(Model1);
   });
 
@@ -533,11 +532,12 @@ describe('General model tests', () => {
         res([]);
       }),
     );
-
-    expect(Model1.where({ id: 1 }).firstOrThrow(new Error('Not found'))).to.be.rejectedWith(new Error('Not found'));
+    return expect(Model1.where({ id: 1 }).firstOrThrow(new Error('Not found'))).to.be.rejectedWith(Error, 'Not found');
   });
 
-  it('Should compare two models by primary key', () => {
+  it('Should compare two models by primary key', async () => {
+    await db();
+
     const model1 = new Model1({
       Id: 1,
     });
@@ -547,14 +547,18 @@ describe('General model tests', () => {
     });
 
     const model3 = new Model1({
-      Id: 2
+      Id: 2,
     });
-
-    expect(model1 === model2).to.be.true;
-    expect(model1 === model3).to.be.false;
+ 
+    expect(+model1 === +model2).to.be.true;
+    expect(+model1 === +model3).to.be.false;
   });
 
-  it('Should compare model by primary key  value', () => {
+  it('Should compare model by primary key  value', async () => {
+
+    await db();
+
+
     const model1 = new Model1({
       Id: 1,
     });
