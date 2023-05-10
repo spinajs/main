@@ -1,5 +1,6 @@
 import { User } from './models/User.js';
 import { AsyncService } from '@spinajs/di';
+import { IModelDescriptor } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 export interface ISession {
@@ -219,6 +220,11 @@ export enum AthenticationErrorCodes {
   E_USER_NOT_ACTIVE = 'E_USER_NOT_ACTIVE',
   E_INVALID_CREDENTIALS = 'E_INVALID_CREDENTIALS',
   E_LOGIN_ATTEMPTS_EXCEEDED = 'E_LOGIN_ATTEMPTS_EXCEEDED',
+}
+
+export interface IRbacModelDescriptor extends IModelDescriptor
+{ 
+    RbacResource: string;
 }
 
 /**

@@ -1,14 +1,15 @@
 {
-  "name": "@spinajs/rbac-http",
+  "name": "@spinajs/rbac-http-user",
   "version": "2.0.132",
-  "description": "HTTP rbac helpers eg, session retrieval, decorators for controllers, args retrieval etc. Use it for modules where you only need user information from session",
-  "main": "lib/cjs/index.js",
+  "description": "HTTP API for basic user tasks ( login, logout, managing user account etc )",
+  
+    "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-    ".": {
-      "import": "./lib/mjs/index.js",
-      "require": "./lib/cjs/index.js"
-    }
+      ".": {
+          "import": "./lib/mjs/index.js",
+          "require": "./lib/cjs/index.js"
+      }
   },
   "type": "module",
   "private": false,
@@ -28,10 +29,12 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
+    
   },
   "files": [
     "lib/**/*"
   ],
+  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -53,15 +56,14 @@
     "@spinajs/http": "^2.0.132",
     "@spinajs/log": "^2.0.132",
     "@spinajs/orm": "^2.0.132",
+    "@spinajs/orm-http": "^2.0.132",
     "@spinajs/rbac": "^2.0.132",
-    "@spinajs/reflection": "^2.0.132",
-    "accesscontrol": "^2.2.1",
+    "@spinajs/rbac-http": "^2.0.132",
     "luxon": "^3.2.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.132",
-    "@types/uuid": "^9.0.0"
+    "@spinajs/orm-sqlite": "^2.0.132"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

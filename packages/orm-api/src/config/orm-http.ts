@@ -18,7 +18,7 @@ const ormHttp = {
   api: {
     endpoint: {
       transformer: {
-        service: 'JsonApiCollectionTransofrmer',
+        service: 'JsonApiCollectionTransformer',
       },
     },
   },
