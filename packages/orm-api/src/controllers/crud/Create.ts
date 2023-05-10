@@ -13,7 +13,7 @@ import { Permission } from 'accesscontrol';
 
 @BasePath('crud')
 @Policy(FindModelType)
-export class CrudGet extends Crud {
+export class CrudCreate extends Crud {
   @Logger('orm-http:api')
   protected Log: Log;
 

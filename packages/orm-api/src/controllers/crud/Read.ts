@@ -7,17 +7,17 @@ import { Autoinject } from '@spinajs/di';
 import { BadRequest, Forbidden, ResourceNotFound, UnexpectedServerError } from '@spinajs/exceptions';
 
 import _ from 'lodash';
-import { ModelType } from '../../route-args/ModelType.js';
-import { QueryArgs } from '../../dto/QueryArgs.js';
-import { QueryFilter } from '../../dto/QueryFilter.js';
+import { ModelType } from '../../route-args/ModelType';
+import { QueryArgs } from '../../dto/QueryArgs';
+import { QueryFilter } from '../../dto/QueryFilter';
 import { Log, Logger } from '@spinajs/log';
-import { QueryIncludes } from '../../dto/QueryIncludes.js';
-import { Crud } from './Crud.js';
-import { FindModelType } from '../../policies/FindModelType.js';
+import { QueryIncludes } from '../../dto/QueryIncludes';
+import { Crud } from './Crud';
+import { FindModelType } from '../../policies/FindModelType';
 
 @BasePath('crud')
 @Policy(FindModelType)
-export class CrudGet extends Crud {
+export class CrudRead extends Crud {
   @Logger('orm-http:api')
   protected Log: Log;
 

@@ -14,7 +14,7 @@ export * from './models/UserMetadata.js';
 export * from './models/UserTimeline.js';
 export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
 export * from './events/index.js';
-export { AccessControl } from 'accesscontrol';
+export { AccessControl, Permission } from 'accesscontrol';
 
 @Injectable(Bootstrapper)
 export class RbacBootstrapper extends Bootstrapper {
