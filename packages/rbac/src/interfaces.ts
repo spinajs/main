@@ -1,7 +1,28 @@
 import { User } from './models/User.js';
 import { AsyncService } from '@spinajs/di';
-import { IModelDescriptor } from '@spinajs/orm';
+import { IDeleteQueryBuilder, IModelDescriptor, IQueryBuilder, ISelectQueryBuilder, IUpdateQueryBuilder, ModelBase } from '@spinajs/orm';
 import { DateTime } from 'luxon';
+
+declare module '@spinajs/orm' {
+  export interface IModelStatic {
+    /**
+     *
+     * Alters query to check ownership of queried resource. Ensures that query returns only owned user data
+     *
+     * @param query query to alter
+     * @param user user to check againts ownership
+     * @param modelDescriptor resource model descriptor
+     */
+    ensureOwnership(query: ISelectQueryBuilder<any> | IUpdateQueryBuilder<any> | IDeleteQueryBuilder<any>, user: User, modelDescriptor: IModelDescriptor): IQueryBuilder;
+
+    /**
+     * Checks ownership of retrieved model by user
+     * @param model model to check
+     * @param user user to check against ownership
+     */
+    checkOwnership<M>(model: ModelBase<M>, user?: User): boolean;
+  }
+}
 
 export interface ISession {
   /**
@@ -222,9 +243,8 @@ export enum AthenticationErrorCodes {
   E_LOGIN_ATTEMPTS_EXCEEDED = 'E_LOGIN_ATTEMPTS_EXCEEDED',
 }
 
-export interface IRbacModelDescriptor extends IModelDescriptor
-{ 
-    RbacResource: string;
+export interface IRbacModelDescriptor extends IModelDescriptor {
+  RbacResource: string;
 }
 
 /**
