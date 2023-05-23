@@ -1,10 +1,12 @@
+import { AccessControl, Permission } from 'accesscontrol';
+
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { ModelData } from '@spinajs/orm';
+
 import './auth.js';
 import './password.js';
 import './session.js';
-import { AccessControl } from 'accesscontrol';
-import { Configuration } from '@spinajs/configuration';
-import { ModelData } from '@spinajs/orm';
 import { User } from './models/User.js';
 
 export * from './interfaces.js';
@@ -16,7 +18,7 @@ export * from './models/UserMetadata.js';
 export * from './models/UserTimeline.js';
 export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
 export * from './events/index.js';
-export { AccessControl, Permission } from 'accesscontrol';
+export { AccessControl, Permission };
 
 @Injectable(Bootstrapper)
 export class RbacBootstrapper extends Bootstrapper {
