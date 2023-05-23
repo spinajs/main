@@ -220,11 +220,11 @@ export class User extends ModelBase {
     return this.can(resource, 'readOwn');
   }
 
-  public canUpdateAny(resource : string){ 
+  public canUpdateAny(_resource : string){ 
 
   }
 
-  public canUpdateOwn(resource: string){
+  public canUpdateOwn(_resource: string){
 
   }
 
@@ -241,6 +241,6 @@ export class User extends ModelBase {
   }
 
   public canCreateOwn(){ 
-    
+
   }
 }

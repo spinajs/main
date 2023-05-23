@@ -5,7 +5,7 @@ import { Server } from 'http';
 import { RequestHandler } from 'express';
 import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders } from './interfaces.js';
 import { existsSync } from 'fs';
-import { fsNative } from '@spinajs/fs';
+import { fsNative, IFsLocalOptions } from '@spinajs/fs';
 import cors from 'cors';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods/index.js';
@@ -51,7 +51,7 @@ export class HttpServer extends AsyncService {
 
   public async resolve(): Promise<void> {
     this.Express = Express();
-    const f = DI.resolve<fsNative>('__file_provider__', ['__fs_http_response_templates__']);
+    const f = DI.resolve<fsNative<IFsLocalOptions>>('__file_provider__', ['__fs_http_response_templates__']);
     if (!f) {
       this.Log.info(`No fs provider for __fs_http_response_templates__ registered, response templates will not be available.`);
     } else {

@@ -1,6 +1,4 @@
 import { CliCommand, Command, Option } from '@spinajs/cli';
-import { DI } from '@spinajs/di';
-import * as fs from 'fs';
 import { Logger, Log } from '@spinajs/log-common';
 
 interface FsStatOptions {
@@ -13,5 +11,5 @@ export class FsStatCommand extends CliCommand {
   @Logger('fs')
   protected Log: Log;
 
-  public async execute(options: FsStatOptions): Promise<void> {}
+  public async execute(_options: FsStatOptions): Promise<void> {}
 }
