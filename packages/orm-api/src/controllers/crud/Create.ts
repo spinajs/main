@@ -34,13 +34,8 @@ export class CrudCreate extends Crud {
   }
 
   protected checkOwn(resource: string, user?: UserModel): Permission {
-    // if we have user
-    if (user) {
-      return this.Ac.can(user.Role).createOwn(resource);
-    } else {
-      // if not try guest account
-      return this.Ac.can('guest').createOwn(resource);
-    }
+    const role = user ? user.Role : 'guest';
+    return this.Ac.can(role).createOwn(resource);
   }
 
   @Post(':model')
@@ -55,7 +50,7 @@ export class CrudCreate extends Crud {
       if (permission.granted && user) {
         if (model.checkOwnership) {
           if (_.some(toInsert, (x) => !model.checkOwnership(x, user))) {
-            throw new Forbidden(`You can only create ${resource} that you own`);
+            throw new Forbidden(`You can only create ${resource} that is assigned to you !`);
           }
         } else {
           throw new UnexpectedServerError(`Resource ${resource} does not have checkOwnership method implemented`);
@@ -63,7 +58,7 @@ export class CrudCreate extends Crud {
       }
 
       if (!permission.granted) {
-        throw new Forbidden(`You do not access to creating ${resource}`);
+        throw new Forbidden(`You cannot create resource ${resource}`);
       }
     }
 

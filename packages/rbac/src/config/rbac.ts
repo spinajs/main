@@ -43,6 +43,7 @@ const rbac = {
     ],
   },
   rbac: {
+    enableGuestAccount: false,
     timeline: {
       schedule: '1 0 */1 * *', // delete old entries once a day
       ttl: 24 * 60,
@@ -75,8 +76,8 @@ const rbac = {
       },
       user: {
         users: {
-          'read:own': ['Email', 'Login', 'NiceName'],
-          'update:own': ['Email', 'Login', 'Password', 'NiceName'],
+          'read:own': ['Email', 'Login'],
+          'update:own': ['Email', 'Login', 'Password'],
         },
       },
       admin: {

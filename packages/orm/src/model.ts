@@ -3,7 +3,7 @@ import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } fro
 import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders.js';
 import { Op } from './enums.js';
@@ -155,6 +155,14 @@ export class ModelBase<M = unknown> implements IModelBase {
     };
 
     return reduceRelations(this);
+  }
+
+  public static getModelDescriptor() {
+    throw new Error('Not implemented');
+  }
+
+  public static getRelationDescriptor(_relation: string) {
+    throw new Error('Not implemented');
   }
 
   /**
@@ -660,13 +668,40 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
 }
 
 export const MODEL_STATIC_MIXINS = {
+  getModelDescriptor(): IModelDescriptor {
+    const dsc = _descriptor(this);
+
+    if (!dsc) {
+      throw new OrmException(`Model ${this.constructor.name} has no descriptor`);
+    }
+
+    return dsc;
+  },
+
+  getRelationDescriptor(relation: string) : IRelationDescriptor {
+    const descriptor = this.getModelDescriptor();
+    let rDescriptor = null;
+    for (const [key, value] of descriptor.Relations) {
+      if (key.toLowerCase() === relation.toLowerCase().trim()) {
+        rDescriptor = value;
+        break;
+      }
+    }
+
+    if (!rDescriptor) {
+      throw new OrmException(`Model ${this.constructor.name} has no relation ${relation}`);
+    }
+
+    return rDescriptor;
+  },
+
   truncate(): TruncateTableQueryBuilder {
     const { query } = createQuery(this, TruncateTableQueryBuilder, false);
     return query;
   },
 
   driver(): OrmDriver {
-    const dsc = _descriptor(this);
+    const dsc = this.getModelDescriptor();
     const orm = DI.get<Orm>(Orm);
     const driver = orm.Connections.get(dsc.Connection);
 

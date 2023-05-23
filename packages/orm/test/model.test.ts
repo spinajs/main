@@ -549,15 +549,13 @@ describe('General model tests', () => {
     const model3 = new Model1({
       Id: 2,
     });
- 
+
     expect(+model1 === +model2).to.be.true;
     expect(+model1 === +model3).to.be.false;
   });
 
   it('Should compare model by primary key  value', async () => {
-
     await db();
-
 
     const model1 = new Model1({
       Id: 1,
@@ -1077,7 +1075,7 @@ describe('General model tests', () => {
     const models = await orm.Models;
 
     let toCheck = models.find((x) => x.name === 'Model1');
-    let descriptor = toCheck.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor;
+    let descriptor = toCheck.type.getModelDescriptor() as IModelDescriptor;
 
     expect(descriptor).to.deep.include({
       Connection: 'sqlite',
@@ -1098,7 +1096,7 @@ describe('General model tests', () => {
     });
 
     toCheck = models.find((x) => x.name === 'Model2');
-    descriptor = toCheck.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor;
+    descriptor = toCheck.type.getModelDescriptor() as IModelDescriptor;
 
     expect(descriptor).to.deep.include({
       Connection: 'SampleConnection1',

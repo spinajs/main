@@ -408,6 +408,9 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
   exists(pk: any): Promise<boolean>;
   get<T extends typeof ModelBase>(pk: any): Promise<InstanceType<T>>;
   insert<T extends typeof ModelBase>(data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour?: InsertBehaviour): Promise<IUpdateResult>;
+
+  getModelDescriptor() : IModelDescriptor;
+  getRelationDescriptor(relation : string) : IRelationDescriptor;
 }
 
 export interface IModelBase {

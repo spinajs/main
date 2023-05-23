@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor, QueryScope, InsertBehaviour, ISelectQueryBuilder } from '@spinajs/orm';
-import { AccessControl } from 'accesscontrol';
+import { AccessControl, Permission } from 'accesscontrol';
 import { DI, IContainer } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata.js';
 import { UserAction } from './UserTimeline.js';
@@ -203,8 +203,44 @@ export class User extends ModelBase {
   @HasMany(UserAction)
   public Actions: Relation<UserAction, User>;
 
-  public can(resource: string, permission: string) {
+  public can(resource: string, permission: string): Permission {
     const ac = DI.get<AccessControl>('AccessControl');
     return (ac.can(this.Role) as any)[permission](resource);
+  }
+
+  /**
+   * Shorthand for check if user can read any resource
+   * @param resource
+   * @returns
+   */
+  public canReadAny(resource: string) {
+    return this.can(resource, 'readAny');
+  }
+  public canReadOwn(resource: string) {
+    return this.can(resource, 'readOwn');
+  }
+
+  public canUpdateAny(resource : string){ 
+
+  }
+
+  public canUpdateOwn(resource: string){
+
+  }
+
+  public canDeleteAny() { 
+
+  }
+
+  public canDeleteOwn(){ 
+
+  }
+
+  public canCreateAny(){ 
+
+  }
+
+  public canCreateOwn(){ 
+    
   }
 }

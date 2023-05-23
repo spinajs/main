@@ -5,15 +5,16 @@ import { User } from '@spinajs/rbac-http';
 import { User as UserModel, IRbacModelDescriptor, AccessControl } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { BadRequest, Forbidden, ResourceNotFound, UnexpectedServerError } from '@spinajs/exceptions';
+import { Log, Logger } from '@spinajs/log';
+import '@spinajs/rbac';
 
 import _ from 'lodash';
-import { ModelType } from '../../route-args/ModelType';
-import { QueryArgs } from '../../dto/QueryArgs';
-import { QueryFilter } from '../../dto/QueryFilter';
-import { Log, Logger } from '@spinajs/log';
-import { QueryIncludes } from '../../dto/QueryIncludes';
-import { Crud } from './Crud';
-import { FindModelType } from '../../policies/FindModelType';
+import { ModelType } from '../../route-args/ModelType.js';
+import { QueryArgs } from '../../dto/QueryArgs.js';
+import { QueryFilter } from '../../dto/QueryFilter.js';
+import { QueryIncludes } from '../../dto/QueryIncludes.js';
+import { Crud } from './Crud.js';
+import { FindModelType } from '../../policies/FindModelType.js';
 
 @BasePath('crud')
 @Policy(FindModelType)
@@ -71,7 +72,7 @@ export class CrudRead extends Crud {
         if (model.ensureOwnership) {
           model.ensureOwnership(query, user, descriptor);
         } else {
-          throw new UnexpectedServerError(`Resource ${resource} does not have checkOwnership method implemented`);
+          throw new UnexpectedServerError(`Resource ${resource} does not have ensureOwnership method implemented`);
         }
       }
 

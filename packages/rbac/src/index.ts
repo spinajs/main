@@ -4,6 +4,8 @@ import './password.js';
 import './session.js';
 import { AccessControl } from 'accesscontrol';
 import { Configuration } from '@spinajs/configuration';
+import { ModelData } from '@spinajs/orm';
+import { User } from './models/User.js';
 
 export * from './interfaces.js';
 export * from './auth.js';
@@ -28,5 +30,24 @@ export class RbacBootstrapper extends Bootstrapper {
         ac.setGrants(grants);
       }
     });
+
+    /**
+     * Register factory function for creating user from session data
+     */
+    DI.register((_: IContainer, userData: ModelData<User>) => {
+      return new User(userData);
+    }).as('RbacUserFactory');
+
+    DI.register((_) => {
+      const conf = DI.get(Configuration);
+      const guestEnabled = conf.get('rbac.enableGuestAccount', false);
+
+      return new User({
+        Login: 'guest',
+        Email: 'guest@spinajs.com',
+        Role: ['guest'],
+        IsEnabled: guestEnabled,
+      });
+    }).as('RbacGuestUserFactory');
   }
 }

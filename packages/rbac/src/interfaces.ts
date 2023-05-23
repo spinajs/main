@@ -20,7 +20,7 @@ declare module '@spinajs/orm' {
      * @param model model to check
      * @param user user to check against ownership
      */
-    checkOwnership<M>(model: ModelBase<M>, user?: User): boolean;
+    checkOwnership<M>(model: ModelBase<M>, user?: User): Promise<boolean>;
   }
 }
 

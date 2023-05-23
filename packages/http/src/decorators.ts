@@ -186,6 +186,10 @@ export function BodyField() {
   return Route(Parameter(ParameterType.BodyField));
 }
 
+export function AcceptType() { 
+  return Route(Parameter(ParameterType.RequestType));
+}
+
 /**
  * Gets all headers field ot type express.IncommingHttpHeaders
  * @returns headers field of request

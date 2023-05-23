@@ -1,5 +1,5 @@
 import { SessionProvider, User } from '@spinajs/rbac';
-import { Autoinject, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import 'reflect-metadata';
 import * as express from 'express';
 import { Config } from '@spinajs/configuration';
@@ -28,13 +28,13 @@ export class RbacMiddleware extends ServerMiddleware {
           if (ssid) {
             const session = await this.SessionProvider.restore(ssid);
             if (session) {
-              req.storage.user = new User(session.Data.get('User'));
+              req.storage.user = DI.resolve<User>('RbacUserFactory', [session.Data.get('User')]);
               req.storage.session = session;
             } else {
-              req.storage.user = null;
+              req.storage.user = DI.resolve<User>('RbacGuestUserFactory');
             }
           } else {
-            req.storage.user = null;
+            req.storage.user = DI.resolve<User>('RbacGuestUserFactory');
           }
         }
         next();

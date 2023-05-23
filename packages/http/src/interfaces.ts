@@ -2,6 +2,8 @@ import * as express from 'express';
 import { Constructor, AsyncService } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 
+
+
 /**
  * Accept header enum
  */
@@ -10,6 +12,7 @@ export enum HttpAcceptHeaders {
    * Accept header for JSON
    */
   JSON = 1,
+
 
   /**
    * Accept header for HTML
@@ -20,6 +23,21 @@ export enum HttpAcceptHeaders {
    * Accept header for XML
    */
   XML = 4,
+
+  /**
+   * Plain text
+   */
+  TEXT = 8,
+
+  /**
+   * Image response
+   */
+  IMAGE = 16,
+
+  /**
+   * Accept other request type ( let server decide )
+   */
+  OTHER = 32,
 
   /**
    * Accept all accept headers shorcut
@@ -212,6 +230,11 @@ export enum ParameterType {
   QueryField = 'QueryFieldRouteArgs',
   ParamField = 'ParamFieldRouteArgs',
   Headers = 'HeadersFieldRouteArgs',
+
+  /**
+   * Request type from request header
+   */
+  RequestType = 'HeadersFieldRequestType',
 
   /**
    * Parameter is injected from DI container & resolved
