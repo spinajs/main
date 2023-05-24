@@ -17,6 +17,9 @@ export class PugRenderer extends TemplateRenderer {
 
   protected Templates: Map<string, pugTemplate.compileTemplate> = new Map<string, pugTemplate.compileTemplate>();
 
+  @Config('configuration.isDevelopment')
+  protected devMode: boolean;
+
   constructor() {
     super();
   }
@@ -49,7 +52,10 @@ export class PugRenderer extends TemplateRenderer {
     }
 
     let fTemplate = null;
-    if (!this.Templates.has(normalize(templateName))) {
+
+    // if in dev mode always compile template
+    // so we dont need to reload app manually
+    if (!this.Templates.has(normalize(templateName)) || this.devMode) {
       await this.compile(normalize(templateName));
     }
 
