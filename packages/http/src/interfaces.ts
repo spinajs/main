@@ -234,7 +234,7 @@ export enum ParameterType {
   /**
    * Request type from request header
    */
-  RequestType = 'HeadersFieldRequestType',
+  RequestType = 'RequestTypeRouteArgs',
 
   /**
    * Parameter is injected from DI container & resolved

@@ -1,4 +1,5 @@
 import ac from 'accesscontrol';
+import { AccessControl } from 'accesscontrol';
 
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
@@ -20,7 +21,7 @@ export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
 export * from './events/index.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
-const { AccessControl, Permission } = ac;
+const { Permission } = ac;
 export { AccessControl, Permission };
 
 @Injectable(Bootstrapper)

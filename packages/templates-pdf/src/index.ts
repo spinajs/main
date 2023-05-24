@@ -58,9 +58,6 @@ export class PdfRenderer extends TemplateRenderer {
         this.Log.warn(`Rendering pdf template ${template} to file ${filePath} took too long.`);
       }
     }
-
-
-
   }
 
   public async render(_templateName: string, _model: unknown, _language?: string): Promise<string> {
