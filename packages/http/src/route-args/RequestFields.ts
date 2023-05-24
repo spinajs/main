@@ -21,7 +21,7 @@ export class BodyFieldRouteArgs extends RouteArgs {
 @Injectable()
 export class RequestTypeRouteArgs extends RouteArgs {
   public get SupportedType(): ParameterType {
-    return ParameterType.BodyField;
+    return ParameterType.Other;
   }
 
   public async extract(callData: IRouteCall, _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
@@ -29,9 +29,11 @@ export class RequestTypeRouteArgs extends RouteArgs {
 
     switch (req.headers.accept) {
       case 'text/*':
+      case 'text/html':
+        acceptHeader = HttpAcceptHeaders.HTML;
+        break;
       case 'text/plain':
         acceptHeader = HttpAcceptHeaders.TEXT;
-        break;
       case 'image/png':
       case 'image/jpeg':
       case 'image/*':
