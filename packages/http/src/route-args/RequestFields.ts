@@ -41,8 +41,10 @@ export class RequestTypeRouteArgs extends RouteArgs {
         break;
       case 'application/pdf':
         acceptHeader = HttpAcceptHeaders.PDF;
+        break;
       case 'application/json':
         acceptHeader = HttpAcceptHeaders.JSON;
+        break;
       default:
         acceptHeader = HttpAcceptHeaders.OTHER;
         break;
