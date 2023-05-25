@@ -2,8 +2,6 @@ import * as express from 'express';
 import { Constructor, AsyncService } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 
-
-
 /**
  * Accept header enum
  */
@@ -12,7 +10,6 @@ export enum HttpAcceptHeaders {
    * Accept header for JSON
    */
   JSON = 1,
-
 
   /**
    * Accept header for HTML
@@ -34,10 +31,12 @@ export enum HttpAcceptHeaders {
    */
   IMAGE = 16,
 
+  PDF = 32,
+
   /**
    * Accept other request type ( let server decide )
    */
-  OTHER = 32,
+  OTHER = 64,
 
   /**
    * Accept all accept headers shorcut
