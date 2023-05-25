@@ -76,6 +76,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
 
   public abstract Name: string;
   public abstract download(path: string): Promise<string>;
+  public abstract resolvePath(path: string): string;
   public abstract read(path: string, encoding: BufferEncoding): Promise<string | Buffer>;
   public abstract readStream(path: string, encoding?: BufferEncoding): Promise<ReadStream>;
   public abstract write(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void>;

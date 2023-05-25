@@ -363,7 +363,7 @@ export class fsS3 extends fs {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
-  protected resolvePath() {
+  public resolvePath() {
     throw new MethodNotImplemented('fs s3 does not support path resolving');
   }
 }

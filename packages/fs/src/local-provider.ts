@@ -68,6 +68,8 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     return p;
   }
 
+ 
+
   /**
    * read all content of file
    */
@@ -254,7 +256,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     };
   }
 
-  protected resolvePath(path: string) {
+  public resolvePath(path: string) {
     if (path.startsWith(this.Options.basePath)) {
       return path;
     }
