@@ -48,6 +48,15 @@ export class PdfRenderer extends TemplateRenderer {
       browser = await puppeteer.launch(this.Options.args);
       const page = await browser.newPage();
 
+       page
+    .on('console', message =>
+      this.Log.trace(`${message.type().substr(0, 3).toUpperCase()} ${message.text()}`))
+    .on('pageerror', ({ message }) => this.Log.error(message))
+    .on('response', response =>
+      this.Log.trace(`${response.status()} ${response.url()}`))
+    .on('requestfailed', request =>
+      this.Log.error(`${request.failure().errorText} ${request.url()}`))
+      
       await page.setBypassCSP(true);
       await page.setContent(compiledTemplate);
       await page.pdf({
