@@ -47,6 +47,8 @@ export class PdfRenderer extends TemplateRenderer {
 
       browser = await puppeteer.launch(this.Options.args);
       const page = await browser.newPage();
+
+      await page.setBypassCSP(true);
       await page.setContent(compiledTemplate);
       await page.pdf({
         path: filePath,
