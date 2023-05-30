@@ -43,17 +43,7 @@ export class PdfRenderer extends TemplateRenderer {
       // fire up local http server for serving images etc
       // becouse chromium prevents from reading local files when not
       // rendering file with file:// protocol for security reasons
-      const app = Express();
-      app.use(Express.static(compiledTemplate));
-      server = app
-        .listen(this.Options.static.port, () => {
-          this.Log.trace(`PDF image server started`);
-        })
-        .on('error', (err: any) => {
-          this.Log.error(err, `PDF image server cannot start`);
-        });
-
-      this.Log.trace(`PDF static file dir at ${compiledTemplate}`);
+      server = await this.runLocalServer(templateBasePath);
 
       browser = await puppeteer.launch(this.Options.args);
       const page = await browser.newPage();
@@ -89,4 +79,24 @@ export class PdfRenderer extends TemplateRenderer {
 
   // no compilation at start
   protected async compile(_path: string) {}
+
+  protected async runLocalServer(basePath: string): Promise<http.Server> {
+    const self = this;
+    const app = Express();
+    app.use(Express.static(basePath));
+
+    return new Promise((resolve, reject) => {
+      app
+        .listen(this.Options.static.port, function () {
+          self.Log.trace(`PDF image server started`);
+          self.Log.trace(`PDF static file dir at ${basePath}`);
+
+          resolve(this);
+        })
+        .on('error', (err: any) => {
+          self.Log.error(err, `PDF image server cannot start`);
+          reject(err);
+        });
+    });
+  }
 }
