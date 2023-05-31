@@ -92,8 +92,8 @@ export class PdfRenderer extends TemplateRenderer {
   protected async runLocalServer(basePath: string): Promise<http.Server> {
     const self = this;
     const app = Express();
-    app.use(Express.static(basePath));
     app.use(cors());
+    app.use(Express.static(basePath));
 
     return new Promise((resolve, reject) => {
       app
