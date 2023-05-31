@@ -7,6 +7,7 @@ import { basename, dirname, join } from 'path';
 import { Log, Logger } from '@spinajs/log';
 import Express from 'express';
 import * as http from 'http';
+import cors from 'cors';
 
 import '@spinajs/templates-pug';
 
@@ -92,6 +93,7 @@ export class PdfRenderer extends TemplateRenderer {
     const self = this;
     const app = Express();
     app.use(Express.static(basePath));
+    app.use(cors());
 
     return new Promise((resolve, reject) => {
       app
