@@ -252,7 +252,7 @@ class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
     return null;
   }
   afterHydration(data: ModelBase<unknown>[]): Promise<void | any[]> {
-    const relData = data.map((d: any) => d[this._description.Name as any].Value).filter((x) => x !== null);
+    const relData = data.map((d: any) => d[this._description.Name as any].Value).filter((x) => x !== null && x !== undefined);
     const middlewares = ((this.relation as any)._relationQuery.Relations as any[])
       .map((x) => {
         return x._query._middlewares;
