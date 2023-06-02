@@ -9,7 +9,7 @@ import { ModelType } from '../../route-args/ModelType.js';
 import { FindModelType } from '../../policies/FindModelType.js';
 import { Log, Logger } from '@spinajs/log';
 import { AccessControl } from '@spinajs/rbac';
-import { Crud } from './Crud.js';
+import { Crud } from './../../interfaces.js';
 
 @BasePath('crud')
 @Policy(FindModelType)

@@ -8,8 +8,9 @@ import _ from 'lodash';
 import { ModelType } from '../../route-args/ModelType.js';
 import { FindModelType } from '../../policies/FindModelType.js';
 import { Log, Logger } from '@spinajs/log';
-import { Crud } from './Crud.js';
 import { AccessControl } from '@spinajs/rbac';
+import { Crud } from './../../interfaces.js';
+
 @BasePath('crud')
 @Policy(FindModelType)
 export class CrudDelete extends Crud {

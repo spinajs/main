@@ -1,6 +1,5 @@
 import * as express from 'express';
 import { Constructor, AsyncService } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 
 /**
  * Accept header enum
@@ -336,10 +335,10 @@ export interface IUploadOptions {
   hash?: false;
 
   /**
-   * default os.tmpdir(); the directory for placing file uploads in. You can move them later by using fs.rename()
+   * File provider name used to upload files
+   * Defaults to default provider set in fs.defaultProvider config options
    */
-  uploadDir?: string | ((cfg: Configuration) => string);
-
+  provider?: string;
   /**
    * default false; when you call the .parse method, the files argument (of the callback) will contain arrays of files for inputs which submit multiple files using the HTML5 multiple attribute. Also, the fields argument will contain arrays of values for fields that have names ending with '[]'.
    */

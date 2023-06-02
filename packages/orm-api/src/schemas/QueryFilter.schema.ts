@@ -7,7 +7,7 @@ const QueryFilterSchema = {
       val: { type: 'number' },
       op: { type: 'string', enum: ['=', '!=', 'like', '<', '>', '<=', '>='] },
     },
-    required: ['key', 'value'],
+    required: ['key', 'val'],
   },
 };
 

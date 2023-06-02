@@ -1,4 +1,4 @@
-import { DI } from '@spinajs/di';
+import { DI, Bootstrapper } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
@@ -18,10 +18,12 @@ import '../src/index.js';
 import { User } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 
-describe('crud get tests', function () {
+describe('crut tests', function () {
   this.timeout(105000);
 
   before(async () => {
+    DI.clearCache();
+
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
 
@@ -29,9 +31,14 @@ describe('crud get tests', function () {
 
     DI.register(FakeRbacPolicy).as(RbacPolicy);
 
-    await DI.resolve(Configuration);
+    const botstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+    for (const b of botstrappers) {
+      await b.bootstrap();
+    }
 
+    await DI.resolve(Configuration);
     await DI.resolve(Controllers);
+
     const server = await DI.resolve(HttpServer);
     server.start();
   });
@@ -72,7 +79,7 @@ describe('crud get tests', function () {
       Email: 'user1@spinajs.com',
       Login: 'user1',
       Role: ['admin'],
-      IsBanne: false,
+      IsBanned: false,
       IsActive: true,
       Password: 'xxx',
       Uuid: uuidv4(),
@@ -85,7 +92,7 @@ describe('crud get tests', function () {
       Email: 'user2@spinajs.com',
       Login: 'user2',
       Role: ['user'],
-      IsBanne: false,
+      IsBanned: false,
       IsActive: true,
       Password: 'xxx',
       Uuid: uuidv4(),
@@ -99,108 +106,141 @@ describe('crud get tests', function () {
     sinon.restore();
   });
 
-  describe('GET basic args & validation', function () {
-    it('Should validate filter param', async () => {});
-    it('Should validate proper model', async () => {});
-    it('Should validate query args', async () => {});
-    it('Should validate query includes', async () => {});
-    it('Should fill guest user if not logged', async () => {});
-  });
+  describe('GET', function () {
+    describe('GET basic args & validation', function () {
+      it('Should validate filter param', async () => {
+        const goodFilters = {
+          Text: {
+            val: 'test',
+            op: '=',
+          },
+        };
 
-  describe('GET methods as guest', function () {
-    it('GET /:model should return forbidden', async () => {});
-    it('GET /:model/:id should return forbidden', async () => {});
-    it('GET /:model/:id/:relation should return forbidden', async () => {});
-    it('GET /:model/:id/:relation/:id should return forbidden', async () => {});
+        const badFilter = {
+          Text: 'dasda',
+        };
 
-    it('GET /:model', async () => {
-      const result = await req().get('collection/test').set('Accept', 'application/json').send();
-      expect(result).to.have.status(200);
+        let result = await req()
+          .get('parameters/filter?filter=' + JSON.stringify(goodFilters))
+          .set('Accept', 'application/json')
+          .send();
+        expect(result).to.have.status(200);
 
-      const data = JSON.parse(result.text);
-      expect(data.Data).to.be.an('array');
-      expect(data.Data).to.have.length(3);
-      expect(data.Data[0].Id).to.eq(1);
-      expect(data.Data[1].Id).to.eq(2);
-      expect(data.Data[2].Id).to.eq(3);
+        result = await req()
+          .get('parameters/filter=' + JSON.stringify(badFilter))
+          .set('Accept', 'application/json')
+          .send();
+
+        expect(result).to.have.status(404);
+      });
+
+      it('Should validate proper model', async () => {});
+      it('Should validate query args', async () => {});
+      it('Should validate query includes', async () => {});
+      it('Should fill guest user if not logged', async () => {});
     });
 
-    it('GET /:model/:id', async () => {
-      const result = await req().get('collection/test/1').set('Accept', 'application/json').send();
-      expect(result).to.have.status(200);
-
-      const data = JSON.parse(result.text);
-      expect(data.Id).to.eq(1);
-    });
-
-    it('GET /:model/:id/:relation', async () => {
-      const result = await req().get('collection/test/1/teststwos').set('Accept', 'application/json').send();
-      expect(result).to.have.status(200);
-
-      const data = JSON.parse(result.text);
-      expect(data.Data).to.be.an('array');
-      expect(data.Data).to.have.length(2);
-      expect(data.Data[0].Id).to.eq(1);
-      expect(data.Data[1].Id).to.eq(2);
-      expect(data.Data[0].Text).to.eq('Test2-1');
-      expect(data.Data[1].Text).to.eq('Test2-2');
-    });
-    it('GET /:model/:id/:relation/:id', async () => {
-      const result = await req().get('collection/test/1/teststwos/1').set('Accept', 'application/json').send();
-      expect(result).to.have.status(200);
-
-      const data = JSON.parse(result.text);
-      expect(data.Id).to.eq(1);
-      expect(data.Text).to.eq('Test2-1');
-    });
-
-    it('GET /:model/:id with & include', async () => {
-      const result = await req().get('collection/test/1?includes=TestsTwos,Belongs').set('Accept', 'application/json').send();
-      expect(result).to.have.status(200);
-
-      const data = JSON.parse(result.text);
-      expect(data.Id).to.eq(1);
-      expect(data.Text).to.eq('Test-1');
-
-      expect(data.Belongs).to.be.not.undefined;
-      expect(data.Belongs.Text).to.eq('Belongs-1');
-      expect(data.TestsTwos).to.be.not.undefined;
-      expect(data.TestsTwos).to.be.an('array');
-      expect(data.TestsTwos).to.have.length(2);
-      expect(data.TestsTwos[0].Text).to.eq('Test2-1');
-      expect(data.TestsTwos[1].Text).to.eq('Test2-2');
-    });
-  });
-
-  describe('GET methods as logged user', function () {
-    describe('Get any', function () {
+    describe('GET methods as guest', function () {
       it('GET /:model should return forbidden', async () => {});
       it('GET /:model/:id should return forbidden', async () => {});
       it('GET /:model/:id/:relation should return forbidden', async () => {});
       it('GET /:model/:id/:relation/:id should return forbidden', async () => {});
-      it('GET /:model/:id with & include should return forbidden ', async () => {});
 
-      it('GET /:model', async () => {});
-      it('GET /:model/:id', async () => {});
-      it('GET /:model/:id/:relation', async () => {});
-      it('GET /:model/:id/:relation/:id', async () => {});
+      it('GET /:model', async () => {
+        const result = await req().get('collection/test').set('Accept', 'application/json').send();
+        expect(result).to.have.status(200);
+
+        const data = JSON.parse(result.text);
+        expect(data.Data).to.be.an('array');
+        expect(data.Data).to.have.length(3);
+        expect(data.Data[0].Id).to.eq(1);
+        expect(data.Data[1].Id).to.eq(2);
+        expect(data.Data[2].Id).to.eq(3);
+      });
+
+      it('GET /:model/:id', async () => {
+        const result = await req().get('collection/test/1').set('Accept', 'application/json').send();
+        expect(result).to.have.status(200);
+
+        const data = JSON.parse(result.text);
+        expect(data.Id).to.eq(1);
+      });
+
+      it('GET /:model/:id/:relation', async () => {
+        const result = await req().get('collection/test/1/teststwos').set('Accept', 'application/json').send();
+        expect(result).to.have.status(200);
+
+        const data = JSON.parse(result.text);
+        expect(data.Data).to.be.an('array');
+        expect(data.Data).to.have.length(2);
+        expect(data.Data[0].Id).to.eq(1);
+        expect(data.Data[1].Id).to.eq(2);
+        expect(data.Data[0].Text).to.eq('Test2-1');
+        expect(data.Data[1].Text).to.eq('Test2-2');
+      });
+      it('GET /:model/:id/:relation/:id', async () => {
+        const result = await req().get('collection/test/1/teststwos/1').set('Accept', 'application/json').send();
+        expect(result).to.have.status(200);
+
+        const data = JSON.parse(result.text);
+        expect(data.Id).to.eq(1);
+        expect(data.Text).to.eq('Test2-1');
+      });
+
+      it('GET /:model/:id with & include', async () => {
+        const result = await req().get('collection/test/1?includes=TestsTwos,Belongs').set('Accept', 'application/json').send();
+        expect(result).to.have.status(200);
+
+        const data = JSON.parse(result.text);
+        expect(data.Id).to.eq(1);
+        expect(data.Text).to.eq('Test-1');
+
+        expect(data.Belongs).to.be.not.undefined;
+        expect(data.Belongs.Text).to.eq('Belongs-1');
+        expect(data.TestsTwos).to.be.not.undefined;
+        expect(data.TestsTwos).to.be.an('array');
+        expect(data.TestsTwos).to.have.length(2);
+        expect(data.TestsTwos[0].Text).to.eq('Test2-1');
+        expect(data.TestsTwos[1].Text).to.eq('Test2-2');
+      });
     });
 
-    describe('Get own', function () {
-      it('GET /:model should return forbidden', async () => {});
-      it('GET /:model/:id should return forbidden', async () => {});
-      it('GET /:model/:id/:relation should return forbidden', async () => {});
-      it('GET /:model/:id/:relation/:id should return forbidden', async () => {});
-      it('GET /:model/:id with & include should return forbidden ', async () => {});
+    describe('GET methods as logged user', function () {
+      describe('Get any', function () {
+        it('GET /:model should return forbidden', async () => {});
+        it('GET /:model/:id should return forbidden', async () => {});
+        it('GET /:model/:id/:relation should return forbidden', async () => {});
+        it('GET /:model/:id/:relation/:id should return forbidden', async () => {});
+        it('GET /:model/:id with & include should return forbidden ', async () => {});
 
-      it('GET /:model', async () => {});
-      it('GET /:model/:id', async () => {});
-      it('GET /:model/:id/:relation', async () => {});
-      it('GET /:model/:id/:relation/:id', async () => {});
-      it('GET /:model/:id with & include', async () => {});
+        it('GET /:model', async () => {});
+        it('GET /:model/:id', async () => {});
+        it('GET /:model/:id/:relation', async () => {});
+        it('GET /:model/:id/:relation/:id', async () => {});
+      });
 
-      it('GET /:model should be filtered', async () => {});
-      it('GET /:model/:id/:relation should be filtered', async () => {});
+      describe('Get own', function () {
+        it('GET /:model should return forbidden', async () => {});
+        it('GET /:model/:id should return forbidden', async () => {});
+        it('GET /:model/:id/:relation should return forbidden', async () => {});
+        it('GET /:model/:id/:relation/:id should return forbidden', async () => {});
+        it('GET /:model/:id with & include should return forbidden ', async () => {});
+
+        it('GET /:model', async () => {});
+        it('GET /:model/:id', async () => {});
+        it('GET /:model/:id/:relation', async () => {});
+        it('GET /:model/:id/:relation/:id', async () => {});
+        it('GET /:model/:id with & include', async () => {});
+
+        it('GET /:model should be filtered', async () => {});
+        it('GET /:model/:id/:relation should be filtered', async () => {});
+      });
     });
   });
+
+  describe('PUT', function () {});
+
+  describe('DEL', function () {});
+
+  describe('POST', function () {});
 });

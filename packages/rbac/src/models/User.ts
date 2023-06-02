@@ -137,7 +137,6 @@ export class UserQueryScopes implements QueryScope {
 @Connection('default')
 @Model('users')
 export class User extends ModelBase {
-
   protected _hidden: string[] = ['Password', 'Id'];
 
   public static readonly _queryScopes: UserQueryScopes = new UserQueryScopes();
@@ -204,6 +203,10 @@ export class User extends ModelBase {
   @HasMany(UserAction)
   public Actions: Relation<UserAction, User>;
 
+  public get IsGuest(): boolean {
+    return this.Role.indexOf('guest') !== -1;
+  }
+
   public can(resource: string, permission: string): Permission {
     const ac = DI.get<AccessControl>('AccessControl');
     return (ac.can(this.Role) as any)[permission](resource);
@@ -221,27 +224,27 @@ export class User extends ModelBase {
     return this.can(resource, 'readOwn');
   }
 
-  public canUpdateAny(_resource : string){ 
-
+  public canUpdateAny(resource: string) {
+    return this.can(resource, 'updateAny');
   }
 
-  public canUpdateOwn(_resource: string){
-
+  public canUpdateOwn(resource: string) {
+    return this.can(resource, 'updateOwn');
   }
 
-  public canDeleteAny() { 
-
+  public canDeleteAny(resource: string) {
+    return this.can(resource, 'deleteAny');
   }
 
-  public canDeleteOwn(){ 
-
+  public canDeleteOwn(resource: string) {
+    return this.can(resource, 'deleteOwn');
   }
 
-  public canCreateAny(){ 
-
+  public canCreateAny(resource: string) {
+    return this.can(resource, 'createAny');
   }
 
-  public canCreateOwn(){ 
-
+  public canCreateOwn(resource: string) {
+    return this.can(resource, 'createOwn');
   }
 }

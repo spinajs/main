@@ -48,8 +48,7 @@ export abstract class RouteArgs implements IRouteArgs {
       schema = route.Schema[routeParameter.Name];
     } else if (routeParameter.Schema) {
       schema = routeParameter.Schema;
-    }
-    else if (routeParameter.RouteParamSchema) {
+    } else if (routeParameter.RouteParamSchema) {
       schema = routeParameter.RouteParamSchema;
     }
 
@@ -58,13 +57,14 @@ export abstract class RouteArgs implements IRouteArgs {
     // to prevent creating object if data is invalid
     result = await this.tryHydrateObject(arg, routeParameter);
     if (result && typeof result === 'object') {
-        schema = this.Validator.extractSchema(result);
+      schema = this.Validator.extractSchema(result);
+      if (schema) {
+        this.Validator.validate(schema, result);
+      }
     }
-    if (schema) {
-            this.Validator.validate(schema, arg);
-    }
+
     if (!result) {
-        result = this.fromRuntimeType(routeParameter, arg);
+      result = this.fromRuntimeType(routeParameter, arg);
     }
 
     return result;

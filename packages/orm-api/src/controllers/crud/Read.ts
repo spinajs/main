@@ -1,5 +1,5 @@
 import { Permission } from 'accesscontrol';
-import { Orm, SortOrder, IModelStatic, ISelectQueryBuilder } from '@spinajs/orm';
+import { Orm, SortOrder, IModelStatic } from '@spinajs/orm';
 import { Get, Ok, Query, Param, Policy, BasePath } from '@spinajs/http';
 import { User } from '@spinajs/rbac-http';
 import { User as UserModel, IRbacModelDescriptor, AccessControl } from '@spinajs/rbac';
@@ -13,8 +13,8 @@ import { ModelType } from '../../route-args/ModelType.js';
 import { QueryArgs } from '../../dto/QueryArgs.js';
 import { QueryFilter } from '../../dto/QueryFilter.js';
 import { QueryIncludes } from '../../dto/QueryIncludes.js';
-import { Crud } from './Crud.js';
 import { FindModelType } from '../../policies/FindModelType.js';
+import { Crud } from './../../interfaces.js';
 
 @BasePath('crud')
 @Policy(FindModelType)
@@ -85,7 +85,7 @@ export class CrudRead extends Crud {
       const f = filters[filter];
 
       // if filter have no operator, by default we assume qeuality
-      query.where(filter, f.operator ? f.operator : '=', f.value);
+      query.where(filter, f.op ? f.op : '=', f.val);
     }
 
     const count = await query.clone().clearColumns().count('*', 'count').takeFirst().asRaw<{ count: number }>();
@@ -179,7 +179,7 @@ export class CrudRead extends Crud {
       const f = filters[filter];
 
       // if filter have no operator, by default we assume qeuality
-      query.where(filter, f.operator ? f.operator : '=', f.value);
+      query.where(filter, f.op ? f.op : '=', f.val);
     }
 
     const count = await query.clone().clearColumns().count('*', 'count').takeFirst().asRaw<{ count: number }>();

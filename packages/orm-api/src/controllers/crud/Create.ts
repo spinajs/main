@@ -7,9 +7,9 @@ import _ from 'lodash';
 import { ModelType } from '../../route-args/ModelType.js';
 import { FindModelType } from '../../policies/FindModelType.js';
 import { Log, Logger } from '@spinajs/log';
-import { Crud } from './Crud.js';
 import { AccessControl, IRbacModelDescriptor, User as UserModel } from '@spinajs/rbac';
 import { Permission } from 'accesscontrol';
+import { Crud } from './../../interfaces.js';
 
 @BasePath('crud')
 @Policy(FindModelType)

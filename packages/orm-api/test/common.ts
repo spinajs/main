@@ -50,7 +50,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         targets: [
           {
             name: 'Empty',
-            type: 'BlackHoleTarget',
+            type: 'ConsoleTarget',
           },
         ],
 
@@ -74,14 +74,22 @@ export class TestConfiguration extends FrameworkConfiguration {
           express.urlencoded({
             extended: true,
           }),
-          (req: any, _res: any, next: any) => {
-            req.User = {
-              Role: 'admin',
-            };
-            next();
-          },
         ],
         AcceptHeaders: 1 | 2,
+      },
+      rbac: {
+        grants: {
+          guest: {},
+          user: {
+            test: {
+              'read:own': ['*'],
+              'update:own': ['*'],
+            },
+          },
+          admin: {
+            $extend: ['user'],
+          },
+        },
       },
       db: {
         DefaultConnection: 'sqlite',

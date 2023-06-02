@@ -61,6 +61,7 @@ export class Container extends EventEmitter implements IContainer {
    */
   public clear() {
     this.clearCache();
+    this.clearRegistry();
   }
 
   public async dispose() {

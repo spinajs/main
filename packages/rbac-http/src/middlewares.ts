@@ -1,4 +1,4 @@
-import { SessionProvider, User } from '@spinajs/rbac';
+import { ISession, SessionProvider, User } from '@spinajs/rbac';
 import { Autoinject, DI, Injectable } from '@spinajs/di';
 import 'reflect-metadata';
 import * as express from 'express';
@@ -23,20 +23,25 @@ export class RbacMiddleware extends ServerMiddleware {
   public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
     return async (req: sRequest, _res: express.Response, next: express.NextFunction) => {
       try {
+        let session: ISession = null;
         if (req.cookies?.ssid) {
           const ssid: string | false = cs.unsign(req.cookies.ssid, this.CoockieSecret);
           if (ssid) {
-            const session = await this.SessionProvider.restore(ssid);
-            if (session) {
-              req.storage.user = DI.resolve<User>('RbacUserFactory', [session.Data.get('User')]);
-              req.storage.session = session;
-            } else {
-              req.storage.user = DI.resolve<User>('RbacGuestUserFactory');
-            }
-          } else {
-            req.storage.user = DI.resolve<User>('RbacGuestUserFactory');
+            session = await this.SessionProvider.restore(ssid);
           }
         }
+
+        if (session) {
+          /**
+           * If we have session, try to restore user with data from session
+           * otherwise try to create guest
+           */
+          req.storage.user = DI.resolve<User>('RbacUserFactory', [session.Data.get('User')]);
+          req.storage.session = session;
+        } else {
+          req.storage.user = DI.resolve<User>('RbacGuestUserFactory');
+        }
+
         next();
       } catch (err) {
         next(err);

@@ -16,6 +16,7 @@ export class Test_2022_06_28_01_13_00 extends OrmMigration {
       table.int('Id').primaryKey().notNull();
       table.string('Text', 32).notNull();
       table.int('belongs_id');
+      table.int('user');
     });
 
     await connection.insert().into('test').values({ Text: 'witaj', Id: 1, belongs_id: 1 });

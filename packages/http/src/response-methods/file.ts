@@ -15,6 +15,7 @@ export class ZipResponse extends Response {
     super(null);
 
     this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename);
+    this.Options.provider = Options.provider ?? 'local';
   }
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
@@ -58,12 +59,13 @@ export class FileResponse extends Response {
     super(null);
 
     this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename);
+    this.Options.provider = Options.provider ?? 'local';
   }
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
     const provider = await DI.resolve<fs>('__file_provider__', [this.Options.provider]);
     if (!provider) {
-      throw new IOFail(`Provider ${this.Options.provider} not registered in configuration. Use default or check configuration.`)
+      throw new IOFail(`Provider ${this.Options.provider} not registered in configuration. Use default or check configuration.`);
     }
 
     const exists = await provider.exists(this.Options.path);
@@ -76,7 +78,6 @@ export class FileResponse extends Response {
 
     return new Promise((resolve, reject) => {
       res.download(file, this.Options.filename, (err: Error) => {
-
         if (this.Options.deleteAfterDownload) {
           provider
             .unlink(this.Options.path, true)
@@ -97,7 +98,6 @@ export class FileResponse extends Response {
             resolve();
           }
         }
-
       });
     });
   }

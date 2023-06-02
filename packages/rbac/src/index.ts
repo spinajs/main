@@ -4,6 +4,7 @@ import { AccessControl } from 'accesscontrol';
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { ModelData } from '@spinajs/orm';
+import { Log } from '@spinajs/log';
 
 import './auth.js';
 import './password.js';
@@ -32,7 +33,11 @@ export class RbacBootstrapper extends Bootstrapper {
     DI.once('di.resolved.Configuration', (container: IContainer, configuration: Configuration) => {
       const ac = container.get<AccessControl>('AccessControl');
       const grants = configuration.get('rbac.grants');
-      if (grants) {
+
+      if (!grants) {
+        const log = container.resolve(Log, ['rbac']);
+        log.warn(`No grants are set in configuration for access control. Please check grants & permission configuration.`);
+      } else {
         ac.setGrants(grants);
       }
     });

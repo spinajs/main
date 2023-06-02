@@ -2,7 +2,7 @@ import { RouteArgs } from './RouteArgs.js';
 import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces.js';
 import * as express from 'express';
 import { Fields, Files, File, IncomingForm } from 'formidable';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs } from '@spinajs/fs';
@@ -37,14 +37,10 @@ export interface FormOptions {
 export abstract class FromFormBase extends RouteArgs {
   public Data: FormData;
 
-  protected FileService: fs;
-  ;
-
   protected async parseForm(callData: IRouteCall, param: IRouteParameter, req: Request) {
     if (callData && callData.Payload && callData.Payload.Form) {
       this.Data = callData.Payload.Form;
     }
-
 
     if (!this.Data) {
       await this.parse(req, param.Options);
@@ -52,8 +48,6 @@ export abstract class FromFormBase extends RouteArgs {
   }
 
   protected async parse(req: express.Request, options: FormOptions) {
-    this.FileService = await DI.resolve('__file_provider__', [options?.fileProvider]);
-
     if (!this.Data) {
       let opts: any = options || { multiples: true };
       this.Data = await this._parse(req, opts);
@@ -78,6 +72,11 @@ export abstract class FromFormBase extends RouteArgs {
 @Injectable()
 @NewInstance()
 export class FromFile extends FromFormBase {
+  protected FileService: fs;
+
+  @Config('fs.defaultProvider')
+  protected DefaultFsProviderName: string;
+
   public get SupportedType(): ParameterType {
     return ParameterType.FromFile;
   }
@@ -92,6 +91,10 @@ export class FromFile extends FromFormBase {
 
     if (!this.Data) {
       await this.parseForm(callData, param, req);
+    }
+
+    if (!this.FileService) {
+      this.FileService = await DI.resolve('__file_provider__', [param.Options?.fileProvider ?? this.DefaultFsProviderName]);
     }
 
     // map from formidable to our object
@@ -109,11 +112,10 @@ export class FromFile extends FromFormBase {
     if (Array.isArray(formFiles)) {
       for (const f of formFiles) {
         await copy(f.filepath);
-
-        return Object.assign(data, {
-          Args: formFiles.map(mf),
-        });
       }
+      return Object.assign(data, {
+        Args: param.RuntimeType.name === 'Array' ? formFiles.map(mf) : mf(formFiles[0]),
+      });
     } else {
       await copy(formFiles.filepath);
       return Object.assign(data, {
@@ -292,7 +294,7 @@ export class FromForm extends FromFormBase {
       await this.parseForm(callData, param, req);
     }
 
-    // todo 
+    // todo
     // refactor to support arrays in object
     // and array of objects
 

@@ -61,6 +61,11 @@ export abstract class BaseController extends AsyncService implements IController
   public async resolve() {
     const self = this;
 
+    if (!this.Descriptor) {
+      this._log.warn(`Controller ${this.constructor.name} does not have descriptor. It its abstract or base class ignore this message.`);
+      return;
+    }
+
     this._router = express.Router();
     this._actionLocalStorage = DI.get(AsyncLocalStorage<IActionLocalStoregeContext>);
 
@@ -280,7 +285,7 @@ export class Controllers extends AsyncService {
     const controllers = await this.Controllers;
 
     // extract parameters info from controllers source code & register in http server
-    for (const controller of controllers) {
+    for (const controller of controllers.filter((x) => x !== undefined && x !== null)) {
       this.register(controller);
     }
   }

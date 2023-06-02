@@ -7,6 +7,7 @@ export class File extends BaseController {
     return new FileResponse({
       path: 'test.txt',
       filename: 'test.txt',
+      provider: 'test',
     });
   }
 
@@ -15,6 +16,7 @@ export class File extends BaseController {
     return new ZipResponse({
       path: 'test.txt',
       filename: 'test.txt',
+      provider: 'test',
     });
   }
 
