@@ -7,20 +7,34 @@ declare module '@spinajs/orm' {
   export interface IModelStatic {
     /**
      *
-     * Alters query to check ownership of queried resource. Ensures that query returns only owned user data
+     * Alters query to check ownership of queried resource. Ensures that query returns/modify/delete only owned user data
      *
      * @param query query to alter
      * @param user user to check againts ownership
      * @param modelDescriptor resource model descriptor
      */
-    ensureOwnership(query: ISelectQueryBuilder<any> | IUpdateQueryBuilder<any> | IDeleteQueryBuilder<any>, user: User, modelDescriptor: IModelDescriptor): IQueryBuilder;
+    ensureOwnership(query: ISelectQueryBuilder<any> | IUpdateQueryBuilder<any> | IDeleteQueryBuilder<any>, user: User): IQueryBuilder;
 
     /**
      * Checks ownership of retrieved model by user
-     * @param model model to check
+     * @param model model
      * @param user user to check against ownership
      */
-    checkOwnership<M>(model: ModelBase<M>, user?: User): Promise<boolean>;
+    checkOwnership<M>(model: ModelBase<M>, user: User): Promise<boolean>;
+
+    /**
+     * Checks ownership of model by its primary key
+     * @param model primary key to check
+     * @param user user to check against ownership
+     */
+    checkOwnership<M>(primaryKey: string | number, user: User): Promise<boolean>;
+
+    /**
+     * Checks ownership of retrieved model by user
+     * @param model model / primary key to check
+     * @param user user to check against ownership
+     */
+    checkOwnership<M>(modelOrPrimaryKey: ModelBase<M> | string | number, user: User): Promise<boolean>;
   }
 }
 

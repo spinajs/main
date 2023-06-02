@@ -18,6 +18,8 @@ export class Test extends ModelBase {
   @BelongsTo(Belongs)
   public Belongs: SingleRelation<Belongs>;
 
+  public user : number;
+
   @HasMany(Test2, {
     foreignKey: 'test_id',
     primaryKey: 'Id',

@@ -5,6 +5,7 @@ import { Orm } from '@spinajs/orm';
 import { TestConfiguration, FakeRbacPolicy, req } from './common.js';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { RbacPolicy } from '@spinajs/rbac-http';
+import { v4 as uuidv4 } from 'uuid';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import 'mocha';
@@ -14,6 +15,8 @@ import { Test } from './models/Test.js';
 import { Test2 } from './models/Test2.js';
 import '../src/PlainJsonCollectionTransformer.js';
 import '../src/index.js';
+import { User } from '@spinajs/rbac';
+import { DateTime } from 'luxon';
 
 describe('crud get tests', function () {
   this.timeout(105000);
@@ -49,12 +52,13 @@ describe('crud get tests', function () {
     await Test.truncate();
     await Test2.truncate();
     await Belongs.truncate();
+    await User.truncate();
 
     await Belongs.insert([{ Text: 'Belongs-1' }, { Text: 'Belongs-2' }, { Text: 'Belongs-3' }]);
     await Test.insert([
-      { Text: 'Test-1', belongs_id: 1 },
-      { Text: 'Test-2', belongs_id: 2 },
-      { Text: 'Test-3', belongs_id: 3 },
+      { Text: 'Test-1', belongs_id: 1, user: 1 },
+      { Text: 'Test-2', belongs_id: 2, user: 1 },
+      { Text: 'Test-3', belongs_id: 3, user: 2 },
     ]);
     await Test2.insert([
       { Text: 'Test2-1', test_id: 1 },
@@ -63,10 +67,44 @@ describe('crud get tests', function () {
       { Text: 'Test2-4', test_id: 2 },
       { Text: 'Test2-5', test_id: 3 },
     ]);
+
+    let user = new User({
+      Email: 'user1@spinajs.com',
+      Login: 'user1',
+      Role: ['admin'],
+      IsBanne: false,
+      IsActive: true,
+      Password: 'xxx',
+      Uuid: uuidv4(),
+      RegisteredAt: DateTime.now(),
+    });
+
+    await user.insert();
+
+    user = new User({
+      Email: 'user2@spinajs.com',
+      Login: 'user2',
+      Role: ['user'],
+      IsBanne: false,
+      IsActive: true,
+      Password: 'xxx',
+      Uuid: uuidv4(),
+      RegisteredAt: DateTime.now(),
+    });
+
+    await user.insert();
   });
 
   afterEach(async () => {
     sinon.restore();
+  });
+
+  describe('GET basic args & validation', function () {
+    it('Should validate filter param', async () => {});
+    it('Should validate proper model', async () => {});
+    it('Should validate query args', async () => {});
+    it('Should validate query includes', async () => {});
+    it('Should fill guest user if not logged', async () => {});
   });
 
   describe('GET methods as guest', function () {

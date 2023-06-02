@@ -137,6 +137,7 @@ export class UserQueryScopes implements QueryScope {
 @Connection('default')
 @Model('users')
 export class User extends ModelBase {
+
   protected _hidden: string[] = ['Password', 'Id'];
 
   public static readonly _queryScopes: UserQueryScopes = new UserQueryScopes();

@@ -36,8 +36,10 @@ export class CreateUser extends CliCommand {
       Email: options.email,
       Login: options.login,
       Role: options.roles.split(','),
+      RegisteredAt: DateTime.now(),
       IsBanned: false,
       IsActive: false,
+      Uuid: uuidv4(),
     });
 
     if (options.password) {
@@ -48,11 +50,6 @@ export class CreateUser extends CliCommand {
       this.Log.warn(`USER PASSWORD: ${pwd}`);
     }
 
-    user.IsBanned = false;
-    user.IsActive = false;
-    user.RegisteredAt = DateTime.now();
-    user.Uuid = uuidv4();
-
     await user.insert();
 
     const qMessage = new UserRegisteredMessage();
@@ -61,6 +58,6 @@ export class CreateUser extends CliCommand {
     // notify others about user creation
     this.Queue.emit(qMessage);
 
-    this.Log.success('User creation SUCCESS');
+    this.Log.success('User creation SUCCESS, you must activate user first before it can login !');
   }
 }

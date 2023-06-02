@@ -1,5 +1,5 @@
 import { Permission } from 'accesscontrol';
-import { Orm, SortOrder, IModelStatic } from '@spinajs/orm';
+import { Orm, SortOrder, IModelStatic, ISelectQueryBuilder } from '@spinajs/orm';
 import { Get, Ok, Query, Param, Policy, BasePath } from '@spinajs/http';
 import { User } from '@spinajs/rbac-http';
 import { User as UserModel, IRbacModelDescriptor, AccessControl } from '@spinajs/rbac';
@@ -28,24 +28,15 @@ export class CrudRead extends Crud {
   @Autoinject()
   protected Ac: AccessControl;
 
-  protected checkAny(resource: string, user?: UserModel): Permission {
-    // if we have user
-    if (user) {
-      return this.Ac.can(user.Role).readAny(resource);
-    } else {
-      // if not try guest account
-      return this.Ac.can('guest').readAny(resource);
-    }
-  }
-
-  protected checkOwn(resource: string, user?: UserModel): Permission {
-    // if we have user
-    if (user) {
-      return this.Ac.can(user.Role).readOwn(resource);
-    } else {
-      // if not try guest account
-      return this.Ac.can('guest').readOwn(resource);
-    }
+  /**
+   * retrieve resource name, if model does not have @OrmResource decorator set
+   * model name is default resource name
+   * @param model
+   * @returns
+   */
+  protected getResourceName(model: IModelStatic) {
+    const descriptor = model.getModelDescriptor() as IRbacModelDescriptor;
+    return descriptor.RbacResource ? descriptor.RbacResource : descriptor.Name;
   }
 
   /**
@@ -56,27 +47,22 @@ export class CrudRead extends Crud {
    * @param user user for permission check
    * @returns
    */
-  protected getSafeQuery(model: IModelStatic, user?: UserModel) {
-    const descriptor = this.getModelDescriptor(model) as IRbacModelDescriptor;
+  protected getSafeQuery(model: IModelStatic, user: UserModel) {
     const query = model.query();
 
-    // retrieve resource name, if model does not have @OrmResource decorator set
-    // model name is default resource name
-    let resource = descriptor.RbacResource ? descriptor.RbacResource : descriptor.Name;
-    let permission: Permission = this.checkAny(resource, user);
+    const resource = this.getResourceName(model);
+    let permission: Permission = user.canReadAny(resource);
 
     if (!permission.granted) {
       // permission for readAny not  granted, check for own
-      permission = this.checkOwn(resource, user);
-      if (permission.granted && user) {
+      permission = user.canReadOwn(resource);
+      if (permission.granted) {
         if (model.ensureOwnership) {
-          model.ensureOwnership(query, user, descriptor);
+          model.ensureOwnership(query, user);
         } else {
-          throw new UnexpectedServerError(`Resource ${resource} does not have ensureOwnership method implemented`);
+          throw new UnexpectedServerError(`Resource ${resource} can be only read by owner and does not have ensureOwnership method implemented`);
         }
-      }
-
-      if (!permission.granted) {
+      } else {
         throw new Forbidden(`You do not access to ${resource}`);
       }
     }
@@ -85,15 +71,22 @@ export class CrudRead extends Crud {
   }
 
   @Get(':model')
-  public async getAll(@ModelType() model: IModelStatic, @Query() getParams: QueryArgs, @Query() filters: QueryFilter, @Query() includes: QueryIncludes, @User() user?: UserModel) {
+  public async getAll(@ModelType() model: IModelStatic, @Query() getParams: QueryArgs, @Query() filters: QueryFilter, @Query() includes: QueryIncludes, @User() user: UserModel) {
     const { query, permission } = this.getSafeQuery(model, user);
     query
-      .where(filters)
       .select('*')
       .populate(includes)
       .order(getParams.order, getParams.orderDirection ?? SortOrder.ASC)
       .skip(getParams.page * getParams.perPage ?? 0)
       .take(getParams.perPage ?? 10);
+
+    // apply basic filters
+    for (const filter in filters) {
+      const f = filters[filter];
+
+      // if filter have no operator, by default we assume qeuality
+      query.where(filter, f.operator ? f.operator : '=', f.value);
+    }
 
     const count = await query.clone().clearColumns().count('*', 'count').takeFirst().asRaw<{ count: number }>();
     const result = await query;
@@ -106,7 +99,7 @@ export class CrudRead extends Crud {
 
   @Get(':model/:id')
   public async get(@User() user: UserModel, @ModelType() model: IModelStatic, @Param() id: number, @Query() includes: QueryIncludes) {
-    const descriptor = this.getModelDescriptor(model) as IRbacModelDescriptor;
+    const descriptor = model.getModelDescriptor();
     const { query, permission } = this.getSafeQuery(model, user);
     const result = await query
       .select('*')
@@ -124,9 +117,9 @@ export class CrudRead extends Crud {
 
   @Get(':model/:id/:relation/:relationId')
   public async getRelation(@ModelType() model: IModelStatic, @Param() id: any, @Param() relation: string, @Param() relationId: any, @Query() includes: QueryIncludes, @User() user?: UserModel) {
-    const mDescriptor = this.getModelDescriptor(model);
-    const rDescriptor = this.getRelationDescriptor(model, relation);
-    const rmDescriptor = this.getModelDescriptor(rDescriptor.TargetModel);
+    const mDescriptor = model.getModelDescriptor();
+    const rDescriptor = model.getRelationDescriptor(relation);
+    const rmDescriptor = rDescriptor.TargetModel.getModelDescriptor();
     const { query, permission } = this.getSafeQuery(rDescriptor.TargetModel, user);
 
     if (!mDescriptor.Relations.has(relation)) {
@@ -157,8 +150,8 @@ export class CrudRead extends Crud {
 
   @Get(':model/:id/:relation')
   public async getRelations(@ModelType() model: IModelStatic, @Param() id: any, @Param() relation: string, @Query() params: QueryArgs, @Query() filters: QueryFilter, @Query() includes: QueryIncludes, @User() user?: UserModel) {
-    const mDescriptor = this.getModelDescriptor(model);
-    const rDescriptor = this.getRelationDescriptor(model, relation);
+    const mDescriptor = model.getModelDescriptor();
+    const rDescriptor = model.getRelationDescriptor(relation);
     const { query, permission } = this.getSafeQuery(rDescriptor.TargetModel, user);
 
     if (!mDescriptor.Relations.has(relation)) {
@@ -174,13 +167,20 @@ export class CrudRead extends Crud {
     }
 
     query
-      .where(filters)
       .where(rDescriptor.ForeignKey, id)
       .select('*')
       .populate(includes)
       .order(params.order, params.orderDirection ?? SortOrder.ASC)
       .skip(params.page * params.perPage ?? 0)
       .take(params.perPage ?? 10);
+
+    // apply basic filters
+    for (const filter in filters) {
+      const f = filters[filter];
+
+      // if filter have no operator, by default we assume qeuality
+      query.where(filter, f.operator ? f.operator : '=', f.value);
+    }
 
     const count = await query.clone().clearColumns().count('*', 'count').takeFirst().asRaw<{ count: number }>();
     const result = await query;

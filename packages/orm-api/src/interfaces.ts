@@ -25,6 +25,11 @@ export interface ITransformOptions {
   model: Class<ModelBase<unknown>>;
 }
 
+export interface IQueryFilterEntry{ 
+  value: string;
+  operator?: string;
+}
+
 /**
  * Data collection transformer. Used to transform collection of models to specific api format eg. json api
  * By default transforms to simple json representation

@@ -14,7 +14,6 @@ const ormHttp = {
       schemas: [dir(`node_modules/@spinajs/orm-http/lib/${isESMMode ? 'mjs/schemas' : 'cjs/schemas'}`)],
     },
   },
-
   api: {
     endpoint: {
       transformer: {
