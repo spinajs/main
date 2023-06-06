@@ -68,7 +68,7 @@ export abstract class RouteArgs implements IRouteArgs {
       const hInstance = await DI.resolve<ArgHydrator>(hydrator.hydrator, hydrator.options);
       return await hInstance.hydrate(arg, param);
     } else if (isClass(param.RuntimeType)) {
-      return new (param.RuntimeType as any)(JSON.parse(arg));
+      return new (param.RuntimeType as any)(_.isString(arg) ? JSON.parse(arg) : arg);
     } else if (param.RuntimeType.name === 'Object' || param.RuntimeType.name === 'Array') {
       return _.isString(arg) ? JSON.parse(arg) : arg;
     } else if (param.RuntimeType instanceof TypedArray) {
