@@ -1,10 +1,8 @@
-import { Autoinject, TypedArray } from '@spinajs/di';
+import { DI, Autoinject, TypedArray, isClass } from '@spinajs/di';
 import { ParameterType, IRouteParameter, IRouteCall, IRoute, Request } from './../interfaces.js';
 import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator.js';
-import { DI } from '@spinajs/di';
 import _ from 'lodash';
-import { DateTime } from 'luxon';
 import { DataValidator } from '@spinajs/validation';
 
 export interface IRouteArgsResult {
@@ -26,19 +24,6 @@ export abstract class RouteArgs implements IRouteArgs {
 
   public abstract extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
 
-  protected handleDate(arg: any): DateTime {
-    const milis = Number(arg);
-    if (!Number.isNaN(milis)) {
-      return DateTime.fromSeconds(milis);
-    }
-
-    if (_.isString(arg)) {
-      return DateTime.fromISO(arg as string);
-    }
-
-    return DateTime.invalid('no iso or unix timestamp');
-  }
-
   protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter, route: IRoute) {
     let result = null;
     let schema = null;
@@ -58,13 +43,14 @@ export abstract class RouteArgs implements IRouteArgs {
     result = await this.tryHydrateObject(arg, routeParameter);
     if (result && typeof result === 'object') {
       schema = this.Validator.extractSchema(result);
-      if (schema) {
-        this.Validator.validate(schema, result);
-      }
     }
 
     if (!result) {
       result = this.fromRuntimeType(routeParameter, arg);
+    }
+
+    if (schema) {
+      this.Validator.validate(schema, result);
     }
 
     return result;
@@ -81,16 +67,14 @@ export abstract class RouteArgs implements IRouteArgs {
     if (hydrator) {
       const hInstance = await DI.resolve<ArgHydrator>(hydrator.hydrator, hydrator.options);
       return await hInstance.hydrate(arg, param);
+    } else if (isClass(param.RuntimeType)) {
+      return new (param.RuntimeType as any)(JSON.parse(arg));
     } else if (param.RuntimeType.name === 'Object' || param.RuntimeType.name === 'Array') {
       return _.isString(arg) ? JSON.parse(arg) : arg;
-    } else if (param.RuntimeType.name === 'DateTime') {
-      return this.handleDate(arg);
     } else if (param.RuntimeType instanceof TypedArray) {
       const type = (param.RuntimeType as TypedArray<any>).Type as any;
       const arrData = _.isString(arg) ? JSON.parse(arg) : arg;
       return arrData ? arrData.map((x: any) => new type(x)) : [];
-    } else if (['Number', 'String', 'Boolean', 'Null', 'Undefined', 'BigInt', 'Symbol'].indexOf(param.RuntimeType.name) === -1) {
-      return new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg);
     }
 
     return undefined;
@@ -104,8 +88,14 @@ export abstract class RouteArgs implements IRouteArgs {
         return arg;
       case 'Number':
         return arg ? Number(arg) : undefined;
+      case 'BigInt':
+        return BigInt(arg);
       case 'Boolean':
         return arg ? (arg === 1 ? true : (arg as string).toLowerCase() === 'true' ? true : false) : false;
+      case 'Undefined':
+        return undefined;
+      case 'Null':
+        return null;
       default:
         return new param.RuntimeType(_.isString(arg) ? JSON.parse(arg) : arg);
     }

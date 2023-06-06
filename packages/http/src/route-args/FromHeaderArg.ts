@@ -3,7 +3,6 @@ import { IRouteParameter, ParameterType, IRouteCall, IRoute } from '../interface
 import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import _ from 'lodash';
-import { DateTime } from 'luxon';
 
 @Injectable()
 export class FromHeader extends RouteArgs {
@@ -16,7 +15,4 @@ export class FromHeader extends RouteArgs {
     return { CallData: callData, Args: await this.tryHydrateParam(arg, param, route) };
   }
 
-  protected handleDate(arg: any): DateTime {
-    return DateTime.fromHTTP(arg.startsWith('Date:') ? arg.substring(5).trim() : arg.trim());
-  }
 }

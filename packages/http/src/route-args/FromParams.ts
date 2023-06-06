@@ -10,13 +10,9 @@ export class FromParams extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
-
     return {
-      CallData: callData, Args: await this.tryHydrateParam(param.RuntimeType.name === 'Number'
-        ? parseInt(req.params[param.Name])
-        : req.params[param.Name],
-        param, route)
+      CallData: callData,
+      Args: await this.tryHydrateParam(req.params[param.Name], param, route),
     };
-
   }
 }

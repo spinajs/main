@@ -1,6 +1,6 @@
 import 'mocha';
 import * as fs from 'fs';
-import { DI } from '@spinajs/di';
+import { DI, Bootstrapper } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
 import sinon, { assert } from 'sinon';
@@ -31,6 +31,11 @@ describe('controller action test params', function () {
     sb.spy(CoockieParams.prototype as any);
     sb.spy(VariousParams.prototype as any);
 
+    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+    for (const b of bootstrappers) {
+      await b.bootstrap();
+    }
+
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Intl);
     await DI.resolve(Controllers);
@@ -56,7 +61,7 @@ describe('controller action test params', function () {
       await req().get('params/query/simple?a=hello&b=true&c=666');
       const spy = DI.get(QueryParams).simple as sinon.SinonSpy;
 
-      expect(spy.args[0][0]).to.eq("hello");
+      expect(spy.args[0][0]).to.eq('hello');
       expect(spy.args[0][1]).to.eq(true);
       expect(spy.args[0][2]).to.eq(666);
     });
@@ -507,7 +512,7 @@ describe('controller action test params', function () {
         .field({
           id: 1,
           name: 'test',
-          args: 1
+          args: 1,
         })
         .type('form');
 
@@ -579,7 +584,7 @@ describe('controller action test params', function () {
     });
   });
 
-  describe('from cvs file', function () { });
+  describe('from cvs file', function () {});
 
-  describe('from json files', function () { });
+  describe('from json files', function () {});
 });

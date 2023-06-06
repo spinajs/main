@@ -18,6 +18,24 @@ export function isConstructor(value: any): value is Class<unknown> {
   return true;
 }
 
+/**
+ *
+ * Dirty way for check if type is class type
+ * NOTE: it will not work with transpilers that
+ * compile js class into functions
+ *
+ * @param obj
+ * @returns
+ */
+export function isClass(obj: any) {
+  const isCtorClass = obj.constructor && obj.constructor.toString().substring(0, 5) === 'class';
+  if (obj.prototype === undefined) {
+    return isCtorClass;
+  }
+  const isPrototypeCtorClass = obj.prototype.constructor && obj.prototype.constructor.toString && obj.prototype.constructor.toString().substring(0, 5) === 'class';
+  return isCtorClass || isPrototypeCtorClass;
+}
+
 export function isFactory(value: any): value is Factory<any> {
   return !isConstructor(value) && typeof value === 'function';
 }
