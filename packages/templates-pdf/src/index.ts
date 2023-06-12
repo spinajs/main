@@ -2,7 +2,7 @@ import { Browser, PDFOptions, default as puppeteer } from 'puppeteer';
 import { NotSupported } from '@spinajs/exceptions';
 import { TemplateRenderer, Templates } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
-import { IInstanceCheck, Injectable, LazyInject, NewInstance, PerInstanceCheck } from '@spinajs/di';
+import { IInstanceCheck, Injectable, LazyInject, PerInstanceCheck } from '@spinajs/di';
 import { basename, dirname, join } from 'path';
 import { Log, Logger } from '@spinajs/log';
 import Express from 'express';
