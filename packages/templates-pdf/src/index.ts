@@ -1,8 +1,8 @@
-import { Browser, default as puppeteer } from 'puppeteer';
+import { Browser, PDFOptions, default as puppeteer } from 'puppeteer';
 import { NotSupported } from '@spinajs/exceptions';
 import { TemplateRenderer, Templates } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
-import { Injectable, LazyInject } from '@spinajs/di';
+import { IInstanceCheck, Injectable, LazyInject, NewInstance, PerInstanceCheck } from '@spinajs/di';
 import { basename, dirname, join } from 'path';
 import { Log, Logger } from '@spinajs/log';
 import Express from 'express';
@@ -12,7 +12,11 @@ import cors from 'cors';
 import '@spinajs/templates-pug';
 
 @Injectable(TemplateRenderer)
-export class PdfRenderer extends TemplateRenderer {
+@PerInstanceCheck()
+export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
+  /**
+   * General options from configuration
+   */
   @Config('templates.pdf')
   protected Options: any;
 
@@ -30,6 +34,14 @@ export class PdfRenderer extends TemplateRenderer {
     return '.pdf';
   }
 
+  constructor(protected pdfOptions: PDFOptions) {
+    super();
+  }
+
+  __checkInstance__(creationOptions: any): boolean {
+    return JSON.stringify(this.pdfOptions) === JSON.stringify(creationOptions);
+  }
+
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
     let server: http.Server = null;
     let browser: Browser = null;
@@ -38,7 +50,6 @@ export class PdfRenderer extends TemplateRenderer {
       this.Log.trace(`Rendering pdf template ${template} to file ${filePath}`);
 
       const templateBasePath = dirname(template);
-
       const compiledTemplate = await this.TemplatingService.render(join(templateBasePath, basename(template, '.pdf')) + '.pug', model, language);
 
       // fire up local http server for serving images etc
@@ -59,7 +70,6 @@ export class PdfRenderer extends TemplateRenderer {
       await page.setContent(compiledTemplate);
       await page.pdf({
         path: filePath,
-        ...this.Options,
       });
     } catch (err) {
       this.Log.error(err, `Error rendering pdf template ${template} to file ${filePath}`);
