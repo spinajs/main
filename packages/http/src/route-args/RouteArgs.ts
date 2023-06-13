@@ -27,6 +27,7 @@ export abstract class RouteArgs implements IRouteArgs {
   protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter, route: IRoute) {
     let result = null;
     let schema = null;
+    let hydrator = null;
 
     // first validate route parameter / body params etc
     if (route.Schema && route.Schema[routeParameter.Name]) {
@@ -37,26 +38,39 @@ export abstract class RouteArgs implements IRouteArgs {
       schema = routeParameter.RouteParamSchema;
     } else {
       schema = this.Validator.extractSchema(routeParameter.RuntimeType);
-      if (!schema) {
+      if (!schema && routeParameter.RuntimeType.prototype) {
         schema = this.Validator.extractSchema(routeParameter.RuntimeType.prototype);
       }
     }
 
-    // validate if schema is avaible
-    // raw data
-    if (schema) {
-      this.Validator.validate(schema, arg);
-    }
-
-    result = await this.tryHydrateObject(arg, routeParameter);
-    if (!result) {
+    if (this.isRuntimeType(routeParameter)) {
       result = this.fromRuntimeType(routeParameter, arg);
+
+      if (schema) {
+        this.Validator.validate(schema, result);
+      }
+    } else {
+      hydrator = this.getHydrator(routeParameter);
+      result = hydrator ? arg : this.tryExtractObject(arg, routeParameter);
+
+      if (schema) {
+        this.Validator.validate(schema, result);
+      }
+
+      if (hydrator) {
+        result = await this.tryHydrateObject(result, routeParameter, hydrator);
+      }
     }
 
     return result;
   }
 
-  protected async tryHydrateObject(arg: any, param: IRouteParameter) {
+  protected async tryHydrateObject(arg: any, route: IRouteParameter, hydrator: any) {
+    const hInstance = await DI.resolve<ArgHydrator>(hydrator.hydrator, hydrator.options);
+    return await hInstance.hydrate(arg, route);
+  }
+
+  protected getHydrator(param: IRouteParameter) {
     let hydrator = null;
     if (param.RuntimeType instanceof TypedArray) {
       hydrator = Reflect.getMetadata('custom:arg_hydrator', (param.RuntimeType as TypedArray<any>).Type);
@@ -64,20 +78,25 @@ export abstract class RouteArgs implements IRouteArgs {
       hydrator = Reflect.getMetadata('custom:arg_hydrator', param.RuntimeType);
     }
 
-    if (hydrator) {
-      const hInstance = await DI.resolve<ArgHydrator>(hydrator.hydrator, hydrator.options);
-      return await hInstance.hydrate(arg, param);
-    } else if (isClass(param.RuntimeType)) {
+    return hydrator;
+  }
+
+  protected tryExtractObject(arg: any, param: IRouteParameter) {
+    if (isClass(param.RuntimeType)) {
       return new (param.RuntimeType as any)(_.isString(arg) ? JSON.parse(arg) : arg);
-    } else if (param.RuntimeType.name === 'Object' || param.RuntimeType.name === 'Array') {
-      return _.isString(arg) ? JSON.parse(arg) : arg;
     } else if (param.RuntimeType instanceof TypedArray) {
       const type = (param.RuntimeType as TypedArray<any>).Type as any;
       const arrData = _.isString(arg) ? JSON.parse(arg) : arg;
       return arrData ? arrData.map((x: any) => new type(x)) : [];
+    } else if (param.RuntimeType.name === 'Object' || param.RuntimeType.name === 'Array') {
+      return _.isString(arg) ? JSON.parse(arg) : arg;
     }
 
-    return undefined;
+    return arg;
+  }
+
+  protected isRuntimeType(param: IRouteParameter) {
+    return ['String', 'Number', 'BigInt', 'Boolean', 'Undefined', 'Null'].indexOf(param.RuntimeType.name) !== -1;
   }
 
   protected fromRuntimeType(param: IRouteParameter, arg: any) {

@@ -290,6 +290,8 @@ export class FromForm extends FromFormBase {
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
+    let result = null;
+
     if (!this.Data) {
       await this.parseForm(callData, param, req);
     }
@@ -304,7 +306,13 @@ export class FromForm extends FromFormBase {
       }),
     );
 
-    const result = await this.tryHydrateObject(data, param);
+    const hydrator = this.getHydrator(param);
+
+    if (hydrator) {
+      result = await this.tryHydrateObject(data, param, hydrator);
+    } else {
+      result = data;
+    }
 
     return {
       CallData: {
