@@ -1,13 +1,14 @@
 import * as express from 'express';
-import { HTTP_STATUS_CODE, Response } from '../interfaces.js';
+import { HTTP_STATUS_CODE } from '../interfaces.js';
 import { httpResponse } from '../responses.js';
+import { ErrorResponse } from './errorResponse.js';
 
 /**
  * Internall response function.
  * Returns HTTP 404 NOT FOUND ERROR
  * @param err - error to send
  */
-export class NotFound extends Response {
+export class NotFound extends ErrorResponse {
   constructor(data?: any) {
     super(data);
   }

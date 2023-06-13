@@ -1,6 +1,7 @@
 import * as express from 'express';
-import { HTTP_STATUS_CODE, Response } from '../interfaces.js';
+import { HTTP_STATUS_CODE } from '../interfaces.js';
 import { httpResponse } from '../responses.js';
+import { ErrorResponse } from './errorResponse.js';
 
 /**
  * Internall response function.
@@ -8,7 +9,7 @@ import { httpResponse } from '../responses.js';
  * When content requested in accept header format cannot be returned.
  * @param err - error to send
  */
-export class NotAcceptable extends Response {
+export class NotAcceptable extends ErrorResponse {
   constructor(data: any) {
     super(data);
   }

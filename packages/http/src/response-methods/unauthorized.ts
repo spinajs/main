@@ -1,6 +1,7 @@
 import * as express from 'express';
-import { HTTP_STATUS_CODE, Response } from '../interfaces.js';
+import { HTTP_STATUS_CODE } from '../interfaces.js';
 import { httpResponse } from '../responses.js';
+import { ErrorResponse } from './errorResponse.js';
 
 /**
  * Internall response function.
@@ -8,7 +9,7 @@ import { httpResponse } from '../responses.js';
  * @param data - data to send
  */
 
-export class Unauthorized extends Response {
+export class Unauthorized extends ErrorResponse {
   constructor(data: any) {
     super(data);
   }
