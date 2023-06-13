@@ -54,7 +54,7 @@ export abstract class RouteArgs implements IRouteArgs {
       result = hydrator ? arg : this.tryExtractObject(arg, routeParameter);
 
       if (schema) {
-        this.Validator.validate(schema, result);
+        this.Validator.validate(schema, arg);
       }
 
       if (hydrator) {
