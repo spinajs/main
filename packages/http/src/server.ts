@@ -16,6 +16,7 @@ import '@spinajs/templates-pug';
 import { Templates } from '@spinajs/templates';
 import _ from 'lodash';
 import randomstring from 'randomstring';
+import { ValidationError } from './response-methods/validationError.js';
 
 @Injectable()
 @Inject(Templates)
@@ -222,29 +223,31 @@ export class HttpServer extends AsyncService {
 
       switch (err.constructor) {
         case AuthenticationFailed:
-          response = new Unauthorized({ error });
+          response = new Unauthorized(error);
           break;
         case Forbidden:
-          response = new ForbiddenResponse({ error });
+          response = new ForbiddenResponse(error);
           break;
         case ResourceDuplicated:
-          response = new Conflict({ error });
+          response = new Conflict(error);
+          break;
+        case ValidationFailed:
+          response = new ValidationError(error);
           break;
         case InvalidArgument:
         case BadRequest:
-        case ValidationFailed:
         case JsonValidationFailed:
         case ExpectedResponseUnacceptable:
-          response = new BadRequestResponse({ error });
+          response = new BadRequestResponse(error);
           break;
         case ResourceNotFound:
-          response = new NotFound({ error });
+          response = new NotFound(error);
           break;
         case UnexpectedServerError:
         case IOFail:
         case MethodNotImplemented:
         default:
-          response = new ServerError({ error });
+          response = new ServerError(error);
           break;
       }
 

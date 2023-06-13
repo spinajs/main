@@ -70,6 +70,7 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
       await page.setContent(compiledTemplate);
       await page.pdf({
         path: filePath,
+        ...this.pdfOptions,
       });
     } catch (err) {
       this.Log.error(err, `Error rendering pdf template ${template} to file ${filePath}`);
