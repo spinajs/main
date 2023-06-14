@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm",
-  "version": "2.0.151",
+  "version": "2.0.152",
   "description": "framework orm module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -57,10 +57,10 @@
     "@types/uuid": "9.0.0"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "^2.0.151",
-    "@spinajs/di": "^2.0.151",
-    "@spinajs/exceptions": "^2.0.151",
-    "@spinajs/log-common": "^2.0.151",
+    "@spinajs/configuration-common": "^2.0.152",
+    "@spinajs/di": "^2.0.152",
+    "@spinajs/exceptions": "^2.0.152",
+    "@spinajs/log-common": "^2.0.152",
 
     "glob": "^8.1.0",
     "lodash": "^4.17.21",
