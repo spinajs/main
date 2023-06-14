@@ -10,7 +10,7 @@ export class ErrorResponse extends Response {
     super(error);
 
     const isDev = DI.get(Configuration).get('configuration.isDevelopment');
-    if (isDev) {
+    if (!isDev) {
       this.responseData = _.omit(this.responseData, ['stack']);
     }
   }
