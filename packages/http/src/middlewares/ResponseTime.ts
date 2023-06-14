@@ -16,6 +16,9 @@ export class ResponseTime extends ServerMiddleware {
     return (req: sRequest, res: express.Response, next: express.NextFunction) => {
       const end = new Date();
       const diff = end.getTime() - req.storage.responseStart.getTime();
+
+      req.storage.responseEnd = end;
+      req.storage.responseTime = diff;
       res.header('x-response-time', diff.toString());
       next();
     };

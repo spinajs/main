@@ -77,6 +77,9 @@ export interface Request extends express.Request {
 export interface IActionLocalStoregeContext {
   requestId: string;
   responseStart: Date;
+  responseEnd: Date;
+  responseTime: number;
+  realIp: string;
 }
 
 export abstract class ServerMiddleware extends AsyncService {

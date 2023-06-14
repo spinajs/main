@@ -1,22 +1,26 @@
 import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject, DI } from '@spinajs/di';
+import { ValidationFailed } from '@spinajs/validation';
 import { Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
-import { Server } from 'http';
-import { RequestHandler } from 'express';
-import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders } from './interfaces.js';
-import { existsSync } from 'fs';
 import { fsNative, IFsLocalOptions } from '@spinajs/fs';
-import cors from 'cors';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
-import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods/index.js';
-import Express from 'express';
-import { ValidationFailed } from '@spinajs/validation';
-import './transformers/index.js';
-import '@spinajs/templates-pug';
 import { Templates } from '@spinajs/templates';
-import _ from 'lodash';
+import '@spinajs/templates-pug';
+
+import { Server } from 'http';
+import { existsSync } from 'fs';
+import cors from 'cors';
 import randomstring from 'randomstring';
+import Express, { RequestHandler } from 'express';
+import _ from 'lodash';
+
+import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders } from './interfaces.js';
+import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods/index.js';
+import './transformers/index.js';
 import { ValidationError } from './response-methods/validationError.js';
+import './middlewares/ResponseTime.js';
+import './middlewares/RequestId.js';
+import './middlewares/RealIp.js';
 
 @Injectable()
 @Inject(Templates)
@@ -103,7 +107,10 @@ export class HttpServer extends AsyncService {
     // register other server middlewares
     this.Middlewares.forEach((m) => {
       const f = m.before();
-      if (f) this.use(f);
+      if (f) {
+        this.Log.info(`Using server middleware::before() - ${m.constructor.name}`);
+        this.use(f);
+      }
     });
 
     /**
@@ -135,7 +142,10 @@ export class HttpServer extends AsyncService {
       // add all middlewares to execute after
       this.Middlewares.reverse().forEach((m) => {
         const f = m.after();
-        if (f) this.use(f);
+        if (f) {
+          this.Log.info(`Using server middleware::after() - ${m.constructor.name}`);
+          this.use(f);
+        }
       });
 
       this.Server = this.Express.listen(port, () => {
