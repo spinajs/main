@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/metrics",
-  "version": "2.0.150",
+  "version": "2.0.151",
   "description": "metrics integration for spinajs using prometheus",
   
     "main": "lib/cjs/index.js",
@@ -50,9 +50,9 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/di": "^2.0.150",
-    "@spinajs/exceptions": "^2.0.150",
-    "@spinajs/http": "^2.0.150",
+    "@spinajs/di": "^2.0.151",
+    "@spinajs/exceptions": "^2.0.151",
+    "@spinajs/http": "^2.0.151",
     "express-prom-bundle": "^6.6.0",
     "prom-client": "^14.1.1"
   },
