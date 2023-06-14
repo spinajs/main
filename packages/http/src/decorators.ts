@@ -137,7 +137,13 @@ export function Hydrator(hydrator: Constructor<ArgHydrator>, ...options: any[]) 
   };
 }
 
-export function Policy(policy: Constructor<BasePolicy>, ...options: any[]) {
+/**
+ * 
+ * @param policy - policy to set. Could be type or path in configuration to with policy to inject ( eg. metrics.auth.policy )
+ * @param options 
+ * @returns 
+ */
+export function Policy(policy: Constructor<BasePolicy> | string, ...options: any[]) {
   return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1: string, _2: number | PropertyDescriptor) => {
     const pDesc = {
       Options: options,

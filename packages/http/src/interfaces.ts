@@ -525,7 +525,7 @@ export abstract class RouteMiddleware {
  * Descriptor for policies eg. attached routes, passed options eg. token etc.
  */
 export interface IPolicyDescriptor {
-  Type: Constructor<BasePolicy>;
+  Type: Constructor<BasePolicy> | string;
 
   Options: any[];
 }

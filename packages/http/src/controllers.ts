@@ -14,6 +14,8 @@ import { Response } from './interfaces.js';
 
 import * as fs from 'fs';
 import { basename } from 'node:path';
+import { Configuration } from '@spinajs/configuration';
+import _ from 'lodash';
 
 export abstract class BaseController extends AsyncService implements IController {
   /**
@@ -34,6 +36,9 @@ export abstract class BaseController extends AsyncService implements IController
 
   @Autoinject()
   protected _actionLocalStorage: AsyncLocalStorage<IActionLocalStoregeContext>;
+
+  @Autoinject(Configuration)
+  protected _cfg: Configuration;
 
   /**
    * Express router with middleware stack
@@ -89,9 +94,23 @@ export abstract class BaseController extends AsyncService implements IController
         }),
       );
       const policies = await Promise.all<BasePolicy>(
-        this.Descriptor.Policies.concat(route.Policies || []).map((m: IPolicyDescriptor) => {
-          return self._container.resolve(m.Type, m.Options);
-        }),
+        this.Descriptor.Policies.concat(route.Policies || [])
+          .map((m: IPolicyDescriptor) => {
+            if (_.isString(m.Type)) {
+              const policyType = this._cfg.get<string>(m.Type);
+              if (!DI.checkType(BasePolicy, policyType)) {
+                self._log.warn(`No policy named ${policyType} is registered ( check your configuration at ${m.Type})`);
+                return null;
+              } else {
+                self._log.trace(`Policy ${policyType} is used in controller ${self.constructor.name}::${route.Method} at path ${path}`);
+                return self._confainer.resolve(policyType, m.Options);
+              }
+            } else {
+              self._log.trace(`Policy ${m.Type.name} is used in controller ${self.constructor.name}::${route.Method} at path ${path}`);
+              return self._container.resolve(m.Type, m.Options);
+            }
+          })
+          .filter((x) => x !== null),
       );
       const enabledMiddlewares = middlewares.filter((m) => m.isEnabled(route, this));
 
