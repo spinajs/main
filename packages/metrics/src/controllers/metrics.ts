@@ -13,10 +13,14 @@ class PrometheusResponse extends Response {
   }
 }
 
+/**
+ * Default controller for serving
+ * metrics data. Can be protected by access policy from configuration file
+ */
 @BasePath('metrics')
 @Policy('metrics.auth.policy')
 export class Metrics extends BaseController {
-  @Get()
+  @Get('/')
   public async getMetrics() {
     return new PrometheusResponse();
   }
