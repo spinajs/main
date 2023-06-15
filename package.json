@@ -114,6 +114,7 @@
     "@spinajs/templates-xlsx": "file:packages\\templates-xlsx",
     "@spinajs/util": "file:packages\\util",
     "@spinajs/validation": "file:packages\\validation",
+    "@spinajs/orm-lowdb": "file:packages\\orm-lowdb",
     "@types/ajv-merge-patch": "^4.1.2"
   }
 }

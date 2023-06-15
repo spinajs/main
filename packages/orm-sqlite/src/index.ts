@@ -28,7 +28,7 @@ export class SqliteOrmDriver extends SqlDriver {
 
   protected Db: sqlite3.Database;
 
-  public execute(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
+  public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
 
     if (!this.Db) {
@@ -185,7 +185,7 @@ export class SqliteOrmDriver extends SqlDriver {
       return;
     }
 
-    await this.execute('BEGIN TRANSACTION', null, QueryContext.Transaction);
+    await this.executeOnDb('BEGIN TRANSACTION', null, QueryContext.Transaction);
 
     try {
       if (Array.isArray(qrOrCallback)) {
@@ -196,9 +196,9 @@ export class SqliteOrmDriver extends SqlDriver {
         await qrOrCallback(this);
       }
 
-      await this.execute('COMMIT', null, QueryContext.Transaction);
+      await this.executeOnDb('COMMIT', null, QueryContext.Transaction);
     } catch (ex) {
-      await this.execute('ROLLBACK', null, QueryContext.Transaction);
+      await this.executeOnDb('ROLLBACK', null, QueryContext.Transaction);
       throw ex;
     }
   }
@@ -211,24 +211,24 @@ export class SqliteOrmDriver extends SqlDriver {
    * @param _schema - optional schema name
    */
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
-    const tblInfo = (await this.execute(`PRAGMA table_info(${name});`, null, QueryContext.Select)) as ITableInfo[];
+    const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${name});`, null, QueryContext.Select)) as ITableInfo[];
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
       return null;
     }
 
     // get all indices for table
-    const indexList = (await this.execute(`PRAGMA index_list("${name}")`, null, QueryContext.Select)) as IIndexInfoList[];
+    const indexList = (await this.executeOnDb(`PRAGMA index_list("${name}")`, null, QueryContext.Select)) as IIndexInfoList[];
     let uIndices: string[] = [];
 
     // get all unique & fetch for whitch column
     for (const idx of indexList.filter((i) => i.unique === 1)) {
-      const iInfo = (await this.execute(`PRAGMA index_info("${idx.name}")`, null, QueryContext.Select)) as IIndexInfo[];
+      const iInfo = (await this.executeOnDb(`PRAGMA index_info("${idx.name}")`, null, QueryContext.Select)) as IIndexInfo[];
       uIndices = iInfo.map((x) => x.name);
     }
 
     // get all foreign keys
-    const foreignKeys = (await this.execute(`PRAGMA foreign_key_list("${name}")`, null, QueryContext.Select)) as IForeignKeyList[];
+    const foreignKeys = (await this.executeOnDb(`PRAGMA foreign_key_list("${name}")`, null, QueryContext.Select)) as IForeignKeyList[];
 
 
     return tblInfo.map((r: ITableInfo) => {

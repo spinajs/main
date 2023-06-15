@@ -1,8 +1,8 @@
 import { Log } from '@spinajs/log-common';
 /* eslint-disable prettier/prettier */
-import { IColumnDescriptor, IDriverOptions, QueryContext, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
+import { IColumnDescriptor, IDriverOptions, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
-import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder } from './builders.js';
+import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder, Builder } from './builders.js';
 import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import './hydrators.js';
 import './dehydrators.js';
@@ -39,7 +39,8 @@ export abstract class OrmDriver extends SyncService {
    * @param params - binding parameters
    * @param context - query context to optimize queries sent to DB
    */
-  public abstract execute(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
+  //public abstract execute(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
+  public abstract execute(builder : Builder<any>) : Promise<any[] | any>;
 
   /**
    * Checks if database is avaible

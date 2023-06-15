@@ -16,7 +16,7 @@ export class MySqlOrmDriver extends SqlDriver {
   protected Pool: mysql.Pool;
   protected _executionId = 0;
 
-  public execute(stmt: string, params: any[], context: QueryContext): Promise<any> {
+  public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const tName = `query-${this._executionId++}`;
     this.Log.timeStart(`query-${tName}`);
 
@@ -84,7 +84,7 @@ export class MySqlOrmDriver extends SqlDriver {
 
   public async ping(): Promise<boolean> {
     try {
-      await this.execute('SELECT 1', [], QueryContext.Select);
+      await this.executeOnDb('SELECT 1', [], QueryContext.Select);
       return true;
     } catch {
       return false;
@@ -119,14 +119,14 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
-    const tblInfo = (await this.execute(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? ${schema ? 'AND TABLE_SCHEMA=?' : ''} `, schema ? [name, schema] : [name], QueryContext.Select)) as ITableColumnInfo;
-    const isView = (await this.execute(`SHOW FULL TABLES where \`Tables_in_${schema}\`='${name}'`, [], QueryContext.Select)) as ITableTypeInfo[];
+    const tblInfo = (await this.executeOnDb(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? ${schema ? 'AND TABLE_SCHEMA=?' : ''} `, schema ? [name, schema] : [name], QueryContext.Select)) as ITableColumnInfo;
+    const isView = (await this.executeOnDb(`SHOW FULL TABLES where \`Tables_in_${schema}\`='${name}'`, [], QueryContext.Select)) as ITableTypeInfo[];
     let indexInfo: IIndexInfo[] = [];
 
     if (isView && isView[0].Table_type === 'VIEW') {
       this.Log.trace(`Table ${schema}.${name} is a VIEW and dont have indexes set.`);
     } else {
-      indexInfo = (await this.execute(`SHOW INDEXES FROM ${name}`, [], QueryContext.Select)) as IIndexInfo[];
+      indexInfo = (await this.executeOnDb(`SHOW INDEXES FROM ${name}`, [], QueryContext.Select)) as IIndexInfo[];
     }
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {

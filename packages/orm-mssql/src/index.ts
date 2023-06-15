@@ -21,7 +21,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     super(Object.assign({ AliasSeparator: '#' }, options));
   }
 
-  public async execute(stmt: string, params: any[], context: QueryContext): Promise<any> {
+  public async executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const tName = `query-${this._executionId++}`;
     let finalQuery = stmt.replaceAll('`', '');
 
@@ -90,7 +90,7 @@ export class MsSqlOrmDriver extends SqlDriver {
 
   public async ping(): Promise<boolean> {
     try {
-      await this.execute('SELECT 1', [], QueryContext.Select);
+      await this.executeOnDb('SELECT 1', [], QueryContext.Select);
       return true;
     } catch {
       return false;
@@ -114,7 +114,7 @@ export class MsSqlOrmDriver extends SqlDriver {
       },
     });
 
-    await this.execute(`USE ${this.Options.Database}`, [], QueryContext.Schema);
+    await this.executeOnDb(`USE ${this.Options.Database}`, [], QueryContext.Schema);
 
     return this;
   }
@@ -141,13 +141,13 @@ export class MsSqlOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
-    const tblInfo = (await this.execute(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? ${schema ? 'AND TABLE_CATALOG=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as ITableColumnInfo[];
+    const tblInfo = (await this.executeOnDb(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? ${schema ? 'AND TABLE_CATALOG=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as ITableColumnInfo[];
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
       return null;
     }
 
-    const indexList = (await this.execute(`select C.COLUMN_NAME,T.CONSTRAINT_TYPE FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS T JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE C ON C.CONSTRAINT_NAME=T.CONSTRAINT_NAME WHERE C.TABLE_NAME=? ${schema ? ' AND c.TABLE_CATALOG=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as IIndexInfo[];
+    const indexList = (await this.executeOnDb(`select C.COLUMN_NAME,T.CONSTRAINT_TYPE FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS T JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE C ON C.CONSTRAINT_NAME=T.CONSTRAINT_NAME WHERE C.TABLE_NAME=? ${schema ? ' AND c.TABLE_CATALOG=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as IIndexInfo[];
 
     return tblInfo.map((r: ITableColumnInfo) => {
       const isPrimary = indexList.find((c) => c.CONSTRAINT_TYPE === 'PRIMARY KEY' && c.COLUMN_NAME === r.COLUMN_NAME) !== undefined;

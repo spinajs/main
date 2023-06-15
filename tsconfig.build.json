@@ -44,6 +44,8 @@
     { "path": "packages/validation/tsconfig.mjs.json" },
     { "path": "packages/templates-pdf/tsconfig.mjs.json" },
     { "path": "packages/templates-csv/tsconfig.mjs.json" },
-    { "path": "packages/orm-api/tsconfig.mjs.json" }
+    { "path": "packages/orm-api/tsconfig.mjs.json" },
+    { "path": "packages/orm-lowdb/tsconfig.mjs.json" }
+
   ]
 }

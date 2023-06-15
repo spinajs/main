@@ -21,10 +21,10 @@ import { DateTime } from 'luxon';
  *  We use mixins to extend functionality of builder eg. insert query builder uses function from columns builder
  *  and so on...
  */
-export interface InsertQueryBuilder extends IColumnsBuilder {}
-export interface DeleteQueryBuilder<T> extends IDeleteQueryBuilder<T> {}
-export interface UpdateQueryBuilder<T> extends IUpdateQueryBuilder<T> {}
-export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {}
+export interface InsertQueryBuilder extends IColumnsBuilder { }
+export interface DeleteQueryBuilder<T> extends IDeleteQueryBuilder<T> { }
+export interface UpdateQueryBuilder<T> extends IUpdateQueryBuilder<T> { }
+export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder { }
 
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
@@ -68,79 +68,68 @@ export class Builder<T = any> implements IBuilder<T> {
   }
 
   then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
-    const execute = (compiled: ICompilerOutput) => {
-      return this._driver
-        .execute(compiled.expression, compiled.bindings, this.QueryContext)
-        .then((result: T) => {
-          try {
-            if (this._asRaw) {
-              onfulfilled(result);
-              return;
-            }
-
-            let transformedResult = result;
-
-            // if we have something to transform ...
-            if (transformedResult) {
-              this._middlewares.forEach((m) => {
-                Object.assign(transformedResult, m.afterQuery(transformedResult));
-              });
-            }
-
-            if (this._model && !this._nonSelect) {
-              // TODO: rething this casting
-              const models = (transformedResult as unknown as any[]).map((r) => {
-                let model = null;
-                for (const middleware of this._middlewares.reverse()) {
-                  model = middleware.modelCreation(r);
-                  if (model !== null) {
-                    break;
-                  }
-                }
-
-                if (model === null) {
-                  model = new this._model();
-                  model.hydrate(r);
-                }
-
-                return model;
-              });
-
-              const afterMiddlewarePromises = this._middlewares.reduce((prev, current) => {
-                return prev.concat([current.afterHydration(models)]);
-              }, [] as Array<Promise<any[] | void>>);
-
-              if (this._middlewares.length > 0) {
-                Promise.all(afterMiddlewarePromises).then(() => {
-                  try {
-                    onfulfilled(models as unknown as T);
-                  } catch (err) {
-                    onrejected(err);
-                  }
-                }, onrejected);
-              } else {
-                onfulfilled(models as unknown as T);
-              }
-            } else {
-              onfulfilled(transformedResult);
-            }
-          } catch (err) {
-            onrejected(err);
+    return this._driver
+      .execute(this)
+      .then((result: T) => {
+        try {
+          if (this._asRaw) {
+            onfulfilled(result);
+            return;
           }
-        })
-        .catch((err) => {
+
+          let transformedResult = result;
+
+          // if we have something to transform ...
+          if (transformedResult) {
+            this._middlewares.forEach((m) => {
+              Object.assign(transformedResult, m.afterQuery(transformedResult));
+            });
+          }
+
+          if (this._model && !this._nonSelect) {
+            // TODO: rething this casting
+            const models = (transformedResult as unknown as any[]).map((r) => {
+              let model = null;
+              for (const middleware of this._middlewares.reverse()) {
+                model = middleware.modelCreation(r);
+                if (model !== null) {
+                  break;
+                }
+              }
+
+              if (model === null) {
+                model = new this._model();
+                model.hydrate(r);
+              }
+
+              return model;
+            });
+
+            const afterMiddlewarePromises = this._middlewares.reduce((prev, current) => {
+              return prev.concat([current.afterHydration(models)]);
+            }, [] as Array<Promise<any[] | void>>);
+
+            if (this._middlewares.length > 0) {
+              Promise.all(afterMiddlewarePromises).then(() => {
+                try {
+                  onfulfilled(models as unknown as T);
+                } catch (err) {
+                  onrejected(err);
+                }
+              }, onrejected);
+            } else {
+              onfulfilled(models as unknown as T);
+            }
+          } else {
+            onfulfilled(transformedResult);
+          }
+        } catch (err) {
           onrejected(err);
-        }) as Promise<any>;
-    };
-
-    const compiled = this.toDB();
-
-    if (Array.isArray(compiled)) {
-      // TODO: rethink this cast
-      return Promise.all(compiled.map((c) => execute(c))) as any;
-    } else {
-      return execute(compiled);
-    }
+        }
+      })
+      .catch((err) => {
+        onrejected(err);
+      }) as Promise<any>;
   }
 
   public middleware(middleware: IBuilderMiddleware<T>) {
@@ -1062,7 +1051,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 }
 
-export class SelectQueryBuilderC<T = any> extends SelectQueryBuilder<T> {}
+export class SelectQueryBuilderC<T = any> extends SelectQueryBuilder<T> { }
 
 @NewInstance()
 export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
@@ -1972,7 +1961,7 @@ export class DropEventQueryBuilder extends QueryBuilder {
 @NewInstance()
 @Inject(Container)
 export class ScheduleQueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver) {}
+  constructor(protected container: Container, protected driver: OrmDriver) { }
 
   public create(name: string, callback: (event: EventQueryBuilder) => void) {
     const builder = new EventQueryBuilder(this.container, this.driver, name);
@@ -1989,7 +1978,7 @@ export class ScheduleQueryBuilder {
 @NewInstance()
 @Inject(Container)
 export class SchemaQueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver) {}
+  constructor(protected container: Container, protected driver: OrmDriver) { }
 
   public createTable(name: string, callback: (table: TableQueryBuilder) => void) {
     const builder = new TableQueryBuilder(this.container, this.driver, name);

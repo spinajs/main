@@ -1,20 +1,23 @@
-import { IColumnDescriptor, Orm, QueryBuilder, QueryContext, TransactionCallback } from "@spinajs/orm";
-import { SqlDriver } from "@spinajs/orm-sql";
+import { Builder, IColumnDescriptor, Orm, OrmDriver, QueryBuilder, QueryContext, TransactionCallback } from "@spinajs/orm";
 import { Injectable } from "@spinajs/di";
 
-export class RendererOrmDriverBridge extends SqlDriver {
-    execute(stmt: string | object, params: any[], context: QueryContext): Promise<any> {
-        return window.ipc.__spinaJsIpcBridge.callOnOrmConnection(this.Options.Name, "execute", stmt, params, context);
+export class RendererOrmDriverBridge extends OrmDriver {
+    execute(_builder: Builder<any>): Promise<any> {
+        return Promise.resolve(this);
+
+    }
+    executeOnDb(stmt: string | object, params: any[], context: QueryContext): Promise<any> {
+        return window.ipc.__spinaJsIpcBridge.callOnOrmConnection(this.Options.Name, "executeOnDb", stmt, params, context);
 
     }
     ping(): Promise<boolean> {
         return Promise.resolve(true);
     }
-    connect(): Promise<SqlDriver> {
+    connect(): Promise<OrmDriver> {
         return Promise.resolve(this);
 
     }
-    disconnect(): Promise<SqlDriver> {
+    disconnect(): Promise<OrmDriver> {
         return Promise.resolve(this);
 
     }
