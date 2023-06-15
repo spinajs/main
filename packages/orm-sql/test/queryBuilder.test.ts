@@ -705,7 +705,7 @@ describe('Relations query builder', () => {
 
   it('hasManyToMany', async () => {
     const relStub = sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
+      .stub(FakeSqliteDriver.prototype, 'executeOnDb')
       .onFirstCall()
       .returns(
         new Promise((resolve) => {

@@ -671,7 +671,6 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
 
 export interface SqlTruncateTableQueryCompiler { }
 
-@Inject(Container)
 @NewInstance()
 export class SqlTruncateTableQueryCompiler extends TableQueryCompiler {
   constructor(protected container: Container, protected builder: TableQueryBuilder) {

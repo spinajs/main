@@ -10,6 +10,7 @@ import _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import { SqlDatetimeValueConverter } from '../src/converters.js';
 import { SqlDefaultValueBuilder } from './../src/builders.js';
+import { SqlDriver } from '../src/index.js';
 
 export function mergeArrays(target: any, source: any) {
   if (_.isArray(target)) {
@@ -21,12 +22,12 @@ export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
-export class FakeSqliteDriver extends OrmDriver {
+export class FakeSqliteDriver extends SqlDriver {
   public transaction(_queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<void> {
     return Promise.resolve();
   }
 
-  public async execute(_stmt: string | object, _params?: any[]): Promise<any[] | any> {
+  public async executeOnDb(_stmt: string | object, _params?: any[]): Promise<any[] | any> {
     return true;
   }
 

@@ -18,9 +18,9 @@ export class SqlRawStatement extends RawQueryStatement {
 export class SqlWithRecursiveStatement extends WithRecursiveStatement {
   public build(): IQueryStatementResult {
     const initialQuery = this._query.clone().clearJoins().toDB();
- 
 
-    const joinStmt = this.container.resolve(JoinStatement, [this._query, this._query.Model,'recursive_cte', JoinMethod.RECURSIVE, this._pkName, this._rcKeyName,'$recursive$','$recursive_cte$']);
+
+    const joinStmt = this.container.resolve(JoinStatement, [this._query, this._query.Model, 'recursive_cte', JoinMethod.RECURSIVE, this._pkName, this._rcKeyName, '$recursive$', '$recursive_cte$']);
     this._query.JoinStatements.push(joinStmt);
     const additionalQuery = this._query.clone().clearWhere().setAlias('$recursive$').toDB();
     const cte_columns = this._query
@@ -110,7 +110,7 @@ export class SqlWhereStatement extends WhereStatement {
 export class SqlJoinStatement extends JoinStatement {
   public build(): IQueryStatementResult {
 
-    const method =  this._method === JoinMethod.RECURSIVE ? JoinMethod.INNER : this._method;
+    const method = this._method === JoinMethod.RECURSIVE ? JoinMethod.INNER : this._method;
 
     if (this._query) {
       return {
@@ -119,7 +119,7 @@ export class SqlJoinStatement extends JoinStatement {
       };
     }
 
-    let table = `\`${this._database}\`.\`${this._table}\``;
+    let table = `${this._database ? `\`${this._database}\`.` : ''}\`${this._table}\``;
     let primaryKey = this._primaryKey;
     let foreignKey = this._foreignKey;
 
@@ -128,7 +128,7 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     if (this._tableAlias) {
-      table = `\`${this._database}\`.\`${this._table}\` as \`${this._method === JoinMethod.RECURSIVE ? this._alias: this._tableAlias}\``;
+      table = `${this._database ? `\`${this._database}\`.` : ''}\`${this._table}\` as \`${this._method === JoinMethod.RECURSIVE ? this._alias : this._tableAlias}\``;
       foreignKey = `\`${this._tableAlias}\`.${this._primaryKey}`;
     }
 

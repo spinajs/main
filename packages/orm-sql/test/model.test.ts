@@ -6,7 +6,7 @@ import { SqlInsertQueryCompiler, SqlUpdateQueryCompiler } from './../src/compile
 import { DI } from '@spinajs/di';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
 import { Configuration } from '@spinajs/configuration';
-import { Orm, SelectQueryBuilder} from '@spinajs/orm';
+import { Orm, SelectQueryBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
@@ -22,6 +22,7 @@ import './Models/RelationModel4.js';
 import { UuidModel } from './Models/UuidModel.js';
 import { Model3 } from './Models/Model3.js';
 import { Model4 } from './Models/Model4.js';
+import "@spinajs/log";
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -62,7 +63,7 @@ describe('model generated queries', () => {
           Bar: 1,
         });
       })
-      .toDB()  as ICompilerOutput;
+      .toDB() as ICompilerOutput;
 
     const result2 = Model3.query()
       .leftJoin(Model4, function () {
@@ -117,6 +118,8 @@ describe('model generated queries', () => {
             Unique: false,
             Uuid: false,
             Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -133,7 +136,8 @@ describe('model generated queries', () => {
             Schema: 'sqlite',
             Unique: false,
             Uuid: false,
-            Ignore: false,
+            Ignore: false, IsForeignKey: false,
+            ForeignKeyDescription: null
           },
           {
             Type: 'VARCHAR',
@@ -150,7 +154,8 @@ describe('model generated queries', () => {
             Schema: 'sqlite',
             Unique: false,
             Uuid: false,
-            Ignore: false,
+            Ignore: false, IsForeignKey: false,
+            ForeignKeyDescription: null
           },
         ]);
       }),
