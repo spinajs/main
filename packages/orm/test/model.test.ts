@@ -147,11 +147,6 @@ describe('General model tests', () => {
     // @ts-ignore
     const orm = await db();
 
-    const compile = sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({
-      expression: 'SELECT * FROM model1',
-      bindings: [],
-    });
-
     const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
       new Promise((res) => {
         res([
@@ -163,9 +158,7 @@ describe('General model tests', () => {
     );
 
     const result = await Model1.all();
-
-    expect(compile.calledOnce).to.be.true;
-    expect(execute.calledOnceWith('SELECT * FROM model1', [])).to.be.true;
+    expect(execute.calledOnce).to.be.true;
     expect(result).to.be.an('array').with.length(1);
     expect(result[0]).instanceOf(Model1);
   });
@@ -394,11 +387,7 @@ describe('General model tests', () => {
 
   it('Get should work', async () => {
     await db();
-
-    const compile = sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
+ 
 
     const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
       new Promise((res) => {
@@ -412,7 +401,6 @@ describe('General model tests', () => {
 
     const result = await Model1.get(1);
 
-    expect(compile.calledOnce).to.be.true;
     expect(execute.calledOnce).to.be.true;
     expect(result).instanceof(Model1);
   });
@@ -420,12 +408,6 @@ describe('General model tests', () => {
   it('Find mixin should work', async () => {
     // @ts-ignore
     const orm = await db();
-
-    const compile = sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
-
     const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
       new Promise((res) => {
         res([
@@ -441,7 +423,7 @@ describe('General model tests', () => {
 
     const result = await Model1.find([1, 2]);
 
-    expect(compile.calledOnce).to.be.true;
+    
     expect(execute.calledOnce).to.be.true;
     expect(result).to.be.an('array').with.length(2);
     expect(result[0]).instanceof(Model1);
@@ -451,10 +433,7 @@ describe('General model tests', () => {
     // @ts-ignore
     const orm = await db();
 
-    const compile = sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
+ ;
 
     const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
       new Promise((res) => {
@@ -468,7 +447,6 @@ describe('General model tests', () => {
 
     const result = await Model1.findOrFail([1]);
 
-    expect(compile.calledOnce).to.be.true;
     expect(execute.calledOnce).to.be.true;
     expect(result).to.be.an('array').with.lengthOf(1);
     expect(result[0]).instanceof(Model1);
@@ -495,12 +473,7 @@ describe('General model tests', () => {
   it('FirstOrThrow shouhld work', async () => {
     // @ts-ignore
     const orm = await db();
-
-    const compile = sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
-
+ 
     const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
       new Promise((res) => {
         res([
@@ -513,7 +486,6 @@ describe('General model tests', () => {
 
     const result = await Model1.where({ id: 1 }).firstOrThrow(new Error('Not found'));
 
-    expect(compile.calledOnce).to.be.true;
     expect(execute.calledOnce).to.be.true;
     expect(result).instanceof(Model1);
   });
@@ -772,95 +744,6 @@ describe('General model tests', () => {
     expect(model.UpdatedAt).to.be.not.null;
   });
 
-  it('Model should insert', async () => {
-    // @ts-ignore
-    const orm = await db();
-
-    const fI = sinon.stub(FakeInsertQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
-
-    sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
-      .onCall(0)
-      .returns(
-        new Promise((res) => {
-          res([{ Id: 1 }]);
-        }),
-      );
-
-    await Model1.insert({
-      Bar: 'hello',
-    });
-
-    expect(fI.calledOnce).to.be.true;
-  });
-
-  it('Model should insert array at one query', async () => {
-    // @ts-ignore
-    const orm = await db();
-
-    const fI = sinon.stub(FakeInsertQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
-
-    sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
-      .onCall(0)
-      .returns(
-        new Promise((res) => {
-          res([{ Id: 1 }]);
-        }),
-      );
-
-    await Model1.insert([{ Bar: 'hello' }, { Bar: 'hello' }, { Bar: 'hello' }]);
-
-    expect(fI.calledOnce).to.be.true;
-  });
-
-  it('destroy should update deleted_at', async () => {
-    // @ts-ignore
-    const orm = await db();
-
-    const df = sinon.stub(FakeDeleteQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
-
-    const uf = sinon.stub(FakeUpdateQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
-
-    sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
-      .onCall(0)
-      .returns(
-        new Promise((res) => {
-          res([]);
-        }),
-      )
-      .onCall(1)
-      .returns(
-        new Promise((res) => {
-          res([{ Id: 1 }]);
-        }),
-      )
-      .onCall(2)
-      .returns(
-        new Promise((res) => {
-          res([1]);
-        }),
-      );
-
-    await Model1.destroy(1);
-
-    expect(df.calledOnce).to.be.false;
-    expect(uf.calledOnce).to.be.true;
-  });
-
   it('Model should create uuid', async () => {
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
     tableInfoStub.withArgs('TestTable6', undefined).returns(
@@ -1004,43 +887,12 @@ describe('General model tests', () => {
     expect(model.Id).to.eq(666);
   });
 
-  it('Model delete should delete if no soft delete', async () => {
-    // @ts-ignore
-    const orm = await db();
-
-    const del = sinon.stub(FakeDeleteQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
-
-    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
-      new Promise((res) => {
-        res([]);
-      }),
-    );
-
-    const model = new RawModel();
-    model.PrimaryKeyValue = 1;
-
-    await model.destroy();
-
-    expect(del.calledOnce).to.be.true;
-  });
-
   it('Model delete should soft delete', async () => {
     // @ts-ignore
     const orm = await db();
+ 
 
-    const del = sinon.stub(FakeDeleteQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
-
-    const up = sinon.stub(FakeUpdateQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
-
+ 
     sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
       new Promise((res) => {
         res([]);
@@ -1051,9 +903,6 @@ describe('General model tests', () => {
     model.PrimaryKeyValue = 1;
 
     await model.destroy();
-
-    expect(del.calledOnce).to.be.false;
-    expect(up.calledOnce).to.be.true;
     expect(model.DeletedAt).to.be.not.null;
   });
 

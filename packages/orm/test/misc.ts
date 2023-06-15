@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { ValueConverter } from './../src/interfaces.js';
 import { join, normalize, resolve } from 'path';
-import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder } from '../src/index.js';
+import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder } from '../src/index.js';
 import { OrmDriver, TransactionCallback } from './../src/driver.js';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -60,7 +60,7 @@ export class ConnectionConf extends FrameworkConfiguration {
 }
 
 export class FakeSqliteDriver extends OrmDriver {
-  public async execute(_stmt: string | object, _params?: any[]): Promise<any[] | any> {
+  public async execute(_builder : Builder<any>) : Promise<any[] | any> {
     return false;
   }
 
