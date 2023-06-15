@@ -1,7 +1,8 @@
 import { join, normalize, resolve } from 'path';
 
 function dir(path: string) {
-  return resolve(normalize(join(process.cwd(), path)));
+  const inCommonJs = typeof module !== 'undefined';
+  return resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'metrics', 'lib', inCommonJs ? 'cjs' : 'mjs', path)));
 }
 
 /**
@@ -13,7 +14,7 @@ function dir(path: string) {
 const config = {
   system: {
     dirs: {
-      controllers: [dir('./../controllers')],
+      controllers: [dir('controllers')],
     },
   },
   metrics: {
