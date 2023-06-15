@@ -8,8 +8,11 @@ class PrometheusResponse extends Response {
   }
 
   public async execute(_req: express.Request, res: express.Response) {
+
+    const result = await client.register.metrics();
+
     res.contentType(client.register.contentType);
-    res.end(client.register.metrics());
+    res.end(result);
   }
 }
 
