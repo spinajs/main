@@ -22,6 +22,8 @@ import { User } from './models/User.js';
 import { TestModelOwner } from './models/TestModelOwner.js';
 import { Category } from './models/Category.js';
 import { has_many_1, owned_by_has_many_1, owned_by_owned_by_has_many_1 } from './models/HasMany1.js';
+import { SqlDriver } from '@spinajs/orm-sql';
+import '@spinajs/log';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -815,9 +817,9 @@ describe('Sqlite driver migrate with transaction', function () {
 
   it('Should commit migration', async () => {
     const orm = await DI.resolve(Orm);
-    const driver = orm.Connections.get('sqlite');
+    const driver = orm.Connections.get('sqlite') as SqlDriver;
     const trSpy = sinon.spy(driver, 'transaction');
-    const exSpy = sinon.spy(driver, 'execute');
+    const exSpy = sinon.spy(driver, 'executeOnDb');
 
     await orm.migrateUp();
 
@@ -825,9 +827,9 @@ describe('Sqlite driver migrate with transaction', function () {
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
     expect(exSpy.getCall(15).args[0]).to.eq('COMMIT');
 
-    expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
+    expect(driver.executeOnDb('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 
-    const result = (await driver.execute(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, null, QueryContext.Select)) as unknown[];
+    const result = (await driver.executeOnDb(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, null, QueryContext.Select)) as unknown[];
     expect(result[0]).to.be.not.undefined;
     expect(result[0]).to.be.not.null;
     expect((result[0] as any).Migration).to.eq('TestMigration_2022_02_08_01_13_00');
@@ -855,9 +857,9 @@ describe('Sqlite driver migrate with transaction', function () {
     }
     DI.register(Fake2Orm).as(Orm);
     const orm = await DI.resolve(Orm);
-    const driver = orm.Connections.get('sqlite');
+    const driver = orm.Connections.get('sqlite') as SqlDriver;
     const trSpy = sinon.spy(driver, 'transaction');
-    const exSpy = sinon.spy(driver, 'execute');
+    const exSpy = sinon.spy(driver, 'executeOnDb');
 
     try {
       await orm.migrateUp();
@@ -867,8 +869,8 @@ describe('Sqlite driver migrate with transaction', function () {
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
     expect(exSpy.getCall(5).args[0]).to.eq('ROLLBACK');
 
-    expect(driver.execute('SELECT * FROM user', null, QueryContext.Select)).to.be.rejected;
-    const result = (await driver.execute(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, null, QueryContext.Select)) as unknown[];
+    expect(driver.executeOnDb('SELECT * FROM user', null, QueryContext.Select)).to.be.rejected;
+    const result = (await driver.executeOnDb(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, null, QueryContext.Select)) as unknown[];
     expect(result.length).to.be.eq(0);
 
     DI.unregister(Fake2Orm);
