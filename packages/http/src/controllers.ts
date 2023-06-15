@@ -103,7 +103,7 @@ export abstract class BaseController extends AsyncService implements IController
                 return null;
               } else {
                 self._log.trace(`Policy ${policyType} is used in controller ${self.constructor.name}::${route.Method} at path ${path}`);
-                return self._confainer.resolve(policyType, m.Options);
+                return self._container.resolve(policyType, m.Options);
               }
             } else {
               self._log.trace(`Policy ${m.Type.name} is used in controller ${self.constructor.name}::${route.Method} at path ${path}`);

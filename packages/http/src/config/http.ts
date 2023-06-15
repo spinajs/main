@@ -6,7 +6,8 @@ import { join, normalize, resolve } from 'path';
 import { HttpAcceptHeaders } from '../interfaces.js';
 
 function dir(path: string) {
-  return resolve(normalize(join(process.cwd(), "node_modules", "@spinajs", "http", "lib", path)));
+  const inCommonJs = typeof module !== 'undefined';
+  return resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path)));
 }
 
 const http = {
@@ -30,7 +31,7 @@ const http = {
         name: '__fs_http_response_templates__',
         basePath: dir('views/responses'),
       },
-    ]
+    ],
   },
   http: {
     port: 1337,
