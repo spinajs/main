@@ -4,10 +4,13 @@ import * as client from 'prom-client';
 import { default as promHttpBundle } from 'express-prom-bundle';
 import { Configuration } from '@spinajs/configuration';
 
-export const gauge = client.Gauge;
-export const histogram = client.Histogram;
-export const summary = client.Summary;
-export const counter = client.Counter;
+export * from "./policies/DefaultMetricsPolicy.js";
+export * from "./controllers/metrics.js";
+
+export const Gauge = client.Gauge;
+export const Histogram = client.Histogram;
+export const Summary = client.Summary;
+export const Counter = client.Counter;
 @Injectable(Bootstrapper)
 export class MetricsBootstrapper extends Bootstrapper {
   public bootstrap(): void {
