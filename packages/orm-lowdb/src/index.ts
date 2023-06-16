@@ -6,6 +6,8 @@ import { JSONFile } from 'lowdb/node';
 import _ from 'lodash';
 import { WhereStatement } from '@spinajs/orm';
 import { OrmException } from '@spinajs/orm';
+import * as fs from 'fs';
+import Path from 'path';
 
 class LowWithLodash<T> extends Low<T> {
   chain: _.ExpChain<this['data']> = _.chain(this).get('data');
@@ -22,6 +24,7 @@ export class LowDBDriver extends OrmDriver {
 
   protected adapter: JSONFile<LowDBData>;
   protected db: LowWithLodash<LowDBData>;
+  protected dbSchema: any;
 
   public execute(builder: Builder<any>): Promise<unknown> {
     /**
@@ -72,7 +75,9 @@ export class LowDBDriver extends OrmDriver {
       return;
     }
 
-    this.db.chain.get(builder.Table).remove(data);
+    this.db.data[builder.Table] = this.db.data[builder.Table].filter( x=>{
+      return _.every(data, (b) => !_.isEqual(x,b));
+    });
 
     await this.db.write();
   }
@@ -146,9 +151,19 @@ export class LowDBDriver extends OrmDriver {
   }
 
   public async connect(): Promise<OrmDriver> {
-    this.adapter = new JSONFile<LowDBData>(format({}, this.Options.Filename));
+    const dbFileName = format({}, this.Options.Filename);
+    const path = Path.parse(dbFileName);
+    const schemaFileName = format({}, Path.join(path.dir, `${path.name}.schema.json`));
+
+    this.adapter = new JSONFile<LowDBData>(dbFileName);
     this.db = new LowWithLodash<LowDBData>(this.adapter, {});
     await this.db.read();
+
+    if (!fs.existsSync(schemaFileName)) {
+      this.Log.warn(`Schema file at ${schemaFileName} not exists. Lowdb will not be able to proper insert into DB`);
+    } else {
+      this.dbSchema = JSON.parse(fs.readFileSync(schemaFileName, 'utf-8'));
+    }
 
     return this;
   }

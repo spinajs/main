@@ -127,7 +127,9 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     await m.insert();
   });
 
-  it('should delete', async () => {});
+  it('should delete', async () => {
+    await db().Connections.get('lowdb').del().from('users').where({ Id: 1 });
+  });
   it('should delete by model', async () => {});
 
   it('should update', async () => {});
