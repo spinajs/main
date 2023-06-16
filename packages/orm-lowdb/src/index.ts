@@ -1,4 +1,5 @@
-import { Injectable, NewInstance } from '@spinajs/di';
+import { , Log, Logger } from '@spinajs/log';
+import { AsyncService, Injectable, NewInstance } from '@spinajs/di';
 import { format } from '@spinajs/configuration';
 import { IColumnDescriptor, OrmDriver, QueryBuilder, TransactionCallback, Builder, QueryContext, SqlOperator, Wrap, UpdateQueryBuilder, InsertQueryBuilder, DeleteQueryBuilder, WhereBuilder, ColumnStatement } from '@spinajs/orm';
 import { Low } from 'lowdb';
@@ -8,6 +9,9 @@ import { WhereStatement } from '@spinajs/orm';
 import { OrmException } from '@spinajs/orm';
 import * as fs from 'fs';
 import Path from 'path';
+import { use } from 'typescript-mix';
+import EventEmitter from 'events';
+ 
 
 class LowWithLodash<T> extends Low<T> {
   chain: _.ExpChain<this['data']> = _.chain(this).get('data');
@@ -15,6 +19,81 @@ class LowWithLodash<T> extends Low<T> {
 
 interface LowDBData {
   [key: string]: any[];
+}
+
+export interface LowdbDataSynchronizer extends EventEmitter{};
+
+/**
+ *  Lowdb can synchronzie db file from external source
+ *  eg. download db from api
+ */
+export abstract class LowdbDataSynchronizer extends AsyncService  {
+
+  @use(EventEmitter)
+  this: this;
+
+}
+
+interface ILowDbHttpSynchronizeOptions {
+  Host: string;
+  Port: number;
+  Interval: number;
+}
+
+export class LowDBHttpSynchronizer extends LowdbDataSynchronizer {
+  @Logger('low-db-synchronizer')
+  protected log: Log;
+
+  protected syncTimer: NodeJS.Timer;
+
+  constructor(protected Options: ILowDbHttpSynchronizeOptions, protected Driver : OrmDriver) {
+    super();
+  }
+
+  public async resolve(): Promise<void> {
+    this.syncTimer = setInterval(async () => {
+
+      this.log.trace(`Synchronizing lowdb database...`);
+
+      const dbFileName =  format({}, this.Driver.Options.Filename);
+      const stat = fs.statSync(dbFileName);
+      
+
+      const result = await fetch(this.Options.Host, { 
+        method: "GET",
+        headers: {
+          "if-modified-since": stat.mtime.toISOString()
+        }
+      });
+      
+      if(result.status === 304){
+        this.log.info(`Synchronization finished, not modified`);
+        return;
+      }
+
+      if(result.status !== 200){ 
+        this.log.error(`Synchronization failed, status: ${result.status}`);
+        return;
+      }
+
+      const js = await result.json();
+     
+      fs.writeFileSync(dbFileName, js, { 
+        encoding: "utf-8"
+      });
+
+      this.log.success(`Synchronization finished, new data arrived`);
+
+      this.emit('synchronized');
+       
+    }, this.Options.Interval);
+  }
+
+  public async dispose(): Promise<void> {
+    if (this.syncTimer) {
+      clearInterval(this.syncTimer);
+    }
+  }
 }
 
 @Injectable('orm-driver-lowdb')
@@ -75,8 +154,8 @@ export class LowDBDriver extends OrmDriver {
       return;
     }
 
-    this.db.data[builder.Table] = this.db.data[builder.Table].filter( x=>{
-      return _.every(data, (b) => !_.isEqual(x,b));
+    this.db.data[builder.Table] = this.db.data[builder.Table].filter((x) => {
+      return _.every(data, (b) => !_.isEqual(x, b));
     });
 
     await this.db.write();

@@ -9,11 +9,11 @@ import './dehydrators.js';
 
 export type TransactionCallback = (driver: OrmDriver) => Promise<any>;
 
-export abstract class OrmDriver extends SyncService {
+export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> extends SyncService {
   /**
    * Connection options
    */
-  public Options: IDriverOptions = {
+  public Options: T = {
     AliasSeparator: '$',
     Driver: 'unknown',
     Name: 'orm-driver',
