@@ -13,12 +13,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   /**
    * Connection options
    */
-  public Options: T = {
-    AliasSeparator: '$',
-    Driver: 'unknown',
-    Name: 'orm-driver',
-    DefaultConnection: false,
-  };
+  public Options: T;
 
   public Container: IContainer;
 
@@ -27,7 +22,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
 
   protected Log: Log;
 
-  constructor(options: IDriverOptions) {
+  constructor(options: T) {
     super();
     this.Options = Object.assign(this.Options, options);
   }
