@@ -109,6 +109,18 @@ export abstract class WhereStatement extends QueryStatement {
   protected _container: Container;
   protected _model: Constructor<ModelBase>;
 
+  public get Column() {
+    return this._column;
+  }
+
+  public get Operator() {
+    return this._operator;
+  }
+
+  public get Value() {
+    return this._value;
+  }
+
   constructor(column: string, operator: SqlOperator, value: any, tableAlias: string, container: Container, model: Constructor<ModelBase>) {
     super(tableAlias);
     this._column = column;
