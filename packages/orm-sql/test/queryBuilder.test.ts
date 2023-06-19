@@ -858,8 +858,7 @@ describe('Select query builder', () => {
 
   it('select with order by', () => {
     const result = sqb().select('*').from('users').orderByDescending('name').toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY ? ?');
-    expect(result.bindings).to.be.an('array').to.include('DESC').and.to.include('name');
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY name DESC');
   });
 
   it('select distinct', () => {

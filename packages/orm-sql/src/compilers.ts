@@ -68,11 +68,10 @@ export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
   public compile(): ICompilerOutput {
     const sort = this._builder.getSort();
     let stmt = '';
-    const bindings = [];
+    const bindings : string[] = [];
 
     if (sort) {
-      stmt = ` ORDER BY ? ?`;
-      bindings.push(sort.column, sort.order);
+      stmt = ` ORDER BY ${sort.column} ${sort.order}`;
     }
 
     return {
@@ -229,7 +228,7 @@ export class SqlJoinCompiler implements IJoinCompiler {
 }
 
 // tslint:disable-next-line
-export interface SqlSelectQueryCompiler extends IWhereCompiler, IColumnsCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler { }
+export interface SqlSelectQueryCompiler extends IWhereCompiler, IColumnsCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -298,7 +297,7 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
 }
 
 // tslint:disable-next-line
-export interface SqlUpdateQueryCompiler extends IWhereCompiler { }
+export interface SqlUpdateQueryCompiler extends IWhereCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -348,7 +347,7 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
 }
 
 // tslint:disable-next-line
-export interface SqlDeleteQueryCompiler extends IWhereCompiler { }
+export interface SqlDeleteQueryCompiler extends IWhereCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -410,9 +409,7 @@ export class SqlOnDuplicateQueryCompiler implements OnDuplicateQueryCompiler {
 
     const parent = this._builder.getParent() as InsertQueryBuilder;
 
-    const valueMap = parent
-      .getColumns()
-      .map((c: ColumnStatement) => c.Column);
+    const valueMap = parent.getColumns().map((c: ColumnStatement) => c.Column);
     const bindings = this._builder.getColumnsToUpdate().map((c: string | RawQuery): any => {
       if (_.isString(c)) {
         return parent.Values[0][valueMap.indexOf(c)];
@@ -567,7 +564,7 @@ export class SqlDropTableQueryCompiler extends DropTableCompiler {
   }
 }
 
-export interface SqlAlterTableQueryCompiler { }
+export interface SqlAlterTableQueryCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -619,7 +616,7 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
   }
 }
 
-export interface SqlTableCloneQueryCompiler { }
+export interface SqlTableCloneQueryCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -644,11 +641,11 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
         this.builder.Filter !== undefined
           ? this.builder.Filter.toDB()
           : {
-            bindings: [],
+              bindings: [],
 
-            // if no filter is provided, copy all the data
-            expression: `SELECT * FROM ${_tblName}`,
-          };
+              // if no filter is provided, copy all the data
+              expression: `SELECT * FROM ${_tblName}`,
+            };
 
       const fExprr = `INSERT INTO \`${this.builder.Table}\` ${fOut.expression}`;
 
@@ -669,7 +666,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
   }
 }
 
-export interface SqlTruncateTableQueryCompiler { }
+export interface SqlTruncateTableQueryCompiler {}
 
 @NewInstance()
 export class SqlTruncateTableQueryCompiler extends TableQueryCompiler {
@@ -793,7 +790,7 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
   }
 }
 
-export interface SqlTableQueryCompiler { }
+export interface SqlTableQueryCompiler {}
 
 @NewInstance()
 @Inject(Container)
