@@ -1,4 +1,4 @@
-import { , Log, Logger } from '@spinajs/log';
+import { Log, Logger } from '@spinajs/log';
 import { AsyncService, Injectable, NewInstance } from '@spinajs/di';
 import { format } from '@spinajs/configuration';
 import { IColumnDescriptor, OrmDriver, QueryBuilder, TransactionCallback, Builder, QueryContext, SqlOperator, Wrap, UpdateQueryBuilder, InsertQueryBuilder, DeleteQueryBuilder, WhereBuilder, ColumnStatement } from '@spinajs/orm';
