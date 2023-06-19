@@ -13,7 +13,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   /**
    * Connection options
    */
-  public Options: T;
+  public Options: T = {} as T;
 
   public Container: IContainer;
 
@@ -35,7 +35,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * @param context - query context to optimize queries sent to DB
    */
   //public abstract execute(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
-  public abstract execute(builder : Builder<any>) : Promise<any[] | any>;
+  public abstract execute(builder: Builder<any>): Promise<any[] | any>;
 
   /**
    * Checks if database is avaible
