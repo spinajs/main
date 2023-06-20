@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/di",
-  "version": "2.0.158",
+  "version": "2.0.159",
   "description": "lightweight di container ",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -50,7 +50,7 @@
   },
   "homepage": "https://github.com/spinajs/di#readme",
   "dependencies": {
-    "@spinajs/exceptions": "^2.0.158",
+    "@spinajs/exceptions": "^2.0.159",
     "lodash": "^4.17.21",
     "reflect-metadata": "^0.1.13"
   },
