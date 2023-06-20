@@ -29,7 +29,7 @@ const http = {
       {
         service: 'fsNative',
         name: '__fs_http_response_templates__',
-        basePath: dir('views/responses'),
+        basePath: resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', 'views', 'responses'))),
       },
     ],
   },
