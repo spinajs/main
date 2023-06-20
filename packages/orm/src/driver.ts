@@ -13,7 +13,12 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   /**
    * Connection options
    */
-  public Options: T = {} as T;
+  public Options: T = {
+    AliasSeparator: '$',
+    Driver: 'unknown',
+    Name: 'orm-driver',
+    DefaultConnection: false
+  } as T;
 
   public Container: IContainer;
 
