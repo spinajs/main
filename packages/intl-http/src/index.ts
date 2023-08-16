@@ -1,6 +1,8 @@
 import { Config } from '@spinajs/configuration';
-import { Injectable } from '@spinajs/di';
-import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { ServerMiddleware, Request as sRequest, Route, Parameter, RouteArgs, IRoute, IRouteArgsResult, IRouteCall, IRouteParameter } from '@spinajs/http';
+import { DataValidator } from '@spinajs/validation';
 import * as express from 'express';
 
 declare module '@spinajs/http' {
@@ -9,21 +11,79 @@ declare module '@spinajs/http' {
   }
 }
 
+const LANG_SCHEMA_PARAM = {};
+
+function extractLanguageFromRequest(req: sRequest, param: string) {
+  if (req.query[param]) {
+    return req.query[param] as string;
+  } else if (req.cookies[param]) {
+    return req.cookies[param];
+  } else if (req.headers[`x-${param}`]) {
+    return req.headers[`x-${param}`] as string;
+  }
+
+  return null;
+}
+
+export function Lang(allowedLanguages?: string[]) {
+  return Route(Parameter('LangArgument', null, { allowedLanguages }));
+}
+
+@Injectable()
+export class LangArgument extends RouteArgs {
+  @Config('intl.queryParameter')
+  protected LangQueryParameter: string;
+
+  @Config('intl.defaultLocale')
+  protected defaultLocale: string;
+
+  @Autoinject()
+  protected Validator: DataValidator;
+
+  get SupportedType(): string {
+    return 'LangArgument';
+  }
+
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: sRequest) {
+    const lang = extractLanguageFromRequest(req, this.LangQueryParameter);
+
+    if (!lang) {
+      return { CallData: callData, Args: this.defaultLocale };
+    }
+
+    this.Validator.validate(LANG_SCHEMA_PARAM, lang);
+
+    if (param.Options.allowedLanguages) {
+      if ((param.Options.allowedLanguages as string[]).indexOf(lang) === -1) {
+        throw new InvalidArgument(`Language not supported, allowed languages are ${param.Options.allowedLanguages.join(',')}`);
+      }
+    }
+
+    return { CallData: callData, Args: lang };
+  }
+}
+
 @Injectable(ServerMiddleware)
 export class IntHttpMiddleware extends ServerMiddleware {
   @Config('intl.queryParameter')
   protected LangQueryParameter: string;
 
+  @Config('intl.defaultLocale')
+  protected defaultLocale: string;
+
+  @Autoinject()
+  protected Validator: DataValidator;
+
   public before(): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
     return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
-      if (req.query[this.LangQueryParameter]) {
-        req.storage.language = req.query[this.LangQueryParameter] as string;
-      } else if (req.cookies[this.LangQueryParameter]) {
-        req.storage.language = req.cookies[this.LangQueryParameter];
-      } else if (req.headers[`x-${this.LangQueryParameter}`]) {
-        req.storage.language = req.headers[`x-${this.LangQueryParameter}`] as string;
-      }
 
+      const lang = extractLanguageFromRequest(req, this.LangQueryParameter);
+
+      if(lang){
+        this.Validator.validate(LANG_SCHEMA_PARAM, lang);
+      }
+      
+      req.storage.language = lang ?? this.defaultLocale;
       next();
     };
   }
