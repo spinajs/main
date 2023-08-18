@@ -39,7 +39,7 @@ export class JsonTranslationSource extends TranslationSource {
           return;
         }
 
-        translations = _.merge({ [lang]: data }, translations);
+        translations = _.merge({ [lang]: data[lang] ?? data }, translations);
       });
 
     return translations;
@@ -73,7 +73,7 @@ export class JsTranslationSource extends TranslationSource {
         return;
       }
 
-      translations = _.merge({ [lang]: data }, translations);
+      translations = _.merge({ [lang]: data[lang] ?? data }, translations);
     }
 
     return translations;
