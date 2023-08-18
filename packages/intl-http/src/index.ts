@@ -1,8 +1,7 @@
 import { Config } from '@spinajs/configuration';
-import { Autoinject, Injectable } from '@spinajs/di';
+import { Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { ServerMiddleware, Request as sRequest, Route, Parameter, RouteArgs, IRoute, IRouteArgsResult, IRouteCall, IRouteParameter } from '@spinajs/http';
-import { DataValidator } from '@spinajs/validation';
+import { ServerMiddleware, Request as sRequest, Route, Parameter, RouteArgs, IRouteCall, IRouteParameter } from '@spinajs/http';
 import * as express from 'express';
 
 declare module '@spinajs/http' {
@@ -10,8 +9,6 @@ declare module '@spinajs/http' {
     language: string;
   }
 }
-
-const LANG_SCHEMA_PARAM = {};
 
 function extractLanguageFromRequest(req: sRequest, param: string) {
   if (req.query[param]) {
@@ -29,6 +26,12 @@ export function Lang(allowedLanguages?: string[]) {
   return Route(Parameter('LangArgument', null, { allowedLanguages }));
 }
 
+function _validate(param: unknown) {
+  if (typeof param !== 'string') throw new InvalidArgument('lang parameter is not string');
+
+  if (param.length < 2 || param.length > 5) throw new InvalidArgument('lang parameter length is invalid');
+}
+
 @Injectable()
 export class LangArgument extends RouteArgs {
   @Config('intl.queryParameter')
@@ -36,9 +39,6 @@ export class LangArgument extends RouteArgs {
 
   @Config('intl.defaultLocale')
   protected defaultLocale: string;
-
-  @Autoinject()
-  protected Validator: DataValidator;
 
   get SupportedType(): string {
     return 'LangArgument';
@@ -51,7 +51,7 @@ export class LangArgument extends RouteArgs {
       return { CallData: callData, Args: this.defaultLocale };
     }
 
-    this.Validator.validate(LANG_SCHEMA_PARAM, lang);
+    _validate(lang);
 
     if (param.Options.allowedLanguages) {
       if ((param.Options.allowedLanguages as string[]).indexOf(lang) === -1) {
@@ -71,18 +71,12 @@ export class IntHttpMiddleware extends ServerMiddleware {
   @Config('intl.defaultLocale')
   protected defaultLocale: string;
 
-  @Autoinject()
-  protected Validator: DataValidator;
-
   public before(): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
     return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
-
       const lang = extractLanguageFromRequest(req, this.LangQueryParameter);
 
-      if(lang){
-        this.Validator.validate(LANG_SCHEMA_PARAM, lang);
-      }
-      
+      _validate(lang);
+
       req.storage.language = lang ?? this.defaultLocale;
       next();
     };

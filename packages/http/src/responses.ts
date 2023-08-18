@@ -8,6 +8,7 @@ import * as randomstring from 'randomstring';
 import { __translate, __translateH, __translateL, __translateNumber } from '@spinajs/intl';
 import { Templates } from '@spinajs/templates';
 import { fs } from '@spinajs/fs';
+import { ServerError } from './index.js';
 
 /**
  * Sends data & sets proper header as json
@@ -125,6 +126,11 @@ export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: strin
   return (req: express.Request, res: express.Response) => {
     if (req.accepts('html') && (acceptedHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
       const fs = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
+
+      if (!fs) {
+        throw new ServerError('file provider __fs_http_response_templates__ not set. Pleas set response template file provider for html http default responses !');
+      }
+      
       fs.download(template)
         .then((file) => {
           htmlResponse(file, model, code)(req, res);

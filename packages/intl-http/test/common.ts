@@ -40,6 +40,16 @@ export class TestConfiguration extends FrameworkConfiguration {
           controllers: [dir('./controllers')],
         },
       },
+      fs: {
+        defaultProvider: '__fs_http_templates__',
+        providers: [
+          {
+            service: 'fsNative',
+            name: '__fs_http_templates__',
+            basePath: dir('./views'),
+          },
+        ],
+      },
       intl: {
         // supported locales
         locales: ['en', 'pl'],
