@@ -27,6 +27,10 @@ export function Lang(allowedLanguages?: string[]) {
 }
 
 function _validate(param: unknown) {
+  
+  // lang param is optional
+  if (param === null || param === undefined) return;
+
   if (typeof param !== 'string') throw new InvalidArgument('lang parameter is not string');
 
   if (param.length < 2 || param.length > 5) throw new InvalidArgument('lang parameter length is invalid');
