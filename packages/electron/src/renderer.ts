@@ -21,7 +21,7 @@ export interface IIpcRendererBridge {
      * @param resovleArgs service resolve args ( if its about to create )
      * @param args args to method invoked on service
      */
-    call(method: string, service: string, resovleArgs: any[], ...args: any[]): Promise<any>;
+    call<T>(method: string, service: string, resovleArgs: any[], ...args: any[]): Promise<T>;
 
     /**
      * Calls synchronously method on given service
@@ -31,7 +31,7 @@ export interface IIpcRendererBridge {
      * @param resovleArgs servie resolve args ( if its about to create )
      * @param args args to method invoked on service
      */
-    callSync(method: string, service: string, ...args: any[]): any;
+    callSync<T>(method: string, service: string, ...args: any[]): T;
 
     /**
      * Special case for calling methods on Orm connections. Call is made not 
