@@ -75,7 +75,26 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   }
 
   public abstract Name: string;
+
+  /**
+   * Downloads file to local storage and returns path to it.
+   * If used on local storage provider eg. hard drive it only returns full path to file
+   * 
+   * On remote storage provivers eg. amazon s3 - it tries to download it to local disk first and returns 
+   * full path.
+   * 
+   * Returns local path to file
+   * 
+   * @param path path to download
+   */
   public abstract download(path: string): Promise<string>;
+
+  /**
+   * 
+   * Returns full LOCAL path to file
+   * 
+   * @param path path to resolve
+   */
   public abstract resolvePath(path: string): string;
   public abstract read(path: string, encoding: BufferEncoding): Promise<string | Buffer>;
   public abstract readStream(path: string, encoding?: BufferEncoding): Promise<ReadStream>;
