@@ -11,42 +11,43 @@ export * from './electronRendererConfiguration.js';
 export * from './electronRendererLogger.js';
 export * from './electronTemplates.js';
 
+export interface IIpcRendererBridge {
+
+    /**
+     * Calls asynchronously method on given service
+     * 
+     * @param method method to call on service
+     * @param service service name 
+     * @param resovleArgs service resolve args ( if its about to create )
+     * @param args args to method invoked on service
+     */
+    call(method: string, service: string, resovleArgs: any[], ...args: any[]): Promise<any>;
+
+    /**
+     * Calls synchronously method on given service
+     * 
+     * @param method method to call on service
+     * @param service service name
+     * @param resovleArgs servie resolve args ( if its about to create )
+     * @param args args to method invoked on service
+     */
+    callSync(method: string, service: string, ...args: any[]): any;
+
+    /**
+     * Special case for calling methods on Orm connections. Call is made not 
+     * on service but on connection itself, and its identified by connection name.
+     * 
+     * We do this, because OrmDriver are not singleton and we are not tracking them in DI container.
+     * 
+     * @param connection orm connection name
+     * @param method method to call on connection
+     * @param args method args
+     */
+    callOnOrmConnection(connection: string, method: string, ...args: any[]): Promise<any>;
+}
 
 export interface IpcRenderer {
-    __spinaJsIpcBridge: {
-
-        /**
-         * Calls asynchronously method on given service
-         * 
-         * @param method method to call on service
-         * @param service service name 
-         * @param resovleArgs service resolve args ( if its about to create )
-         * @param args args to method invoked on service
-         */
-        call(method: string, service: string, resovleArgs: any[], ...args: any[]): Promise<any>;
-
-        /**
-         * Calls synchronously method on given service
-         * 
-         * @param method method to call on service
-         * @param service service name
-         * @param resovleArgs servie resolve args ( if its about to create )
-         * @param args args to method invoked on service
-         */
-        callSync(method: string, service: string, ...args: any[]): any;
-
-        /**
-         * Special case for calling methods on Orm connections. Call is made not 
-         * on service but on connection itself, and its identified by connection name.
-         * 
-         * We do this, because OrmDriver are not singleton and we are not tracking them in DI container.
-         * 
-         * @param connection orm connection name
-         * @param method method to call on connection
-         * @param args method args
-         */
-        callOnOrmConnection(connection: string, method: string, ...args: any[]): Promise<any>;
-    }
+    __spinaJsIpcBridge: IIpcRendererBridge;
 }
 
 declare global {
