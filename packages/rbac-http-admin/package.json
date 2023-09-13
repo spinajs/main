@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac-http-admin",
-  "version": "2.0.163",
+  "version": "2.0.164",
   "description": "HTTP API for administration of users and permissions",
   
     "main": "lib/cjs/index.js",
@@ -50,20 +50,20 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.163",
-    "@spinajs/di": "^2.0.163",
-    "@spinajs/exceptions": "^2.0.163",
-    "@spinajs/http": "^2.0.163",
-    "@spinajs/log": "^2.0.163",
-    "@spinajs/orm": "^2.0.163",
-    "@spinajs/orm-http": "^2.0.163",
-    "@spinajs/rbac": "^2.0.163",
-    "@spinajs/rbac-http": "^2.0.163",
+    "@spinajs/configuration": "^2.0.164",
+    "@spinajs/di": "^2.0.164",
+    "@spinajs/exceptions": "^2.0.164",
+    "@spinajs/http": "^2.0.164",
+    "@spinajs/log": "^2.0.164",
+    "@spinajs/orm": "^2.0.164",
+    "@spinajs/orm-http": "^2.0.164",
+    "@spinajs/rbac": "^2.0.164",
+    "@spinajs/rbac-http": "^2.0.164",
     "luxon": "^3.2.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.163"
+    "@spinajs/orm-sqlite": "^2.0.164"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
