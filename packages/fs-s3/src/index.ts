@@ -1,7 +1,7 @@
-import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, IStat, IZipResult } from '@spinajs/fs';
-import * as AWS from 'aws-sdk';
+import { fs, IStat, IZipResult, FileSystem} from '@spinajs/fs';
+import  AWS from 'aws-sdk';
 import { Config } from '@spinajs/configuration';
 import archiver from 'archiver';
 import { basename } from 'path';
@@ -41,6 +41,7 @@ export class fsS3 extends fs {
   /**
    * File system for temporary files
    */
+  @FileSystem('fs-temp')
   protected TempFs: fs;
 
   /**
@@ -65,8 +66,6 @@ export class fsS3 extends fs {
     }
 
     this.S3 = new AWS.S3();
-
-    this.TempFs = await DI.resolve<Promise<fs>>('__file_provider__', ['fs-temp']);
   }
 
   /**
