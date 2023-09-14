@@ -1,5 +1,6 @@
 import * as express from 'express';
 import { Constructor, AsyncService } from '@spinajs/di';
+import { fs } from '@spinajs/fs';
 
 /**
  * Accept header enum
@@ -87,7 +88,7 @@ export interface IUploadedFile {
   /**
    * File system provider used to store this file eg. could be local, or aws s3 etc
    */
-  Provider: FileSystem;
+  Provider: fs;
 }
 
 export interface Request extends express.Request {
