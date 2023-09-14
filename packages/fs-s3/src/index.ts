@@ -1,7 +1,8 @@
+import { ResolveException } from './../../di/src/exceptions';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, IStat, IZipResult, FileSystem} from '@spinajs/fs';
-import  AWS from 'aws-sdk';
+import { fs, IStat, IZipResult, FileSystem } from '@spinajs/fs';
+import AWS from 'aws-sdk';
 import { Config } from '@spinajs/configuration';
 import archiver from 'archiver';
 import { basename } from 'path';
@@ -57,12 +58,14 @@ export class fsS3 extends fs {
   }
 
   public async resolve() {
-    AWS.config.update(this.AwsConfig);
-
     if (this.ConfigPath) {
       AWS.config.loadFromPath(this.ConfigPath);
     } else if (this.AwsConfig) {
       AWS.config.update(this.AwsConfig);
+    } else {
+      throw new ResolveException(
+        `Configuraiton for aws s3 filesystem not present. Please set fs.s3.config or fs.s3.confgiPath configuration properties.`,
+      );
     }
 
     this.S3 = new AWS.S3();
@@ -362,7 +365,7 @@ export class fsS3 extends fs {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
-  public resolvePath(_path: string) : string {
+  public resolvePath(_path: string): string {
     throw new MethodNotImplemented('fs s3 does not support path resolving');
   }
 }
