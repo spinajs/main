@@ -62,12 +62,38 @@ export interface IHttpStaticFileConfiguration {
  * Uploaded file fields
  */
 export interface IUploadedFile {
+
+  /**
+   * File size in bytes
+   */
   Size: number;
+
+  /**
+   * Absolute path to file within given fs provider
+   */
   Path: string;
+
+  /**
+   * Original file name
+   */
   Name: string;
+
+  /**
+   * Filename without path
+   */
+  BaseName: string;
+
+  /**
+   * Mime type of file
+   */
   Type: string;
   LastModifiedDate?: Date;
   Hash?: string;
+
+  /**
+   * File system provider used to store this file eg. could be local, or aws s3 etc
+   */
+  Provider : FileSystem;
 }
 
 export interface Request extends express.Request {

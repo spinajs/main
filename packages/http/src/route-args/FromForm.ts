@@ -127,10 +127,8 @@ export class FromFile extends FromFormBase {
       return {
         Size: f.size,
         BaseName: basename(f.filepath),
-        Provider: {
-          Name: self.FileService.Name,
-          Service: self.FileService.constructor.name,
-        },
+        Provider: self.FileService,
+        Path: self.FileService.download(f.filepath),
         Name: f.originalFilename,
         Type: f.mimetype,
         LastModifiedDate: f.mtime,
