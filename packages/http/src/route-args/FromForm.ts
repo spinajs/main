@@ -6,7 +6,7 @@ import { Config, Configuration } from '@spinajs/configuration';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs } from '@spinajs/fs';
-import { basename } from 'path';
+import { basename, extname } from 'path';
 import { createReadStream, promises, unlink } from 'fs';
 
 interface FormData {
@@ -111,13 +111,13 @@ export class FromFile extends FromFormBase {
 
     if (Array.isArray(formFiles)) {
       for (const f of formFiles) {
-        await copy(f.filepath);
+        await copy(f.filepath, extname(f.originalFilename));
       }
       return Object.assign(data, {
         Args: param.RuntimeType.name === 'Array' ? formFiles.map(mf) : mf(formFiles[0]),
       });
     } else {
-      await copy(formFiles.filepath);
+      await copy(formFiles.filepath, extname(formFiles.originalFilename));
       return Object.assign(data, {
         Args: mf(formFiles),
       });
@@ -135,8 +135,8 @@ export class FromFile extends FromFormBase {
       };
     }
 
-    async function copy(file: string) {
-      const stream = await self.FileService.writeStream(basename(file));
+    async function copy(file: string, extension: string) {
+      const stream = await self.FileService.writeStream(basename(`${file}.${extension}`));
 
       return new Promise<void>((resolve, reject) => {
         createReadStream(file)
