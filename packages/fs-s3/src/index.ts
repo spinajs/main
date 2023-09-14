@@ -1,4 +1,3 @@
-import { ResolveException } from './../../di/src/exceptions';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { fs, IStat, IZipResult, FileSystem } from '@spinajs/fs';
@@ -6,7 +5,7 @@ import AWS from 'aws-sdk';
 import { Config } from '@spinajs/configuration';
 import archiver from 'archiver';
 import { basename } from 'path';
-import { MethodNotImplemented } from '@spinajs/exceptions';
+import { MethodNotImplemented, UnexpectedServerError } from '@spinajs/exceptions';
 import { createReadStream, readFileSync } from 'fs';
 import { DateTime } from 'luxon';
 import stream from 'stream';
@@ -63,7 +62,7 @@ export class fsS3 extends fs {
     } else if (this.AwsConfig) {
       AWS.config.update(this.AwsConfig);
     } else {
-      throw new ResolveException(
+      throw new UnexpectedServerError(
         `Configuraiton for aws s3 filesystem not present. Please set fs.s3.config or fs.s3.confgiPath configuration properties.`,
       );
     }
