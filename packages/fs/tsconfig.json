@@ -6,6 +6,7 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*","test/**/*"],
-  "references": [{ "path": "../exceptions/tsconfig.json" }, { "path": "../log-common/tsconfig.json"}]
+  "typeRoots": ["node_modules/@types", "./typings"],
+  "include": ["src/**/*", "test/**/*"],
+  "references": [{ "path": "../exceptions/tsconfig.json" }, { "path": "../log-common/tsconfig.json" }]
 }
