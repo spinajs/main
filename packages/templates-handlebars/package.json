@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-handlebars",
-  "version": "2.0.170",
+  "version": "2.0.171",
   "description": "templates support eg. html file generation",
   
     "main": "lib/cjs/index.js",
@@ -56,12 +56,12 @@
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.170",
-    "@spinajs/di": "^2.0.170",
-    "@spinajs/exceptions": "^2.0.170",
-    "@spinajs/intl": "^2.0.170",
-    "@spinajs/log": "^2.0.170",
-    "@spinajs/templates":"^2.0.170",
+    "@spinajs/configuration": "^2.0.171",
+    "@spinajs/di": "^2.0.171",
+    "@spinajs/exceptions": "^2.0.171",
+    "@spinajs/intl": "^2.0.171",
+    "@spinajs/log": "^2.0.171",
+    "@spinajs/templates":"^2.0.171",
     "handlebars": "^4.7.7",
     "tempfile": "4.0.0"
   },
