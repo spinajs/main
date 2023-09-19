@@ -1,8 +1,10 @@
+// @ts-ignore
+import exif from 'exiftool';
+
 import { Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { IOFail } from '@spinajs/exceptions';
 import { existsSync } from 'fs';
-import exif from 'exiftool';
 import { FileInfoService, IFileInfo } from './interfaces.js';
 
 const EXIFTOOL_MAPPINGS = {
@@ -20,6 +22,20 @@ const EXIFTOOL_MAPPINGS = {
   compressorID: 'Compressor',
 };
 
+function _fInfoInit(): IFileInfo {
+  return {
+    Size: 0,
+    Height: 0,
+    Width: 0,
+    Duration: 0,
+    FrameCount: 0,
+    FrameRate: 0,
+    Bitrate: 0,
+    Codec: null,
+    Compressor: null,
+  }
+}
+
 @Injectable(FileInfoService)
 export class DefaultFileInfo extends FileInfoService {
   @Logger('fs')
@@ -30,19 +46,7 @@ export class DefaultFileInfo extends FileInfoService {
       throw new IOFail(`Path ${pathToFile} not exists`);
     }
 
-    const fInfo: IFileInfo = {
-      Size: 0,
-      Height: 0,
-      Width: 0,
-
-      Duration: 0,
-      FrameCount: 0,
-      FrameRate: 0,
-      Bitrate: 0,
-      Codec: null,
-      Compressor: null,
-    };
-
+    const fInfo = _fInfoInit();
     const metadata: any = await this.getMetadata(pathToFile);
 
     for (const key in EXIFTOOL_MAPPINGS) {

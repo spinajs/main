@@ -1,10 +1,10 @@
 import 'mocha';
-import { expect } from 'chai';
+//import { expect } from 'chai';
 import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { fs, FsBootsrapper } from '@spinajs/fs';
+import {  FsBootsrapper } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 
