@@ -6,7 +6,7 @@ import { Config, Configuration } from '@spinajs/configuration';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs } from '@spinajs/fs';
-import { basename, extname } from 'path';
+import { basename } from 'path';
 import { createReadStream, promises, unlink } from 'fs';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
