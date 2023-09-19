@@ -379,12 +379,17 @@ export interface IUploadOptions {
    * default false; to include the extensions of the original files or not
    */
   keepExtensions?: boolean;
+
+  /**
+   * Should obtain fileInfo when uploading ?
+   */
+  fileInfo? : boolean;
 }
 
 /**
  * Describes parameters passed to route.
  */
-export interface IRouteParameter {
+export interface IRouteParameter<T = any> {
   /**
    * Parameter index in function args
    */
@@ -408,7 +413,7 @@ export interface IRouteParameter {
   /**
    * Additional options
    */
-  Options?: any;
+  Options?: T;
 
   /**
    * Parameter runtime type eg. number or class

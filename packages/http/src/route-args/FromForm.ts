@@ -1,13 +1,15 @@
 import { RouteArgs } from './RouteArgs.js';
-import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces.js';
+import { IRouteParameter, ParameterType, IRouteCall, Request, IUploadOptions } from '../interfaces.js';
 import * as express from 'express';
-import { Fields, Files, File, IncomingForm } from 'formidable';
+import formidable, { Fields, Files, File, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs } from '@spinajs/fs';
 import { basename, extname } from 'path';
 import { createReadStream, promises, unlink } from 'fs';
+import _ from 'lodash';
+import { Log, Logger } from '@spinajs/log-common';
 
 interface FormData {
   Fields: Fields;
@@ -74,6 +76,9 @@ export abstract class FromFormBase extends RouteArgs {
 export class FromFile extends FromFormBase {
   protected FileService: fs;
 
+  @Logger('http')
+  protected _log: Log;
+
   @Config('fs.defaultProvider')
   protected DefaultFsProviderName: string;
 
@@ -86,7 +91,7 @@ export class FromFile extends FromFormBase {
     this.Data = data;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request): Promise<any> {
+  public async extract(callData: IRouteCall, param: IRouteParameter<IUploadOptions>, req: Request): Promise<any> {
     const self = this;
 
     if (!this.Data) {
@@ -94,12 +99,12 @@ export class FromFile extends FromFormBase {
     }
 
     if (!this.FileService) {
-      this.FileService = await DI.resolve('__file_provider__', [param.Options?.fileProvider ?? this.DefaultFsProviderName]);
+      this.FileService = await DI.resolve('__file_provider__', [param.Options?.provider ?? this.DefaultFsProviderName]);
     }
 
     // map from formidable to our object
     // of type IUploadedFile
-    const formFiles = this.Data.Files[param.Name];
+    const formFiles = _.isArray(this.Data.Files[param.Name]) ? (this.Data.Files[param.Name] as formidable.File[]) : ([this.Data.Files[param.Name]] as formidable.File[]);
     const data = {
       CallData: {
         ...callData,
@@ -109,19 +114,13 @@ export class FromFile extends FromFormBase {
       },
     };
 
-    if (Array.isArray(formFiles)) {
-      for (const f of formFiles) {
-        await copy(f.filepath, extname(f.originalFilename));
-      }
-      return Object.assign(data, {
-        Args: param.RuntimeType.name === 'Array' ? formFiles.map(mf) : mf(formFiles[0]),
-      });
-    } else {
-      await copy(formFiles.filepath, extname(formFiles.originalFilename));
-      return Object.assign(data, {
-        Args: mf(formFiles),
-      });
+    for (const f of formFiles) {
+      await copy(f);
     }
+
+    return Object.assign(data, {
+      Args: param.RuntimeType.name === 'Array' ? formFiles.map(mf) : mf(formFiles[0]),
+    });
 
     function mf(f: File) {
       return {
@@ -135,17 +134,24 @@ export class FromFile extends FromFormBase {
       };
     }
 
-    async function copy(file: string, extension: string) {
-      const stream = await self.FileService.writeStream(basename(`${file}.${extension}`));
+    async function copy(file: formidable.File) {
+      const fName = basename(file.filepath);
+      const stream = await self.FileService.writeStream(fName);
+
+      self._log.trace(`Copying incoming http file to ${file.filepath} to ${fName}, provider: ${self.FileService.Name}`);
 
       return new Promise<void>((resolve, reject) => {
-        createReadStream(file)
+        createReadStream(file.filepath)
           .pipe(stream)
           .on('finish', () => {
-            unlink(file, (err) => {
+            self._log.trace(`Finished copying incoming file ${file.filepath} to ${fName}, provider: ${self.FileService.Name}`);
+
+            unlink(file.filepath, (err) => {
               if (err) {
+                self._log.warn(`Failed do delete incoming file ${file.filepath}, reason: ${err.message}`);
                 reject(err);
               } else {
+                self._log.trace(`Incoming file ${file.filepath} deleted`);
                 resolve();
               }
             });

@@ -6,11 +6,12 @@ import { fs, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
 export * from './interfaces.js';
 export * from './local-provider.js';
 export * from './decorators.js';
+export * from './fs-hasher.js';
+export * from './file-info.js';
 
 @Injectable(Bootstrapper)
 export class FsBootsrapper extends Bootstrapper {
   public bootstrap(): void {
-
     DI.once('di.resolved.Configuration', (container: IContainer) => {
       const cfg: IFsConfiguration = container.get(Configuration).get<IFsConfiguration>('fs');
 
@@ -25,7 +26,7 @@ export class FsBootsrapper extends Bootstrapper {
       // when name is the same, addes last is created
       // eg fs-temp can have default config from package
       // but is overriden in application
-      cfg.providers.forEach(x => {
+      cfg.providers.forEach((x) => {
         providers.set(x.name, x);
       });
 
@@ -35,19 +36,15 @@ export class FsBootsrapper extends Bootstrapper {
         const type = rProviders.find((x: any) => x.name === cProvider.value.service);
 
         if (!type) {
-          throw new ResolveException(`Type ${cProvider.value.service} not registered, make sure all fs providers are registered`);
+          throw new ResolveException(
+            `Type ${cProvider.value.service} not registered, make sure all fs providers are registered`,
+          );
         }
 
-        DI.resolve<fs>(
-          type,
-          [cProvider.value],
-        ).then((result: fs) => {
+        DI.resolve<fs>(type, [cProvider.value]).then((result: fs) => {
           DI.register(result).asValue('__file_provider_instance_' + cProvider.value.name);
-        })
+        });
       }
-
-
-
     });
 
     DI.register((_container: IContainer, name?: string) => {

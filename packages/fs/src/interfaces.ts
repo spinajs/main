@@ -24,6 +24,24 @@ export interface IStat {
   AdditionalData?: unknown;
 }
 
+export interface IFileInfo {
+  /**
+   * Size in bytes
+   */
+
+  Size: number;
+  Height: number;
+  Width: number;
+
+  Duration: number;
+  FrameCount: number;
+  FrameRate: number;
+
+  Bitrate: number;
+  Codec: string;
+  Compressor: string;
+}
+
 export interface IFsLocalOptions {
   /**
    * Full path to local directory where files are hold.
@@ -38,7 +56,6 @@ export interface IFsLocalOptions {
 }
 
 export interface IFsLocalTempOptions extends IFsLocalOptions {
-
   /**
    * Should cleanup of old temp files be enabled
    */
@@ -51,10 +68,10 @@ export interface IFsLocalTempOptions extends IFsLocalOptions {
   cleanupInterval: number;
 
   /**
-   * Max temp file age in seconds. Older thant this will be deleted. 
+   * Max temp file age in seconds. Older thant this will be deleted.
    * Default is 1 hour
    */
-  maxFileAge : number;
+  maxFileAge: number;
 }
 
 export interface IZipResult {
@@ -79,20 +96,20 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   /**
    * Downloads file to local storage and returns path to it.
    * If used on local storage provider eg. hard drive it only returns full path to file
-   * 
-   * On remote storage provivers eg. amazon s3 - it tries to download it to local disk first and returns 
+   *
+   * On remote storage provivers eg. amazon s3 - it tries to download it to local disk first and returns
    * full path.
-   * 
+   *
    * Returns local path to file
-   * 
+   *
    * @param path path to download
    */
   public abstract download(path: string): Promise<string>;
 
   /**
-   * 
+   *
    * Returns full LOCAL path to file
-   * 
+   *
    * @param path path to resolve
    */
   public abstract resolvePath(path: string): string;
@@ -124,4 +141,19 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   public tmpname() {
     return uuidv4();
   }
+}
+
+/**
+ * File information service, obtain file props, metadata etc.
+ * Eg. movie resolution, image, codec etc. if possible
+ */
+export abstract class FileInfoService {
+  public abstract getInfo(pathToFile: string): Promise<IFileInfo>;
+}
+
+/**
+ * File hasher, to create unique hash for file
+ */
+export abstract class FileHasher {
+  public abstract hash(pathToFile: string): Promise<string>;
 }
