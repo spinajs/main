@@ -47,15 +47,8 @@ describe('fs temp tests', function () {
         expect(result).to.be.not.null;
         expect(result).to.be.not.undefined;
         expect(result).to.include({
-            Size: 0,
-            Height: 0,
-            Width: 0,
-            Duration: 0,
-            FrameCount: 0,
-            FrameRate: 0,
-            Bitrate: 0,
-            Codec: null,
-            Compressor: null,
+            FileSize: 86,
+            MimeType: "text/plain"
         })
     });
 
@@ -64,7 +57,15 @@ describe('fs temp tests', function () {
     });
 
     it('Should return image properties', async () => {
+        const fInfo = await DI.resolve(FileInfoService);
+        const result = await fInfo.getInfo(dir("sample-files/SamplePNGImage_100kbmb.png"));
 
+        expect(result).to.be.not.null;
+        expect(result).to.be.not.undefined;
+        expect(result).to.include({
+            FileSize: 86,
+            MimeType: "text/plain"
+        })
     });
 
 

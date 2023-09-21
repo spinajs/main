@@ -29,17 +29,27 @@ export interface IFileInfo {
    * Size in bytes
    */
 
-  Size: number;
-  Height: number;
-  Width: number;
+  FileSize: number;
+  Height?: number;
+  Width?: number;
 
-  Duration: number;
-  FrameCount: number;
-  FrameRate: number;
+  Duration?: number;
+  FrameCount?: number;
+  FrameRate?: number;
 
-  Bitrate: number;
-  Codec: string;
-  Compressor: string;
+  Bitrate?: number;
+  Codec?: string;
+  Compressor?: string;
+
+  LineCount?: number;
+  Encoding?: string;
+  MimeType?: string;
+  WordCount?: number;
+
+  AccessDate?: DateTime;
+  ModificationDate?: DateTime;
+  CreationDate?: DateTime;
+
 }
 
 export interface IFsLocalOptions {
