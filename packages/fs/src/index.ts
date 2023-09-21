@@ -5,8 +5,9 @@ import { fs, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
 
 export * from './interfaces.js';
 export * from './local-provider.js';
+export * from './local-temp-provider.js';
 export * from './decorators.js';
-export * from './fs-hasher.js';
+export * from './file-hasher.js';
 export * from './file-info.js';
 
 @Injectable(Bootstrapper)

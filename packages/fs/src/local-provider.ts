@@ -3,11 +3,12 @@ import { IOFail } from '@spinajs/exceptions';
 import { constants, createReadStream, createWriteStream, readFile, readFileSync } from 'fs';
 import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open, appendFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
-import { Injectable, PerInstanceCheck } from '@spinajs/di';
+import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IFsLocalOptions, IStat, IZipResult } from './interfaces.js';
 import { basename, join } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
 import archiver from 'archiver';
+import unzipper from 'unzipper';
 
 
 /**
@@ -68,7 +69,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     return p;
   }
 
- 
+
 
   /**
    * read all content of file
@@ -221,8 +222,21 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     return await readdir(this.resolvePath(path));
   }
 
+  public async unzip(path: string, destPath: string) {
+    return new Promise<void>((resolve, reject) => {
+      createReadStream(this.resolvePath(path)).pipe(
+        unzipper.Extract({
+          path: this.resolvePath(destPath)
+        }).on('close', resolve).on('error', reject)
+      )
+    });
+  }
+
   public async zip(path: string, zName?: string): Promise<IZipResult> {
-    const outFile = this.resolvePath(this.tmpname() + '.zip');
+
+    const fs = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
+
+    const outFile = fs.resolvePath(fs.tmpname() + '.zip');
     const output = createWriteStream(outFile);
     const pStat = await this.stat(path);
     const fPath = this.resolvePath(path);

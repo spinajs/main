@@ -39,7 +39,6 @@ export interface IFileInfo {
 
   Bitrate?: number;
   Codec?: string;
-  Compressor?: string;
 
   LineCount?: number;
   Encoding?: string;
@@ -147,6 +146,14 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * @param path - path to zip
    */
   public abstract zip(path: string): Promise<IZipResult>;
+
+  /**
+   * Decompress given file to destination path
+   * 
+   * @param path path to zip file
+   * @param destPath path to destination dir
+   */
+  public abstract unzip(srcPath: string, destPath: string): Promise<void>;
 
   public tmpname() {
     return uuidv4();

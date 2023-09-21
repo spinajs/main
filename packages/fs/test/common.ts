@@ -34,9 +34,12 @@ export class TestConfiguration extends FrameworkConfiguration {
             basePath: dir('./files'),
           },
           {
-            service: 'fsNative',
+            service: 'fsNativeTemp',
             name: 'fs-temp',
-            basePath: dir('./files'),
+            basePath: dir('./temp'),
+            cleanup: true,
+            cleanupInterval: 30,
+            maxFileAge: 5
           },
         ],
       },

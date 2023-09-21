@@ -10,6 +10,7 @@ import { DateTime } from "luxon";
 
 
 const EXIFTOOL_MAPPINGS = {
+  audioChannels: "AudioChannels",
   imageHeight: 'Height',
   imageWidth: 'Width',
   duration: 'Duration',
@@ -19,14 +20,13 @@ const EXIFTOOL_MAPPINGS = {
   videoFrameRate: 'FrameRate',
   maxBitrate: 'Bitrate',
   maxDataRate: 'Bitrate',
-  videoCodecName: 'Codec',
-  videoCodec: 'Codec',
-  compressorID: 'Compressor',
-  fileSize: ["FileSize", (val: string) => { return parseInt(val.split(" ")[0]) }],
+  avgBitrate: 'Bitrate',
+  compressorID: 'Codec',
+  fileSize: ["FileSize", (val: string) => (parseInt(val))],
 
-  'fileAccessDate/Time': ["AccessDate", (val: string) => { return DateTime.fromFormat(val, "yyyy:MM:dd HH:mm:ss") }],
-  'fileCreationDate/Time': ["CreationDate", (val: string) => { return DateTime.fromFormat(val, "yyyy:MM:dd HH:mm:ss") }],
-  'fileModificationDate/Time': ["ModificationDate", (val: string) => { return DateTime.fromFormat(val, "yyyy:MM:dd HH:mm:ss") }],
+  'fileAccessDate/Time': ["AccessDate", (val: string) => { return DateTime.fromFormat(val, "yyyy:MM:dd HH:mm:ssZZ") }],
+  'fileCreationDate/Time': ["CreationDate", (val: string) => { return DateTime.fromFormat(val, "yyyy:MM:dd HH:mm:ssZZ") }],
+  'fileModificationDate/Time': ["ModificationDate", (val: string) => { return DateTime.fromFormat(val, "yyyy:MM:dd HH:mm:ssZZ") }],
 
   mimeType: "MimeType",
   mimeEncoding: "Encoding",
@@ -44,7 +44,6 @@ function _fInfoInit(): IFileInfo {
     FrameRate: 0,
     Bitrate: 0,
     Codec: null,
-    Compressor: null,
   }
 }
 
@@ -63,7 +62,6 @@ export class DefaultFileInfo extends FileInfoService {
 
     for (const key in EXIFTOOL_MAPPINGS) {
       if (metadata[key]) {
-
         const mKey = (EXIFTOOL_MAPPINGS as any)[key];
         if (Array.isArray(mKey)) {
           (fInfo as any)[mKey[0]] = mKey[1](metadata[key]);
@@ -75,75 +73,55 @@ export class DefaultFileInfo extends FileInfoService {
     return fInfo;
   }
 
-  protected async _exif(file: string): Promise<string> {
+  protected async spawnExifProcess(file: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      const process = spawn("exiftool", [file]);
-      // eslint-disable-next-line prefer-const
+      const process = spawn("exiftool", [file, "-n"]);
       let stdOutBuffer = "";
-      // eslint-disable-next-line prefer-const
       let stdErrBuffer = "";
 
-      process.on("spawn", () => {
-        this.Log.trace(`Server process spawned succesyfully`);
-      });
-
-      process.on("error", (err: Error) => {
-        this.Log.error(err, `Server process spawn failed`);
-        reject(err);
-      });
-
-      process.on("close", () => {
-        this.Log.trace(`Server process finished}`);
-        if (stdErrBuffer) {
-          reject(new Error(stdErrBuffer));
-        } else {
-          resolve(stdOutBuffer);
-        }
-      });
-
-      process.stdout.on("data", (data: Buffer) => {
-        const evData = data.toString("utf8");
-
-        this.Log.trace(`Received server message: ${evData}`);
-        stdOutBuffer += evData;
-      });
-
-      process.stderr.on("data", (data: Buffer) => {
-        const evData = data.toString("utf8");
-
-        this.Log.error(`Received server message: ${evData}`);
-        stdErrBuffer += evData;
-      });
+      process.on("error", (err: Error) => (reject(err)));
+      process.on("close", () => (stdErrBuffer ? reject(stdErrBuffer) : resolve(stdOutBuffer)));
+      process.stdout.on("data", (data: Buffer) => (stdOutBuffer += data.toString("utf-8")));
+      process.stderr.on("data", (data: Buffer) => (stdErrBuffer += data.toString("utf-8")));
     });
   }
 
   protected async getMetadata(file: string) {
 
-    const raw = await this._exif(file);
-    const res: any = {};
+    const raw = await this.spawnExifProcess(file);
 
-    for (const a of raw.split('\r\n')) {
-      const pair = a.split(":");
-      res[pair[0].trim()] = pair[1].trim();
-    }
-    return res;
-    // const _exifPromise = new Promise((resolve, reject) => {
-    //   try {
-    //     this.Log.trace(`Obtaining exif info of file at path ${file}...`);
+    // Split the response into lines.
+    const response = raw.split("\n");
 
-    //     // exif.metadata(file, (err: Error, metadata: any) => {
-    //     //   if (err || metadata.error) {
-    //     //     this.Log.warn(`Exif info failed, reason: ${err.message ?? metadata.error}`);
-    //     //     reject(err ?? metadata.error);
-    //     //   } else {
-    //     //     resolve(metadata);
-    //     //   }
-    //     // });
-    //   } catch (err) {
-    //     reject(err);
-    //   }
-    // });
+    //For each line of the response extract the meta data into a nice associative array
+    const metaData: {
+      [key: string]: string | number
+    } = {};
 
-    // return _exifPromise;
+    response.forEach(function (responseLine) {
+      var pieces = responseLine.split(": ");
+      //Is this a line with a meta data pair on it?
+      if (pieces.length == 2) {
+        //Turn the plain text data key into a camel case key.
+        var key = pieces[0].trim().split(' ').map(
+          function (tokenInKey, tokenNumber) {
+            if (tokenNumber === 0)
+              return tokenInKey.toLowerCase();
+            else
+              return tokenInKey[0].toUpperCase() + tokenInKey.slice(1);
+          }
+        ).join('');
+        //Trim the value associated with the key to make it nice.
+        var value = pieces[1].trim();
+
+        if (+value === +value) {
+          metaData[key] = parseFloat(value);
+        } else {
+          metaData[key] = value;
+        }
+      }
+    });
+
+    return metaData;
   }
 }

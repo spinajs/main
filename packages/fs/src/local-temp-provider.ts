@@ -1,6 +1,7 @@
 import { IFsLocalTempOptions } from './interfaces.js';
 import { fsNative } from './local-provider.js';
 import { DateTime } from 'luxon';
+import { Injectable } from '@spinajs/di';
 
 /**
  * Native temp filesystem. Use it for creating and storing temporary files and dirs.
@@ -8,6 +9,7 @@ import { DateTime } from 'luxon';
  * It will automatically delete old files. It does not check fieles recursive in subdirectories.
  * It only check for file/dir age at first level.
  */
+@Injectable('fs')
 export class fsNativeTemp extends fsNative<IFsLocalTempOptions> {
   /**
    * timer instance used to cleanup old temp files
@@ -45,7 +47,7 @@ export class fsNativeTemp extends fsNative<IFsLocalTempOptions> {
           this.Logger.trace(
             `Temp file at path ${f} is older than ${
               this.Options.cleanupInterval
-            } ( CreatedAt: ${stat.CreationTime.toFormat('dd/MM/yyyy HH:mm:ss')} ), deleting...`,
+            } seconds, ( CreatedAt: ${stat.CreationTime.toFormat('dd/MM/yyyy HH:mm:ss')} ), deleting...`,
           );
 
           await this.rm(f);

@@ -14,9 +14,9 @@ export class DefaultFileHasher extends FileHasher {
     this.HashAlgo = crypto.createHash('sha256');
   }
 
-  public hash(pathToFile: string): Promise<string> {
+  public async hash(pathToFile: string): Promise<string> {
     if (!fs.existsSync(pathToFile)) {
-      throw new IOFail(`File ${pathToFile} not exists locally`);
+      throw new IOFail(`File ${pathToFile} not exists`);
     }
 
     return new Promise((resolve, reject) => {

@@ -35,9 +35,7 @@ describe('fs temp tests', function () {
 
     it('should throw path not exists', async () => {
         const fInfo = await DI.resolve(FileInfoService);
-        expect(async () => {
-            await fInfo.getInfo("someFile.txt");
-        }).to.throw("Path someFile.txt not exists")
+        expect(fInfo.getInfo("someFile.txt")).to.be.rejectedWith("Path someFile.txt not exists")
     });
 
     it('Should return basic file properties', async () => {
@@ -47,13 +45,25 @@ describe('fs temp tests', function () {
         expect(result).to.be.not.null;
         expect(result).to.be.not.undefined;
         expect(result).to.include({
-            FileSize: 86,
+            FileSize: 11,
             MimeType: "text/plain"
         })
     });
 
     it('Should return movie properties', async () => {
+        const fInfo = await DI.resolve(FileInfoService);
+        const result = await fInfo.getInfo(dir("sample-files/sample-5s.mp4"));
 
+        expect(result).to.be.not.null;
+        expect(result).to.be.not.undefined;
+        expect(result).to.include({
+            FileSize: 2848208,
+            MimeType: "video/mp4",
+            Duration: 5.759,
+            Width: 1920,
+            Height: 1080,
+            AudioChannels: 2
+        });
     });
 
     it('Should return image properties', async () => {
@@ -63,8 +73,10 @@ describe('fs temp tests', function () {
         expect(result).to.be.not.null;
         expect(result).to.be.not.undefined;
         expect(result).to.include({
-            FileSize: 86,
-            MimeType: "text/plain"
+            FileSize: 104327,
+            MimeType: "image/png",
+            Width: 272,
+            Height: 170,
         })
     });
 
