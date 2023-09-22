@@ -126,6 +126,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   public abstract readStream(path: string, encoding?: BufferEncoding): Promise<ReadStream>;
   public abstract write(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void>;
   public abstract writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
+  public abstract writeStream(path: string, readStream: ReadStream, encoding?: BufferEncoding): Promise<WriteStream | PassThrough | void>;
   public abstract exists(path: string): Promise<boolean>;
   public abstract dirExists(path: string): Promise<boolean>;
   public abstract copy(path: string, dest: string): Promise<void>;

@@ -1,6 +1,6 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
-import { constants, createReadStream, createWriteStream, readFile, readFileSync } from 'fs';
+import { constants, createReadStream, createWriteStream, readFile, readFileSync, ReadStream } from 'fs';
 import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open, appendFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -102,8 +102,8 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     await appendFile(path, data, encoding);
   }
 
-  public writeStream(path: string, encoding?: BufferEncoding) {
-    return Promise.resolve(createWriteStream(this.resolvePath(path), { encoding: encoding ?? 'binary' }));
+  public writeStream(path: string, rStream?: BufferEncoding | ReadStream, encoding?: BufferEncoding) {
+    return Promise.resolve(createWriteStream(this.resolvePath(path), { encoding: (typeof rStream === 'string' ? rStream : encoding) ?? 'binary' }));
   }
 
   /**

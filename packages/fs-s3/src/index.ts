@@ -1,14 +1,15 @@
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { fs, IStat, IZipResult, FileSystem } from '@spinajs/fs';
-import AWS from 'aws-sdk';
+import { S3Client, S3ClientConfig, HeadObjectCommand, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { Config } from '@spinajs/configuration';
 import archiver from 'archiver';
 import { basename } from 'path';
-import { MethodNotImplemented, UnexpectedServerError } from '@spinajs/exceptions';
-import { createReadStream, readFileSync } from 'fs';
+import { InvalidArgument, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
+import { createReadStream, readFileSync, ReadStream } from 'fs';
 import { DateTime } from 'luxon';
-import stream from 'stream';
+import { Readable } from 'stream';
 
 export interface IS3Config {
   bucket: string;
@@ -30,13 +31,10 @@ export class fsS3 extends fs {
   @Logger('fs')
   protected Logger: Log;
 
-  protected S3: AWS.S3;
+  protected S3: S3Client;
 
   @Config('fs.s3.config')
-  protected AwsConfig: AWS.ConfigurationOptions;
-
-  @Config('fs.s3.configPath')
-  protected ConfigPath: string;
+  protected AwsConfig: S3ClientConfig;
 
   /**
    * File system for temporary files
@@ -57,17 +55,7 @@ export class fsS3 extends fs {
   }
 
   public async resolve() {
-    if (this.ConfigPath) {
-      AWS.config.loadFromPath(this.ConfigPath);
-    } else if (this.AwsConfig) {
-      AWS.config.update(this.AwsConfig);
-    } else {
-      throw new UnexpectedServerError(
-        `Configuraiton for aws s3 filesystem not present. Please set fs.s3.config or fs.s3.confgiPath configuration properties.`,
-      );
-    }
-
-    this.S3 = new AWS.S3();
+    this.S3 = new S3Client(this.AwsConfig);
   }
 
   /**
@@ -81,23 +69,22 @@ export class fsS3 extends fs {
     const tmpName = this.TempFs.tmppath();
     const wStream = await this.TempFs.writeStream(tmpName);
 
-    return new Promise((resolve, reject) => {
-      this.S3.getObject({
-        Bucket: this.Options.bucket,
-        Key: path,
-      })
-        .on('error', (err) => {
-          reject(err);
-        })
-        .on('httpData', (chunk: unknown) => {
-          wStream.write(chunk);
-        })
-        .on('httpDone', () => {
-          wStream.end();
+    const command = new GetObjectCommand({
+      Bucket: this.Options.bucket,
+      Key: path,
+    });
 
-          this.Logger.trace(`Downloaded file from S3 bucket ${this.Options.bucket}, file: ${path}`);
-          resolve(tmpName);
-        });
+    const result = await this.S3.send(command);
+
+    return new Promise((resolve, reject) => {
+      if (result.Body instanceof Readable) {
+        result.Body
+          .pipe(wStream)
+          .on("error", (err) => reject(err))
+          .on("close", () => resolve(tmpName));
+      } else {
+        reject(new IOFail(`Cannot download file ${path}, empty response`));
+      }
     });
   }
 
@@ -122,18 +109,22 @@ export class fsS3 extends fs {
    * Write to file string or buffer
    */
   public async write(path: string, data: string | Buffer, encoding?: BufferEncoding) {
-    await this.S3.upload({
-      Bucket: this.Options.bucket,
-      Key: path,
-      Body: data,
-      ContentEncoding: encoding,
-    }).promise();
+    const upload = new Upload({
+      client: this.S3,
+      params: {
+        Bucket: this.Options.bucket,
+        Key: path,
+        Body: data,
+        ContentEncoding: encoding
+      },
+    });
+    await upload.done();
   }
 
   public async append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
     /**
      * We cannot append to file in s3 directly,
-     * we have to download file firs, append locally, then upload again new file
+     * we have to download file first, append locally, then upload again new file
      */
     const fLocal = await this.download(path);
 
@@ -154,7 +145,7 @@ export class fsS3 extends fs {
               resolve();
             });
         })
-        .on('error', (err) => {
+        .on('error', (err: any) => {
           // eslint-disable-next-line promise/no-promise-in-callback
           this.TempFs.rm(fLocal)
             .then(() => {
@@ -167,24 +158,22 @@ export class fsS3 extends fs {
     });
   }
 
-  public async writeStream(path: string, encoding?: BufferEncoding) {
-    const s = new stream.PassThrough();
+  public async writeStream(path: string, rStream?: ReadStream | BufferEncoding, encoding?: BufferEncoding): Promise<any> {
+    if (!(rStream instanceof ReadStream)) {
+      throw new InvalidArgument(`rStream should be readable stream`);
+    }
 
-    this.S3.upload(
-      {
+    const result = new Upload({
+      client: this.S3,
+      params: {
         Bucket: this.Options.bucket,
         Key: path,
-        Body: s,
+        Body: rStream,
         ContentEncoding: encoding,
       },
-      (err) => {
-        if (err) {
-          this.Logger.error(`Cannot write file ${path} as stream to s3 bucket`);
-        }
-      },
-    );
+    });
 
-    return Promise.resolve(s);
+    await result.done();
   }
 
   /**
@@ -193,14 +182,16 @@ export class fsS3 extends fs {
    */
   public async exists(path: string) {
     try {
-      await this.S3.headObject({
+
+      const command = new HeadObjectCommand({
         Bucket: this.Options.bucket,
         Key: path,
-      }).promise();
+      });
+
+      await this.S3.send(command);
     } catch (err) {
-      if ((err as Error).name === 'ResourceNotFoundException') {
+      if (err.name === 'NotFound')
         return false;
-      }
     }
 
     return true;
@@ -218,13 +209,13 @@ export class fsS3 extends fs {
    * @param dest - dest path
    */
   public async copy(path: string, dest: string) {
-    const copyparams = {
+    const command = new CopyObjectCommand({
       Bucket: this.Options.bucket,
       CopySource: this.Options.bucket + '/' + path,
       Key: dest,
-    };
+    });
 
-    await this.S3.copyObject(copyparams).promise();
+    await this.S3.send(command);
   }
 
   /**
@@ -254,10 +245,12 @@ export class fsS3 extends fs {
       return;
     }
 
-    await this.S3.deleteObject({
+    const command = new DeleteObjectCommand({
       Key: path,
       Bucket: this.Options.bucket,
-    }).promise();
+    });
+
+    await this.S3.send(command);
   }
 
   /**
@@ -266,9 +259,14 @@ export class fsS3 extends fs {
    *
    * @param path - dir to remove
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-function
   public async rm(_path: string) {
-    // s3 is not deleting folders
+
+    const command = new DeleteObjectCommand({
+      Bucket: this.Options.bucket,
+      Key: _path
+    });
+
+    await this.S3.send(command);
   }
 
   /**
@@ -284,10 +282,12 @@ export class fsS3 extends fs {
    * Returns file statistics, not all fields may be accesible
    */
   public async stat(path: string): Promise<IStat> {
-    const result = await this.S3.headObject({
+    const command = new HeadObjectCommand({
       Bucket: this.Options.bucket,
-      Key: path,
-    }).promise();
+      Key: path
+    });
+
+    const result = await this.S3.send(command);
 
     return {
       // no directories in s3
@@ -300,19 +300,22 @@ export class fsS3 extends fs {
       CreationTime: DateTime.min(),
       ModifiedTime: DateTime.fromJSDate(result.LastModified),
 
-      // no access time in s3
+      // no access time in s3s
       AccessTime: DateTime.min(),
       Size: result.ContentLength,
     };
   }
 
-  protected async getSignedUrl(path: string) {
-    return this.S3.getSignedUrlPromise('getObject', {
-      Bucket: this.Options.bucket,
-      Key: path,
-      Expires: 24 * 60 * 60,
-    });
-  }
+  // protected async getSignedUrl(path: string) {
+
+
+
+  //   return this.S3.getSignedUrlPromise('getObject', {
+  //     Bucket: this.Options.bucket,
+  //     Key: path,
+  //     Expires: 24 * 60 * 60,
+  //   });
+  // }
 
   public tmppath(): string {
     throw new MethodNotImplemented('fs s3 does not support temporary paths');
@@ -324,15 +327,18 @@ export class fsS3 extends fs {
    * @param path - path to directory
    */
   public async list(path: string) {
-    const params = {
+    const command = new ListObjectsV2Command({
       Bucket: this.Options.bucket,
       Delimiter: '/',
       Prefix: path,
-    };
+    });
 
-    // TODO: support more than 1000 items using continuation token
-    const result = await this.S3.listObjectsV2(params).promise();
+    const result = await this.S3.send(command);
     return result.Contents.map((x) => x.Key);
+  }
+
+  async unzip(_path: string, _destPath: string) {
+    throw new Error('not implemented');
   }
 
   public async zip(path: string, zName?: string): Promise<IZipResult> {
