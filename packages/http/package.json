@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http",
-  "version": "2.0.171",
+  "version": "2.0.172",
   "description": "framework HTTP module base on express.js",
   
     "main": "lib/cjs/index.js",
@@ -62,15 +62,15 @@
     "cpx": "1.5.0"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.171",
-    "@spinajs/di": "^2.0.171",
-    "@spinajs/exceptions": "^2.0.171",
-    "@spinajs/fs": "^2.0.171",
-    "@spinajs/log": "^2.0.171",
-    "@spinajs/reflection": "^2.0.171",
-    "@spinajs/templates": "^2.0.171",
-    "@spinajs/validation": "^2.0.171",
-    "@spinajs/templates-pug": "^2.0.171",
+    "@spinajs/configuration": "^2.0.172",
+    "@spinajs/di": "^2.0.172",
+    "@spinajs/exceptions": "^2.0.172",
+    "@spinajs/fs": "^2.0.172",
+    "@spinajs/log": "^2.0.172",
+    "@spinajs/reflection": "^2.0.172",
+    "@spinajs/templates": "^2.0.172",
+    "@spinajs/validation": "^2.0.172",
+    "@spinajs/templates-pug": "^2.0.172",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
     "cookie-signature": "^1.2.0",
