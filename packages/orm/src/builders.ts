@@ -967,6 +967,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._columns = this._columns.concat(builder._columns);
     this._statements = this._statements.concat(builder._statements);
+    this._relations = this._relations.concat(builder._relations);
+    this._middlewares = this._middlewares.concat(builder._middlewares);
   }
 
   public mergeStatements(builder: SelectQueryBuilder, callback?: (statement: IQueryStatement) => boolean) {

@@ -43,7 +43,6 @@ export class ConnectionConf2 extends FrameworkConfiguration {
             {
               name: 'Empty',
               type: 'ConsoleTarget',
-              layout: '{datetime} {level} {message} {error} duration: {duration} ms ({logger})',
             },
           ],
 
@@ -85,8 +84,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '{datetime} {level} {message} {error} duration: {duration} ({logger})',
+              type: 'ConsoleTarget',
             },
           ],
 
@@ -821,7 +819,8 @@ describe('Relation tests', function () {
     await db.migrateUp();
     
     const result = await Offer.all().populate("Localisations", function(){ 
-      this.populate("Network");
+      this.populate("Metadata");
+      //this.populate("Network");
     })
 
     expect(result.length).to.eq(1);
@@ -852,7 +851,7 @@ describe('Sqlite driver migrate with transaction', function () {
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(25).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(27).args[0]).to.eq('COMMIT');
 
     expect(driver.executeOnDb('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 

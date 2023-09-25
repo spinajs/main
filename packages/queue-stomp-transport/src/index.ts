@@ -109,11 +109,11 @@ export class StompQueueClient extends QueueClient {
     const headers: Stomp.StompHeaders = {};
 
     if (message.Persistent) {
-      headers['persistent'] = true;
+      headers['persistent'] = "true";
     }
 
     if (message.Priority) {
-      headers.priority = message.Priority;
+      headers.priority = `${message.Priority}`;
     }
 
     if (message.ScheduleCron) {

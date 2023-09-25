@@ -87,6 +87,13 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.int("Localisation");
       table.int("Offer_id");
     });
+
+    await connection.schema().createTable('locationmeta', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      
+      table.string("Key");
+      table.int("location_id");
+    });
     
     await connection.insert().into("offer").values({ 
      Name: "Offer 1"
@@ -114,6 +121,17 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
     await connection.insert().into("offer_location").values({ 
       Localisation: 2,
       Offer_id: 1
+    });
+
+    
+    await connection.insert().into("locationmeta").values({ 
+      location_id: 1,
+      Key: "meta 1"
+    });
+
+    await connection.insert().into("locationmeta").values({ 
+      location_id: 2,
+      Key: "meta 1"
     });
 
   }

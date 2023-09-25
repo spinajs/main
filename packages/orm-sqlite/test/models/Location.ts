@@ -1,4 +1,5 @@
-import { ModelBase, Primary, Connection, Model, Relation, BelongsTo} from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, Relation, BelongsTo, HasMany} from '@spinajs/orm';
+import { LocationMetadata } from './LocationMetadata.js';
 import { LocationNetwork } from './LocationNetwork.js';
 
 @Connection('sqlite')
@@ -11,4 +12,7 @@ export class Location extends ModelBase {
 
   @BelongsTo(LocationNetwork,"Network_id")
   public Network : Relation<LocationNetwork, Location>;
+
+  @HasMany(LocationMetadata)
+  public Metadata : Relation<LocationMetadata, Location>;
 }
