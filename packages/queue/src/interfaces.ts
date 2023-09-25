@@ -13,6 +13,11 @@ export interface IQueueMessage {
   CreatedAt: DateTime;
   Name: string;
   Type: QueueMessageType;
+
+  Persistent: boolean;
+
+  Priority: number;
+
   /**
    * The time in milliseconds that a message will wait before being scheduled to be delivered by the broker
    */
@@ -87,25 +92,29 @@ export abstract class QueueMessage implements IQueueMessage {
 
   public Type: QueueMessageType;
 
+  public Persistent: boolean;
+
+  public Priority: number;
+
   /**
    * The time in milliseconds that a message will wait before being scheduled to be delivered by the broker
    */
-  ScheduleDelay: number;
+  public ScheduleDelay: number;
 
   /**
    * The time in milliseconds to wait after the start time to wait before scheduling the message again
    */
-  SchedulePeriod: number;
+  public SchedulePeriod: number;
 
   /**
    * The number of times to repeat scheduling a message for delivery
    */
-  ScheduleRepeat: number;
+  public ScheduleRepeat: number;
 
   /**
    * Use a Cron entry to set the schedule
    */
-  ScheduleCron: string;
+  public ScheduleCron: string;
 
   constructor() {
     this.CreatedAt = DateTime.now();
@@ -334,6 +343,11 @@ export interface IQueueConnectionOptions {
 }
 
 export interface IMessageOptions {
+
+  Persistent: boolean;
+
+  Priority: number;
+
   /**
    * The time in milliseconds that a message will wait before being scheduled to be delivered by the broker
    */

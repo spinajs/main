@@ -108,6 +108,14 @@ export class StompQueueClient extends QueueClient {
     const channels = this.getChannelForMessage(message);
     const headers: Stomp.StompHeaders = {};
 
+    if (message.Persistent) {
+      headers['persistent'] = true;
+    }
+
+    if (message.Priority) {
+      headers.priority = message.Priority;
+    }
+
     if (message.ScheduleCron) {
       headers['AMQ_SCHEDULED_CRON'] = message.ScheduleCron;
     }
