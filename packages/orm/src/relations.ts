@@ -482,7 +482,7 @@ export class ManyToManyRelation extends OrmRelation {
     // execute callbacks on join query that is executed
     // for junction model, so we can execute any further queries on it after relation is populated
     if (callback) {
-      callback.call(this._joinQuery, [this]);
+      callback.call(this._relationQuery, [this]);
     }
 
     const joinRelationDescriptor = {

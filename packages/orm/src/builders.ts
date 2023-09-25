@@ -942,11 +942,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     } else {
       switch (rDescriptor.Type) {
         case RelationType.One:
-          // if relation is one to one, and owner is belongs to, we set parent relation to
-          // proper column aliases. If any other relation, then we set it to null
-          // becouse it is a new relation query anyway
-          // if we set parent relation, column aliases will be messed up when hydrating
-          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this._container.get(Orm), this, rDescriptor, this._owner instanceof BelongsToRelation ? this._owner : null]);
+          // if parent relation is one to many we dont set parent relation
+          // couse its new query to not mess with column aliases and hydrator
+          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this._container.get(Orm), this, rDescriptor, this._owner instanceof OneToManyRelation ? null : this._owner]);
           break;
         case RelationType.Many:
           relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this._container.get(Orm), this, rDescriptor, this._owner]);

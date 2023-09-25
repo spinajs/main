@@ -52,9 +52,6 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.string('Val');
     });
 
-
-
-
     await connection.schema().createTable('category', (table) => {
       table.int('Id').primaryKey().autoIncrement().unique();
       table.string('Name');
@@ -62,6 +59,63 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
     });
 
     await connection.index().unique().name('user_id_idx').columns(['Id', 'Name']).table('user');
+
+    /**
+     * Many to many test tables
+     * 
+     */
+
+    await connection.schema().createTable('offer', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Name');
+    });
+
+    await connection.schema().createTable('location', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Name');
+      table.int("Network_id");
+    });
+
+    await connection.schema().createTable('location_network', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Name');
+    });
+
+    await connection.schema().createTable('offer_location', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      
+      table.int("Localisation");
+      table.int("Offer_id");
+    });
+    
+    await connection.insert().into("offer").values({ 
+     Name: "Offer 1"
+    });
+
+    await connection.insert().into("location").values({ 
+      Name: "Loc 1",
+      Network_id: 1
+    });
+
+    await connection.insert().into("location").values({ 
+      Name: "Loc 2",
+      Network_id: 1
+    });
+
+    await connection.insert().into("location_network").values({ 
+      Name: "Network 1"
+    });
+
+    await connection.insert().into("offer_location").values({ 
+      Localisation: 1,
+      Offer_id: 1
+    });
+
+    await connection.insert().into("offer_location").values({ 
+      Localisation: 2,
+      Offer_id: 1
+    });
+
   }
 
   // tslint:disable-next-line: no-empty

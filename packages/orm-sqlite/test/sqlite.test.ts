@@ -24,6 +24,7 @@ import { Category } from './models/Category.js';
 import { has_many_1, owned_by_has_many_1, owned_by_owned_by_has_many_1 } from './models/HasMany1.js';
 import { SqlDriver } from '@spinajs/orm-sql';
 import '@spinajs/log';
+import { Offer } from './models/Offer.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -802,6 +803,32 @@ describe('Sqlite queries', function () {
   });
 });
 
+describe('Relation tests', function () { 
+  this.timeout(10000);
+  beforeEach(() => {
+    DI.clearCache();
+
+    DI.register(ConnectionConf2).as(Configuration);
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('Populate belongs to in many to many relation', async () => { 
+    const db = await DI.resolve(Orm);
+    await db.migrateUp();
+    
+    const result = await Offer.all().populate("Localisations", function(){ 
+      this.populate("Network");
+    })
+
+    expect(result.length).to.eq(1);
+
+  })
+});
+
 describe('Sqlite driver migrate with transaction', function () {
   this.timeout(10000);
   beforeEach(() => {
@@ -825,7 +852,7 @@ describe('Sqlite driver migrate with transaction', function () {
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(15).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(25).args[0]).to.eq('COMMIT');
 
     expect(driver.executeOnDb('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 
