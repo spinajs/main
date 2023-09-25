@@ -10,6 +10,7 @@ import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 import { expect } from 'chai';
 import { fsS3 } from './../src/index.js';
+import { createWriteStream, existsSync } from 'fs';
 
 async function f() {
     return await DI.resolve<fs>('__file_provider__', ['aws']);
@@ -17,6 +18,10 @@ async function f() {
 
 async function fl() {
     return await DI.resolve<fs>('__file_provider__', ['test']);
+}
+
+async function ft() {
+    return await DI.resolve<fs>('__file_provider__', ['temp']);
 }
 
 describe('fs s3 basic tests', function () {
@@ -70,11 +75,24 @@ describe('fs s3 basic tests', function () {
 
     })
 
-    it('Should download file', async () => {
+ 
+    it('Should readable stream work', async (done) => {
 
-    })
+        const f3 = await f();
+        const t = await ft();
 
-    it('Should readable stream work', async () => {
+        const path = t.tmpname();
+        const wstream = await t.writeStream(path);
+        const rstream = await f3.readStream("test.txt");
+
+        rstream.pipe(wstream).on("end", () =>{ 
+
+            t.read(path).then((result)=>{
+                expect(result).to.equal("hello world");
+                done();
+            })
+        })
+        
 
     });
 
@@ -100,6 +118,13 @@ describe('fs s3 basic tests', function () {
 
     it('should download file', async () => {
 
+        
+        const f3 = await f();
+        const file = await f3.download("Big_Buck_Bunny_1080_10s_30MB.mp4");
+
+        expect(file).to.be.not.null;
+        expect(file).to.be.not.undefined;
+        expect(existsSync(file)).to.be.true;
     });
 
 
