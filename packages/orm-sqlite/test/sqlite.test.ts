@@ -25,6 +25,7 @@ import { has_many_1, owned_by_has_many_1, owned_by_owned_by_has_many_1 } from '.
 import { SqlDriver } from '@spinajs/orm-sql';
 import '@spinajs/log';
 import { Offer } from './models/Offer.js';
+import { Location } from './models/Location.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -84,7 +85,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'BlackHoleTarget',
+              type: 'ConsoleTarget',
             },
           ],
 
@@ -801,7 +802,7 @@ describe('Sqlite queries', function () {
   });
 });
 
-describe('Relation tests', function () { 
+describe('Relation tests', function () {
   this.timeout(10000);
   beforeEach(() => {
     DI.clearCache();
@@ -814,27 +815,35 @@ describe('Relation tests', function () {
     sinon.restore();
   });
 
-  it('Populate belongs to in many to many relation', async () => { 
+  it('Populate belongs to in many to many relation', async () => {
     const db = await DI.resolve(Orm);
     await db.migrateUp();
-    
-    const result = await Offer.all().populate("Localisations", function(){ 
+
+    const r2 = await Location.all().populate('Network', function () {
+      this.populate('Metadata');
+    });
+
+    console.log(r2);
+
+    const result = await Offer.all().populate('Localisations', function () {
       this.populate("Metadata");
-      this.populate("Network");
-    })
+      this.populate('Network', function () {
+        this.populate('Metadata');
+      });
+    });
 
     expect(result.length).to.eq(1);
     expect(result[0].Localisations[0].Network.Value).to.be.not.null;
     expect(result[0].Localisations[1].Network.Value).to.be.not.null;
 
-    expect(result[0].Localisations[0].Network.Value.Name).to.eq("Network 1");
+    expect(result[0].Localisations[0].Network.Value.Name).to.eq('Network 1');
 
     expect(result[0].Localisations[0].Metadata.length).to.eq(1);
     expect(result[0].Localisations[1].Metadata.length).to.eq(1);
 
-    expect(result[0].Localisations[0].Metadata[0].Key).to.eq("meta 1");
-    expect(result[0].Localisations[1].Metadata[0].Key).to.eq("meta 2");
-  })
+    expect(result[0].Localisations[0].Metadata[0].Key).to.eq('meta 1');
+    expect(result[0].Localisations[1].Metadata[0].Key).to.eq('meta 2');
+  });
 });
 
 describe('Sqlite driver migrate with transaction', function () {
@@ -860,7 +869,7 @@ describe('Sqlite driver migrate with transaction', function () {
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(28).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(31).args[0]).to.eq('COMMIT');
 
     expect(driver.executeOnDb('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 

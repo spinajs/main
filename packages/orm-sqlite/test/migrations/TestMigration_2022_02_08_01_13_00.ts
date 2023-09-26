@@ -94,6 +94,13 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.string("Key");
       table.int("location_id");
     });
+
+    await connection.schema().createTable('locationnetworkmetadata', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      
+      table.string("Key");
+      table.int("network_id");
+    });
     
     await connection.insert().into("offer").values({ 
      Name: "Offer 1"
@@ -134,6 +141,16 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       Key: "meta 2"
     });
 
+
+    await connection.insert().into("locationnetworkmetadata").values({ 
+      network_id: 1,
+      Key: "meta 1"
+    });
+
+    await connection.insert().into("locationnetworkmetadata").values({ 
+      network_id: 1,
+      Key: "meta 2"
+    });
   }
 
   // tslint:disable-next-line: no-empty
