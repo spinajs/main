@@ -4,6 +4,8 @@ export * from './statements.js';
 export * from './builders.js';
 export * from './model.js';
 export * from './relations.js';
+export * from './relation-objects.js';
+export * from './middlewares.js';
 export * from './orm.js';
 export * from './types.js';
 export * from './decorators.js';

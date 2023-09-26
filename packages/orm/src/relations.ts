@@ -95,7 +95,8 @@ export class BelongsToRelation extends OrmRelation {
       callback.call(this._relationQuery, [this]);
     }
 
-    this._query.mergeBuilder(this._relationQuery);
+    // todo: fix this cast
+    (this._query as any).mergeBuilder(this._relationQuery);
 
     this._query.middleware(new BelongsToPopulateDataMiddleware(this._description, this));
     if (!this.parentRelation || !(this.parentRelation instanceof BelongsToRelation)) {

@@ -85,7 +85,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'ConsoleTarget',
+              type: 'BlackHoleTarget',
             },
           ],
 
@@ -822,9 +822,7 @@ describe('Relation tests', function () {
     const r2 = await Location.all().populate('Network', function () {
       this.populate('Metadata');
     });
-
-    console.log(r2);
-
+ 
     const result = await Offer.all().populate('Localisations', function () {
       this.populate("Metadata");
       this.populate('Network', function () {
