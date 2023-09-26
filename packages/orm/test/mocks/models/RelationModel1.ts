@@ -1,6 +1,6 @@
 import { Connection, Primary, Model, BelongsTo } from '../../../src/decorators.js';
 import { ModelBase } from '../../../src/model.js';
-import { SingleRelation } from './../../../src/relations.js';
+import { SingleRelation } from '../../../src/relation-objects.js';
 import { RelationModel2 } from './RelationModel2.js';
 
 @Connection('sqlite')

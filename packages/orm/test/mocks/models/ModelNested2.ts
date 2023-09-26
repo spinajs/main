@@ -1,6 +1,6 @@
 import { Connection, Primary, Model, HasMany } from '../../../src/decorators.js';
 import { ModelBase } from '../../../src/model.js';
-import { Relation } from '../../../src/relations.js';
+import { Relation } from '../../../src/relation-objects.js';
 import { ModelNested3 } from './ModelNested3.js';
 
 @Connection('sqlite')

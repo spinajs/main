@@ -11,7 +11,6 @@ import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunctio
 import { OrmDriver } from './driver.js';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations.js';
-import { Orm } from './orm.js';
 import { DateTime } from 'luxon';
 
 /**
@@ -938,19 +937,19 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
 
     if (rDescriptor.Recursive) {
-      relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this._container.get(Orm), this, rDescriptor, this._owner]);
+      relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [ this, rDescriptor, this._owner]);
     } else {
       switch (rDescriptor.Type) {
         case RelationType.One:
           // if parent relation is one to many we dont set parent relation
           // couse its new query to not mess with column aliases and hydrator
-          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this._container.get(Orm), this, rDescriptor, this._owner instanceof OneToManyRelation ? null : this._owner]);
+          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this, rDescriptor, this._owner instanceof OneToManyRelation ? null : this._owner]);
           break;
         case RelationType.Many:
-          relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this._container.get(Orm), this, rDescriptor, this._owner]);
+          relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [ this, rDescriptor, this._owner]);
           break;
         case RelationType.ManyToMany:
-          relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [this._container.get(Orm), this, rDescriptor, null]);
+          relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [ this, rDescriptor, null]);
           break;
       }
     }
@@ -966,20 +965,17 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public mergeBuilder(builder: SelectQueryBuilder) {
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._columns = this._columns.concat(builder._columns);
-    this._statements = this._statements.concat(builder._statements);
+    this.mergeStatements(builder);
   }
 
-  public mergeRelations(builder: SelectQueryBuilder){
+  public mergeRelations(builder: SelectQueryBuilder) {
     this._relations = this._relations.concat(builder._relations);
     this._middlewares = this._middlewares.concat(builder._middlewares);
   }
 
   public mergeStatements(builder: SelectQueryBuilder, callback?: (statement: IQueryStatement) => boolean) {
-    if (callback) {
-      this._statements = this._statements.concat(builder._statements.filter(callback));
-    } else {
-      this._statements = this._statements.concat(builder._statements);
-    }
+    const stms = callback ? builder._statements.filter(callback) : builder._statements;
+    this._statements = this._statements.concat(stms);
   }
 
   public min(column: string, as?: string): this {

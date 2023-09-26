@@ -6,7 +6,8 @@ import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescript
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { Relation } from './relations.js';
+import { Relation } from './relation-objects.js';
+
 
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');

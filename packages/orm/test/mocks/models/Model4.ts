@@ -2,8 +2,8 @@ import { Connection, Primary, Model, HasManyToMany } from '../../../src/decorato
 import { ModelBase } from '../../../src/model.js';
 import { Model5 } from './Model5.js';
 import { JunctionModel } from './JunctionModel.js';
-import { Relation } from '../../../src/relations.js';
-
+import { Relation } from '../../../src/relation-objects.js';
+ 
 @Connection('sqlite')
 @Model('TestTable4')
 // @ts-ignore

@@ -2,7 +2,8 @@
 import { ForwardRefFunction, RelationType } from './interfaces.js';
 import { ModelBase } from './model.js';
 import { Injectable, isConstructor } from '@spinajs/di';
-import { OneToManyRelationList, SingleRelation } from './relations.js';
+import { OneToManyRelationList, SingleRelation } from './relation-objects.js';
+ 
 
 export abstract class ModelHydrator {
   public abstract hydrate(target: any, values: any): void;

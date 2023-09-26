@@ -4,12 +4,13 @@ import { QueryBuilder, RawQuery } from './builders.js';
 import { SortOrder, WhereBoolean } from './enums.js';
 import { IQueryStatement, Wrap } from './statements.js';
 import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
-import { Relation, IOrmRelation } from './relations.js';
+import { IOrmRelation } from './relations.js';
 import { OrmDriver } from './driver.js';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
 import { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
+import { Relation } from './relation-objects.js';
 
 export enum QueryContext {
   Insert,
@@ -25,6 +26,17 @@ export enum ColumnAlterationType {
   Modify,
   Rename,
 }
+
+export interface IRelation {
+  TargetModelDescriptor: IModelDescriptor;
+
+  /**
+   * Indicates if data was fetched  from db
+   */
+  Populated: boolean;
+}
+
+
 
 export abstract class DefaultValueBuilder<T> {
   public Query: RawQuery;
@@ -409,8 +421,8 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
   get<T extends typeof ModelBase>(pk: any): Promise<InstanceType<T>>;
   insert<T extends typeof ModelBase>(data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour?: InsertBehaviour): Promise<IUpdateResult>;
 
-  getModelDescriptor() : IModelDescriptor;
-  getRelationDescriptor(relation : string) : IRelationDescriptor;
+  getModelDescriptor(): IModelDescriptor;
+  getRelationDescriptor(relation: string): IRelationDescriptor;
 }
 
 export interface IModelBase {
@@ -804,7 +816,7 @@ export interface IGroupByBuilder {
  * Dummy abstract class for allowing to add extensions for builder via declaration merging & mixins
  */
 //@ts-ignore
-export interface ISelectBuilderExtensions<T> {}
+export interface ISelectBuilderExtensions<T> { }
 
 export interface IJoinBuilder {
   JoinStatements: IQueryStatement[];
@@ -860,11 +872,11 @@ export interface IBuilder<T> extends PromiseLike<T> {
   toDB(): ICompilerOutput | ICompilerOutput[];
 }
 
-export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {}
+export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
 
-export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
+export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 
-export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IBuilder<T> {
+export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IQueryBuilder, IBuilder<T> {
   min(column: string, as?: string): this;
   max(column: string, as?: string): this;
   count(column: string, as?: string): this;
@@ -882,6 +894,7 @@ export interface ISelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder
    * Returns all records. Its for type castin when using with scopes mostly.
    */
   all(): Promise<T[]>;
+ 
 }
 
 export interface ICompilerOutput {
@@ -1104,12 +1117,12 @@ export class ValueConverter implements IValueConverter {
 /**
  * Converter for DATETIME field (eg. mysql datetime)
  */
-export class DatetimeValueConverter extends ValueConverter {}
+export class DatetimeValueConverter extends ValueConverter { }
 
 /**
  * Converter for set field (eg. mysql SET)
  */
-export class SetValueConverter extends ValueConverter {}
+export class SetValueConverter extends ValueConverter { }
 
 @Singleton()
 export abstract class TableAliasCompiler {
@@ -1123,7 +1136,7 @@ export interface IUniversalConverterOptions {
 /**
  * base class for select & where builder for defining scopes
  */
-export abstract class QueryScope {}
+export abstract class QueryScope { }
 
 export interface IHistoricalModel {
   readonly __action__: 'insert' | 'update' | 'delete';

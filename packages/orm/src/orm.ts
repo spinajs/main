@@ -1,6 +1,6 @@
 import { DatetimeValueConverter } from './interfaces.js';
 import { Configuration } from '@spinajs/configuration-common';
-import { AsyncService,ClassInfo, Autoinject, Container, Class, DI } from '@spinajs/di';
+import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
 import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode, IModelDescriptor } from './interfaces.js';
@@ -267,19 +267,26 @@ export class Orm extends AsyncService {
     // wire connection aliases
     // for example if we have module that uses conn name of db-user-session
     // and we want to wire it to some existinc connection instead creating new one
-    const aliases = this.Configuration.get<any>('db.Aliases');
-    if (aliases) {
-      for (const a in aliases) {
-        const conn = aliases[a];
-        if (!this.Connections.has(conn)) {
-          throw new InvalidOperation(`default connection ${conn} not exists`);
-        }
-
-        this.Connections.set(a, this.Connections.get(conn));
+    const aliases = this.Configuration.get<any>('db.Aliases', {});
+    for (const a in aliases) {
+      const conn = aliases[a];
+      if (!this.Connections.has(conn)) {
+        throw new InvalidOperation(`default connection ${conn} not exists`);
       }
+
+      this.Connections.set(a, this.Connections.get(conn));
     }
 
+    // register in continaer factory func for retrieving db connections
+    // it will allow for easy access to it in modules
+    DI.register((_container: IContainer, connectionName: string) => {
 
+      if (this.Connections.has(connectionName)) {
+        return this.Connections.get(connectionName);
+      }
+
+      return null;
+    }).as("OrmConnection");
   }
 
   private applyModelMixins() {

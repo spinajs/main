@@ -1,9 +1,9 @@
 /* eslint-disable prettier/prettier */
 import { Connection, Primary, Model, Archived, CreatedAt, UpdatedAt, SoftDelete, BelongsTo, DateTime } from '../../../src/decorators.js';
 import { ModelBase } from '../../../src/model.js';
-import { SingleRelation } from './../../../src/relations.js';
 import { Model4 } from './Model4.js';
 import { DateTime as lDateTime } from 'luxon';
+import { SingleRelation } from '../../../src/relation-objects.js';
 
 @Connection('sqlite')
 @Model('TestTable1')

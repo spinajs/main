@@ -1,6 +1,5 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 /* eslint-disable prettier/prettier */
-import { DiscriminationMapMiddleware, OneToManyRelationList, ManyToManyRelationList, Relation, SingleRelation } from './relations.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
 import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor } from './interfaces.js';
@@ -17,6 +16,8 @@ import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from '.
 import { Wrap } from './statements.js';
 import { DateTime } from 'luxon';
 import { OrmDriver } from './driver.js';
+import { ManyToManyRelationList, OneToManyRelationList, Relation, SingleRelation } from './relation-objects.js';
+import { DiscriminationMapMiddleware } from './middlewares.js';
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;

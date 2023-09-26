@@ -1,7 +1,8 @@
 import { Connection, Primary, Model, BelongsTo, HasMany } from '../../../src/decorators.js';
 import { ModelBase } from '../../../src/model.js';
+import { Relation, SingleRelation } from '../../../src/relation-objects.js';
 import { Model1 } from './Model1.js';
-import { Relation, SingleRelation } from '../../../src/relations.js';
+ 
 @Connection('sqlite')
 @Model('TestTableRelation2')
 // @ts-ignore

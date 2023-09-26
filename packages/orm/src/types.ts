@@ -1,5 +1,6 @@
 import { IWhereBuilder } from './interfaces.js';
-import { Relation, SingleRelation } from './relations.js';
+import { Relation, SingleRelation } from './relation-objects.js';
+ 
 
 export type WhereFunction<T> = (this: IWhereBuilder<T>) => void;
 
