@@ -10,7 +10,7 @@ import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQuerySt
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import { OrmDriver } from './driver.js';
 import { ModelBase, extractModelDescriptor } from './model.js';
-import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations.js';
+import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, HasManyRelationMiddleware, HasManyToManyRelationMiddleware } from './relations.js';
 import { Orm } from './orm.js';
 import { DateTime } from 'luxon';
 
@@ -967,8 +967,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._columns = this._columns.concat(builder._columns);
     this._statements = this._statements.concat(builder._statements);
-    this._relations = this._relations.concat(builder._relations);
-    this._middlewares = this._middlewares.concat(builder._middlewares);
+    this._relations = this._relations.concat(builder._relations.filter( x=> x instanceof ManyToManyRelation || x instanceof OneToManyRelation));
+    this._middlewares = this._middlewares.concat(builder._middlewares.filter( x=> x instanceof HasManyRelationMiddleware || x instanceof HasManyToManyRelationMiddleware));
   }
 
   public mergeStatements(builder: SelectQueryBuilder, callback?: (statement: IQueryStatement) => boolean) {

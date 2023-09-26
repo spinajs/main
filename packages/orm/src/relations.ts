@@ -66,7 +66,7 @@ export abstract class OrmRelation implements IOrmRelation {
   }
 }
 
-class HasManyRelationMiddleware implements IBuilderMiddleware {
+export class HasManyRelationMiddleware implements IBuilderMiddleware {
   constructor(protected _relationQuery: SelectQueryBuilder, protected _description: IRelationDescriptor, protected _path: string) {}
 
   public afterQuery(data: any[]): any[] {
@@ -186,7 +186,7 @@ class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
   }
 }
 
-class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
+export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
   constructor(protected _relationQuery: SelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
