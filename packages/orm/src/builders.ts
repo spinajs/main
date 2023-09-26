@@ -967,6 +967,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._columns = this._columns.concat(builder._columns);
     this._statements = this._statements.concat(builder._statements);
+  }
+
+  public mergeRelations(builder: SelectQueryBuilder){
     this._relations = this._relations.concat(builder._relations.filter( x=> x instanceof ManyToManyRelation || x instanceof OneToManyRelation));
     this._middlewares = this._middlewares.concat(builder._middlewares.filter( x=> x instanceof HasManyRelationMiddleware || x instanceof HasManyToManyRelationMiddleware));
   }

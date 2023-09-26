@@ -497,6 +497,7 @@ export class ManyToManyRelation extends OrmRelation {
     };
 
     this._joinQuery.mergeBuilder(this._relationQuery);
+    this._joinQuery.mergeRelations(this._relationQuery);
 
     this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor));
   }
