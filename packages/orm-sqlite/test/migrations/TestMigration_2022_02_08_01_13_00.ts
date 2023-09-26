@@ -131,7 +131,7 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
 
     await connection.insert().into("locationmeta").values({ 
       location_id: 2,
-      Key: "meta 1"
+      Key: "meta 2"
     });
 
   }

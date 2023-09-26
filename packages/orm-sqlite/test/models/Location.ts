@@ -1,4 +1,4 @@
-import { ModelBase, Primary, Connection, Model, Relation, BelongsTo, HasMany} from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, Relation, BelongsTo, HasMany, SingleRelation} from '@spinajs/orm';
 import { LocationMetadata } from './LocationMetadata.js';
 import { LocationNetwork } from './LocationNetwork.js';
 
@@ -11,7 +11,7 @@ export class Location extends ModelBase {
   public Name: string;
 
   @BelongsTo(LocationNetwork,"Network_id")
-  public Network : Relation<LocationNetwork, Location>;
+  public Network : SingleRelation<LocationNetwork>;
 
   @HasMany(LocationMetadata)
   public Metadata : Relation<LocationMetadata, Location>;

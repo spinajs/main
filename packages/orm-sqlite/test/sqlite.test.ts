@@ -84,7 +84,7 @@ export class ConnectionConf extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'ConsoleTarget',
+              type: 'BlackHoleTarget',
             },
           ],
 
@@ -820,11 +820,20 @@ describe('Relation tests', function () {
     
     const result = await Offer.all().populate("Localisations", function(){ 
       this.populate("Metadata");
-      //this.populate("Network");
+      this.populate("Network");
     })
 
     expect(result.length).to.eq(1);
+    expect(result[0].Localisations[0].Network.Value).to.be.not.null;
+    expect(result[0].Localisations[1].Network.Value).to.be.not.null;
 
+    expect(result[0].Localisations[0].Network.Value.Name).to.eq("Network 1");
+
+    expect(result[0].Localisations[0].Metadata.length).to.eq(1);
+    expect(result[0].Localisations[1].Metadata.length).to.eq(1);
+
+    expect(result[0].Localisations[0].Metadata[0].Key).to.eq("meta 1");
+    expect(result[0].Localisations[1].Metadata[0].Key).to.eq("meta 2");
   })
 });
 
@@ -851,7 +860,7 @@ describe('Sqlite driver migrate with transaction', function () {
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(27).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(28).args[0]).to.eq('COMMIT');
 
     expect(driver.executeOnDb('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 
