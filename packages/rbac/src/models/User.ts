@@ -1,10 +1,9 @@
 import { DateTime } from 'luxon';
 import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor, QueryScope, InsertBehaviour, ISelectQueryBuilder, Orm } from '@spinajs/orm';
 import { AccessControl, Permission } from 'accesscontrol';
-import { Container, DI, IContainer, Inject } from '@spinajs/di';
+import { DI, IContainer } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata.js';
 import { UserAction } from './UserTimeline.js';
-@Inject(Container, Orm)
 class UserMetadataRelation extends OneToManyRelationList<UserMetadata, User> {
   /**
    *
