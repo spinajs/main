@@ -49,6 +49,11 @@ export interface IFileInfo {
   ModificationDate?: DateTime;
   CreationDate?: DateTime;
 
+  /**
+   * Raw unprocessed data obtained from file info
+   */
+  Raw? : {}
+
 }
 
 export interface IFsLocalOptions {

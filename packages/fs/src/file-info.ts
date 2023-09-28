@@ -36,14 +36,15 @@ const EXIFTOOL_MAPPINGS = {
 
 function _fInfoInit(): IFileInfo {
   return {
-    FileSize: 0,
-    Height: 0,
-    Width: 0,
-    Duration: 0,
-    FrameCount: 0,
-    FrameRate: 0,
-    Bitrate: 0,
+    FileSize: null,
+    Height: null,
+    Width: null,
+    Duration: null,
+    FrameCount: null,
+    FrameRate: null,
+    Bitrate: null,
     Codec: null,
+    Raw: null
   }
 }
 
@@ -59,6 +60,7 @@ export class DefaultFileInfo extends FileInfoService {
 
     const fInfo = _fInfoInit();
     const metadata: any = await this.getMetadata(pathToFile);
+    fInfo.Raw = metadata;
 
     for (const key in EXIFTOOL_MAPPINGS) {
       if (metadata[key]) {
