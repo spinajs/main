@@ -1,5 +1,5 @@
-import { DI, Injectable, NewInstance } from '@spinajs/di';
-import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation } from '@spinajs/orm';
+import { Container, DI, Inject, Injectable, NewInstance } from '@spinajs/di';
+import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation, ISelectQueryBuilder } from '@spinajs/orm';
 import { TranslationSource, guessLanguage, defaultLanguage, IIntlAsyncStorage } from '@spinajs/intl';
 import _ from 'lodash';
 import { IntlTranslation } from './models/IntlTranslation.js';
@@ -34,10 +34,11 @@ declare module '@spinajs/orm' {
 }
 
 @NewInstance()
+@Inject(Container)
 export class IntlModelRelation extends OrmRelation {
-  constructor(protected _lang: string, _orm: Orm, _query: SelectQueryBuilder<any>, protected _mDescriptor: IModelDescriptor, _parentRelation?: OrmRelation) {
+  constructor(_container: Container, protected _lang: string, _query: ISelectQueryBuilder, protected _mDescriptor: IModelDescriptor, _parentRelation?: OrmRelation) {
     super(
-      _orm,
+      _container,
       _query,
       {
         TargetModel: IntlResource as any,
@@ -65,7 +66,7 @@ export class IntlModelRelation extends OrmRelation {
 }
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
-  constructor(protected _lang: string, protected _relationQuery: SelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) { }
+  constructor(protected _lang: string, protected _relationQuery: ISelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) { }
 
   public afterQueryCreation(_query: QueryBuilder<any>): void { }
 
@@ -114,7 +115,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
       this._relationQuery.where('Resource', this._description.Name);
       this._relationQuery.where('Lang', this._lang);
       this._relationQuery.middleware(hydrateMiddleware);
-      return await this._relationQuery;
+      return await this._relationQuery as SelectQueryBuilder;
     }
 
     return [];
