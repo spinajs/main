@@ -7,7 +7,7 @@ import { Config } from '@spinajs/configuration';
 import archiver from 'archiver';
 import { basename } from 'path';
 import { InvalidArgument, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
-import { createReadStream, readFileSync, ReadStream } from 'fs';
+import { createReadStream, existsSync, readFileSync, ReadStream } from 'fs';
 import { DateTime } from 'luxon';
 import { Readable } from 'stream';
 
@@ -156,6 +156,18 @@ export class fsS3 extends fs {
             });
         });
     });
+  }
+
+  
+  public async upload(srcPath: string, destPath?: string) {
+
+    if (!existsSync(srcPath)) {
+      throw new IOFail(`file ${srcPath} does not exists`);
+    }
+
+    const dPath = this.resolvePath(destPath ?? basename(srcPath));
+    const rStream = createReadStream(srcPath);
+    await this.writeStream(dPath, rStream);
   }
 
   public async writeStream(path: string, rStream?: ReadStream | BufferEncoding, encoding?: BufferEncoding): Promise<any> {

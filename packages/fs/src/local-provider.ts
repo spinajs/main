@@ -1,6 +1,15 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
-import { constants, createReadStream, createWriteStream, readFile, readFileSync, ReadStream } from 'fs';
+import {
+  constants,
+  copyFileSync,
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  readFile,
+  readFileSync,
+  ReadStream,
+} from 'fs';
 import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open, appendFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -9,7 +18,6 @@ import { basename, join } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
 import archiver from 'archiver';
 import unzipper from 'unzipper';
-
 
 /**
  * Abstract layer for file operations.
@@ -69,7 +77,14 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     return p;
   }
 
+  public async upload(srcPath: string, destPath?: string) {
+    if (!existsSync(srcPath)) {
+      throw new IOFail(`file ${srcPath} does not exists`);
+    }
 
+    const dPath = this.resolvePath(destPath ?? basename(srcPath));
+    copyFileSync(srcPath, dPath);
+  }
 
   /**
    * read all content of file
@@ -103,7 +118,11 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public writeStream(path: string, rStream?: BufferEncoding | ReadStream, encoding?: BufferEncoding) {
-    return Promise.resolve(createWriteStream(this.resolvePath(path), { encoding: (typeof rStream === 'string' ? rStream : encoding) ?? 'binary' }));
+    return Promise.resolve(
+      createWriteStream(this.resolvePath(path), {
+        encoding: (typeof rStream === 'string' ? rStream : encoding) ?? 'binary',
+      }),
+    );
   }
 
   /**
@@ -225,15 +244,17 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   public async unzip(path: string, destPath: string) {
     return new Promise<void>((resolve, reject) => {
       createReadStream(this.resolvePath(path)).pipe(
-        unzipper.Extract({
-          path: this.resolvePath(destPath)
-        }).on('close', resolve).on('error', reject)
-      )
+        unzipper
+          .Extract({
+            path: this.resolvePath(destPath),
+          })
+          .on('close', resolve)
+          .on('error', reject),
+      );
     });
   }
 
   public async zip(path: string, zName?: string): Promise<IZipResult> {
-
     const fs = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
 
     const outFile = fs.resolvePath(fs.tmpname() + '.zip');

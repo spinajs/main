@@ -52,8 +52,7 @@ export interface IFileInfo {
   /**
    * Raw unprocessed data obtained from file info
    */
-  Raw? : {}
-
+  Raw?: {};
 }
 
 export interface IFsLocalOptions {
@@ -121,6 +120,15 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   public abstract download(path: string): Promise<string>;
 
   /**
+   * Copies local file into fs 
+   * 
+   * @param srcPath source path ( full absolute path eg. file from local disk )
+   * @param destPath dest path ( relative to base path of provider )
+   */
+  public abstract upload(srcPath: string, destPath?: string) : Promise<void>;
+
+
+  /**
    *
    * Returns full LOCAL path to file
    *
@@ -131,7 +139,11 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   public abstract readStream(path: string, encoding?: BufferEncoding): Promise<ReadStream>;
   public abstract write(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void>;
   public abstract writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
-  public abstract writeStream(path: string, readStream: ReadStream, encoding?: BufferEncoding): Promise<WriteStream | PassThrough | void>;
+  public abstract writeStream(
+    path: string,
+    readStream: ReadStream,
+    encoding?: BufferEncoding,
+  ): Promise<WriteStream | PassThrough | void>;
   public abstract exists(path: string): Promise<boolean>;
   public abstract dirExists(path: string): Promise<boolean>;
   public abstract copy(path: string, dest: string): Promise<void>;
@@ -155,7 +167,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
 
   /**
    * Decompress given file to destination path
-   * 
+   *
    * @param path path to zip file
    * @param destPath path to destination dir
    */
