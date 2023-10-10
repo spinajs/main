@@ -119,11 +119,23 @@ export class UserQueryScopes implements QueryScope {
    * Fetch users that are not banned, are active & email confirmed, not deleted
    *
    */
-  public isActiveUser(this: ISelectQueryBuilder<User>) {
+  public isActiveUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
     return this.where({
       IsBanned: false,
       IsActive: true,
       DeletedAt: null,
+    });
+  }
+
+  public byEmail(this: ISelectQueryBuilder<User[]> & UserQueryScopes, email: string) {
+    return this.where({
+      Email: email,
+    });
+  }
+
+  public byLogin(this: ISelectQueryBuilder<User[]> & UserQueryScopes, email: string) {
+    return this.where({
+      Email: email,
     });
   }
 }
