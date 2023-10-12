@@ -1,5 +1,5 @@
-import { RouteArgs } from './RouteArgs.js';
-import { IRouteParameter, ParameterType, IRouteCall, Request, IUploadOptions } from '../interfaces.js';
+import { IRouteArgsResult, RouteArgs } from './RouteArgs.js';
+import { IRouteParameter, ParameterType, IRouteCall, Request, IUploadOptions, IRoute } from '../interfaces.js';
 import * as express from 'express';
 import formidable, { Fields, Files, File, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
@@ -10,6 +10,7 @@ import { basename } from 'path';
 import { createReadStream, promises, unlink } from 'fs';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 interface FormData {
   Fields: Fields;
@@ -36,38 +37,44 @@ export interface FormOptions {
   type?: string;
 }
 
+const parseForm = (req: express.Request, options: any) => {
+  const form = new IncomingForm(options);
+  return new Promise<FormData>((res, rej) => {
+    form.parse(req, (err: any, fields: Fields, files: Files) => {
+      if (err) {
+        rej(err);
+        return;
+      }
+
+      res({ Fields: fields, Files: files });
+    });
+  });
+};
+
 export abstract class FromFormBase extends RouteArgs {
   public Data: FormData;
 
-  protected async parseForm(callData: IRouteCall, param: IRouteParameter, req: Request) {
-    if (callData && callData.Payload && callData.Payload.Form) {
-      this.Data = callData.Payload.Form;
-    }
-
+  public async extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute): Promise<IRouteArgsResult> {
     if (!this.Data) {
-      await this.parse(req, param.Options);
+      if (callData && callData.Payload && callData.Payload.Form) {
+        this.Data = callData.Payload.Form;
+      } else {
+        let opts: any = routeParameter.Options ?? { multiples: true };
+        this.Data = await parseForm(req, opts);
+      }
     }
-  }
 
-  protected async parse(req: express.Request, options: FormOptions) {
-    if (!this.Data) {
-      let opts: any = options || { multiples: true };
-      this.Data = await this._parse(req, opts);
-    }
-  }
+    const result = {
+      CallData: {
+        ...callData,
+        Payload: {
+          Form: this.Data,
+        },
+      },
+      Args: {},
+    };
 
-  private _parse(req: express.Request, options: any) {
-    const form = new IncomingForm(options);
-    return new Promise<FormData>((res, rej) => {
-      form.parse(req, (err: any, fields: Fields, files: Files) => {
-        if (err) {
-          rej(err);
-          return;
-        }
-
-        res({ Fields: fields, Files: files });
-      });
-    });
+    return result;
   }
 }
 
@@ -77,7 +84,7 @@ export class FromFile extends FromFormBase {
   protected FileService: fs;
 
   @Logger('http')
-  protected _log: Log;
+  protected Log: Log;
 
   @Config('fs.defaultProvider')
   protected DefaultFsProviderName: string;
@@ -91,11 +98,13 @@ export class FromFile extends FromFormBase {
     this.Data = data;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter<IUploadOptions>, req: Request): Promise<any> {
+  public async extract(callData: IRouteCall, param: IRouteParameter<IUploadOptions>, req: Request, res: express.Response, route?: IRoute): Promise<any> {
     const self = this;
 
-    if (!this.Data) {
-      await this.parseForm(callData, param, req);
+    const data = await super.extract(callData, param, req, res, route);
+
+    if (!this.Data.Files[param.Name]) {
+      throw new InvalidOperation(`Empty '${param.Name} parameter'`);
     }
 
     if (!this.FileService) {
@@ -105,14 +114,6 @@ export class FromFile extends FromFormBase {
     // map from formidable to our object
     // of type IUploadedFile
     const formFiles = _.isArray(this.Data.Files[param.Name]) ? (this.Data.Files[param.Name] as formidable.File[]) : ([this.Data.Files[param.Name]] as formidable.File[]);
-    const data = {
-      CallData: {
-        ...callData,
-        Payload: {
-          Form: this.Data,
-        },
-      },
-    };
 
     for (const f of formFiles) {
       await copy(f);
@@ -138,20 +139,20 @@ export class FromFile extends FromFormBase {
       const fName = basename(file.filepath);
       const stream = await self.FileService.writeStream(fName);
 
-      self._log.trace(`Copying incoming http file to ${file.filepath} to ${fName}, provider: ${self.FileService.Name}`);
+      self.Log.trace(`Copying incoming http file to ${file.filepath} to ${fName}, provider: ${self.FileService.Name}`);
 
       return new Promise<void>((resolve, reject) => {
         createReadStream(file.filepath)
           .pipe(stream)
           .on('finish', () => {
-            self._log.trace(`Finished copying incoming file ${file.filepath} to ${fName}, provider: ${self.FileService.Name}`);
+            self.Log.trace(`Finished copying incoming file ${file.filepath} to ${fName}, provider: ${self.FileService.Name}`);
 
             unlink(file.filepath, (err) => {
               if (err) {
-                self._log.warn(`Failed do delete incoming file ${file.filepath}, reason: ${err.message}`);
+                self.Log.warn(`Failed do delete incoming file ${file.filepath}, reason: ${err.message}`);
                 reject(err);
               } else {
-                self._log.trace(`Incoming file ${file.filepath} deleted`);
+                self.Log.trace(`Incoming file ${file.filepath} deleted`);
                 resolve();
               }
             });
