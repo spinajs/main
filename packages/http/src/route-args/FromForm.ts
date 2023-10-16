@@ -12,6 +12,7 @@ import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Util } from "@spinajs/util";
+import { Effect, Option } from "effect";
 
 interface FormData {
   Fields: Fields;
@@ -99,6 +100,10 @@ export class FromFile extends FromFormBase {
 
     const data = await super.extract(callData, param, req, res, route);
 
+
+    const formData = Option.
+     
+
     if (!this.FormData.Files[param.Name]) {
       throw new InvalidOperation(`Empty file '${param.Name} parameter'`);
     }
@@ -108,14 +113,6 @@ export class FromFile extends FromFormBase {
     }
 
     const formFiles = Util.Array.makeArray(this.FormData.Files[param.Name]) as formidable.File[];
-
-    const task = (f: formidable.File) => ({
-      execute: copy(f).finally(() => promises.unlink(f.filepath).catch(() => {
-        this.Log.error(`cannot delete temporary file ${f.filepath} from temp dir`)
-      })).then(() => mf(f)),
-      rollback: remove(f),
-    });
-
 
     for (const f of formFiles) {
       await copy(f);
