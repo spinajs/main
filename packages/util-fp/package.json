@@ -1,5 +1,5 @@
 {
-  "name": "@spinajs/util",
+  "name": "@spinajs/util-fp",
   "version": "2.0.180",
   "description": "utility functions shared across @spinajs framework",
   "main": "lib/cjs/index.js",
@@ -47,4 +47,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
+  "dependencies": {
+    "effect": "^2.0.0-next.48"
+  }
 }
