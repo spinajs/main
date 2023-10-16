@@ -7,10 +7,11 @@ import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs } from '@spinajs/fs';
 import { basename } from 'path';
-import { createReadStream, promises, unlink } from 'fs';
+import { createReadStream, promises } from 'fs';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
 import { InvalidOperation } from '@spinajs/exceptions';
+import { Util } from "@spinajs/util";
 
 interface FormData {
   Fields: Fields;
@@ -52,23 +53,18 @@ const parseForm = (req: express.Request, options: any) => {
 };
 
 export abstract class FromFormBase extends RouteArgs {
-  public Data: FormData;
+  public FormData: FormData;
 
   public async extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute): Promise<IRouteArgsResult> {
-    if (!this.Data) {
-      if (callData && callData.Payload && callData.Payload.Form) {
-        this.Data = callData.Payload.Form;
-      } else {
-        let opts: any = routeParameter.Options ?? { multiples: true };
-        this.Data = await parseForm(req, opts);
-      }
+    if (!this.FormData) {
+      this.FormData = callData?.Payload?.Form ?? await parseForm(req, routeParameter.Options ?? { multiples: true })
     }
 
     const result = {
       CallData: {
         ...callData,
         Payload: {
-          Form: this.Data,
+          Form: this.FormData,
         },
       },
       Args: {},
@@ -95,7 +91,7 @@ export class FromFile extends FromFormBase {
 
   constructor(data: any) {
     super();
-    this.Data = data;
+    this.FormData = data;
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter<IUploadOptions>, req: Request, res: express.Response, route?: IRoute): Promise<any> {
@@ -103,17 +99,23 @@ export class FromFile extends FromFormBase {
 
     const data = await super.extract(callData, param, req, res, route);
 
-    if (!this.Data.Files[param.Name]) {
-      throw new InvalidOperation(`Empty '${param.Name} parameter'`);
+    if (!this.FormData.Files[param.Name]) {
+      throw new InvalidOperation(`Empty file '${param.Name} parameter'`);
     }
 
     if (!this.FileService) {
       this.FileService = await DI.resolve('__file_provider__', [param.Options?.provider ?? this.DefaultFsProviderName]);
     }
 
-    // map from formidable to our object
-    // of type IUploadedFile
-    const formFiles = _.isArray(this.Data.Files[param.Name]) ? (this.Data.Files[param.Name] as formidable.File[]) : ([this.Data.Files[param.Name]] as formidable.File[]);
+    const formFiles = Util.Array.makeArray(this.FormData.Files[param.Name]) as formidable.File[];
+
+    const task = (f: formidable.File) => ({
+      execute: copy(f).finally(() => promises.unlink(f.filepath).catch(() => {
+        this.Log.error(`cannot delete temporary file ${f.filepath} from temp dir`)
+      })).then(() => mf(f)),
+      rollback: remove(f),
+    });
+
 
     for (const f of formFiles) {
       await copy(f);
@@ -172,16 +174,9 @@ export class JsonFileRouteArgs extends FromFile {
     return ParameterType.FromJSONFile;
   }
 
-  constructor(data: any) {
-    super(data);
-  }
-
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
-    if (!this.Data) {
-      await this.parseForm(callData, param, req);
-    }
-
-    const sourceFile = (this.Data.Files[param.Name] as File).filepath;
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData, param, req, res, route);
+    const sourceFile = (this.FormData.Files[param.Name] as File).filepath;
     const content = await promises.readFile(sourceFile, { encoding: param.Options.Encoding ?? 'utf-8', flag: 'r' });
 
     if (param.Options.DeleteFile) {
@@ -189,12 +184,7 @@ export class JsonFileRouteArgs extends FromFile {
     }
 
     return {
-      CallData: {
-        ...callData,
-        Payload: {
-          Form: this.Data,
-        },
-      },
+      ...data,
       Args: JSON.parse(content.toString()),
     };
   }
@@ -207,30 +197,18 @@ export class CsvFileRouteArgs extends FromFile {
     return ParameterType.FromCSV;
   }
 
-  constructor(data: any) {
-    super(data);
-  }
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData, param, req, res, route);
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
-    if (!this.Data) {
-      await this.parseForm(callData, param, req);
-    }
-
-    const sourceFile = (this.Data.Files[param.Name] as File).filepath;
+    const sourceFile = (this.FormData.Files[param.Name] as File).filepath;
     if (param.Options.DeleteFile) {
       await promises.unlink(sourceFile);
     }
 
-    const data = await this.parseCvs(sourceFile);
-
+    const cvsData = await this.parseCvs(sourceFile);
     return {
-      CallData: {
-        ...callData,
-        Payload: {
-          Form: this.Data,
-        },
-      },
-      Args: data,
+      ...data,
+      Args: cvsData,
     };
   }
 
@@ -254,30 +232,17 @@ export class FromFormField extends FromFormBase {
     return ParameterType.FormField;
   }
 
-  constructor(data: any) {
-    super();
-    this.Data = data;
-  }
-
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
-    if (!this.Data) {
-      await this.parseForm(callData, param, req);
-    }
-
-    const data = this.Data.Fields[param.Name];
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData, param, req, res, route);
+    const field = this.FormData.Fields[param.Name];
 
     return {
-      CallData: {
-        ...callData,
-        Payload: {
-          Form: this.Data,
-        },
-      },
+      ...data,
 
       // by default form field is returned in array,
       // we assume that if length is 1 we want single param
       // when route param is not array
-      Args: data.length === 1 && param.RuntimeType.name !== 'Array' ? data[0] : data,
+      Args: field.length === 1 && param.RuntimeType.name !== 'Array' ? field[0] : data,
     };
   }
 }
@@ -290,22 +255,18 @@ export class FromForm extends FromFormBase {
 
   constructor(data: any) {
     super();
-    this.Data = data;
+    this.FormData = data;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
+  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData, param, req, res, route);
     let result = null;
-
-    if (!this.Data) {
-      await this.parseForm(callData, param, req);
-    }
 
     // todo
     // refactor to support arrays in object
     // and array of objects
-
-    const data = Object.fromEntries(
-      Object.entries(this.Data.Fields).map(([key, value]) => {
+    const fData = Object.fromEntries(
+      Object.entries(this.FormData.Fields).map(([key, value]) => {
         return [key, value[0]];
       }),
     );
@@ -313,18 +274,13 @@ export class FromForm extends FromFormBase {
     const hydrator = this.getHydrator(param);
 
     if (hydrator) {
-      result = await this.tryHydrateObject(data, param, hydrator);
+      result = await this.tryHydrateObject(fData, param, hydrator);
     } else {
       result = data;
     }
 
     return {
-      CallData: {
-        ...callData,
-        Payload: {
-          Form: this.Data,
-        },
-      },
+      ...data,
       Args: result,
     };
   }

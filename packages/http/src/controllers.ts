@@ -1,21 +1,23 @@
-import { Request as sRequest, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
-import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container } from '@spinajs/di';
-import * as express from 'express';
-import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
-import { UnexpectedServerError, IOFail } from '@spinajs/exceptions';
-import { TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
-import { HttpServer } from './server.js';
-import { Logger, Log } from '@spinajs/log';
-import { DataValidator } from '@spinajs/validation';
-import { RouteArgs, FromFormBase } from './route-args/index.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isPromise } from 'node:util/types';
-import { Response } from './interfaces.js';
-
-import * as fs from 'fs';
 import { basename } from 'node:path';
-import { Configuration } from '@spinajs/configuration';
+import * as fs from 'node:fs';
+
+import * as express from 'express';
 import _ from 'lodash';
+
+import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container } from '@spinajs/di';
+import { UnexpectedServerError, IOFail } from '@spinajs/exceptions';
+import { TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
+import { Logger, Log } from '@spinajs/log';
+import { DataValidator } from '@spinajs/validation';
+import { Configuration } from '@spinajs/configuration';
+import { Util } from "@spinajs/util";
+
+import { HttpServer } from './server.js';
+import { RouteArgs } from './route-args/index.js';
+import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
+import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 
 export abstract class BaseController extends AsyncService implements IController {
   /**
@@ -205,34 +207,30 @@ export abstract class BaseController extends AsyncService implements IController
     }
 
     async function _extractRouteArgs(route: IRoute, req: Request, res: express.Response) {
-      const args = new Array<any>(route.Parameters.size);
+      const callArgs = new Array(route.Parameters.size);
+      const argsCache = new Map<ParameterType | string, RouteArgs>();
+
       let callData = {
         Payload: {},
       };
 
-      const argsCache = new Map<ParameterType | string, RouteArgs>();
-      let formCache: FromFormBase = null;
-
       for (const [, param] of route.Parameters) {
-        if (!argsCache.has(param.Type)) {
-          const fArg = await DI.resolve<RouteArgs>(param.Type, formCache ? [formCache.Data] : []);
-          argsCache.set(param.Type, fArg);
 
-          if (!formCache && (param.Type === ParameterType.FormField || param.Type === ParameterType.FromCSV || param.Type === ParameterType.FromJSONFile || param.Type === ParameterType.FromForm || param.Type === ParameterType.FromFile)) {
-            formCache = fArg as any as FromFormBase;
-          }
+        const routeArgsHandler = await Util.Hash.tryGetHash(argsCache, param.Type, () => DI.resolve(param.Type));
+        if (!routeArgsHandler) {
+          throw new UnexpectedServerError(`invalid route parameter type for param: ${param.Name},
+            method: ${route.Method},
+            controller: ${self.constructor.name}`
+          );
         }
 
-        const extractor = argsCache.get(param.Type);
-        if (!extractor) {
-          throw new UnexpectedServerError('invalid route parameter type for param: ' + param.Name);
-        }
+        const { Args, CallData } = await routeArgsHandler.extract(callData, param, req, res, route);
 
-        const { Args } = await extractor.extract(callData, param, req, res, route);
-        args[param.Index] = Args;
+        callData = CallData;
+        callArgs[param.Index] = Args;
       }
 
-      return args;
+      return callArgs;
     }
   }
 }
