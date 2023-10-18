@@ -12,7 +12,7 @@ import { TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { Configuration } from '@spinajs/configuration';
-import { Util } from "@spinajs/util";
+import Util from '@spinajs/util';
 
 import { HttpServer } from './server.js';
 import { RouteArgs } from './route-args/index.js';
@@ -215,13 +215,11 @@ export abstract class BaseController extends AsyncService implements IController
       };
 
       for (const [, param] of route.Parameters) {
-
         const routeArgsHandler = await Util.Hash.tryGetHash(argsCache, param.Type, () => DI.resolve(param.Type));
         if (!routeArgsHandler) {
           throw new UnexpectedServerError(`invalid route parameter type for param: ${param.Name},
             method: ${route.Method},
-            controller: ${self.constructor.name}`
-          );
+            controller: ${self.constructor.name}`);
         }
 
         const { Args, CallData } = await routeArgsHandler.extract(callData, param, req, res, route);

@@ -10,7 +10,7 @@ export namespace Util {
          * @param val val to convert
          * @returns val if array, or [val]
          */
-        export const makeArray = <T>(val: ArrayItemType<T>) => {
+        export const toArray = <T>(val: ArrayItemType<T>) => {
             return global.Array.isArray(val) ? val : [val];
         }
     }

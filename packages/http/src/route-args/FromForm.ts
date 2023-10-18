@@ -1,18 +1,18 @@
 import { IRouteArgsResult, RouteArgs } from './RouteArgs.js';
-import { IRouteParameter, ParameterType, IRouteCall, Request, IUploadOptions, IRoute } from '../interfaces.js';
+import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOptions } from '../interfaces.js';
 import * as express from 'express';
-import formidable, { Fields, Files, File, IncomingForm } from 'formidable';
+import { Fields, Files, File, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
-import { DI, Injectable, NewInstance } from '@spinajs/di';
+import { Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs } from '@spinajs/fs';
-import { basename } from 'path';
 import { createReadStream, promises } from 'fs';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
-import { InvalidOperation } from '@spinajs/exceptions';
-import { Util } from "@spinajs/util";
-import { Effect, Option } from "effect";
+import { Option, Effect, pipe} from "effect";
+import { default as FP} from "@spinajs/util-fp";
+import Util from "@spinajs/util";
+import { basename } from 'node:path';
 
 interface FormData {
   Fields: Fields;
@@ -58,7 +58,7 @@ export abstract class FromFormBase extends RouteArgs {
 
   public async extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute): Promise<IRouteArgsResult> {
     if (!this.FormData) {
-      this.FormData = callData?.Payload?.Form ?? await parseForm(req, routeParameter.Options ?? { multiples: true })
+      this.FormData = callData?.Payload?.Form ?? (await parseForm(req, routeParameter.Options ?? { multiples: true }));
     }
 
     const result = {
@@ -100,23 +100,33 @@ export class FromFile extends FromFormBase {
 
     const data = await super.extract(callData, param, req, res, route);
 
-
-    const formData = Option.
-     
-
-    if (!this.FormData.Files[param.Name]) {
-      throw new InvalidOperation(`Empty file '${param.Name} parameter'`);
+    const files = Option.fromNullable(this.FormData.Files[param.Name]).pipe(Option.map(Util.Array.toArray));
+    const fs = FP.Fs.getFsProvider(param.Options.provider);
+    const copyToFs = ( file: string) => { 
+      return pipe(
+        fs,
+        Effect.flatMap((fs) => Effect.tryPromise(() => fs.writeStream(basename(file)))),
+        Effect.flatMap((stream) => Effect.tryPromise<void>(() =>{ 
+          return new Promise((resolve,reject) => { 
+            createReadStream(file).pipe(stream).on('finish', resolve).on('error', reject);
+          })
+        })),
+        Effect.flatMap(() => FP.Fs.del(file))
+      )
     }
+    const del = (file : string) => fs.pipe(Effect.tap((fs) => Effect.tryPromise(() => fs.unlink(basename(file)))), Effect.tap((fs) => FP.Logger.trace('http', `Deletet file ${file} from ${fs.Name}`)));
+    const delTemp  = ( file : string) => FP.Fs.del(file).pipe(() => FP.Logger.trace('http', `Deleted temporary file ${file}`))
+    const delAllFs = (f: string[]) => Effect.validateAll(f, (f) => del(f), { concurrency: 'unbounded' });
+    const delAll = (f: string[]) => Effect.validateAll(f, (f) => delTemp(f), { concurrency: 'unbounded' });
+    const copyAll = (f: string[]) => Effect.orElse(Effect.partition(f, (f) =>
+                    Effect.tapBoth(copyToFs(f), {
+                        onFailure: (err : Error) => FP.Logger.error(`http`, err, `Error copying incoming file ${f}`),
+                        onSuccess: () => FP.Logger.success(`http`, `Success receiving incoming file ${f}`)
+                    }), {
+                    concurrency: "unbounded"
+                }), () => delAll(f));
 
-    if (!this.FileService) {
-      this.FileService = await DI.resolve('__file_provider__', [param.Options?.provider ?? this.DefaultFsProviderName]);
-    }
-
-    const formFiles = Util.Array.makeArray(this.FormData.Files[param.Name]) as formidable.File[];
-
-    for (const f of formFiles) {
-      await copy(f);
-    }
+  
 
     return Object.assign(data, {
       Args: param.RuntimeType.name === 'Array' ? formFiles.map(mf) : mf(formFiles[0]),
@@ -133,35 +143,6 @@ export class FromFile extends FromFormBase {
         Hash: f.hash,
       };
     }
-
-    async function copy(file: formidable.File) {
-      const fName = basename(file.filepath);
-      const stream = await self.FileService.writeStream(fName);
-
-      self.Log.trace(`Copying incoming http file to ${file.filepath} to ${fName}, provider: ${self.FileService.Name}`);
-
-      return new Promise<void>((resolve, reject) => {
-        createReadStream(file.filepath)
-          .pipe(stream)
-          .on('finish', () => {
-            self.Log.trace(`Finished copying incoming file ${file.filepath} to ${fName}, provider: ${self.FileService.Name}`);
-
-            unlink(file.filepath, (err) => {
-              if (err) {
-                self.Log.warn(`Failed do delete incoming file ${file.filepath}, reason: ${err.message}`);
-                reject(err);
-              } else {
-                self.Log.trace(`Incoming file ${file.filepath} deleted`);
-                resolve();
-              }
-            });
-          })
-          .on('error', (err: any) => {
-            reject(err);
-          });
-      });
-    }
-  }
 }
 
 @Injectable()

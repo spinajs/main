@@ -6,5 +6,5 @@
     "module": "commonjs"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../log-common/tsconfig.cjs.json" }, { "path": "../reflection/tsconfig.cjs.json" }, { "path": "../fs/tsconfig.cjs.json" }, { "path": "../templates/tsconfig.cjs.json" }, { "path": "../validation/tsconfig.cjs.json" }, { "path": "../templates-pug/tsconfig.cjs.json" }]
+  "references": [{ "path": "../util-fp/tsconfig.cjs.json" },{ "path": "../util/tsconfig.cjs.json" },{ "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../log-common/tsconfig.cjs.json" }, { "path": "../reflection/tsconfig.cjs.json" }, { "path": "../fs/tsconfig.cjs.json" }, { "path": "../templates/tsconfig.cjs.json" }, { "path": "../validation/tsconfig.cjs.json" }, { "path": "../templates-pug/tsconfig.cjs.json" }]
 }
