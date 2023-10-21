@@ -2,6 +2,12 @@ import { Log, ILogEntry } from '@spinajs/log-common'
 
 export class ElectronRendererLogger extends Log {
 
+    constructor(name: string) {
+        super();
+        
+        this.Name = name;
+    }
+
     public trace(message: string, ...args: any[]): void;
     public trace(err: Error, message: string, ...args: any[]): void;
     public trace(err: string | Error, message: string | any[], ...args: any[]): void;
