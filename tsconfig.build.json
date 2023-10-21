@@ -41,6 +41,7 @@
     { "path": "packages/templates-pug/tsconfig.mjs.json" },
     { "path": "packages/templates-xlsx/tsconfig.mjs.json" },
     { "path": "packages/util/tsconfig.mjs.json" },
+    { "path": "packages/util-fp/tsconfig.mjs.json" },
     { "path": "packages/validation/tsconfig.mjs.json" },
     { "path": "packages/templates-pdf/tsconfig.mjs.json" },
     { "path": "packages/templates-csv/tsconfig.mjs.json" },

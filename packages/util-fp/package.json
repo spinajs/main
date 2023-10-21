@@ -1,17 +1,13 @@
 {
-  "name": "@spinajs/reflection",
+  "name": "@spinajs/util-fp",
   "version": "2.0.180",
-  "description": "SpinaJS reflection helpers",
+  "description": "utility functions shared across @spinajs framework",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-    "node": {
+    ".": {
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
-    },
-    "browser": { 
-      "import": "./lib/mjs/index.browser.js",
-      "require": "./lib/cjs/index.browser.js"
     }
   },
   "type": "module",
@@ -36,25 +32,22 @@
   "files": [
     "lib/**/*"
   ],
-  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "http"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/spinajs/reflection/issues"
+    "url": "https://github.com/spinajs/main/issues"
   },
-  "homepage": "https://github.com/spinajs/reflection#readme",
+  "homepage": "https://github.com/spinajs/main#readme",
+  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.180",
-    "@spinajs/di": "^2.0.180",
-    "@spinajs/exceptions": "^2.0.180",
-    "@spinajs/log": "^2.0.180",
-    "glob": "^8.1.0",
-    "lodash": "^4.17.21",
-    "typescript": "^5.2.2",
-    "typescript-mix": "^3.1.3"
-  },
-  "devDependencies": {
-    "@types/glob": "8.0.1",
-    "@types/node": "^18.11.18"
-  },
-  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+    "effect": "^2.0.0-next.48"
+  }
 }

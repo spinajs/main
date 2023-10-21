@@ -308,7 +308,7 @@ export class Container extends EventEmitter implements IContainer {
     const getCachedInstance = (e: string | Class<any> | TypedArray<any>, parent: boolean) => {
       if (this.isResolved(e, parent)) {
         const rArray = this.get(e as any, parent);
-        return _.isArray(rArray) ? rArray.find((x) => getTypeName(x) === getTypeName(targetType)) : rArray;
+        return _.isArray(rArray) ? rArray.find((x) => getTypeName(x as any) === getTypeName(targetType)) : rArray;
       }
 
       return null;
@@ -394,7 +394,7 @@ export class Container extends EventEmitter implements IContainer {
       // if in cache this new type exists ( only check if type in array exists )
       const cached = getCachedInstance(sourceType, isSingleton);
       if (cached) {
-        return cached;
+        return cached as any;
       }
     }
 

@@ -1,4 +1,3 @@
-
 export namespace Util {
   export namespace JSON {
     export interface ICustomDataType {
@@ -27,4 +26,3 @@ export namespace Util {
     }
   }
 }
-
