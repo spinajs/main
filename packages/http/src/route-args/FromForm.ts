@@ -9,7 +9,11 @@ import { fs } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
-import { Option, Effect, pipe} from "effect";
+import { pipe, Effect, Either} from "effect";
+
+import { flatMap , tap, orElse, validateAll, tryPromise,  } from "effect/Effect";
+import { fromNullable, map as mapO} from "effect/Option";
+
 import { default as FP} from "@spinajs/util-fp";
 import Util from "@spinajs/util";
 import { basename } from 'node:path';
@@ -99,21 +103,50 @@ export class FromFile extends FromFormBase {
     const self = this;
 
     const data = await super.extract(callData, param, req, res, route);
+    const files = mapO(
+      fromNullable(this.FormData.Files[param.Name]),
+      Util.Array.toArray
+    );
 
-    const files = Option.fromNullable(this.FormData.Files[param.Name]).pipe(Option.map(Util.Array.toArray));
     const fs = FP.Fs.getFsProvider(param.Options.provider);
-    const copyToFs = ( file: string) => { 
-      return pipe(
-        fs,
-        Effect.flatMap((fs) => Effect.tryPromise(() => fs.writeStream(basename(file)))),
-        Effect.flatMap((stream) => Effect.tryPromise<void>(() =>{ 
-          return new Promise((resolve,reject) => { 
-            createReadStream(file).pipe(stream).on('finish', resolve).on('error', reject);
-          })
-        })),
-        Effect.flatMap(() => FP.Fs.del(file))
-      )
-    }
+
+
+    Effect.zip(
+      mapO(
+      fromNullable(this.FormData.Files[param.Name]),
+      Util.Array.toArray
+    ), 
+    FP.Fs.getFsProvider(param.Options.provider)).pipe(Effect.flatMap(([a,b]) =>{ 
+
+      a.forEach(()=>{});
+      
+      return Effect.succeed(1);
+    })
+
+
+    const copyToFs = ( file: string) => Effect.either(pipe(
+      fs,
+      flatMap((fs) => tryPromise(() => fs.writeStream(basename(file)))),
+      flatMap((stream) => tryPromise<void>(() =>{ 
+        return new Promise((resolve,reject) => { 
+          createReadStream(file).pipe(stream).on('finish', resolve).on('error', reject);
+        })
+      })),
+      Effect.match({
+        onFailure: () => FP.Fs.del(file),
+        onSuccess: () => FP.Fs.del(file)
+      })
+    )) 
+
+     
+
+
+    const d = (file: string) => fs.pipe( Effect.map( (fs) => Effect.tryPromise(async () => {
+
+   return "
+
+    })), (ss) => {})
+
     const del = (file : string) => fs.pipe(Effect.tap((fs) => Effect.tryPromise(() => fs.unlink(basename(file)))), Effect.tap((fs) => FP.Logger.trace('http', `Deletet file ${file} from ${fs.Name}`)));
     const delTemp  = ( file : string) => FP.Fs.del(file).pipe(() => FP.Logger.trace('http', `Deleted temporary file ${file}`))
     const delAllFs = (f: string[]) => Effect.validateAll(f, (f) => del(f), { concurrency: 'unbounded' });
