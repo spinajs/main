@@ -11,6 +11,7 @@ import { fs } from '../src/index.js';
 
 import { existsSync } from 'fs';
 import { expect } from 'chai';
+import { writeFile } from 'fs/promises';
 
 async function tmp() {
     return await DI.resolve<fs>('__file_provider__', ['fs-temp']);
@@ -38,21 +39,22 @@ describe('fs temp tests', function () {
 
     it('should create temporary file', async () => {
 
+        const writeStub = sinon.spy(fs, "writeFile");
+
         const t = await tmp();
         await t.write("tmp.txt", "hello temp");
 
-        const tExists = await t.exists("tmp.txt");
-        const fsExists = existsSync(t.resolvePath("tmp.txt"));
+ 
         const tmpPath = t.resolvePath("tmp.txt");
 
-        expect(tExists).to.be.true;
+        expect(writeStub.called).to.be.true;
         expect(fsExists).to.be.true;
         expect(tmpPath.endsWith('packages\\fs\\test\\temp\\tmp.txt')).to.true;
     });
 
     it('should cleanup old temp file', async () => {
 
-    })
+    });
 
 
 

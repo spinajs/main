@@ -29,6 +29,14 @@ export class TestConfiguration extends FrameworkConfiguration {
         defaultProvider: 'test',
         providers: [
           {
+            service: "FooFs",
+            name: "foo1"
+          },
+          {
+            service: "FooFs",
+            name: "foo2"
+          },
+          {
             service: 'fsNative',
             name: 'test',
             basePath: dir('./files'),

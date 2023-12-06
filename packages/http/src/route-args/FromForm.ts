@@ -9,14 +9,12 @@ import { fs } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
-import { pipe, Effect, Either} from "effect";
-
-import { flatMap , tap, orElse, validateAll, tryPromise,  } from "effect/Effect";
-import { fromNullable, map as mapO} from "effect/Option";
-
+import { pipe } from "effect";
+import { flatMap , tryPromise, map, fromNullable, zip, either, partition } from "effect/Effect";
 import { default as FP} from "@spinajs/util-fp";
 import Util from "@spinajs/util";
 import { basename } from 'node:path';
+ 
 
 interface FormData {
   Fields: Fields;
@@ -94,37 +92,34 @@ export class FromFile extends FromFormBase {
     return ParameterType.FromFile;
   }
 
-  constructor(data: any) {
+  constructor(public FormData: FormData) {
     super();
-    this.FormData = data;
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter<IUploadOptions>, req: Request, res: express.Response, route?: IRoute): Promise<any> {
-    const self = this;
 
-    const data = await super.extract(callData, param, req, res, route);
-    const files = mapO(
-      fromNullable(this.FormData.Files[param.Name]),
-      Util.Array.toArray
+    // extract form data if not processed already
+    const result = await super.extract(callData, param, req, res, route);
+
+    // get incoming files
+    const { Files } = this.FormData;
+  
+    // combine files from form data & file provider
+    // for further processing
+    const params = zip(
+
+      // convert files to array for simplicity
+      map(fromNullable(Files[param.Name]),Util.Array.toArray), 
+
+      // get provider from param options or default
+      FP.Fs.getFsProvider(param.Options.provider ?? this.DefaultFsProviderName)
     );
 
-    const fs = FP.Fs.getFsProvider(param.Options.provider);
-
-
-    Effect.zip(
-      mapO(
-      fromNullable(this.FormData.Files[param.Name]),
-      Util.Array.toArray
-    ), 
-    FP.Fs.getFsProvider(param.Options.provider)).pipe(Effect.flatMap(([a,b]) =>{ 
-
-      a.forEach(()=>{});
+    params.pipe(flatMap(([files, fs]) => partition(files, (f) =>{ 
       
-      return Effect.succeed(1);
-    })
+    })))
 
-
-    const copyToFs = ( file: string) => Effect.either(pipe(
+    const copyToFs = ( file: string) => either(pipe(
       fs,
       flatMap((fs) => tryPromise(() => fs.writeStream(basename(file)))),
       flatMap((stream) => tryPromise<void>(() =>{ 
@@ -142,11 +137,6 @@ export class FromFile extends FromFormBase {
 
 
     const d = (file: string) => fs.pipe( Effect.map( (fs) => Effect.tryPromise(async () => {
-
-   return "
-
-    })), (ss) => {})
-
     const del = (file : string) => fs.pipe(Effect.tap((fs) => Effect.tryPromise(() => fs.unlink(basename(file)))), Effect.tap((fs) => FP.Logger.trace('http', `Deletet file ${file} from ${fs.Name}`)));
     const delTemp  = ( file : string) => FP.Fs.del(file).pipe(() => FP.Logger.trace('http', `Deleted temporary file ${file}`))
     const delAllFs = (f: string[]) => Effect.validateAll(f, (f) => del(f), { concurrency: 'unbounded' });

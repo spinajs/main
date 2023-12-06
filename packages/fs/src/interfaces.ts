@@ -59,8 +59,10 @@ export interface IFsLocalOptions {
   /**
    * Full path to local directory where files are hold.
    * All paths will be relative to this directory
+   * 
+   * If path is not provided, it will behave like normal nodejs fs functions
    */
-  basePath: string;
+  basePath?: string;
 
   /**
    * Instance name of this filesystem. Used to share fs instances.

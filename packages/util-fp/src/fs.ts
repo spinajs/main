@@ -1,9 +1,9 @@
 import { Effect, Option, pipe } from 'effect';
-import { unlink as unlinkFS, copyFile as copyFileFS, readFile as readFileFS, FileHandle } from 'fs/promises';
 import { Util as DI } from './di.js';
 import { Util as C } from './config.js';
 import { fs } from '@spinajs/fs';
-import { OpenMode, PathLike } from 'node:fs';
+import { PathLike } from 'node:fs';
+import { basename, join } from 'path';
 
 export namespace Util {
   export namespace Fs {
@@ -44,17 +44,18 @@ export namespace Util {
      * @param options
      * @returns
      */
-    export const readFile = (
-      path: PathLike,
-      options?: {
-        encoding?: null | undefined;
-        flag?: OpenMode | undefined;
-      } | null,
-    ) => {
-      return Effect.tryPromise({
-        try: () => readFileFS(path, options),
-        catch: (error: Error) => new ReadError(path, error),
-      });
+    export const readFile = (fs: Option.Option<fs>, path: string, encoding?: BufferEncoding) => {
+      return Option.match(fs, {
+        onSome: (f) => Option.fromNullable(f),
+        onNone: () => getFsProvider('fs-system'),
+      }).pipe(
+        Effect.flatMap((a) =>
+          Effect.tryPromise({
+            try: () => a.read(path, encoding),
+            catch: (error: Error) => new ReadError(path, error),
+          }),
+        ),
+      );
     };
 
     /**
@@ -65,24 +66,57 @@ export namespace Util {
      * @param dst dest path
      * @returns
      */
-    export const copyFile = (src: string, dst: string) => {
-      return Effect.tryPromise({
-        try: () => copyFileFS(src, dst),
-        catch: (error: Error) => new CopyError(src, dst, error),
-      });
+    export const copyFile = (fs: Option.Option<fs>, src: string, dst: string) => {
+      return Option.match(fs, {
+        onSome: (f) => Option.fromNullable(f),
+        onNone: () => getFsProvider('fs-system'),
+      }).pipe(
+        Effect.flatMap((a) =>
+          Effect.tryPromise({
+            try: () => a.copy(src, dst),
+            catch: (error: Error) => new CopyError(src, dst, error),
+          }),
+        ),
+        Effect.map(() => [src, dst]),
+      );
     };
 
     /**
      * Deletes file from disk at given path
      *
      * @param file file to delete
-     * @returns
+     * @returns unklinked file name
      */
-    export const unlink = (file: string) => {
-      return Effect.tryPromise({
-        try: () => unlinkFS(file),
-        catch: (error: Error) => new DeleteError(file, error),
-      });
+    export const unlink = (fs: Option.Option<fs>, file: string) => {
+      return Option.match(fs, {
+        onSome: (f) => Option.fromNullable(f),
+        onNone: () => getFsProvider('fs-system'),
+      }).pipe(
+        Effect.flatMap((a) =>
+          Effect.tryPromise({
+            try: () => a.unlink(file),
+            catch: (error: Error) => new DeleteError(file, error),
+          }),
+        ),
+        Effect.map(() => file),
+      );
+    };
+
+    /**
+     *
+     * @param srcFiles list of files to copy
+     * @param dstDir destination dir, file names are taken from srcFiles
+     * @returns array of errors and copied files list
+     */
+    export const copyFileAll = (fs: Option.Option<fs>, files: string[], dstDir: string) => {
+      return Effect.partition(files, (f) => copyFile(fs, f, join(dstDir, basename(f))));
+    };
+
+    /**
+     * deletes all files from local filesystem
+     * */
+    export const unlinkAll = (fs: Option.Option<fs>, files: string[]) => {
+      return Effect.partition(files, (f) => unlink(fs, f), { concurrency: 'inherit' });
     };
   }
 }

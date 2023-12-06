@@ -4,6 +4,11 @@ import { DateTime } from 'luxon';
 import { Injectable } from '@spinajs/di';
 
 /**
+ * Default file age for temp files in seconds
+ */
+const DEFAULT_FILE_AGE = 60 * 60;
+
+/**
  * Native temp filesystem. Use it for creating and storing temporary files and dirs.
  *
  * It will automatically delete old files. It does not check fieles recursive in subdirectories.
@@ -43,7 +48,7 @@ export class fsNativeTemp extends fsNative<IFsLocalTempOptions> {
         const stat = await this.stat(f);
         const timeDiff = stat.CreationTime.diff(today, 'seconds');
 
-        if (Math.abs(timeDiff.seconds) > this.Options.cleanupInterval) {
+        if (timeDiff.seconds > this.Options.maxFileAge || DEFAULT_FILE_AGE) {
           this.Logger.trace(
             `Temp file at path ${f} is older than ${
               this.Options.cleanupInterval

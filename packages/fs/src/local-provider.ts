@@ -47,17 +47,19 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async resolve() {
-    // yup, exceptions as conditional execution path is bad :)
-    try {
-      await access(this.Options.basePath, constants.F_OK);
-    } catch {
-      this.Logger.warn(
-        `Base path ${this.Options.basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
-      );
+    if (this.Options.basePath) {
+      // yup, exceptions as conditional execution path is bad :)
+      try {
+        await access(this.Options.basePath, constants.F_OK);
+      } catch {
+        this.Logger.warn(
+          `Base path ${this.Options.basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
+        );
 
-      await mkdir(this.Options.basePath, { recursive: true });
+        await mkdir(this.Options.basePath, { recursive: true });
 
-      this.Logger.success(`Base path ${this.Options.basePath} created`);
+        this.Logger.success(`Base path ${this.Options.basePath} created`);
+      }
     }
   }
 
@@ -292,6 +294,9 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public resolvePath(path: string) {
+
+    if(!this.Options.basePath) return path;
+
     if (path.startsWith(this.Options.basePath)) {
       return path;
     }
