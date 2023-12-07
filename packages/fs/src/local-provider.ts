@@ -73,13 +73,13 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async upload(srcPath: string, destPath?: string) {
-    const sPath = this.resolvePath(srcPath);
-    if (!existsSync(sPath)) {
+    
+    if (!existsSync(srcPath)) {
       throw new IOFail(`file ${srcPath} does not exists`);
     }
 
     const dPath = this.resolvePath(destPath ?? basename(srcPath));
-    await cp(sPath, dPath, { force: true, recursive: true });
+    await cp(srcPath, dPath, { force: true, recursive: true });
   }
 
   /**
