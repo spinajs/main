@@ -1,7 +1,7 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
 import { constants, createReadStream, createWriteStream, existsSync, readFile, readFileSync, ReadStream } from 'fs';
-import { rm, stat, readdir, rename, mkdir, copyFile, access, open, appendFile } from 'node:fs/promises';
+import { rm, stat, readdir, rename, mkdir, access, open, appendFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IFsLocalOptions, IStat, IZipResult } from './interfaces.js';
@@ -73,12 +73,13 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async upload(srcPath: string, destPath?: string) {
-    if (!existsSync(srcPath)) {
+    const sPath = this.resolvePath(srcPath);
+    if (!existsSync(sPath)) {
       throw new IOFail(`file ${srcPath} does not exists`);
     }
 
     const dPath = this.resolvePath(destPath ?? basename(srcPath));
-    await cp(srcPath, dPath, { force: true, recursive: true });
+    await cp(sPath, dPath, { force: true, recursive: true });
   }
 
   /**
@@ -112,7 +113,11 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     } catch (err) {
       throw new IOFail(`Cannot write to file ${path}`, err);
     } finally {
-      if (fHandle) await fHandle.close();
+      
+      if (fHandle){
+        await fHandle.sync();
+        await fHandle.close();
+      } 
     }
   }
 
@@ -146,7 +151,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   /**
-   * Copy file to another location
+   * Copy file or dir to another location
    * @param path - src path
    * @param dest - dest path
    */
@@ -154,7 +159,10 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     if (dstFs) {
       await dstFs.upload(this.resolvePath(path), dest);
     } else {
-      await copyFile(this.resolvePath(path), this.resolvePath(dest));
+      await cp(this.resolvePath(path), this.resolvePath(dest), {
+        recursive: true,
+        force: true
+      });
     }
   }
 
@@ -163,12 +171,12 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    */
   public async move(oldPath: string, newPath: string, dstFs?: fs) {
     const oPath = this.resolvePath(oldPath);
-    const nPath = this.resolvePath(newPath);
 
     if (dstFs) {
       await dstFs.upload(oPath, newPath);
       await this.rm(oldPath);
     } else {
+      const nPath = this.resolvePath(newPath);
       await rename(oPath, nPath);
     }
   }
@@ -253,8 +261,15 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async isDir(path: string): Promise<boolean> {
-    const pStat = await this.stat(path);
-    return pStat.IsDirectory;
+    try {
+      const pStat = await this.stat(path);
+      return pStat.IsDirectory;
+    }
+    catch (err) {
+      console.log(err);
+    }
+
+
   }
 
   public async zip(path: string | string[], dstFs?: fs): Promise<IZipResult> {
@@ -298,12 +313,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public resolvePath(path: string) {
-    if (!this.Options.basePath) return path;
-
-    if (path.startsWith(this.Options.basePath)) {
-      return path;
-    }
-
+    if (!this.Options.basePath || path.startsWith(this.Options.basePath)) return path;
     return join(this.Options.basePath, path);
   }
 }

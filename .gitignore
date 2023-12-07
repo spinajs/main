@@ -70,3 +70,4 @@ npm-debug.log
 /.npmrc
 /packages/email-smtp-transport/tests/config.ts
 /packages/http/test/files
+/packages/fs/test/files

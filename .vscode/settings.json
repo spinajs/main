@@ -30,5 +30,6 @@
     ],
     "mocha.env": {
         "TS_NODE_PROJECT" : "tsconfig.json"
-    }
+    },
+    "editor.inlineSuggest.showToolbar": "onHover"
 }

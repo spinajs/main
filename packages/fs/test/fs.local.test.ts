@@ -105,8 +105,8 @@ describe('fs local tests', function () {
     await _f.write('move-bewtween.txt', 'hello world', 'utf-8');
     await _f.move('move-bewtween.txt', 'move-bewtween.txt', _f2);
 
-    const ex = _f.exists('move-bewtween.txt');
-    const ex2 = _f2.exists('move-bewtween.txt');
+    const ex = await _f.exists('move-bewtween.txt');
+    const ex2 = await _f2.exists('move-bewtween.txt');
 
     expect(ex).to.be.false;
     expect(ex2).to.be.true;
@@ -125,9 +125,7 @@ describe('fs local tests', function () {
 
   it('Should upload dir', async () => {
     const _f = await f();
-    const srcDir = _f.resolvePath('dir_zip');
-
-    await _f.upload(srcDir, 'dir_zip_uploaded');
+    await _f.upload('dir_zip', 'dir_zip_uploaded');
 
     const exists = await _f.exists('dir_zip_uploaded');
     const isDir = await _f.isDir('dir_zip_uploaded');
@@ -175,8 +173,8 @@ describe('fs local tests', function () {
     await _f.write('copy-bewtween.txt', 'hello world', 'utf-8');
     await _f.copy('copy-bewtween.txt', 'move-bewtween.txt', _f2);
 
-    const ex = _f.exists('move-bewtween.txt');
-    const ex2 = _f2.exists('move-bewtween.txt');
+    const ex = await _f.exists('move-bewtween.txt');
+    const ex2 = await _f2.exists('move-bewtween.txt');
 
     expect(ex).to.be.false;
     expect(ex2).to.be.true;
