@@ -8,5 +8,5 @@
   },
   "include": ["src/**/*"],
   "typeRoots": ["node_modules/@types", "./src/typings"],
-  "references": [{ "path": "../exceptions/tsconfig.mjs.json" }, {"path": "../log-common/tsconfig.mjs.json"}]
+  "references": [{ "path": "../exceptions/tsconfig.mjs.json" }, {"path": "../util/tsconfig.mjs.json"}, { "path": "../log-common/tsconfig.mjs.json" }]
 }

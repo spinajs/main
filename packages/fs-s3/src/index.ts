@@ -39,7 +39,7 @@ export class fsS3 extends fs {
   /**
    * File system for temporary files
    */
-  @FileSystem('fs-temp')
+  @FileSystem('fs-temp-s3')
   protected TempFs: fs;
 
   /**

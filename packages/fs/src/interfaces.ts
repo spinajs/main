@@ -59,7 +59,7 @@ export interface IFsLocalOptions {
   /**
    * Full path to local directory where files are hold.
    * All paths will be relative to this directory
-   * 
+   *
    * If path is not provided, it will behave like normal nodejs fs functions
    */
   basePath?: string;
@@ -90,9 +90,17 @@ export interface IFsLocalTempOptions extends IFsLocalOptions {
 }
 
 export interface IZipResult {
+  // return file path to zipped file
   asFilePath(): string;
+
+  // return as stream to zipped content
   asStream(): ReadStream;
+
+  // return base64 representation of zipped content
   asBase64(): string;
+
+  // deletes zipped  file ( from temp filesystem )
+  unlink(): void;
 }
 
 export abstract class fs extends AsyncService implements IMappableService, IInstanceCheck {
@@ -122,13 +130,12 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   public abstract download(path: string): Promise<string>;
 
   /**
-   * Copies local file into fs 
-   * 
+   * Copies local file into fs
+   *
    * @param srcPath source path ( full absolute path eg. file from local disk )
    * @param destPath dest path ( relative to base path of provider )
    */
-  public abstract upload(srcPath: string, destPath?: string) : Promise<void>;
-
+  public abstract upload(srcPath: string, destPath?: string): Promise<void>;
 
   /**
    *
@@ -148,10 +155,9 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   ): Promise<WriteStream | PassThrough | void>;
   public abstract exists(path: string): Promise<boolean>;
   public abstract dirExists(path: string): Promise<boolean>;
-  public abstract copy(path: string, dest: string): Promise<void>;
-  public abstract move(oldPath: string, newPath: string): Promise<void>;
+  public abstract copy(path: string, dest: string, dstFs? : fs): Promise<void>;
+  public abstract move(oldPath: string, newPath: string, dstFs? : fs): Promise<void>;
   public abstract rename(oldPath: string, newPath: string): Promise<void>;
-  public abstract unlink(path: string, downloaded?: boolean): Promise<void>;
   public abstract rm(path: string): Promise<void>;
   public abstract mkdir(path: string): Promise<void>;
   public abstract stat(path: string): Promise<IStat>;
@@ -165,7 +171,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    *
    * @param path - path to zip
    */
-  public abstract zip(path: string): Promise<IZipResult>;
+  public abstract zip(path: string | string[], dstFs? : fs): Promise<IZipResult>;
 
   /**
    * Decompress given file to destination path
@@ -173,7 +179,15 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * @param path path to zip file
    * @param destPath path to destination dir
    */
-  public abstract unzip(srcPath: string, destPath: string): Promise<void>;
+  public abstract unzip(srcPath: string, destPath: string, dstFs? : fs): Promise<void>;
+
+  /**
+   * 
+   * Checks if given path is dir
+   * 
+   * @param path path to check
+   */
+  public abstract isDir(path : string) : Promise<boolean>;
 
   public tmpname() {
     return uuidv4();

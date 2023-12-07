@@ -1,23 +1,16 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
-import {
-  constants,
-  copyFileSync,
-  createReadStream,
-  createWriteStream,
-  existsSync,
-  readFile,
-  readFileSync,
-  ReadStream,
-} from 'fs';
-import { unlink, rm, stat, readdir, rename, mkdir, copyFile, access, open, appendFile } from 'node:fs/promises';
+import { constants, createReadStream, createWriteStream, existsSync, readFile, readFileSync, ReadStream } from 'fs';
+import { rm, stat, readdir, rename, mkdir, copyFile, access, open, appendFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IFsLocalOptions, IStat, IZipResult } from './interfaces.js';
 import { basename, join } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
+import Util from '@spinajs/util';
 import archiver from 'archiver';
 import unzipper from 'unzipper';
+import { cp, FileHandle } from 'fs/promises';
 
 /**
  * Abstract layer for file operations.
@@ -85,7 +78,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
 
     const dPath = this.resolvePath(destPath ?? basename(srcPath));
-    copyFileSync(srcPath, dPath);
+    await cp(srcPath, dPath, { force: true, recursive: true });
   }
 
   /**
@@ -111,8 +104,16 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * Write to file string or buffer
    */
   public async write(path: string, data: string | Buffer, encoding: BufferEncoding) {
-    const fDesc = await open(this.resolvePath(path), 'w');
-    return await fDesc.writeFile(data, { encoding });
+    let fHandle: FileHandle = null;
+
+    try {
+      fHandle = await open(this.resolvePath(path), 'w');
+      await fHandle.writeFile(data, { encoding });
+    } catch (err) {
+      throw new IOFail(`Cannot write to file ${path}`, err);
+    } finally {
+      if (fHandle) await fHandle.close();
+    }
   }
 
   public async append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
@@ -149,26 +150,26 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * @param path - src path
    * @param dest - dest path
    */
-  public async copy(path: string, dest: string) {
-    await copyFile(this.resolvePath(path), this.resolvePath(dest));
+  public async copy(path: string, dest: string, dstFs?: fs) {
+    if (dstFs) {
+      await dstFs.upload(this.resolvePath(path), dest);
+    } else {
+      await copyFile(this.resolvePath(path), this.resolvePath(dest));
+    }
   }
 
   /**
    * Copy file to another location and deletes src file
    */
-  public async move(oldPath: string, newPath: string) {
+  public async move(oldPath: string, newPath: string, dstFs?: fs) {
     const oPath = this.resolvePath(oldPath);
     const nPath = this.resolvePath(newPath);
-    try {
+
+    if (dstFs) {
+      await dstFs.upload(oPath, newPath);
+      await this.rm(oldPath);
+    } else {
       await rename(oPath, nPath);
-    } catch (err) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      if (err.code === 'EXDEV') {
-        await copyFile(oPath, nPath);
-        await unlink(oPath);
-      } else {
-        throw err;
-      }
     }
   }
 
@@ -180,22 +181,8 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   /**
-   * Deletes file permanently
    *
-   * @param path - path to file that will be deleted
-   * @param onlyTemp - remote filesystems need to download file before, if so, calling unlink with this flag removes only local temp file after we finished processing
-   */
-  public async unlink(path: string, onlyTemp?: boolean) {
-    // local fs returns only local path to file, we dont want to delete it
-    if (onlyTemp) {
-      return;
-    }
-
-    await unlink(this.resolvePath(path));
-  }
-
-  /**
-   *
+   * Deletes file OR
    * Deletes dir recursively & all contents inside
    *
    * @param path - dir to remove
@@ -243,38 +230,51 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     return await readdir(this.resolvePath(path));
   }
 
-  public async unzip(path: string, destPath: string) {
+  public async unzip(path: string, destPath: string, dstFs?: fs) {
+    const tmpFs = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
+    const dst = dstFs ? tmpFs.tmpname() : destPath;
+
     return new Promise<void>((resolve, reject) => {
       createReadStream(this.resolvePath(path)).pipe(
         unzipper
           .Extract({
-            path: this.resolvePath(destPath),
+            path: dst,
           })
-          .on('close', resolve)
+          .on('close', () => {
+            if (dstFs) {
+              tmpFs.move(dst, destPath, dstFs).then(resolve).catch(reject);
+            } else {
+              resolve();
+            }
+          })
           .on('error', reject),
       );
     });
   }
 
-  public async zip(path: string, zName?: string): Promise<IZipResult> {
-    const fs = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
-
-    const outFile = fs.resolvePath(fs.tmpname() + '.zip');
-    const output = createWriteStream(outFile);
+  public async isDir(path: string): Promise<boolean> {
     const pStat = await this.stat(path);
-    const fPath = this.resolvePath(path);
+    return pStat.IsDirectory;
+  }
+
+  public async zip(path: string | string[], dstFs?: fs): Promise<IZipResult> {
+    const fs = dstFs ?? (await DI.resolve<fs>('__file_provider__', ['fs-temp']));
+
+    const outFile = join(fs.tmpname(), '.zip');
+    const wStream = await fs.writeStream(outFile);
+    const paths = Util.Array.toArray(path);
     const archive = archiver('zip', {
       zlib: { level: 9 }, // Sets the compression level.
     });
 
     // pipe archive data to the file
-    archive.pipe(output);
+    archive.pipe(wStream);
 
-    if (pStat.IsDirectory) {
-      archive.directory(fPath, false);
-    } else {
-      archive.file(fPath, { name: zName ?? basename(fPath) });
-    }
+    paths
+      .map((p) => this.resolvePath(p))
+      .forEach((p) => {
+        this.isDir(p) ? archive.directory(p, false) : archive.file(p, { name: basename(p) });
+      });
 
     await archive.finalize();
 
@@ -290,12 +290,15 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
       asBase64: () => {
         return readFileSync(outFile, { encoding: 'base64' });
       },
+
+      unlink: async () => {
+        return await fs.rm(outFile);
+      },
     };
   }
 
   public resolvePath(path: string) {
-
-    if(!this.Options.basePath) return path;
+    if (!this.Options.basePath) return path;
 
     if (path.startsWith(this.Options.basePath)) {
       return path;

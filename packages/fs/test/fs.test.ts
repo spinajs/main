@@ -4,14 +4,15 @@ import sinon from 'sinon';
 
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { fs, FsBootsrapper } from '@spinajs/fs';
+import { fs, FsBootsrapper, IFsLocalOptions } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 import { FileSystem } from '../src/decorators.js';
+import { fsNative } from '../src/local-provider.js';
 
 @Injectable('fs')
 @PerInstanceCheck()
-class FooFs extends fs  
+class FooFs extends fsNative<IFsLocalOptions>
 {
     public static INSTANCE_COUNT =  0;
     public async resolve() {
