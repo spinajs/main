@@ -11,6 +11,7 @@ import Util from '@spinajs/util';
 import archiver from 'archiver';
 import unzipper from 'unzipper';
 import { cp, FileHandle } from 'fs/promises';
+import { Effect } from 'effect';
 
 /**
  * Abstract layer for file operations.
@@ -73,7 +74,6 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async upload(srcPath: string, destPath?: string) {
-    
     if (!existsSync(srcPath)) {
       throw new IOFail(`file ${srcPath} does not exists`);
     }
@@ -113,11 +113,10 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     } catch (err) {
       throw new IOFail(`Cannot write to file ${path}`, err);
     } finally {
-      
-      if (fHandle){
+      if (fHandle) {
         await fHandle.sync();
         await fHandle.close();
-      } 
+      }
     }
   }
 
@@ -156,12 +155,19 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * @param dest - dest path
    */
   public async copy(path: string, dest: string, dstFs?: fs) {
+    const sPath = this.resolvePath(path);
+    const exists = await this.exists(path);
+    if (!exists) {
+      throw new IOFail(`File ${path} not exists`);
+    }
+
     if (dstFs) {
-      await dstFs.upload(this.resolvePath(path), dest);
+      await dstFs.upload(sPath, dest);
     } else {
-      await cp(this.resolvePath(path), this.resolvePath(dest), {
+      const dPath = this.resolvePath(dest);
+      await cp(sPath, dPath, {
         recursive: true,
-        force: true
+        force: true,
       });
     }
   }
@@ -264,22 +270,33 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     try {
       const pStat = await this.stat(path);
       return pStat.IsDirectory;
+    } catch {
+      return false;
     }
-    catch (err) {
-      console.log(err);
-    }
-
-
   }
 
   public async zip(path: string | string[], dstFs?: fs): Promise<IZipResult> {
     const fs = dstFs ?? (await DI.resolve<fs>('__file_provider__', ['fs-temp']));
 
-    const outFile = join(fs.tmpname(), '.zip');
+    const outFile = `${fs.tmpname()}.zip`;
     const wStream = await fs.writeStream(outFile);
     const paths = Util.Array.toArray(path);
     const archive = archiver('zip', {
       zlib: { level: 9 }, // Sets the compression level.
+    });
+
+    archive.on('warning', (err) => {
+      if (err.code === 'ENOENT') {
+        this.Logger.warn(`Warning archiving file, reason: ${err.message}, couse: ${err.cause}, code: ${err.code}`);
+      } else {
+        this.Logger.error(`Error archiving file, reason: ${err.message}, couse: ${err.cause}, code: ${err.code}`);
+        // throw error
+        throw err;
+      }
+    });
+
+    archive.on('error', (err) => {
+      this.Logger.error(`Error archiving file, reason: ${err.message}, couse: ${err.cause}, code: ${err.code}`);
     });
 
     // pipe archive data to the file

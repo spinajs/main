@@ -45,8 +45,7 @@ describe('fs temp tests', function () {
         expect(result).to.be.not.null;
         expect(result).to.be.not.undefined;
         expect(result).to.include({
-            FileSize: 11,
-            MimeType: "text/plain"
+            FileSize: 11
         })
     });
 

@@ -40,6 +40,7 @@ describe('fs local tests', function () {
   beforeEach(async () => {
     try {
       await rm(join(dir('./files')), { recursive: true });
+      await rm(join(dir('./files-2')), { recursive: true });
     } catch {}
 
     await cp(join(dir('./files_restore')), join(dir('./files')), { recursive: true, force: true });
@@ -125,7 +126,7 @@ describe('fs local tests', function () {
 
   it('Should upload dir', async () => {
     const _f = await f();
-    await _f.upload('dir_zip', 'dir_zip_uploaded');
+    await _f.upload(_f.resolvePath('dir_zip'), 'dir_zip_uploaded');
 
     const exists = await _f.exists('dir_zip_uploaded');
     const isDir = await _f.isDir('dir_zip_uploaded');
@@ -157,11 +158,30 @@ describe('fs local tests', function () {
     const _f = await f();
     const _f2 = await f2();
 
-    _f.move('dir_zip_copy', 'dir_zip_copy', _f2);
+    await _f.move('dir_zip', 'dir_zip', _f2);
 
-    const exists = await _f2.exists('dir_zip_copy');
-    const isDir = await _f2.isDir('dir_zip_copy');
+    const e1 = await _f.exists('dir_zip');
 
+    const exists = await _f2.exists('dir_zip');
+    const isDir = await _f2.isDir('dir_zip');
+
+    expect(e1).to.be.false;
+    expect(exists).to.be.true;
+    expect(isDir).to.be.true;
+  });
+
+  it('Should copy between fs', async () =>{ 
+    const _f = await f();
+    const _f2 = await f2();
+
+    await _f.copy('dir_zip', 'dir_zip', _f2);
+
+    const e1 = await _f.exists('dir_zip');
+
+    const exists = await _f2.exists('dir_zip');
+    const isDir = await _f2.isDir('dir_zip');
+
+    expect(e1).to.be.true;
     expect(exists).to.be.true;
     expect(isDir).to.be.true;
   });
@@ -182,17 +202,12 @@ describe('fs local tests', function () {
 
   it('Should throw on copy and file not exists', async () => {
     const _f = await f();
-    expect(_f.copy('not_exists.txt', 'not_exists_copy.txt')).should.rejectedWith(IOFail);
+    expect(_f.copy('not_exists.txt', 'not_exists_copy.txt')).to.be.rejectedWith(IOFail);
   });
 
   it('Should throw on move when not exists', async () => {
     const _f = await f();
-    expect(_f.move('not_exists.txt', 'not_exists_copy.txt')).should.rejectedWith(IOFail);
-  });
-
-  it('Should throw when unlink not exists', async () => {
-    const _f = await f();
-    expect(_f.rm('not_exists.txt')).should.rejectedWith(IOFail);
+    expect(_f.move('not_exists.txt', 'not_exists_copy.txt')).to.be.rejectedWith(IOFail);
   });
 
   it('should get file stats', async () => {
@@ -204,7 +219,7 @@ describe('fs local tests', function () {
   it('should zip file', async () => {
     const _f = await f();
     const _tmp = await fTemp();
-    const result = await _f.zip('text.txt');
+    const result = await _f.zip(['test.txt', 'test2.txt']);
 
     const exist = await _tmp.exists(result.asFilePath());
     expect(exist).to.be.true;

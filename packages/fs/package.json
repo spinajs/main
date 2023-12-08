@@ -16,6 +16,8 @@
     "node": ">=16.11"
   },
   "scripts": {
+
+    "watch": "tsc -b tsconfig.mjs.json -watch",
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.mjs.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
@@ -58,7 +60,8 @@
     "luxon": "^3.2.1",
     "uuid": "^9.0.0",
     "exiftool": "0.0.3",
-    "unzipper": "^0.10.14"
+    "unzipper": "^0.10.14",
+    "effect": "2.0.0-next.59"
   },
   "devDependencies": {
     "@types/archiver": "^5.3.1",
