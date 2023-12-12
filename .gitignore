@@ -71,3 +71,4 @@ npm-debug.log
 /packages/email-smtp-transport/tests/config.ts
 /packages/http/test/files
 /packages/fs/test/files
+/packages/fs/test/temp

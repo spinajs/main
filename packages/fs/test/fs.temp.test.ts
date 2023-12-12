@@ -1,5 +1,5 @@
 import 'mocha';
-//import { expect } from 'chai';
+import { expect } from 'chai';
 import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
@@ -8,15 +8,14 @@ import { FsBootsrapper } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 import { fs } from '../src/index.js';
-
-//import { expect } from 'chai';
+import { sleep } from '@spinajs/util';
 
 async function tmp() {
   return await DI.resolve<fs>('__file_provider__', ['fs-temp']);
 }
 
 describe('fs temp tests', function () {
-  this.timeout(15000);
+  this.timeout(30000);
 
   before(async () => {
     const bootstrapper = DI.resolve(FsBootsrapper);
@@ -36,17 +35,21 @@ describe('fs temp tests', function () {
   });
 
   it('should create temporary file', async () => {
-    // const writeStub = sinon.spy(fs, 'writeFile');
+    const t = await tmp();
+    await t.write('tmp.txt', 'hello temp');
 
-    // const t = await tmp();
-    // await t.write('tmp.txt', 'hello temp');
-
-    // const tmpPath = t.resolvePath('tmp.txt');
-
-    // expect(writeStub.called).to.be.true;
-    // expect(fsExists).to.be.true;
-    // expect(tmpPath.endsWith('packages\\fs\\test\\temp\\tmp.txt')).to.true;
+    const tmpPath = t.resolvePath('tmp.txt');
+    const exists = await t.exists('tmp.txt');
+    expect(exists).to.true;
+    expect(tmpPath.endsWith('packages\\fs\\test\\temp\\tmp.txt')).to.true;
   });
 
-  it('should cleanup old temp file', async () => {});
+  it('should cleanup old temp file', async () => {
+    await sleep(20 * 1000);
+
+    const t = await tmp();
+    const files = await t.list('/');
+
+    expect(files.length).to.be.eq(0);
+  });
 });

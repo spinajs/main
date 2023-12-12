@@ -8,6 +8,7 @@ import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
+import { Singleton } from '@spinajs/di';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -19,22 +20,33 @@ export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
+@Singleton()
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
 
     this.Config = {
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+            layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
+          },
+        ],
 
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
       fs: {
         defaultProvider: 'test',
         providers: [
           {
-            service: "FooFs",
-            name: "foo1"
+            service: 'FooFs',
+            name: 'foo1',
           },
           {
-            service: "FooFs",
-            name: "foo2"
+            service: 'FooFs',
+            name: 'foo2',
           },
           {
             service: 'fsNative',
@@ -51,14 +63,11 @@ export class TestConfiguration extends FrameworkConfiguration {
             name: 'fs-temp',
             basePath: dir('./temp'),
             cleanup: true,
-            cleanupInterval: 30,
-            maxFileAge: 5
+            cleanupInterval: 15 * 1000,
+            maxFileAge: 5,
           },
         ],
       },
-
-
     };
   }
 }
-

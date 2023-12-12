@@ -13,7 +13,7 @@ export * from './file-info.js';
 @Injectable(Bootstrapper)
 export class FsBootsrapper extends Bootstrapper {
   public bootstrap(): void {
-    DI.once('di.resolved.Configuration', (container: IContainer) => {
+    const listener = (container: IContainer) => {
       const cfg: IFsConfiguration = container.get(Configuration).get<IFsConfiguration>('fs');
 
       const defaultProvider = cfg.defaultProvider;
@@ -33,6 +33,7 @@ export class FsBootsrapper extends Bootstrapper {
 
       const rProviders = DI.RootContainer.Registry.getTypes(fs);
       const list = Array.from(providers, ([name, value]) => ({ name, value }));
+
       for (const cProvider of list) {
         const type = rProviders.find((x: any) => x.name === cProvider.value.service);
 
@@ -46,7 +47,10 @@ export class FsBootsrapper extends Bootstrapper {
           DI.register(result).asValue('__file_provider_instance_' + cProvider.value.name);
         });
       }
-    });
+
+    };
+    
+    DI.once('di.resolved.Configuration', listener);
 
     DI.register((_container: IContainer, name?: string) => {
       const provider = DI.get<fs>('__file_provider_instance_' + name);

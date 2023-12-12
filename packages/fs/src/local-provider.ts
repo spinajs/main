@@ -7,11 +7,10 @@ import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IFsLocalOptions, IStat, IZipResult } from './interfaces.js';
 import { basename, join } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
-import Util from '@spinajs/util';
 import archiver from 'archiver';
 import unzipper from 'unzipper';
 import { cp, FileHandle } from 'fs/promises';
-import { Effect } from 'effect';
+import { toArray } from '@spinajs/util';
 
 /**
  * Abstract layer for file operations.
@@ -41,19 +40,18 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async resolve() {
-    if (this.Options.basePath) {
-      // yup, exceptions as conditional execution path is bad :)
-      try {
-        await access(this.Options.basePath, constants.F_OK);
-      } catch {
-        this.Logger.warn(
-          `Base path ${this.Options.basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
-        );
+    if (!this.Options.basePath) {
+      throw new IOFail(`Base path for file provider ${this.Options.name} not set`);
+    }
 
-        await mkdir(this.Options.basePath, { recursive: true });
+    if ((await this.exists(this.Options.basePath)) === false) {
+      this.Logger.warn(
+        `Base path ${this.Options.basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
+      );
 
-        this.Logger.success(`Base path ${this.Options.basePath} created`);
-      }
+      await mkdir(this.Options.basePath, { recursive: true });
+
+      this.Logger.success(`Base path ${this.Options.basePath} created`);
     }
   }
 
@@ -244,23 +242,17 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     return await readdir(this.resolvePath(path));
   }
 
-  public async unzip(path: string, destPath: string, dstFs?: fs) {
-    const tmpFs = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
-    const dst = dstFs ? tmpFs.tmpname() : destPath;
+  public async unzip(path: string, destPath?: string, dstFs?: fs) {
+    const dFs = dstFs ?? this;
+    const dst = dFs.resolvePath(destPath ?? dFs.tmpname());
 
     return new Promise<void>((resolve, reject) => {
       createReadStream(this.resolvePath(path)).pipe(
         unzipper
           .Extract({
-            path: dst,
+            path: dst ,
           })
-          .on('close', () => {
-            if (dstFs) {
-              tmpFs.move(dst, destPath, dstFs).then(resolve).catch(reject);
-            } else {
-              resolve();
-            }
-          })
+          .on('close', resolve)
           .on('error', reject),
       );
     });
@@ -275,58 +267,68 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  public async zip(path: string | string[], dstFs?: fs): Promise<IZipResult> {
+  public async zip(path: string | string[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
+    const paths = toArray(path);
     const fs = dstFs ?? (await DI.resolve<fs>('__file_provider__', ['fs-temp']));
-
-    const outFile = `${fs.tmpname()}.zip`;
+    const outFile = dstFile ?? `${fs.tmpname()}.zip`;
     const wStream = await fs.writeStream(outFile);
-    const paths = Util.Array.toArray(path);
-    const archive = archiver('zip', {
-      zlib: { level: 9 }, // Sets the compression level.
-    });
-
-    archive.on('warning', (err) => {
-      if (err.code === 'ENOENT') {
-        this.Logger.warn(`Warning archiving file, reason: ${err.message}, couse: ${err.cause}, code: ${err.code}`);
-      } else {
-        this.Logger.error(`Error archiving file, reason: ${err.message}, couse: ${err.cause}, code: ${err.code}`);
-        // throw error
-        throw err;
-      }
-    });
-
-    archive.on('error', (err) => {
-      this.Logger.error(`Error archiving file, reason: ${err.message}, couse: ${err.cause}, code: ${err.code}`);
-    });
+    const archive = archiver('zip');
 
     // pipe archive data to the file
     archive.pipe(wStream);
 
-    paths
-      .map((p) => this.resolvePath(p))
-      .forEach((p) => {
-        this.isDir(p) ? archive.directory(p, false) : archive.file(p, { name: basename(p) });
+    for (const p of paths.map((p) => this.resolvePath(p))) {
+      if (await this.isDir(p)) {
+        archive.directory(p, false);
+        continue;
+      }
+
+      archive.file(p, { name: basename(p) });
+    }
+
+    return new Promise<IZipResult>((resolve, reject) => {
+      archive.on('warning', (err) => {
+        if (err.code === 'ENOENT') {
+          this.Logger.error(err, `File not found ( archiving file ), reason: ${err.message})`);
+          return;
+        }
+
+        reject(new IOFail('Archiving error', err));
       });
 
-    await archive.finalize();
+      archive.on('error', (err) => {
+        reject(new IOFail('Archiving error', err));
+      });
 
-    return {
-      asFilePath: () => {
-        return outFile;
-      },
-      asStream: (encoding?: BufferEncoding) => {
-        return createReadStream(outFile, {
-          encoding: encoding ?? 'binary',
-        });
-      },
-      asBase64: () => {
-        return readFileSync(outFile, { encoding: 'base64' });
-      },
+      archive.on('entry', (entry) => {
+        this.Logger.trace(`Archiving file ${entry.name}, size: ${entry.stats?.size} into ${outFile}, fs: ${fs.Name}`);
+      });
 
-      unlink: async () => {
-        return await fs.rm(outFile);
-      },
-    };
+      wStream.on('close', () => {
+        const result = {
+          fs,
+          asFilePath: () => {
+            return outFile;
+          },
+          asStream: (encoding?: BufferEncoding) => {
+            return createReadStream(outFile, {
+              encoding: encoding ?? 'binary',
+            });
+          },
+          asBase64: () => {
+            return readFileSync(outFile, { encoding: 'base64' });
+          },
+
+          unlink: async () => {
+            return await fs.rm(outFile);
+          },
+        };
+
+        resolve(result);
+      });
+
+      archive.finalize();
+    });
   }
 
   public resolvePath(path: string) {

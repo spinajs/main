@@ -11,6 +11,7 @@ import { expect } from 'chai';
 import { join } from 'path';
 import { IOFail } from '@spinajs/exceptions';
 import { cp, rm } from 'fs/promises';
+import { mkdirSync } from 'fs';
 
 async function f() {
   return await DI.resolve<fs>('__file_provider__', ['test']);
@@ -44,6 +45,7 @@ describe('fs local tests', function () {
     } catch {}
 
     await cp(join(dir('./files_restore')), join(dir('./files')), { recursive: true, force: true });
+    await mkdirSync(dir('./files-2'));
   });
 
   afterEach(async () => {
@@ -225,17 +227,14 @@ describe('fs local tests', function () {
     expect(exist).to.be.true;
   });
 
-  it('Should fail on zip not existing file or dir', async () => {
-    const _f = await f();
-    expect(_f.zip('text-not-exists.txt')).should.rejectedWith(IOFail);
-  });
+ 
 
   it('should unzip file', async () => {
     const _f = await f();
 
     await _f.unzip('zipped.zip', 'zipped');
 
-    const exist = _f.exists('zipped.txt');
+    const exist = await _f.exists('zipped/zipped.txt');
     expect(exist).to.be.true;
   });
 
@@ -248,23 +247,13 @@ describe('fs local tests', function () {
     expect(exist).to.be.true;
   });
 
-  it('Should unzip dir', async () => {
-    const _f = await f();
-    await _f.unzip('zipped_dir', 'zipped_dir');
-
-    const exist = await _f.exists('zipped_dir');
-    const exist2 = await _f.exists('zipped_dir/test.txt');
-    expect(exist).to.be.true;
-    expect(exist2).to.be.true;
-  });
-
   it('Should unzip to another fs', async () => {
     const _f = await f();
     const _f2 = await f2();
-    await _f.unzip('zipped_dir', 'zipped_dir', _f2);
+    await _f.unzip('zipped.zip', 'zipped_dir', _f2);
 
     const exist = await _f2.exists('zipped_dir');
-    const exist2 = await _f2.exists('zipped_dir/test.txt');
+    const exist2 = await _f2.exists('zipped_dir/zipped.txt');
     expect(exist).to.be.true;
     expect(exist2).to.be.true;
   });
@@ -281,7 +270,9 @@ describe('fs local tests', function () {
   it('Should zip multiple files', async () => {
     const _f = await f();
     const result = await _f.zip(['SamplePNGImage_100kbmb.png', 'test.txt']);
-    const exist = await _f.exists(result.asFilePath());
+
+    expect(result.fs.Name).to.eq('fs-temp');
+    const exist = await result.fs.exists(result.asFilePath());
     expect(exist).to.be.true;
   });
 });

@@ -90,6 +90,12 @@ export interface IFsLocalTempOptions extends IFsLocalOptions {
 }
 
 export interface IZipResult {
+
+  /**
+   * Destination filesystem ( default is fs-temp for zipped files)
+   */
+  fs: fs;
+
   // return file path to zipped file
   asFilePath(): string;
 
@@ -170,8 +176,9 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * Dir is compressed recursively
    *
    * @param path - path to zip
+   * @param dstFile - destination file name
    */
-  public abstract zip(path: string | string[], dstFs? : fs): Promise<IZipResult>;
+  public abstract zip(path: string | string[], dstFs? : fs, dstFile?: string): Promise<IZipResult>;
 
   /**
    * Decompress given file to destination path

@@ -40,18 +40,22 @@ export class fsNativeTemp extends fsNative<IFsLocalTempOptions> {
       );
     }
 
+    this.Logger.info(
+      `Starting cleanup timer for temporary files system ${this.Options.name}, interval: ${this.Options.cleanupInterval}, max file age: ${this.Options.maxFileAge}`,
+    );
+
     this.cleanupTimer = setInterval(async () => {
       const files = await this.list('/');
       const today = DateTime.now();
 
       for (const f of files) {
         const stat = await this.stat(f);
-        const timeDiff = stat.CreationTime.diff(today, 'seconds');
+        const timeDiff = today.diff(stat.CreationTime, 'seconds');
 
-        if (timeDiff.seconds > this.Options.maxFileAge || DEFAULT_FILE_AGE) {
+        if (timeDiff.seconds > (this.Options.maxFileAge || DEFAULT_FILE_AGE)) {
           this.Logger.trace(
             `Temp file at path ${f} is older than ${
-              this.Options.cleanupInterval
+              this.Options.maxFileAge
             } seconds, ( CreatedAt: ${stat.CreationTime.toFormat('dd/MM/yyyy HH:mm:ss')} ), deleting...`,
           );
 
