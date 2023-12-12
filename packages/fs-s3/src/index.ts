@@ -1,13 +1,20 @@
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { fs, IStat, IZipResult, FileSystem } from '@spinajs/fs';
-import { S3Client, S3ClientConfig, HeadObjectCommand, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  S3ClientConfig,
+  HeadObjectCommand,
+  CopyObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+  GetObjectCommand,
+} from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Config } from '@spinajs/configuration';
-import archiver from 'archiver';
 import { basename } from 'path';
 import { InvalidArgument, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
-import { createReadStream, existsSync, readFileSync, ReadStream } from 'fs';
+import { createReadStream, existsSync, ReadStream } from 'fs';
 import { DateTime } from 'luxon';
 import { Readable } from 'stream';
 
@@ -55,7 +62,18 @@ export class fsS3 extends fs {
   }
 
   public async resolve() {
-    this.S3 = new S3Client(this.AwsConfig);
+    this.S3 = new S3Client(
+      Object.assign({}, this.AwsConfig, {
+        endpoint: this.AwsConfig.endpoint ?? undefined,
+        logger: {
+          trace: (msg: any) => this.Logger.trace(msg),
+          debug: (msg: any) => this.Logger.debug(msg),
+          info: (msg: any) => this.Logger.info(msg),
+          warn: (msg: any) => this.Logger.warn(msg),
+          error: (msg: any) => this.Logger.error(msg),
+        },
+      }),
+    );
   }
 
   /**
@@ -78,10 +96,9 @@ export class fsS3 extends fs {
 
     return new Promise((resolve, reject) => {
       if (result.Body instanceof Readable) {
-        result.Body
-          .pipe(wStream)
-          .on("error", (err) => reject(err))
-          .on("close", () => resolve(tmpName));
+        result.Body.pipe(wStream)
+          .on('error', (err) => reject(err))
+          .on('close', () => resolve(tmpName));
       } else {
         reject(new IOFail(`Cannot download file ${path}, empty response`));
       }
@@ -95,7 +112,7 @@ export class fsS3 extends fs {
     const fLocal = await this.download(path);
     const content = await this.TempFs.read(fLocal, encoding);
 
-    await this.TempFs.unlink(fLocal);
+    await this.TempFs.rm(fLocal);
 
     return content;
   }
@@ -115,7 +132,7 @@ export class fsS3 extends fs {
         Bucket: this.Options.bucket,
         Key: path,
         Body: data,
-        ContentEncoding: encoding
+        ContentEncoding: encoding,
       },
     });
     await upload.done();
@@ -158,9 +175,7 @@ export class fsS3 extends fs {
     });
   }
 
-  
   public async upload(srcPath: string, destPath?: string) {
-
     if (!existsSync(srcPath)) {
       throw new IOFail(`file ${srcPath} does not exists`);
     }
@@ -170,7 +185,11 @@ export class fsS3 extends fs {
     await this.writeStream(dPath, rStream);
   }
 
-  public async writeStream(path: string, rStream?: ReadStream | BufferEncoding, encoding?: BufferEncoding): Promise<any> {
+  public async writeStream(
+    path: string,
+    rStream?: ReadStream | BufferEncoding,
+    encoding?: BufferEncoding,
+  ): Promise<any> {
     if (!(rStream instanceof ReadStream)) {
       throw new InvalidArgument(`rStream should be readable stream`);
     }
@@ -194,7 +213,6 @@ export class fsS3 extends fs {
    */
   public async exists(path: string) {
     try {
-
       const command = new HeadObjectCommand({
         Bucket: this.Options.bucket,
         Key: path,
@@ -202,8 +220,8 @@ export class fsS3 extends fs {
 
       await this.S3.send(command);
     } catch (err) {
-      if (err.name === 'NotFound')
-        return false;
+      if (err.name === 'NotFound') return false;
+      throw err;
     }
 
     return true;
@@ -220,22 +238,30 @@ export class fsS3 extends fs {
    * @param path - src path
    * @param dest - dest path
    */
-  public async copy(path: string, dest: string) {
-    const command = new CopyObjectCommand({
-      Bucket: this.Options.bucket,
-      CopySource: this.Options.bucket + '/' + path,
-      Key: dest,
-    });
+  public async copy(path: string, dest: string, dstFs?: fs) {
+    // if dest fs is set
+    // copy using it
+    if (dstFs) {
+      const file = await this.download(path);
+      await dstFs.upload(file, dest);
+    } else {
+      // we copy file in s3 by copying it to another location
+      const command = new CopyObjectCommand({
+        Bucket: this.Options.bucket,
+        CopySource: this.Options.bucket + '/' + path,
+        Key: dest,
+      });
 
-    await this.S3.send(command);
+      await this.S3.send(command);
+    }
   }
 
   /**
    * Copy file to another location and deletes src file
    */
-  public async move(oldPath: string, newPath: string) {
-    await this.copy(oldPath, newPath);
-    await this.unlink(oldPath);
+  public async move(oldPath: string, newPath: string, dstFs?: fs) {
+    await this.copy(oldPath, newPath, dstFs);
+    await this.rm(oldPath);
   }
 
   /**
@@ -246,36 +272,15 @@ export class fsS3 extends fs {
   }
 
   /**
-   * Deletes file permanently
-   *
-   * @param path - path to file that will be deleted
-   * @param onlyTemp - remote filesystems need to download file before, if so, calling unlink with this flag removes only local temp file after we finished processing
-   */
-  public async unlink(path: string, onlyTemp?: boolean) {
-    if (onlyTemp) {
-      await this.TempFs.unlink(path);
-      return;
-    }
-
-    const command = new DeleteObjectCommand({
-      Key: path,
-      Bucket: this.Options.bucket,
-    });
-
-    await this.S3.send(command);
-  }
-
-  /**
    *
    * Deletes dir recursively & all contents inside
    *
    * @param path - dir to remove
    */
   public async rm(_path: string) {
-
     const command = new DeleteObjectCommand({
       Bucket: this.Options.bucket,
-      Key: _path
+      Key: _path,
     });
 
     await this.S3.send(command);
@@ -287,7 +292,11 @@ export class fsS3 extends fs {
    *
    */
   public async mkdir() {
-    // s3 dont need to create folders
+    throw new IOFail('Method not implemented, s3 does not support directories');
+  }
+
+  public async isDir(_path: string): Promise<boolean> {
+    throw new IOFail('Method not implemented, s3 does not support directories');
   }
 
   /**
@@ -296,7 +305,7 @@ export class fsS3 extends fs {
   public async stat(path: string): Promise<IStat> {
     const command = new HeadObjectCommand({
       Bucket: this.Options.bucket,
-      Key: path
+      Key: path,
     });
 
     const result = await this.S3.send(command);
@@ -319,8 +328,6 @@ export class fsS3 extends fs {
   }
 
   // protected async getSignedUrl(path: string) {
-
-
 
   //   return this.S3.getSignedUrlPromise('getObject', {
   //     Bucket: this.Options.bucket,
@@ -350,35 +357,11 @@ export class fsS3 extends fs {
   }
 
   async unzip(_path: string, _destPath: string) {
-    throw new Error('not implemented');
+    throw new IOFail('Method not implemented, you should download zipped file first, then unzip it');
   }
 
-  public async zip(path: string, zName?: string): Promise<IZipResult> {
-    const zTmpName = this.TempFs.tmppath();
-    const output = await this.TempFs.writeStream(zTmpName);
-    const archive = archiver('zip', {
-      zlib: { level: 9 }, // Sets the compression level.
-    });
-
-    // pipe archive data to the file
-    archive.pipe(output);
-
-    const tFile = await this.download(path);
-    archive.file(tFile, { name: zName ?? basename(path) });
-
-    await archive.finalize();
-
-    return {
-      asFilePath: () => {
-        return zTmpName;
-      },
-      asStream: (encoding?: BufferEncoding) => {
-        return createReadStream(`${zTmpName}`, encoding);
-      },
-      asBase64: () => {
-        return readFileSync(`${zTmpName}`, 'base64');
-      },
-    };
+  public async zip(_path: string, _dstFs?: fs, _dstFile?: string): Promise<IZipResult> {
+    throw new IOFail('Method not implemented, you should zip files locally, then upload it');
   }
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function

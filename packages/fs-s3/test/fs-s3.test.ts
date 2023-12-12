@@ -10,7 +10,7 @@ import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 import { expect } from 'chai';
 import { fsS3 } from './../src/index.js';
-import { createWriteStream, existsSync } from 'fs';
+import { existsSync } from 'fs';
 
 async function f() {
     return await DI.resolve<fs>('__file_provider__', ['aws']);
@@ -52,7 +52,7 @@ describe('fs s3 basic tests', function () {
         expect(registered).to.be.true;
     })
 
-    it('should check if exists', async () => {
+    it('should check if file not exists', async () => {
         const f3 = await f();
         const exists = await f3.exists("nonExists.txt");
         expect(exists).to.be.false;

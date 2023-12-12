@@ -17,6 +17,7 @@
     "node": ">=16.11"
   },
   "scripts": {
+    "watch": "tsc -b tsconfig.mjs.json -watch",
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.mjs.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
@@ -60,8 +61,8 @@
     "@spinajs/fs": "^2.0.180",
     "@spinajs/log": "^2.0.180",
     "archiver": "^5.3.1",
-    "@aws-sdk/client-s3": "^3.417.0",
-    "@aws-sdk/lib-storage": "3.417.0",
+    "@aws-sdk/client-s3":"^3.470.0",
+    "@aws-sdk/lib-storage": "^3.470.0",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1"
   }

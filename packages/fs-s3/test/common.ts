@@ -24,17 +24,19 @@ export class TestConfiguration extends FrameworkConfiguration {
     await super.resolve();
 
     this.Config = {
-
       fs: {
         defaultProvider: 'test',
         s3: {
           config: {
+            // needed with localstack testing
+            forcePathStyle: true,
+            endpoint: 'http://localhost:4566',
             credentials: {
-              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-              accessKeyId: process.env.AWS_ACCESS_KEY_ID
+              secretAccessKey: 'test',
+              accessKeyId: 'test',
             },
-            region: process.env.AWS_REGION
-          }
+            region: 'us-west-1',
+          },
         },
         providers: [
           {
@@ -43,23 +45,20 @@ export class TestConfiguration extends FrameworkConfiguration {
             basePath: dir('./files'),
           },
           {
-            service: "fsS3",
-            name: "aws",
-            bucket: "spinajs-test"
+            service: 'fsS3',
+            name: 'aws',
+            bucket: 'spinajs-test-bucket',
           },
           {
             service: 'fsNativeTemp',
-            name: 'fs-temp',
+            name: 'fs-temp-s3',
             basePath: dir('./temp'),
             cleanup: true,
             cleanupInterval: 30,
-            maxFileAge: 5
+            maxFileAge: 5,
           },
         ],
       },
-
-
     };
   }
 }
-
