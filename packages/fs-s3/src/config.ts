@@ -6,15 +6,20 @@ function dir(path: string) {
 
 const fs = {
   fs: {
-    defaultProvider: 'fs-local',
     providers: [
       /**
        * provide temporary fs access for s3 files
        */
       {
-        service: 'fsNative',
+        service: 'fsNativeTemp',
         name: 'fs-temp-s3',
         basePath: dir('./../fs/temp-s3'),
+        
+        // in ms
+        cleanupInterval: 3600 * 1000, // clean every hour
+
+        // in seconds
+        maxFileAge: 24 * 3600, // 1 day for temp files
       },
     ],
   },

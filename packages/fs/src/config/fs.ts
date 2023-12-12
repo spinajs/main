@@ -20,10 +20,9 @@ const fs = {
   fs: {
     defaultProvider: 'fs-local',
     providers: [
-
       // system fs
       // paths without basepath set
-      // using this filesystem 
+      // using this filesystem
       // all paths are relative to process path
       // or absulute path must be provided
       {
@@ -39,9 +38,15 @@ const fs = {
        * provide temporary fs access
        */
       {
-        service: 'fsNative',
+        service: 'fsNativeTemp',
         name: 'fs-temp',
         basePath: dir('./../fs/temp'),
+        cleanup: true,
+        // in ms  
+        cleanupInterval: 3600 * 1000,
+
+        // in seconds
+        maxFileAge: 24 * 3600,
       },
     ],
   },
