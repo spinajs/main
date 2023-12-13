@@ -11,8 +11,6 @@ import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
 import { pipe } from "effect";
 import { flatMap , tryPromise, map, fromNullable, zip, either, partition } from "effect/Effect";
-import { default as FP} from "@spinajs/util-fp";
-import Util from "@spinajs/util";
 import { basename } from 'node:path';
  
 
@@ -98,62 +96,66 @@ export class FromFile extends FromFormBase {
 
   public async extract(callData: IRouteCall, param: IRouteParameter<IUploadOptions>, req: Request, res: express.Response, route?: IRoute): Promise<any> {
 
-    // extract form data if not processed already
-    const result = await super.extract(callData, param, req, res, route);
 
-    // get incoming files
-    const { Files } = this.FormData;
+    // copy to provided fs or default temp fs
+    // delete intermediate files ( from express ) regardless of copy result
+
+    // // extract form data if not processed already
+    // const result = await super.extract(callData, param, req, res, route);
+
+    // // get incoming files
+    // const { Files } = this.FormData;
   
-    // combine files from form data & file provider
-    // for further processing
-    const params = zip(
+    // // combine files from form data & file provider
+    // // for further processing
+    // const params = zip(
 
-      // convert files to array for simplicity
-      map(fromNullable(Files[param.Name]),Util.Array.toArray), 
+    //   // convert files to array for simplicity
+    //   map(fromNullable(Files[param.Name]),Util.Array.toArray), 
 
-      // get provider from param options or default
-      FP.Fs.getFsProvider(param.Options.provider ?? this.DefaultFsProviderName)
-    );
+    //   // get provider from param options or default
+    //   FP.Fs.getFsProvider(param.Options.provider ?? this.DefaultFsProviderName)
+    // );
 
-    params.pipe(flatMap(([files, fs]) => partition(files, (f) =>{ 
+    // params.pipe(flatMap(([files, fs]) => partition(files, (f) =>{ 
       
-    })))
+    // })))
 
-    const copyToFs = ( file: string) => either(pipe(
-      fs,
-      flatMap((fs) => tryPromise(() => fs.writeStream(basename(file)))),
-      flatMap((stream) => tryPromise<void>(() =>{ 
-        return new Promise((resolve,reject) => { 
-          createReadStream(file).pipe(stream).on('finish', resolve).on('error', reject);
-        })
-      })),
-      Effect.match({
-        onFailure: () => FP.Fs.del(file),
-        onSuccess: () => FP.Fs.del(file)
-      })
-    )) 
+    // const copyToFs = ( file: string) => either(pipe(
+    //   fs,
+    //   flatMap((fs) => tryPromise(() => fs.writeStream(basename(file)))),
+    //   flatMap((stream) => tryPromise<void>(() =>{ 
+    //     return new Promise((resolve,reject) => { 
+    //       createReadStream(file).pipe(stream).on('finish', resolve).on('error', reject);
+    //     })
+    //   })),
+    //   Effect.match({
+    //     onFailure: () => FP.Fs.del(file),
+    //     onSuccess: () => FP.Fs.del(file)
+    //   })
+    // )) 
 
      
 
 
-    const d = (file: string) => fs.pipe( Effect.map( (fs) => Effect.tryPromise(async () => {
-    const del = (file : string) => fs.pipe(Effect.tap((fs) => Effect.tryPromise(() => fs.unlink(basename(file)))), Effect.tap((fs) => FP.Logger.trace('http', `Deletet file ${file} from ${fs.Name}`)));
-    const delTemp  = ( file : string) => FP.Fs.del(file).pipe(() => FP.Logger.trace('http', `Deleted temporary file ${file}`))
-    const delAllFs = (f: string[]) => Effect.validateAll(f, (f) => del(f), { concurrency: 'unbounded' });
-    const delAll = (f: string[]) => Effect.validateAll(f, (f) => delTemp(f), { concurrency: 'unbounded' });
-    const copyAll = (f: string[]) => Effect.orElse(Effect.partition(f, (f) =>
-                    Effect.tapBoth(copyToFs(f), {
-                        onFailure: (err : Error) => FP.Logger.error(`http`, err, `Error copying incoming file ${f}`),
-                        onSuccess: () => FP.Logger.success(`http`, `Success receiving incoming file ${f}`)
-                    }), {
-                    concurrency: "unbounded"
-                }), () => delAll(f));
+    // const d = (file: string) => fs.pipe( Effect.map( (fs) => Effect.tryPromise(async () => {
+    // const del = (file : string) => fs.pipe(Effect.tap((fs) => Effect.tryPromise(() => fs.unlink(basename(file)))), Effect.tap((fs) => FP.Logger.trace('http', `Deletet file ${file} from ${fs.Name}`)));
+    // const delTemp  = ( file : string) => FP.Fs.del(file).pipe(() => FP.Logger.trace('http', `Deleted temporary file ${file}`))
+    // const delAllFs = (f: string[]) => Effect.validateAll(f, (f) => del(f), { concurrency: 'unbounded' });
+    // const delAll = (f: string[]) => Effect.validateAll(f, (f) => delTemp(f), { concurrency: 'unbounded' });
+    // const copyAll = (f: string[]) => Effect.orElse(Effect.partition(f, (f) =>
+    //                 Effect.tapBoth(copyToFs(f), {
+    //                     onFailure: (err : Error) => FP.Logger.error(`http`, err, `Error copying incoming file ${f}`),
+    //                     onSuccess: () => FP.Logger.success(`http`, `Success receiving incoming file ${f}`)
+    //                 }), {
+    //                 concurrency: "unbounded"
+    //             }), () => delAll(f));
 
   
 
-    return Object.assign(data, {
-      Args: param.RuntimeType.name === 'Array' ? formFiles.map(mf) : mf(formFiles[0]),
-    });
+    // return Object.assign(data, {
+    //   Args: param.RuntimeType.name === 'Array' ? formFiles.map(mf) : mf(formFiles[0]),
+    // });
 
     function mf(f: File) {
       return {
