@@ -122,12 +122,16 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     await appendFile(path, data, encoding);
   }
 
-  public writeStream(path: string, rStream?: BufferEncoding | ReadStream, encoding?: BufferEncoding) {
-    return Promise.resolve(
-      createWriteStream(this.resolvePath(path), {
-        encoding: (typeof rStream === 'string' ? rStream : encoding) ?? 'binary',
-      }),
-    );
+  public writeStream(path: string, rStream?: BufferEncoding | NodeJS.ReadStream, encoding?: BufferEncoding) {
+    const stream = createWriteStream(this.resolvePath(path), {
+      encoding: (typeof rStream === 'string' ? rStream : encoding) ?? 'binary',
+    });
+
+    if (rStream instanceof ReadStream) {
+      rStream.pipe(stream);
+    }
+
+    return Promise.resolve(stream);
   }
 
   /**
@@ -250,7 +254,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
       createReadStream(this.resolvePath(path)).pipe(
         unzipper
           .Extract({
-            path: dst ,
+            path: dst,
           })
           .on('close', resolve)
           .on('error', reject),

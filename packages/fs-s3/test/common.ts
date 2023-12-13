@@ -24,6 +24,17 @@ export class TestConfiguration extends FrameworkConfiguration {
     await super.resolve();
 
     this.Config = {
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+            layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
+          },
+        ],
+
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
       fs: {
         defaultProvider: 'test',
         s3: {
@@ -55,7 +66,7 @@ export class TestConfiguration extends FrameworkConfiguration {
             basePath: dir('./temp'),
             cleanup: true,
             cleanupInterval: 30,
-            maxFileAge: 5,
+            maxFileAge: 60,
           },
         ],
       },

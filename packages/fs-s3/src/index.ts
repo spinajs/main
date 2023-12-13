@@ -1,6 +1,6 @@
-import { Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, IStat, IZipResult, FileSystem } from '@spinajs/fs';
+import { fs, IStat, IZipResult, FileSystem, FileInfoService } from '@spinajs/fs';
 import {
   S3Client,
   S3ClientConfig,
@@ -12,9 +12,9 @@ import {
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Config } from '@spinajs/configuration';
-import { basename } from 'path';
-import { InvalidArgument, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
-import { createReadStream, existsSync, ReadStream } from 'fs';
+import path, { basename } from 'path';
+import { IOFail, MethodNotImplemented } from '@spinajs/exceptions';
+import { createReadStream, existsSync } from 'fs';
 import { DateTime } from 'luxon';
 import { Readable } from 'stream';
 import iconv from 'iconv-lite';
@@ -49,6 +49,9 @@ export class fsS3 extends fs {
    */
   @FileSystem('fs-temp-s3')
   protected TempFs: fs;
+
+  @Autoinject()
+  protected FileInfo: FileInfoService;
 
   /**
    * Name of provider. We can have multiple providers of the same type but with different options.
@@ -119,17 +122,15 @@ export class fsS3 extends fs {
   }
 
   /**
-   * 
-   * @param path 
-   * @param _encoding 
-   * @returns 
+   *
+   * @param path
+   * @param _encoding
+   * @returns
    */
   public async readStream(path: string, encoding?: BufferEncoding) {
-
     const command = new GetObjectCommand({
       Bucket: this.Options.bucket,
       Key: path,
-
     });
 
     const result = await this.S3.send(command);
@@ -140,7 +141,6 @@ export class fsS3 extends fs {
     }
 
     return rStream;
-
   }
 
   /**
@@ -159,6 +159,14 @@ export class fsS3 extends fs {
     await upload.done();
   }
 
+  /**
+   * NOTE: append on s3 downloads file, appends to it, then uploads it again
+   * so it can be slow on large files
+   *
+   * @param path
+   * @param data
+   * @param encoding
+   */
   public async append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
     /**
      * We cannot append to file in s3 directly,
@@ -167,49 +175,65 @@ export class fsS3 extends fs {
     const fLocal = await this.download(path);
 
     await this.TempFs.append(fLocal, data, encoding);
-
-    const wStream = await this.writeStream(path, encoding);
-    const rStream = await this.TempFs.readStream(fLocal, encoding);
-    const cleanup = () => this.TempFs.rm(fLocal);
-
-    return new Promise((resolve, reject) => {
-      rStream
-        .pipe(wStream)
-        .on('end', () => cleanup().finally(resolve))
-        .on('error', (err : any) => cleanup().finally(() => reject(err)));
-  });
-}
-
-  public async upload(srcPath: string, destPath ?: string) {
-  if (!existsSync(srcPath)) {
-    throw new IOFail(`file ${srcPath} does not exists`);
+    await this.upload(fLocal, path);
   }
 
-  const dPath = this.resolvePath(destPath ?? basename(srcPath));
-  const rStream = createReadStream(srcPath);
-  await this.writeStream(dPath, rStream);
-}
+  public async upload(srcPath: string, destPath?: string) {
+    if (!existsSync(srcPath)) {
+      throw new IOFail(`file ${srcPath} does not exists`);
+    }
 
-  public async writeStream(
-  path: string,
-  rStream ?: ReadStream | BufferEncoding,
-  encoding ?: BufferEncoding,
-): Promise < any > {
-  if(!(rStream instanceof ReadStream)) {
-  throw new InvalidArgument(`rStream should be readable stream`);
-}
+    const dPath = destPath ?? basename(srcPath);
+    const rStream = createReadStream(srcPath);
+    const hash = await this.hash(srcPath, 'md5');
+    const fInfo = await this.FileInfo.getInfo(this.resolvePath(srcPath));
 
-const result = new Upload({
-  client: this.S3,
-  params: {
-    Bucket: this.Options.bucket,
-    Key: path,
-    Body: rStream,
-    ContentEncoding: encoding,
-  },
-});
+    const upload = new Upload({
+      client: this.S3,
+      params: {
+        Bucket: this.Options.bucket,
+        Key: dPath,
+        Body: rStream,
 
-await result.done();
+        // content md5 header is always base64 encoded
+        ContentMD5: Buffer.from(hash, 'hex').toString('base64'),
+
+        // convert all metadata values to string, and back to object with key-value pair of strings
+        Metadata: Object.fromEntries(Object.entries(fInfo).map(([key, value]) => [key, String(value)])),
+      },
+    });
+
+    await upload.done();
+  }
+
+  /**
+   * 
+   * Gets metadata of file in s3 bucket
+   * 
+   * @param path path to file
+   * @returns 
+   */
+  public async getMetadata(path: string) {
+    const command = new HeadObjectCommand({
+      Bucket: this.Options.bucket,
+      Key: path,
+    });
+
+    const result = await this.S3.send(command);
+
+    return result.Metadata;
+  }
+
+  /**
+   *
+   * Returns writable stream for given path
+   *
+   * @param path file path ( relative to base path of provider)
+   * @param rStream readable stream, must be provided beforehand
+   * @param encoding optional stream encoding
+   */
+  public async writeStream(_path: string, _encoding?: BufferEncoding): Promise<any> {
+    throw new IOFail('Method not implemented, s3 does not support writable streams');
   }
 
   /**
@@ -217,64 +241,62 @@ await result.done();
    * @param path - path to check
    */
   public async exists(path: string) {
-  try {
-    const command = new HeadObjectCommand({
-      Bucket: this.Options.bucket,
-      Key: path,
-    });
+    try {
+      const command = new HeadObjectCommand({
+        Bucket: this.Options.bucket,
+        Key: path,
+      });
 
-    await this.S3.send(command);
-  } catch (err) {
-    if (err.name === 'NotFound') return false;
-    throw err;
+      await this.S3.send(command);
+    } catch (err) {
+      if (err.name === 'NotFound') return false;
+      throw err;
+    }
+
+    return true;
   }
 
-  return true;
-}
-
-  public async dirExists() {
-  // s3 does not have concept of folders
-  // we assume that all exists
-  return Promise.resolve(true);
-}
+  public async dirExists(): Promise<boolean> {
+    throw new IOFail('Method not implemented, s3 does not support directories');
+  }
 
   /**
    * Copy file to another location
    * @param path - src path
    * @param dest - dest path
    */
-  public async copy(path: string, dest: string, dstFs ?: fs) {
-  // if dest fs is set
-  // copy using it
-  if (dstFs) {
-    const file = await this.download(path);
-    await dstFs.upload(file, dest);
-  } else {
-    // we copy file in s3 by copying it to another location
-    const command = new CopyObjectCommand({
-      Bucket: this.Options.bucket,
-      CopySource: this.Options.bucket + '/' + path,
-      Key: dest,
-    });
+  public async copy(path: string, dest: string, dstFs?: fs) {
+    // if dest fs is set
+    // copy using it
+    if (dstFs) {
+      const file = await this.download(path);
+      await dstFs.upload(file, dest);
+    } else {
+      // we copy file in s3 by copying it to another location
+      const command = new CopyObjectCommand({
+        Bucket: this.Options.bucket,
+        CopySource: this.Options.bucket + '/' + path,
+        Key: dest,
+      });
 
-    await this.S3.send(command);
+      await this.S3.send(command);
+    }
   }
-}
 
   /**
    * Copy file to another location and deletes src file
    */
-  public async move(oldPath: string, newPath: string, dstFs ?: fs) {
-  await this.copy(oldPath, newPath, dstFs);
-  await this.rm(oldPath);
-}
+  public async move(oldPath: string, newPath: string, dstFs?: fs) {
+    await this.copy(oldPath, newPath, dstFs);
+    await this.rm(oldPath);
+  }
 
   /**
    * Change name of a file
    */
   public async rename(oldPath: string, newPath: string) {
-  return this.move(oldPath, newPath);
-}
+    return this.move(oldPath, newPath);
+  }
 
   /**
    *
@@ -283,13 +305,13 @@ await result.done();
    * @param path - dir to remove
    */
   public async rm(_path: string) {
-  const command = new DeleteObjectCommand({
-    Bucket: this.Options.bucket,
-    Key: _path,
-  });
+    const command = new DeleteObjectCommand({
+      Bucket: this.Options.bucket,
+      Key: _path,
+    });
 
-  await this.S3.send(command);
-}
+    await this.S3.send(command);
+  }
 
   /**
    *
@@ -297,40 +319,40 @@ await result.done();
    *
    */
   public async mkdir() {
-  throw new IOFail('Method not implemented, s3 does not support directories');
-}
+    throw new IOFail('Method not implemented, s3 does not support directories');
+  }
 
-  public async isDir(_path: string): Promise < boolean > {
-  throw new IOFail('Method not implemented, s3 does not support directories');
-}
+  public async isDir(_path: string): Promise<boolean> {
+    throw new IOFail('Method not implemented, s3 does not support directories');
+  }
 
   /**
    * Returns file statistics, not all fields may be accesible
    */
-  public async stat(path: string): Promise < IStat > {
-  const command = new HeadObjectCommand({
-    Bucket: this.Options.bucket,
-    Key: path,
-  });
+  public async stat(path: string): Promise<IStat> {
+    const command = new HeadObjectCommand({
+      Bucket: this.Options.bucket,
+      Key: path,
+    });
 
-  const result = await this.S3.send(command);
+    const result = await this.S3.send(command);
 
-  return {
-    // no directories in s3
-    IsDirectory: false,
+    return {
+      // no directories in s3
+      IsDirectory: false,
 
-    // only files can be stored in s3
-    IsFile: true,
+      // only files can be stored in s3
+      IsFile: true,
 
-    // no creation time
-    CreationTime: DateTime.min(),
-    ModifiedTime: DateTime.fromJSDate(result.LastModified),
+      // no creation time
+      CreationTime: DateTime.min(),
+      ModifiedTime: DateTime.fromJSDate(result.LastModified),
 
-    // no access time in s3s
-    AccessTime: DateTime.min(),
-    Size: result.ContentLength,
-  };
-}
+      // no access time in s3s
+      AccessTime: DateTime.min(),
+      Size: result.ContentLength,
+    };
+  }
 
   // protected async getSignedUrl(path: string) {
 
@@ -342,8 +364,8 @@ await result.done();
   // }
 
   public tmppath(): string {
-  throw new MethodNotImplemented('fs s3 does not support temporary paths');
-}
+    throw new MethodNotImplemented('fs s3 does not support temporary paths');
+  }
 
   /**
    * List content of directory
@@ -351,26 +373,31 @@ await result.done();
    * @param path - path to directory
    */
   public async list(path: string) {
-  const command = new ListObjectsV2Command({
-    Bucket: this.Options.bucket,
-    Delimiter: '/',
-    Prefix: path,
-  });
+    const command = new ListObjectsV2Command({
+      Bucket: this.Options.bucket,
+      Delimiter: '/',
+      Prefix: path,
+    });
 
-  const result = await this.S3.send(command);
-  return result.Contents.map((x) => x.Key);
-}
+    const result = await this.S3.send(command);
+    return result.Contents.map((x) => x.Key);
+  }
 
   async unzip(_path: string, _destPath: string) {
-  throw new IOFail('Method not implemented, you should download zipped file first, then unzip it');
-}
+    throw new IOFail('Method not implemented, you should download zipped file first, then unzip it');
+  }
 
-  public async zip(_path: string, _dstFs ?: fs, _dstFile ?: string): Promise < IZipResult > {
-  throw new IOFail('Method not implemented, you should zip files locally, then upload it');
-}
+  public async zip(_path: string, _dstFs?: fs, _dstFile?: string): Promise<IZipResult> {
+    throw new IOFail('Method not implemented, you should zip files locally, then upload it');
+  }
 
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
   public resolvePath(_path: string): string {
-  throw new MethodNotImplemented('fs s3 does not support path resolving');
-}
+    // we checek if path is absolute
+    // for hash function
+    if (path.isAbsolute(_path)) {
+      return _path;
+    }
+
+    throw new MethodNotImplemented('fs s3 does not support path resolving');
+  }
 }
