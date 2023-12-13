@@ -33,8 +33,7 @@ export interface IOnedriveConfig {
 @PerInstanceCheck()
 export class fsS3 extends fs {
   @Logger('fs-onedrive')
-  protected Logger: ILog;
-
+  protected Logger: Log;
 
   @Config('fs.onedrive')
   protected Config: IOnedriveConfig;

@@ -17,6 +17,7 @@ import { InvalidArgument, IOFail, MethodNotImplemented } from '@spinajs/exceptio
 import { createReadStream, existsSync, ReadStream } from 'fs';
 import { DateTime } from 'luxon';
 import { Readable } from 'stream';
+import iconv from 'iconv-lite';
 
 export interface IS3Config {
   bucket: string;
@@ -117,9 +118,29 @@ export class fsS3 extends fs {
     return content;
   }
 
+  /**
+   * 
+   * @param path 
+   * @param _encoding 
+   * @returns 
+   */
   public async readStream(path: string, encoding?: BufferEncoding) {
-    const fLocal = await this.download(path);
-    return this.TempFs.readStream(fLocal, encoding);
+
+    const command = new GetObjectCommand({
+      Bucket: this.Options.bucket,
+      Key: path,
+
+    });
+
+    const result = await this.S3.send(command);
+    const rStream = result.Body as Readable;
+    if (encoding) {
+      const encodedStream = rStream.pipe(iconv.decodeStream(encoding));
+      return encodedStream;
+    }
+
+    return rStream;
+
   }
 
   /**
@@ -149,62 +170,46 @@ export class fsS3 extends fs {
 
     const wStream = await this.writeStream(path, encoding);
     const rStream = await this.TempFs.readStream(fLocal, encoding);
+    const cleanup = () => this.TempFs.rm(fLocal);
 
     return new Promise((resolve, reject) => {
       rStream
         .pipe(wStream)
-        .on('end', () => {
-          this.TempFs.rm(fLocal)
-            .then(() => {
-              return resolve();
-            })
-            .catch(() => {
-              resolve();
-            });
-        })
-        .on('error', (err: any) => {
-          // eslint-disable-next-line promise/no-promise-in-callback
-          this.TempFs.rm(fLocal)
-            .then(() => {
-              return reject(err);
-            })
-            .catch(() => {
-              reject(err);
-            });
-        });
-    });
+        .on('end', () => cleanup().finally(resolve))
+        .on('error', (err : any) => cleanup().finally(() => reject(err)));
+  });
+}
+
+  public async upload(srcPath: string, destPath ?: string) {
+  if (!existsSync(srcPath)) {
+    throw new IOFail(`file ${srcPath} does not exists`);
   }
 
-  public async upload(srcPath: string, destPath?: string) {
-    if (!existsSync(srcPath)) {
-      throw new IOFail(`file ${srcPath} does not exists`);
-    }
-
-    const dPath = this.resolvePath(destPath ?? basename(srcPath));
-    const rStream = createReadStream(srcPath);
-    await this.writeStream(dPath, rStream);
-  }
+  const dPath = this.resolvePath(destPath ?? basename(srcPath));
+  const rStream = createReadStream(srcPath);
+  await this.writeStream(dPath, rStream);
+}
 
   public async writeStream(
-    path: string,
-    rStream?: ReadStream | BufferEncoding,
-    encoding?: BufferEncoding,
-  ): Promise<any> {
-    if (!(rStream instanceof ReadStream)) {
-      throw new InvalidArgument(`rStream should be readable stream`);
-    }
+  path: string,
+  rStream ?: ReadStream | BufferEncoding,
+  encoding ?: BufferEncoding,
+): Promise < any > {
+  if(!(rStream instanceof ReadStream)) {
+  throw new InvalidArgument(`rStream should be readable stream`);
+}
 
-    const result = new Upload({
-      client: this.S3,
-      params: {
-        Bucket: this.Options.bucket,
-        Key: path,
-        Body: rStream,
-        ContentEncoding: encoding,
-      },
-    });
+const result = new Upload({
+  client: this.S3,
+  params: {
+    Bucket: this.Options.bucket,
+    Key: path,
+    Body: rStream,
+    ContentEncoding: encoding,
+  },
+});
 
-    await result.done();
+await result.done();
   }
 
   /**
@@ -212,64 +217,64 @@ export class fsS3 extends fs {
    * @param path - path to check
    */
   public async exists(path: string) {
-    try {
-      const command = new HeadObjectCommand({
-        Bucket: this.Options.bucket,
-        Key: path,
-      });
+  try {
+    const command = new HeadObjectCommand({
+      Bucket: this.Options.bucket,
+      Key: path,
+    });
 
-      await this.S3.send(command);
-    } catch (err) {
-      if (err.name === 'NotFound') return false;
-      throw err;
-    }
-
-    return true;
+    await this.S3.send(command);
+  } catch (err) {
+    if (err.name === 'NotFound') return false;
+    throw err;
   }
+
+  return true;
+}
 
   public async dirExists() {
-    // s3 does not have concept of folders
-    // we assume that all exists
-    return Promise.resolve(true);
-  }
+  // s3 does not have concept of folders
+  // we assume that all exists
+  return Promise.resolve(true);
+}
 
   /**
    * Copy file to another location
    * @param path - src path
    * @param dest - dest path
    */
-  public async copy(path: string, dest: string, dstFs?: fs) {
-    // if dest fs is set
-    // copy using it
-    if (dstFs) {
-      const file = await this.download(path);
-      await dstFs.upload(file, dest);
-    } else {
-      // we copy file in s3 by copying it to another location
-      const command = new CopyObjectCommand({
-        Bucket: this.Options.bucket,
-        CopySource: this.Options.bucket + '/' + path,
-        Key: dest,
-      });
+  public async copy(path: string, dest: string, dstFs ?: fs) {
+  // if dest fs is set
+  // copy using it
+  if (dstFs) {
+    const file = await this.download(path);
+    await dstFs.upload(file, dest);
+  } else {
+    // we copy file in s3 by copying it to another location
+    const command = new CopyObjectCommand({
+      Bucket: this.Options.bucket,
+      CopySource: this.Options.bucket + '/' + path,
+      Key: dest,
+    });
 
-      await this.S3.send(command);
-    }
+    await this.S3.send(command);
   }
+}
 
   /**
    * Copy file to another location and deletes src file
    */
-  public async move(oldPath: string, newPath: string, dstFs?: fs) {
-    await this.copy(oldPath, newPath, dstFs);
-    await this.rm(oldPath);
-  }
+  public async move(oldPath: string, newPath: string, dstFs ?: fs) {
+  await this.copy(oldPath, newPath, dstFs);
+  await this.rm(oldPath);
+}
 
   /**
    * Change name of a file
    */
   public async rename(oldPath: string, newPath: string) {
-    return this.move(oldPath, newPath);
-  }
+  return this.move(oldPath, newPath);
+}
 
   /**
    *
@@ -278,13 +283,13 @@ export class fsS3 extends fs {
    * @param path - dir to remove
    */
   public async rm(_path: string) {
-    const command = new DeleteObjectCommand({
-      Bucket: this.Options.bucket,
-      Key: _path,
-    });
+  const command = new DeleteObjectCommand({
+    Bucket: this.Options.bucket,
+    Key: _path,
+  });
 
-    await this.S3.send(command);
-  }
+  await this.S3.send(command);
+}
 
   /**
    *
@@ -292,40 +297,40 @@ export class fsS3 extends fs {
    *
    */
   public async mkdir() {
-    throw new IOFail('Method not implemented, s3 does not support directories');
-  }
+  throw new IOFail('Method not implemented, s3 does not support directories');
+}
 
-  public async isDir(_path: string): Promise<boolean> {
-    throw new IOFail('Method not implemented, s3 does not support directories');
-  }
+  public async isDir(_path: string): Promise < boolean > {
+  throw new IOFail('Method not implemented, s3 does not support directories');
+}
 
   /**
    * Returns file statistics, not all fields may be accesible
    */
-  public async stat(path: string): Promise<IStat> {
-    const command = new HeadObjectCommand({
-      Bucket: this.Options.bucket,
-      Key: path,
-    });
+  public async stat(path: string): Promise < IStat > {
+  const command = new HeadObjectCommand({
+    Bucket: this.Options.bucket,
+    Key: path,
+  });
 
-    const result = await this.S3.send(command);
+  const result = await this.S3.send(command);
 
-    return {
-      // no directories in s3
-      IsDirectory: false,
+  return {
+    // no directories in s3
+    IsDirectory: false,
 
-      // only files can be stored in s3
-      IsFile: true,
+    // only files can be stored in s3
+    IsFile: true,
 
-      // no creation time
-      CreationTime: DateTime.min(),
-      ModifiedTime: DateTime.fromJSDate(result.LastModified),
+    // no creation time
+    CreationTime: DateTime.min(),
+    ModifiedTime: DateTime.fromJSDate(result.LastModified),
 
-      // no access time in s3s
-      AccessTime: DateTime.min(),
-      Size: result.ContentLength,
-    };
-  }
+    // no access time in s3s
+    AccessTime: DateTime.min(),
+    Size: result.ContentLength,
+  };
+}
 
   // protected async getSignedUrl(path: string) {
 
@@ -337,8 +342,8 @@ export class fsS3 extends fs {
   // }
 
   public tmppath(): string {
-    throw new MethodNotImplemented('fs s3 does not support temporary paths');
-  }
+  throw new MethodNotImplemented('fs s3 does not support temporary paths');
+}
 
   /**
    * List content of directory
@@ -346,26 +351,26 @@ export class fsS3 extends fs {
    * @param path - path to directory
    */
   public async list(path: string) {
-    const command = new ListObjectsV2Command({
-      Bucket: this.Options.bucket,
-      Delimiter: '/',
-      Prefix: path,
-    });
+  const command = new ListObjectsV2Command({
+    Bucket: this.Options.bucket,
+    Delimiter: '/',
+    Prefix: path,
+  });
 
-    const result = await this.S3.send(command);
-    return result.Contents.map((x) => x.Key);
-  }
+  const result = await this.S3.send(command);
+  return result.Contents.map((x) => x.Key);
+}
 
   async unzip(_path: string, _destPath: string) {
-    throw new IOFail('Method not implemented, you should download zipped file first, then unzip it');
-  }
+  throw new IOFail('Method not implemented, you should download zipped file first, then unzip it');
+}
 
-  public async zip(_path: string, _dstFs?: fs, _dstFile?: string): Promise<IZipResult> {
-    throw new IOFail('Method not implemented, you should zip files locally, then upload it');
-  }
+  public async zip(_path: string, _dstFs ?: fs, _dstFile ?: string): Promise < IZipResult > {
+  throw new IOFail('Method not implemented, you should zip files locally, then upload it');
+}
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   public resolvePath(_path: string): string {
-    throw new MethodNotImplemented('fs s3 does not support path resolving');
-  }
+  throw new MethodNotImplemented('fs s3 does not support path resolving');
+}
 }

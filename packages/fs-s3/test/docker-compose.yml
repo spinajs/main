@@ -9,6 +9,6 @@ services:
     environment:
       - SERVICES=s3
       - DEBUG=1
-      - DATA_DIR=/tmp/localstack/data
+      - DATA_DIR=/tmp/localstack2/data
     volumes:
-      - './.localstack:/tmp/localstack'
+      - './.localstack2:/tmp/localstack2'

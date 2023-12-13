@@ -151,7 +151,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    */
   public abstract resolvePath(path: string): string;
   public abstract read(path: string, encoding?: BufferEncoding): Promise<string | Buffer>;
-  public abstract readStream(path: string, encoding?: BufferEncoding): Promise<ReadStream>;
+  public abstract readStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream>;
   public abstract write(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void>;
   public abstract writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
   public abstract writeStream(
