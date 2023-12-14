@@ -1,6 +1,7 @@
 import * as express from 'express';
 import { Constructor, AsyncService } from '@spinajs/di';
 import { fs } from '@spinajs/fs';
+import formidable from 'formidable';
 
 /**
  * Accept header enum
@@ -93,6 +94,14 @@ export interface IUploadedFile {
 
 export interface Request extends express.Request {
   storage: IActionLocalStoregeContext;
+}
+
+/**
+ * File upload provider, used to copy incoming formidable
+ * file to desired location eg. local, aws s3 etc.
+ */
+export abstract class FormFileUploader { 
+  public abstract upload(file: formidable.File, dst: string): Promise<IUploadedFile>;
 }
 
 export interface IActionLocalStoregeContext {
@@ -360,9 +369,18 @@ export interface IUploadOptions {
 
   /**
    * File provider name used to upload files
-   * Defaults to default provider set in fs.defaultProvider config options
+   * Defaults to default provider set is copy immediately to fs
+   * 
+   * Set this for eg. if lazy copying is needed eg. to aws s3 to not stall main thread
    */
-  provider?: string;
+  uploader?: string;
+
+  /**
+   * File system provider used to upload files. Default is taken from configuration
+   * DefaultFsProvider
+   */
+  uploaderFs? : string;
+
   /**
    * default false; when you call the .parse method, the files argument (of the callback) will contain arrays of files for inputs which submit multiple files using the HTML5 multiple attribute. Also, the fields argument will contain arrays of values for fields that have names ending with '[]'.
    */
@@ -384,6 +402,11 @@ export interface IUploadOptions {
    * Should obtain fileInfo when uploading ?
    */
   fileInfo? : boolean;
+
+  /**
+   * Is this file / files required ?
+   */
+  required? : boolean;
 }
 
 /**

@@ -1,18 +1,22 @@
 import { IRouteArgsResult, RouteArgs } from './RouteArgs.js';
-import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOptions } from '../interfaces.js';
+import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOptions, FormFileUploader, IUploadedFile } from '../interfaces.js';
 import * as express from 'express';
-import { Fields, Files, File, IncomingForm } from 'formidable';
+import formidable, { Fields, Files, File, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
-import { Injectable, NewInstance } from '@spinajs/di';
+import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
 import { pipe } from "effect";
-import { flatMap , tryPromise, map, fromNullable, zip, either, partition } from "effect/Effect";
+import { flatMap, tryPromise, map, fromNullable, zip, either, partition } from "effect/Effect";
 import { basename } from 'node:path';
- 
+import { toArray } from '@spinajs/util';
+import { InvalidOperation } from '@spinajs/exceptions';
+import { ValidationFailed } from '@spinajs/validation';
+import { rm } from 'fs/promises';
+
 
 interface FormData {
   Fields: Fields;
@@ -100,74 +104,39 @@ export class FromFile extends FromFormBase {
     // copy to provided fs or default temp fs
     // delete intermediate files ( from express ) regardless of copy result
 
-    // // extract form data if not processed already
-    // const result = await super.extract(callData, param, req, res, route);
+    // extract form data if not processed already
+    // and prepare result object
+    const result = await super.extract(callData, param, req, res, route);
 
-    // // get incoming files
-    // const { Files } = this.FormData;
-  
-    // // combine files from form data & file provider
-    // // for further processing
-    // const params = zip(
+    // get incoming files
+    const { Files } = this.FormData;
 
-    //   // convert files to array for simplicity
-    //   map(fromNullable(Files[param.Name]),Util.Array.toArray), 
+    // get fs provider for storing files
+    const fs = DI.resolve<FormFileUploader>(param.Options.uploader ?? "ImmediateFileUploader", [param.Options.uploaderFs]);
 
-    //   // get provider from param options or default
-    //   FP.Fs.getFsProvider(param.Options.provider ?? this.DefaultFsProviderName)
-    // );
+    const files = toArray(Files[param.Name]);
 
-    // params.pipe(flatMap(([files, fs]) => partition(files, (f) =>{ 
-      
-    // })))
-
-    // const copyToFs = ( file: string) => either(pipe(
-    //   fs,
-    //   flatMap((fs) => tryPromise(() => fs.writeStream(basename(file)))),
-    //   flatMap((stream) => tryPromise<void>(() =>{ 
-    //     return new Promise((resolve,reject) => { 
-    //       createReadStream(file).pipe(stream).on('finish', resolve).on('error', reject);
-    //     })
-    //   })),
-    //   Effect.match({
-    //     onFailure: () => FP.Fs.del(file),
-    //     onSuccess: () => FP.Fs.del(file)
-    //   })
-    // )) 
-
-     
-
-
-    // const d = (file: string) => fs.pipe( Effect.map( (fs) => Effect.tryPromise(async () => {
-    // const del = (file : string) => fs.pipe(Effect.tap((fs) => Effect.tryPromise(() => fs.unlink(basename(file)))), Effect.tap((fs) => FP.Logger.trace('http', `Deletet file ${file} from ${fs.Name}`)));
-    // const delTemp  = ( file : string) => FP.Fs.del(file).pipe(() => FP.Logger.trace('http', `Deleted temporary file ${file}`))
-    // const delAllFs = (f: string[]) => Effect.validateAll(f, (f) => del(f), { concurrency: 'unbounded' });
-    // const delAll = (f: string[]) => Effect.validateAll(f, (f) => delTemp(f), { concurrency: 'unbounded' });
-    // const copyAll = (f: string[]) => Effect.orElse(Effect.partition(f, (f) =>
-    //                 Effect.tapBoth(copyToFs(f), {
-    //                     onFailure: (err : Error) => FP.Logger.error(`http`, err, `Error copying incoming file ${f}`),
-    //                     onSuccess: () => FP.Logger.success(`http`, `Success receiving incoming file ${f}`)
-    //                 }), {
-    //                 concurrency: "unbounded"
-    //             }), () => delAll(f));
-
-  
-
-    // return Object.assign(data, {
-    //   Args: param.RuntimeType.name === 'Array' ? formFiles.map(mf) : mf(formFiles[0]),
-    // });
-
-    function mf(f: File) {
-      return {
-        Size: f.size,
-        BaseName: basename(f.filepath),
-        Provider: self.FileService,
-        Name: f.originalFilename,
-        Type: f.mimetype,
-        LastModifiedDate: f.mtime,
-        Hash: f.hash,
-      };
+    if (param.Options.required && files.length === 0) {
+      throw new ValidationFailed(`File ${param.Name} is required`, [{
+        propertyName: param.Name,
+        message: "Missing file",
+        keyword: "required",
+        params: {},
+        schemaPath: "#/required",
+        instancePath: "FormData"
+      }]);
     }
+
+    const pResults = await Promise.allSettled(files.map((f) =>
+      fs.upload(f, basename(f.filepath))
+    ));
+
+    const uFiles = pResults.filter(r => r.status === "fulfilled").map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
+
+    return Object.assign(result, {
+      Args: param.RuntimeType.name === 'Array' ? uFiles : uFiles[0],
+    });
+  }
 }
 
 @Injectable()
