@@ -12,12 +12,11 @@ import { TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { Configuration } from '@spinajs/configuration';
-import Util from '@spinajs/util';
-
 import { HttpServer } from './server.js';
 import { RouteArgs } from './route-args/index.js';
 import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
+import { tryGetHash } from '@spinajs/util';
 
 export abstract class BaseController extends AsyncService implements IController {
   /**
@@ -215,7 +214,7 @@ export abstract class BaseController extends AsyncService implements IController
       };
 
       for (const [, param] of route.Parameters) {
-        const routeArgsHandler = await Util.Hash.tryGetHash(argsCache, param.Type, () => DI.resolve(param.Type));
+        const routeArgsHandler = await tryGetHash(argsCache, param.Type, () => DI.resolve(param.Type));
         if (!routeArgsHandler) {
           throw new UnexpectedServerError(`invalid route parameter type for param: ${param.Name},
             method: ${route.Method},

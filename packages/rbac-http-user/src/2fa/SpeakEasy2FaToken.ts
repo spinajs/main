@@ -1,5 +1,4 @@
 import { Injectable } from '@spinajs/di';
-import { TwoFactorAuthProvider } from '../interfaces.js';
 import * as speakeasy from 'speakeasy';
 import { User } from '@spinajs/rbac';
 import { Config } from '@spinajs/configuration';

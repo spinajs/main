@@ -8,7 +8,7 @@ import { fs } from '@spinajs/fs';
 
 export class ZipResponse extends Response {
   /**
-   * Sends zipped to client at given path & filename. If file exists
+   * Sends zipped file to client at given path & filename. If file exists
    * it will send file with 200 OK, if not exists 404 NOT FOUND
    */
   constructor(protected Options: IFileResponseOptions) {
@@ -26,25 +26,18 @@ export class ZipResponse extends Response {
       throw new ResourceNotFound(`File ${this.Options.path} not exists`);
     }
 
-    const file = (await provider.zip(this.Options.path)).asFilePath();
+    const zippedFile = await provider.zip(this.Options.path);
+    const fPath = zippedFile.asFilePath();
 
     return new Promise((resolve, reject) => {
-      res.download(file, this.Options.filename, (err: Error) => {
-        provider
-          .unlink(this.Options.path, true)
-          .then(() => {
-            return provider.unlink(file);
-          })
-          .then(() => {
-            if (!_.isNil(err)) {
-              reject(err);
-            } else {
-              resolve();
-            }
-          })
-          .catch((err) => {
+      res.download(fPath, this.Options.filename, (err: Error) => {
+        provider.rm(fPath).finally(() => {
+          if (!_.isNil(err)) {
             reject(err);
-          });
+          } else {
+            resolve();
+          }
+        });
       });
     });
   }
@@ -78,25 +71,18 @@ export class FileResponse extends Response {
 
     return new Promise((resolve, reject) => {
       res.download(file, this.Options.filename, (err: Error) => {
-        if (this.Options.deleteAfterDownload) {
-          provider
-            .unlink(this.Options.path, true)
-            .then(() => {
-              if (!_.isNil(err)) {
-                reject(err);
-              } else {
-                resolve();
-              }
-            })
-            .catch((err) => {
-              reject(err);
-            });
-        } else {
+        const r = () => {
           if (!_.isNil(err)) {
             reject(err);
           } else {
             resolve();
           }
+        };
+
+        if (this.Options.deleteAfterDownload) {
+          provider.rm(this.Options.path).finally(r);
+        } else {
+          r();
         }
       });
     });
@@ -115,18 +101,13 @@ export class JsonFileResponse extends Response {
 
     return new Promise((resolve, reject) => {
       res.download(tmpPath, this.filename, (err: Error) => {
-        provider
-          .unlink(tmpPath)
-          .then(() => {
-            if (err) {
-              reject(err);
-            } else {
-              resolve();
-            }
-          })
-          .catch((err) => {
+        provider.rm(tmpPath).finally(() => {
+          if (err) {
             reject(err);
-          });
+          } else {
+            resolve();
+          }
+        });
       });
     });
   }
