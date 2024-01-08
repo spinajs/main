@@ -5,7 +5,7 @@ import { SessionProvider, Session, ISession } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
-import  Util from '@spinajs/util';
+import  {replacer } from '@spinajs/util';
 import _ from 'lodash';
 
 @Injectable(SessionProvider)
@@ -184,7 +184,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       sData = JSON.stringify(data);
     } else {
       sId = sessionOrId.SessionId;
-      sData = JSON.stringify(Object.fromEntries(sessionOrId.Data), Util.JSON.replacer);
+      sData = JSON.stringify(Object.fromEntries(sessionOrId.Data), replacer);
       sCreationTime = sessionOrId.Creation;
       sExpirationTime = sessionOrId.Expiration;
     }
