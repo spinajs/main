@@ -423,6 +423,8 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
 
   getModelDescriptor(): IModelDescriptor;
   getRelationDescriptor(relation: string): IRelationDescriptor;
+  whereExists<T extends typeof ModelBase>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  whereNotExists<T extends typeof ModelBase>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
 }
 
 export interface IModelBase {
@@ -790,8 +792,8 @@ export interface IWhereBuilder<T> {
   whereNot(column: string, val: unknown): this;
   whereIn(column: string, val: unknown[]): this;
   whereNotIn(column: string, val: unknown[]): this;
-  whereExist(query: ISelectQueryBuilder<T>): this;
-  whereNotExists(query: ISelectQueryBuilder<T>): this;
+  whereExist<M extends ModelBase | ModelBase[]>(query: ISelectQueryBuilder<M>): this;
+  whereNotExists<M extends ModelBase | ModelBase[]>(query: ISelectQueryBuilder<M>): this;
   whereBetween(column: string, val: unknown[]): this;
   whereNotBetween(column: string, val: unknown[]): this;
   whereInSet(column: string, val: unknown[]): this;

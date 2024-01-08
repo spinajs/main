@@ -19,7 +19,7 @@ import chaiSubset from 'chai-subset';
 import { RawModel } from './mocks/models/RawModel.js';
 import { Model, Connection } from '../src/decorators.js';
 import { ModelBase } from './../src/model.js';
-import { Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models/index.js';
+import {  Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models/index.js';
 import { ModelWithScopeQueryScope } from './mocks/models/ModelWithScope.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators.js';
 import { ModelWithScope } from './mocks/models/ModelWithScope.js';
@@ -387,7 +387,6 @@ describe('General model tests', () => {
 
   it('Get should work', async () => {
     await db();
- 
 
     const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
       new Promise((res) => {
@@ -423,7 +422,6 @@ describe('General model tests', () => {
 
     const result = await Model1.find([1, 2]);
 
-    
     expect(execute.calledOnce).to.be.true;
     expect(result).to.be.an('array').with.length(2);
     expect(result[0]).instanceof(Model1);
@@ -432,8 +430,6 @@ describe('General model tests', () => {
   it('FindOrFail mixin should work', async () => {
     // @ts-ignore
     const orm = await db();
-
- ;
 
     const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
       new Promise((res) => {
@@ -473,7 +469,7 @@ describe('General model tests', () => {
   it('FirstOrThrow shouhld work', async () => {
     // @ts-ignore
     const orm = await db();
- 
+
     const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
       new Promise((res) => {
         res([
@@ -890,9 +886,7 @@ describe('General model tests', () => {
   it('Model delete should soft delete', async () => {
     // @ts-ignore
     const orm = await db();
- 
 
- 
     sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
       new Promise((res) => {
         res([]);

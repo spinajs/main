@@ -344,6 +344,14 @@ export class ModelBase<M = unknown> implements IModelBase {
     throw new Error('Not implemented');
   }
 
+  public static whereExists<T extends typeof ModelBase>(this: T, _query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>> {
+    throw new Error('Not implemented');
+  }
+
+  public static whereNotExists<T extends typeof ModelBase>(this: T, _query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>> {
+    throw new Error('Not implemented');
+  }
+
   constructor(data?: Partial<M>) {
     this.setDefaults();
 
@@ -679,7 +687,7 @@ export const MODEL_STATIC_MIXINS = {
     return dsc;
   },
 
-  getRelationDescriptor(relation: string) : IRelationDescriptor {
+  getRelationDescriptor(relation: string): IRelationDescriptor {
     const descriptor = this.getModelDescriptor();
     let rDescriptor = null;
     for (const [key, value] of descriptor.Relations) {
@@ -943,6 +951,18 @@ export const MODEL_STATIC_MIXINS = {
     }
 
     return false;
+  },
+
+  async whereExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, q: ISelectQueryBuilder<Z>) {
+    const { query } = createQuery(this as any, SelectQueryBuilder);
+    query.whereExist(q);
+    return await query;
+  },
+
+  async whereNotExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, q: ISelectQueryBuilder<Z>) {
+    const { query } = createQuery(this as any, SelectQueryBuilder);
+    query.whereNotExists(q);
+    return await query;
   },
 
   async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
