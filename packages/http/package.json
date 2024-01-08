@@ -71,7 +71,6 @@
     "@spinajs/validation": "^2.0.181",
     "@spinajs/templates-pug": "^2.0.181",
     "@spinajs/util": "^2.0.181",
-    "@spinajs/util-fp": "^2.0.181",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
     "cookie-signature": "^1.2.0",
@@ -85,8 +84,7 @@
     "luxon": "^3.2.1",
     "mime": "^3.0.0",
     "randomstring": "^1.2.3",
-    "uuid": "^9.0.0",
-    "effect": "^2.0.0-next.48"
+    "uuid": "^9.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

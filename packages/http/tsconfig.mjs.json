@@ -10,5 +10,5 @@
     }
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../util-fp/tsconfig.mjs.json" }, { "path": "../util/tsconfig.mjs.json" },{ "path": "../configuration/tsconfig.mjs.json" }, { "path": "../di/tsconfig.mjs.json" }, { "path": "../exceptions/tsconfig.mjs.json" }, { "path": "../log/tsconfig.mjs.json" }, { "path": "../reflection/tsconfig.mjs.json" }, { "path": "../fs/tsconfig.mjs.json" }, { "path": "../templates/tsconfig.mjs.json" }, { "path": "../validation/tsconfig.mjs.json" }, { "path": "../templates-pug/tsconfig.mjs.json" }]
+  "references": [{ "path": "../util/tsconfig.mjs.json" },{ "path": "../configuration/tsconfig.mjs.json" }, { "path": "../di/tsconfig.mjs.json" }, { "path": "../exceptions/tsconfig.mjs.json" }, { "path": "../log/tsconfig.mjs.json" }, { "path": "../reflection/tsconfig.mjs.json" }, { "path": "../fs/tsconfig.mjs.json" }, { "path": "../templates/tsconfig.mjs.json" }, { "path": "../validation/tsconfig.mjs.json" }, { "path": "../templates-pug/tsconfig.mjs.json" }]
 }
