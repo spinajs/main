@@ -46,7 +46,7 @@ export class BodyParams extends BaseController {
   @Post()
   public arrayOfHydratedModels(
     @Body()
-    @Type(Array.ofType(SampleModelWithHydrator))
+    @Type(SampleModelWithHydrator)
     objects: SampleModelWithHydrator[],
   ) {
     return new Ok({ objects });
