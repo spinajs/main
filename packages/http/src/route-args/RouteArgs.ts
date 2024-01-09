@@ -38,9 +38,6 @@ export abstract class RouteArgs implements IRouteArgs {
       schema = routeParameter.RouteParamSchema;
     } else {
       schema = this.Validator.extractSchema(routeParameter.RuntimeType);
-      if (!schema && routeParameter.RuntimeType.prototype) {
-        schema = this.Validator.extractSchema(routeParameter.RuntimeType.prototype);
-      }
     }
 
     if (this.isRuntimeType(routeParameter)) {
@@ -54,7 +51,7 @@ export abstract class RouteArgs implements IRouteArgs {
       result = hydrator ? arg : this.tryExtractObject(arg, routeParameter);
 
       if (schema) {
-        this.Validator.validate(schema, arg);
+        this.Validator.validate(schema, result);
       }
 
       if (hydrator) {

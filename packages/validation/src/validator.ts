@@ -166,8 +166,8 @@ export class DataValidator extends AsyncService {
     return [true, null];
   }
 
-  public extractSchema(object: unknown) {
-    return Reflect.getMetadata(SCHEMA_SYMBOL, object) as ISchemaObject
+  public extractSchema(object: any) {
+    return Reflect.getMetadata(SCHEMA_SYMBOL, object) as ISchemaObject ?? Reflect.getMetadata(SCHEMA_SYMBOL, object.prototype) as ISchemaObject;
   }
 
   /**

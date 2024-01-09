@@ -30,8 +30,8 @@ export class ZipResponse extends Response {
     const fPath = zippedFile.asFilePath();
 
     return new Promise((resolve, reject) => {
-      res.download(fPath, this.Options.filename, (err: Error) => {
-        provider.rm(fPath).finally(() => {
+      res.download(zippedFile.fs.resolvePath(fPath), this.Options.filename, (err: Error) => {
+        zippedFile.fs.rm(fPath).finally(() => {
           if (!_.isNil(err)) {
             reject(err);
           } else {
