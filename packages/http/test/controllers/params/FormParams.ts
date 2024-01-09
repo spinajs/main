@@ -48,7 +48,7 @@ export class FormParams extends BaseController {
   }
 
   @Post()
-  public fileWithCustomUploaderFs(@File({ uploader: CustomFileUploader, uploaderFs: 'test2' }) file: IUploadedFile) {
+  public fileWithCustomUploaderFs(@File({ uploaderFs: 'test2' }) file: IUploadedFile) {
     return new Ok(file);
   }
 

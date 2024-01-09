@@ -1,7 +1,7 @@
 import { IRouteArgsResult, RouteArgs } from './RouteArgs.js';
 import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOptions, FormFileUploader, IUploadedFile, FileTransformer } from '../interfaces.js';
 import * as express from 'express';
-import { Fields, Files, File, IncomingForm } from 'formidable';
+import formidable, { Fields, Files, File, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
@@ -126,7 +126,7 @@ export class FromFile extends FromFormBase {
     }
 
     const uplFiles = files
-      .map((f) => {
+      .map((f : formidable.File) => {
         const uploadedFile: IUploadedFile = {
           Size: f.size,
           BaseName: basename(f.filepath),

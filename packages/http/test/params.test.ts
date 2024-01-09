@@ -566,34 +566,40 @@ describe('controller action test params', function () {
 
       await req()
         .post('params/forms/fileWithCustomUploader')
-        .attach('files', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
+        .attach('file', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
 
       expect(spy.args[0][0].Name).to.eq('test.txt');
       expect(uplSpy.called).to.be.true;
     });
 
     it('fileWithCustomUploaderFs', async () => {
-      const spy = FormParams.prototype.fileWithCustomUploader as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileWithCustomUploaderFs as sinon.SinonSpy;
       const uplSpy = CustomFileUploader.prototype.upload as sinon.SinonSpy;
 
       await req()
-        .post('params/forms/fileWithCustomUploader')
-        .attach('files', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
+        .post('params/forms/fileWithCustomUploaderFs')
+        .attach('file', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
 
       expect(spy.args[0][0].Name).to.eq('test.txt');
       expect(spy.args[0][0].Provider.Name).to.eq('test2');
 
       const tFs = DI.resolve<sFs>('__file_provider__', ['test2']);
-      const exists = tFs.exists('test.txt');
+      const exists = await tFs.exists(spy.args[0][0].BaseName);
 
       expect(exists).to.be.true;
       expect(uplSpy.called).to.be.true;
 
-      await tFs.rm('test.txt');
+      await tFs.rm(spy.args[0][0].BaseName);
     });
 
     it('fileRequired', async () => {
-      const result = await req().post('params/forms/fileRequired').type('form');
+      const result = await req()
+        .post('params/forms/fileRequired')
+        .field({
+          id: 1,
+          name: 'test',
+        })
+        .type('form');
       expect(result).to.have.status(400);
     });
 
@@ -601,7 +607,7 @@ describe('controller action test params', function () {
       const spy = FormParams.prototype.fileWithMaxSize as sinon.SinonSpy;
       const response = await req()
         .post('params/forms/fileWithMaxSize')
-        .attach('files', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
+        .attach('file', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
 
       expect(response).to.have.status(400);
 

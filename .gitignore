@@ -72,3 +72,4 @@ npm-debug.log
 /packages/http/test/files
 /packages/fs/test/files
 /packages/fs/test/temp
+/packages/http/test/test2-files

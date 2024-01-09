@@ -8,5 +8,5 @@ type ArrayItemType<T> = T extends (infer U)[] ? U : T;
  * @returns val if array, or [val]
  */
 export const toArray = <T>(val: ArrayItemType<T> | ArrayItemType<T>[]): ArrayItemType<T>[] => {
-  return global.Array.isArray(val) ? val ?? [] : [val];
+  return global.Array.isArray(val) ? val : val ? [val] : [];
 };
