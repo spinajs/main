@@ -6,7 +6,7 @@ import { Intl } from '@spinajs/intl';
 import sinon, { assert } from 'sinon';
 import { expect } from 'chai';
 
-import { fs as sFs } from "@spinajs/fs";
+import { fs as sFs } from '@spinajs/fs';
 
 import { dir, req, TestConfiguration } from './common.js';
 import { Controllers, HttpServer } from '../src/index.js';
@@ -14,12 +14,13 @@ import { SampleModel, SampleObject, SampleObjectWithSchema } from './dto/index.j
 import { HeaderParams } from './controllers/params/HeaderParams.js';
 import { UrlParams } from './controllers/params/UrlParams.js';
 import { BodyParams } from './controllers/params/BodyParams.js';
-import { CustomFileUploader, FormParams } from './controllers/params/FormParams.js';
+import { FormParams } from './controllers/params/FormParams.js';
 import { QueryParams } from './controllers/params/QueryParams.js';
 
 import { CoockieParams } from './controllers/params/CoockieParams.js';
 import { VariousParams } from './controllers/params/VariousParams.js';
-import { TestTransformer } from './transformers/TestTransformer.js';
+import { TestTransformer as TestFileTransformer } from './file-transformers/custom-file-transformer.js';
+import { CustomFileUploader } from './uploaders/custom-uploader.js';
 
 describe('controller action test params', function () {
   this.timeout(15000);
@@ -33,8 +34,8 @@ describe('controller action test params', function () {
     sb.spy(FormParams.prototype as any);
     sb.spy(CoockieParams.prototype as any);
     sb.spy(VariousParams.prototype as any);
-    sb.spy(TestTransformer.prototype as any);
     sb.spy(CustomFileUploader.prototype as any);
+    sb.spy(TestFileTransformer.prototype as any);
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) {
@@ -465,13 +466,13 @@ describe('controller action test params', function () {
 
   describe('form params', function () {
     it('formField', async () => {
-      const spy = DI.get(FormParams).formField as sinon.SinonSpy;
+      const spy = FormParams.prototype.formField as sinon.SinonSpy;
       await req().post('params/forms/formField').field('name', 'test').type('form');
       expect(spy.args[0][0]).to.eq('test');
     });
 
     it('multipleFormField', async () => {
-      const spy = DI.get(FormParams).multipleFormField as sinon.SinonSpy;
+      const spy = FormParams.prototype.multipleFormField as sinon.SinonSpy;
       await req()
         .post('params/forms/multipleFormField')
         .field({
@@ -484,7 +485,7 @@ describe('controller action test params', function () {
     });
 
     it('formObject', async () => {
-      const spy = DI.get(FormParams).formObject as sinon.SinonSpy;
+      const spy = FormParams.prototype.formObject as sinon.SinonSpy;
       await req()
         .post('params/forms/formObject')
         .field({
@@ -497,7 +498,7 @@ describe('controller action test params', function () {
     });
 
     it('formModel', async () => {
-      const spy = DI.get(FormParams).formModel as sinon.SinonSpy;
+      const spy = FormParams.prototype.formModel as sinon.SinonSpy;
       await req()
         .post('params/forms/formModel')
         .field({
@@ -506,12 +507,13 @@ describe('controller action test params', function () {
           args: 1,
         })
         .type('form');
+      expect(spy.args[0][0].constructor.name).to.eq('SampleModel');
       expect(spy.args[0][0].id).to.eq('1');
       expect(spy.args[0][0].name).to.eq('test');
     });
 
     it('formModelWithHydrator', async () => {
-      const spy = DI.get(FormParams).formModelWithHydrator as sinon.SinonSpy;
+      const spy = FormParams.prototype.formModelWithHydrator as sinon.SinonSpy;
       await req()
         .post('params/forms/formModelWithHydrator')
         .field({
@@ -528,52 +530,55 @@ describe('controller action test params', function () {
     });
 
     it('formWithFile', async () => {
-      const spy = DI.get(FormParams).formWithFile as sinon.SinonSpy;
+      const spy = FormParams.prototype.formWithFile as sinon.SinonSpy;
       await req()
         .post('params/forms/formWithFile')
         .field({
           id: 1,
           name: 'test',
         })
-        .attach('file', fs.readFileSync(dir('./files') + '/test.txt'), { filename: 'test.txt' })
+        .attach('file', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' })
         .type('form');
 
       expect(spy.args[0][0].id).to.eq('1');
       expect(spy.args[0][0].name).to.eq('test');
       expect(spy.args[0][1].Name).to.eq('test.txt');
+
+      const exists = await spy.args[0][1].Provider.exists(spy.args[0][1].BaseName);
+
+      expect(exists).to.be.true;
     });
 
     it('fileArray', async () => {
-      const spy = DI.get(FormParams).fileArray as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileArray as sinon.SinonSpy;
       await req()
         .post('params/forms/fileArray')
-        .attach('files', fs.readFileSync(dir('./files') + '/test.txt'), { filename: 'test.txt' })
-        .attach('files', fs.readFileSync(dir('./files') + '/test2.txt'), { filename: 'test2.txt' })
+        .attach('files', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' })
+        .attach('files', fs.readFileSync(dir('./test-files') + '/test2.txt'), { filename: 'test2.txt' })
         .type('form');
 
       expect(spy.args[0][0]).to.be.an('array');
     });
 
     it('fileWithCustomUploader', async () => {
-      const spy = DI.get(FormParams).fileWithCustomUploader as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileWithCustomUploader as sinon.SinonSpy;
       const uplSpy = CustomFileUploader.prototype.upload as sinon.SinonSpy;
 
       await req()
         .post('params/forms/fileWithCustomUploader')
-        .attach('files', fs.readFileSync(dir('./files') + '/test.txt'), { filename: 'test.txt' });
+        .attach('files', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
 
       expect(spy.args[0][0].Name).to.eq('test.txt');
       expect(uplSpy.called).to.be.true;
     });
 
     it('fileWithCustomUploaderFs', async () => {
-
-      const spy = DI.get(FormParams).fileWithCustomUploader as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileWithCustomUploader as sinon.SinonSpy;
       const uplSpy = CustomFileUploader.prototype.upload as sinon.SinonSpy;
 
       await req()
         .post('params/forms/fileWithCustomUploader')
-        .attach('files', fs.readFileSync(dir('./files') + '/test.txt'), { filename: 'test.txt' });
+        .attach('files', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
 
       expect(spy.args[0][0].Name).to.eq('test.txt');
       expect(spy.args[0][0].Provider.Name).to.eq('test2');
@@ -593,46 +598,46 @@ describe('controller action test params', function () {
     });
 
     it('fileWithMaxSize', async () => {
-      const spy = DI.get(FormParams).fileWithMaxSize as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileWithMaxSize as sinon.SinonSpy;
       const response = await req()
         .post('params/forms/fileWithMaxSize')
-        .attach('files', fs.readFileSync(dir('./files') + '/test3.txt'), { filename: 'test3.txt' });
+        .attach('files', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
 
       expect(response).to.have.status(400);
 
       await req()
         .post('params/forms/fileWithMaxSize')
-        .attach('files', fs.readFileSync(dir('./files') + '/test.txt'), { filename: 'test.txt' });
+        .attach('files', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
 
       expect(spy.args[0][0].Name).to.eq('test.txt');
     });
 
     it('fileWithCustomTransformer', async () => {
-      const spy = DI.get(FormParams).fileWithMaxSize as sinon.SinonSpy;
-      const trSpy = TestTransformer.prototype.transform as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileWithMaxSize as sinon.SinonSpy;
+      const trSpy = TestFileTransformer.prototype.transform as sinon.SinonSpy;
 
       await req()
         .post('params/forms/fileWithCustomTransformer')
-        .attach('files', fs.readFileSync(dir('./files') + '/test3.txt'), { filename: 'test3.txt' });
+        .attach('files', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
 
       expect(spy.args[0][0].Name).to.eq('test3.txt');
       expect(trSpy.called).to.be.true;
     });
 
     it('fileWithZipTransformer', async () => {
-      const spy = DI.get(FormParams).fileWithMaxSize as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileWithMaxSize as sinon.SinonSpy;
       await req()
         .post('params/forms/fileWithZipTransformer')
-        .attach('files', fs.readFileSync(dir('./files') + '/test3.txt'), { filename: 'test3.txt' });
+        .attach('files', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
 
       expect(spy.args[0][0].Name).to.eq('test3.zip');
     });
 
     it('fileWithUnzipTransformer', async () => {
-      const spy = DI.get(FormParams).fileWithMaxSize as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileWithMaxSize as sinon.SinonSpy;
       await req()
         .post('params/forms/fileWithUnzipTransformer')
-        .attach('files', fs.readFileSync(dir('./files') + '/test3.zip'), { filename: 'test3.zip' });
+        .attach('files', fs.readFileSync(dir('./test-files') + '/test3.zip'), { filename: 'test3.zip' });
 
       expect(spy.args[0][0].Name).to.eq('test3.txt');
     });
@@ -640,7 +645,7 @@ describe('controller action test params', function () {
 
   describe('coockie params', function () {
     it('simple', async () => {
-      const spy = DI.get(CoockieParams).simple as sinon.SinonSpy;
+      const spy = FormParams.prototype.simple as sinon.SinonSpy;
       await req().get('params/coockie/simple').set('Cookie', 'name=hello');
       expect(spy.args[0][0]).to.eq('hello');
     });
@@ -648,14 +653,14 @@ describe('controller action test params', function () {
 
   describe('various tests', function () {
     it('inject service', async () => {
-      const spy = DI.get(VariousParams).di as sinon.SinonSpy;
+      const spy = FormParams.prototype.di as sinon.SinonSpy;
       await req().get('params/mixed/di');
 
       expect(spy.args[0][0].constructor.name).to.eq('SomeService');
     });
 
     it('mixedArgs', async () => {
-      const spy = DI.get(VariousParams).mixedArgs as sinon.SinonSpy;
+      const spy = FormParams.prototype.mixedArgs as sinon.SinonSpy;
       await req()
         .post('params/mixed/mixedArgs/1?queryString=queryhello')
         .set('x-header', 'header')

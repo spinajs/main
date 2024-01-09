@@ -12,7 +12,7 @@ import { Log, Logger } from '@spinajs/log-common';
 import { basename } from 'node:path';
 import { toArray } from '@spinajs/util';
 import { ValidationFailed } from '@spinajs/validation';
-
+import { ImmediateFileUploader } from '../uploaders/ImmediateFileUploader.js';
 
 interface FormData {
   Fields: Fields;
@@ -95,8 +95,6 @@ export class FromFile extends FromFormBase {
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter<IUploadOptions>, req: Request, res: express.Response, route?: IRoute): Promise<any> {
-
-
     // copy to provided fs or default temp fs
     // delete intermediate files ( from express ) regardless of copy result
 
@@ -109,38 +107,41 @@ export class FromFile extends FromFormBase {
 
     // get fs provider for storing files
     // hack - fix DI resolve type
-    const fs = DI.resolve<FormFileUploader>(param.Options.uploader as any ?? "ImmediateFileUploader", [param.Options.uploaderFs]);
-    const formidableFs = DI.resolve<fs>('__file_provider__', ["__formidable_default_file_provider__"]);
+    const fu = DI.resolve<FormFileUploader>((param.Options?.uploader as any) ?? ImmediateFileUploader, [param.Options?.uploaderFs ?? this.DefaultFsProviderName]);
+    const formidableFs = DI.resolve<fs>('__file_provider__', ['__formidable_default_file_provider__']);
 
     const files = toArray(Files[param.Name]);
 
-    if (param.Options.required && files.length === 0) {
-      throw new ValidationFailed(`File ${param.Name} is required`, [{
-        propertyName: param.Name,
-        message: "Missing file",
-        keyword: "required",
-        params: {},
-        schemaPath: "#/required",
-        instancePath: "FormData"
-      }]);
+    if (param.Options?.required && files.length === 0) {
+      throw new ValidationFailed(`File ${param.Name} is required`, [
+        {
+          propertyName: param.Name,
+          message: 'Missing file',
+          keyword: 'required',
+          params: {},
+          schemaPath: '#/required',
+          instancePath: 'FormData',
+        },
+      ]);
     }
 
-    const uplFiles = files.map((f) => {
-      const uploadedFile: IUploadedFile = {
-        Size: f.size,
-        BaseName: basename(f.filepath),
-        Name: f.originalFilename,
-        Type: f.mimetype,
-        LastModifiedDate: f.mtime,
-        Hash: f.hash,
-        Provider: formidableFs,
-        OriginalFile: f,
-      };
+    const uplFiles = files
+      .map((f) => {
+        const uploadedFile: IUploadedFile = {
+          Size: f.size,
+          BaseName: basename(f.filepath),
+          Name: f.originalFilename,
+          Type: f.mimetype,
+          LastModifiedDate: f.mtime,
+          Hash: f.hash,
+          Provider: formidableFs,
+          OriginalFile: f,
+        };
 
-      return uploadedFile;
-    });
+        return uploadedFile;
+      });
 
-    for (const t of param.Options.transformers ?? []) {
+    for (const t of param.Options?.transformers ?? []) {
       const c = Array.isArray(t) ? t[0] : t;
       const o = Array.isArray(t) ? [t[1]] : [];
       const transformer = DI.resolve<FileTransformer>(c, o);
@@ -153,11 +154,9 @@ export class FromFile extends FromFormBase {
       }
     }
 
-    const pResults = await Promise.allSettled(uplFiles.map((f) =>
-      fs.upload(f)
-    ));
+    const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
 
-    const uFiles = pResults.filter(r => r.status === "fulfilled").map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
+    const uFiles = pResults.filter((r) => r.status === 'fulfilled').map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
 
     return Object.assign(result, {
       Args: param.RuntimeType.name === 'Array' ? uFiles : uFiles[0],
@@ -269,13 +268,7 @@ export class FromForm extends FromFormBase {
       }),
     );
 
-    const hydrator = this.getHydrator(param);
-
-    if (hydrator) {
-      result = await this.tryHydrateObject(fData, param, hydrator);
-    } else {
-      result = data;
-    }
+    result = await this.tryHydrateParam(fData, param, route);
 
     return {
       ...data,

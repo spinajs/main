@@ -16,6 +16,8 @@ import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
 
+import os from "os";
+
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
 chai.use(chaiSubset);
@@ -58,6 +60,11 @@ export class TestConfiguration extends FrameworkConfiguration {
             service: 'fsNative',
             name: 'fs-temp',
             basePath: dir('./files'),
+          },
+          {
+            service: 'fsNative',
+            name: '__formidable_default_file_provider__',
+            basePath: os.tmpdir()
           },
           {
             service: 'fsNative',

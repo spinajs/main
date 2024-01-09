@@ -4,7 +4,7 @@ import { fs } from "@spinajs/fs";
 import { Log, Logger } from "@spinajs/log-common";
 import { IOFail } from "@spinajs/exceptions";
 
-@Injectable(FormFileUploader)
+@Injectable()
 export class ImmediateFileUploader extends FormFileUploader {
 
     @Logger('http')

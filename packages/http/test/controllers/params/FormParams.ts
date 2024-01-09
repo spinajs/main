@@ -1,23 +1,9 @@
-import { Injectable } from '@spinajs/di';
-import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFile, ZipFileTransformer, UnzipFileTransformer, FileTransformer, FormFileUploader } from '../../../src/index.js';
+import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFile, ZipFileTransformer, UnzipFileTransformer } from '../../../src/index.js';
 import { SampleModelWithHydrator3, SampleObject } from '../../dto/index.js';
 import { SampleModel } from '../../dto/index.js';
+import { TestTransformer } from '../../file-transformers/custom-file-transformer.js';
+import { CustomFileUploader } from '../../uploaders/custom-uploader.js';
 
-@Injectable()
-export class TestTransformer extends FileTransformer {
-
-  public async transform(file: IUploadedFile): Promise<IUploadedFile> {
-    return file;
-  }
-}
-
-@Injectable()
-export class CustomFileUploader extends FormFileUploader {
-  public async upload(file: IUploadedFile): Promise<IUploadedFile> {
-    return file;
-  }
-}
- 
 
 @BasePath('params/forms')
 export class FormParams extends BaseController {
