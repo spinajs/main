@@ -1,5 +1,5 @@
 import { IRouteArgsResult, RouteArgs } from './RouteArgs.js';
-import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOptions, FormFileUploader, IUploadedFile } from '../interfaces.js';
+import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOptions, FormFileUploader, IUploadedFile, FileTransformer } from '../interfaces.js';
 import * as express from 'express';
 import { Fields, Files, File, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
@@ -108,7 +108,9 @@ export class FromFile extends FromFormBase {
     const { Files } = this.FormData;
 
     // get fs provider for storing files
-    const fs = DI.resolve<FormFileUploader>(param.Options.uploader ?? "ImmediateFileUploader", [param.Options.uploaderFs]);
+    // hack - fix DI resolve type
+    const fs = DI.resolve<FormFileUploader>(param.Options.uploader as any ?? "ImmediateFileUploader", [param.Options.uploaderFs]);
+    const formidableFs = DI.resolve<fs>('__file_provider__', ["__formidable_default_file_provider__"]);
 
     const files = toArray(Files[param.Name]);
 
@@ -123,8 +125,36 @@ export class FromFile extends FromFormBase {
       }]);
     }
 
-    const pResults = await Promise.allSettled(files.map((f) =>
-      fs.upload(f, basename(f.filepath))
+    const uplFiles = files.map((f) => {
+      const uploadedFile: IUploadedFile = {
+        Size: f.size,
+        BaseName: basename(f.filepath),
+        Name: f.originalFilename,
+        Type: f.mimetype,
+        LastModifiedDate: f.mtime,
+        Hash: f.hash,
+        Provider: formidableFs,
+        OriginalFile: f,
+      };
+
+      return uploadedFile;
+    });
+
+    for (const t of param.Options.transformers ?? []) {
+      const c = Array.isArray(t) ? t[0] : t;
+      const o = Array.isArray(t) ? [t[1]] : [];
+      const transformer = DI.resolve<FileTransformer>(c, o);
+
+      for (const f of uplFiles) {
+        const result = await transformer.transform(f);
+
+        // merge transform result
+        Object.assign(f, result);
+      }
+    }
+
+    const pResults = await Promise.allSettled(uplFiles.map((f) =>
+      fs.upload(f)
     ));
 
     const uFiles = pResults.filter(r => r.status === "fulfilled").map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);

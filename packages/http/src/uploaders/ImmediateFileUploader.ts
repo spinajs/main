@@ -1,5 +1,5 @@
 import { DI, Injectable } from "@spinajs/di";
-import { FormFileUploader } from "../interfaces.js";
+import { FormFileUploader, IUploadedFile } from "../interfaces.js";
 import { fs } from "@spinajs/fs";
 import formidable from "formidable";
 import { rm } from "fs/promises";
@@ -17,15 +17,15 @@ export class ImmediateFileUploader extends FormFileUploader {
         super();
 
     }
-    async upload(file: formidable.File, dst: string) {
+    async upload(file: IUploadedFile<unknown>) {
 
         // remove temporary files from formidable
-        const _rm = async (file: formidable.File) => {
+        const _rm = async (file: IUploadedFile<unknown>) => {
             try {
-                await rm(file.filepath);
-                this.Log.trace(`Deleted temporary incoming file ${file.filepath}`)
+                await file.Provider.rm(file.BaseName);
+                this.Log.trace(`Deleted temporary incoming file ${file.BaseName}`)
             } catch (err) {
-                this.Log.error(err, `Error deleting temporary incoming file ${file.filepath}`);
+                this.Log.error(err, `Error deleting temporary incoming file ${file.BaseName}`);
             }
         }
 
@@ -37,23 +37,16 @@ export class ImmediateFileUploader extends FormFileUploader {
         }
 
         try {
-            await fs.upload(file.filepath, dst);
-            this.Log.trace(`Uploaded incoming file ${file.filepath} to ${dst} using ${this.Filesystem} filesystem`)
+            await file.Provider.copy(file.BaseName, file.BaseName, fs);
+            this.Log.trace(`Uploaded incoming file ${file.OriginalFile.filepath} to ${file.BaseName} using ${this.Filesystem} filesystem`)
         } catch (err) {
-            this.Log.error(err, `Error copying incoming file ${file.filepath} to ${dst} using ${this.Filesystem} filesystem`);
+            throw new IOFail(`Error copying incoming file ${file.OriginalFile.filepath} to ${file.BaseName} using ${this.Filesystem} filesystem`, err);
         } finally {
             await _rm(file);
         }
 
-        return {
-            Size: file.size,
-            BaseName: basename(file.filepath),
-            Provider: fs,
-            Name: file.originalFilename,
-            Type: file.mimetype,
-            LastModifiedDate: file.mtime,
-            Hash: file.hash,
+        file.Provider = fs;
 
-        }
+        return file;
     }
 }

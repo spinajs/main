@@ -38,4 +38,39 @@ export class FormParams extends BaseController {
   public fileArray(@File() files: IUploadedFile[]) {
     return new Ok(files);
   }
+
+  @Post()
+  public fileWithCustomUploader(@File({ uploader: 'TestUploader' }) file: IUploadedFile) {
+    return new Ok(file);
+  }
+
+  @Post()
+  public fileWithCustomUploaderFs(@File({ uploader: 'TestUploader', uploaderFs: 'test' }) file: IUploadedFile) {
+    return new Ok(file);
+  }
+
+  @Post()
+  public fileRequired(@File({ required: true }) file: IUploadedFile) {
+    return new Ok(file);
+  }
+
+  @Post()
+  public fileWithMaxSize(@File({ maxFileSize: 100 }) file: IUploadedFile) {
+    return new Ok(file);
+  }
+
+  @Post()
+  public fileWithCustomTransformers(@File({ transformers: ['TestTransformer'] }) file: IUploadedFile) {
+    return new Ok(file);
+  }
+
+  @Post()
+  public fileWithZipTransformer(@File({ transformers: ['ZipFileTransformer'] }) file: IUploadedFile) {
+
+  }
+
+  @Post()
+  public fileWithUnzipTransformer(@File({ transformers: ['UnzipFileTransformer'] }) file: IUploadedFile) {
+
+  }
 }

@@ -1,5 +1,5 @@
 import * as express from 'express';
-import { Constructor, AsyncService } from '@spinajs/di';
+import { Constructor, AsyncService, Class } from '@spinajs/di';
 import { fs } from '@spinajs/fs';
 import formidable from 'formidable';
 
@@ -63,7 +63,7 @@ export interface IHttpStaticFileConfiguration {
 /**
  * Uploaded file fields
  */
-export interface IUploadedFile {
+export interface IUploadedFile<T = any> {
   /**
    * File size in bytes
    */
@@ -89,7 +89,17 @@ export interface IUploadedFile {
   /**
    * File system provider used to store this file eg. could be local, or aws s3 etc
    */
-  Provider: fs;
+  Provider?: fs | null;
+
+  /**
+   * Additional data filled by middlewares if needed
+   */
+  Data?: T;
+
+  /**
+   * Formidable original file data
+   */
+  OriginalFile : formidable.File;
 }
 
 export interface Request extends express.Request {
@@ -101,7 +111,11 @@ export interface Request extends express.Request {
  * file to desired location eg. local, aws s3 etc.
  */
 export abstract class FormFileUploader { 
-  public abstract upload(file: formidable.File, dst: string): Promise<IUploadedFile>;
+  public abstract upload(file: IUploadedFile): Promise<IUploadedFile>;
+}
+
+export abstract class FileTransformer { 
+  public abstract transform(file: IUploadedFile): Promise<IUploadedFile>;
 }
 
 export interface IActionLocalStoregeContext {
@@ -365,7 +379,11 @@ export interface IUploadOptions {
   /**
    * default false; include checksums calculated for incoming files, set this to some hash algorithm, see crypto.createHash for available algorithms
    */
-  hash?: false;
+  hashAlghoritm?: false | 'sha1' | 'md5' | 'sha256';
+
+
+
+  encoding? : string;
 
   /**
    * File provider name used to upload files
@@ -373,7 +391,13 @@ export interface IUploadOptions {
    * 
    * Set this for eg. if lazy copying is needed eg. to aws s3 to not stall main thread
    */
-  uploader?: string;
+  uploader?: string | Class<FormFileUploader>;
+
+  /**
+   * File transofmers, eg. after upload file can be transformed to other format or zipped.
+   * Transformes are executed before file is uploaded to final destination by uploader
+   */
+  transformers?: string[] | Class<FileTransformer>[];
 
   /**
    * File system provider used to upload files. Default is taken from configuration
@@ -386,6 +410,7 @@ export interface IUploadOptions {
    */
   multiples?: boolean;
 
+
   enabledPlugins?: string[];
 
   /**
@@ -393,6 +418,11 @@ export interface IUploadOptions {
    */
   maxFileSize?: number;
 
+  /**
+   * Minimum file size, default 1 byte
+   */
+  minFileSize? : number;
+ 
   /**
    * default false; to include the extensions of the original files or not
    */

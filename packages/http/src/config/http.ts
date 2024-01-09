@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import compression from 'compression';
 import { join, normalize, resolve } from 'path';
 import { HttpAcceptHeaders } from '../interfaces.js';
+import os from 'os';
 
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
@@ -26,6 +27,14 @@ const http = {
   },
   fs: {
     providers: [
+
+      // formidable default file provider, incoming 
+      // files via  form are stored in os.tmpdir()
+      {
+        service: 'fsNative',
+        name: '__formidable_default_file_provider__',
+        basePath: os.tmpdir()
+      },
       {
         service: 'fsNative',
         name: '__fs_http_response_templates__',
@@ -46,16 +55,6 @@ const http = {
       cookieParser(),
       compression(),
     ],
-
-    /**
-     * Default file receiving options
-     */
-    Files: {
-      MaxSize: 1024 * 1024, // 1 MB by default
-
-      // default place where incoming files are copied, can be overriden in @File() options
-      BasePath: dir('./../../../data/files'),
-    },
 
     /**
      * Static files folder. Feel free to override this per app

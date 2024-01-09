@@ -250,13 +250,13 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     const dFs = dstFs ?? this;
     const dst = dFs.resolvePath(destPath ?? dFs.tmpname());
 
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<string>((resolve, reject) => {
       createReadStream(this.resolvePath(path)).pipe(
         unzipper
           .Extract({
             path: dst,
           })
-          .on('close', resolve)
+          .on('close', () => resolve(dst))
           .on('error', reject),
       );
     });

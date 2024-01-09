@@ -196,8 +196,10 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    *
    * @param path path to zip file
    * @param destPath path to destination dir
+   * 
+   * @returns path to unzipped file
    */
-  public abstract unzip(srcPath: string, destPath: string, dstFs?: fs): Promise<void>;
+  public abstract unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string>;
 
   /**
    *

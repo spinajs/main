@@ -131,6 +131,8 @@ export function resolve<T>(type: Class<T> | TypedArray<T> | string, options?: un
   return RootContainer.resolve<T>(type, options, check);
 }
 
+
+
 /**
  * Gets already resolved service from root container.
  *
