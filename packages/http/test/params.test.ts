@@ -6,17 +6,20 @@ import { Intl } from '@spinajs/intl';
 import sinon, { assert } from 'sinon';
 import { expect } from 'chai';
 
+import { fs as sFs } from "@spinajs/fs";
+
 import { dir, req, TestConfiguration } from './common.js';
 import { Controllers, HttpServer } from '../src/index.js';
 import { SampleModel, SampleObject, SampleObjectWithSchema } from './dto/index.js';
 import { HeaderParams } from './controllers/params/HeaderParams.js';
 import { UrlParams } from './controllers/params/UrlParams.js';
 import { BodyParams } from './controllers/params/BodyParams.js';
-import { FormParams } from './controllers/params/FormParams.js';
+import { CustomFileUploader, FormParams } from './controllers/params/FormParams.js';
 import { QueryParams } from './controllers/params/QueryParams.js';
 
 import { CoockieParams } from './controllers/params/CoockieParams.js';
 import { VariousParams } from './controllers/params/VariousParams.js';
+import { TestTransformer } from './transformers/TestTransformer.js';
 
 describe('controller action test params', function () {
   this.timeout(15000);
@@ -30,6 +33,8 @@ describe('controller action test params', function () {
     sb.spy(FormParams.prototype as any);
     sb.spy(CoockieParams.prototype as any);
     sb.spy(VariousParams.prototype as any);
+    sb.spy(TestTransformer.prototype as any);
+    sb.spy(CustomFileUploader.prototype as any);
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) {
@@ -547,6 +552,89 @@ describe('controller action test params', function () {
         .type('form');
 
       expect(spy.args[0][0]).to.be.an('array');
+    });
+
+    it('fileWithCustomUploader', async () => {
+      const spy = DI.get(FormParams).fileWithCustomUploader as sinon.SinonSpy;
+      const uplSpy = CustomFileUploader.prototype.upload as sinon.SinonSpy;
+
+      await req()
+        .post('params/forms/fileWithCustomUploader')
+        .attach('files', fs.readFileSync(dir('./files') + '/test.txt'), { filename: 'test.txt' });
+
+      expect(spy.args[0][0].Name).to.eq('test.txt');
+      expect(uplSpy.called).to.be.true;
+    });
+
+    it('fileWithCustomUploaderFs', async () => {
+
+      const spy = DI.get(FormParams).fileWithCustomUploader as sinon.SinonSpy;
+      const uplSpy = CustomFileUploader.prototype.upload as sinon.SinonSpy;
+
+      await req()
+        .post('params/forms/fileWithCustomUploader')
+        .attach('files', fs.readFileSync(dir('./files') + '/test.txt'), { filename: 'test.txt' });
+
+      expect(spy.args[0][0].Name).to.eq('test.txt');
+      expect(spy.args[0][0].Provider.Name).to.eq('test2');
+
+      const tFs = DI.resolve<sFs>('__file_provider__', ['test2']);
+      const exists = tFs.exists('test.txt');
+
+      expect(exists).to.be.true;
+      expect(uplSpy.called).to.be.true;
+
+      await tFs.rm('test.txt');
+    });
+
+    it('fileRequired', async () => {
+      const result = await req().post('params/forms/fileRequired').type('form');
+      expect(result).to.have.status(400);
+    });
+
+    it('fileWithMaxSize', async () => {
+      const spy = DI.get(FormParams).fileWithMaxSize as sinon.SinonSpy;
+      const response = await req()
+        .post('params/forms/fileWithMaxSize')
+        .attach('files', fs.readFileSync(dir('./files') + '/test3.txt'), { filename: 'test3.txt' });
+
+      expect(response).to.have.status(400);
+
+      await req()
+        .post('params/forms/fileWithMaxSize')
+        .attach('files', fs.readFileSync(dir('./files') + '/test.txt'), { filename: 'test.txt' });
+
+      expect(spy.args[0][0].Name).to.eq('test.txt');
+    });
+
+    it('fileWithCustomTransformer', async () => {
+      const spy = DI.get(FormParams).fileWithMaxSize as sinon.SinonSpy;
+      const trSpy = TestTransformer.prototype.transform as sinon.SinonSpy;
+
+      await req()
+        .post('params/forms/fileWithCustomTransformer')
+        .attach('files', fs.readFileSync(dir('./files') + '/test3.txt'), { filename: 'test3.txt' });
+
+      expect(spy.args[0][0].Name).to.eq('test3.txt');
+      expect(trSpy.called).to.be.true;
+    });
+
+    it('fileWithZipTransformer', async () => {
+      const spy = DI.get(FormParams).fileWithMaxSize as sinon.SinonSpy;
+      await req()
+        .post('params/forms/fileWithZipTransformer')
+        .attach('files', fs.readFileSync(dir('./files') + '/test3.txt'), { filename: 'test3.txt' });
+
+      expect(spy.args[0][0].Name).to.eq('test3.zip');
+    });
+
+    it('fileWithUnzipTransformer', async () => {
+      const spy = DI.get(FormParams).fileWithMaxSize as sinon.SinonSpy;
+      await req()
+        .post('params/forms/fileWithUnzipTransformer')
+        .attach('files', fs.readFileSync(dir('./files') + '/test3.zip'), { filename: 'test3.zip' });
+
+      expect(spy.args[0][0].Name).to.eq('test3.txt');
     });
   });
 

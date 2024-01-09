@@ -47,7 +47,12 @@ export class TestConfiguration extends FrameworkConfiguration {
           {
             service: 'fsNative',
             name: 'test',
-            basePath: dir('./files'),
+            basePath: dir('./test-files'),
+          },
+          {
+            service: 'fsNative',
+            name: 'test2',
+            basePath: dir('./test2-files'),
           },
           {
             service: 'fsNative',

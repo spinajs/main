@@ -1,9 +1,6 @@
 import { DI, Injectable } from "@spinajs/di";
 import { FormFileUploader, IUploadedFile } from "../interfaces.js";
 import { fs } from "@spinajs/fs";
-import formidable from "formidable";
-import { rm } from "fs/promises";
-import { basename } from "path";
 import { Log, Logger } from "@spinajs/log-common";
 import { IOFail } from "@spinajs/exceptions";
 

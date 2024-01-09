@@ -1,6 +1,23 @@
-import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFile } from '../../../src/index.js';
+import { Injectable } from '@spinajs/di';
+import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFile, ZipFileTransformer, UnzipFileTransformer, FileTransformer, FormFileUploader } from '../../../src/index.js';
 import { SampleModelWithHydrator3, SampleObject } from '../../dto/index.js';
 import { SampleModel } from '../../dto/index.js';
+
+@Injectable()
+export class TestTransformer extends FileTransformer {
+
+  public async transform(file: IUploadedFile): Promise<IUploadedFile> {
+    return file;
+  }
+}
+
+@Injectable()
+export class CustomFileUploader extends FormFileUploader {
+  public async upload(file: IUploadedFile): Promise<IUploadedFile> {
+    return file;
+  }
+}
+ 
 
 @BasePath('params/forms')
 export class FormParams extends BaseController {
@@ -40,12 +57,12 @@ export class FormParams extends BaseController {
   }
 
   @Post()
-  public fileWithCustomUploader(@File({ uploader: 'TestUploader' }) file: IUploadedFile) {
+  public fileWithCustomUploader(@File({ uploader: CustomFileUploader }) file: IUploadedFile) {
     return new Ok(file);
   }
 
   @Post()
-  public fileWithCustomUploaderFs(@File({ uploader: 'TestUploader', uploaderFs: 'test' }) file: IUploadedFile) {
+  public fileWithCustomUploaderFs(@File({ uploader: CustomFileUploader, uploaderFs: 'test2' }) file: IUploadedFile) {
     return new Ok(file);
   }
 
@@ -55,22 +72,24 @@ export class FormParams extends BaseController {
   }
 
   @Post()
-  public fileWithMaxSize(@File({ maxFileSize: 100 }) file: IUploadedFile) {
+  public fileWithMaxSize(@File({ maxFileSize: 15 }) file: IUploadedFile) {
     return new Ok(file);
   }
 
   @Post()
-  public fileWithCustomTransformers(@File({ transformers: ['TestTransformer'] }) file: IUploadedFile) {
+  public fileWithCustomTransformers(@File({ transformers: [TestTransformer] }) file: IUploadedFile) {
     return new Ok(file);
   }
 
   @Post()
-  public fileWithZipTransformer(@File({ transformers: ['ZipFileTransformer'] }) file: IUploadedFile) {
+  public fileWithZipTransformer(@File({ transformers: [ZipFileTransformer] }) file: IUploadedFile) {
+    return new Ok(file);
 
   }
 
   @Post()
-  public fileWithUnzipTransformer(@File({ transformers: ['UnzipFileTransformer'] }) file: IUploadedFile) {
+  public fileWithUnzipTransformer(@File({ transformers: [UnzipFileTransformer] }) file: IUploadedFile) {
+    return new Ok(file);
 
   }
 }

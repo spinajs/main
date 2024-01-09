@@ -207,11 +207,11 @@ export class fsS3 extends fs {
   }
 
   /**
-   * 
+   *
    * Gets metadata of file in s3 bucket
-   * 
+   *
    * @param path path to file
-   * @returns 
+   * @returns
    */
   public async getMetadata(path: string) {
     const command = new HeadObjectCommand({
@@ -383,8 +383,8 @@ export class fsS3 extends fs {
     return result.Contents.map((x) => x.Key);
   }
 
-  async unzip(_path: string, _destPath: string) {
-    throw new IOFail('Method not implemented, you should download zipped file first, then unzip it');
+  public async unzip(_path: string, _destPath?: string, _dstFs?: fs) : Promise<string> {
+    throw new IOFail('Method not implemented, you should download zipped to local fs first, then unzip it');
   }
 
   public async zip(_path: string, _dstFs?: fs, _dstFile?: string): Promise<IZipResult> {
