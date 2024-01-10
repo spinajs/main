@@ -1,6 +1,7 @@
 import { Injectable } from "@spinajs/di";
 import { FileTransformer, IUploadedFile } from "../interfaces.js";
 import { Log, Logger } from "@spinajs/log-common";
+import { basename } from "path";
 
 @Injectable()
 export class UnzipFileTransformer extends FileTransformer {
@@ -21,7 +22,7 @@ export class UnzipFileTransformer extends FileTransformer {
             
             return {
                 ...file,
-                BaseName: result,
+                BaseName: basename(result),
                 Size: stat.Size,
                 Type: "unknown",
                 Data: {

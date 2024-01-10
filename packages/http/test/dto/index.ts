@@ -21,6 +21,32 @@ export const SampleModelSchema = {
   required: ['id', 'name', 'args'],
 };
 
+export const CvsSampleObjectWithSchemaSchema = {
+  type: 'object',
+  properties: {
+    Username: { type: 'string' },
+    Identifier: { type: 'number' },
+    FirstName: { type: 'string' },
+    LastName: { type: 'string' },
+  },
+  required: ['Username', 'Identifier', 'FirstName', 'LastName'],
+};
+
+export interface CvsSampleObject {
+  Username: string;
+  Identifier: number;
+  FirstName: string;
+  LastName: string;
+}
+
+@Schema(CvsSampleObjectWithSchemaSchema)
+export class CvsSampleObjectWithSchema {
+  Username: string;
+  Identifier: number;
+  FirstName: string;
+  LastName: string;
+}
+
 export interface SampleObject {
   id: number;
   name: string;
@@ -76,7 +102,7 @@ export class ModelArgHydrator3 extends ArgHydrator {
   public async hydrate(input: any): Promise<any> {
     return new SampleModelWithHydrator3({
       ...input,
-      args: parseInt(input.args)
+      args: parseInt(input.args),
     });
   }
 }

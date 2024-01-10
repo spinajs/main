@@ -21,6 +21,8 @@ import { ValidationError } from './response-methods/validationError.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
 import './middlewares/RealIp.js';
+import { EntityTooLarge } from './response-methods/entityTooLarge.js';
+import { EntityTooLargeException } from './exceptions.js';
 
 @Injectable()
 @Inject(Templates)
@@ -231,7 +233,12 @@ export class HttpServer extends AsyncService {
 
       let response = null;
 
+      // todo refactor this
+      // to use responses with proper exception decorators
       switch (err.constructor) {
+        case EntityTooLargeException: 
+        response = new EntityTooLarge(error);
+        break;
         case AuthenticationFailed:
           response = new Unauthorized(error);
           break;

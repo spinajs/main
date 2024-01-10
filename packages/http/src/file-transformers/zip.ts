@@ -1,6 +1,7 @@
 import { Injectable } from "@spinajs/di";
 import { FileTransformer, IUploadedFile } from "../interfaces.js";
 import { Log, Logger } from "@spinajs/log-common";
+import Path from 'path';
 
 @Injectable()
 export class ZipFileTransformer extends FileTransformer {
@@ -25,6 +26,7 @@ export class ZipFileTransformer extends FileTransformer {
                 BaseName: result.asFilePath(),
                 Size: stat.Size,
                 Type: "application/zip",
+                Name: Path.parse(file.Name).name + ".zip",
                 Data: {
                     OriginalName: originalName,
                     OriginalSize: originalSize

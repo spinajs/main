@@ -1,11 +1,11 @@
 import { BasePath, BaseController, Ok, CsvFile, Post } from '../../../src/index.js';
-import { SampleObject } from '../../dto/index.js';
-import { SampleModel, SampleModelWithSchema, SampleModelWithHydrator } from '../../dto/index.js';
+import { CvsSampleObject, CvsSampleObjectWithSchema } from '../../dto/index.js';
+import { SampleModel, SampleModelWithHydrator } from '../../dto/index.js';
 
-@BasePath('params/v1/json')
+@BasePath('params/cvs')
 export class CvsFileParams extends BaseController {
   @Post()
-  public objectsFromCvs(@CsvFile() objects: SampleObject) {
+  public objectsFromCvs(@CsvFile() objects: CvsSampleObject) {
     return new Ok({ objects });
   }
 
@@ -15,7 +15,7 @@ export class CvsFileParams extends BaseController {
   }
 
   @Post()
-  public modelsFromCvsWithSchema(@CsvFile() objects: SampleModelWithSchema) {
+  public modelsFromCvsWithSchema(@CsvFile() objects: CvsSampleObjectWithSchema) {
     return new Ok({ objects });
   }
 

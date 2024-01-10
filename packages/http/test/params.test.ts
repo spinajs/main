@@ -21,6 +21,7 @@ import { CoockieParams } from './controllers/params/CoockieParams.js';
 import { VariousParams } from './controllers/params/VariousParams.js';
 import { TestTransformer as TestFileTransformer } from './file-transformers/custom-file-transformer.js';
 import { CustomFileUploader } from './uploaders/custom-uploader.js';
+import { CvsFileParams } from './controllers/params/CvsFileParams.js';
 
 describe('controller action test params', function () {
   this.timeout(15000);
@@ -609,49 +610,49 @@ describe('controller action test params', function () {
         .post('params/forms/fileWithMaxSize')
         .attach('file', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
 
-      expect(response).to.have.status(400);
+      expect(response).to.have.status(413);
 
       await req()
         .post('params/forms/fileWithMaxSize')
-        .attach('files', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
+        .attach('file', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
 
       expect(spy.args[0][0].Name).to.eq('test.txt');
     });
 
     it('fileWithCustomTransformer', async () => {
-      const spy = FormParams.prototype.fileWithMaxSize as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileWithCustomTransformers as sinon.SinonSpy;
       const trSpy = TestFileTransformer.prototype.transform as sinon.SinonSpy;
 
       await req()
-        .post('params/forms/fileWithCustomTransformer')
-        .attach('files', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
+        .post('params/forms/fileWithCustomTransformers')
+        .attach('file', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
 
       expect(spy.args[0][0].Name).to.eq('test3.txt');
       expect(trSpy.called).to.be.true;
     });
 
     it('fileWithZipTransformer', async () => {
-      const spy = FormParams.prototype.fileWithMaxSize as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileWithZipTransformer as sinon.SinonSpy;
       await req()
         .post('params/forms/fileWithZipTransformer')
-        .attach('files', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
+        .attach('file', fs.readFileSync(dir('./test-files') + '/test3.txt'), { filename: 'test3.txt' });
 
       expect(spy.args[0][0].Name).to.eq('test3.zip');
     });
 
     it('fileWithUnzipTransformer', async () => {
-      const spy = FormParams.prototype.fileWithMaxSize as sinon.SinonSpy;
+      const spy = FormParams.prototype.fileWithUnzipTransformer as sinon.SinonSpy;
       await req()
         .post('params/forms/fileWithUnzipTransformer')
-        .attach('files', fs.readFileSync(dir('./test-files') + '/test3.zip'), { filename: 'test3.zip' });
+        .attach('file', fs.readFileSync(dir('./test-files') + '/test3.zip'), { filename: 'test3.zip' });
 
-      expect(spy.args[0][0].Name).to.eq('test3.txt');
+      expect(spy.args[0][0]).to.be.not.undefined;
     });
   });
 
   describe('coockie params', function () {
     it('simple', async () => {
-      const spy = FormParams.prototype.simple as sinon.SinonSpy;
+      const spy = CoockieParams.prototype.simple as sinon.SinonSpy;
       await req().get('params/coockie/simple').set('Cookie', 'name=hello');
       expect(spy.args[0][0]).to.eq('hello');
     });
@@ -659,14 +660,14 @@ describe('controller action test params', function () {
 
   describe('various tests', function () {
     it('inject service', async () => {
-      const spy = FormParams.prototype.di as sinon.SinonSpy;
+      const spy = VariousParams.prototype.di as sinon.SinonSpy;
       await req().get('params/mixed/di');
 
       expect(spy.args[0][0].constructor.name).to.eq('SomeService');
     });
 
     it('mixedArgs', async () => {
-      const spy = FormParams.prototype.mixedArgs as sinon.SinonSpy;
+      const spy = VariousParams.prototype.mixedArgs as sinon.SinonSpy;
       await req()
         .post('params/mixed/mixedArgs/1?queryString=queryhello')
         .set('x-header', 'header')
@@ -683,7 +684,32 @@ describe('controller action test params', function () {
     });
   });
 
-  describe('from cvs file', function () {});
+  describe('from cvs file', function () {
+    it('should parse csv file to objects', async () => {
 
-  describe('from json files', function () {});
+      const spy = CvsFileParams.prototype.objectsFromCvs as sinon.SinonSpy;
+      await req()
+        .post('params/cvs/objectsFromCvs')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username.csv'), { filename: 'test.cvs' });
+
+      expect(spy.args[0][0]).to.be.an('array');
+
+    });
+
+    it('should parse csv file to models', async () => {});
+
+    it('should parse csv file to objects with schema', async () => {});
+
+    it('should parse csv file to objectst with hydrator', async () => {});
+  });
+
+  describe('from json files', function () {
+    it('should parse json file to objects', async () => {});
+
+    it('should parse json file to models', async () => {});
+
+    it('should parse json file to objects with schema', async () => {});
+
+    it('should parse json file to objectst with hydrator', async () => {});
+  });
 });

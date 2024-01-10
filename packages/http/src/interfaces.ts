@@ -205,6 +205,11 @@ export enum HTTP_STATUS_CODE {
   CONFLICT = 409,
 
   /**
+   * Eg. too big file
+   */
+  ENTITY_TOO_LARGE = 413,
+
+  /**
    * Internal server error.
    */
   INTERNAL_ERROR = 500,

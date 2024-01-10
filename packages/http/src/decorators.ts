@@ -2,6 +2,7 @@ import { Constructor } from '@spinajs/di';
 import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
+import { Options  as CsvParseOptions } from "csv-parse"
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
 
@@ -279,12 +280,9 @@ export function File(options?: IUploadOptions) {
  * @param cvsParseOptions - cvs parser options
  * @param schema - optional schema for data validation
  */
-export function CsvFile(options?: IUploadOptions, cvsParseOptions?: any) {
+export function CsvFile(cvsParseOptions?: CsvParseOptions) {
   return Route(
-    Parameter(ParameterType.FromCSV, null, {
-      uploadOptions: options,
-      cvsOptions: cvsParseOptions,
-    }),
+    Parameter(ParameterType.FromCSV, null, cvsParseOptions),
   );
 }
 

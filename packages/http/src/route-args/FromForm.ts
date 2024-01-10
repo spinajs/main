@@ -13,7 +13,8 @@ import { basename } from 'node:path';
 import { toArray } from '@spinajs/util';
 import { ValidationFailed } from '@spinajs/validation';
 import { ImmediateFileUploader } from '../uploaders/ImmediateFileUploader.js';
-
+import { EntityTooLargeException } from '../exceptions.js';
+import { BadRequest, Exception } from '@spinajs/exceptions';
 interface FormData {
   Fields: Fields;
   Files: Files;
@@ -44,7 +45,13 @@ const parseForm = (req: express.Request, options: any) => {
   return new Promise<FormData>((res, rej) => {
     form.parse(req, (err: any, fields: Fields, files: Files) => {
       if (err) {
-        rej(err);
+        switch (err.code) {
+          case 1009:
+            rej(new EntityTooLargeException(err.message, err));
+            break;
+          default:
+            rej(new Exception(err.message, err));
+        }
         return;
       }
 
@@ -110,6 +117,16 @@ export class FromFile extends FromFormBase {
     const fu = DI.resolve<FormFileUploader>((param.Options?.uploader as any) ?? ImmediateFileUploader, [param.Options?.uploaderFs ?? this.DefaultFsProviderName]);
     const formidableFs = DI.resolve<fs>('__file_provider__', ['__formidable_default_file_provider__']);
 
+
+    const _rm = async (file: formidable.File) => {
+      try {
+        await  formidableFs.rm(file.newFilename);
+        this.Log.trace(`Deleted temporary incoming file ${file.originalFilename}`);
+      } catch (err) {
+        this.Log.error(err, `Error deleting temporary incoming file ${file.originalFilename}`);
+      }
+    };
+
     const files = toArray(Files[param.Name]);
 
     if (param.Options?.required && files.length === 0) {
@@ -125,21 +142,20 @@ export class FromFile extends FromFormBase {
       ]);
     }
 
-    const uplFiles = files
-      .map((f : formidable.File) => {
-        const uploadedFile: IUploadedFile = {
-          Size: f.size,
-          BaseName: basename(f.filepath),
-          Name: f.originalFilename,
-          Type: f.mimetype,
-          LastModifiedDate: f.mtime,
-          Hash: f.hash,
-          Provider: formidableFs,
-          OriginalFile: f,
-        };
+    const uplFiles = files.map((f: formidable.File) => {
+      const uploadedFile: IUploadedFile = {
+        Size: f.size,
+        BaseName: basename(f.filepath),
+        Name: f.originalFilename,
+        Type: f.mimetype,
+        LastModifiedDate: f.mtime,
+        Hash: f.hash,
+        Provider: formidableFs,
+        OriginalFile: f,
+      };
 
-        return uploadedFile;
-      });
+      return uploadedFile;
+    });
 
     for (const t of param.Options?.transformers ?? []) {
       const c = Array.isArray(t) ? t[0] : t;
@@ -158,6 +174,8 @@ export class FromFile extends FromFormBase {
 
     const uFiles = pResults.filter((r) => r.status === 'fulfilled').map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
 
+    await Promise.allSettled(files.map(f => _rm(f)));
+
     return Object.assign(result, {
       Args: param.RuntimeType.name === 'Array' ? uFiles : uFiles[0],
     });
@@ -166,7 +184,7 @@ export class FromFile extends FromFormBase {
 
 @Injectable()
 @NewInstance()
-export class JsonFileRouteArgs extends FromFile {
+export class FromJsonFile extends FromFile {
   public get SupportedType(): ParameterType {
     return ParameterType.FromJSONFile;
   }
@@ -189,7 +207,7 @@ export class JsonFileRouteArgs extends FromFile {
 
 @Injectable()
 @NewInstance()
-export class CsvFileRouteArgs extends FromFile {
+export class FromCSV extends FromFormBase {
   public get SupportedType(): ParameterType {
     return ParameterType.FromCSV;
   }
@@ -197,24 +215,32 @@ export class CsvFileRouteArgs extends FromFile {
   public async extract(callData: IRouteCall, param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
     const data = await super.extract(callData, param, req, res, route);
 
-    const sourceFile = (this.FormData.Files[param.Name] as File).filepath;
+    const files = this.FormData.Files[param.Name];
+    const file = files ? Array.isArray(files) ? files[0]  : files : null;
+
+    if(!file){
+      throw new BadRequest('Missing csv file');
+    }
+
+    const sourceFile = file.filepath;
+    const cvsData = await this.parseCvs(param, sourceFile);
+
     if (param.Options.DeleteFile) {
       await promises.unlink(sourceFile);
     }
 
-    const cvsData = await this.parseCvs(sourceFile);
     return {
       ...data,
       Args: cvsData,
     };
   }
 
-  protected async parseCvs(path: string) {
+  protected async parseCvs(param: IRouteParameter,path: string) {
     const data: any[] = [];
 
     return new Promise((res, rej) => {
       createReadStream(path)
-        .pipe(parse())
+        .pipe(parse(param.Options))
         .on('error', (err: any) => rej(err))
         .on('data', (row: any) => data.push(row))
         .on('end', () => res(data));
