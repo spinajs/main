@@ -45,6 +45,10 @@ export class CvsSampleObjectWithSchema {
   Identifier: number;
   FirstName: string;
   LastName: string;
+
+  constructor(data: any) {
+    Object.assign(this, data);
+  }
 }
 
 export interface SampleObject {
@@ -56,6 +60,17 @@ export interface SampleObject {
 export class SampleObjectWithSchema {
   id: number;
   name: string;
+
+  constructor(data: any) {
+    Object.assign(this, data);
+  }
+}
+
+export class SampleCvsModel {
+  public Username: string;
+  public Identifier: number;
+  public FirstName: string;
+  public LastName: string;
 
   constructor(data: any) {
     Object.assign(this, data);
@@ -104,6 +119,24 @@ export class ModelArgHydrator3 extends ArgHydrator {
       ...input,
       args: parseInt(input.args),
     });
+  }
+}
+
+export class CvsSampleObjectWithHydratorHydrator extends ArgHydrator {
+  public async hydrate(input: any): Promise<any> {
+    return new CvsSampleObjectWithHydrator(input);
+  }
+}
+
+@Hydrator(CvsSampleObjectWithHydratorHydrator)
+export class CvsSampleObjectWithHydrator {
+  public Username: string;
+  public Identifier: number;
+  public FirstName: string;
+  public LastName: string;
+
+  constructor(data: any) {
+    Object.assign(this, data);
   }
 }
 

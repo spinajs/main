@@ -99,7 +99,7 @@ export interface IUploadedFile<T = any> {
   /**
    * Formidable original file data
    */
-  OriginalFile : formidable.File;
+  OriginalFile: formidable.File;
 }
 
 export interface Request extends express.Request {
@@ -110,11 +110,11 @@ export interface Request extends express.Request {
  * File upload provider, used to copy incoming formidable
  * file to desired location eg. local, aws s3 etc.
  */
-export abstract class FormFileUploader { 
+export abstract class FormFileUploader {
   public abstract upload(file: IUploadedFile): Promise<IUploadedFile>;
 }
 
-export abstract class FileTransformer { 
+export abstract class FileTransformer {
   public abstract transform(file: IUploadedFile): Promise<IUploadedFile>;
 }
 
@@ -386,17 +386,15 @@ export interface IUploadOptions {
    */
   hashAlghoritm?: false | 'sha1' | 'md5' | 'sha256';
 
-
-
-  encoding? : string;
+  encoding?: string;
 
   /**
    * File provider name used to upload files
    * Defaults to default provider set is copy immediately to fs
-   * 
+   *
    * Set this for eg. if lazy copying is needed eg. to aws s3 to not stall main thread
    */
-  uploader?: string | Class<FormFileUploader>;
+  uploader?: string | Class<FormFileUploader> | { options: any; service: string | Class<FormFileUploader> };
 
   /**
    * File transofmers, eg. after upload file can be transformed to other format or zipped.
@@ -405,16 +403,14 @@ export interface IUploadOptions {
   transformers?: string[] | Class<FileTransformer>[];
 
   /**
-   * File system provider used to upload files. Default is taken from configuration
-   * DefaultFsProvider
+   * File system provider used to upload files. Default is taken from configuration - __file_upload_default_provider__
    */
-  uploaderFs? : string;
+  fs?: string;
 
   /**
    * default false; when you call the .parse method, the files argument (of the callback) will contain arrays of files for inputs which submit multiple files using the HTML5 multiple attribute. Also, the fields argument will contain arrays of values for fields that have names ending with '[]'.
    */
   multiples?: boolean;
-
 
   enabledPlugins?: string[];
 
@@ -426,8 +422,8 @@ export interface IUploadOptions {
   /**
    * Minimum file size, default 1 byte
    */
-  minFileSize? : number;
- 
+  minFileSize?: number;
+
   /**
    * default false; to include the extensions of the original files or not
    */
@@ -436,12 +432,12 @@ export interface IUploadOptions {
   /**
    * Should obtain fileInfo when uploading ?
    */
-  fileInfo? : boolean;
+  fileInfo?: boolean;
 
   /**
    * Is this file / files required ?
    */
-  required? : boolean;
+  required?: boolean;
 }
 
 /**

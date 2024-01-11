@@ -10,7 +10,7 @@ import { fs as sFs } from '@spinajs/fs';
 
 import { dir, req, TestConfiguration } from './common.js';
 import { Controllers, HttpServer } from '../src/index.js';
-import { SampleModel, SampleObject, SampleObjectWithSchema } from './dto/index.js';
+import { CvsSampleObjectWithHydrator, CvsSampleObjectWithHydratorHydrator, SampleCvsModel, SampleModel, SampleObject, SampleObjectWithSchema } from './dto/index.js';
 import { HeaderParams } from './controllers/params/HeaderParams.js';
 import { UrlParams } from './controllers/params/UrlParams.js';
 import { BodyParams } from './controllers/params/BodyParams.js';
@@ -28,15 +28,17 @@ describe('controller action test params', function () {
   const sb = sinon.createSandbox();
 
   before(async () => {
-    sb.spy(QueryParams.prototype as any);
-    sb.spy(HeaderParams.prototype as any);
-    sb.spy(UrlParams.prototype as any);
-    sb.spy(BodyParams.prototype as any);
-    sb.spy(FormParams.prototype as any);
-    sb.spy(CoockieParams.prototype as any);
-    sb.spy(VariousParams.prototype as any);
-    sb.spy(CustomFileUploader.prototype as any);
-    sb.spy(TestFileTransformer.prototype as any);
+    sb.spy(QueryParams.prototype);
+    sb.spy(HeaderParams.prototype);
+    sb.spy(UrlParams.prototype);
+    sb.spy(BodyParams.prototype);
+    sb.spy(FormParams.prototype);
+    sb.spy(CoockieParams.prototype);
+    sb.spy(VariousParams.prototype);
+    sb.spy(CustomFileUploader.prototype);
+    sb.spy(TestFileTransformer.prototype);
+    sb.spy(CvsFileParams.prototype);
+    sb.spy(CvsSampleObjectWithHydratorHydrator.prototype);
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) {
@@ -686,21 +688,62 @@ describe('controller action test params', function () {
 
   describe('from cvs file', function () {
     it('should parse csv file to objects', async () => {
-
       const spy = CvsFileParams.prototype.objectsFromCvs as sinon.SinonSpy;
       await req()
         .post('params/cvs/objectsFromCvs')
         .attach('objects', fs.readFileSync(dir('./test-files') + '/username.csv'), { filename: 'test.cvs' });
 
       expect(spy.args[0][0]).to.be.an('array');
-
+      expect(spy.args[0][0]).containSubset([
+        {
+          FirstName: 'Rachel',
+          Identifier: 9012,
+          LastName: 'Booker',
+          Username: 'booker12',
+        },
+      ]);
     });
 
-    it('should parse csv file to models', async () => {});
+    it('should parse csv file to models', async () => {
+      const spy = CvsFileParams.prototype.modelsFromCvs as sinon.SinonSpy;
+      await req()
+        .post('params/cvs/modelsFromCvs')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username.csv'), { filename: 'test.cvs' });
 
-    it('should parse csv file to objects with schema', async () => {});
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0][0]).to.be.instanceOf(SampleCvsModel);
+      expect(spy.args[0][0][0].Username).to.eq('booker12');
+    });
 
-    it('should parse csv file to objectst with hydrator', async () => {});
+    it('should parse csv file to objects with schema', async () => {
+      const spy = CvsFileParams.prototype.modelsFromCvsWithSchema as sinon.SinonSpy;
+      let res = await req()
+        .post('params/cvs/modelsFromCvsWithSchema')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username.csv'), { filename: 'test.cvs' });
+
+      expect(res.status).to.eq(200);
+      expect(spy.args[0][0]).to.be.an('array');
+
+      res = await req()
+        .post('params/cvs/modelsFromCvsWithSchema')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username_invalid.csv'), { filename: 'test.cvs' });
+
+      expect(res.status).to.eq(400);
+    });
+
+    it('should parse csv file to objectst with hydrator', async () => {
+      const spy = CvsFileParams.prototype.modelsFromCvsWithHydrator as sinon.SinonSpy;
+      const spy2 = CvsSampleObjectWithHydratorHydrator.prototype.hydrate as sinon.SinonSpy;
+      await req()
+        .post('params/cvs/modelsFromCvsWithHydrator')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username.csv'), { filename: 'test.cvs' });
+
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0][0]).to.be.instanceOf(CvsSampleObjectWithHydrator);
+      expect(spy.args[0][0][0].Username).to.eq('booker12');
+
+      expect(spy2.called).to.be.true;
+    });
   });
 
   describe('from json files', function () {

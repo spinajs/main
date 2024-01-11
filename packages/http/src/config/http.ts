@@ -32,7 +32,7 @@ const http = {
       // files via  form are stored in os.tmpdir()
       {
         service: 'fsNative',
-        name: '__formidable_default_file_provider__',
+        name: '__file_upload_default_provider__',
         basePath: os.tmpdir()
       },
       {

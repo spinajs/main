@@ -4,7 +4,6 @@ import { SampleModel } from '../../dto/index.js';
 import { TestTransformer } from '../../file-transformers/custom-file-transformer.js';
 import { CustomFileUploader } from '../../uploaders/custom-uploader.js';
 
-
 @BasePath('params/forms')
 export class FormParams extends BaseController {
   @Post()
@@ -43,12 +42,20 @@ export class FormParams extends BaseController {
   }
 
   @Post()
-  public fileWithCustomUploader(@File({ uploader: CustomFileUploader }) file: IUploadedFile) {
+  public fileWithCustomUploader(
+    @File({
+      uploader: {
+        service: CustomFileUploader,
+        options: { fs: 'test2' },
+      },
+    })
+    file: IUploadedFile,
+  ) {
     return new Ok(file);
   }
 
   @Post()
-  public fileWithCustomUploaderFs(@File({ uploaderFs: 'test2' }) file: IUploadedFile) {
+  public fileWithCustomUploaderFs(@File({ fs: 'test2' }) file: IUploadedFile) {
     return new Ok(file);
   }
 
@@ -70,12 +77,10 @@ export class FormParams extends BaseController {
   @Post()
   public fileWithZipTransformer(@File({ transformers: [ZipFileTransformer] }) file: IUploadedFile) {
     return new Ok(file);
-
   }
 
   @Post()
   public fileWithUnzipTransformer(@File({ transformers: [UnzipFileTransformer] }) file: IUploadedFile) {
     return new Ok(file);
-
   }
 }

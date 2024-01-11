@@ -44,7 +44,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
       },
       fs: {
-        defaultProvider: 'test',
+        defaultProvider: 'fs-temp',
         providers: [
           {
             service: 'fsNative',
@@ -63,7 +63,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
           {
             service: 'fsNative',
-            name: '__formidable_default_file_provider__',
+            name: '__file_upload_default_provider__',
             basePath: os.tmpdir()
           },
           {

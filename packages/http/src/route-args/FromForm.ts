@@ -5,14 +5,13 @@ import formidable, { Fields, Files, File, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
-import { fs } from '@spinajs/fs';
+import { fs, fsNative } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
 import { basename } from 'node:path';
 import { toArray } from '@spinajs/util';
 import { ValidationFailed } from '@spinajs/validation';
-import { ImmediateFileUploader } from '../uploaders/ImmediateFileUploader.js';
 import { EntityTooLargeException } from '../exceptions.js';
 import { BadRequest, Exception } from '@spinajs/exceptions';
 interface FormData {
@@ -63,9 +62,13 @@ const parseForm = (req: express.Request, options: any) => {
 export abstract class FromFormBase extends RouteArgs {
   public FormData: FormData;
 
-  public async extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute): Promise<IRouteArgsResult> {
+  public async extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute, uploadFs?: fs): Promise<IRouteArgsResult> {
     if (!this.FormData) {
-      this.FormData = callData?.Payload?.Form ?? (await parseForm(req, routeParameter.Options ?? { multiples: true }));
+      const options = {
+        ...routeParameter.Options,
+        uploadDir: uploadFs && uploadFs instanceof fsNative ? uploadFs.Options.basePath : undefined,
+      };
+      this.FormData = callData?.Payload?.Form ?? (await parseForm(req, options));
     }
 
     const result = {
@@ -105,28 +108,15 @@ export class FromFile extends FromFormBase {
     // copy to provided fs or default temp fs
     // delete intermediate files ( from express ) regardless of copy result
 
+    const fsName = param.Options?.fs ? param.Options.fs : '__file_upload_default_provider__';
+    const uploadFs = DI.resolve<fs>('__file_provider__', [fsName]);
+
     // extract form data if not processed already
     // and prepare result object
-    const result = await super.extract(callData, param, req, res, route);
+    const result = await super.extract(callData, param, req, res, route, uploadFs);
 
     // get incoming files
     const { Files } = this.FormData;
-
-    // get fs provider for storing files
-    // hack - fix DI resolve type
-    const fu = DI.resolve<FormFileUploader>((param.Options?.uploader as any) ?? ImmediateFileUploader, [param.Options?.uploaderFs ?? this.DefaultFsProviderName]);
-    const formidableFs = DI.resolve<fs>('__file_provider__', ['__formidable_default_file_provider__']);
-
-
-    const _rm = async (file: formidable.File) => {
-      try {
-        await  formidableFs.rm(file.newFilename);
-        this.Log.trace(`Deleted temporary incoming file ${file.originalFilename}`);
-      } catch (err) {
-        this.Log.error(err, `Error deleting temporary incoming file ${file.originalFilename}`);
-      }
-    };
-
     const files = toArray(Files[param.Name]);
 
     if (param.Options?.required && files.length === 0) {
@@ -150,12 +140,14 @@ export class FromFile extends FromFormBase {
         Type: f.mimetype,
         LastModifiedDate: f.mtime,
         Hash: f.hash,
-        Provider: formidableFs,
+        Provider: uploadFs,
         OriginalFile: f,
       };
 
       return uploadedFile;
     });
+
+    let uFiles: IUploadedFile<any>[] = uplFiles;
 
     for (const t of param.Options?.transformers ?? []) {
       const c = Array.isArray(t) ? t[0] : t;
@@ -170,11 +162,14 @@ export class FromFile extends FromFormBase {
       }
     }
 
-    const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
+    if (param.Options?.uploader) {
+      const type = (param.Options.uploader as any).service ?? param.Options.uploader;
+      const options = (param.Options.uploader as any).options ?? {};
 
-    const uFiles = pResults.filter((r) => r.status === 'fulfilled').map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
-
-    await Promise.allSettled(files.map(f => _rm(f)));
+      const fu = DI.resolve<FormFileUploader>(type, [options]);
+      const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
+      uFiles = pResults.filter((r) => r.status === 'fulfilled').map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
+    }
 
     return Object.assign(result, {
       Args: param.RuntimeType.name === 'Array' ? uFiles : uFiles[0],
@@ -216,32 +211,34 @@ export class FromCSV extends FromFormBase {
     const data = await super.extract(callData, param, req, res, route);
 
     const files = this.FormData.Files[param.Name];
-    const file = files ? Array.isArray(files) ? files[0]  : files : null;
+    const file = files ? (Array.isArray(files) ? files[0] : files) : null;
 
-    if(!file){
+    if (!file) {
       throw new BadRequest('Missing csv file');
     }
 
     const sourceFile = file.filepath;
-    const cvsData = await this.parseCvs(param, sourceFile);
+    const cvsData = (await this.parseCvs(param, sourceFile)) as [];
 
     if (param.Options.DeleteFile) {
       await promises.unlink(sourceFile);
     }
 
+    const args = await Promise.all(cvsData.map((x) => this.tryHydrateParam(x, param, route)));
+
     return {
       ...data,
-      Args: cvsData,
+      Args: args,
     };
   }
 
-  protected async parseCvs(param: IRouteParameter,path: string) {
+  protected async parseCvs(param: IRouteParameter, path: string) {
     const data: any[] = [];
 
     return new Promise((res, rej) => {
       createReadStream(path)
-        .pipe(parse(param.Options))
-        .on('error', (err: any) => rej(err))
+        .pipe(parse(param.Options ?? {}))
+        .on('error', (err: any) => rej(new BadRequest('Cannot read data from cvs', err)))
         .on('data', (row: any) => data.push(row))
         .on('end', () => res(data));
     });

@@ -10,25 +10,27 @@ export class ImmediateFileUploader extends FormFileUploader {
   @Logger('http')
   protected Log: Log;
 
-  constructor(public Filesystem: string) {
+  constructor(public Options: { fs: string }) {
     super();
   }
   async upload(file: IUploadedFile<unknown>) {
-
-    const fs = DI.resolve<fs>('__file_provider__', [this.Filesystem]);
+    const fs = DI.resolve<fs>('__file_provider__', [this.Options.fs]);
 
     if (!fs) {
-      throw new IOFail(`Filesystem ${this.Filesystem} not exists, pleas check your configuration`);
+      throw new IOFail(`Filesystem ${this.Options.fs} not exists, pleas check your configuration`);
+    }
+
+    // if its the same - do nothing
+    if (fs.Name === file.Provider.Name) {
+      return;
     }
 
     try {
       await file.Provider.copy(file.BaseName, file.BaseName, fs);
-      this.Log.trace(`Uploaded incoming file ${file.OriginalFile.filepath} to ${file.BaseName} using ${this.Filesystem} filesystem`);
-
-     
+      this.Log.trace(`Uploaded incoming file ${file.OriginalFile.filepath} to ${file.BaseName} using ${this.Options.fs} filesystem`);
     } catch (err) {
-      throw new IOFail(`Error copying incoming file ${file.OriginalFile.filepath} to ${file.BaseName} using ${this.Filesystem} filesystem`, err);
-    } 
+      throw new IOFail(`Error copying incoming file ${file.OriginalFile.filepath} to ${file.BaseName} using ${this.Options.fs} filesystem`, err);
+    }
 
     file.Provider = fs;
 
