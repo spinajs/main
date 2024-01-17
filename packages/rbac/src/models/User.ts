@@ -4,6 +4,8 @@ import { AccessControl, Permission } from 'accesscontrol';
 import { DI, IContainer } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata.js';
 import { UserAction } from './UserTimeline.js';
+import { v4 as uuidv4 } from 'uuid';
+
 class UserMetadataRelation extends OneToManyRelationList<UserMetadata, User> {
   /**
    *
@@ -121,19 +123,18 @@ export class UserQueryScopes implements QueryScope {
    */
   public isActiveUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
     return this.where({
-      IsBanned: false,
       IsActive: true,
       DeletedAt: null,
     });
   }
 
-  public byEmail(this: ISelectQueryBuilder<User[]> & UserQueryScopes, email: string) {
+  public whereEmail(this: ISelectQueryBuilder<User[]> & UserQueryScopes, email: string) {
     return this.where({
       Email: email,
     });
   }
 
-  public byLogin(this: ISelectQueryBuilder<User[]> & UserQueryScopes, email: string) {
+  public whereLogin(this: ISelectQueryBuilder<User[]> & UserQueryScopes, email: string) {
     return this.where({
       Email: email,
     });
@@ -152,6 +153,14 @@ export class User extends ModelBase {
 
   public static readonly _queryScopes: UserQueryScopes = new UserQueryScopes();
 
+  public constructor(data?: Partial<User>) {
+    super(data);
+
+    if (this.Uuid === undefined) {
+      this.Uuid = uuidv4();
+    }
+  }
+
   @Primary()
   public Id: number;
 
@@ -169,6 +178,8 @@ export class User extends ModelBase {
    * Displayed name ( for others to see )
    */
   public Login: string;
+
+  public IsBanned : boolean;
 
   /**
    * User role
@@ -196,8 +207,6 @@ export class User extends ModelBase {
   @DT()
   public LastLoginAt: DateTime;
 
-  public IsBanned: boolean;
-
   /**
    * Account is fully active (eg. passed registration)
    */
@@ -215,7 +224,7 @@ export class User extends ModelBase {
   public Actions: Relation<UserAction, User>;
 
   public get IsGuest(): boolean {
-    return this.Role.indexOf('guest') !== -1;
+    return this.Role.indexOf('guest') !== -1 || this.Role.length === 0;
   }
 
   public can(resource: string, permission: string): Permission {
@@ -257,5 +266,19 @@ export class User extends ModelBase {
 
   public canCreateOwn(resource: string) {
     return this.can(resource, 'createOwn');
+  }
+
+  public static getByLogin(login: string) {
+    return User.query().whereLogin(login).first();
+  }
+
+  public static getByEmail(email: string) {
+    return User.query().whereEmail(email).first();
+  }
+
+  public static getByUuid(uuid: string) {
+    return User.query().where({
+      Uuid: uuid,
+    }).first();
   }
 }

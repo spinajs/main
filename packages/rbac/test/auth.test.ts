@@ -33,27 +33,22 @@ describe('Authorization provider tests', () => {
 
     const user = new User({
       Email: 'test@spinajs.pl',
-      NiceName: 'test',
       Login: 'test',
       Password: await provider.hash('bbbb'),
-      RegisteredAt: new Date(),
-      Role: 'admin',
       IsActive: true,
-      IsBanned: false,
+      Role: ['admin'],
     });
 
     await User.insert(user);
 
     const user2 = new User({
       Email: 'test2@spinajs.pl',
-      NiceName: 'test',
       Login: 'test2',
       Password: await provider.hash('bbbb'),
-      RegisteredAt: DateTime.now(),
-      Role: 'admin',
-      IsBanned: true,
       IsActive: true,
       DeletedAt: DateTime.now(),
+      Role: ['admin'],
+
     });
 
     await user2.insert();

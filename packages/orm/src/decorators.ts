@@ -1,6 +1,6 @@
 import { IValueConverterDescriptor } from './interfaces.js';
 /* eslint-disable prettier/prettier */
-import { JsonValueConverter, UuidConverter } from './converters.js';
+import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter } from './interfaces.js';
 import 'reflect-metadata';
@@ -459,7 +459,7 @@ export function UniversalConverter(typeColumn: string) {
   return extractDecoratorDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
     // add converter for this field
     model.Converters.set(propertyKey, {
-      Class: JsonValueConverter,
+      Class: UniversalValueConverter,
       Options: {
         TypeColumn: typeColumn,
       },

@@ -57,7 +57,7 @@ export class RbacBootstrapper extends Bootstrapper {
         Login: 'guest',
         Email: 'guest@spinajs.com',
         Role: ['guest'],
-        IsEnabled: guestEnabled,
+        IsActive: guestEnabled,
       });
     }).as('RbacGuestUserFactory');
   }

@@ -228,11 +228,11 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
       return _stmt;
     }
 
-    if (_.isString(this.builder.Default)) {
-      _stmt = `DEFAULT '${this.builder.Default.trim()}'`;
-    } else if (_.isNumber(this.builder.Default)) {
-      _stmt = `DEFAULT ${this.builder.Default}`;
-    } else if (this.builder.Default instanceof RawQuery) {
+    if (_.isString(this.builder.Default.Value)) {
+      _stmt = `DEFAULT '${this.builder.Default.Value.trim()}'`;
+    } else if (_.isNumber(this.builder.Default.Value)) {
+      _stmt = `DEFAULT ${this.builder.Default.Value}`;
+    } else if (this.builder.Default.Query instanceof RawQuery) {
       _stmt = `DEFAULT ${this.builder.Default.Query}`;
     }
 

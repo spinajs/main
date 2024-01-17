@@ -3,7 +3,6 @@ import { BaseController, BasePath, Post, Body, Ok, Get, Unauthorized, Header, Po
 import { FederatedAuthProvider } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import _ from 'lodash';
-import { NotLoggedPolicy } from '../policies/NotLoggedPolicy.js';
 import { AllowFederatedLoginPolicy } from '../policies/AllowFederatedLoginPolicy.js';
 
 @BasePath('user/auth')
@@ -12,7 +11,6 @@ export class LoginController extends BaseController {
   protected FederatedLoginStrategies: FederatedAuthProvider<any>[];
 
   @Post('federated-login')
-  @Policy(NotLoggedPolicy)
   @Policy(AllowFederatedLoginPolicy)
   public async loginFederated(@Body() credentials: unknown, @Header('Host') caller: string) {
     const strategy = this.FederatedLoginStrategies.find((x) => x.callerCheck(caller));

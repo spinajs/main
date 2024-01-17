@@ -1,7 +1,7 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
 import { BasePolicy } from '@spinajs/http';
-import { TwoFactorAuthConfig } from '../interfaces.js';
+import { TwoFactorAuthConfig } from '@spinajs/rbac-http';
 
 export class TwoFacRouteEnabled extends BasePolicy {
   @Config('rbac.twoFactorAuth')

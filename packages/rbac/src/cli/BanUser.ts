@@ -27,8 +27,8 @@ export class BanUser extends CliCommand {
     await user.update();
 
     if (ban) {
-      await (user.Metadata['ban:duration'] = duration);
-      await (user.Metadata['ban:issued'] = DateTime.now().toISO());
+      await (user.Metadata['user:ban.duration'] = duration);
+      await (user.Metadata['user:ban.issued'] = DateTime.now().toISO());
 
       this.Queue.emit(new UserBanned(idOrUuid, duration));
 
@@ -44,7 +44,7 @@ export class BanUser extends CliCommand {
       this.Log.success(`User ban status changed to ${ban}`);
     } else {
       // cleanup meta
-      await UserMetadata.destroy().where('Key', 'like', 'user:ban:%').andWhere('User', user);
+      await UserMetadata.destroy().where('Key', 'like', '%user:ban').andWhere('User', user);
 
       this.Queue.emit(new UserUnbanned(idOrUuid));
       this.Log.warn(`No user with id: ${idOrUuid} found`);
