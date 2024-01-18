@@ -14,19 +14,11 @@ class UserMetadataRelation extends OneToManyRelationList<UserMetadata, User> {
    * @param key - key to find
    * @returns {true|false}
    */
-  public async exists(key: string | RegExp) {
-    let result = null;
-    if (key instanceof RegExp) {
-      result = await UserMetadata.where({
-        User: this.owner,
-      }).andWhere('Key', 'rlike', key.source);
-    } else {
-      result = await UserMetadata.where({
-        User: this.owner,
-      }).andWhere('Key', key);
-    }
-
-    return result !== null && result !== undefined;
+  public async exists(key: string) {
+    return await UserMetadata.where({
+      User: this.owner,
+      Key: key,
+    }).resultExists();
   }
 
   /**
@@ -35,22 +27,35 @@ class UserMetadataRelation extends OneToManyRelationList<UserMetadata, User> {
    *
    * @param key - meta key do delete or regexp
    */
-  public async delete(key: string | RegExp) {
-    if (key instanceof RegExp) {
-      await UserMetadata.destroy()
-        .where({
-          User: this.owner as any, // TODO FIX THIS !!!!!!!!!!!
-        })
-        .andWhere('Key', 'rlike', key.source);
-    } else {
-      await UserMetadata.destroy().where({
-        Key: key,
-        User: this.owner as any,
-      });
+  public async delete(key: string) {
+    await UserMetadata.destroy().where({
+      Key: key,
+      User: this.owner.Id,
+    });
+
+     
+  }
+
+  
+
+  public async get(key: string) {
+    const found = this.find((x) => x.Key === key);
+
+    if (found) {
+      return found.Value;
     }
 
-    // refresh meta
-    await this.populate();
+    return await UserMetadata.where({
+      User: this.owner,
+      Key: key,
+    })
+      .first()
+      .then((res) => {
+        if (res) {
+          return res.Value;
+        }
+        return null;
+      });
   }
 
   [index: string]: any;
@@ -60,33 +65,25 @@ function UserMetadataRelationFactory(model: ModelBase<User>, desc: IRelationDesc
   const repository = container.resolve(UserMetadataRelation, [model, desc.TargetModel, desc, []]);
   const proxy = {
     set: (target: UserMetadataRelation, prop: string, value: any) => {
-      // if we try to call method or prop that exists return it
       if ((target as any)[prop]) {
         return ((target as any)[prop] = value);
-      } else {
+      }
+
+      return (async () => {
         const userMeta = new UserMetadata();
         userMeta.User.Value = model as User;
         userMeta.Key = prop;
         userMeta.Value = value;
 
-        UserMetadata.insert(userMeta, InsertBehaviour.InsertOrUpdate);
-
-        let meta = target.find((x) => x.Value === prop);
-
-        if (meta) {
-          meta.Value = value;
-        } else {
-          target.push(userMeta);
-        }
-      }
-
-      return true;
+        await UserMetadata.insert(userMeta, InsertBehaviour.InsertOrUpdate);
+      })();
     },
     get: (target: UserMetadataRelation, prop: string) => {
-      // if we try to call method or prop that exists return it
       if ((target as any)[prop]) {
         return (target as any)[prop];
-      } else {
+      }
+
+      return (async () => {
         // check for metadata entries
         const found = target.find((x) => x.Key === prop);
 
@@ -94,21 +91,18 @@ function UserMetadataRelationFactory(model: ModelBase<User>, desc: IRelationDesc
           return found.Value;
         }
 
-        // if not found try to obtain it
-        // or return null
-        return UserMetadata.where({
+        return await UserMetadata.where({
           User: model,
           Key: prop,
         })
           .first()
           .then((res) => {
             if (res) {
-              // add to this repo for cache
-              target.push(res);
+              return res.Value;
             }
-            return res;
+            return null;
           });
-      }
+      })();
     },
   };
 
@@ -179,7 +173,7 @@ export class User extends ModelBase {
    */
   public Login: string;
 
-  public IsBanned : boolean;
+  public IsBanned: boolean;
 
   /**
    * User role
@@ -277,8 +271,10 @@ export class User extends ModelBase {
   }
 
   public static getByUuid(uuid: string) {
-    return User.query().where({
-      Uuid: uuid,
-    }).first();
+    return User.query()
+      .where({
+        Uuid: uuid,
+      })
+      .first();
   }
 }

@@ -5,16 +5,15 @@
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import { TestMigration_2022_02_08_01_13_00 } from './migrations/TestMigration_2022_02_08_01_13_00.js';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from './../src/index.js';
 import { DI } from '@spinajs/di';
-import { Orm, MigrationTransactionMode, Migration, ICompilerOutput, OrmDriver, OrmMigration, QueryContext, InsertBehaviour } from '@spinajs/orm';
+import { Orm, Migration, ICompilerOutput, OrmDriver, OrmMigration, QueryContext, InsertBehaviour } from '@spinajs/orm';
 import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import * as sinon from 'sinon';
 import { DateTime } from 'luxon';
-import { mergeArrays } from './util.js';
 import { TestModel } from './models/TestModel.js';
 import { TestOwned } from './models/TestOwned.js';
 import { TestMany } from './models/TestMany.js';
@@ -26,94 +25,10 @@ import { SqlDriver } from '@spinajs/orm-sql';
 import '@spinajs/log';
 import { Offer } from './models/Offer.js';
 import { Location } from './models/Location.js';
+import { ConnectionConf, ConnectionConf2, TEST_MIGRATION_TABLE_NAME, db } from './common.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
-
-export const TEST_MIGRATION_TABLE_NAME = 'orm_migrations';
-
-export class ConnectionConf2 extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'ConsoleTarget',
-            },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
-        db: {
-          Migration: {
-            Startup: false,
-          },
-          Connections: [
-            {
-              Driver: 'orm-driver-sqlite',
-              Filename: ':memory:',
-              Name: 'sqlite',
-              Migration: {
-                Table: TEST_MIGRATION_TABLE_NAME,
-
-                Transaction: {
-                  Mode: MigrationTransactionMode.PerMigration,
-                },
-              },
-            },
-          ],
-        },
-      },
-      mergeArrays,
-    );
-  }
-}
-
-export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-            },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
-
-        db: {
-          Connections: [
-            {
-              Driver: 'orm-driver-sqlite',
-              Filename: ':memory:',
-              Name: 'sqlite',
-              Migration: {
-                Table: TEST_MIGRATION_TABLE_NAME,
-              },
-            },
-          ],
-        },
-      },
-      mergeArrays,
-    );
-  }
-}
-
-export function db() {
-  return DI.get(Orm);
-}
-
 describe('Sqlite driver migration, updates, deletions & inserts', function () {
   this.timeout(10000);
   beforeEach(async () => {

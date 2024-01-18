@@ -83,14 +83,22 @@ describe('Authorization provider tests', () => {
   });
 
   describe('User metadata', () => {
+    it('Should get metadata', async () => {
+      user.Metadata.populate();
 
-    it('Should get metadata'    , async () => {
+      const m = user.Metadata['test:test'];
+      user.Metadata['test:test'] = 'test';
+      user.Metadata.sync();
 
-        const user = await User.getByEmail('test@spinajs.pl');
-        await (user.Metadata['test:test'] = 'test');
+      const user = await User.getByEmail('test@spinajs.pl');
 
-        const meta = await (user.Metadata['test:test'];
-        expect(meta).to.be.eq('test');
+      const res = await (user.Metadata['test:test'] = 'test');
+
+      console.log(res);
+
+      const user2 = await User.get(user.Id);
+      const meta = await user2.Metadata['test:test'];
+      expect(meta).to.be.eq('test');
     });
 
     it('Should add metadata by assign', async () => {
@@ -122,7 +130,6 @@ describe('Authorization provider tests', () => {
     });
 
     it('Should update metadata', async () => {
-
       const user = await User.getByEmail('test@spinajs.pl');
       await (user.Metadata['test:test'] = 'test');
 
@@ -132,48 +139,42 @@ describe('Authorization provider tests', () => {
       await (user.Metadata['test:test'] = 'test-2');
       await UserMetadata.where('Key', 'test').first();
       expect(meta.Value).to.be.eq('test-2');
-
     });
 
     it('Should automatically convert meta value to number', async () => {
-
       const user = await User.getByEmail('test@spinajs.pl');
       await (user.Metadata['test:test'] = 1);
 
       const meta = await UserMetadata.where('Key', 'test').first();
       expect(meta.Type).to.be.eq('number');
       expect(meta.Value).to.be.eq(1);
-
     });
 
     it('Should automatically convert meta value to json', async () => {
-
       const user = await User.getByEmail('test@spinajs.pl');
-      await (user.Metadata['test:test'] = { Value: 1.0, Foo: "sss"});
+      await (user.Metadata['test:test'] = { Value: 1.0, Foo: 'sss' });
 
       const meta = await UserMetadata.where('Key', 'test').first();
       expect(meta.Type).to.be.eq('json');
-      expect(meta.Value).to.be.deep.eq({ Value: 1.0, Foo: "sss"});
-
+      expect(meta.Value).to.be.deep.eq({ Value: 1.0, Foo: 'sss' });
     });
 
     it('Should automatically convert meta value to boolean', async () => {
-        const user = await User.getByEmail('test@spinajs.pl');
-        await (user.Metadata['test:test']= true);
+      const user = await User.getByEmail('test@spinajs.pl');
+      await (user.Metadata['test:test'] = true);
 
       const meta = await UserMetadata.where('Key', 'test').first();
       expect(meta.Type).to.be.eq('boolean');
       expect(meta.Value).to.be.eq(true);
     });
-  
 
     it('Should automatically convert meta value to datetime', async () => {
-        const user = await User.getByEmail('test@spinajs.pl');
-        await (user.Metadata['test:test']= DateTime.now());
+      const user = await User.getByEmail('test@spinajs.pl');
+      await (user.Metadata['test:test'] = DateTime.now());
 
-        const meta = await UserMetadata.where('Key', 'test').first();
-        expect(meta.Type).to.be.eq('datetime');
-        expect(meta.Value).to.be.instanceOf(DateTime);
+      const meta = await UserMetadata.where('Key', 'test').first();
+      expect(meta.Type).to.be.eq('datetime');
+      expect(meta.Value).to.be.instanceOf(DateTime);
     });
   });
 

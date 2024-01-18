@@ -18,8 +18,8 @@ import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
 import { RawModel } from './mocks/models/RawModel.js';
 import { Model, Connection } from '../src/decorators.js';
-import { ModelBase } from './../src/model.js';
-import {  Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models/index.js';
+import { ModelBase, _modelProxyFactory } from './../src/model.js';
+import { Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/models/index.js';
 import { ModelWithScopeQueryScope } from './mocks/models/ModelWithScope.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators.js';
 import { ModelWithScope } from './mocks/models/ModelWithScope.js';
@@ -738,6 +738,34 @@ describe('General model tests', () => {
     await model.update();
 
     expect(model.UpdatedAt).to.be.not.null;
+  });
+
+  it('Model is dirty should work', async () => {
+    // @ts-ignore
+    const orm = await db();
+
+    sinon.stub(FakeUpdateQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([]);
+      }),
+    );
+
+    const model = new Model1({ Id: 1 });
+
+    expect(model.IsDirty).to.be.false;
+
+    model.Bar = 'test';
+
+    expect(model.IsDirty).to.be.true;
+
+    await model.update();
+
+    expect(model.IsDirty).to.be.false;
   });
 
   it('Model should create uuid', async () => {

@@ -20,10 +20,10 @@ import { DateTime } from 'luxon';
  *  We use mixins to extend functionality of builder eg. insert query builder uses function from columns builder
  *  and so on...
  */
-export interface InsertQueryBuilder extends IColumnsBuilder { }
-export interface DeleteQueryBuilder<T> extends IDeleteQueryBuilder<T> { }
-export interface UpdateQueryBuilder<T> extends IUpdateQueryBuilder<T> { }
-export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder { }
+export interface InsertQueryBuilder extends IColumnsBuilder {}
+export interface DeleteQueryBuilder<T> extends IDeleteQueryBuilder<T> {}
+export interface UpdateQueryBuilder<T> extends IUpdateQueryBuilder<T> {}
+export interface SelectQueryBuilder<T> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder {}
 
 function isWhereOperator(val: any) {
   return _.isString(val) && Object.values(SqlOperator).includes((val as any).toLowerCase());
@@ -97,8 +97,9 @@ export class Builder<T = any> implements IBuilder<T> {
               }
 
               if (model === null) {
-                model = new this._model();
+                model = DI.resolve<ModelBase>('__orm_model_factory__', [this._model]);
                 model.hydrate(r);
+                model.IsDirty = false;
               }
 
               return model;
@@ -937,7 +938,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
 
     if (rDescriptor.Recursive) {
-      relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [ this, rDescriptor, this._owner]);
+      relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this, rDescriptor, this._owner]);
     } else {
       switch (rDescriptor.Type) {
         case RelationType.One:
@@ -946,10 +947,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
           relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this, rDescriptor, this._owner instanceof OneToManyRelation ? null : this._owner]);
           break;
         case RelationType.Many:
-          relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [ this, rDescriptor, this._owner]);
+          relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this, rDescriptor, this._owner]);
           break;
         case RelationType.ManyToMany:
-          relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [ this, rDescriptor, null]);
+          relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [this, rDescriptor, null]);
           break;
       }
     }
@@ -1021,6 +1022,16 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return (await this) as any;
   }
 
+  public async resultExists(): Promise<boolean> {
+    return this.then((res) => {
+      if (Array.isArray(res)) {
+        return res.length > 0;
+      }
+
+      return res !== undefined && res !== null;
+    });
+  }
+
   public then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
     this._queryMiddlewares.forEach((x) => x.beforeQueryExecution(this));
 
@@ -1050,7 +1061,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 }
 
-export class SelectQueryBuilderC<T = any> extends SelectQueryBuilder<T> { }
+export class SelectQueryBuilderC<T = any> extends SelectQueryBuilder<T> {}
 
 @NewInstance()
 export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
@@ -1960,7 +1971,7 @@ export class DropEventQueryBuilder extends QueryBuilder {
 @NewInstance()
 @Inject(Container)
 export class ScheduleQueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver) { }
+  constructor(protected container: Container, protected driver: OrmDriver) {}
 
   public create(name: string, callback: (event: EventQueryBuilder) => void) {
     const builder = new EventQueryBuilder(this.container, this.driver, name);
@@ -1977,7 +1988,7 @@ export class ScheduleQueryBuilder {
 @NewInstance()
 @Inject(Container)
 export class SchemaQueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver) { }
+  constructor(protected container: Container, protected driver: OrmDriver) {}
 
   public createTable(name: string, callback: (table: TableQueryBuilder) => void) {
     const builder = new TableQueryBuilder(this.container, this.driver, name);

@@ -889,6 +889,10 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   distinct(): this;
   clone(): this;
 
+  /**
+   * Returns true/false if query result exists in db
+   */
+  resultExists(): Promise<boolean>;
   populate<R = this>(relation: {} | null, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   populate<R = this>(relation: string, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   asRaw<T>(): Promise<T>;

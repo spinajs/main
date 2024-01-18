@@ -8,7 +8,6 @@ import { Orm } from './orm.js';
 import _ from 'lodash';
 import { OrmDriver } from './driver.js';
 
-
 /**
  * Iterable list of populated relation entities
  *
@@ -123,215 +122,235 @@ export abstract class Relation<R extends ModelBase, O extends ModelBase> extends
 }
 
 export class SingleRelation<R extends IModelBase> implements IRelation {
-    public TargetModelDescriptor: IModelDescriptor;
-  
-    protected Orm: Orm;
-  
-    public Value: R;
-  
-    public Populated: boolean = false;
-  
-    constructor(protected _owner: ModelBase, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
-      this.TargetModelDescriptor = extractModelDescriptor(model);
-      this.Orm = DI.get(Orm);
-  
-      this.Value = object;
-    }
-  
-    public async set(obj: R) {
-      this.Value = obj;
-      await this._owner.update();
-    }
-  
-    public attach(obj: R) {
-      this.Value = obj;
-    }
-  
-    public detach() {
-      this.Value = null;
-    }
-  
-    public async remove() {
-      this.Value = null;
-      await this.Value.destroy();
-      await this._owner.update();
-    }
-  
-    public async populate(callback?: (this: SelectQueryBuilder<this>) => void): Promise<void> {
-      /**
-       * Do little cheat - we construct query that loads initial model with given relation.
-       * Then we only assign relation property.
-       *
-       * TODO: create only relation query without loading its owner.
-       */
-  
-      const query = createQuery(this.Relation.TargetModel, SelectQueryBuilder<ModelBase>).query;
-      const desc = extractModelDescriptor(this.Relation.TargetModel);
-      query.where({ [desc.PrimaryKey]: (this._owner as any)[this.Relation.ForeignKey] });
-  
-      if (callback) {
-        callback.apply(query);
-      }
-  
-      const result = await query.firstOrFail();
-  
-      if (result) {
-        this.Value = result;
-      }
-  
-      this.Populated = true;
-    }
+  public TargetModelDescriptor: IModelDescriptor;
+
+  protected Orm: Orm;
+
+  public Value: R;
+
+  public Populated: boolean = false;
+
+  constructor(protected _owner: ModelBase, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
+    this.TargetModelDescriptor = extractModelDescriptor(model);
+    this.Orm = DI.get(Orm);
+
+    this.Value = object;
   }
-  
-  export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
-    public intersection(_obj: T[], _callback?: (a: T, b: T) => boolean): Promise<void> {
-      throw new Error('Method not implemented.');
+
+  public async set(obj: R) {
+    this.Value = obj;
+    await this._owner.update();
+  }
+
+  public attach(obj: R) {
+    this.Value = obj;
+  }
+
+  public detach() {
+    this.Value = null;
+  }
+
+  public async remove() {
+    this.Value = null;
+    await this.Value.destroy();
+    await this._owner.update();
+  }
+
+  public async populate(callback?: (this: SelectQueryBuilder<this>) => void): Promise<void> {
+    /**
+     * Do little cheat - we construct query that loads initial model with given relation.
+     * Then we only assign relation property.
+     *
+     * TODO: create only relation query without loading its owner.
+     */
+
+    const query = createQuery(this.Relation.TargetModel, SelectQueryBuilder<ModelBase>).query;
+    const desc = extractModelDescriptor(this.Relation.TargetModel);
+    query.where({ [desc.PrimaryKey]: (this._owner as any)[this.Relation.ForeignKey] });
+
+    if (callback) {
+      callback.apply(query);
     }
-  
-    public union(_obj: T[], _mode?: InsertBehaviour): Promise<void> {
-      throw new Error('Method not implemented.');
+
+    const result = await query.firstOrFail();
+
+    if (result) {
+      this.Value = result;
     }
-  
-    public diff(_obj: T[], _callback?: (a: T, b: T) => boolean): Promise<void> {
-      throw new Error('Method not implemented.');
-    }
-  
-    public set(_obj: T[], _callback?: (a: T, b: T) => boolean): Promise<void> {
-      throw new Error('Method not implemented.');
-    }
-  
-    public async remove(obj: T | T[]): Promise<void> {
-      const self = this;
-      const data = (Array.isArray(obj) ? obj : [obj]).map((d) => (d as ModelBase).PrimaryKeyValue);
-      const jmodelDescriptor = extractModelDescriptor(this.Relation.JunctionModel);
-  
-      const query = this.Driver.del()
-        .from(jmodelDescriptor.TableName)
-        .where(function () {
-          this.whereIn(self.Relation.JunctionModelTargetModelFKey_Name, data);
-          this.andWhere(self.Relation.JunctionModelSourceModelFKey_Name, self.owner.PrimaryKeyValue);
-        });
-  
-      if (this.Driver.Options.Database) {
-        query.database(this.Driver.Options.Database);
-      }
-  
-      await query;
-  
-      _.remove(this, (o) => data.indexOf(o.PrimaryKeyValue) !== -1);
-    }
-  
-    public async add(obj: T | T[], mode?: InsertBehaviour): Promise<void> {
-      const data = Array.isArray(obj) ? obj : [obj];
-      const relEntities = data.map((d) => {
-        const relEntity = new this.Relation.JunctionModel();
-        (relEntity as any)[this.Relation.JunctionModelSourceModelFKey_Name] = this.owner.PrimaryKeyValue;
-        (relEntity as any)[this.Relation.JunctionModelTargetModelFKey_Name] = d.PrimaryKeyValue;
-  
-        return relEntity;
+
+    this.Populated = true;
+  }
+}
+
+export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
+  public intersection(_obj: T[], _callback?: (a: T, b: T) => boolean): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+
+  public union(_obj: T[], _mode?: InsertBehaviour): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+
+  public diff(_obj: T[], _callback?: (a: T, b: T) => boolean): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+
+  public set(_obj: T[], _callback?: (a: T, b: T) => boolean): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+
+  public async remove(obj: T | T[]): Promise<void> {
+    const self = this;
+    const data = (Array.isArray(obj) ? obj : [obj]).map((d) => (d as ModelBase).PrimaryKeyValue);
+    const jmodelDescriptor = extractModelDescriptor(this.Relation.JunctionModel);
+
+    const query = this.Driver.del()
+      .from(jmodelDescriptor.TableName)
+      .where(function () {
+        this.whereIn(self.Relation.JunctionModelTargetModelFKey_Name, data);
+        this.andWhere(self.Relation.JunctionModelSourceModelFKey_Name, self.owner.PrimaryKeyValue);
       });
-  
-      for (const m of relEntities) {
-        await m.insert(mode);
-      }
-  
-      this.push(...data);
+
+    if (this.Driver.Options.Database) {
+      query.database(this.Driver.Options.Database);
     }
+
+    await query;
+
+    _.remove(this, (o) => data.indexOf(o.PrimaryKeyValue) !== -1);
   }
-  
-  export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
-    protected async deleteRelationData(data: T[]) {
-      if (data.length === 0) {
-        return;
-      }
-  
-      const self = this;
-  
-      const query = this.Driver.del()
-        .from(this.TargetModelDescriptor.TableName)
-        .andWhere(function () {
-          this.whereNotIn(
-            self.Relation.PrimaryKey,
-            data.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
-          );
-          this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
-        });
-  
-      if (this.Driver.Options.Database) {
-        query.database(this.Driver.Options.Database);
-      }
-  
-      await query;
-  
-      this.empty();
+
+  public async add(obj: T | T[], mode?: InsertBehaviour): Promise<void> {
+    const data = Array.isArray(obj) ? obj : [obj];
+    const relEntities = data.map((d) => {
+      const relEntity = new this.Relation.JunctionModel();
+      (relEntity as any)[this.Relation.JunctionModelSourceModelFKey_Name] = this.owner.PrimaryKeyValue;
+      (relEntity as any)[this.Relation.JunctionModelTargetModelFKey_Name] = d.PrimaryKeyValue;
+
+      return relEntity;
+    });
+
+    for (const m of relEntities) {
+      await m.insert(mode);
     }
-  
-    public async diff(dataset: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
-      // calculate difference between this data in relation and dataset ( objects from this relation)
-      const result = callback ? _.differenceWith(dataset, [...this], callback) : _.differenceBy(dataset, [...this], this.TargetModelDescriptor.PrimaryKey);
-  
-      // calculate difference between dataset and data in this relation ( objects from dataset )
-      const result2 = callback ? _.differenceWith([...this], dataset, callback) : _.differenceBy([...this], dataset, this.TargetModelDescriptor.PrimaryKey);
-  
-      // combine difference from two sets
-      const finalDiff = [...result, ...result2];
-  
-      await this.deleteRelationData(finalDiff);
-      await this.add(finalDiff, InsertBehaviour.InsertOrUpdate);
+
+    this.push(...data);
+  }
+}
+
+export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
+  /**
+   * Deletes from db data that are not in relation
+   *
+   * @param data relation data
+   * @returns
+   */
+  protected async deleteRelationalData(data: T[]) {
+    const query = this.Driver.del().from(this.TargetModelDescriptor.TableName);
+    const self = this;
+
+    if (this.Driver.Options.Database) {
+      query.database(this.Driver.Options.Database);
     }
-  
-    public async set(obj: T[]): Promise<void> {
-      await this.deleteRelationData(obj);
-      await this.add(obj, InsertBehaviour.InsertOrUpdate);
-    }
-  
-    public async intersection(obj: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
-      const result = callback ? _.intersectionWith(obj, [...this], callback) : _.intersectionBy(obj, [...this], this.TargetModelDescriptor.PrimaryKey);
-      await this.deleteRelationData(result);
-      await this.add(result, InsertBehaviour.InsertOrUpdate);
-    }
-  
-    public async union(obj: T[], mode?: InsertBehaviour): Promise<void> {
-      await this.add(obj, mode ?? InsertBehaviour.InsertOrIgnore);
-    }
-  
-    public async remove(obj: T | T[]): Promise<void> {
-      const data = (Array.isArray(obj) ? obj : [obj]).map((d) => (d as ModelBase).PrimaryKeyValue);
-  
-      const query = this.Driver.del().whereIn(this.Relation.ForeignKey, data).setTable(this.TargetModelDescriptor.TableName);
-  
-      if (this.Driver.Options.Database) {
-        query.database(this.Driver.Options.Database);
-      }
-  
-      await query;
-  
-      _.remove(this, (o) => data.indexOf(o.PrimaryKeyValue) !== -1);
-    }
-  
-    public async add(obj: T | T[] | Partial<T> | Partial<T>[], mode?: InsertBehaviour): Promise<void> {
-      const data = Array.isArray(obj) ? obj : [obj];
-      const tInsert = data.map((x) => {
-        if (x instanceof ModelBase) {
-          return x;
-        }
-  
-        if (this.IsModelAForwardRef) {
-          new ((this.Model as Function)())(x);
-        }
-  
-        return new (this.Model as Constructor<T>)(x);
-      }) as T[];
-  
-      data.forEach((d) => {
-        (d as any)[this.Relation.ForeignKey] = this.owner.PrimaryKeyValue;
+
+    // if empty - delete all
+    if (data.length === 0) {
+      query.where(this.Relation.ForeignKey, this.owner.PrimaryKeyValue);
+    } else {
+
+      // delete all that are not in relation
+      query.andWhere(function () {
+        this.whereNotIn(
+          self.Relation.PrimaryKey,
+          data.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
+        );
+        this.where(self.Relation.ForeignKey, self.owner.PrimaryKeyValue);
       });
-  
-      for (const m of tInsert) {
-        await m.insertOrUpdate(mode);
-      }
-  
-      this.push(...tInsert);
     }
+
+    await query;
   }
-  
+
+  /**
+   *  Synchronizes relation data to db, deletes from db entries that are not in relation and adds entries that are not in db.
+   *  Updated models that are dirty
+   */
+  public async sync() {
+    const dirty = this.filter((x) => x.IsDirty || x.PrimaryKeyValue === null);
+    for (const f of dirty) {
+      await f.insertOrUpdate();
+    }
+
+    await this.deleteRelationalData(this);
+  }
+
+  public async diff(dataset: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
+    // calculate difference between this data in relation and dataset ( objects from this relation)
+    const result = callback ? _.differenceWith(dataset, [...this], callback) : _.differenceBy(dataset, [...this], this.TargetModelDescriptor.PrimaryKey);
+
+    // calculate difference between dataset and data in this relation ( objects from dataset )
+    const result2 = callback ? _.differenceWith([...this], dataset, callback) : _.differenceBy([...this], dataset, this.TargetModelDescriptor.PrimaryKey);
+
+    // combine difference from two sets
+    const finalDiff = [...result, ...result2];
+
+    this.empty();
+    this.push(...finalDiff);
+    await this.sync();
+  }
+
+  public async set(obj: T[]): Promise<void> {
+    this.empty();
+    this.push(...obj);
+    await this.sync();
+  }
+
+  public async intersection(obj: T[], callback?: (a: T, b: T) => boolean): Promise<void> {
+    const result = callback ? _.intersectionWith(obj, [...this], callback) : _.intersectionBy(obj, [...this], this.TargetModelDescriptor.PrimaryKey);
+
+    this.empty();
+    this.push(...result);
+    await this.sync();
+  }
+
+  /**
+   * Combines data with this relation and saves to db
+   * Shorthand for push + sync
+   * @param obj 
+   */
+  public async union(obj: T[]): Promise<void> {
+    this.push(...obj);
+    await this.sync();
+  }
+
+  public async remove(obj: T | T[]): Promise<void> {
+    const data = (Array.isArray(obj) ? obj : [obj]).map((d) => (d as ModelBase).PrimaryKeyValue);
+    _.remove(this, (o) => data.indexOf(o.PrimaryKeyValue) !== -1);
+    await this.sync();
+  }
+
+  public async add(obj: T | T[] | Partial<T> | Partial<T>[], mode?: InsertBehaviour): Promise<void> {
+    const data = Array.isArray(obj) ? obj : [obj];
+    const tInsert = data.map((x) => {
+      if (x instanceof ModelBase) {
+        return x;
+      }
+
+      if (this.IsModelAForwardRef) {
+        new ((this.Model as Function)())(x);
+      }
+
+      return new (this.Model as Constructor<T>)(x);
+    }) as T[];
+
+    data.forEach((d) => {
+      (d as any)[this.Relation.ForeignKey] = this.owner.PrimaryKeyValue;
+    });
+
+    for (const m of tInsert) {
+      await m.insertOrUpdate(mode);
+    }
+
+    this.push(...tInsert);
+  }
+}

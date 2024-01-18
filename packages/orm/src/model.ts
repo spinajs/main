@@ -6,7 +6,7 @@ import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderB
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders.js';
 import { Op } from './enums.js';
-import { DI, isConstructor, Class, IContainer } from '@spinajs/di';
+import { DI, isConstructor, Class, IContainer, Constructor } from '@spinajs/di';
 import { Orm } from './orm.js';
 import { ModelHydrator } from './hydrators.js';
 import _ from 'lodash';
@@ -18,6 +18,18 @@ import { DateTime } from 'luxon';
 import { OrmDriver } from './driver.js';
 import { ManyToManyRelationList, OneToManyRelationList, Relation, SingleRelation } from './relation-objects.js';
 import { DiscriminationMapMiddleware } from './middlewares.js';
+
+const MODEL_PROXY_HANDLER = {
+  set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
+    (target as any)[p] = value;
+
+    if (p !== 'IsDirty') {
+      target.IsDirty = true;
+    }
+    
+    return true;
+  },
+};
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
@@ -57,6 +69,11 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
 }
 
 export class ModelBase<M = unknown> implements IModelBase {
+  /**
+   * Marks model as dirty. It means that model have unsaved changes
+   */
+  public IsDirty = false;
+
   private _container: IContainer;
 
   /**
@@ -358,6 +375,8 @@ export class ModelBase<M = unknown> implements IModelBase {
     if (data) {
       this.hydrate(data as any);
     }
+
+    return new Proxy(this, MODEL_PROXY_HANDLER);
   }
 
   /**
@@ -426,6 +445,8 @@ export class ModelBase<M = unknown> implements IModelBase {
       return;
     }
     await (this.constructor as any).destroy(this.PrimaryKeyValue);
+
+    this.IsDirty = false;
   }
 
   /**
@@ -450,6 +471,8 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+
+    this.IsDirty = false;
   }
 
   /**
@@ -482,7 +505,10 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     query.middleware(iMidleware);
 
-    return query.values(this.toSql());
+    return query.values(this.toSql()).then((res) => {
+      this.IsDirty = false;
+      return res;
+    });
   }
 
   /**
@@ -1033,3 +1059,10 @@ export const MODEL_STATIC_MIXINS = {
     ).count;
   },
 };
+
+export const _modelProxyFactory = (_c: IContainer, model: Constructor<ModelBase>) => {
+  const mInstance = new model();
+  return new Proxy(mInstance, MODEL_PROXY_HANDLER);
+};
+
+DI.register(_modelProxyFactory).as('__orm_model_factory__');
