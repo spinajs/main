@@ -20,7 +20,7 @@ import { Orm } from '../src/orm.js';
 import { RelationModel2 } from './mocks/models/RelationModel2.js';
 import { Model4 } from './mocks/models/Model4.js';
 import { ModelNested2 } from './mocks/models/ModelNested2.js';
-import { OneToManyRelationList, SingleRelation } from '../src/relation-objects.js';
+import { Dataset, OneToManyRelationList, SingleRelation } from '../src/relation-objects.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -1123,7 +1123,7 @@ describe('Orm relations tests', () => {
       [new Model1({ Id: 1 }), new Model1({ Id: 3 }), new Model1({ Id: 4 })],
     );
 
-    await setA.diff(setB);
+    await setA.set(Dataset.diff(setB));
     expect(setA.length).to.eq(3);
     expect(setA[0].Id).to.eq(3);
     expect(setA[1].Id).to.eq(4);
@@ -1205,7 +1205,7 @@ describe('Orm relations tests', () => {
       [new Model1({ Id: 1 }), new Model1({ Id: 3 })],
     );
 
-    await setA.intersection(setB);
+    await setA.set(Dataset.intersection(setB))
     expect(setA.length).to.eq(1);
     expect(setA[0].Id).to.eq(1);
   });

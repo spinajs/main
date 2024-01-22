@@ -27,13 +27,94 @@ export enum ColumnAlterationType {
   Rename,
 }
 
-export interface IRelation {
+export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
   TargetModelDescriptor: IModelDescriptor;
 
   /**
    * Indicates if data was fetched  from db
    */
   Populated: boolean;
+
+  /**
+   * Removes all objects from relation by comparison functions
+   * 
+   * @param compare function to compare models
+   */
+  remove(compare: (a: R) => boolean): R[];
+
+  /**
+   * Removes all objects by primary key
+   * 
+   * @param obj - data to remove
+   */
+  remove(obj: R | R[]): R[];
+
+  /**
+  * Removes from relation & deletes from db
+  *
+  * @param obj - data to remove
+  */
+  remove(obj: R | R[] | ((a: R, b: R) => boolean)): R[];
+
+  /**
+   * Delete all objects from relation ( alias for empty )
+   */
+  clear(): Promise<void>;
+
+  /**
+   * Clears relation data
+   */
+  empty(): void;
+
+  /**
+   * Synchronize relation data with db
+   * NOTE: it removes data from db that are not in relation
+   * 
+   * @param obj - object to add
+   * @param mode - insert mode
+   */
+  sync(): Promise<void>;
+
+  /**
+   *
+   * Calculates intersection between data in this relation and provided dataset
+   * It saves result to db
+   *
+   * @param dataset - dataset to compare
+   * @param callback - function to compare models, if not set it is compared by primary key value
+   */
+  intersection(dataset: R[], callback?: (a: R, b: R) => boolean): R[];
+
+  /**
+   * Adds all items to this relation & adds to database
+   *
+   * @param dataset - data to add
+   * @param mode - insert mode
+   */
+  union(dataset: R[], mode?: InsertBehaviour): void;
+
+  /**
+   *
+   * Calculates difference between data in this relation and provides set. Result is saved to db.
+   *
+   * @param dataset - data to compare
+   * @param callback - function to compare objects, if none provideded - primary key value is used
+   */
+  diff(dataset: R[], callback?: (a: R, b: R) => boolean): R[];
+
+  /**
+   *
+   * Clears data and replace it with new dataset.
+   *
+   * @param dataset - data for replace.
+   */
+  set(obj: R[] | ((data: R[], pKey: string) => R[])): void;
+
+  /**
+   * Populates this relation ( loads all data related to owner of this relation)
+   */
+  populate(callback?: (this: ISelectQueryBuilder<this>) => void): Promise<void>;
+
 }
 
 
@@ -432,6 +513,13 @@ export interface IModelBase {
   Container: IContainer;
   PrimaryKeyName: string;
   PrimaryKeyValue: any;
+
+  /**
+   * Marks model as dirty. It means that model have unsaved changes
+   */
+  IsDirty: boolean;
+
+
   getFlattenRelationModels(): IModelBase[];
 
   /**
@@ -483,6 +571,15 @@ export interface IModelBase {
    * primary key exists
    */
   insert(insertBehaviour: InsertBehaviour): Promise<IUpdateResult>;
+
+  /**
+   *
+   * Shorthand for inserting model when no primary key exists, or update
+   * its value in db if primary key is set
+   *
+   * @param insertBehaviour - insert mode
+   */
+  insertOrUpdate(insertBehaviour?: InsertBehaviour): Promise<void>;
 
   /**
    * Gets model data from database and returns as fresh instance.
@@ -900,7 +997,7 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
    * Returns all records. Its for type castin when using with scopes mostly.
    */
   all(): Promise<T[]>;
- 
+
 }
 
 export interface ICompilerOutput {

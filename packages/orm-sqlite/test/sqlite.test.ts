@@ -24,7 +24,6 @@ import { has_many_1, owned_by_has_many_1, owned_by_owned_by_has_many_1 } from '.
 import { SqlDriver } from '@spinajs/orm-sql';
 import '@spinajs/log';
 import { Offer } from './models/Offer.js';
-import { Location } from './models/Location.js';
 import { ConnectionConf, ConnectionConf2, TEST_MIGRATION_TABLE_NAME, db } from './common.js';
 
 const expect = chai.expect;
@@ -307,15 +306,18 @@ describe('Sqlite model functions', function () {
       Name: 'cat4',
     });
 
-    await cat1.Children.add(cat2);
-    await cat1.Children.add(cat4);
+    cat1.Children.push(cat2);
+    cat1.Children.push(cat4);
+
+    await cat1.Children.sync();
 
     const cat3 = new Category({
       Name: 'cat3',
     });
-    await cat2.Children.add(cat3);
+    cat2.Children.push(cat3);
 
-    // @ts-expect-error
+    await cat2.Children.sync();
+
     const result = await Category.query().whereNull('parent_id').populate('Children').first();
 
     expect(result.Children.length).to.eq(2);
@@ -734,10 +736,6 @@ describe('Relation tests', function () {
     const db = await DI.resolve(Orm);
     await db.migrateUp();
 
-    const r2 = await Location.all().populate('Network', function () {
-      this.populate('Metadata');
-    });
- 
     const result = await Offer.all().populate('Localisations', function () {
       this.populate("Metadata");
       this.populate('Network', function () {
@@ -820,7 +818,7 @@ describe('Sqlite driver migrate with transaction', function () {
 
     try {
       await orm.migrateUp();
-    } catch {}
+    } catch { }
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');

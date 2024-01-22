@@ -5,4 +5,5 @@ import { ModelBase, Primary, Connection, Model } from '@spinajs/orm';
 export class OfferLocation extends ModelBase {
   @Primary()
   public Id: number;
+ 
 }

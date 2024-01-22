@@ -23,7 +23,7 @@ export class owned_by_has_many_1 extends ModelBase {
 
 @Connection('sqlite')
 @Model('has_many_1')
-export class has_many_1 extends ModelBase {
+export class has_many_1 extends ModelBase<has_many_1> {
   @Primary()
   public Id: number;
 

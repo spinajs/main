@@ -32,8 +32,6 @@ class UserMetadataRelation extends OneToManyRelationList<UserMetadata, User> {
       Key: key,
       User: this.owner.Id,
     });
-
-     
   }
 
   

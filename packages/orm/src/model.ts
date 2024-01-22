@@ -21,12 +21,15 @@ import { DiscriminationMapMiddleware } from './middlewares.js';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
-    (target as any)[p] = value;
 
-    if (p !== 'IsDirty') {
-      target.IsDirty = true;
+    if ((target as any)[p] !== value) {
+      (target as any)[p] = value;
+
+      if (p !== 'IsDirty') {
+        target.IsDirty = true;
+      }
     }
-    
+
     return true;
   },
 };
