@@ -8,17 +8,15 @@ import _ from 'lodash';
 import { OrmDriver } from './driver.js';
 
 export class Dataset {
-
   /**
-    *
-    * Calculates difference between data in this relation and provides set. Result is saved to db.
-    *
-    * @param dataset - data to compare
-    * @param callback - function to compare objects, if none provideded - primary key value is used
-  */
+   *
+   * Calculates difference between data in this relation and provides set. Result is saved to db.
+   *
+   * @param dataset - data to compare
+   * @param callback - function to compare objects, if none provideded - primary key value is used
+   */
   public static diff<R>(dataset: R[], callback?: (a: R, b: R) => boolean) {
     return (datasetB: R[], pKey: string) => {
-
       // TODO: maybe refactor for speedup, this is not optimal
       // two calls to _.difference is not optimal, but it is easy to implement
 
@@ -32,21 +30,21 @@ export class Dataset {
       const finalDiff = [...result, ...result2];
 
       return finalDiff;
-    }
+    };
   }
 
   /**
-    *
-    * Calculates intersection between data in this relation and provided dataset
-    * It saves result to db
-    *
-    * @param dataset - dataset to compare
-    * @param callback - function to compare models, if not set it is compared by primary key value
-  */
+   *
+   * Calculates intersection between data in this relation and provided dataset
+   * It saves result to db
+   *
+   * @param dataset - dataset to compare
+   * @param callback - function to compare models, if not set it is compared by primary key value
+   */
   public static intersection<R>(dataset: R[], callback?: (a: R, b: R) => boolean) {
     return (datasetB: R[], pKey: string) => {
       return callback ? _.intersectionWith(dataset, [...datasetB], callback) : _.intersectionBy(dataset, [...datasetB], pKey);
-    }
+    };
   }
 }
 
@@ -55,7 +53,7 @@ export class Dataset {
  *
  * It allows to add / remove objects to relation
  */
-export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> implements IRelation<R,O> {
+export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> implements IRelation<R, O> {
   public TargetModelDescriptor: IModelDescriptor;
 
   protected Orm: Orm;
@@ -83,26 +81,25 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
     this.IsModelAForwardRef = !isConstructor(this.Model);
   }
 
-
   /**
    * Removes all objects from relation by comparison functions
-   * 
+   *
    * @param compare function to compare models
    */
   public abstract remove(compare: (a: R) => boolean): R[];
 
   /**
    * Removes all objects by primary key
-   * 
+   *
    * @param obj - data to remove
    */
   public abstract remove(obj: R | R[]): R[];
 
   /**
-  * Removes from relation & deletes from db
-  *
-  * @param obj - data to remove
-  */
+   * Removes from relation & deletes from db
+   *
+   * @param obj - data to remove
+   */
   public abstract remove(obj: R | R[] | ((a: R, b: R) => boolean)): R[];
 
   /**
@@ -122,11 +119,11 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
   /**
    * Synchronize relation data with db
    * NOTE: it removes data from db that are not in relation
-   * 
+   *
    * @param obj - object to add
    * @param mode - insert mode
    */
-  public abstract  sync() : Promise<void>;
+  public abstract sync(): Promise<void>;
 
   /**
    *
@@ -167,7 +164,6 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
    * Populates this relation ( loads all data related to owner of this relation)
    */
   public abstract populate(callback?: (this: ISelectQueryBuilder<this>) => void): Promise<void>;
-
 }
 
 export class SingleRelation<R extends ModelBase> {
@@ -286,10 +282,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns
    */
   protected async _dbDiff(data: T[]) {
-    const query = this.Driver
-      .del()
-      .from(this.TargetModelDescriptor.TableName)
-      .where(this.Relation.ForeignKey, this.owner.PrimaryKeyValue);
+    const query = this.Driver.del().from(this.TargetModelDescriptor.TableName).where(this.Relation.ForeignKey, this.owner.PrimaryKeyValue);
 
     const self = this;
 
@@ -298,11 +291,9 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     }
 
     // if we have data in relation, we need to exclude them from delete query
-    if (data.length !== 0) {
-      query.whereNotIn(
-        self.Relation.PrimaryKey,
-        data.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue),
-      );
+    const toDelete = data.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
+    if (toDelete.length !== 0) {
+      query.whereNotIn(self.Relation.PrimaryKey, toDelete);
     }
 
     await query;
@@ -330,7 +321,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    *  Synchronizes relation data to db
    *  Deletes from db entries that are not in relation and adds entries that are not in db
    *  Sets foreign key to relational data
-   *  
+   *
    *  Inserts or updates models that are dirty only.
    */
   public async sync() {
@@ -349,9 +340,9 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
 
   /**
    * Calculates difference between this relation and dataset ( items from this relation that are not in dataset and items from dataset that are not in this relation)
-   * 
-   * @param dataset 
-   * @param callback 
+   *
+   * @param dataset
+   * @param callback
    * @returns Difference between this relation and dataset
    */
   public diff(dataset: T[], callback?: (a: T, b: T) => boolean) {
@@ -360,20 +351,19 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
 
   /**
    * Sets data in relation ( clear data and replace with new dataset )
-   * 
-   * @param obj 
+   *
+   * @param obj
    */
   public set(obj: T[] | ((data: T[], pKey: string) => T[])) {
-
     const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor.PrimaryKey) : obj;
     this.empty();
     this.push(...toPush);
   }
 
   /**
-   * Calculates intersection between data in this relation and provided dataset 
-   * 
-   * @param obj 
+   * Calculates intersection between data in this relation and provided dataset
+   *
+   * @param obj
    * @param callback compare function, if not set - primary key value is used
    * @returns Data that are in both sets
    */
@@ -384,28 +374,26 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
   /**
    * Combines data with this relation and saves to db
    * Shorthand for push
-   * @param obj 
+   * @param obj
    */
   public union(obj: T[]) {
     this.push(...obj);
   }
 
-
   /**
-  * Removes from relation & deletes from db
-  *
-  * @param obj - data to remove
-  */
+   * Removes from relation & deletes from db
+   *
+   * @param obj - data to remove
+   */
   public remove(func: (a: T) => boolean): T[];
 
   /**
    * Removes all objects by primary key
-   * 
+   *
    * @param obj - data to remove
    */
   public remove(obj: T | T[]): T[];
   public remove(obj: T | T[] | ((a: T) => boolean)): T[] {
-
     if (_.isFunction(obj)) {
       return _.remove(this, obj);
     }

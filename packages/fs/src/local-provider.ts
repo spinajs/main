@@ -40,11 +40,11 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async resolve() {
-    if (!this.Options.basePath) {
-      throw new IOFail(`Base path for file provider ${this.Options.name} not set`);
-    }
+    const basePath = this.Options.basePath ?? process.cwd();
 
-    if ((await this.exists(this.Options.basePath)) === false) {
+    this.Logger.info(`Initializing file provider ${this.Options.name} with base path ${basePath}`);
+
+    if ((await this.exists(basePath)) === false) {
       this.Logger.warn(
         `Base path ${this.Options.basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
       );

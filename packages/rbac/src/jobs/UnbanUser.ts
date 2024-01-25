@@ -21,7 +21,7 @@ export class UnbanUser extends QueueJob {
     user.IsBanned = false;
 
     await user.update();
-    await user.Metadata.delete(/user:ban.*/);
+    await user.Metadata.delete("user:ban");
     await this.Queue.emit(new UserUnbanned(this.UserUUID));
   }
 }
