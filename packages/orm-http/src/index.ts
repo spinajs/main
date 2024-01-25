@@ -10,7 +10,15 @@ export class AsDbModel extends RouteArgs {
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: sRequest) {
     const result = new param.RuntimeType() as ModelBase;
-    result.hydrate(req.body[param.Options.field ?? param.Name]);
+
+    const data = req.body[param.Options.field ?? param.Name];
+
+    if (!data) {
+      throw new OrmException(`Cannot hydrate model, field ${param.Options.field ?? param.Name} is required`);
+    }
+
+    result.hydrate(data);
+    
     return { CallData: callData, Args: result };
   }
 }
@@ -23,7 +31,7 @@ export class FromDbModel extends RouteArgs {
   @Autoinject(Orm)
   protected Orm: Orm;
 
-  async resolve(): Promise<void> {}
+  async resolve(): Promise<void> { }
 
   public get SupportedType(): string {
     return 'FromDB';
@@ -46,6 +54,10 @@ export class FromDbModel extends RouteArgs {
       default:
         p = req.params[param.Options.field ?? param.Name];
         break;
+    }
+
+    if (!p) {
+      throw new OrmException(`Cannot load model from db, parameter ${param.Options.field ?? param.Name} is required`);
     }
 
     const result = await param.RuntimeType['getOrFail'](p);

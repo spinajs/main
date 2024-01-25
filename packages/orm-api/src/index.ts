@@ -69,6 +69,13 @@ export function AsModel(field?: string, type?: ParameterType) {
   return Route(Parameter('AsDbModel', null, { field, type }));
 }
 
+/**
+ * Loads model from db based on primary key added to route/param/body
+ * 
+ * @param field route/param/body field for primary key
+ * @param type from where to get primary key value ( body, query, param )
+ * @returns 
+ */
 export function FromModel(field?: string, type?: ParameterType) {
   return Route(Parameter('FromDbModel', null, { field, type }));
 }
