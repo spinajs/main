@@ -889,7 +889,7 @@ export interface IWhereBuilder<T> {
   whereNot(column: string, val: unknown): this;
   whereIn(column: string, val: unknown[]): this;
   whereNotIn(column: string, val: unknown[]): this;
-  whereExist<M extends ModelBase | ModelBase[]>(query: ISelectQueryBuilder<M>): this;
+  whereExist(query: ISelectQueryBuilder): this;
   whereNotExists<M extends ModelBase | ModelBase[]>(query: ISelectQueryBuilder<M>): this;
   whereBetween(column: string, val: unknown[]): this;
   whereNotBetween(column: string, val: unknown[]): this;

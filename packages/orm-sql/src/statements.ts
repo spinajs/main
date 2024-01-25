@@ -4,6 +4,14 @@ import { SqlWhereCompiler } from './compilers.js';
 import { NewInstance } from '@spinajs/di';
 import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor } from '@spinajs/orm';
 
+function _columnWrap(column: string, tableAlias: string): string {
+  if (tableAlias) {
+    return `\`${tableAlias}\`.\`${column}\``;
+  }
+
+  return `\`${column}\``;
+}
+
 @NewInstance()
 export class SqlRawStatement extends RawQueryStatement {
   public build(): IQueryStatementResult {
@@ -18,7 +26,6 @@ export class SqlRawStatement extends RawQueryStatement {
 export class SqlWithRecursiveStatement extends WithRecursiveStatement {
   public build(): IQueryStatementResult {
     const initialQuery = this._query.clone().clearJoins().toDB();
-
 
     const joinStmt = this.container.resolve(JoinStatement, [this._query, this._query.Model, 'recursive_cte', JoinMethod.RECURSIVE, this._pkName, this._rcKeyName, '$recursive$', '$recursive_cte$']);
     this._query.JoinStatements.push(joinStmt);
@@ -42,7 +49,7 @@ export class SqlBetweenStatement extends BetweenStatement {
 
     return {
       Bindings: this._val,
-      Statements: [`${this._column} ${exprr} ? AND ?`],
+      Statements: [`${_columnWrap(this._column, this._tableAlias)} ${exprr} ? AND ?`],
     };
   }
 }
@@ -84,9 +91,7 @@ export class SqlWhereStatement extends WhereStatement {
       const wrapper = this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._tableAlias]);
       column = wrapper.wrap();
     } else {
-      if (this._tableAlias) {
-        column = `\`${this._tableAlias}\`.${this._column as string}`;
-      }
+      column = _columnWrap(column, this._tableAlias);
 
       if (val instanceof ModelBase) {
         val = val.PrimaryKeyValue;
@@ -109,7 +114,6 @@ export class SqlWhereStatement extends WhereStatement {
 @NewInstance()
 export class SqlJoinStatement extends JoinStatement {
   public build(): IQueryStatementResult {
-
     const method = this._method === JoinMethod.RECURSIVE ? JoinMethod.INNER : this._method;
 
     if (this._query) {
@@ -143,10 +147,11 @@ export class SqlJoinStatement extends JoinStatement {
 export class SqlInStatement extends InStatement {
   public build(): IQueryStatementResult {
     const exprr = this._not ? 'NOT IN' : 'IN';
+    let column = _columnWrap(this._column, this._tableAlias);
 
     return {
       Bindings: this._val,
-      Statements: [`${this._column} ${exprr} (${this._val.map(() => '?').join(',')})`],
+      Statements: [`${column} ${exprr} (${this._val.map(() => '?').join(',')})`],
     };
   }
 }

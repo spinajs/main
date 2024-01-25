@@ -50,8 +50,8 @@ describe('model generated queries', () => {
       Id: null,
     });
 
-    expect(updateSpy.returnValues[0].expression).to.eq('UPDATE `TestTable1` SET `Bar` = ? WHERE Id = ?');
-    expect(updateSpy.returnValues[1].expression).to.eq('UPDATE `TestTable1` SET `Bar` = ? WHERE Id IS NULL');
+    expect(updateSpy.returnValues[0].expression).to.eq('UPDATE `TestTable1` SET `Bar` = ? WHERE `Id` = ?');
+    expect(updateSpy.returnValues[1].expression).to.eq('UPDATE `TestTable1` SET `Bar` = ? WHERE `Id` IS NULL');
   });
 
   it('Should model query join work', async () => {
@@ -73,15 +73,15 @@ describe('model generated queries', () => {
       })
       .toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT * FROM `TestTable3` as `$Model3$` INNER JOIN `TestTable4` as `$Model4$` ON `$Model3$`.Id = `$Model4$`.model3_id WHERE `$Model4$`.Bar = ?');
-    expect(result2.expression).to.equal('SELECT * FROM `TestTable3` as `$Model3$` LEFT JOIN `TestTable4` as `$Model4$` ON `$Model3$`.Id = `$Model4$`.model3_id WHERE `$Model4$`.Bar = ?');
+    expect(result.expression).to.equal('SELECT * FROM `TestTable3` as `$Model3$` INNER JOIN `TestTable4` as `$Model4$` ON `$Model3$`.Id = `$Model4$`.model3_id WHERE `$Model4$`.`Bar` = ?');
+    expect(result2.expression).to.equal('SELECT * FROM `TestTable3` as `$Model3$` LEFT JOIN `TestTable4` as `$Model4$` ON `$Model3$`.Id = `$Model4$`.model3_id WHERE `$Model4$`.`Bar` = ?');
   });
 
   it('model should execute scope function', async () => {
     await DI.resolve(Orm);
 
     const result = (Model1.query().whereIdIsGreaterThan(999) as SelectQueryBuilder).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `TestTable1` WHERE Id >= ?');
+    expect(result.expression).to.equal('SELECT * FROM `TestTable1` WHERE `Id` >= ?');
     expect(result.bindings[0]).to.eq(999);
   });
 

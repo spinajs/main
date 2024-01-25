@@ -3,7 +3,7 @@
 /* eslint-disable prettier/prettier */
 import { expect } from 'chai';
 import 'mocha';
-import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput } from '@spinajs/orm';
+import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
@@ -170,58 +170,58 @@ describe('Where query builder', () => {
 
   it('where rlike', () => {
     const result = sqb().select('*').from('users').where('Name', 'rlike', '.*').toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE Name RLIKE ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `Name` RLIKE ?');
   });
 
   it('where exists', () => {
-    const result = sqb().select('*').from('users').whereExist(sqb().where('id', 1).from('comments')).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE EXISTS ( SELECT * FROM `comments` WHERE id = ? )');
+    const result = sqb().select('*').from('users').whereExist(sqb().where('id', 1).from('comments') as ISelectQueryBuilder<ModelBase<unknown>>).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE EXISTS ( SELECT * FROM `comments` WHERE `id` = ? )');
   });
 
   it('where not exists', () => {
-    const result = sqb().select('*').from('users').whereNotExists(sqb().where('id', 1).from('comments')).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE NOT EXISTS ( SELECT * FROM `comments` WHERE id = ? )');
+    const result = sqb().select('*').from('users').whereNotExists(sqb().where('id', 1).from('comments') as ISelectQueryBuilder<ModelBase<unknown>>).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE NOT EXISTS ( SELECT * FROM `comments` WHERE `id` = ? )');
   });
 
   it('where in', () => {
     const result = sqb().select('*').from('users').whereIn('id', [1, 2, 3]).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE id IN (?,?,?)');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` IN (?,?,?)');
     expect(result.bindings).to.be.an('array').to.include.members([1, 2, 3]);
   });
 
   it('where not in', () => {
     const result = sqb().select('*').from('users').whereNotIn('id', [1, 2, 3]).toDB();
-    expect(result.expression).to.eq('SELECT * FROM `users` WHERE id NOT IN (?,?,?)');
+    expect(result.expression).to.eq('SELECT * FROM `users` WHERE `id` NOT IN (?,?,?)');
     expect(result.bindings).to.be.an('array').to.include.members([1, 2, 3]);
   });
 
   it('where between', () => {
     const result = sqb().select('*').from('users').whereBetween('id', [1, 2]).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE id BETWEEN ? AND ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` BETWEEN ? AND ?');
     expect(result.bindings).to.be.an('array').to.include.members([1, 2]);
   });
 
   it('where not between', () => {
     const result = sqb().select('*').from('users').whereNotBetween('id', [1, 2]).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE id NOT BETWEEN ? AND ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` NOT BETWEEN ? AND ?');
     expect(result.bindings).to.be.an('array').to.include.members([1, 2]);
   });
 
   it('where simple and', () => {
     const result = sqb().select('*').from('users').where('id', 1).where('email', 'spine@spine.pl').toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE id = ? AND email = ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` = ? AND `email` = ?');
     expect(result.bindings).to.be.an('array').to.include('spine@spine.pl');
   });
 
   it('where simple or', () => {
     const result = sqb().select('*').from('users').where('id', 1).orWhere('email', 'spine@spine.pl').toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE id = ? OR email = ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` = ? OR `email` = ?');
     expect(result.bindings).to.be.an('array').to.include.members([1, 'spine@spine.pl']);
   });
 
   it('where nested expressions', () => {
     const result = sqb().select('*').from('users').where('id', 1).orWhere('email', 'spine@spine.pl').toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE id = ? OR email = ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` = ? OR `email` = ?');
   });
 
   it('where true && where false', () => {
@@ -235,11 +235,11 @@ describe('Where query builder', () => {
   it('Should convert date to sql', () => {
     let result = sqb().select('*').from('users').where('CreatedAt', new Date('2022-07-21T09:35:31.820Z')).toDB();
 
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
     expect(result.bindings[0]).to.equal('2022-07-21 11:35:31.820');
 
     result = sqb().select('*').from('users').where('CreatedAt', DateTime.fromISO('2022-07-21T09:35:31.820Z')).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
     expect(result.bindings[0]).to.equal('2022-07-21 11:35:31.820');
   });
 
@@ -252,7 +252,7 @@ describe('Where query builder', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
     expect(result.bindings[0]).to.equal('2022-07-21 11:35:31.820');
 
     result = sqb()
@@ -262,7 +262,7 @@ describe('Where query builder', () => {
         CreatedAt: DateTime.fromISO('2022-07-21T09:35:31.820Z'),
       })
       .toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE CreatedAt = ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
     expect(result.bindings[0]).to.equal('2022-07-21 11:35:31.820');
   });
 
@@ -279,7 +279,7 @@ describe('Where query builder', () => {
       .orWhere('f', 3)
       .toDB();
 
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE ( a = ? AND b = ? ) OR ( c = ? AND d = ? ) OR f = ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE ( `a` = ? AND `b` = ? ) OR ( `c` = ? AND `d` = ? ) OR `f` = ?');
   });
 
   it('where RAW expressions', () => {
@@ -289,7 +289,7 @@ describe('Where query builder', () => {
 
   it('where explicit operator', () => {
     const result = sqb().select('*').from('users').where('id', '>=', 1).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE id >= ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` >= ?');
 
     expect(() => {
       sqb().select('*').from('users').where('id', '>==', 1).toDB();
@@ -305,7 +305,7 @@ describe('Where query builder', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE created_at = ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `created_at` = ?');
     expect(result.bindings).to.be.an('array').to.include('2023-01-29 00:00:00.000');
   });
 
@@ -332,7 +332,7 @@ describe('Where query builder', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE id IN (?) AND active IN (?)');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` IN (?) AND `active` IN (?)');
   });
 
   it('where object as argument', () => {
@@ -345,7 +345,7 @@ describe('Where query builder', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE id = ? AND active = ?');
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` = ? AND `active` = ?');
     expect(result.bindings).to.be.an('array').to.include(1).and.include(true);
   });
 
@@ -370,12 +370,12 @@ describe('Delete query builder', () => {
 
   it('Simple delete', () => {
     const result = dqb().from('users').database('spine').where('active', false).toDB();
-    expect(result.expression).to.equal('DELETE FROM `spine`.`users` WHERE active = ?');
+    expect(result.expression).to.equal('DELETE FROM `spine`.`users` WHERE `active` = ?');
   });
 
   it('Should delete with datetime', () => {
     const result = dqb().from('users').database('spine').where('CreatedAt', DateTime.fromISO('2022-07-21T09:35:31.820Z')).toDB();
-    expect(result.expression).to.equal('DELETE FROM `spine`.`users` WHERE CreatedAt = ?');
+    expect(result.expression).to.equal('DELETE FROM `spine`.`users` WHERE `CreatedAt` = ?');
     expect(result.bindings[0]).to.equal('2022-07-21 11:35:31.820');
   });
 
@@ -666,26 +666,26 @@ describe('Relations query builder', () => {
 
   it('should query by relation in where', () => {
     const result = RelationModel.where({ Relation: 1 }).toDB() as ICompilerOutput;
-    expect(result.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
+    expect(result.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = ?');
     expect(result.bindings[0]).to.equal(1);
 
     const result2 = RelationModel.where({ Relation: new RelationModel2({ Id: 2 }) }).toDB() as ICompilerOutput;
-    expect(result2.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
+    expect(result2.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = ?');
     expect(result2.bindings[0]).to.equal(2);
 
     const result3 = RelationModel.where('Relation', 1).toDB() as ICompilerOutput;
-    expect(result3.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
+    expect(result3.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = ?');
     expect(result3.bindings[0]).to.equal(1);
 
     const result4 = RelationModel.where('Relation', new RelationModel2({ Id: 2 })).toDB() as ICompilerOutput;
-    expect(result4.expression).to.equal('SELECT * FROM `RelationTable` WHERE relation_id = ?');
+    expect(result4.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = ?');
     expect(result4.bindings[0]).to.equal(2);
   });
 
   it('belongsTo simple', () => {
     const result = RelationModel.where('Id', 1).populate('Relation').toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id WHERE `$RelationModel$`.Id = ?');
+    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id WHERE `$RelationModel$`.`Id` = ?');
   });
 
   it('belongsTo nested', () => {
@@ -695,12 +695,12 @@ describe('Relations query builder', () => {
       })
       .toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$`.relation3_id = `$Relation$.$Relation3$`.Id WHERE `$RelationModel$`.Id = ?');
+    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$`.relation3_id = `$Relation$.$Relation3$`.Id WHERE `$RelationModel$`.`Id` = ?');
   });
 
   it('belongsTo with custom keys', () => {
     const result = RelationModel.where('Id', 1).populate('Relation2').toDB() as ICompilerOutput;
-    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation2$`.`Id` as `$Relation2$.Id`,`$Relation2$`.`RelationProperty` as `$Relation2$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation2$` ON `$RelationModel$`.fK_Id = `$Relation2$`.pK_Id WHERE `$RelationModel$`.Id = ?');
+    expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation2$`.`Id` as `$Relation2$.Id`,`$Relation2$`.`RelationProperty` as `$Relation2$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation2$` ON `$RelationModel$`.fK_Id = `$Relation2$`.pK_Id WHERE `$RelationModel$`.`Id` = ?');
   });
 
   it('hasManyToMany', async () => {
@@ -731,7 +731,7 @@ describe('Relations query builder', () => {
     expect(relStub.calledTwice).to.be.true;
     expect(result).to.be.not.null;
     expect(relStub.firstCall.args[0]).to.equal('SELECT * FROM `RelationTable3`');
-    expect(relStub.secondCall.args[0]).to.equal('SELECT `$JoinTable$`.`Id`,`$JoinTable$`.`owner_id`,`$JoinTable$`.`target_id`,`$Models$`.`Id` as `$Models$.Id`,`$Models$`.`Model4Property` as `$Models$.Model4Property` FROM `JoinTable` as `$JoinTable$` LEFT JOIN `RelationTable4` as `$Models$` ON `$JoinTable$`.target_id = `$Models$`.Id WHERE owner_id IN (?,?)');
+    expect(relStub.secondCall.args[0]).to.equal('SELECT `$JoinTable$`.`Id`,`$JoinTable$`.`owner_id`,`$JoinTable$`.`target_id`,`$Models$`.`Id` as `$Models$.Id`,`$Models$`.`Model4Property` as `$Models$.Model4Property` FROM `JoinTable` as `$JoinTable$` LEFT JOIN `RelationTable4` as `$Models$` ON `$JoinTable$`.target_id = `$Models$`.Id WHERE `$JoinTable$`.`owner_id` IN (?,?)');
   });
 });
 
@@ -779,7 +779,7 @@ describe('Select query builder', () => {
 
   it('withRecursion with where', () => {
     const result = sqb().withRecursive('parent_id', 'id').from('roles').columns(['id', 'parent_id', 'slug']).where('id', 2).toDB();
-    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(id,parent_id,slug) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE id = ? UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive_cte$`.id = `$recursive$`.parent_id ) SELECT * FROM recursive_cte');
+    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(id,parent_id,slug) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE `id` = ? UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive_cte$`.id = `$recursive$`.parent_id ) SELECT * FROM recursive_cte');
     expect(result.bindings).to.be.an('array').to.include(2);
   });
 
@@ -1269,7 +1269,7 @@ describe('schema building', () => {
 
     expect(result.length).to.eq(2);
     expect(result[0].expression).to.equal('CREATE TABLE `cloneTest` LIKE `test`');
-    expect(result[1].expression).to.equal('INSERT INTO `cloneTest` SELECT * FROM `test` WHERE id > ?');
+    expect(result[1].expression).to.equal('INSERT INTO `cloneTest` SELECT * FROM `test` WHERE `id` > ?');
     expect(result[1].bindings[0]).to.equal(10);
   });
 
