@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac-http-user",
-  "version": "2.0.184",
+  "version": "2.0.185",
   "description": "HTTP API for basic user tasks ( login, logout, managing user account etc )",
   
     "main": "lib/cjs/index.js",
@@ -50,20 +50,20 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.184",
-    "@spinajs/di": "^2.0.184",
-    "@spinajs/exceptions": "^2.0.184",
-    "@spinajs/http": "^2.0.184",
-    "@spinajs/log": "^2.0.184",
-    "@spinajs/orm": "^2.0.184",
-    "@spinajs/orm-http": "^2.0.184",
-    "@spinajs/rbac": "^2.0.184",
-    "@spinajs/rbac-http": "^2.0.184",
+    "@spinajs/configuration": "^2.0.185",
+    "@spinajs/di": "^2.0.185",
+    "@spinajs/exceptions": "^2.0.185",
+    "@spinajs/http": "^2.0.185",
+    "@spinajs/log": "^2.0.185",
+    "@spinajs/orm": "^2.0.185",
+    "@spinajs/orm-http": "^2.0.185",
+    "@spinajs/rbac": "^2.0.185",
+    "@spinajs/rbac-http": "^2.0.185",
     "luxon": "^3.2.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.184"
+    "@spinajs/orm-sqlite": "^2.0.185"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

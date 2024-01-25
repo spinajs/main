@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/cli",
-  "version": "2.0.184",
+  "version": "2.0.185",
   "description": "SpinaJS command line module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -42,11 +42,11 @@
   },
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.184",
-    "@spinajs/di": "^2.0.184",
-    "@spinajs/exceptions": "^2.0.184",
-    "@spinajs/log": "^2.0.184",
-    "@spinajs/reflection": "^2.0.184",
+    "@spinajs/configuration": "^2.0.185",
+    "@spinajs/di": "^2.0.185",
+    "@spinajs/exceptions": "^2.0.185",
+    "@spinajs/log": "^2.0.185",
+    "@spinajs/reflection": "^2.0.185",
     "commander": "10.0.0",
     "reflect-metadata": "^0.1.13"
   },
