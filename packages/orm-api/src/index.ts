@@ -23,7 +23,7 @@ export class FromDbModel extends RouteArgs {
   @Autoinject(Orm)
   protected Orm: Orm;
 
-  async resolve(): Promise<void> {}
+  async resolve(): Promise<void> { }
 
   public get SupportedType(): string {
     return 'FromDB';
@@ -65,8 +65,14 @@ export class DbModelHydrator extends ArgHydrator {
   }
 }
 
-export function AsModel(field?: string, type?: ParameterType) {
-  return Route(Parameter('AsDbModel', null, { field, type }));
+/**
+ * Creates model base on body data. Data is taken from field name passed in options or from parameter name
+ * 
+ * @param field body field  name to get model data from
+ * @returns 
+ */
+export function AsModel(field?: string) {
+  return Route(Parameter('AsDbModel', null, { field }));
 }
 
 /**
