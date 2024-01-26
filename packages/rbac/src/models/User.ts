@@ -7,6 +7,7 @@ import { UserAction } from './UserTimeline.js';
 import { v4 as uuidv4 } from 'uuid';
 
 class UserMetadataRelation extends OneToManyRelationList<UserMetadata, User> {
+
   /**
    *
    * Checks if metadata exists, its DB first, it will only check DB for existence
