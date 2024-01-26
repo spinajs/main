@@ -47,12 +47,16 @@ describe('Sqlite - relations test', function () {
 
     await set.Dataset.sync();
 
-    const result = await SetItem.where({ SetId: 1 });
+    const result = await SetItem.where({ dataset_id: 1 });
 
-    expect(result.length).to.eq(2);
+    expect(result.length).to.eq(3);
+    expect(result[0].Val).to.eq(11);
+    expect(result[1].Val).to.eq(12);
+    expect(result[2].Val).to.eq(13);
+    
   });
 
-  it('should set  in oneToMany', async () => {
+  it('should set in oneToMany', async () => {
     await db();
 
     const dataset = [
@@ -66,12 +70,15 @@ describe('Sqlite - relations test', function () {
 
     const set = await DataSet.where({ Id: 1 }).populate("Dataset").first();
 
-    await set.Dataset.set(dataset);
-    expect(set.Dataset.length).to.eq(3);
+    set.Dataset.set(dataset);
+
+    await set.Dataset.sync();
+
+    expect(set.Dataset.length).to.eq(2);
     expect(set.Dataset[0].Val).to.eq(10);
     expect(set.Dataset[1].Val).to.eq(13);
 
-    const result = await SetItem.where({ SetId: 1 });
+    const result = await SetItem.where({ dataset_id: 1 });
 
     expect(result.length).to.eq(2);
   });
@@ -82,6 +89,7 @@ describe('Sqlite - relations test', function () {
     const dataset = [
       new SetItem({
         Val: 10,
+        Id: 1,
       }),
       new SetItem({
         Val: 13
@@ -89,6 +97,9 @@ describe('Sqlite - relations test', function () {
     ]
 
     const set = await DataSet.where({ Id: 1 }).populate("Dataset").first();
+
+    expect(set.Dataset.length).to.eq(3);
+
     set.Dataset.set(Dataset.intersection(dataset));
 
     expect(set.Dataset.length).to.eq(1);
@@ -96,9 +107,9 @@ describe('Sqlite - relations test', function () {
 
     await set.Dataset.sync();
 
-    const result = await SetItem.where({ SetId: 1 });
+    const result = await SetItem.where({ dataset_id: 1 });
 
-    expect(result.length).to.eq(2);
+    expect(result.length).to.eq(1);
   });
 
   it('Should union two relations  in oneToMany', async () => {
@@ -115,16 +126,21 @@ describe('Sqlite - relations test', function () {
 
     const set = await DataSet.where({ Id: 1 }).populate("Dataset").first();
 
-    await set.Dataset.union(dataset);
-    expect(set.Dataset.length).to.eq(10);
-    expect(set.Dataset[0].Val).to.eq(11);
-    expect(set.Dataset[1].Val).to.eq(12);
-    expect(set.Dataset[2].Val).to.eq(13);
-    expect(set.Dataset[3].Val).to.eq(14);
+    set.Dataset.union(dataset);
 
     await set.Dataset.sync();
 
-    const result = await SetItem.where({ SetId: 1 });
+    expect(set.Dataset.length).to.eq(5);
+    expect(set.Dataset[0].Val).to.eq(10);
+    expect(set.Dataset[1].Val).to.eq(11);
+    expect(set.Dataset[2].Val).to.eq(12);
+    expect(set.Dataset[3].Val).to.eq(14);
+    expect(set.Dataset[4].Val).to.eq(13);
+
+
+    await set.Dataset.sync();
+
+    const result = await SetItem.where({ dataset_id: 1 });
 
     expect(result.length).to.eq(5);
   });

@@ -8,6 +8,8 @@ export class SetItem extends ModelBase {
 
     public Val: number;
 
+    public dataset_id: number;
+
     @BelongsTo("DataSet")
     public SetData: SingleRelation<DataSet>;
 }

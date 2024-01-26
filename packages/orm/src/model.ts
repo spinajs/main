@@ -24,7 +24,7 @@ const MODEL_PROXY_HANDLER = {
     if ((target as any)[p] !== value) {
       (target as any)[p] = value;
 
-      if (p !== 'IsDirty') {
+      if (p !== 'IsDirty' && target.ModelDescriptor.Columns.find((x) => x.Name === p)) {
         target.IsDirty = true;
       }
     }

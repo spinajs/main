@@ -412,14 +412,18 @@ describe('Sqlite model functions', function () {
     const m3 = new TestMany();
     const m4 = new TestMany();
 
-    await model.Many.set([m1, m2, m3, m4]);
+    model.Many.set([m1, m2, m3, m4]);
+
+    await model.Many.sync();
 
     const m5 = new TestMany();
     const m6 = new TestMany();
     const m7 = new TestMany();
     const m8 = new TestMany();
 
-    await model2.Many.set([m5, m6, m7, m8]);
+    model2.Many.set([m5, m6, m7, m8]);
+
+    await model2.Many.sync();
 
     const owned = new TestOwned();
     owned.Owner.attach(model);
@@ -474,14 +478,18 @@ describe('Sqlite model functions', function () {
     const m3 = new TestMany();
     const m4 = new TestMany();
 
-    await model.Many.set([m1, m2, m3, m4]);
+    model.Many.set([m1, m2, m3, m4]);
+
+    await model.Many.sync();
 
     const m5 = new TestMany();
     const m6 = new TestMany();
     const m7 = new TestMany();
     const m8 = new TestMany();
 
-    await model2.Many.set([m5, m6, m7, m8]);
+    model2.Many.set([m5, m6, m7, m8]);
+
+    await model2.Many.sync();
 
     const result = await TestOwned.where('Id', '>', 0).populate('Owner', function () {
       this.populate('Many');
@@ -519,7 +527,9 @@ describe('Sqlite model functions', function () {
     const m3 = new TestMany();
     const m4 = new TestMany();
 
-    await model.Many.set([m1, m2, m3, m4]);
+    model.Many.set([m1, m2, m3, m4]);
+
+    await model.Many.sync();
 
     const check = await TestModel.where({ Id: 1 }).populate('Many').first();
 
@@ -558,7 +568,9 @@ describe('Sqlite model functions', function () {
     expect(check.Many[3].Id).to.eq(5);
 
     m1.Val = 'test';
-    await model.Many.set([m1, m2, m3, m4]);
+    model.Many.set([m1, m2, m3, m4]);
+
+    await model.Many.sync();
 
     check = await TestModel.where({ Id: 1 }).populate('Many').first();
     expect(check.Many[0].Val).to.eq('test');
@@ -582,7 +594,9 @@ describe('Sqlite model functions', function () {
     const m3 = new TestMany();
     const m4 = new TestMany();
 
-    await model.Many.union([m1, m2, m3, m4]);
+    model.Many.union([m1, m2, m3, m4]);
+
+    await model.Many.sync();
 
     const check = await TestModel.where({ Id: 1 }).populate('Many').first();
 
@@ -606,7 +620,9 @@ describe('Sqlite model functions', function () {
     const m1 = new TestMany();
     const m2 = new TestMany();
 
-    await model.Many.diff([m0, m1, m2]);
+    model.Many.set(model.Many.diff([m0, m1, m2]));
+
+    await model.Many.sync();
 
     const check = await TestModel.where({ Id: 1 }).populate('Many').first();
 
@@ -737,7 +753,7 @@ describe('Relation tests', function () {
     await db.migrateUp();
 
     const result = await Offer.all().populate('Localisations', function () {
-      this.populate("Metadata");
+      this.populate('Metadata');
       this.populate('Network', function () {
         this.populate('Metadata');
       });
@@ -780,7 +796,7 @@ describe('Sqlite driver migrate with transaction', function () {
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(31).args[0]).to.eq('COMMIT');
+    expect(exSpy.getCall(35).args[0]).to.eq('COMMIT');
 
     expect(driver.executeOnDb('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
 
@@ -818,7 +834,7 @@ describe('Sqlite driver migrate with transaction', function () {
 
     try {
       await orm.migrateUp();
-    } catch { }
+    } catch {}
 
     expect(trSpy.calledOnce).to.be.true;
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
