@@ -56,8 +56,6 @@ export class Dataset {
 export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> implements IRelation<R, O> {
   public TargetModelDescriptor: IModelDescriptor;
 
-  protected Orm: Orm;
-
   public Populated: boolean = false;
 
   protected Driver: OrmDriver;
@@ -72,10 +70,9 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
     }
 
     this.TargetModelDescriptor = extractModelDescriptor(Model);
-    this.Orm = DI.get(Orm);
 
     if (this.TargetModelDescriptor) {
-      this.Driver = this.Orm.Connections.get(this.TargetModelDescriptor.Connection);
+      this.Driver = DI.resolve<OrmDriver>('OrmConnection', [this.TargetModelDescriptor.Connection]);
     }
 
     this.IsModelAForwardRef = !isConstructor(this.Model);

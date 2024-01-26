@@ -21,7 +21,6 @@ import { DiscriminationMapMiddleware } from './middlewares.js';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
-
     if ((target as any)[p] !== value) {
       (target as any)[p] = value;
 
@@ -100,9 +99,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public get Container() {
     if (!this._container) {
-      const orm = DI.get<Orm>(Orm);
-      const driver = orm.Connections.get(this.ModelDescriptor.Connection);
-
+      const driver = DI.resolve<OrmDriver>('OrmConnection', [this.ModelDescriptor.Connection]);
       if (!driver) {
         throw new Error(`model ${this.constructor.name} have invalid connection ${this.ModelDescriptor.Connection}, please check your db config file or model connection name`);
       }
@@ -667,15 +664,15 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
     throw new Error(`model ${model.name} does not have model descriptor. Use @model decorator on class`);
   }
 
-  const orm = DI.get<Orm>(Orm);
-  const driver = orm.Connections.get(dsc.Connection);
+  const driver = DI.resolve<OrmDriver>('OrmConnection', [dsc.Connection]);
 
   if (!driver) {
     throw new Error(`model ${model.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`);
   }
 
   const cnt = driver.Container;
-  const qr = cnt.resolve<T>(query, [driver, injectModel ? orm.Models.find((x) => x.name === model.name).type : null]);
+  const models = DI.getRegisteredTypes<ModelBase>('__models__');
+  const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : null]);
 
   if (qr instanceof SelectQueryBuilder) {
     const scope = (model as any)._queryScopes as QueryScope;

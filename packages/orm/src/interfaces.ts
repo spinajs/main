@@ -756,6 +756,13 @@ export abstract class OrmMigration {
    * Migrate down - undo changes made in up
    */
   public abstract down(connection: OrmDriver): Promise<void>;
+
+  /**
+   * Migrate data - execute AFTER orm module has been initialized
+   * 
+   * It means that all model & relations are avaible
+   */
+  public async data() : Promise<void> { }
 }
 
 /**

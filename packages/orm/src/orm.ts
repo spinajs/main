@@ -40,8 +40,10 @@ export class Orm extends AsyncService {
    *
    * @param name - migration file name
    */
-  public async migrateUp(name?: string, force: boolean = true): Promise<void> {
+  public async migrateUp(name?: string, force: boolean = true): Promise<OrmMigration[]> {
     this.Log.info('DB migration UP started ...');
+
+    const executedMigrations: OrmMigration[] = [];
 
     await this.executeAvaibleMigrations(
       name,
@@ -57,6 +59,8 @@ export class Orm extends AsyncService {
               CreatedAt: new Date(),
             });
 
+          executedMigrations.push(migration);
+
           this.Log.info(`Migration ${migration.constructor.name}:up() success !`);
         };
 
@@ -71,6 +75,8 @@ export class Orm extends AsyncService {
     );
 
     this.Log.info('DB migration ended ...');
+
+    return executedMigrations;
   }
 
   /**
@@ -163,11 +169,16 @@ export class Orm extends AsyncService {
       });
     }
 
-    await this.migrateUp(undefined, false);
+    const executedMigrations = await this.migrateUp(undefined, false);
     await this.reloadTableInfo();
     this.wireRelations();
     this.applyModelMixins();
     this.registerDefaultConverters();
+
+    for (const m of executedMigrations) {
+      this.Log.trace(`Migrating data function for migration ${m.constructor.name} ...`);
+      await m.data();
+    }
   }
 
   protected registerDefaultConverters() {
@@ -236,7 +247,6 @@ export class Orm extends AsyncService {
   }
 
   private async createConnections() {
-
     const cConnections = this.Configuration.get<IDriverOptions[]>('db.Connections', []);
 
     for (const c of cConnections) {
@@ -249,11 +259,9 @@ export class Orm extends AsyncService {
       const driver = await this.Container.resolve<OrmDriver>(c.Driver, [c]);
       await driver.connect();
 
-
       this.Connections.set(c.Name, driver);
       this.Log.success(`Created ORM connection ${c.Name} with parametes ${JSON.stringify(_.pick(c, CFG_PROPS))}`);
     }
-
 
     const defaultConnection = this.Configuration.get<string>('db.DefaultConnection');
     if (defaultConnection) {
@@ -277,16 +285,15 @@ export class Orm extends AsyncService {
       this.Connections.set(a, this.Connections.get(conn));
     }
 
-    // register in continaer factory func for retrieving db connections
+    // register in container factory func for retrieving db connections
     // it will allow for easy access to it in modules
     DI.register((_container: IContainer, connectionName: string) => {
-
       if (this.Connections.has(connectionName)) {
         return this.Connections.get(connectionName);
       }
 
       return null;
-    }).as("OrmConnection");
+    }).as('OrmConnection');
   }
 
   private applyModelMixins() {

@@ -5,23 +5,26 @@ import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserMetadata } from '../src/index.js';
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
-
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
-import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
+
+import "./migration/rbac.migration.js";
+import { TEST_USER_UUID } from './migration/rbac.migration.js';
 
 chai.use(chaiAsPromised);
 
 function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
+ 
 
-const TEST_USER_UUID = uuidv4();
+describe('User model tests', function() {
 
-describe('Authorization provider tests', () => {
+  this.timeout(15000);
+
   before(async () => {
     DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
@@ -32,18 +35,6 @@ describe('Authorization provider tests', () => {
   beforeEach(async () => {
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
     await DI.resolve(Orm);
-    const provider = DI.resolve(PasswordProvider);
-
-    const user = new User({
-      Email: 'test@spinajs.pl',
-      Login: 'test',
-      Password: await provider.hash('bbbb'),
-      Role: ['admin'],
-      IsActive: true,
-      Uuid: TEST_USER_UUID,
-    });
-
-    await User.insert(user);
   });
 
   afterEach(async () => {
@@ -83,6 +74,7 @@ describe('Authorization provider tests', () => {
   });
 
   describe('User metadata', () => {
+    
     it('Should get metadata', async () => {
 
       const user = await User.where('Email', 'test@spinajs.pl').populate('Metadata').first();
