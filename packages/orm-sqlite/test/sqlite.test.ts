@@ -557,7 +557,9 @@ describe('Sqlite model functions', function () {
     const m3 = new TestMany();
     const m4 = new TestMany();
 
-    await model.Many.set([m1, m2, m3, m4]);
+    model.Many.set([m1, m2, m3, m4]);
+     
+    await model.Many.sync();
 
     let check = await TestModel.where({ Id: 1 }).populate('Many').first();
 

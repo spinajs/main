@@ -153,19 +153,16 @@ describe('Sqlite - relations test', function () {
 
     const set = await DataSet.where({ Id: 1 }).populate("Dataset").first();
     const spy = set.Dataset[0].insertOrUpdate as any as sinon.SinonSpy;
-    const spy2 = set.Dataset[1].insertOrUpdate as any as sinon.SinonSpy;
     await set.Dataset.sync();
     expect(spy.called).to.be.false;
-    expect(spy2.called).to.be.false;
+    expect(spy.callCount).to.eq(0);
 
     set.Dataset[0].Val = 100;
 
     await set.Dataset.sync();
 
     expect(spy.called).to.be.true;
-    expect(spy2.called).to.be.false;
-
-
+    expect(spy.callCount).to.eq(1);
   })
 
 });
