@@ -62,14 +62,17 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
 
   protected IsModelAForwardRef: boolean;
 
-  constructor(protected owner: O, protected Model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, objects?: R[]) {
+  protected Model: Constructor<R> | ForwardRefFunction;
+
+  constructor(protected Owner: O, protected Relation: IRelationDescriptor, objects?: R[]) {
     super();
 
     if (objects) {
       this.push(...objects);
     }
 
-    this.TargetModelDescriptor = extractModelDescriptor(Model);
+    this.Model = Relation.TargetModel as any; // TODO: fix typings
+    this.TargetModelDescriptor = extractModelDescriptor(this.Model);
 
     if (this.TargetModelDescriptor) {
       this.Driver = DI.resolve<OrmDriver>('OrmConnection', [this.TargetModelDescriptor.Connection]);
@@ -279,7 +282,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns
    */
   protected async _dbDiff(data: T[]) {
-    const query = this.Driver.del().from(this.TargetModelDescriptor.TableName).where(this.Relation.ForeignKey, this.owner.PrimaryKeyValue);
+    const query = this.Driver.del().from(this.TargetModelDescriptor.TableName).where(this.Relation.ForeignKey, this.Owner.PrimaryKeyValue);
 
     const self = this;
 
@@ -300,7 +303,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * Populates this relation ( loads all data related to owner of this relation)
    */
   public async populate(callback?: (this: ISelectQueryBuilder<this>) => void): Promise<void> {
-    const query = (this.Relation.TargetModel as any).where(this.Relation.ForeignKey, this.owner.PrimaryKeyValue);
+    const query = (this.Relation.TargetModel as any).where(this.Relation.ForeignKey, this.Owner.PrimaryKeyValue);
     if (callback) {
       callback.apply(query);
     }
@@ -325,7 +328,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     const dirty = this.filter((x) => x.IsDirty || x.PrimaryKeyValue === null);
 
     this.forEach((d) => {
-      (d as any)[this.Relation.ForeignKey] = this.owner.PrimaryKeyValue;
+      (d as any)[this.Relation.ForeignKey] = this.Owner.PrimaryKeyValue;
     });
 
     for (const f of dirty) {

@@ -1,112 +1,13 @@
 import { DateTime } from 'luxon';
-import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, OneToManyRelationList, IRelationDescriptor, QueryScope, InsertBehaviour, ISelectQueryBuilder } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, QueryScope, ISelectQueryBuilder } from '@spinajs/orm';
 import { AccessControl, Permission } from 'accesscontrol';
-import { DI, IContainer } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata.js';
 import { UserAction } from './UserTimeline.js';
 import { v4 as uuidv4 } from 'uuid';
+ 
 
-class UserMetadataRelation extends OneToManyRelationList<UserMetadata, User> {
-
-  /**
-   *
-   * Checks if metadata exists, its DB first, it will only check DB for existence
-   *
-   * @param key - key to find
-   * @returns {true|false}
-   */
-  public async exists(key: string) {
-    return await UserMetadata.where({
-      User: this.owner,
-      Key: key,
-    }).resultExists();
-  }
-
-  /**
-   *
-   * Deletes meta from DB
-   *
-   * @param key - meta key do delete or regexp
-   */
-  public async delete(key: string) {
-    await UserMetadata.destroy().where({
-      Key: key,
-      User: this.owner.Id,
-    });
-  }
-
-  
-
-  public async get(key: string) {
-    const found = this.find((x) => x.Key === key);
-
-    if (found) {
-      return found.Value;
-    }
-
-    return await UserMetadata.where({
-      User: this.owner,
-      Key: key,
-    })
-      .first()
-      .then((res) => {
-        if (res) {
-          return res.Value;
-        }
-        return null;
-      });
-  }
-
-  [index: string]: any;
-}
-
-function UserMetadataRelationFactory(model: ModelBase<User>, desc: IRelationDescriptor, container: IContainer) {
-  const repository = container.resolve(UserMetadataRelation, [model, desc.TargetModel, desc, []]);
-  const proxy = {
-    set: (target: UserMetadataRelation, prop: string, value: any) => {
-      if ((target as any)[prop]) {
-        return ((target as any)[prop] = value);
-      }
-
-      return (async () => {
-        const userMeta = new UserMetadata();
-        userMeta.User.Value = model as User;
-        userMeta.Key = prop;
-        userMeta.Value = value;
-
-        await UserMetadata.insert(userMeta, InsertBehaviour.InsertOrUpdate);
-      })();
-    },
-    get: (target: UserMetadataRelation, prop: string) => {
-      if ((target as any)[prop]) {
-        return (target as any)[prop];
-      }
-
-      return (async () => {
-        // check for metadata entries
-        const found = target.find((x) => x.Key === prop);
-
-        if (found) {
-          return found.Value;
-        }
-
-        return await UserMetadata.where({
-          User: model,
-          Key: prop,
-        })
-          .first()
-          .then((res) => {
-            if (res) {
-              return res.Value;
-            }
-            return null;
-          });
-      })();
-    },
-  };
-
-  return new Proxy(repository, proxy);
-}
+ 
 
 export class UserQueryScopes implements QueryScope {
   /**
@@ -208,10 +109,8 @@ export class User extends ModelBase {
   /**
    * User additional information. Can be anything
    */
-  @HasMany(UserMetadata, {
-    factory: UserMetadataRelationFactory,
-  })
-  public Metadata: UserMetadataRelation;
+  @HasMany(UserMetadata)
+  public Metadata: MetadataRelation<UserMetadata, User>;
 
   @HasMany(UserAction)
   public Actions: Relation<UserAction, User>;

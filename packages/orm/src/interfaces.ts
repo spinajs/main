@@ -37,23 +37,23 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
 
   /**
    * Removes all objects from relation by comparison functions
-   * 
+   *
    * @param compare function to compare models
    */
   remove(compare: (a: R) => boolean): R[];
 
   /**
    * Removes all objects by primary key
-   * 
+   *
    * @param obj - data to remove
    */
   remove(obj: R | R[]): R[];
 
   /**
-  * Removes from relation & deletes from db
-  *
-  * @param obj - data to remove
-  */
+   * Removes from relation & deletes from db
+   *
+   * @param obj - data to remove
+   */
   remove(obj: R | R[] | ((a: R, b: R) => boolean)): R[];
 
   /**
@@ -69,7 +69,7 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
   /**
    * Synchronize relation data with db
    * NOTE: it removes data from db that are not in relation
-   * 
+   *
    * @param obj - object to add
    * @param mode - insert mode
    */
@@ -114,10 +114,7 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
    * Populates this relation ( loads all data related to owner of this relation)
    */
   populate(callback?: (this: ISelectQueryBuilder<this>) => void): Promise<void>;
-
 }
-
-
 
 export abstract class DefaultValueBuilder<T> {
   public Query: RawQuery;
@@ -474,7 +471,7 @@ export interface IRelationDescriptor {
   /**
    * Relation factory, sometimes we dont want to create standard relation object
    */
-  Factory?: (model: ModelBase<unknown>, relation: IRelationDescriptor, container: IContainer) => Relation<ModelBase<unknown>, ModelBase<unknown>>;
+  Factory?: (model: ModelBase<unknown>, relation: IRelationDescriptor, container: IContainer, data: any[]) => Relation<ModelBase<unknown>, ModelBase<unknown>>;
 
   /**
    *  sometimes we dont want to create standard relation object, so we create type
@@ -518,7 +515,6 @@ export interface IModelBase {
    * Marks model as dirty. It means that model have unsaved changes
    */
   IsDirty: boolean;
-
 
   getFlattenRelationModels(): IModelBase[];
 
@@ -759,10 +755,10 @@ export abstract class OrmMigration {
 
   /**
    * Migrate data - execute AFTER orm module has been initialized
-   * 
+   *
    * It means that all model & relations are avaible
    */
-  public async data() : Promise<void> { }
+  public async data(): Promise<void> {}
 }
 
 /**
@@ -922,7 +918,7 @@ export interface IGroupByBuilder {
  * Dummy abstract class for allowing to add extensions for builder via declaration merging & mixins
  */
 //@ts-ignore
-export interface ISelectBuilderExtensions<T> { }
+export interface ISelectBuilderExtensions<T> {}
 
 export interface IJoinBuilder {
   JoinStatements: IQueryStatement[];
@@ -978,9 +974,9 @@ export interface IBuilder<T> extends PromiseLike<T> {
   toDB(): ICompilerOutput | ICompilerOutput[];
 }
 
-export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
+export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {}
 
-export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
+export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
 
 export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IQueryBuilder, IBuilder<T> {
   min(column: string, as?: string): this;
@@ -1004,7 +1000,6 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
    * Returns all records. Its for type castin when using with scopes mostly.
    */
   all(): Promise<T[]>;
-
 }
 
 export interface ICompilerOutput {
@@ -1227,12 +1222,12 @@ export class ValueConverter implements IValueConverter {
 /**
  * Converter for DATETIME field (eg. mysql datetime)
  */
-export class DatetimeValueConverter extends ValueConverter { }
+export class DatetimeValueConverter extends ValueConverter {}
 
 /**
  * Converter for set field (eg. mysql SET)
  */
-export class SetValueConverter extends ValueConverter { }
+export class SetValueConverter extends ValueConverter {}
 
 @Singleton()
 export abstract class TableAliasCompiler {
@@ -1246,7 +1241,7 @@ export interface IUniversalConverterOptions {
 /**
  * base class for select & where builder for defining scopes
  */
-export abstract class QueryScope { }
+export abstract class QueryScope {}
 
 export interface IHistoricalModel {
   readonly __action__: 'insert' | 'update' | 'delete';

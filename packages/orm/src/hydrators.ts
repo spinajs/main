@@ -72,7 +72,7 @@ export class OneToManyRelationHydrator extends ModelHydrator {
           return tEntity;
         });
 
-        const rel = new OneToManyRelationList(target, val.TargetModel, val, mapRel);
+        const rel = new OneToManyRelationList(target, val, mapRel);
         entity[key] = rel;
         delete (target as any)[val.ForeignKey];
       }

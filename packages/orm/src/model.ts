@@ -1,23 +1,24 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
-/* eslint-disable prettier/prettier */
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
 import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders.js';
 import { Op } from './enums.js';
-import { DI, isConstructor, Class, IContainer, Constructor } from '@spinajs/di';
 import { Orm } from './orm.js';
 import { ModelHydrator } from './hydrators.js';
-import _ from 'lodash';
-import { v4 as uuidv4 } from 'uuid';
 import { OrmException } from './exceptions.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './dehydrators.js';
 import { Wrap } from './statements.js';
-import { DateTime } from 'luxon';
 import { OrmDriver } from './driver.js';
-import { ManyToManyRelationList, OneToManyRelationList, Relation, SingleRelation } from './relation-objects.js';
+import { Relation, SingleRelation } from './relation-objects.js';
 import { DiscriminationMapMiddleware } from './middlewares.js';
+
+import { DI, isConstructor, Class, IContainer, Constructor } from '@spinajs/di';
+
+import { DateTime } from 'luxon';
+import _ from 'lodash';
+import { v4 as uuidv4 } from 'uuid';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
@@ -581,13 +582,9 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     for (const [, rel] of this.ModelDescriptor.Relations) {
       if (rel.Factory) {
-        (this as any)[rel.Name] = rel.Factory(this, rel, this.Container);
+        (this as any)[rel.Name] = rel.Factory(this, rel, this.Container, []);
       } else if (rel.RelationClass) {
-        (this as any)[rel.Name] = this.Container.resolve(rel.RelationClass, [this, rel.TargetModel, rel, []]);
-      } else if (rel.Type === RelationType.Many) {
-        (this as any)[rel.Name] = new OneToManyRelationList(this, rel.TargetModel, rel, []);
-      } else if (rel.Type === RelationType.ManyToMany) {
-        (this as any)[rel.Name] = new ManyToManyRelationList(this, rel.TargetModel, rel, []);
+        (this as any)[rel.Name] = this.Container.resolve(rel.RelationClass, [this, rel, []]);
       } else {
         (this as any)[rel.Name] = new SingleRelation(this, rel.TargetModel, rel, null);
       }

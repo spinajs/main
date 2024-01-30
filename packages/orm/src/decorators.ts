@@ -6,8 +6,7 @@ import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescript
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { Relation } from './relation-objects.js';
-
+import { ManyToManyRelationList, OneToManyRelationList, Relation } from './relation-objects.js';
 
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
@@ -326,10 +325,7 @@ export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: str
   });
 }
 
-export interface IHasManyDecoratorOptions {
-  foreignKey?: string;
-  primaryKey?: string;
-
+export interface IRelationDecoratorOptions {
   /**
    * Relation factory, sometimes we dont want to create standard relation object.
    * When creating object and specific relation is created via this factory
@@ -343,6 +339,33 @@ export interface IHasManyDecoratorOptions {
   type?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>>;
 }
 
+export interface IHasManyToManyDecoratorOptions extends IRelationDecoratorOptions {
+  /**
+   *  target model primary key name
+   */
+  targetModelPKey?: string;
+
+  /**
+   * source model primary key name
+   */
+  sourceModelPKey?: string;
+  
+  /**
+   * junction table target primary key name ( foreign key for target model )
+   */
+  junctionModelTargetPk?: string;
+
+  /**
+   * junction table source primary key name ( foreign key for source model )
+   */
+  junctionModelSourcePk?: string;
+}
+
+export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
+  foreignKey?: string;
+  primaryKey?: string;
+}
+
 /**
  * Creates one to many relation with target model.
  *
@@ -353,6 +376,13 @@ export interface IHasManyDecoratorOptions {
  */
 export function HasMany(targetModel: Constructor<ModelBase> | string, options?: IHasManyDecoratorOptions) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    // for simplicity of use we allow to Relation<> type be used
+    // If Relation<> is used we assume its default OneToManyRelationList
+    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target, propertyKey);
+    if (type.name === 'Relation') {
+      type = OneToManyRelationList;
+    }
+
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Many,
@@ -363,7 +393,7 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       PrimaryKey: options ? options.primaryKey ?? model.PrimaryKey : model.PrimaryKey,
       Recursive: false,
       Factory: options ? options.factory : null,
-      RelationClass: options ? options.type : null,
+      RelationClass: options ? options.type : type,
     });
   });
 }
@@ -388,14 +418,17 @@ export function Historical(targetModel: Constructor<ModelBase>) {
  *
  * @param junctionModel - model for junction table
  * @param targetModel - model for related data
- * @param targetModelPKey - target model primary key name
- * @param sourceModelPKey - source model primary key name
- * @param junctionModelTargetPk - junction table target primary key name ( foreign key for target model )
- * @param junctionModelSourcePk - junction table source primary key name ( foreign key for source model )
  */
-export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase> | string, targetModelPKey?: string, sourceModelPKey?: string, junctionModelTargetPk?: string, junctionModelSourcePk?: string) {
+export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase> | string, options? : IHasManyToManyDecoratorOptions) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const targetModelDescriptor = extractModelDescriptor(targetModel);
+
+    // for simplicity of use we allow to Relation<> type be used
+    // If Relation<> is used we assume its default ManyToManyRelationList
+    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target, propertyKey);
+    if (type.name === 'Relation') {
+      type = ManyToManyRelationList;
+    }
 
     model.Relations.set(propertyKey, {
       Name: propertyKey,
@@ -404,11 +437,13 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       SourceModel: target.constructor,
       TargetModelType: targetModel,
       TargetModel: null,
-      ForeignKey: targetModelPKey ?? targetModelDescriptor.PrimaryKey,
-      PrimaryKey: sourceModelPKey ?? model.PrimaryKey,
+      ForeignKey: options?.targetModelPKey ?? targetModelDescriptor.PrimaryKey,
+      PrimaryKey: options?.sourceModelPKey ?? model.PrimaryKey,
       JunctionModel: junctionModel,
-      JunctionModelTargetModelFKey_Name: junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
-      JunctionModelSourceModelFKey_Name: junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
+      JunctionModelTargetModelFKey_Name: options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
+      JunctionModelSourceModelFKey_Name: options?.junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
+      RelationClass: options ? options.type : type,
+      Factory: options ? options.factory : null,
     });
   });
 }
@@ -455,13 +490,13 @@ export function Json() {
  *
  * @param typeColumn - type column that defines final type of value
  */
-export function UniversalConverter(typeColumn: string) {
+export function UniversalConverter(typeColumn?: string) {
   return extractDecoratorDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
     // add converter for this field
     model.Converters.set(propertyKey, {
       Class: UniversalValueConverter,
       Options: {
-        TypeColumn: typeColumn,
+        TypeColumn: typeColumn ?? "Type",
       },
     });
   });

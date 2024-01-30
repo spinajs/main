@@ -47,7 +47,33 @@ export class UuidConverter extends ValueConverter {
 
 export class UniversalValueConverter extends ValueConverter {
   public toDB(value: any, model: ModelBase, options: IUniversalConverterOptions) {
-    switch ((model as any)[options.TypeColumn]) {
+
+    const guessType = (val: any) => {
+      if (val instanceof DateTime) {
+        return 'datetime';
+      }
+
+      if (typeof val === 'number') {
+        return 'number';
+      }
+
+      if (typeof val === 'boolean') {
+        return 'boolean';
+      }
+
+      if (typeof val === 'string') {
+        return 'string';
+      }
+
+      if (typeof val === 'object') {
+        return 'json';
+      }
+
+      throw new OrmException(`Cannot guess type for ${val}`);
+    }
+
+    const type = (model as any)[options.TypeColumn] ?? guessType(value);
+    switch (type) {
       case 'string':
         return value;
       case 'boolean':

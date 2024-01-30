@@ -79,6 +79,8 @@ describe('User model tests', function() {
 
       const user = await User.where('Email', 'test@spinajs.pl').populate('Metadata').first();
       
+      const val = user.Metadata['test:test'];
+      console.log(val);
       expect(user.Metadata).to.be.not.null;
       expect(user.Metadata['test:test']).to.be.eq('test');
       expect(user.Metadata.length).to.be.eq(1);

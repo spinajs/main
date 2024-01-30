@@ -4,6 +4,7 @@ import { ModelBase } from './model.js';
 import _ from 'lodash';
 import { ManyToManyRelationList, OneToManyRelationList } from './relation-objects.js';
 import { BelongsToRelation } from './relations.js';
+import { DI } from '@spinajs/di';
 
 export class HasManyRelationMiddleware implements IBuilderMiddleware {
   constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _path: string) {}
@@ -36,7 +37,7 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
             return d[self._description.PrimaryKey] === (rd as any)[self._description.ForeignKey];
           });
 
-          d[self._description.Name] = self._description.Factory ? self._description.Factory(d, self._description, d.Container) : new OneToManyRelationList(d, self._description.TargetModel, self._description, relData);
+          d[self._description.Name] = self._description.Factory ? self._description.Factory(d, self._description, d.Container, relData) : DI.resolve(self._description.RelationClass, [d, self._description, relData]);
         });
       },
     };
@@ -91,7 +92,6 @@ export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware 
                 // manipulation of the recursive data
                 d[name] = new OneToManyRelationList(
                   d,
-                  d.Model,
                   {
                     Name: name,
                     Type: RelationType.Many,
@@ -151,7 +151,7 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 
         data.forEach((d) => {
           const relData = relationData.filter((rd) => (rd as any).JunctionModel[self._description.ForeignKey] === (d as any)[self._description.PrimaryKey]);
-          (d as any)[self._description.Name] = new ManyToManyRelationList(d, self._description.TargetModel, self._description, relData);
+          (d as any)[self._description.Name] = new ManyToManyRelationList(d, self._description, relData);
         });
 
         relationData.forEach((d) => delete (d as any).JunctionModel);
