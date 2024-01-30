@@ -21,6 +21,16 @@ export function dir(path: string) {
 export class TestConfiguration extends FrameworkConfiguration {
   protected onLoad(): unknown {
     return {
+      logger: {
+        targets: [
+          {
+            name: 'Empty',
+            type: 'BlackHoleTarget',
+          },
+        ],
+
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+      },
       rbac: {
         // default roles to manage users & guest account
         roles: [

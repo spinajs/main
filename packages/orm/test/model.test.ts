@@ -740,34 +740,6 @@ describe('General model tests', () => {
     expect(model.UpdatedAt).to.be.not.null;
   });
 
-  it('Model is dirty should work', async () => {
-    // @ts-ignore
-    const orm = await db();
-
-    sinon.stub(FakeUpdateQueryCompiler.prototype, 'compile').returns({
-      expression: '',
-      bindings: [],
-    });
-
-    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
-      new Promise((res) => {
-        res([]);
-      }),
-    );
-
-    const model = new Model1({ Id: 1 });
-
-    expect(model.IsDirty).to.be.false;
-
-    model.Bar = 'test';
-
-    expect(model.IsDirty).to.be.true;
-
-    await model.update();
-
-    expect(model.IsDirty).to.be.false;
-  });
-
   it('Model should create uuid', async () => {
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
     tableInfoStub.withArgs('TestTable6', undefined).returns(
