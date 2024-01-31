@@ -572,10 +572,8 @@ export interface IModelBase {
    *
    * Shorthand for inserting model when no primary key exists, or update
    * its value in db if primary key is set
-   *
-   * @param insertBehaviour - insert mode
    */
-  insertOrUpdate(insertBehaviour?: InsertBehaviour): Promise<void>;
+  insertOrUpdate(): Promise<void>;
 
   /**
    * Gets model data from database and returns as fresh instance.

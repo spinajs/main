@@ -402,13 +402,19 @@ export class ModelBase<M = unknown> implements IModelBase {
       if (v.TargetModel.name === (data as any).constructor.name) {
         // TODO: refactor this, so we dont update foreign key
         // instead we must use belongsTo relation on data model to update
-        (data as any)[v.ForeignKey] = this.PrimaryKeyValue;
+        //(data as any)[v.ForeignKey] = this.PrimaryKeyValue;
 
         switch (v.Type) {
           case RelationType.One:
             ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
             break;
           case RelationType.Many:
+
+            // attach to related model too
+            const rel = [...data.ModelDescriptor.Relations.entries()].find((e) => e[1].ForeignKey === v.ForeignKey);
+            if (rel) {
+              (data as any)[rel[0]].Value = this;
+            }
           case RelationType.ManyToMany:
             ((this as any)[v.Name] as Relation<ModelBase, ModelBase>).push(data);
             break;
@@ -519,12 +525,8 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    * @param insertBehaviour - insert mode
    */
-  public async insertOrUpdate(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
-    if (this.PrimaryKeyValue) {
-      await this.update();
-    } else {
-      await this.insert(insertBehaviour);
-    }
+  public async insertOrUpdate() {
+      await this.insert(InsertBehaviour.InsertOrUpdate);
   }
 
   /**

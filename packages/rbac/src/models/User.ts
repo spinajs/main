@@ -1,13 +1,10 @@
 import { DateTime } from 'luxon';
-import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, QueryScope, ISelectQueryBuilder } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Relation, Uuid, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation } from '@spinajs/orm';
 import { AccessControl, Permission } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata.js';
 import { UserAction } from './UserTimeline.js';
 import { v4 as uuidv4 } from 'uuid';
- 
-
- 
 
 export class UserQueryScopes implements QueryScope {
   /**

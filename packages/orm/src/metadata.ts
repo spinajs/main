@@ -1,4 +1,6 @@
-import { UniversalConverter } from './decorators.js';
+import { DateTime } from 'luxon';
+import { Primary, UniversalConverter } from './decorators.js';
+import { OrmException } from './exceptions.js';
 import { IRelationDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 import { OneToManyRelationList } from './relation-objects.js';
@@ -10,12 +12,49 @@ import { OneToManyRelationList } from './relation-objects.js';
  * Metadata is used to store additional information about particular model, that we dont know at design time.
  */
 export abstract class MetadataModel<T> extends ModelBase<MetadataModel<T>> {
+  
+  protected _value: any;
+
+  @Primary()
+  public Id : number;
+
   public Key: string;
 
   public Type: 'number' | 'float' | 'string' | 'json' | 'boolean' | 'datetime';
 
   @UniversalConverter()
-  public Value: any;
+  public get Value() {
+    return this._value;
+  }
+
+  public set Value(value: any) {
+    this._value = value;
+    this.Type = this.getType(value);
+  }
+
+  protected getType(val: any) {
+    if (val instanceof DateTime) {
+      return 'datetime';
+    }
+
+    if (typeof val === 'number') {
+      return 'number';
+    }
+
+    if (typeof val === 'boolean') {
+      return 'boolean';
+    }
+
+    if (typeof val === 'string') {
+      return 'string';
+    }
+
+    if (typeof val === 'object') {
+      return 'json';
+    }
+
+    throw new OrmException(`Cannot guess type for ${val}`);
+  }
 }
 
 /**
@@ -30,33 +69,35 @@ export abstract class MetadataModel<T> extends ModelBase<MetadataModel<T>> {
  * ```
  */
 export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>> extends OneToManyRelationList<R, O> {
+  [key: string]: any;
+
   constructor(owner: O, relation: IRelationDescriptor, objects?: R[]) {
     super(owner, relation, objects);
 
     return new Proxy(this, {
       set: (target: OneToManyRelationList<MetadataModel<unknown>, ModelBase<unknown>>, prop: string, value: any) => {
-        if ((target as any)[prop]) {
-          return ((target as any)[prop] = value);
-        }
-
-        const found = target.find((x: R) => x.Key === prop);
-        if (value === null || value === undefined) {
-          target.remove((x: R) => x.Key === prop);
-        } else if (found) {
-          found.Value = value;
+        if (prop in target || !isNaN(prop as any)) {
+          (target as any)[prop] = value;
         } else {
-          const userMeta = new this.Relation.TargetModel() as R;
-          userMeta.Key = prop;
-          userMeta.Value = value;
+          const found = target.find((x: R) => x.Key === prop);
+          if (value === null || value === undefined) {
+            target.remove((x: R) => x.Key === prop);
+          } else if (found) {
+            found.Value = value;
+          } else {
+            const userMeta = new this.Relation.TargetModel() as R;
+            userMeta.Key = prop;
+            userMeta.Value = value;
 
-          this.Owner.attach(userMeta);
-
-          target.push(userMeta);
+            this.Owner.attach(userMeta);
+          }
         }
+
+        return true;
       },
 
       get: (target: OneToManyRelationList<R, ModelBase<unknown>>, prop: string) => {
-        if (prop in target) {
+        if (prop in target || !isNaN(prop as any)) {
           return (target as any)[prop];
         }
 

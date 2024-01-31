@@ -71,7 +71,7 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
       this.push(...objects);
     }
 
-    this.Model = Relation.TargetModel as any; // TODO: fix typings
+    this.Model = this.Relation.TargetModel as any; // TODO: fix typings
     this.TargetModelDescriptor = extractModelDescriptor(this.Model);
 
     if (this.TargetModelDescriptor) {
@@ -283,17 +283,15 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    */
   protected async _dbDiff(data: T[]) {
     const query = this.Driver.del().from(this.TargetModelDescriptor.TableName).where(this.Relation.ForeignKey, this.Owner.PrimaryKeyValue);
-
-    const self = this;
-
+ 
     if (this.Driver.Options.Database) {
       query.database(this.Driver.Options.Database);
     }
 
     // if we have data in relation, we need to exclude them from delete query
-    const toDelete = data.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
+    const toDelete = [...data].filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
     if (toDelete.length !== 0) {
-      query.whereNotIn(self.Relation.PrimaryKey, toDelete);
+      query.whereNotIn(this.TargetModelDescriptor.PrimaryKey, toDelete);
     }
 
     await query;
@@ -325,7 +323,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    *  Inserts or updates models that are dirty only.
    */
   public async sync() {
-    const dirty = this.filter((x) => x.IsDirty || x.PrimaryKeyValue === null);
+    const dirty = [...this].filter((x) => x.IsDirty || x.PrimaryKeyValue === null);
 
     this.forEach((d) => {
       (d as any)[this.Relation.ForeignKey] = this.Owner.PrimaryKeyValue;

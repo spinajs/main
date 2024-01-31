@@ -10,7 +10,7 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 import { LogLevel } from '@spinajs/log-common';
 export * from './compilers.js';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ObjectToSqlConverter } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ObjectToSqlConverter, OrmException } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -44,7 +44,7 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Delete:
           this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
-              reject(err);
+              reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`, err));
               return;
             }
 
@@ -57,7 +57,7 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Select:
           this.Db.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
             if (err) {
-              reject(err);
+              reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`, err));
               return;
             }
 
@@ -70,7 +70,10 @@ export class SqliteOrmDriver extends SqlDriver {
               if (err.code === 'SQLITE_CONSTRAINT') {
                 reject(new ResourceDuplicated(err));
               } else {
-                reject(err);
+                if (err) {
+                  reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`, err));
+                  return;
+                }
               }
               return;
             }
@@ -86,7 +89,7 @@ export class SqliteOrmDriver extends SqlDriver {
         default:
           this.Db.run(stmt, ...queryParams, (err: unknown, data: unknown) => {
             if (err) {
-              reject(err);
+              reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`));
               return;
             }
 
@@ -230,7 +233,6 @@ export class SqliteOrmDriver extends SqlDriver {
     // get all foreign keys
     const foreignKeys = (await this.executeOnDb(`PRAGMA foreign_key_list("${name}")`, null, QueryContext.Select)) as IForeignKeyList[];
 
-
     return tblInfo.map((r: ITableInfo) => {
       const fk = foreignKeys.find((i) => i.from === r.name);
       return {
@@ -245,11 +247,13 @@ export class SqliteOrmDriver extends SqlDriver {
         Uuid: false,
         Ignore: false,
         IsForeignKey: fk !== undefined,
-        ForeignKeyDescription: fk ? {
-          From: fk.from,
-          Table: fk.table,
-          To: fk.to
-        } : null,
+        ForeignKeyDescription: fk
+          ? {
+              From: fk.from,
+              Table: fk.table,
+              To: fk.to,
+            }
+          : null,
         // simply assumpt that integer pkeys are autoincement / auto fill  by default
         AutoIncrement: r.pk === 1 && r.type === 'INTEGER',
         Name: r.name,

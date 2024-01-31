@@ -21,9 +21,10 @@ export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
     });
 
     await connection.schema().createTable('users_metadata', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
       table.string('Key', 255).notNull();
       table.enum('Type', ['number', 'float', 'string', 'json', 'boolean', 'datetime']).notNull();
-      table.text('Value').notNull();
+      table.text('Value');
       table.int('user_id').notNull();
       table.foreignKey('user_id').references('users', 'Id').cascade();
     });

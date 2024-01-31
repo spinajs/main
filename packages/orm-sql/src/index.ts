@@ -9,7 +9,6 @@ export * from './compilers.js';
 export * from './statements.js';
 
 export abstract class SqlDriver extends OrmDriver {
-
   public abstract executeOnDb(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
 
   public execute(builder: Builder<any>) {
@@ -21,7 +20,6 @@ export abstract class SqlDriver extends OrmDriver {
     } else {
       return this.executeOnDb(compiled.expression, compiled.bindings, builder.QueryContext);
     }
-
   }
 
   public resolve() {

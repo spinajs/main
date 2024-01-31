@@ -114,7 +114,11 @@ export class Builder<T = any> implements IBuilder<T> {
                 try {
                   onfulfilled(models as unknown as T);
                 } catch (err) {
-                  onrejected(err);
+                  if (onrejected) {
+                    onrejected(err);
+                  } else {
+                    throw err;
+                  }
                 }
               }, onrejected);
             } else {
@@ -124,11 +128,19 @@ export class Builder<T = any> implements IBuilder<T> {
             onfulfilled(transformedResult);
           }
         } catch (err) {
-          onrejected(err);
+          if (onrejected) {
+            onrejected(err);
+          } else {
+            throw err;
+          }
         }
       })
       .catch((err) => {
-        onrejected(err);
+        if (onrejected) {
+          onrejected(err);
+        } else {
+          throw err;
+        }
       }) as Promise<any>;
   }
 

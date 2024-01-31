@@ -3,7 +3,6 @@ import { User } from '../../src/models/User.js';
 import { v4 as uuidv4 } from 'uuid';
 import { DI } from '@spinajs/di';
 import { PasswordProvider } from '../../src/interfaces.js';
-import { UserMetadata } from '../../src/models/UserMetadata.js';
 
 export const TEST_USER_UUID = uuidv4();
 
@@ -30,14 +29,12 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
 
       await user.insert();
 
-      const meta = new UserMetadata({
-        User: user,
-        Key: 'test:test',
-        Value: 'test',
-        Type: 'string',
-      });
+      user.Metadata['test:test'] = 'test';
 
-      await meta.insert();
+      await user.Metadata.sync();
+
+      console.log("Dd");
+
     } catch (err) {
       console.log(err);
     }
