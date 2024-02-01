@@ -17,7 +17,6 @@ export * from './password.js';
 export * from './session.js';
 export * from './models/User.js';
 export * from './models/UserMetadata.js';
-export * from './models/UserTimeline.js';
 export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
 export * from './events/index.js';
 

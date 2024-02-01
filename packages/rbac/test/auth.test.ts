@@ -10,7 +10,6 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
-import { DateTime } from 'luxon';
 
 chai.use(chaiAsPromised);
 
@@ -29,29 +28,6 @@ describe('Authorization provider tests', () => {
   beforeEach(async () => {
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
     await DI.resolve(Orm);
-    const provider = DI.resolve(PasswordProvider);
-
-    const user = new User({
-      Email: 'test@spinajs.pl',
-      Login: 'test',
-      Password: await provider.hash('bbbb'),
-      IsActive: true,
-      Role: ['admin'],
-    });
-
-    await User.insert(user);
-
-    const user2 = new User({
-      Email: 'test2@spinajs.pl',
-      Login: 'test2',
-      Password: await provider.hash('bbbb'),
-      IsActive: true,
-      DeletedAt: DateTime.now(),
-      Role: ['admin'],
-
-    });
-
-    await user2.insert();
   });
 
   afterEach(async () => {
@@ -72,13 +48,31 @@ describe('Authorization provider tests', () => {
 
     result = await provider.exists('dasda@dasd.pl');
     expect(result).to.be.false;
+
+    result = await provider.exists(null);
+    expect(result).to.be.false;
   });
 
   it('Should check for active user', async () => {
     const provider = DI.resolve(AuthProvider);
     let result = await provider.isActive('test2@spinajs.pl');
 
+    expect(result).to.be.false;
+
+    result = await provider.isActive('test@spinajs.pl');
     expect(result).to.be.true;
+
+    result = await provider.isActive('not-active@spinajs.pl');
+    expect(result).to.be.false;
+
+    result = await provider.isActive(new User({
+      Email: 'test@spinajs.pl',
+    }));
+
+    expect(result).to.be.true;
+
+    result = await provider.isActive(null);
+    expect(result).to.be.false;
   });
   it('Should check for deleted user', async () => {
     const provider = DI.resolve(AuthProvider);
@@ -115,5 +109,16 @@ describe('Authorization provider tests', () => {
     const provider = DI.resolve(AuthProvider);
     let result = await provider.authenticate('test@spinajs.pl', 'bbbb');
     expect(result.User).to.be.not.null;
+  });
+
+  it('should auth fail on banned user', async () => {
+  });
+
+  it('should auth fail on user not active', async () => {
+
+  });
+
+  it('Should auth fail on user deleted', async () => {
+
   });
 });

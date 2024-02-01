@@ -35,13 +35,17 @@ export class TestConfiguration extends FrameworkConfiguration {
         // default roles to manage users & guest account
         roles: [
           {
-            Name: 'Admin',
+            Name: 'admin',
             Description: 'Administrator',
           },
           {
-            Name: 'User',
+            Name: 'user',
             Description: 'Simple account without any privlidge',
           },
+          {
+            Name: 'guest',
+            Description: 'Guest account',
+          }
         ],
         defaultRole: 'guest',
         session: {

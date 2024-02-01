@@ -5,6 +5,8 @@ import { DI } from '@spinajs/di';
 import { PasswordProvider } from '../../src/interfaces.js';
 
 export const TEST_USER_UUID = uuidv4();
+export const TEST_USER_UUID_2 = uuidv4();
+
 
 @Migration('default')
 export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {

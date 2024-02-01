@@ -12,16 +12,16 @@ import { TestConfiguration } from './common.test.js';
 import { DateTime } from 'luxon';
 
 import "./migration/rbac.migration.js";
-import { TEST_USER_UUID } from './migration/rbac.migration.js';
+import { TEST_USER_UUID, TEST_USER_UUID_2 } from './migration/rbac.migration.js';
 
 chai.use(chaiAsPromised);
 
 function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
- 
 
-describe('User model tests', function() {
+
+describe('User model tests', function () {
 
   this.timeout(15000);
 
@@ -42,46 +42,107 @@ describe('User model tests', function() {
   });
 
   describe('Scope tests', () => {
-    it('isActiveUser query scope should work', async () => {});
+    it('isActiveUser query scope should work', async () => {
+      const user = User.query().isActiveUser().first();
+      expect(user).to.be.not.null;
+    });
 
-    it('byEmail query scope should work', async () => {});
+    it('whereEmail query scope should work', async () => {
 
-    it('byLogin query scope should work', async () => {});
+      const user = User.query().whereEmail('test@spinajs.pl').first();
+      expect(user).to.be.not.null;
+    });
+
+    it('whereLogin query scope should work', async () => {
+      const user = User.query().whereLogin('test').first();
+      expect(user).to.be.not.null;
+    });
+
+    it('getByLogin should work', async () => {
+
+      const user = await User.getByLogin('test');
+      expect(user).to.be.not.null;
+
+    });
+
+    it('getByEmail should work', async () => {
+      const user = await User.getByEmail('test@spinajs.pl');
+      expect(user).to.be.not.null;
+    });
+
+    it('getByUuid should work', async () => {
+      const user = await User.getByUuid(TEST_USER_UUID);
+      expect(user).to.be.not.null;
+    });
   });
 
   describe('User roles', () => {
-    it('Should chekc if guest role is set', async () => {});
+    it('Should chekc if guest role is set by default', async () => {
 
-    it('canReadAny should work', async () => {});
+      const user = new User({
+        Email: 'test@test.pl',
+        Login: "test",
+        IsActive: true,
+        Uuid: TEST_USER_UUID_2,
+      });
 
-    it('canUpdateAny should work', async () => {});
+      expect(user.IsGuest).to.be.true;
 
-    it('canDeleteAny should work', async () => {});
+      await user.insert();
 
-    it('canCreateAny should work', async () => {});
+      const user2 = await User.get(user.Id);
+      expect(user2.IsGuest).to.be.true;
+      expect(user2.Role.length).to.be.eq(0);
 
-    it('canReadOwn should work', async () => {});
+    });
 
-    it('canUpdateOwn should work', async () => {});
+    it('Should save multiple roles', async () => {
 
-    it('canDeleteOwn should work', async () => {});
+      const user = new User({
+        Email: 'test@test.pl',
+        Login: "test",
+        IsActive: true,
+        Uuid: TEST_USER_UUID_2,
+        Role: ["admin", "user"]
+      });
 
-    it('canCreateOwn should work', async () => {});
+      await user.insert();
 
-    it('Should convert roles to and from string to array', async () => {});
+      const user2 = await User.get(user.Id);
+      expect(user2.Role.length).to.be.eq(2);
+
+    });
+
+    it('canReadAny should work', async () => { });
+
+    it('canUpdateAny should work', async () => { });
+
+    it('canDeleteAny should work', async () => { });
+
+    it('canCreateAny should work', async () => { });
+
+    it('canReadOwn should work', async () => { });
+
+    it('canUpdateOwn should work', async () => { });
+
+    it('canDeleteOwn should work', async () => { });
+
+    it('canCreateOwn should work', async () => { });
+
+    it('Should convert roles to and from string to array', async () => { });
   });
 
   describe('User metadata', () => {
-    
+
     it('Should get metadata', async () => {
 
       const user = await User.where('Email', 'test@spinajs.pl').populate('Metadata').first();
-      
-      const val = user.Metadata['test:test'];
-      console.log(val);
+
       expect(user.Metadata).to.be.not.null;
       expect(user.Metadata['test:test']).to.be.eq('test');
       expect(user.Metadata.length).to.be.eq(1);
+
+      expect(user.Metadata['test:test:second']).to.be.null;
     });
 
     it('Should add metadata by assign', async () => {
@@ -141,7 +202,7 @@ describe('User model tests', function() {
       await user.Metadata.sync();
 
       meta = await UserMetadata.where('Key', 'test:test').first();
-      expect(meta.Value).to.be.eq('test:test');
+      expect(meta.Value).to.be.eq('test-2');
     });
 
     it('Should automatically convert meta value to number', async () => {
@@ -187,30 +248,49 @@ describe('User model tests', function() {
       expect(meta.Type).to.be.eq('datetime');
       expect(meta.Value).to.be.instanceOf(DateTime);
     });
+
+    it('Should filter metadata by key', async () => {
+
+      const user = await User.where('Email', 'test@spinajs.pl').populate('Metadata').first();
+      const meta = user.Metadata.filter(x => x.Key === 'test:test');
+
+      expect(meta.length).to.be.eq(1);
+      expect(meta[0].Value).to.be.eq('test');
+    });
+
+    it('Should find metadata by key', async () => {
+      const user = await User.where('Email', 'test@spinajs.pl').populate('Metadata').first();
+      const meta = user.Metadata.find(x => x.Key === 'test:test');
+
+      expect(meta).to.be.not.undefined;
+      expect(meta.Value).to.be.eq('test');
+
+    });
+
   });
 
   describe('Model tests', () => {
     it('Should get user by email', async () => {
       const user = await User.getByEmail('test@spinajs.pl');
-      expect(user).to.be.not.null;
+      expect(user).to.be.not.undefined;
 
       const user2 = await User.getByEmail('test2@spinajs.pl');
-      expect(user2).to.be.null;
+      expect(user2).to.be.undefined;
     });
 
     it('Should get user by login', async () => {
       const user = await User.getByLogin('test');
-      expect(user).to.be.not.null;
+      expect(user).to.be.not.undefined;
     });
 
     it('Should get user by uuid', async () => {
       const user = await User.getByUuid(TEST_USER_UUID);
-      expect(user).to.be.not.null;
+      expect(user).to.be.not.undefined;
     });
 
     it('Should get user by id', async () => {
       const user = await User.get(1);
-      expect(user).to.be.not.null;
+      expect(user).to.be.not.undefined;
     });
 
     it('Should throw if same email is used', async () => {
@@ -222,25 +302,42 @@ describe('User model tests', function() {
         Password: await provider.hash('bbbb'),
         Role: ['admin'],
         IsActive: true,
-        Uuid: TEST_USER_UUID,
+        Uuid: TEST_USER_UUID_2,
       });
 
-      await expect(user.insert()).to.be.rejectedWith('UNIQUE constraint failed: users.Email');
+      await expect(user.insert()).to.be.rejectedWith('SQLITE_CONSTRAINT: UNIQUE constraint failed: users.Email');
     });
 
-    it('Should throw if same login is used', async () => {
+    it('Should throw if same uuid is used', async () => {
+
       const provider = DI.resolve(PasswordProvider);
 
       const user = new User({
-        Email: 'test@spinajs.pl',
-        Login: 'tesssst',
+        Email: 'tessssst@spinajs.pl',
+        Login: 'tesw222ssst',
         Password: await provider.hash('bbbb'),
         Role: ['admin'],
         IsActive: true,
         Uuid: TEST_USER_UUID,
       });
 
-      await expect(user.insert()).to.be.rejectedWith('UNIQUE constraint failed: users.Login');
+      await expect(user.insert()).to.be.rejectedWith('SQLITE_CONSTRAINT: UNIQUE constraint failed: users.Uuid');
+
+    });
+
+    it('Should throw if same login is used', async () => {
+      const provider = DI.resolve(PasswordProvider);
+
+      const user = new User({
+        Email: 'test-22222@spinajs.pl',
+        Login: 'test',
+        Password: await provider.hash('bbbb'),
+        Role: ['admin'],
+        IsActive: true,
+        Uuid: TEST_USER_UUID_2,
+      });
+
+      await expect(user.insert()).to.be.rejectedWith('SQLITE_CONSTRAINT: UNIQUE constraint failed: users.Login');
     });
 
     it('Should set soft delete date', async () => {
@@ -252,6 +349,15 @@ describe('User model tests', function() {
       expect(user2.DeletedAt).to.be.not.null;
     });
 
-    it('To json should hide password', async () => {});
+    it('To json should hide password', async () => {
+      const user = await User.get(1);
+
+      expect(user.Password).to.be.not.null;
+      expect(user.Password).to.be.not.undefined;
+
+      expect(user.toJSON().Password).to.be.undefined;
+
+
+    });
   });
 });

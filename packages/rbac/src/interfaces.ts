@@ -121,18 +121,18 @@ export abstract class AuthProvider<U = User> {
 
   /**
    *
-   * Checks if user is banned
+   * Checks if user is banned in DB.
    *
    * @param login - user login
    */
-  public abstract isBanned(login: string): Promise<boolean>;
+  public abstract isBanned(emailOrUser: U | string): Promise<boolean>;
 
   /**
-   * Checks if user is active
+   * Checks if user is active in DB.
    *
    * @param login - user login
    */
-  public abstract isActive(login: string): Promise<boolean>;
+  public abstract isActive(emailOrUser: U | string): Promise<boolean>;
 
   /**
    *
@@ -140,7 +140,7 @@ export abstract class AuthProvider<U = User> {
    *
    * @param login - user login
    */
-  public abstract isDeleted(login: string): Promise<boolean>;
+  public abstract isDeleted(emailOrUser: U | string): Promise<boolean>;
 
   /**
    *

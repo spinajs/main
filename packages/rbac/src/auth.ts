@@ -1,7 +1,8 @@
 import { AthenticationErrorCodes, AuthProvider, IAuthenticationResult, PasswordProvider } from './interfaces.js';
-import { User } from './models/User.js';
+import { USER_COMMONT_MEDATA, User } from './models/User.js';
 import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 @Injectable(AuthProvider)
 export class SimpleDbAuthProvider implements AuthProvider<User> {
@@ -21,22 +22,23 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
   }
 
   public async getByLogin(login: string): Promise<User> {
-    const result = await User.where('Login', login).first();
-    return result;
+    return await User.getByLogin(login);
   }
 
   public async getByEmail(email: string): Promise<User> {
-    const result = await User.where('Email', email).first();
-    return result;
+    return User.getByEmail(email);
   }
 
   public async getByUUID(uuid: string): Promise<User> {
-    const result = await User.where('Uuid', uuid).first();
-    return result;
+    return User.getByUuid(uuid);
   }
 
   public async authenticate(email: string, password: string): Promise<IAuthenticationResult<User>> {
-    const result = await User.where({ Email: email, DeletedAt: null }).first();
+
+    const result = await User.where({ Email: email, DeletedAt: null }).populate("Metadata", function () {
+      this.where('Key', 'like', '%user:ban:%')
+    }).first();
+
     const eInvalidCredentials = {
       Error: {
         Code: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
@@ -60,7 +62,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
       };
     }
 
-    if (result.IsBanned) {
+    if (result.Metadata[USER_COMMONT_MEDATA.USER_BAN_IS_BANNED] === true) {
       return {
         User: result,
         Error: {
@@ -83,19 +85,33 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
     };
   }
 
-  public async isBanned(email: string): Promise<boolean> {
-    const result = await User.where({ Email: email, IsBanned: true }).first();
+  public async isBanned(userOrEmail: User | string): Promise<boolean> {
 
-    return result !== null;
+    const result = await User.where({ Email: userOrEmail instanceof User ? userOrEmail.Email : userOrEmail }).populate("Metadata", function () {
+      this.where("Key", USER_COMMONT_MEDATA.USER_BAN_IS_BANNED)
+        .andWhere("Value", true);
+    }).first();
+
+    return result?.Metadata['user:ban:is_banned'] === true;
   }
 
-  public async isActive(email: string): Promise<boolean> {
-    const result = await User.where({ Email: email, IsActive: true }).first();
-    return result !== null;
+  public async isActive(userOrEmail: User | string): Promise<boolean> {
+
+    if (userOrEmail === null || userOrEmail === undefined || userOrEmail === "") {
+      throw new InvalidArgument("userOrEmail cannot be null or empty");
+    }
+
+    const result = await User.where({ Email: userOrEmail instanceof User ? userOrEmail.Email : userOrEmail, IsActive: true }).first();
+    return result !== undefined;
   }
 
-  public async isDeleted(email: string): Promise<boolean> {
-    const result = await User.where('Email', email).whereNotNull('DeletedAt').first();
-    return result !== null;
+  public async isDeleted(userOrEmail: User | string): Promise<boolean> {
+
+    if (userOrEmail === null || userOrEmail === undefined || userOrEmail === "") {
+      throw new InvalidArgument("userOrEmail cannot be null or empty");
+    }
+
+    const result = await User.where('Email', userOrEmail instanceof User ? userOrEmail.Email : userOrEmail).whereNotNull('DeletedAt').first();
+    return result !== undefined;
   }
 }
