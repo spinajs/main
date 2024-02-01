@@ -41,8 +41,6 @@ describe('User model tests', function() {
     DI.clearCache();
   });
 
-  it('To json should hide password', async () => {});
-
   describe('Scope tests', () => {
     it('isActiveUser query scope should work', async () => {});
 
@@ -253,5 +251,7 @@ describe('User model tests', function() {
       const user2 = await User.get(1);
       expect(user2.DeletedAt).to.be.not.null;
     });
+
+    it('To json should hide password', async () => {});
   });
 });
