@@ -87,7 +87,7 @@ describe('User model tests', function() {
     });
 
     it('Should add metadata by assign', async () => {
-      const user = await User.getByEmail('test_2@spinajs.pl');
+      const user = await User.getByEmail('test@spinajs.pl');
       user.Metadata['test_2:test'] = 'test';
 
       expect(user.Metadata['test_2:test']).to.be.eq('test');
@@ -108,7 +108,7 @@ describe('User model tests', function() {
       await user.Metadata.sync();
 
       const meta = await UserMetadata.where('Key', 'test:test').first();
-      expect(meta).to.be.null;
+      expect(meta).to.be.undefined;
     });
 
     it('Should remove all meta in category by assign', async () => {
@@ -119,7 +119,11 @@ describe('User model tests', function() {
 
       await user.Metadata.sync();
 
-      user.Metadata["/(test:test).*/"] = null
+      user.Metadata["/test:.*/"] = null;
+
+      expect(user.Metadata.length).to.be.eq(0);
+
+      await user.Metadata.sync();
 
       const meta = await UserMetadata.where('Key', 'like', '%test:test');
       expect(meta.length).to.be.eq(0);
@@ -138,7 +142,7 @@ describe('User model tests', function() {
 
       await user.Metadata.sync();
 
-      await UserMetadata.where('Key', 'test').first();
+      meta = await UserMetadata.where('Key', 'test:test').first();
       expect(meta.Value).to.be.eq('test:test');
     });
 

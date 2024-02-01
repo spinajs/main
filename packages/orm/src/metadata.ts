@@ -12,11 +12,10 @@ import { OneToManyRelationList } from './relation-objects.js';
  * Metadata is used to store additional information about particular model, that we dont know at design time.
  */
 export abstract class MetadataModel<T> extends ModelBase<MetadataModel<T>> {
-  
   protected _value: any;
 
   @Primary()
-  public Id : number;
+  public Id: number;
 
   public Key: string;
 
@@ -79,17 +78,30 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
         if (prop in target || !isNaN(prop as any)) {
           (target as any)[prop] = value;
         } else {
-          const found = target.find((x: R) => x.Key === prop);
-          if (value === null || value === undefined) {
-            target.remove((x: R) => x.Key === prop);
-          } else if (found) {
-            found.Value = value;
-          } else {
-            const userMeta = new this.Relation.TargetModel() as R;
-            userMeta.Key = prop;
-            userMeta.Value = value;
+          const isRegEx = (prop: string) => prop.startsWith('/') && prop.endsWith('/');
+          let test: (model: MetadataModel<unknown>) => boolean = null;
 
-            this.Owner.attach(userMeta);
+          if (isRegEx(prop)) {
+            const exprr = new RegExp(prop.substring(1, prop.length - 1));
+            test = (model: MetadataModel<unknown>) => exprr.test(model.Key);
+          } else {
+            test = (model: MetadataModel<unknown>) => model.Key === prop;
+          }
+
+          if (value === null || value === undefined) {
+            target.remove(test);
+          } else {
+            const found = target.filter(test);
+
+            if (found.length === 0 && !isRegEx(prop)) {
+              const userMeta = new this.Relation.TargetModel() as R;
+              userMeta.Key = prop;
+              userMeta.Value = value;
+
+              this.Owner.attach(userMeta);
+            } else {
+              found.forEach((x) => (x.Value = value));
+            }
           }
         }
 
@@ -106,6 +118,8 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
         if (found) {
           return found.Value;
         }
+
+        return null;
       },
     }) as any;
   }

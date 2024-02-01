@@ -283,13 +283,13 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    */
   protected async _dbDiff(data: T[]) {
     const query = this.Driver.del().from(this.TargetModelDescriptor.TableName).where(this.Relation.ForeignKey, this.Owner.PrimaryKeyValue);
- 
+
     if (this.Driver.Options.Database) {
       query.database(this.Driver.Options.Database);
     }
 
     // if we have data in relation, we need to exclude them from delete query
-    const toDelete = [...data].filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
+    const toDelete = data.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
     if (toDelete.length !== 0) {
       query.whereNotIn(this.TargetModelDescriptor.PrimaryKey, toDelete);
     }
@@ -323,7 +323,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    *  Inserts or updates models that are dirty only.
    */
   public async sync() {
-    const dirty = [...this].filter((x) => x.IsDirty || x.PrimaryKeyValue === null);
+    const dirty = this.filter((x) => x.IsDirty || x.PrimaryKeyValue === null);
 
     this.forEach((d) => {
       (d as any)[this.Relation.ForeignKey] = this.Owner.PrimaryKeyValue;
@@ -379,6 +379,14 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
   }
 
   /**
+   * Returns the elements of an array that meet the condition specified in a callback function.
+   * @param predicate A function that accepts up to three arguments. The filter method calls the predicate function one time for each element in the array.
+   */
+  public filter(predicate: (value: T, index?: number, array?: T[]) => boolean): T[] {
+    return [...this].filter(predicate);
+  }
+
+  /**
    * Removes from relation & deletes from db
    *
    * @param obj - data to remove
@@ -386,17 +394,29 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
   public remove(func: (a: T) => boolean): T[];
 
   /**
-   * Removes all objects by primary key
-   *
-   * @param obj - data to remove
+   * Removes all objects that met condition
+   * @param obj - predicate
    */
-  public remove(obj: T | T[]): T[];
-  public remove(obj: T | T[] | ((a: T) => boolean)): T[] {
-    if (_.isFunction(obj)) {
-      return _.remove(this, obj);
-    }
+  public remove(obj: (a: T) => boolean): T[];
 
-    const data = (Array.isArray(obj) ? obj : [obj]).map((d) => (d as ModelBase).PrimaryKeyValue);
-    return _.remove(this, (o) => data.indexOf(o.PrimaryKeyValue) !== -1);
+  /**
+   * Removes all objects by primary key
+   * @param obj data array to remove
+   */
+  public remove(obj: T[]): T[];
+
+  /**
+   * Removes object by primary key
+   * @param obj data to remove
+   * */
+  public remove(obj: T): T[];
+  public remove(obj: T | T[] | ((a: T) => boolean)): T[] {
+    const toRemove = _.isFunction(obj) ? this.filter(obj) : Array.isArray(obj) ? obj : [obj];
+
+    this.set((data) => {
+      return data.filter((d) => !toRemove.includes(d));
+    });
+
+    return toRemove;
   }
 }
