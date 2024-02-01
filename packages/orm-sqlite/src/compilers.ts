@@ -233,7 +233,7 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
     } else if (_.isNumber(this.builder.Default.Value)) {
       _stmt = `DEFAULT ${this.builder.Default.Value}`;
     } else if (this.builder.Default.Query instanceof RawQuery) {
-      _stmt = `DEFAULT ${this.builder.Default.Query}`;
+      _stmt = `DEFAULT (${this.builder.Default.Query.Query})`;
     }
 
     return _stmt;

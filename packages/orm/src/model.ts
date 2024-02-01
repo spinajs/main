@@ -59,7 +59,7 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
         }
 
         if (Array.isArray(a)) {
-          return a.concat(b);
+          return _.uniq(a.concat(b));
         }
 
         return a;
