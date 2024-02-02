@@ -37,7 +37,6 @@ export class CreateUser extends CliCommand {
       Login: options.login,
       Role: options.roles.split(','),
       RegisteredAt: DateTime.now(),
-      IsBanned: false,
       IsActive: false,
       Uuid: uuidv4(),
     });

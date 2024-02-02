@@ -4,6 +4,8 @@ import { AccessControl, Permission } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata.js';
 import { v4 as uuidv4 } from 'uuid';
+import { IQueueMessage, QueueEvent, QueueJob, QueueService } from '@spinajs/queue';
+import { UserActivated } from '../events/index.js';
 
 export class UserQueryScopes implements QueryScope {
   /**
@@ -28,6 +30,25 @@ export class UserQueryScopes implements QueryScope {
     return this.where({
       Login: login,
     });
+  }
+
+  public whereUuid(this: ISelectQueryBuilder<User[]> & UserQueryScopes, uuid: string) {
+    return this.where({
+      Uuid: uuid,
+    });
+  }
+
+  /**
+   * Tries to get user by any identifier
+   * 
+   * @param anything - login ,email, uuid or id
+   * @returns 
+   */
+  public whereAnything(this: ISelectQueryBuilder<User[] | User> & UserQueryScopes, anything: string | number) {
+    return this.where("Id", typeof anything === 'number' ? anything : parseInt(anything))
+      .orWhere("Uuid", anything)
+      .orWhere("Email", anything)
+      .orWhere("Login", anything)
   }
 }
 
@@ -237,10 +258,51 @@ export class User extends ModelBase {
   }
 
   public static getByUuid(uuid: string) {
-    return User.query()
-      .where({
-        Uuid: uuid,
-      })
-      .first();
+    return User.query().whereUuid(uuid).first();
   }
+
+  /**
+   * Tries to get user by any identifier
+   * 
+   * @param identifier login, email, id or uuid
+   * @returns 
+   */
+  public static getByAnything(identifier: string | number) {
+    return User.query().whereAnything(identifier).first();
+  }
+}
+
+export namespace Commands {
+
+  function _ev(event: IQueueMessage | QueueEvent | QueueJob): Promise<void> {
+    return DI.get<QueueService>('Queue').emit(event);
+  }
+
+  function _user(identifier: number | string) {
+    return User.query().whereAnything(identifier).first();
+  }
+
+  
+
+  export async function activate(identifier: number | string, active: boolean): Promise<void> {
+
+    identifier = _check_arg(
+      _number(),
+      _string(_trim())
+    )(identifier, 'identifier');
+
+    const result = await _user(identifier);
+
+    if (result.IsActive === active) {
+      throw new Error(`User is already ${active ? 'active' : 'inactive'}`);
+    }
+
+    result.IsActive = active;
+
+    await result.update();
+
+    await _ev(active ? new UserActivated(result.Uuid) : new UserActivated(result.Uuid));
+  }
+
+
 }

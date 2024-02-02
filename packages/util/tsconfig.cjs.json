@@ -5,5 +5,12 @@
     "outDir": "./lib/cjs",
     "module": "commonjs"
   },
-  "include": ["src/**/*"]
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../exceptions/tsconfig.cjs.json"
+    },
+  ]
 }
