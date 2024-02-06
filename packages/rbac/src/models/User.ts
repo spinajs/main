@@ -74,7 +74,6 @@ export class UserQueryScopes implements QueryScope {
           _trim(),
           _non_empty()
         ),
-
       )
 
     )(identifier, 'identifier');

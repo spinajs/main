@@ -122,7 +122,7 @@ export function _or(...checks: ((arg: any, name: string) => any)[]) {
             }
         }
 
-        throw new InvalidArgument(`${name} should pass at least one check`);
+        throw new InvalidArgument(`${name} should pass at least one check: ${checks.map(c => c.name).join(', ')}`);
     };
 }
 
