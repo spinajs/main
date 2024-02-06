@@ -24,7 +24,7 @@ export function _check_arg(...checks: ((arg: any, name: string) => any)[]) {
  * @returns validated number
  */
 
-export function _is_number(...checks: ((arg: unknown, name: string) => number)[]) {
+export function _is_number(...checks: ((arg: unknown, name: string) => unknown)[]) {
     return function (arg: unknown, name: string) {
         if (typeof arg !== 'number') {
             throw new InvalidArgument(`${name} should be number`);
