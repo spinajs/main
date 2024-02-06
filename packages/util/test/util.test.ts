@@ -2,8 +2,9 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
 
-import { _check_arg, _default, _is_array, _is_object, _is_string, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean } from '../src/index.js';
+import { _check_arg, _default, _is_array, _is_object, _is_string, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid } from '../src/index.js';
 import _ from 'lodash';
+
 
 
 chai.use(chaiAsPromised);
@@ -59,6 +60,36 @@ describe('util', () => {
             val = _check_arg(_is_number(_max(10)))(9, 'test');
             expect(val).to.be.eq(9);
             expect(() => _check_arg(_is_number(_max(10), _min(5)))(11, 'test')).to.throw();
+
+            val = _check_arg(_gt(10))(11, 'test');
+            expect(val).to.be.eq(11);
+
+            val = _check_arg(_lt(10))(9, 'test');
+            expect(val).to.be.eq(9);
+
+            expect(() => _check_arg(_gt(10))(6, 'test')).to.throw();
+            expect(() => _check_arg(_lt(10))(11, 'test')).to.throw();
+
+        });
+
+        it('validate regex', async () => {
+
+            let val: string = "";
+
+            val = _check_arg(_reg_match(/^[a-z]+$/))('test', 'test');
+            expect(val).to.be.eq('test');
+
+            expect(() => _check_arg(_reg_match(/^[0-9]+$/))('test', 'test')).to.throw();
+
+            val = _check_arg(_is_email())('test@wp.pl', 'test');
+            expect(val).to.be.eq('test@wp.pl');
+
+            expect(() => _check_arg(_is_email())('xxxx@xx', 'test')).to.throw();
+
+            val = _check_arg(_is_uuid())('8b2f6f3e-5f6b-4e6d-8f2d-2e2c5b8b6f3e', 'test');
+            expect(val).to.be.eq('8b2f6f3e-5f6b-4e6d-8f2d-2e2c5b8b6f3e');
+
+            expect(() => _check_arg(_is_uuid())('xxxx', 'test')).to.throw();
 
         });
 
@@ -122,9 +153,8 @@ describe('util', () => {
             val = _check_arg(_non_nil())(false, 'test');
             expect(val).to.be.eq(false);
 
-            val = _check_arg(_non_nil())({}, 'test');
-            expect(val).to.be.an('object');
-
+            expect(() => _check_arg(_non_nil())({}, 'test')).to.throw();
+            expect(() => _check_arg(_non_nil())([], 'test')).to.throw();
         });
 
         it('validate complex', async () => {

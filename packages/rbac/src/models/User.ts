@@ -6,6 +6,7 @@ import { UserMetadata } from './UserMetadata.js';
 import { v4 as uuidv4 } from 'uuid';
 import { IQueueMessage, QueueEvent, QueueJob, QueueService } from '@spinajs/queue';
 import { UserActivated } from '../events/index.js';
+import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default } from "@spinajs/util";
 
 export class UserQueryScopes implements QueryScope {
   /**
@@ -21,34 +22,70 @@ export class UserQueryScopes implements QueryScope {
   }
 
   public whereEmail(this: ISelectQueryBuilder<User[]> & UserQueryScopes, email: string) {
+
+    email = _check_arg(
+      _trim(),
+      _non_empty(),
+      _is_email()
+    )(email, 'email');
+
     return this.where({
       Email: email,
     });
   }
 
   public whereLogin(this: ISelectQueryBuilder<User[]> & UserQueryScopes, login: string) {
+
+    login = _check_arg(_trim(), _non_empty())(login, 'login');
+
     return this.where({
       Login: login,
     });
   }
 
   public whereUuid(this: ISelectQueryBuilder<User[]> & UserQueryScopes, uuid: string) {
+
+    uuid = _check_arg(_trim(), _is_uuid())(uuid, 'uuid');
+
     return this.where({
       Uuid: uuid,
     });
   }
 
   /**
-   * Tries to get user by any identifier
+   * Tries to get user by ONE OF:
+   *  - UUID
+   *  - EMAIL
+   *  - LOGIN
+   *  - ID
    * 
-   * @param anything - login ,email, uuid or id
+   * @param identifier - login ,email, uuid or id
    * @returns 
    */
-  public whereAnything(this: ISelectQueryBuilder<User[] | User> & UserQueryScopes, anything: string | number) {
-    return this.where("Id", typeof anything === 'number' ? anything : parseInt(anything))
-      .orWhere("Uuid", anything)
-      .orWhere("Email", anything)
-      .orWhere("Login", anything)
+  public whereAnything(this: ISelectQueryBuilder<User[] | User> & UserQueryScopes, identifier: string | number) {
+
+    identifier = _check_arg(
+      _or(
+        _is_number(
+          _gt(0)
+        ),
+        _to_int(),
+        _is_string(
+          _trim(),
+          _non_empty()
+        ),
+
+      )
+
+    )(identifier, 'identifier');
+
+    if (typeof identifier === 'number') {
+      return this.where("Id", identifier);
+    }
+
+    return this.where("Uuid", identifier)
+      .orWhere("Email", identifier)
+      .orWhere("Login", identifier);
   }
 }
 
@@ -104,10 +141,7 @@ export class User extends ModelBase {
   public constructor(data?: Partial<User>) {
     super(data);
 
-    if (this.Uuid === undefined) {
-      this.Uuid = uuidv4();
-    }
-
+    this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
     this._ac = DI.get('AccessControl');
   }
 
@@ -250,14 +284,33 @@ export class User extends ModelBase {
   }
 
   public static getByLogin(login: string) {
+
+    login = _check_arg(
+      _trim(),
+      _non_empty()
+    )(login, 'login');
+
     return User.query().whereLogin(login).first();
   }
 
   public static getByEmail(email: string) {
+
+    email = _check_arg(
+      _trim(),
+      _non_empty(),
+      _is_email()
+    )(email, 'email');
+
     return User.query().whereEmail(email).first();
   }
 
   public static getByUuid(uuid: string) {
+
+    uuid = _check_arg(
+      _trim(),
+      _is_uuid()
+    )(uuid, 'uuid');
+
     return User.query().whereUuid(uuid).first();
   }
 
@@ -278,24 +331,13 @@ export namespace Commands {
     return DI.get<QueueService>('Queue').emit(event);
   }
 
-  function _user(identifier: number | string) {
-    return User.query().whereAnything(identifier).first();
-  }
 
-  
 
   export async function activate(identifier: number | string, active: boolean): Promise<void> {
 
-    identifier = _check_arg(
-      _number(),
-      _string(_trim())
-    )(identifier, 'identifier');
-
-    const result = await _user(identifier);
-
-    if (result.IsActive === active) {
-      throw new Error(`User is already ${active ? 'active' : 'inactive'}`);
-    }
+    const result = await User.query()
+      .whereAnything(identifier)
+      .firstOrFail();
 
     result.IsActive = active;
 
@@ -306,3 +348,7 @@ export namespace Commands {
 
 
 }
+function _is_uuid(): any {
+  throw new Error('Function not implemented.');
+}
+

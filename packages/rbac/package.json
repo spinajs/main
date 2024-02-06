@@ -58,6 +58,7 @@
     "@spinajs/reflection": "^2.0.185",
     "@spinajs/queue": "^2.0.185",
     "@spinajs/validation": "^2.0.185",
+    "@spinajs/util": "^2.0.185",
     "accesscontrol": "^2.2.1",
     "argon2": "^0.30.3",
     "cron": "^2.2.0",
