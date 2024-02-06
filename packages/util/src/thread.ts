@@ -13,3 +13,26 @@ export const sleep = (duration: number) => {
     }, duration);
   });
 };
+
+/**
+ * Delay execution of a function for a given duration
+ */
+export const delay = <T>(duration: number, callback: () => T) => {
+  return new Promise<T>((resolve, reject) => {
+    setTimeout(() => {
+      try {
+        const result = callback();
+
+        if (result instanceof Promise) {
+          result.then(resolve).catch(reject);
+          return;
+        }
+
+        resolve(result);
+      } catch (e) {
+        reject(e);
+      }
+    }, duration);
+  });
+
+}
