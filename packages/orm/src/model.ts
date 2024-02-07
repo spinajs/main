@@ -409,7 +409,6 @@ export class ModelBase<M = unknown> implements IModelBase {
             ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
             break;
           case RelationType.Many:
-
             // attach to related model too
             const rel = [...data.ModelDescriptor.Relations.entries()].find((e) => e[1].ForeignKey === v.ForeignKey);
             if (rel) {
@@ -470,8 +469,12 @@ export class ModelBase<M = unknown> implements IModelBase {
     await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
   }
 
-  public async update() {
+  public async update(data?: Partial<this>) {
     const { query } = this.createUpdateQuery();
+
+    if (data) {
+      this.hydrate(data);
+    }
 
     if (this.ModelDescriptor.Timestamps.UpdatedAt) {
       (this as any)[this.ModelDescriptor.Timestamps.UpdatedAt] = DateTime.now();
@@ -526,7 +529,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param insertBehaviour - insert mode
    */
   public async insertOrUpdate() {
-      await this.insert(InsertBehaviour.InsertOrUpdate);
+    await this.insert(InsertBehaviour.InsertOrUpdate);
   }
 
   /**

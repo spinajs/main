@@ -47,7 +47,8 @@ export class DefaultQueueService extends QueueService {
         event.JobId = jModel.JobId;
       }
 
-      this.Connections.get(c).emit(event);
+      await this.Connections.get(c).emit(event);
+
       this.Log.trace(`Emitted message ${event.Name}, type: ${event.Type} to connection ${c}`);
     }
   }

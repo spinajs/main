@@ -6,7 +6,7 @@ export class ResolveException extends Error {
    * Constructs new exception with message
    * @param message - error message
    */
-  constructor(message?: string) {
+  constructor(message?: string, public InnerError? : Error) {
     super(message);
   }
 }

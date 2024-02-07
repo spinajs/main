@@ -3,7 +3,6 @@ import { ForwardRefFunction, RelationType } from './interfaces.js';
 import { ModelBase } from './model.js';
 import { Injectable, isConstructor } from '@spinajs/di';
 import { OneToManyRelationList, SingleRelation } from './relation-objects.js';
- 
 
 export abstract class ModelHydrator {
   public abstract hydrate(target: any, values: any): void;
@@ -28,7 +27,10 @@ export class DbPropertyHydrator extends ModelHydrator {
       }
 
       const column = descriptor.Columns?.find((c) => c.Name === k);
-      (target as any)[k] = column.Converter ? column.Converter.fromDB(values[k], values, descriptor.Converters.get(column.Name).Options) : values[k];
+
+      if (values[k] !== undefined) {
+        (target as any)[k] = column.Converter ? column.Converter.fromDB(values[k], values, descriptor.Converters.get(column.Name).Options) : values[k];
+      }
     });
   }
 }

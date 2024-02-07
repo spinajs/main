@@ -7,7 +7,7 @@ import { Autoinject } from '@spinajs/di';
 import { v4 as uuidv4 } from 'uuid';
 import { PasswordProvider } from '../interfaces.js';
 import { User } from '../models/User.js';
-import { UserRegisteredMessage } from '../events/NewUser.js';
+import { UserCreated } from '../events/NewUser.js';
 
 interface UserCreationOptions {
   email: string;
@@ -51,7 +51,7 @@ export class CreateUser extends CliCommand {
 
     await user.insert();
 
-    const qMessage = new UserRegisteredMessage();
+    const qMessage = new UserCreated();
     qMessage.hydrate(user.toJSON());
 
     // notify others about user creation

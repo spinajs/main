@@ -116,7 +116,11 @@ export abstract class QueueMessage implements IQueueMessage {
    */
   public ScheduleCron: string;
 
-  constructor() {
+  constructor(data?: any) {
+    if (data) {
+      this.hydrate(data);
+    }
+
     this.CreatedAt = DateTime.now();
   }
 
@@ -134,8 +138,8 @@ export abstract class QueueMessage implements IQueueMessage {
  * listeners without us calling them explicitly. where in case of Jobs we would have to call them each one explicitly.
  */
 export abstract class QueueEvent extends QueueMessage {
-  constructor() {
-    super();
+  constructor(data?: any) {
+    super(data);
 
     this.Type = QueueMessageType.Event;
   }
@@ -343,7 +347,6 @@ export interface IQueueConnectionOptions {
 }
 
 export interface IMessageOptions {
-
   Persistent: boolean;
 
   Priority: number;
