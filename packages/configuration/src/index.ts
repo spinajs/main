@@ -7,3 +7,4 @@ export * from './sources.js';
 export * from './decorators.js';
 export * from './configuration.js';
 export * from './exception.js';
+export * from './fp.js';

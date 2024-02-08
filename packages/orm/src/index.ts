@@ -16,3 +16,4 @@ export * from './converters.js';
 export * from './wrappers.js';
 export * from './exceptions.js';
 export * from "./metadata.js";
+export * from './fp.js';

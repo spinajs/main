@@ -20,13 +20,11 @@ const rbac = {
       UserBanned: { connection: 'rbac-user-empty-queue' },
       UserDeactivated: { connection: 'rbac-user-empty-queue' },
       UserDeleted: { connection: 'rbac-user-empty-queue' },
-      UserLoginFailed: { connection: 'rbac-user-empty-queue' },
-      UserMetadataAdded: { connection: 'rbac-user-empty-queue' },
-      UserMetadataChanged: { connection: 'rbac-user-empty-queue' },
-      UserMetadataDeleted: { connection: 'rbac-user-empty-queue' },
+      UserLogged: { connection: 'rbac-user-empty-queue' },
       UserPropertyChanged: { connection: 'rbac-user-empty-queue' },
       UserUnbanned: { connection: 'rbac-user-empty-queue' },
       UserPasswordChanged: { connection: 'rbac-user-empty-queue' },
+      UserPasswordChangeRequest: { connection: 'rbac-user-empty-queue' },
       UserRoleGranted: { connection: 'rbac-user-empty-queue' },
       UserRoleRevoked: { connection: 'rbac-user-empty-queue' },
     },
@@ -44,15 +42,12 @@ const rbac = {
   },
   rbac: {
     enableGuestAccount: false,
-    timeline: {
-      schedule: '1 0 */1 * *', // delete old entries once a day
-      ttl: 24 * 60,
-    },
-    users: {
+    creation: {
       // when user is created, should he confirm email
       // if false, user is acvite at creation,
       // when true, first, user will be sent confirmation email
       emailConfimationOnCreation: false,
+      emailTemplate: "./user-created-email-template.pug",
     },
     // default roles to manage users & guest account
     roles: [
@@ -90,6 +85,7 @@ const rbac = {
     },
     password: {
       service: 'BasicPasswordProvider',
+      changePasswordTemplateRequest: "./user-change-password-request.pug",
 
       validation: {
         service: 'BasicPasswordValidationProvider',

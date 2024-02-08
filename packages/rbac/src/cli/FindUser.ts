@@ -2,39 +2,20 @@ import { Log, Logger } from '@spinajs/log';
 import { Option, CliCommand, Command } from '@spinajs/cli';
 import { User } from '../models/User.js';
 
-interface UserOption {
-  idOrUuid?: string;
-  login?: string;
-  email?: string;
-}
-
-@Command('rbac:user-find', 'Sets active or inactive user')
-@Option('-i, --idOrUuid <idOrUuid>', false, 'numeric id or uuid')
-@Option('-l, --login <login>', false, 'login')
-@Option('-e, --email <email>', false, 'email')
+@Command('rbac:user-find', 'Finds user with given identifier')
+@Option('-i, --identifier <idOrUuid>', false, 'numeric id or uuid')
 export class CreateUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
-  public async execute(options: UserOption): Promise<void> {
-    let query = null;
+  public async execute(identifier: string): Promise<void> {
+    const user = await User.getByAnything(identifier);
 
-    if (options.email) {
-      query = User.where('Email', 'like', `%${options.email}`);
+    if (user) {
+      this.Log.info(`User : ${user.Id}, ${user.Uuid}, email: ${user.Email}, login: ${user.Login}, active: ${user.IsActive}, CreatedAt: ${user.CreatedAt.toISO()}, LastLogin: ${user.LastLoginAt.toISO()}`);
+      return;
     }
 
-    if (options.login) {
-      query = User.where('Login', 'like', `%${options.login}`);
-    }
-
-    if (options.idOrUuid) {
-      query = User.where('Id', options.idOrUuid).orWhere('Uuid', options.idOrUuid);
-    }
-
-    const user = await query;
-
-    user.forEach((x) => {
-      this.Log.info(`User : ${x.Id}, ${x.Uuid}, email: ${x.Email}, login: ${x.Login}, active: ${x.IsActive}, banned: ${x.IsBanned}, CreatedAt: ${x.CreatedAt.toISO()}`);
-    });
+    this.Log.error(`User not found`);
   }
 }

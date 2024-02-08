@@ -1,13 +1,6 @@
-import { QueueService } from '@spinajs/queue';
 import { Log, Logger } from '@spinajs/log';
 import { CliCommand, Command, Option } from '@spinajs/cli';
-import { AutoinjectService } from '@spinajs/configuration';
-import { DateTime } from 'luxon';
-import { Autoinject } from '@spinajs/di';
-import { v4 as uuidv4 } from 'uuid';
-import { PasswordProvider } from '../interfaces.js';
-import { User } from '../models/User.js';
-import { UserCreated } from '../events/NewUser.js';
+import { Commands } from '../models/User.js';
 
 interface UserCreationOptions {
   email: string;
@@ -25,38 +18,12 @@ export class CreateUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
-  @AutoinjectService('rbac.password')
-  protected PasswordProvider: PasswordProvider;
-
-  @Autoinject(QueueService)
-  protected Queue: QueueService;
-
   public async execute(options: UserCreationOptions): Promise<void> {
-    const user = new User({
-      Email: options.email,
-      Login: options.login,
-      Role: options.roles.split(','),
-      RegisteredAt: DateTime.now(),
-      IsActive: false,
-      Uuid: uuidv4(),
-    });
-
-    if (options.password) {
-      user.Password = await this.PasswordProvider.hash(options.password);
-    } else {
-      const pwd = await this.PasswordProvider.generate();
-      user.Password = await this.PasswordProvider.hash(pwd);
-      this.Log.warn(`USER PASSWORD: ${pwd}`);
+    try {
+      await Commands.create(options.email, options.login, options.password, options.roles.split(','));
+      this.Log.success(`User created`);
+    } catch (e) {
+      this.Log.error(`Error while creating user ${e.message}`);
     }
-
-    await user.insert();
-
-    const qMessage = new UserCreated();
-    qMessage.hydrate(user.toJSON());
-
-    // notify others about user creation
-    this.Queue.emit(qMessage);
-
-    this.Log.success('User creation SUCCESS, you must activate user first before it can login !');
   }
 }

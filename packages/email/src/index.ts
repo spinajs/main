@@ -8,6 +8,7 @@ import { EmailSend } from './jobs/EmailSend.js';
 export * from './interfaces.js';
 export * from './transports.js';
 export * from './jobs/EmailSend.js';
+export * from "./fp.js";
 
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {

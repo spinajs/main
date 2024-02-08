@@ -56,6 +56,7 @@
     "@spinajs/di": "^2.0.185",
     "@spinajs/exceptions": "^2.0.185",
     "@spinajs/internal-logger": "^2.0.185",
+    "@spinajs/util": "2.0.185",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",

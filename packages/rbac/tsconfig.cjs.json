@@ -6,5 +6,5 @@
     "module": "commonjs"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../queue/tsconfig.cjs.json" },{ "path": "../util/tsconfig.cjs.json" },{ "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../log/tsconfig.cjs.json" }, { "path": "../orm/tsconfig.cjs.json" }, { "path": "../reflection/tsconfig.cjs.json" }]
+  "references": [{ "path" : "../email/tsconfig.cjs.json" }, { "path": "../queue/tsconfig.cjs.json" },{ "path": "../util/tsconfig.cjs.json" },{ "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../log/tsconfig.cjs.json" }, { "path": "../orm/tsconfig.cjs.json" }, { "path": "../reflection/tsconfig.cjs.json" }]
 }

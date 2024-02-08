@@ -8,6 +8,7 @@
   },
   "include": ["src/**/*"],
   "references": [
+    { "path": "../util/tsconfig.mjs.json" },
     { "path": "../exceptions/tsconfig.mjs.json" },
     { "path": "../configuration-common/tsconfig.mjs.json" },
     { "path": "../internal-logger/tsconfig.mjs.json" },

@@ -99,11 +99,6 @@ export class EmailSenderSmtp extends EmailSender {
 
     let message = await this.Transporter.sendMail(options);
 
-    // delete all downloaded files for attachement
-    // all non local files are downloaded
-    // and temporary path is in email attachement path property
-    await Promise.all(options.attachments.filter((x: any) => x.provider !== 'fs-local').map((x: any) => this.FileSystems.get(x.provider).rm(x.path)));
-
     this.Log.trace(`Sent email with data: ${JSON.stringify(_.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']))}, SMTP response: ${JSON.stringify(message)}`);
   }
 }

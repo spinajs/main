@@ -352,7 +352,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    *
    * @param obj
    */
-  public set(obj: T[] | ((data: T[], pKey: string) => T[])) {
+  public set(obj: T[] | ((data: T[], pKeyName: string) => T[])) {
     const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor.PrimaryKey) : obj;
     this.empty();
     this.push(...toPush);
