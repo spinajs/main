@@ -62,12 +62,14 @@ describe('Authorization provider tests', () => {
     result = await provider.isActive('test@spinajs.pl');
     expect(result).to.be.true;
 
-    result = await provider.isActive('not-active@spinajs.pl');
+    result = await provider.isActive('test-notactive@spinajs.pl');
     expect(result).to.be.false;
 
-    result = await provider.isActive(new User({
-      Email: 'test@spinajs.pl',
-    }));
+    result = await provider.isActive(
+      new User({
+        Email: 'test@spinajs.pl',
+      }),
+    );
 
     expect(result).to.be.true;
 
@@ -82,7 +84,7 @@ describe('Authorization provider tests', () => {
   });
   it('Should check for banned user', async () => {
     const provider = DI.resolve(AuthProvider);
-    let result = await provider.isBanned('test2@spinajs.pl');
+    let result = await provider.isBanned('test-banned@spinajs.pl');
 
     expect(result).to.be.true;
   });
@@ -112,13 +114,17 @@ describe('Authorization provider tests', () => {
   });
 
   it('should auth fail on banned user', async () => {
+    const provider = DI.resolve(AuthProvider);
+    expect(async () => await provider.authenticate('test-banned@spinajs.pl', 'bbbb')).to.be.rejected;
   });
 
   it('should auth fail on user not active', async () => {
-
+    const provider = DI.resolve(AuthProvider);
+    expect(async () => await provider.authenticate('test-notactive@spinajs.pl', 'bbbb')).to.be.rejected;
   });
 
   it('Should auth fail on user deleted', async () => {
-
+    const provider = DI.resolve(AuthProvider);
+    expect(async () => await provider.authenticate('test-deleted@spinajs.pl', 'bbbb')).to.be.rejected;
   });
 });

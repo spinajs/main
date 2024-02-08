@@ -12,6 +12,7 @@ export * from './interfaces.js';
 export * from './decorators.js';
 export * from './models/JobModel.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
+export * from "./fp.js"
 
 @Injectable(QueueService)
 export class DefaultQueueService extends QueueService {
