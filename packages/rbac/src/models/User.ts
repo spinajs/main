@@ -470,7 +470,7 @@ export namespace Commands {
       _user(identifier),
 
       // update password
-      _update({
+      _update<User>({
         Password: await sPassword.hash(password),
       }),
 
@@ -500,7 +500,7 @@ export namespace Commands {
 
         throw result.Error;
       },
-      _update({ LastLoginAt: DateTime.now() }),
+      _update<User>({ LastLoginAt: DateTime.now() }),
       (u: User) => _ev(new UserLogged(u.Uuid, DateTime.now())),
     );
   }
