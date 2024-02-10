@@ -41,7 +41,10 @@ export interface IEmail {
 
   bcc?: string[];
 
-  from: string;
+  /**
+   * From email - if not set, default adress from connection configuration is used
+   */
+  from?: string;
 
   connection: string;
 

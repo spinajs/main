@@ -32,6 +32,55 @@ export class TestConfiguration extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       rbac: {
+        email: {
+          connection: 'rbac-email-connection',
+    
+          changePassword: {
+            enabled: true,
+            template: './user-change-password-template.pug',
+            subject: 'Password change request',
+          },
+    
+          // when user is created & activated should he receive email
+          created: {
+            enabled: true,
+            template: './user-creation-email-template.pug',
+            subject: 'Please confirm your email',
+          },
+    
+          banned: {
+            enabled: true,
+            template: './user-banned-email-template.pug',
+            subject: 'Account banned',
+          },
+    
+          unbanned: {
+            enabled: true,
+            template: './user-unbanned-email-template.pug',
+            subject: 'Account unbanned',
+          },
+    
+          deleted: { 
+            enabled: true,
+            template: './user-deleted-email-template.pug',
+            subject: 'Account deleted',
+          },
+    
+          deactivated: { 
+            enabled: true,
+            template: './user-deactivated-email-template.pug',
+            subject: 'Account deactivated',
+          },
+    
+          // when user is created, should he confirm email
+          // if false, user is acvite at creation,
+          // when true, first, user will be sent confirmation email
+          confirm: {
+            enabled: true,
+            template: './user-confirmation-email-template.pug',
+            subject: 'Account created',
+          }
+        },
         // default roles to manage users & guest account
         roles: [
           {

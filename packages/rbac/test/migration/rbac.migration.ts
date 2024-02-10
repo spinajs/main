@@ -3,7 +3,7 @@ import { User } from '../../src/models/User.js';
 import { v4 as uuidv4 } from 'uuid';
 import { DI } from '@spinajs/di';
 import { PasswordProvider } from '../../src/interfaces.js';
-import { ban } from '../../src/commands.js';
+//import { ban } from '../../src/actions.js';
 
 export const TEST_USER_UUID = uuidv4();
 export const TEST_USER_UUID_2 = uuidv4();
@@ -37,7 +37,7 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
 
     const bannedUser = new User({
       Email: 'test-banned@spinajs.pl',
-      Login: 'test',
+      Login: 'test-banned',
       Password: await provider.hash('bbbb'),
       Role: ['admin'],
       IsActive: true,
@@ -45,11 +45,11 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
     });
 
     await bannedUser.insert();
-    await ban(TEST_USER_UUID_3);
+    //await ban(TEST_USER_UUID_3);
 
     const notActiveUser = new User({
       Email: 'test-notactive@spinajs.pl',
-      Login: 'test',
+      Login: 'test-notactive',
       Password: await provider.hash('bbbb'),
       Role: ['admin'],
       IsActive: false,
@@ -60,7 +60,7 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
 
     const deletedUser = new User({
       Email: 'test-deleted@spinajs.pl',
-      Login: 'test',
+      Login: 'test-deleted',
       Password: await provider.hash('bbbb'),
       Role: ['admin'],
       IsActive: false,

@@ -23,7 +23,7 @@ export function _check_arg(...checks: ((arg: any, name: string) => any)[]) {
  * @returns validated number
  */
 
-export function _is_number(...checks: ((arg: unknown, name: string) => unknown)[]) {
+export function _is_number(...checks: ((arg: number, name: string) => unknown)[]) {
   return function (arg: unknown, name: string) {
     if (typeof arg !== 'number') {
       throw new InvalidArgument(`${name} should be number`);
@@ -77,7 +77,7 @@ export function _is_boolean(...checks: ((arg: unknown, name: string) => boolean)
  * @param checks
  * @returns
  */
-export function _is_string(...checks: ((arg: unknown, name: string) => unknown)[]) {
+export function _is_string(...checks: ((arg: string, name: string) => unknown)[]) {
   return function (arg: unknown, name: string) {
     if (typeof arg !== 'string') {
       throw new InvalidArgument(`${name} should be string`);

@@ -53,7 +53,6 @@ export class EmailSenderSmtp extends EmailSender {
       // we must catch exception
       await this.Transporter.verify();
     } catch (err) {
-      this.Log.error(`Cannot connect to smtp server. Error: ${err.message}, connection: ${this.Options.name}`);
       throw new Error(`cannot send smtp emails, verify() failed. Pleas check email smtp configuration for connection ${this.Options.name}`);
     }
 
@@ -62,7 +61,7 @@ export class EmailSenderSmtp extends EmailSender {
 
   public async send(email: IEmail): Promise<void> {
     const options = {
-      from: email.from, // sender address
+      from: email.from ?? this.Options.defaults.mailFrom, // sender address
       to: email.to.join(','), // list of receivers
       cc: email.cc ? email.cc.join(',') : null,
       bcc: email.bcc ? email.bcc.join(',') : null,

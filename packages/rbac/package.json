@@ -2,14 +2,13 @@
   "name": "@spinajs/rbac",
   "version": "2.0.185",
   "description": "Role and Attribute based Access Control for SpinaJS framework",
-  
-    "main": "lib/cjs/index.js",
+  "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+    ".": {
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
   },
   "type": "module",
   "private": false,
@@ -29,12 +28,10 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "files": [
     "lib/**/*"
   ],
-  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -55,10 +52,10 @@
     "@spinajs/exceptions": "^2.0.185",
     "@spinajs/log": "^2.0.185",
     "@spinajs/orm": "^2.0.185",
-    "@spinajs/reflection": "^2.0.185",
     "@spinajs/queue": "^2.0.185",
-    "@spinajs/validation": "^2.0.185",
+    "@spinajs/reflection": "^2.0.185",
     "@spinajs/util": "^2.0.185",
+    "@spinajs/validation": "^2.0.185",
     "accesscontrol": "^2.2.1",
     "argon2": "^0.30.3",
     "cron": "^2.2.0",

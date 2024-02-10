@@ -4,10 +4,26 @@
  * @param fns
  * @returns
  */
-export function _chain<T>(...fns: ((arg?: unknown) => Promise<unknown>)[]): Promise<T> {
-  return fns.reduce((prev, curr) => {
-    return prev.then((res) => curr(res));
+export function _chain<T>(...fns: (((arg?: any) => Promise<any>) | any | Promise<any>)[]): Promise<T> {
+  return fns.reduce((prev: Promise<T>, curr) => {
+    if (curr instanceof Promise) {
+      return prev.then(() => curr);
+    } else if (typeof curr === 'function') {
+      return prev.then((res) => (curr as (arg?: any) => Promise<T>)(res));
+    } else {
+      return prev.then(() => Promise.resolve(curr));
+    }
   }, Promise.resolve(null));
+}
+
+
+
+export function _zip(...fns: ((arg?: any) => Promise<any>)[]): () => Promise<unknown> {
+  return () => Promise.all(fns.map((fn) => fn()));
+}
+
+export function _use(value: () => Promise<unknown>, name: string) {
+  return async (arg?: unknown) => Object.assign({}, arg, { [name]: await value() });
 }
 
 /**
@@ -22,5 +38,13 @@ export function _chain<T>(...fns: ((arg?: unknown) => Promise<unknown>)[]): Prom
  * @returns
  */
 export function _catch(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => void) {
-  return (arg: unknown) => promise(arg).catch(onError);
+  return (arg?: unknown) => promise(arg).catch(onError);
+}
+
+export function _fallback(promise: (arg: unknown) => Promise<unknown>, fallback: (err: Error) => unknown) {
+  return (arg?: unknown) => promise(arg).catch(fallback);
+}
+
+export function _tap(promise: (arg: unknown) => Promise<unknown>) {
+  return (arg?: unknown) => promise(arg).then(() => arg);
 }
