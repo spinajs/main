@@ -1,9 +1,5 @@
-import { QueueEvent, Event } from '@spinajs/queue';
-import { DateTime } from 'luxon';
+import { Event } from '@spinajs/queue';
+import { UserEvent } from './UserEvent.js';
 
 @Event()
-export class UserLogged extends QueueEvent {
-  constructor(public UserUUID: string, public datetime: DateTime) {
-    super();
-  }
-}
+export class UserLogged extends UserEvent {}

@@ -1,8 +1,5 @@
-import { QueueEvent, Event } from '@spinajs/queue';
+import { Event } from '@spinajs/queue';
+import { UserEvent } from './UserEvent.js';
 
 @Event()
-export class UserPasswordChanged extends QueueEvent {
-  constructor(public UserUUID: string) {
-    super();
-  }
-}
+export class UserPasswordChanged extends UserEvent {}

@@ -3,8 +3,11 @@ import { User } from '../index.js';
 
 @Event()
 export class UserEvent extends QueueEvent {
+  public UserUUID: string;
 
-    constructor(_user: User) {
-        super();
-    }
+  constructor(user: User) {
+    super();
+
+    this.UserUUID = user.Uuid;
+  }
 }

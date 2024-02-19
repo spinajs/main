@@ -21,7 +21,7 @@ function _clearMeta(meta: string) {
 }
 
 export async function activate(identifier: number | string) {
-  return _chain<void>(_user(identifier), _update<User>({ IsActive: true }), (u: User) => _ev(new UserActivated(u.Uuid)));
+  return _chain<void>(_user(identifier), _update<User>({ IsActive: true }), (u: User) => _ev(new UserActivated(u)));
 }
 
 export async function deactivate(identifier: number | string): Promise<void> {
