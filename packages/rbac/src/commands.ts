@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon';
 import { _update } from '@spinajs/orm';
 import { v4 as uuidv4 } from 'uuid';
-import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserUnbanned } from '../events/index.js';
+import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserUnbanned } from './events/index.js';
 import { _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length } from '@spinajs/util';
-import { AuthProvider, PasswordProvider, PasswordValidationProvider } from '../interfaces.js';
+import { AuthProvider, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
 import _ from 'lodash';
 import { _cfg, _service } from '@spinajs/configuration';
 import { _email_deferred } from '@spinajs/email';
@@ -21,25 +21,11 @@ function _clearMeta(meta: string) {
 }
 
 export async function activate(identifier: number | string) {
-  return _chain<void>(
-    _user(identifier),
-    _update<User>({ IsActive: true }),
-    _catch(
-      (u: User) => _ev(new UserActivated(u.Uuid)),
-      (err: Error) => console.log(err),
-    ),
-  );
+  return _chain<void>(_user(identifier), _update<User>({ IsActive: true }), (u: User) => _ev(new UserActivated(u.Uuid)));
 }
 
 export async function deactivate(identifier: number | string): Promise<void> {
-  _chain(
-    _user(identifier),
-    _update<User>({ IsActive: false }),
-    _catch(
-      (u: User) => _ev(new UserDeactivated(u.Uuid)),
-      (err: Error) => console.log(err),
-    ),
-  );
+  _chain(_user(identifier), _update<User>({ IsActive: false }), (u: User) => _ev(new UserDeactivated(u.Uuid)));
 }
 
 export async function create(email: string, login: string, password: string, roles: string[]): Promise<User> {
@@ -55,21 +41,19 @@ export async function create(email: string, login: string, password: string, rol
     _default(() => sPassword.generate()),
   )(password, 'password');
 
-  const hPassword = await sPassword.hash(password);
-
   return _chain(
-    () =>
-      Promise.resolve(
-        new User({
-          Email: email,
-          Login: login,
-          Password: hPassword,
-          Role: roles,
-          RegisteredAt: DateTime.now(),
-          IsActive: false,
-          Uuid: uuidv4(),
-        }),
-      ),
+    () => sPassword.hash(password),
+    async (password: string) => {
+      return new User({
+        Email: email,
+        Login: login,
+        Password: password,
+        Role: roles,
+        RegisteredAt: DateTime.now(),
+        IsActive: false,
+        Uuid: uuidv4(),
+      });
+    },
     (u: User) => u.insert().then(() => u),
     async (u: User) => {
       await _ev(new UserCreated(u.toJSON()));

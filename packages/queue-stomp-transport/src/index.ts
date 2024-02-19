@@ -131,6 +131,7 @@ export class StompQueueClient extends QueueClient {
     if (message.ScheduleRepeat) {
       headers['AMQ_SCHEDULED_REPEAT'] = message.ScheduleRepeat.toString();
     }
+    
     channels.forEach((c) => {
       this.Client.publish({
         destination: c,

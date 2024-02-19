@@ -349,6 +349,12 @@ describe('stomp queue transport test', function () {
     expect(s.calledOnce).to.be.true;
   });
 
+  it('Should not block queue after job error', async () => {
+
+    
+
+  });
+
   it('Should execute 10 times', async () => {
     const c = await q();
     const s = sinon.stub().returns(Promise.resolve());

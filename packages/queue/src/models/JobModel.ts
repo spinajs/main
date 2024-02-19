@@ -4,7 +4,6 @@ import { ModelBase, Connection, Model, Json, CreatedAt, DateTime as DT, Primary 
 /**
  * Base modele for users used by ACL
  *
- * To add / extend fields simply extend this model and register as default user model in ACL service
  */
 @Connection('queue')
 @Model('queue_jobs')
