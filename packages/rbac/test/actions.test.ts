@@ -10,6 +10,9 @@ import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 
 import './migration/rbac.migration.js';
+//import { pipe, Effect } from 'effect';
+import { _usr, _clr_meta, _email } from '../src/actions.js';
+import { Effect } from 'effect';
 
 chai.use(chaiAsPromised);
 
@@ -36,33 +39,45 @@ describe('User model tests', function () {
     DI.clearCache();
   });
 
-  it('Should activate user', async () => {});
+  it('Should activate user', async () => {
 
-  it('Should deactivate user', async () => {});
+    // await Effect.runPromise(pipe(_usr('test@spinajs.pl'),_clr_meta('meta-test')));
+    //   .then((u) => {
+    //     console.log(u);
+    //   }).catch((e) => {
+    //     console.log(e);
+    //   });
 
-  it('Should create user', async () => {});
+    await Effect.runPromise(_usr("test").pipe(_email('banned')));
 
-  it('Should delete user', async () => {});
 
-  it('Should ban user', async () => {});
+  });
 
-  it('Should unban user', async () => {});
+  it('Should deactivate user', async () => { });
 
-  it('Should change password', async () => {});
+  it('Should create user', async () => { });
 
-  it('Should grant role', async () => {});
+  it('Should delete user', async () => { });
 
-  it('Should revoke role', async () => {});
+  it('Should ban user', async () => { });
 
-  it('Should update user', async () => {});
+  it('Should unban user', async () => { });
 
-  it('Should authenticate user', async () => {});
+  it('Should change password', async () => { });
 
-  it('Password change request ', async () => {});
+  it('Should grant role', async () => { });
 
-  it('Password change after request', async () => {});
+  it('Should revoke role', async () => { });
 
-  it('Password change after request with wrong token', async () => {});
+  it('Should update user', async () => { });
 
-  it('Password change after request with expired token', async () => {});
+  it('Should authenticate user', async () => { });
+
+  it('Password change request ', async () => { });
+
+  it('Password change after request', async () => { });
+
+  it('Password change after request with wrong token', async () => { });
+
+  it('Password change after request with expired token', async () => { });
 });

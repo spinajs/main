@@ -2,7 +2,7 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
 
-import { _check_arg, _default, _is_array, _is_object, _is_string, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid } from '../src/index.js';
+import { _check_arg, _default, _is_array, _is_object, _is_string, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _zip, _catch, _use, _fallback, _tap } from '../src/index.js';
 import _ from 'lodash';
 
 
@@ -10,6 +10,121 @@ import _ from 'lodash';
 chai.use(chaiAsPromised);
 
 describe('util', () => {
+
+    describe('fp', () => {
+
+        it('chain return last val', async () => {
+            const a = () => Promise.resolve(1);
+            const b = () => Promise.resolve(2);
+
+            const res = await _chain(a, b);
+            expect(res).to.be.eq(2);
+        });
+
+        it('chain compute', async () => {
+
+            const a = () => Promise.resolve(1);
+            const b = (val: number) => Promise.resolve(val + 1);
+            const c = (val: number) => Promise.resolve(val + 1);
+            const d = (val: number) => Promise.resolve(val + 1);
+
+            const res = await _chain(a, b, c, d);
+            expect(res).to.be.eq(4);
+        });
+
+        it('chain compute with error', async () => {
+
+            const a = () => Promise.resolve(1);
+            const b = (val: number) => Promise.resolve(val + 1);
+            const c = (_val: number) => Promise.reject(new Error('error'));
+
+            await expect(_chain(a, b, c)).to.be.rejectedWith(Error);
+        });
+
+        it('zip', async () => {
+            const a = () => Promise.resolve(1);
+            const b = () => Promise.resolve(2);
+
+            const res = await _chain(_zip(a, b));
+            expect(res).to.be.an('array');
+            expect(res).to.have.lengthOf(2);
+            expect(res).to.include(1);
+            expect(res).to.include(2);
+        });
+
+        it('zip with error', async () => {
+            const a = () => Promise.resolve(1);
+            const b = () => Promise.reject(new Error('error'));
+
+            await expect(_chain(_zip(a, b))).to.be.rejectedWith(Error);
+        });
+
+        it('zip with chained method', async () => {
+
+            const a = () => Promise.resolve(1);
+            const b = () => Promise.resolve(2);
+            const c = (val: number[]) => Promise.resolve(val[0] + val[1]);
+
+            const res = await _chain(_zip(a, b), c);
+            expect(res).to.be.eq(3);
+        });
+
+        it('catch', async () => {
+            const a = () => Promise.reject(new Error('error'));
+
+            await expect(_chain(_catch(a, (err) => { throw err; }))).to.be.rejectedWith(Error);
+        });
+
+        it('catch with chained method', async () => {
+            const a = () => Promise.reject(new Error('error'));
+            const b = (val: number) => Promise.resolve(val + 1);
+
+            await expect(_chain(_catch(a, (err) => { throw err; }), b)).to.be.rejectedWith(Error);
+        });
+
+        it('use', async () => {
+            const a = () => Promise.resolve("service A");
+            const b = () => Promise.resolve("service B");
+            const c = ({ a, b }: { a: string, b: string }) => Promise.resolve({ a, b });
+
+            const res = await _chain<{ a: string, b: string }>(_use(a, 'a'), _use(b, 'b'), c);
+            expect(res).to.be.an('object');
+            expect(res).to.have.property('a');
+            expect(res).to.have.property('b');
+            expect(res.a).to.be.eq('service A');
+            expect(res.b).to.be.eq('service B');
+
+        });
+
+        it('use with error', async () => {
+            const a = () => Promise.reject(new Error('error'));
+            const b = () => Promise.resolve("service B");
+            const c = ({ a, b }: { a: string, b: string }) => Promise.resolve({ a, b });
+
+            await expect(_chain(_use(a, 'a'), _use(b, 'b'), c)).to.be.rejectedWith(Error);
+        });
+
+        it('fallback', async () => {
+            const a = () => Promise.reject(new Error('error'));
+            const b = () => Promise.resolve("service B");
+            const c = ({ a, b }: { a: string, b: string }) => Promise.resolve({ a, b });
+
+            const res = await _chain<{ a: string, b: string }>(_use(_fallback(a, (_err) => "fallback"), "a"), _use(b, 'b'), c);
+            expect(res).to.be.an('object');
+            expect(res).to.have.property('a');
+            expect(res).to.have.property('b');
+            expect(res.a).to.be.eq('fallback');
+            expect(res.b).to.be.eq('service B');
+        });
+
+        it('_tap', async () => {
+            const a = () => Promise.resolve("service A");
+            const b = () => Promise.resolve("service B");
+
+            const res = await _chain(a, _tap(b));
+            expect(res).to.be.eq("service A");
+        });
+    });
 
     describe('args', () => {
 

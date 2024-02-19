@@ -12,7 +12,10 @@ import { _catch, _chain, _check_arg, _non_empty, _non_nil } from '@spinajs/util'
 export function _cfg<T>(path: string) {
   _check_arg(_non_empty())(path, 'path');
 
-  return () => Promise.resolve<T>(_check_arg(_non_nil())(DI.get(Configuration).get<T>(path), path));
+  return () => Promise.resolve<T>
+    (
+      _check_arg(_non_nil())(DI.get(Configuration).get<T>(path), path)
+    );
 }
 
 /**
@@ -22,8 +25,8 @@ export function _cfg<T>(path: string) {
  * @param path 
  * @returns 
  */
-export function _service<T>(path: string): Promise<T> {
-  return _chain(
+export function _service<T>(path: string): () => Promise<T> {
+  return () => _chain(
     _cfg(path),
     _catch(
       (val: string) => DI.resolve(val),

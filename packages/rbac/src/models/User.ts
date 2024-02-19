@@ -4,13 +4,9 @@ import { AccessControl, Permission } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata.js';
 import { v4 as uuidv4 } from 'uuid';
-import { IQueueMessage, QueueEvent, QueueJob, QueueService } from '@spinajs/queue';
-import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserUnbanned } from '../events/index.js';
 import { _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length } from '@spinajs/util';
-import { AuthProvider, PasswordProvider, PasswordValidationProvider } from '../interfaces.js';
 import _ from 'lodash';
-import { _cfg, _service } from '@spinajs/configuration';
-import { _email_deferred } from '@spinajs/email';
+import { _cfg } from '@spinajs/configuration';
 
 export class UserQueryScopes implements QueryScope {
   /**
@@ -121,6 +117,12 @@ export class User extends ModelBase {
     super(data);
 
     this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
+    this.Role = _check_arg(_default(
+      [
+        _cfg('rbac.defaultRole')
+      ]
+    ))(this.Role, 'role');
+
     this._ac = DI.get('AccessControl');
   }
 
@@ -185,6 +187,10 @@ export class User extends ModelBase {
   }
 
   public can(resource: string, permission: string): Permission {
+
+    resource = _check_arg(_trim(), _non_empty())(resource, 'resource');
+    permission = _check_arg(_trim(), _non_empty())(permission, 'permission');
+
     return (this._ac.can(this.Role) as any)[permission](resource);
   }
 
