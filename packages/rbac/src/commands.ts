@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
-import { _update } from '@spinajs/orm';
+import { _update, _delete, _insert } from '@spinajs/orm';
 import { v4 as uuidv4 } from 'uuid';
-import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserUnbanned } from './events/index.js';
+import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
 import { _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length } from '@spinajs/util';
 import { AuthProvider, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
 import _ from 'lodash';
@@ -9,7 +9,7 @@ import { _cfg, _service } from '@spinajs/configuration';
 import { _email_deferred } from '@spinajs/email';
 import { _user } from './fp.js';
 import { USER_COMMON_MEDATA, User } from './models/User.js';
-import { _ev } from '@spinajs/queue';
+import { QueueEvent, _ev } from '@spinajs/queue';
 import { InvalidOperation } from '@spinajs/exceptions';
 
 function _clearMeta(meta: string) {
@@ -20,12 +20,16 @@ function _clearMeta(meta: string) {
   };
 }
 
+function _user_ev(func: (u: User) => QueueEvent) {
+  return (u: User) => _ev(func(u)).then(() => u);
+}
+
 export async function activate(identifier: number | string) {
   return _chain<void>(_user(identifier), _update<User>({ IsActive: true }), (u: User) => _ev(new UserActivated(u)));
 }
 
 export async function deactivate(identifier: number | string): Promise<void> {
-  _chain(_user(identifier), _update<User>({ IsActive: false }), (u: User) => _ev(new UserDeactivated(u.Uuid)));
+  _chain(_user(identifier), _update<User>({ IsActive: false }), (u: User) => _ev(new UserDeactivated(u)));
 }
 
 export async function create(email: string, login: string, password: string, roles: string[]): Promise<User> {
@@ -54,11 +58,8 @@ export async function create(email: string, login: string, password: string, rol
         Uuid: uuidv4(),
       });
     },
-    (u: User) => u.insert().then(() => u),
-    async (u: User) => {
-      await _ev(new UserCreated(u.toJSON()));
-      return u;
-    },
+    _insert,
+    _user_ev((u: User) => new UserCreated(u.toJSON())),
     async (u: User) => {
       if (emailConfirmationCreation) {
       }
@@ -67,11 +68,7 @@ export async function create(email: string, login: string, password: string, rol
 }
 
 export async function deleteUser(identifier: number | string): Promise<User> {
-  return _chain(
-    _user(identifier),
-    (u: User) => u.destroy(),
-    (u: User) => _ev(new UserDeleted(u.Uuid)),
-  );
+  return _chain(_user(identifier), _delete, (u: User) => _ev(new UserDeleted(u)));
 }
 
 export async function grant(identifier: number | string, role: string): Promise<User> {
@@ -81,7 +78,7 @@ export async function grant(identifier: number | string, role: string): Promise<
       u.update({
         Role: _.uniq([...u.Role, role]),
       }),
-    (u: User) => _ev(new UserRoleGranted(u.Uuid, role)),
+    _user_ev((u: User) => new UserRoleGranted(u, role)),
   );
 }
 
@@ -92,7 +89,7 @@ export async function revoke(identifier: number | string, role: string): Promise
       u.update({
         Role: u.Role.filter((r) => r !== role),
       }),
-    (u: User) => _ev(new UserRoleGranted(u.Uuid, role)),
+    _user_ev((u: User) => new UserRoleRevoked(u, role)),
   );
 }
 
@@ -121,7 +118,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
 
       return u;
     },
-    (u: User) => _ev(new UserBanned(u.Uuid)),
+    _user_ev((u: User) => new UserBanned(u)),
   );
 }
 
@@ -140,12 +137,16 @@ export async function unban(identifier: number | string | User): Promise<User> {
       await u.Metadata.sync();
       return u;
     },
-    (u: User) => _ev(new UserUnbanned(u.Uuid)),
+    _user_ev((u: User) => new UserUnbanned(u)),
   );
 }
 
 export async function updateUser(identifier: number | string | User, data: Partial<User>): Promise<User> {
-  return _chain(_user(identifier), _update(data), (u: User) => _ev(new UserChanged(u.Uuid)));
+  return _chain(
+    _user(identifier),
+    _update(data),
+    _user_ev((u: User) => new UserChanged(u)),
+  );
 }
 
 export async function passwordChangeRequest(identifier: number | string | User): Promise<User> {
@@ -162,8 +163,8 @@ export async function passwordChangeRequest(identifier: number | string | User):
 
       return u;
     },
-    (u: User) => _ev(new UserPasswordChangeRequest(u.Uuid)),
-    () => Promise.resolve(true),
+    _user_ev((u: User) => new UserPasswordChangeRequest(u)),
+    (u: User) => _ev(new UserPasswordChangeRequest(u)),
   );
 }
 
@@ -184,7 +185,6 @@ export async function confirmPasswordReset(identifier: number | string | User, n
     },
     async (u: User) => changePassword(u, newPassword),
     _clearMeta('/^user:pwd_reset/'),
-    () => Promise.resolve(true),
   );
 }
 
@@ -214,7 +214,7 @@ export async function changePassword(identifier: number | string | User, passwor
     },
 
     // notify others
-    (u: User) => _ev(new UserPasswordChanged(u.Uuid)),
+    _user_ev((u: User) => new UserPasswordChanged(u)),
   );
 }
 
@@ -233,6 +233,6 @@ export async function auth(identifier: string | number | User, password: string)
       throw result.Error;
     },
     _update<User>({ LastLoginAt: DateTime.now() }),
-    (u: User) => _ev(new UserLogged(u.Uuid, DateTime.now())),
+    _user_ev((u: User) => new UserLogged(u)),
   );
 }
