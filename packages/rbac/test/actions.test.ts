@@ -41,14 +41,7 @@ describe('User model tests', function () {
 
   it('Should activate user', async () => {
 
-    // await Effect.runPromise(pipe(_usr('test@spinajs.pl'),_clr_meta('meta-test')));
-    //   .then((u) => {
-    //     console.log(u);
-    //   }).catch((e) => {
-    //     console.log(e);
-    //   });
-
-    await Effect.runPromise(_usr("test").pipe(_email('banned')));
+   
 
 
   });

@@ -1,3 +1,4 @@
+import { IUpdateResult } from './interfaces.js';
 import { ModelBase } from './model.js';
 
 /**
@@ -6,9 +7,9 @@ import { ModelBase } from './model.js';
  * @param data data to update
  * @returns
  */
-export function _update<T extends ModelBase>(data: Partial<T>): (user: T) => Promise<T> {
+export function _update<T extends ModelBase>(data: Partial<T>): (user: T) => Promise<void> {
   return (model: T) => {
-    return model.update(data).then(() => model);
+    return model.update(data);
   };
 }
 
@@ -18,20 +19,20 @@ export function _update<T extends ModelBase>(data: Partial<T>): (user: T) => Pro
  *
  * @returns
  */
-export function _insert<T extends ModelBase>(): (model: T) => Promise<T> {
+export function _insert<T extends ModelBase>(): (model: T) => Promise<IUpdateResult> {
   return (model: T) => {
-    return model.insert().then(() => model);
+    return model.insert();
   };
 }
 
 /**
- * 
+ *
  * Delete model from database
- * 
- * @returns 
+ *
+ * @returns
  */
-export function _delete<T extends ModelBase>(): (model: T) => Promise<T> {
+export function _delete<T extends ModelBase>(): (model: T) => Promise<void> {
   return (model: T) => {
-    return model.destroy().then(() => model);
+    return model.destroy();
   };
 }

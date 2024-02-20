@@ -128,7 +128,7 @@ const rbac = {
     },
     password: {
       service: 'BasicPasswordProvider',
-      changePasswordTemplateRequest: "./user-change-password-request.pug",
+      
 
       validation: {
         service: 'BasicPasswordValidationProvider',
@@ -156,6 +156,11 @@ const rbac = {
        * Should password expire after some time ?
        */
       passwordExpirationTime: 0,
+
+      /**
+       * How long we should wait to reset password ( after this time reset token is invalid )
+       */
+      passwordResetWaitTime: 60 * 60,
     },
     session: {
       service: 'MemorySessionStore',

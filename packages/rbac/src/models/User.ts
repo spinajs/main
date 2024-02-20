@@ -88,9 +88,13 @@ export enum USER_COMMON_MEDATA {
 
   /** Reset password */
 
-  USER_PWD_RESET = 'user:pwd:reset',
+  // is reset password in progress
+  USER_PWD_RESET = 'user:pwd:reset', 
+  // start date of reset password
   USER_PWD_RESET_START_DATE = 'user:pwd_reset:start_date',
+  // wait time for reset password
   USER_PWD_RESET_WAIT_TIME = 'user:pwd_reset:wait_time',
+  // reset password token
   USER_PWD_RESET_TOKEN = 'user:pwd_reset:token',
 }
 
