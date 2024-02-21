@@ -1,4 +1,4 @@
-export * from './NewUser.js';
+export * from './UserCreated.js';
 export * from './UserActivated.js';
 export * from './UserBanned.js';
 export * from './UserDeactivated.js';

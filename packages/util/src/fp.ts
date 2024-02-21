@@ -17,9 +17,8 @@ export function _chain<T>(...fns: (((arg?: any) => Promise<any>) | any | Promise
 }
 
 
-
-export function _zip(...fns: ((arg?: any) => Promise<any>)[]): () => Promise<unknown> {
-  return () => Promise.all(fns.map((fn) => fn()));
+export function _zip(...fns: ((arg?: any) => Promise<any>)[]) {
+  return (val: unknown) => Promise.all(fns.map((fn) => fn(val)));
 }
 
 export function _use(value: () => Promise<unknown>, name: string) {
@@ -30,7 +29,7 @@ export function _use(value: () => Promise<unknown>, name: string) {
  *
  * Catches errors from a promise and calls the provided error handler.
  * If error occures, chained promise will be rejected with the error.
- * 
+ *
  * It acts also like circuit breaker, if error occures, it will not call next promise in chain.
  *
  * @param promise
@@ -45,6 +44,12 @@ export function _fallback(promise: (arg: unknown) => Promise<unknown>, fallback:
   return (arg?: unknown) => promise(arg).catch(fallback);
 }
 
-export function _tap(promise: (arg: unknown) => Promise<unknown>) {
-  return (arg?: unknown) => promise(arg).then(() => arg);
+export function _tap(promise: ((arg: unknown) => Promise<unknown>) | Promise<unknown> ) {
+  return (arg?: unknown) => {
+    if(promise instanceof Promise) {
+      return promise.then(() => arg);
+    }
+
+    return promise(arg).then(() => arg);
+  }
 }

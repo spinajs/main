@@ -551,16 +551,16 @@ export interface IModelBase {
   /**
    * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
    */
-  destroy(): Promise<void>;
+  destroy(): Promise<IUpdateResult>;
   /**
    * If model can be in achived state - sets archived at date and saves it to db
    */
-  archive(): Promise<void>;
+  archive(): Promise<IUpdateResult>;
 
   /**
    * Updates model to db
    */
-  update(): Promise<void>;
+  update(): Promise<IUpdateResult>;
 
   /**
    * Save all changes to db. It creates new entry id db or updates existing one if
@@ -573,7 +573,7 @@ export interface IModelBase {
    * Shorthand for inserting model when no primary key exists, or update
    * its value in db if primary key is set
    */
-  insertOrUpdate(): Promise<void>;
+  insertOrUpdate(): Promise<IUpdateResult>;
 
   /**
    * Gets model data from database and returns as fresh instance.

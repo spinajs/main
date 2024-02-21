@@ -7,9 +7,15 @@ import { ModelBase } from './model.js';
  * @param data data to update
  * @returns
  */
-export function _update<T extends ModelBase>(data: Partial<T>): (user: T) => Promise<void> {
+export function _update<T extends ModelBase>(data?: Partial<T>): (user: T) => Promise<T> {
   return (model: T) => {
-    return model.update(data);
+    return model.update(data).then((res: IUpdateResult) => {
+      if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
+        return Promise.reject('E_NO_ROWS_AFFECTED');
+      }
+
+      return model;
+    });
   };
 }
 
@@ -19,9 +25,15 @@ export function _update<T extends ModelBase>(data: Partial<T>): (user: T) => Pro
  *
  * @returns
  */
-export function _insert<T extends ModelBase>(): (model: T) => Promise<IUpdateResult> {
+export function _insert<T extends ModelBase>(): (model: T) => Promise<T> {
   return (model: T) => {
-    return model.insert();
+    return model.insert().then((res: IUpdateResult) => {
+      if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
+        return Promise.reject('E_NO_ROWS_AFFECTED');
+      }
+      
+      return model;
+    });
   };
 }
 
@@ -31,8 +43,14 @@ export function _insert<T extends ModelBase>(): (model: T) => Promise<IUpdateRes
  *
  * @returns
  */
-export function _delete<T extends ModelBase>(): (model: T) => Promise<void> {
+export function _delete<T extends ModelBase>(): (model: T) => Promise<T> {
   return (model: T) => {
-    return model.destroy();
+    return model.destroy().then((res: IUpdateResult) => {
+      if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
+        return Promise.reject('E_NO_ROWS_AFFECTED');
+      }
+
+      return model;
+    });
   };
 }

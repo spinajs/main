@@ -450,9 +450,11 @@ export class ModelBase<M = unknown> implements IModelBase {
     if (!this.PrimaryKeyValue) {
       return;
     }
-    await (this.constructor as any).destroy(this.PrimaryKeyValue);
+    const result = await (this.constructor as any).destroy(this.PrimaryKeyValue);
 
     this.IsDirty = false;
+
+    return result;
   }
 
   /**
@@ -466,7 +468,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     const { query } = this.createUpdateQuery();
-    await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    return await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
   }
 
   public async update(data?: Partial<this>) {
@@ -480,9 +482,11 @@ export class ModelBase<M = unknown> implements IModelBase {
       (this as any)[this.ModelDescriptor.Timestamps.UpdatedAt] = DateTime.now();
     }
 
-    await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    const result = await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
 
     this.IsDirty = false;
+
+    return result;
   }
 
   /**
@@ -515,10 +519,11 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     query.middleware(iMidleware);
 
-    return query.values(this.toSql()).then((res) => {
-      this.IsDirty = false;
-      return res;
-    });
+    const result = query.values(this.toSql());
+
+    this.IsDirty = false;
+
+    return result;
   }
 
   /**
@@ -529,7 +534,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param insertBehaviour - insert mode
    */
   public async insertOrUpdate() {
-    await this.insert(InsertBehaviour.InsertOrUpdate);
+    return await this.insert(InsertBehaviour.InsertOrUpdate);
   }
 
   /**

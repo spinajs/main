@@ -14,6 +14,15 @@ export class Exception extends Error {
 }
 
 /**
+ * Exception with error code
+ */
+export class ErrorCode extends Exception {
+  constructor(public code: number, message?: string, public data? : unknown) {
+    super(message);
+  }
+}
+
+/**
  * Exception thrown when functionality is not supported
  */
 export class NotSupported extends Exception {}

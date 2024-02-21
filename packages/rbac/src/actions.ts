@@ -1,22 +1,54 @@
-import { _update } from '@spinajs/orm';
-import { _use, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length } from '@spinajs/util';
+import { _insert, _update } from '@spinajs/orm';
+import { _use, _zip, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length } from '@spinajs/util';
 import _ from 'lodash';
 import { _email_deferred } from '@spinajs/email';
-import { _user } from './fp.js';
 import { _ev } from '@spinajs/queue';
 import { USER_COMMON_MEDATA, User } from './models/User.js';
 import { _cfg, _service } from '@spinajs/configuration';
-import { UserActivated, UserChanged, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked } from './events/index.js';
+import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
 import { Constructor } from '@spinajs/di';
 import { UserEvent } from './events/UserEvent.js';
 import { AuthProvider, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { ErrorCode } from '@spinajs/exceptions';
 import { v4 as uuidv4 } from 'uuid';
 
+export enum E_CODES {
+  E_TOKEN_EXPIRED,
+
+  E_TOKEN_INVALID,
+
+  E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS,
+
+  E_USER_NOT_FOUND,
+
+  E_USER_ALREADY_EXISTS,
+
+  E_USER_NOT_ACTIVE,
+
+  E_USER_BANNED,
+
+  E_METADATA_NOT_FOUND,
+
+  E_METADATA_NOT_POPULATED,
+
+  E_EMAIL_NOT_CONFIGURED,
+
+  E_NO_EMAIL_TEMPLATE,
+
+  E_NOT_LOGGED,
+}
+
+/**
+ * ===============================================
+ *  HELPER FUNCTIONS
+ * ===============================================
+ */
 
 function _set_user_meta(meta: string | { key: string; value: any }[], value: any = null) {
   return async (u: User) => {
+    _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u })))(u.Metadata, 'Metadata');
+
     if (Array.isArray(meta)) {
       for (const m of meta) {
         u.Metadata[m.key] = m.value;
@@ -25,6 +57,17 @@ function _set_user_meta(meta: string | { key: string; value: any }[], value: any
       u.Metadata[meta] = value;
     }
     await u.Metadata.sync();
+
+    return u;
+  };
+}
+
+function _get_user_meta(key: string) {
+  return async (u: User) => {
+    _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u, key })))(u.Metadata, 'Metadata');
+    _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_FOUND, 'Metadata not found in user data', { user: u, key })))(u.Metadata[key], `Metadata.${key}`);
+
+    return u.Metadata[key];
   };
 }
 
@@ -35,32 +78,29 @@ function _set_user_meta(meta: string | { key: string; value: any }[], value: any
  * @param cfgTemplate
  * @returns
  */
-function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'deleted' | 'unbanned' | 'banned'): (u: User) => Promise<User> {
+function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'deleted' | 'unbanned' | 'banned') {
+  interface _tCfg {
+    enabled: boolean;
+    template: string;
+    subject: string;
+  }
+
   return async (u: User) => {
-    return _chain(
-      _use(_cfg('rbac.email.connection'), 'connection'),
-      _use(_cfg(`rbac.email.${cfgTemplate}`), 'template'),
-      ({
-        conn,
-        tCfg,
-      }: {
-        conn: string;
-        tCfg: {
-          enabled: boolean;
-          template: string;
-          subject: string;
-        };
-      }) =>
-        tCfg.enabled &&
+    return _chain<void>(_use(_cfg('rbac.email.connection', 'default'), 'connection'), _use(_cfg(`rbac.email.${cfgTemplate}`), 'template'), ({ connection, template }: { connection: string; template: _tCfg }) => {
+      _check_arg(_non_nil(new ErrorCode(E_CODES.E_NO_EMAIL_TEMPLATE, `Email template ${cfgTemplate} not configured. Check rbac.email in config`)))(template, 'template');
+      _check_arg(_is_string(_non_empty(), _max_length(128)))(template.template, 'email.template');
+      _check_arg(_is_string(_non_empty(), _max_length(128)))(template.subject, 'email.subject');
+
+      template.enabled &&
         _email_deferred({
           to: [u.Email],
-          connection: conn,
+          connection,
           model: u.toJSON(),
           tag: `rbac-user-${cfgTemplate}`,
-          template: tCfg.template,
-          subject: tCfg.subject,
-        }),
-    );
+          template: template.template,
+          subject: template.subject,
+        });
+    });
   };
 }
 
@@ -70,30 +110,42 @@ function _user_ev(event: Constructor<UserEvent>, ...args: any[]) {
   };
 }
 
-export function _update_user(data: Partial<User>) {
+function _update_user(data?: Partial<User>) {
   return (u: User) => {
     return _chain(Promise.resolve(u), _update(data), _user_ev(UserChanged), true);
   };
 }
 
-export async function activate(identifier: number | string | User) {
-  identifier = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
+function _user(identifier: number | string | User): () => Promise<User> {
+  const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
 
-  return _chain(_user(identifier), _tap(_update<User>({ IsActive: true })), _tap(_user_ev(UserActivated)), _user_email('created'));
+  if (id instanceof User) {
+    return () => Promise.resolve(id);
+  }
+
+  return () => User.query().whereAnything(id).populate('Metadata').firstOrFail();
+}
+
+/**
+ * ===============================================
+ * USER ACTIONS
+ * ===============================================
+ */
+
+export async function activate(identifier: number | string | User) {
+  return _chain(_user(identifier), _update<User>({ IsActive: true }), _user_ev(UserActivated), _user_email('created'));
 }
 
 export async function deactivate(identifier: number | string): Promise<void> {
-  identifier = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
-
-  return _chain(_user(identifier), _tap(_update<User>({ IsActive: true })), _tap(_user_ev(UserDeactivated)), _user_email('deactivated'), true);
+  return _chain(_user(identifier), _update<User>({ IsActive: true }), _user_ev(UserDeactivated), _user_email('deactivated'));
 }
 
 export async function create(email: string, login: string, password: string, roles: string[]): Promise<User> {
   const sPassword = await _service<PasswordProvider>('rbac.password')();
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
-  login = _check_arg(_trim(), _non_empty(), _max_length(64))(login, 'login');
-  password = await _check_arg(
+  login = _check_arg(_trim(), _non_empty(), _max_length(32))(login, 'login');
+  password = _check_arg(
     _trim(),
     _default(() => sPassword.generate()),
   )(password, 'password');
@@ -116,13 +168,10 @@ export async function create(email: string, login: string, password: string, rol
       ),
 
     // insert to db
-    (u: User) => u.insert().then(() => u),
+    _insert(),
 
-    // send event to nitify others
-    async (u: User) => {
-      await _ev(new UserCreated(u.toJSON()));
-      return u;
-    },
+    // send event
+    _user_ev(UserCreated, (u: User) => u.toJSON()),
 
     // send email if needed
     _user_email('confirm'),
@@ -141,13 +190,23 @@ export async function deleteUser(identifier: number | string): Promise<User> {
 export async function grant(identifier: number | string, role: string): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
-  return _chain(_user(identifier), (u: User) => _chain(u, _update_user({ Role: _.uniq([...u.Role, role]) })), _user_ev(UserRoleGranted, role), true);
+  return _chain(
+    _user(identifier),
+    _tap(async (u: User) => (u.Role = _.uniq([...u.Role, role]))),
+    _update_user(),
+    _user_ev(UserRoleGranted, role),
+  );
 }
 
 export async function revoke(identifier: number | string | User, role: string): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
-  return _chain(_user(identifier), (u: User) => _chain(u, _update_user({ Role: u.Role.filter((r) => r !== role) })), _user_ev(UserRoleRevoked, role), true);
+  return _chain(
+    _user(identifier),
+    _tap(async (u: User) => (u.Role = u.Role.filter((r) => r !== role))),
+    _update_user(),
+    _user_ev(UserRoleRevoked, role),
+  );
 }
 
 /**
@@ -165,17 +224,18 @@ export async function ban(identifier: number | string | User, reason?: string, d
 
   return _chain(
     _user(identifier),
-    async (u: User) => {
-      u.Metadata[USER_COMMON_MEDATA.USER_BAN_DURATION] = duration;
-      u.Metadata[USER_COMMON_MEDATA.USER_BAN_REASON] = reason;
-      u.Metadata[USER_COMMON_MEDATA.USER_BAN_IS_BANNED] = true;
-      u.Metadata[USER_COMMON_MEDATA.USER_BAN_START_DATE] = DateTime.now();
-
-      await u.Metadata.sync();
-
-      return u;
+    (u: User) => {
+      if (u.Metadata[USER_COMMON_MEDATA.USER_BAN_IS_BANNED]) {
+        throw new ErrorCode(E_CODES.E_USER_BANNED, `User is already banned`, { user: u });
+      }
     },
-    (u: User) => _ev(new UserBanned(u.Uuid)),
+    _set_user_meta([
+      { key: USER_COMMON_MEDATA.USER_BAN_DURATION, value: duration },
+      { key: USER_COMMON_MEDATA.USER_BAN_REASON, value: reason },
+      { key: USER_COMMON_MEDATA.USER_BAN_IS_BANNED, value: true },
+      { key: USER_COMMON_MEDATA.USER_BAN_START_DATE, value: DateTime.now() },
+    ]),
+    _user_ev(UserBanned),
     _user_email('banned'),
   );
 }
@@ -190,60 +250,66 @@ export async function ban(identifier: number | string | User, reason?: string, d
 export async function unban(identifier: number | string | User): Promise<User> {
   return _chain(
     _user(identifier),
-    async (u: User) => {
-      u.Metadata['/^user:ban/'] = null;
-      await u.Metadata.sync();
-      return u;
+    (u: User) => {
+      if (!u.Metadata[USER_COMMON_MEDATA.USER_BAN_IS_BANNED]) {
+        throw new ErrorCode(E_CODES.E_USER_BANNED, `User is already unbanned`, { user: u });
+      }
     },
-    (u: User) => _ev(new UserUnbanned(u.Uuid)),
+    _set_user_meta('/^user:ban/', null),
+    _user_ev(UserUnbanned),
     _user_email('unbanned'),
   );
 }
 
-export async function passwordChangeRequest() {
+export async function passwordChangeRequest(identifier: number | string | User) {
+  const pwdWaitTime = await _cfg<number>('rbac.password.reset_wait_time')();
 
-  const pwdWaitTime = await _cfg<number>('rbac.password.reset_wait_time');
-
-  return async (u: User) => {
-    return _chain(
-      u,
-      _set_user_meta([
-        { key: USER_COMMON_MEDATA.USER_PWD_RESET_START_DATE, value: DateTime.now() },
-        { key: USER_COMMON_MEDATA.USER_PWD_RESET_TOKEN, value: uuidv4() },
-        { key: USER_COMMON_MEDATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
-      ]),
-      _tap(_user_ev(UserPasswordChangeRequest)),
-      _user_email('changePassword'),
-    );
-  };
+  return _chain(
+    _user(identifier),
+    _set_user_meta([
+      { key: USER_COMMON_MEDATA.USER_PWD_RESET_START_DATE, value: DateTime.now() },
+      { key: USER_COMMON_MEDATA.USER_PWD_RESET_TOKEN, value: uuidv4() },
+      { key: USER_COMMON_MEDATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
+    ]),
+    _user_ev(UserPasswordChangeRequest),
+    _user_email('changePassword'),
+  );
 }
 
-export async function confirmPasswordReset(newPassword: string, token: string) {
-  return (u: User) => {
-    return _chain(
-      u,
-      (u: User) => {
-        const dueDate: DateTime = u.Metadata[USER_COMMON_MEDATA.USER_PWD_RESET_START_DATE].plus({ seconds: u.Metadata[USER_COMMON_MEDATA.USER_PWD_RESET_WAIT_TIME] });
-
-        if (dueDate < DateTime.now()) {
-          throw new InvalidOperation(`Password change token expired, token expiration date is: ${dueDate.toISO()}`);
+export async function confirmPasswordReset(identifier: number | string | User, newPassword: string, token: string) {
+  return _chain(
+    _user(identifier),
+    _tap((u: User) =>
+      _chain(u, _zip(_get_user_meta(USER_COMMON_MEDATA.USER_PWD_RESET_START_DATE), _get_user_meta(USER_COMMON_MEDATA.USER_PWD_RESET_WAIT_TIME)), ([dueDate, waitTime]: [DateTime, number]) => {
+        if (dueDate.plus(waitTime) < DateTime.now()) {
+          throw new ErrorCode(E_CODES.E_TOKEN_EXPIRED, `Password change token expired, token expiration date is: ${dueDate.toISO()}`, {
+            dueDate,
+            waitTime,
+            time: DateTime.now(),
+            user: u,
+          });
         }
-
-        if (u.Metadata[USER_COMMON_MEDATA.USER_PWD_RESET_TOKEN] !== token) {
-          throw new InvalidOperation(`Password change token invalid, operation not permitted`);
+      }),
+    ),
+    _tap((u: User) =>
+      _chain(u, _get_user_meta(USER_COMMON_MEDATA.USER_PWD_RESET_TOKEN), async (resetToken: string) => {
+        if (resetToken !== token) {
+          throw new ErrorCode(E_CODES.E_TOKEN_INVALID, `Password change token invalid, operation not permitted`, {
+            token,
+            resetToken,
+            user: u,
+          });
         }
-
-        return u;
-      },
-      changePassword(newPassword),
-    );
-  };
+      }),
+    ),
+    changePassword(newPassword),
+  );
 }
 
 export async function changePassword(password: string): Promise<(u: User) => Promise<User>> {
-  return async (u: User) => {
-    _check_arg(_non_empty())(password, 'password');
+  password = _check_arg(_trim(), _non_empty())(password, 'password');
 
+  return async (u: User) => {
     return _chain(
       _use(_service<PasswordProvider>('rbac.password'), 'pwd'),
       _use(_service<PasswordValidationProvider>('rbac.password.validation'), 'validator'),
@@ -256,26 +322,25 @@ export async function changePassword(password: string): Promise<(u: User) => Pro
 
       // update password
       ({ pwd }: { pwd: PasswordProvider }) => pwd.hash(password),
-      (hPassword: string) => _chain(u, _tap(_update<User>({ Password: hPassword })), _tap(_set_user_meta('/^user:pwd_reset/')), _user_ev(UserPasswordChanged)),
+      (hPassword: string) => _chain(u, _update<User>({ Password: hPassword }), _set_user_meta('/^user:pwd_reset/'), _user_ev(UserPasswordChanged)),
     );
   };
 }
 
-export async function auth(password: string): Promise<(u: User) => Promise<User>> {
+export async function auth(identifier: number | string | User, password: string): Promise<(u: User) => Promise<User>> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
-  return async (u: User) => {
-    return _chain(
-      _service<AuthProvider>('rbac.auth.service'),
-      async (sAuth: AuthProvider) => {
+  return _chain(
+    _user(identifier),
+    _tap((u: User) =>
+      _chain(_service<AuthProvider>('rbac.auth.service'), async (sAuth: AuthProvider) => {
         const result = await sAuth.authenticate(u.Email, password);
         if (!result.User) {
-          throw result.Error;
+          throw new ErrorCode(E_CODES.E_NOT_LOGGED, `User not found`, { identifier });
         }
-      },
-      u,
-      _tap(_update<User>({ LastLoginAt: DateTime.now() })),
-      _user_ev(UserLogged),
-    );
-  };
+      }),
+    ),
+    _update<User>({ LastLoginAt: DateTime.now() }),
+    _user_ev(UserLogged),
+  );
 }

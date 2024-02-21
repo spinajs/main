@@ -7,12 +7,18 @@ import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
+import { DateTime } from 'luxon';
+import { MigrationTransactionMode } from '@spinajs/orm';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
 chai.use(chaiSubset);
 chai.use(chaiLike);
 chai.use(chaiThings);
+
+export const TestEventChannelName = `/topic/test-${DateTime.now().toMillis()}`;
+export const TestJobChannelName = `/queue/test-${DateTime.now().toMillis()}`;
+export const QUEUE_WAIT_TIME_MS = 5 * 1000;
 
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
@@ -106,9 +112,55 @@ export class TestConfiguration extends FrameworkConfiguration {
           minPasswordLength: 6,
         },
       },
+
+      queue: {
+        default: 'default-test-queue',
+        routing: {
+          NewUser: { connection: 'default-test-queue' },
+          UserActivated: { connection: 'default-test-queue' },
+          UserBanned: { connection: 'default-test-queue' },
+          UserDeactivated: { connection: 'default-test-queue' },
+          UserDeleted: { connection: 'default-test-queue' },
+          UserLogged: { connection: 'default-test-queue' },
+          UserPropertyChanged: { connection: 'default-test-queue' },
+          UserUnbanned: { connection: 'default-test-queue' },
+          UserPasswordChanged: { connection: 'default-test-queue' },
+          UserPasswordChangeRequest: { connection: 'default-test-queue' },
+          UserRoleGranted: { connection: 'default-test-queue' },
+          UserRoleRevoked: { connection: 'default-test-queue' },
+        },
+    
+        connections: [
+          {
+            service: 'StompQueueClient',
+            host: 'ws://localhost:61614/ws',
+            name: `default-test-queue`,
+            debug: true,
+            defaultQueueChannel: TestJobChannelName,
+            defaultTopicChannel: TestEventChannelName,
+          },
+        ],
+      },
+
+      
       db: {
         DefaultConnection: 'sqlite',
         Connections: [
+
+           // queue DB
+           {
+            Driver: 'orm-driver-sqlite',
+            Filename: ':memory:',
+            Name: 'queue',
+            Migration: {
+              OnStartup: true,
+              Table: 'orm_migrations',
+              Transaction: {
+                Mode: MigrationTransactionMode.PerMigration,
+              },
+            },
+          },
+
           {
             Debug: {
               Queries: true,

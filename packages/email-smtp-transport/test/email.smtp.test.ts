@@ -12,7 +12,7 @@ import '@spinajs/templates-pug';
 
 import servers from './config.js';
 import { EmailSenderSmtp } from '../src/index.js';
-import { FsBootsrapper } from '@spinajs/fs';
+import { FsBootsrapper, fs } from '@spinajs/fs';
 
 chai.use(chaiAsPromised);
 
@@ -127,7 +127,7 @@ describe('smtp email transport', function () {
 
   it('Should send email with pug template', async () => {
     const e = await email();
-    const f = await DI.resolve('__file_provider__', 'fs-templates');
+    const f = await DI.resolve<fs>('__file_provider__', ['fs-templates']);
     const file = await f.download('test.pug');
 
     await e.send({

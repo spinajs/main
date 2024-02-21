@@ -16,6 +16,7 @@ export function _check_arg(...checks: ((arg: any, name: string) => any)[]) {
   };
 }
 
+ 
 /**
  * Validate number, if not number throws InvalidArgument
  *
@@ -143,20 +144,19 @@ export function _to_lower() {
 export function _trim() {
   return function (arg: unknown, _name: string) {
     if (typeof arg === 'string') return arg.trim();
-
     return arg;
   };
 }
 
-export function _between(min: number, max: number): (arg: string | number | any[], name: string) => any {
+export function _between(min: number, max: number, error?: Error) {
   return function (arg: string | number | any[], name: string) {
     if (Array.isArray(arg) || typeof arg === 'string') {
       if (arg.length < min || arg.length > max) {
-        throw new InvalidArgument(`${name} should be between ${min} and ${max}`);
+        throw error ?? new InvalidArgument(`${name} should be between ${min} and ${max}`);
       }
     } else if (typeof arg === 'number') {
       if (arg < min || arg > max) {
-        throw new InvalidArgument(`${name} should be between ${min} and ${max}`);
+        throw error ?? new InvalidArgument(`${name} should be between ${min} and ${max}`);
       }
     }
 
@@ -164,80 +164,80 @@ export function _between(min: number, max: number): (arg: string | number | any[
   };
 }
 
-export function _min_length(length: number) {
+export function _min_length(length: number, error?: Error) {
   return function (arg: string, name: string) {
     if (arg.length < length) {
-      throw new InvalidArgument(`${name} should be at least ${length} characters`);
+      throw error ?? new InvalidArgument(`${name} should be at least ${length} characters`);
     }
 
     return arg;
   };
 }
 
-export function _max_length(length: number) {
+export function _max_length(length: number, error?: Error) {
   return function (arg: string, name: string) {
     if (arg.length > length) {
-      throw new InvalidArgument(`${name} should be at most ${length} characters`);
+      throw error ?? new InvalidArgument(`${name} should be at most ${length} characters`);
     }
 
     return arg;
   };
 }
 
-export function _min(value: number) {
+export function _min(value: number, error?: Error) {
   return function (arg: number, name: string) {
     if (arg < value) {
-      throw new InvalidArgument(`${name} should be at least ${value}`);
+      throw error ?? new InvalidArgument(`${name} should be at least ${value}`);
     }
 
     return arg;
   };
 }
 
-export function _max(value: number) {
+export function _max(value: number, error?: Error) {
   return function (arg: number, name: string) {
     if (arg > value) {
-      throw new InvalidArgument(`${name} should be at most ${value}`);
+      throw error ?? new InvalidArgument(`${name} should be at most ${value}`);
     }
 
     return arg;
   };
 }
 
-export function _non_null() {
+export function _non_null(error?: Error) {
   return function (arg: any, name: string) {
     if (arg === null) {
-      throw new InvalidArgument(`${name} should not be null`);
+      throw error ?? new InvalidArgument(`${name} should not be null`);
     }
 
     return arg;
   };
 }
 
-export function _non_undefined() {
+export function _non_undefined(error?: Error) {
   return function (arg: any, name: string) {
     if (arg === undefined) {
-      throw new InvalidArgument(`${name} should not be undefined`);
+      throw error ?? new InvalidArgument(`${name} should not be undefined`);
     }
 
     return arg;
   };
 }
 
-export function _non_nil() {
+export function _non_nil(error?: Error) {
   return function (arg: any, name: string) {
     if (arg === null || arg === undefined || arg === '' || (Array.isArray(arg) && arg.length === 0) || (typeof arg === 'object' && Object.keys(arg).length === 0)) {
-      throw new InvalidArgument(`${name} should not be null`);
+      throw error ?? new InvalidArgument(`${name} should not be null, undefined or empty`);
     }
 
     return arg;
   };
 }
 
-export function _non_empty() {
+export function _non_empty(error?: Error) {
   return function (arg: string | any[], name: string) {
     if (arg.length === 0) {
-      throw new InvalidArgument(`${name} should not be empty`);
+      throw error ?? new InvalidArgument(`${name} should not be empty`);
     }
 
     return arg;
@@ -257,52 +257,52 @@ export function _default<T>(value: T | (() => T)): (arg: T, name: string) => T {
   };
 }
 
-export function _contains<T>(values: T[]) {
+export function _contains<T>(values: T[], error?: Error) {
   return function (arg: T, name: string) {
     if (!values.includes(arg)) {
-      throw new InvalidArgument(`${name} should be one of ${values.join(', ')}`);
+      throw error ?? new InvalidArgument(`${name} should be one of ${values.join(', ')}`);
     }
 
     return arg;
   };
 }
 
-export function _lt(value: number) {
+export function _lt(value: number, error?: Error) {
   return function (arg: unknown, name: string) {
     if (typeof arg !== 'number') {
       return arg;
     }
 
     if (arg >= value) {
-      throw new InvalidArgument(`${name} should be less than ${value}`);
+      throw error ?? new InvalidArgument(`${name} should be less than ${value}`);
     }
 
     return arg;
   };
 }
 
-export function _gt(value: number) {
+export function _gt(value: number, error?: Error) {
   return function (arg: unknown, name: string) {
     if (typeof arg !== 'number') {
       return arg;
     }
 
     if (arg <= value) {
-      throw new InvalidArgument(`${name} should be greater than ${value}`);
+      throw error ?? new InvalidArgument(`${name} should be greater than ${value}`);
     }
 
     return arg;
   };
 }
 
-export function _reg_match(reg: RegExp) {
+export function _reg_match(reg: RegExp, error?: Error) {
   return function (arg: unknown, name: string) {
     if (typeof arg !== 'string') {
       return arg;
     }
 
     if (!reg.test(arg)) {
-      throw new InvalidArgument(`${name} should match ${reg}`);
+      throw error ?? new InvalidArgument(`${name} should match ${reg}`);
     }
 
     return arg;
@@ -317,24 +317,24 @@ export function _is_uuid() {
   return _reg_match(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
 }
 
-export function _to_int() {
+export function _to_int(error?: Error) {
   return function (arg: string, name: string) {
     const res = parseInt(arg);
 
     if (isNaN(res)) {
-      throw new InvalidArgument(`${name} should be integer`);
+      throw error ?? new InvalidArgument(`${name} should be integer`);
     }
 
     return res;
   };
 }
 
-export function _to_float() {
+export function _to_float(error?: Error) {
   return function (arg: string, name: string) {
     const res = parseFloat(arg);
 
     if (isNaN(res)) {
-      throw new InvalidArgument(`${name} should be float`);
+      throw error ?? new InvalidArgument(`${name} should be float`);
     }
 
     return res;
