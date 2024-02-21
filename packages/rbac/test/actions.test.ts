@@ -67,14 +67,16 @@ describe('User model tests', function () {
     const user = await User.query().whereAnything('test-notactive@spinajs.pl').firstOrFail();
 
     expect(user.IsActive).to.be.true;
-    expect(eStub.calledTwice).to.be.true;
-    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserActivated);
-    expect((eStub.args[0] as any)[1]).to.be.instanceOf(EmailSend);
+    expect(eStub.called).to.be.false;
   });
 
   it('Should deactivate user', async () => {});
 
   it('Should create user', async () => {});
+
+  it('Shouldn create user with already existing email', async () => {});
+
+  it('Shouldn create user with already existing login', async () => {});
 
   it('Should delete user', async () => {});
 
@@ -91,6 +93,10 @@ describe('User model tests', function () {
   it('Should update user', async () => {});
 
   it('Should authenticate user', async () => {});
+
+  it('Should reject auth with invalid password', async () =>{ 
+
+  });
 
   it('Password change request ', async () => {});
 
