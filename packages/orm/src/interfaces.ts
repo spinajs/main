@@ -1223,6 +1223,11 @@ export class ValueConverter implements IValueConverter {
 export class DatetimeValueConverter extends ValueConverter {}
 
 /**
+ * Convert 0/1 to boolean ( mysql, sqlite etc.  use 0/1 for boolean fields and tinyint/bit types )
+ */
+export class BooleanValueConverter extends ValueConverter { };
+
+/**
  * Converter for set field (eg. mysql SET)
  */
 export class SetValueConverter extends ValueConverter {}

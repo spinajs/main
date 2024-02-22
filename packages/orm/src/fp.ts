@@ -31,7 +31,7 @@ export function _insert<T extends ModelBase>(): (model: T) => Promise<T> {
       if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
         return Promise.reject('E_NO_ROWS_AFFECTED');
       }
-      
+
       return model;
     });
   };

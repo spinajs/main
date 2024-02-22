@@ -6,6 +6,6 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "references": [{ "path": "../exceptions/tsconfig.mjs.json" }],
+  "references": [{ "path": "../exceptions/tsconfig.mjs.json" },{ "path": "../util/tsconfig.mjs.json" }],
   "include": ["src/**/*"]
 }

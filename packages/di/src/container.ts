@@ -477,8 +477,15 @@ export class Container extends EventEmitter implements IContainer {
       // all services will be resolved and mapped
       if (t.serviceFunc) {
         const services = t.serviceFunc(t.data, this);
-
         const types = this.getRegisteredTypes(t.inject);
+        const findType = (name: string) => {
+          const found = types.find((t) => t.name === name);
+          if (!found) {
+            throw new ServiceNotFound(`Service ${name} is not registered in DI container`);
+          }
+
+          return found;
+        };
 
         if (!types || types.length === 0) {
           throw new ServiceNotFound(`Service ${(t.inject as any).name} is not registered in DI container`);
@@ -487,13 +494,13 @@ export class Container extends EventEmitter implements IContainer {
         if (_.isArray(services)) {
           tInject = services.map((x) => {
             return {
-              type: types.find((t) => t.name === x.service),
+              type: findType(x.service),
               options: x.options,
             };
           });
         } else {
           tInject = {
-            type: types.find((t) => t.name === services.service),
+            type: findType(services.service),
             options: services.options,
           };
         }
@@ -570,11 +577,9 @@ export class Container extends EventEmitter implements IContainer {
           // we cannot override injection props in derived class
           if (x.autoinject === true) {
             descriptor.inject.push(x);
-          } else if (descriptor.inject.find(i => getTypeName(i.inject) === xTypeName) === undefined) {
+          } else if (descriptor.inject.find((i) => getTypeName(i.inject) === xTypeName) === undefined) {
             descriptor.inject.push(x);
           }
-
-
         });
       }
 

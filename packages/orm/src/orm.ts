@@ -1,4 +1,4 @@
-import { DatetimeValueConverter } from './interfaces.js';
+import { BooleanValueConverter, DatetimeValueConverter } from './interfaces.js';
 import { Configuration } from '@spinajs/configuration-common';
 import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
@@ -138,13 +138,30 @@ export class Orm extends AsyncService {
             );
 
             //  m.type[MODEL_DESCTRIPTION_SYMBOL].Schema = buildJsonSchema(columns);
-          }
 
-          for (const [key, val] of descriptor.Converters) {
-            const column = (m.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor).Columns.find((c) => c.Name === key);
-            if (column) {
-              column.Converter = connection.Container.hasRegistered(val.Class) ? connection.Container.resolve(val.Class) : null;
+            /**
+             * Add coverters to columns set by decorators
+             * eg. @CreatedAt decorator etc.
+             */
+            for (const [key, val] of descriptor.Converters) {
+              const column = (m.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor).Columns.find((c) => c.Name === key);
+              if (column) {
+                column.Converter = connection.Container.hasRegistered(val.Class) ? connection.Container.resolve(val.Class) : null;
+              }
             }
+
+            /**
+             * Add any other converted that is not set by decorators, but is set in container
+             * for given column type eg. default boolean converter
+             */
+            columns.forEach((c) => {
+              if (!c.Converter) {
+                const converters = connection.Container.get<Map<string, any>>('__orm_db_value_converters__');
+                if (converters && converters.has(c.NativeType.toLocaleLowerCase())) {
+                  c.Converter = connection.Container.resolve(converters.get(c.NativeType.toLocaleLowerCase()));
+                }
+              }
+            });
           }
         }
       }
@@ -184,6 +201,8 @@ export class Orm extends AsyncService {
   protected registerDefaultConverters() {
     this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', Date.name);
     this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', DateTime.name);
+    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', Boolean.name);
+    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', 'Bool');
   }
 
   protected wireRelations() {

@@ -1369,7 +1369,7 @@ describe('schema building', () => {
     expect(result[0].expression).to.contain('`foo` VARCHAR(255)'); // string
     expect(result[0].expression).to.contain('`foo` FLOAT(8,2)');
     expect(result[0].expression).to.contain('`foo` DECIMAL(8,2)');
-    expect(result[0].expression).to.contain('`foo` TINYINT(1)'); // boolean
+    expect(result[0].expression).to.contain('`foo` BOOLEAN'); // boolean
     expect(result[0].expression).to.contain('`foo` BIT');
     expect(result[0].expression).to.contain('`foo` DOUBLE(8,2)');
     expect(result[0].expression).to.contain('`foo` DATE');

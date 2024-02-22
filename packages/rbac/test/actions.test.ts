@@ -1,8 +1,8 @@
 import { BasicPasswordProvider } from '../src/password.js';
-import { Constructor, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
@@ -39,6 +39,8 @@ describe('User model tests', function () {
   });
 
   afterEach(async () => {
+    sinon.restore();
+
     DI.clearCache();
   });
 
@@ -47,16 +49,16 @@ describe('User model tests', function () {
 
     let user = await User.query().whereAnything('test-notactive@spinajs.pl').firstOrFail();
 
-    expect(user.IsActive).to.be.false;
-
+    expect(user.IsActive).to.eq(0);
     await activate('test-notactive@spinajs.pl');
 
     user = await User.query().whereAnything('test-notactive@spinajs.pl').firstOrFail();
 
-    expect(user.IsActive).to.be.true;
-    expect(eStub.calledTwice).to.be.true;
-    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserActivated);
-    expect((eStub.args[0] as any)[1]).to.be.instanceOf(EmailSend);
+    expect(user.IsActive).to.eq(1);
+    expect(eStub.callCount).to.eq(3);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserChanged);
+    expect((eStub.args[1] as any)[0]).to.be.instanceOf(UserActivated);
+    expect((eStub.args[2] as any)[0]).to.be.instanceOf(EmailSend);
   });
 
   it('Should not send event when user is already activated', async () => {
@@ -94,9 +96,7 @@ describe('User model tests', function () {
 
   it('Should authenticate user', async () => {});
 
-  it('Should reject auth with invalid password', async () =>{ 
-
-  });
+  it('Should reject auth with invalid password', async () => {});
 
   it('Password change request ', async () => {});
 

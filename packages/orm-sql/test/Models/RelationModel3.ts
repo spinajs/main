@@ -10,6 +10,11 @@ export class RelationModel3 extends ModelBase {
 
   public RelationProperty3: string;
 
-  @HasManyToMany(JoinModel, RelationModel4, 'Id', 'Id', 'target_id', 'owner_id')
+  @HasManyToMany(JoinModel, RelationModel4, {
+    targetModelPKey: 'Id',
+    sourceModelPKey: 'Id',
+    junctionModelTargetPk: 'target_id',
+    junctionModelSourcePk: 'owner_id',
+  })
   public Models: RelationModel4[];
 }

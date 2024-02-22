@@ -852,7 +852,7 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
   protected _statementsMappings = {
     set: (builder: ColumnQueryBuilder) => `SET(${builder.Args[0].map((a: string) => `'${a}\'`).join(',')})`,
     string: (builder: ColumnQueryBuilder) => `VARCHAR(${builder.Args[0] ? builder.Args[0] : 255})`,
-    boolean: () => `TINYINT(1)`,
+    boolean: () => `BOOLEAN`,
     float: (builder: ColumnQueryBuilder) => {
       const _precision = builder.Args[0] ? builder.Args[0] : 8;
       const _scale = builder.Args[1] ? builder.Args[1] : 2;

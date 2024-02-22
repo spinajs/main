@@ -91,7 +91,8 @@ function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'de
       _check_arg(_is_string(_non_empty(), _max_length(128)))(template.template, 'email.template');
       _check_arg(_is_string(_non_empty(), _max_length(128)))(template.subject, 'email.subject');
 
-      template.enabled &&
+      return (
+        template.enabled &&
         _email_deferred({
           to: [u.Email],
           connection,
@@ -99,20 +100,23 @@ function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'de
           tag: `rbac-user-${cfgTemplate}`,
           template: template.template,
           subject: template.subject,
-        });
+        })
+      );
     });
   };
 }
 
 function _user_ev(event: Constructor<UserEvent>, ...args: any[]) {
   return async (u: User) => {
-    return _ev(new event(u, ...args));
+    await _ev(new event(u, ...args))();
+    return u;
   };
 }
 
-function _update_user(data?: Partial<User>) {
-  return (u: User) => {
-    return _chain(Promise.resolve(u), _update(data), _user_ev(UserChanged), true);
+function _user_update(data?: Partial<User>) {
+  return async (u: User) => {
+    await _chain(u, _update<User>(data), _user_ev(UserChanged));
+    return u;
   };
 }
 
@@ -133,7 +137,7 @@ function _user(identifier: number | string | User): () => Promise<User> {
  */
 
 export async function activate(identifier: number | string | User) {
-  return _chain(_user(identifier), _update<User>({ IsActive: true }), _user_ev(UserActivated), _user_email('created'));
+  return _chain(_user(identifier), _user_update({ IsActive: true }), _user_ev(UserActivated), _user_email('created'));
 }
 
 export async function deactivate(identifier: number | string): Promise<void> {
@@ -193,7 +197,7 @@ export async function grant(identifier: number | string, role: string): Promise<
   return _chain(
     _user(identifier),
     _tap(async (u: User) => (u.Role = _.uniq([...u.Role, role]))),
-    _update_user(),
+    _user_update(),
     _user_ev(UserRoleGranted, role),
   );
 }
@@ -204,7 +208,7 @@ export async function revoke(identifier: number | string | User, role: string): 
   return _chain(
     _user(identifier),
     _tap(async (u: User) => (u.Role = u.Role.filter((r) => r !== role))),
-    _update_user(),
+    _user_update(),
     _user_ev(UserRoleRevoked, role),
   );
 }

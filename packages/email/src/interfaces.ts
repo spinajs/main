@@ -1,4 +1,4 @@
-import { AsyncService, Autoinject, IInstanceCheck, IMappableService } from '@spinajs/di';
+import { AsyncService, Autoinject, IInstanceCheck, IMappableService, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { QueueService } from '@spinajs/queue';
@@ -14,6 +14,23 @@ export abstract class EmailSender extends AsyncService implements IInstanceCheck
 
   public __checkInstance__(creationOptions: any): boolean {
     return this.Options.name === creationOptions[0].name;
+  }
+}
+
+@Injectable(EmailSender)
+@PerInstanceCheck()
+export class BlackHoleEmailSender extends EmailSender {
+
+  @Logger('email')
+  protected Log: Log;
+
+  constructor(public Options: EmailConnectionOptions) {
+    super();
+  }
+
+  public async send(_email: IEmail): Promise<void> {
+    this.Log.info(`Email ${_email.subject} sent to black hole`);
+    return;
   }
 }
 

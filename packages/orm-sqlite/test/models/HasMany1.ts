@@ -7,6 +7,7 @@ export class owned_by_owned_by_has_many_1 extends ModelBase {
   public Id: number;
 
   public Val: string;
+ 
 }
 
 @Connection('sqlite')
@@ -19,6 +20,9 @@ export class owned_by_has_many_1 extends ModelBase {
 
   @BelongsTo(owned_by_owned_by_has_many_1)
   public File: SingleRelation<owned_by_owned_by_has_many_1>;
+
+  @BelongsTo("has_many_1")
+  public Has_Many_1: SingleRelation<has_many_1>;
 }
 
 @Connection('sqlite')

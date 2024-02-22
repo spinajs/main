@@ -68,11 +68,10 @@ export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler 
     });
 
     const parent = this._builder.getParent() as InsertQueryBuilder;
-     
+
     const bindings = _.flatMap(this._builder.getColumnsToUpdate(), (c: string | RawQuery) => {
       if (_.isString(c)) {
-        const cIndex = parent.getColumns()
-          .findIndex((col: ColumnStatement) => (_.isString(col.Column) ? col.Column === c : null));
+        const cIndex = parent.getColumns().findIndex((col: ColumnStatement) => (_.isString(col.Column) ? col.Column === c : null));
         return parent.Values[0][cIndex];
       } else {
         return c.Bindings;
@@ -182,8 +181,10 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
       case 'smallint':
       case 'mediumint':
       case 'bigint':
-      case 'boolean':
         _stmt.push('INTEGER');
+        break;
+      case 'boolean':
+        _stmt.push(`BOOLEAN NOT NULL CHECK ( \`${this.builder.Name}\` IN (0, 1))`)
         break;
     }
 

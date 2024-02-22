@@ -40,44 +40,44 @@ export class TestConfiguration extends FrameworkConfiguration {
       rbac: {
         email: {
           connection: 'rbac-email-connection',
-    
+
           changePassword: {
             enabled: true,
             template: './user-change-password-template.pug',
             subject: 'Password change request',
           },
-    
+
           // when user is created & activated should he receive email
           created: {
             enabled: true,
             template: './user-creation-email-template.pug',
             subject: 'Please confirm your email',
           },
-    
+
           banned: {
             enabled: true,
             template: './user-banned-email-template.pug',
             subject: 'Account banned',
           },
-    
+
           unbanned: {
             enabled: true,
             template: './user-unbanned-email-template.pug',
             subject: 'Account unbanned',
           },
-    
-          deleted: { 
+
+          deleted: {
             enabled: true,
             template: './user-deleted-email-template.pug',
             subject: 'Account deleted',
           },
-    
-          deactivated: { 
+
+          deactivated: {
             enabled: true,
             template: './user-deactivated-email-template.pug',
             subject: 'Account deactivated',
           },
-    
+
           // when user is created, should he confirm email
           // if false, user is acvite at creation,
           // when true, first, user will be sent confirmation email
@@ -85,7 +85,7 @@ export class TestConfiguration extends FrameworkConfiguration {
             enabled: true,
             template: './user-confirmation-email-template.pug',
             subject: 'Account created',
-          }
+          },
         },
         // default roles to manage users & guest account
         roles: [
@@ -100,7 +100,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           {
             Name: 'guest',
             Description: 'Guest account',
-          }
+          },
         ],
         defaultRole: 'guest',
         session: {
@@ -111,6 +111,14 @@ export class TestConfiguration extends FrameworkConfiguration {
           provider: 'BasicPasswordProvider',
           minPasswordLength: 6,
         },
+      },
+
+      email: { 
+        connections: [
+          {
+            name: 'rbac-email-connection',
+            service: 'BlackHoleEmailSender',
+          }]
       },
 
       queue: {
@@ -129,26 +137,20 @@ export class TestConfiguration extends FrameworkConfiguration {
           UserRoleGranted: { connection: 'default-test-queue' },
           UserRoleRevoked: { connection: 'default-test-queue' },
         },
-    
+
         connections: [
           {
-            service: 'StompQueueClient',
-            host: 'ws://localhost:61614/ws',
+            service: 'BlackHoleQueueClient',
             name: `default-test-queue`,
-            debug: true,
-            defaultQueueChannel: TestJobChannelName,
-            defaultTopicChannel: TestEventChannelName,
           },
         ],
       },
 
-      
       db: {
         DefaultConnection: 'sqlite',
         Connections: [
-
-           // queue DB
-           {
+          // queue DB
+          {
             Driver: 'orm-driver-sqlite',
             Filename: ':memory:',
             Name: 'queue',

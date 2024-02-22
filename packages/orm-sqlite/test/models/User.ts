@@ -11,6 +11,8 @@ export class User extends ModelBase {
 
   public Password: string;
 
+  public IsActive: boolean;
+
   @CreatedAt()
   public CreatedAt: DateTime;
 }

@@ -9,6 +9,7 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.string('Name').notNull().unique();
       table.string('Password').notNull();
       table.dateTime('CreatedAt').notNull();
+      table.boolean('IsActive');
     });
 
     await connection.schema().createTable('test_model', (table) => {

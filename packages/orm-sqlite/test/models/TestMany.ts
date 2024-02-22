@@ -1,4 +1,5 @@
-import { ModelBase, Primary, Connection, Model } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, BelongsTo, SingleRelation } from '@spinajs/orm';
+import { TestModel } from './TestModel.js';
 
 @Connection('sqlite')
 @Model('test_many')
@@ -7,4 +8,7 @@ export class TestMany extends ModelBase {
   public Id: number;
 
   public Val: string;
+
+  @BelongsTo("TestModel") 
+  public TestModel: SingleRelation<TestModel>;
 }

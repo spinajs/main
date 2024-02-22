@@ -1,4 +1,4 @@
-import { DatetimeValueConverter, IValueConverter } from '@spinajs/orm';
+import { BooleanValueConverter, DatetimeValueConverter, IValueConverter } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 export class SqlSetConverter implements IValueConverter {
@@ -14,6 +14,15 @@ export class SqlSetConverter implements IValueConverter {
       return value.split(',');
     }
     return [];
+  }
+}
+
+export class SqlBooleanValueConverter implements BooleanValueConverter {
+  toDB(value: any) {
+    return value ? 1 : 0;
+  }
+  fromDB(value: any) {
+    return value === 1;
   }
 }
 

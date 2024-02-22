@@ -69,10 +69,12 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
 
   it('should insert query', async () => {
     await db().migrateUp();
+    await db().reloadTableInfo();
     const iResult = await db().Connections.get('sqlite').insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
+      IsActive: true
     });
 
     const result: User = await db().Connections.get('sqlite').select<User>().from('user').first();
@@ -82,6 +84,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     expect(result).to.be.not.null;
     expect(result.Id).to.eq(1);
     expect(result.Name).to.eq('test');
+    expect(result.IsActive).to.eq(true);
   });
 
   it('should insert or ignore  query', () => {
@@ -93,11 +96,12 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
         Name: 'test',
         Password: 'test_password',
         CreatedAt: '2019-10-18',
+        IsActive: true
       })
       .orIgnore()
       .toDB();
 
-    expect(result.expression).to.eq('INSERT OR IGNORE INTO `user` (`Name`,`Password`,`CreatedAt`) VALUES (?,?,?)');
+    expect(result.expression).to.eq('INSERT OR IGNORE INTO `user` (`Name`,`Password`,`CreatedAt`,`IsActive`) VALUES (?,?,?,?)');
   });
 
   it('should delete', async () => {
@@ -106,6 +110,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
+      IsActive: true
     });
 
     await db().Connections.get('sqlite').del().from('user').where('id', 1);
@@ -120,6 +125,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
+      IsActive: true
     });
 
     await db()
@@ -170,6 +176,7 @@ describe('Sqlite driver migrate', () => {
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
+      IsActive: true
     });
     const result = await db().Connections.get('sqlite').select().from('user').first();
 
@@ -179,6 +186,8 @@ describe('Sqlite driver migrate', () => {
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
+      IsActive: 1
+
     });
   });
 });
@@ -200,6 +209,7 @@ describe('Sqlite model functions', function () {
     const user = await User.create({
       Name: 'test',
       Password: 'test_password',
+      IsActive: true,
     });
 
     const result: User = await db().Connections.get('sqlite').select<User>().from('user').first();
@@ -374,7 +384,6 @@ describe('Sqlite model functions', function () {
     const o2 = new owned_by_owned_by_has_many_1();
     o2.Val = 'leaf';
 
-    await o2.insert();
     const o1 = new owned_by_has_many_1();
     o1.Val = 'middle';
 
@@ -382,6 +391,7 @@ describe('Sqlite model functions', function () {
     o1.attach(o2);
 
     await o1.insert();
+    await o2.insert();
 
     const result = await has_many_1.where('Id', '>', 0).populate('Informations', function () {
       this.populate('File');
@@ -675,12 +685,15 @@ describe('Sqlite queries', function () {
       Name: 'a',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
+      IsActive: true
     });
 
     await db().Connections.get('sqlite').insert().into('user').values({
       Name: 'b',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
+      IsActive: true
+
     });
 
     const userQuery = User.where(function () {
@@ -695,6 +708,7 @@ describe('Sqlite queries', function () {
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
+      IsActive: true
     });
 
     const user = await User.get(1);
@@ -709,6 +723,8 @@ describe('Sqlite queries', function () {
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
+      IsActive: true
+
     });
 
     const user = await User.get(1);
@@ -722,6 +738,8 @@ describe('Sqlite queries', function () {
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
+      IsActive: true
+
     });
 
     await User.insert(new User({ Name: 'test', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.InsertOrUpdate);
