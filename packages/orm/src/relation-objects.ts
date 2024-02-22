@@ -6,6 +6,7 @@ import { createQuery, extractModelDescriptor, ModelBase } from './model.js';
 import { Orm } from './orm.js';
 import _ from 'lodash';
 import { OrmDriver } from './driver.js';
+import { HasMany } from './decorators.js';
 
 export class Dataset {
   /**
@@ -420,3 +421,17 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     return toRemove;
   }
 }
+
+
+/**
+ * Register default relation type factory
+ * for hasMany & hasManyToMany
+ * 
+ * It can be overriden program-wide 
+ * by registering new factory that return other type.
+ * 
+ * To change relation type for single use - set relation option
+ * `type` property in decorators
+ */
+DI.register(() => OneToManyRelationList).as('__orm_relation_has_many_factory__');
+DI.register(() => ManyToManyRelationList).as('__orm_relation_has_many_to_many_factory__');

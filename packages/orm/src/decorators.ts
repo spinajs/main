@@ -349,7 +349,7 @@ export interface IHasManyToManyDecoratorOptions extends IRelationDecoratorOption
    * source model primary key name
    */
   sourceModelPKey?: string;
-  
+
   /**
    * junction table target primary key name ( foreign key for target model )
    */
@@ -376,13 +376,6 @@ export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
  */
 export function HasMany(targetModel: Constructor<ModelBase> | string, options?: IHasManyDecoratorOptions) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    // for simplicity of use we allow to Relation<> type be used
-    // If Relation<> is used we assume its default OneToManyRelationList
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target, propertyKey);
-    if (type.name === 'Relation') {
-      type = OneToManyRelationList;
-    }
-
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Many,
@@ -392,8 +385,8 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       ForeignKey: options ? options.foreignKey ?? `${model.Name.toLowerCase()}_id` : `${model.Name.toLowerCase()}_id`,
       PrimaryKey: options ? options.primaryKey ?? model.PrimaryKey : model.PrimaryKey,
       Recursive: false,
-      Factory: options ? options.factory : null,
-      RelationClass: options ? options.type : type,
+      Factory: options?.factory ? options.factory : null,
+      RelationClass: options?.type ? options.type : DI.resolve("__orm_relation_has_many_factory"),
     });
   });
 }
@@ -419,16 +412,12 @@ export function Historical(targetModel: Constructor<ModelBase>) {
  * @param junctionModel - model for junction table
  * @param targetModel - model for related data
  */
-export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase> | string, options? : IHasManyToManyDecoratorOptions) {
+export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase> | string, options?: IHasManyToManyDecoratorOptions) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const targetModelDescriptor = extractModelDescriptor(targetModel);
 
     // for simplicity of use we allow to Relation<> type be used
     // If Relation<> is used we assume its default ManyToManyRelationList
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target, propertyKey);
-    if (type.name === 'Relation') {
-      type = ManyToManyRelationList;
-    }
 
     model.Relations.set(propertyKey, {
       Name: propertyKey,
@@ -442,7 +431,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       JunctionModel: junctionModel,
       JunctionModelTargetModelFKey_Name: options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
       JunctionModelSourceModelFKey_Name: options?.junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
-      RelationClass: options ? options.type : type,
+      RelationClass: options?.type ? options.type : DI.resolve("__orm_relation_has_many_to_many_factory__"),
       Factory: options ? options.factory : null,
     });
   });
