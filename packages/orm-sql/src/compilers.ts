@@ -68,7 +68,7 @@ export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
   public compile(): ICompilerOutput {
     const sort = this._builder.getSort();
     let stmt = '';
-    const bindings : string[] = [];
+    const bindings: string[] = [];
 
     if (sort) {
       stmt = ` ORDER BY ${sort.column} ${sort.order}`;
@@ -228,7 +228,7 @@ export class SqlJoinCompiler implements IJoinCompiler {
 }
 
 // tslint:disable-next-line
-export interface SqlSelectQueryCompiler extends IWhereCompiler, IColumnsCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler {}
+export interface SqlSelectQueryCompiler extends IWhereCompiler, IColumnsCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler { }
 
 @NewInstance()
 @Inject(Container)
@@ -297,7 +297,7 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
 }
 
 // tslint:disable-next-line
-export interface SqlUpdateQueryCompiler extends IWhereCompiler {}
+export interface SqlUpdateQueryCompiler extends IWhereCompiler { }
 
 @NewInstance()
 @Inject(Container)
@@ -347,7 +347,7 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
 }
 
 // tslint:disable-next-line
-export interface SqlDeleteQueryCompiler extends IWhereCompiler {}
+export interface SqlDeleteQueryCompiler extends IWhereCompiler { }
 
 @NewInstance()
 @Inject(Container)
@@ -493,7 +493,12 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
               throw new InvalidArgument(`value column ${descriptor.Name} cannot be null`);
             }
 
-            if (descriptor.AutoIncrement && descriptor.PrimaryKey) return false;
+            if (descriptor.AutoIncrement && descriptor.PrimaryKey) {
+              if (this._builder.Update && v !== undefined && v !== null) {
+                return true;
+              }
+              return false;
+            }
           }
 
           return true;
@@ -522,9 +527,14 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
   protected columns() {
     const columns = this._builder
       .getColumns()
-      .filter((c) => {
+      .filter((c, i) => {
         const descriptor = (c as ColumnStatement).Descriptor;
-        if (descriptor && descriptor.AutoIncrement && descriptor.PrimaryKey) return false;
+        if (descriptor && descriptor.AutoIncrement && descriptor.PrimaryKey) {
+          if (this._builder.Update && this._builder.Values.every( x=> x[i] !== undefined && x[i] !== null)) {
+            return true;
+          }
+          return false;
+        }
         return true;
       })
       .map((c) => {
@@ -564,7 +574,7 @@ export class SqlDropTableQueryCompiler extends DropTableCompiler {
   }
 }
 
-export interface SqlAlterTableQueryCompiler {}
+export interface SqlAlterTableQueryCompiler { }
 
 @NewInstance()
 @Inject(Container)
@@ -616,7 +626,7 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
   }
 }
 
-export interface SqlTableCloneQueryCompiler {}
+export interface SqlTableCloneQueryCompiler { }
 
 @NewInstance()
 @Inject(Container)
@@ -641,11 +651,11 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
         this.builder.Filter !== undefined
           ? this.builder.Filter.toDB()
           : {
-              bindings: [],
+            bindings: [],
 
-              // if no filter is provided, copy all the data
-              expression: `SELECT * FROM ${_tblName}`,
-            };
+            // if no filter is provided, copy all the data
+            expression: `SELECT * FROM ${_tblName}`,
+          };
 
       const fExprr = `INSERT INTO \`${this.builder.Table}\` ${fOut.expression}`;
 
@@ -666,7 +676,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
   }
 }
 
-export interface SqlTruncateTableQueryCompiler {}
+export interface SqlTruncateTableQueryCompiler { }
 
 @NewInstance()
 export class SqlTruncateTableQueryCompiler extends TableQueryCompiler {
@@ -790,7 +800,7 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
   }
 }
 
-export interface SqlTableQueryCompiler {}
+export interface SqlTableQueryCompiler { }
 
 @NewInstance()
 @Inject(Container)

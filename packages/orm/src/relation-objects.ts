@@ -6,7 +6,6 @@ import { createQuery, extractModelDescriptor, ModelBase } from './model.js';
 import { Orm } from './orm.js';
 import _ from 'lodash';
 import { OrmDriver } from './driver.js';
-import { HasMany } from './decorators.js';
 
 export class Dataset {
   /**

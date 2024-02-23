@@ -6,7 +6,7 @@ import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescript
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { ManyToManyRelationList, OneToManyRelationList, Relation } from './relation-objects.js';
+import { Relation } from './relation-objects.js';
 
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
@@ -386,7 +386,7 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       PrimaryKey: options ? options.primaryKey ?? model.PrimaryKey : model.PrimaryKey,
       Recursive: false,
       Factory: options?.factory ? options.factory : null,
-      RelationClass: options?.type ? options.type : DI.resolve("__orm_relation_has_many_factory"),
+      RelationClass: options?.type ? options.type : DI.resolve("__orm_relation_has_many_factory__"),
     });
   });
 }
