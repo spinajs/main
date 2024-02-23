@@ -77,7 +77,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
       IsActive: true
     });
 
-    const result: User = await db().Connections.get('sqlite').select<User>().from('user').first();
+    const result: User = await User.first();
 
     expect(iResult.LastInsertId).to.eq(1);
     expect(iResult.RowsAffected).to.eq(1);
@@ -562,7 +562,9 @@ describe('Sqlite model functions', function () {
 
     await m0.insert();
 
-    const m1 = new TestMany();
+    expect(m0.Id).to.eq(1);
+
+    const m1 = new TestMany({ Val: "inserted"});
     const m2 = new TestMany();
     const m3 = new TestMany();
     const m4 = new TestMany();
@@ -580,8 +582,6 @@ describe('Sqlite model functions', function () {
     expect(check.Many[3].Id).to.eq(5);
 
     m1.Val = 'test';
-    model.Many.set([m1, m2, m3, m4]);
-
     await model.Many.sync();
 
     check = await TestModel.where({ Id: 1 }).populate('Many').first();
@@ -752,6 +752,17 @@ describe('Sqlite queries', function () {
     expect(user.Name).to.eq('test');
     expect(user.Password).to.eq('test_password_2');
     expect(all.length).to.eq(1);
+
+    expect(async () =>{ 
+      await User.insert(new User({ Name: 'test', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd'), IsActive: true }), InsertBehaviour.InsertOrUpdate);
+    }).to.throw;
+
+    user.Name = 'test2';
+
+    await user.update();
+
+    const user2 = await User.get(1);
+    expect(user2.Name).to.eq('test2');
   });
 });
 
@@ -771,6 +782,7 @@ describe('Relation tests', function () {
   it('Populate belongs to in many to many relation', async () => {
     const db = await DI.resolve(Orm);
     await db.migrateUp();
+    await db.reloadTableInfo();
 
     const result = await Offer.all().populate('Localisations', function () {
       this.populate('Metadata');

@@ -1,6 +1,5 @@
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
-import { Commands } from '../models/User.js';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import _ from 'lodash';
 

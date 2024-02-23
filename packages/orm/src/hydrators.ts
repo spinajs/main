@@ -29,7 +29,7 @@ export class DbPropertyHydrator extends ModelHydrator {
       const column = descriptor.Columns?.find((c) => c.Name === k);
 
       if (values[k] !== undefined) {
-        (target as any)[k] = column.Converter ? column.Converter.fromDB(values[k], values, descriptor.Converters.get(column.Name).Options) : values[k];
+        (target as any)[k] = column.Converter ? column.Converter.fromDB(values[k], values, descriptor.Converters.get(column.Name)?.Options) : values[k];
       }
     });
   }

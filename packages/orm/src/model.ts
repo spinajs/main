@@ -534,7 +534,10 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param insertBehaviour - insert mode
    */
   public async insertOrUpdate() {
-    return await this.insert(InsertBehaviour.InsertOrUpdate);
+    if (this.PrimaryKeyValue) {
+      return await this.update();
+    }
+    return await this.insert();
   }
 
   /**
@@ -767,6 +770,11 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   update<T extends typeof ModelBase>(data: Partial<InstanceType<T>>) {
+
+    if(data instanceof ModelBase){
+      throw new OrmException(`use model::update() function to update model`);
+    }
+
     const { query } = createQuery(this, UpdateQueryBuilder);
     return query.update(data);
   },

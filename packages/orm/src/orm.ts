@@ -126,6 +126,8 @@ export class Orm extends AsyncService {
       const descriptor = extractModelDescriptor(m.type);
       if (descriptor) {
         const connection = this.Connections.get(descriptor.Connection);
+        const converters = connection.Container.get<Map<string, any>>('__orm_db_value_converters__');
+
         if (connection) {
           (m.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor).Driver = connection;
           const columns = await connection.tableInfo(descriptor.TableName, connection.Options.Database);
@@ -156,7 +158,6 @@ export class Orm extends AsyncService {
              */
             columns.forEach((c) => {
               if (!c.Converter) {
-                const converters = connection.Container.get<Map<string, any>>('__orm_db_value_converters__');
                 if (converters && converters.has(c.NativeType.toLocaleLowerCase())) {
                   c.Converter = connection.Container.resolve(converters.get(c.NativeType.toLocaleLowerCase()));
                 }
@@ -201,8 +202,8 @@ export class Orm extends AsyncService {
   protected registerDefaultConverters() {
     this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', Date.name);
     this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', DateTime.name);
-    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', Boolean.name);
-    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', 'Bool');
+    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', Boolean.name.toLowerCase());
+    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', 'bool');
   }
 
   protected wireRelations() {
