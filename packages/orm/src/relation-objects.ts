@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { IRelationDescriptor, IModelDescriptor, InsertBehaviour, ForwardRefFunction, IRelation, ISelectQueryBuilder } from './interfaces.js';
-import { DI, Constructor, isConstructor } from '@spinajs/di';
+import { DI, Constructor, isConstructor, Container } from '@spinajs/di';
 import { SelectQueryBuilder } from './builders.js';
 import { createQuery, extractModelDescriptor, ModelBase } from './model.js';
 import { Orm } from './orm.js';
@@ -330,7 +330,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     });
 
     for (const f of dirty) {
-      await f.insertOrUpdate();
+      await f.insert(InsertBehaviour.InsertOrReplace);
     }
 
     await this._dbDiff(this);
@@ -421,16 +421,15 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
   }
 }
 
-
 /**
  * Register default relation type factory
  * for hasMany & hasManyToMany
- * 
- * It can be overriden program-wide 
+ *
+ * It can be overriden program-wide
  * by registering new factory that return other type.
- * 
+ *
  * To change relation type for single use - set relation option
  * `type` property in decorators
  */
-DI.register(() => OneToManyRelationList).as('__orm_relation_has_many_factory__');
-DI.register(() => ManyToManyRelationList).as('__orm_relation_has_many_to_many_factory__');
+DI.register((_: Container, type: Constructor<unknown>) => (type.name.toLowerCase() === 'Relation' ? OneToManyRelationList : type)).as('__orm_relation_has_many_factory__');
+DI.register((_: Container, type: Constructor<unknown>) => (type.name.toLowerCase() === 'Relation' ? ManyToManyRelationList : type)).as('__orm_relation_has_many_to_many_factory__');

@@ -1202,9 +1202,9 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
 
   protected _ignore: boolean;
 
-  protected _update: boolean;
+  protected _update: boolean = false;
 
-  protected _replace: boolean;
+  protected _replace: boolean = false;
 
   @use(ColumnsBuilder) this: this;
 
@@ -1244,7 +1244,7 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   }
 
   public orReplace() {
-    this._update = true;
+    this._replace = true;
 
     return this;
   }

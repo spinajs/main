@@ -77,12 +77,13 @@ describe('User model tests', function () {
   });
 
   describe('User roles', () => {
-    it('Should chekc if guest role is set by default', async () => {
+    it('Should check if guest role is set by default', async () => {
 
       const user = new User({
         Email: 'test@test.pl',
-        Login: "test",
+        Login: "tes t",
         IsActive: true,
+        Password: "test",
         Uuid: TEST_USER_UUID_2,
       });
 
@@ -92,7 +93,7 @@ describe('User model tests', function () {
 
       const user2 = await User.get(user.Id);
       expect(user2.IsGuest).to.be.true;
-      expect(user2.Role.length).to.be.eq(0);
+      expect(user2.Role.length).to.be.eq(1);
 
     });
 
@@ -100,9 +101,10 @@ describe('User model tests', function () {
 
       const user = new User({
         Email: 'test@test.pl',
-        Login: "test",
+        Login: "test ddd",
         IsActive: true,
         Uuid: TEST_USER_UUID_2,
+        Password: "test",
         Role: ["admin", "user"]
       });
 

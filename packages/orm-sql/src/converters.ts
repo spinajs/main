@@ -9,7 +9,7 @@ export class SqlSetConverter implements IValueConverter {
     return '';
   }
 
-  public fromDB(value: string) {
+  public fromDB(value: string | string[]) {
     if (value) {
       return value.split(',');
     }
@@ -22,7 +22,7 @@ export class SqlBooleanValueConverter implements BooleanValueConverter {
     return value ? 1 : 0;
   }
   fromDB(value: any) {
-    return value === 1;
+    return value === 1 || value === true || value === '1';
   }
 }
 

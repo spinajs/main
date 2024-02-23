@@ -188,10 +188,12 @@ export class Orm extends AsyncService {
     }
 
     const executedMigrations = await this.migrateUp(undefined, false);
+
+    this.registerDefaultConverters();
+
     await this.reloadTableInfo();
     this.wireRelations();
     this.applyModelMixins();
-    this.registerDefaultConverters();
 
     for (const m of executedMigrations) {
       this.Log.trace(`Migrating data function for migration ${m.constructor.name} ...`);

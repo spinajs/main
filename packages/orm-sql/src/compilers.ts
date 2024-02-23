@@ -465,7 +465,7 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
   }
 
   protected upsort() {
-    if (this._builder.Update) {
+    if (this._builder.Update && !this._builder.Replace) {
       return this._container.resolve(OnDuplicateQueryCompiler, [this._builder.DuplicateQueryBuilder]).compile();
     }
 

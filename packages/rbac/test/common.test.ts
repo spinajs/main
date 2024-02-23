@@ -31,7 +31,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         targets: [
           {
             name: 'Empty',
-            type: 'ConsoleTarget',
+            type: 'BlackHoleTarget',
           },
         ],
 
@@ -107,18 +107,53 @@ export class TestConfiguration extends FrameworkConfiguration {
           // 2h session expiration  time
           expiration: 120,
         },
+        auth: {
+          service: 'SimpleDbAuthProvider',
+        },
         password: {
-          provider: 'BasicPasswordProvider',
-          minPasswordLength: 6,
+          service: 'BasicPasswordProvider',
+
+          validation: {
+            service: 'BasicPasswordValidationProvider',
+            rule: {
+              // UNCOMMENT ONE OF BELOW OR MODIFY
+              // VALIDATION RULE IS JSON SCHEMA
+
+              // Minimum eight characters, at least one letter and one number
+              pattern: '^(?=.*[A-Za-z])(?=.*d)[A-Za-zd]{8,}$',
+
+              // Minimum eight characters, at least one letter, one number and one special character:
+              // pattern: '^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$',
+
+              // Minimum eight characters, at least one uppercase letter, one lowercase letter and one number
+              // pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$',
+
+              // Minimum eight characters, at least one uppercase letter, one lowercase letter and one number
+              // pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$',
+
+              type: 'string',
+            },
+          },
+
+          /**
+           * Should password expire after some time ?
+           */
+          passwordExpirationTime: 0,
+
+          /**
+           * How long we should wait to reset password ( after this time reset token is invalid )
+           */
+          passwordResetWaitTime: 60 * 60,
         },
       },
 
-      email: { 
+      email: {
         connections: [
           {
             name: 'rbac-email-connection',
             service: 'BlackHoleEmailSender',
-          }]
+          },
+        ],
       },
 
       queue: {

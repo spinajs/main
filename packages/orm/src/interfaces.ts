@@ -1203,7 +1203,7 @@ export class ValueConverter implements IValueConverter {
    *
    * @param value - value to convert
    */
-  public toDB(_value: any, _model: ModelBase<any>, _options: any): any {
+  public toDB(_value: any, _model: ModelBase<any>, _options?: any): any {
     throw new MethodNotImplemented();
   }
 
@@ -1212,7 +1212,7 @@ export class ValueConverter implements IValueConverter {
    *
    * @param value - value to convert
    */
-  public fromDB(_value: any, _rawData: any, _options: any): any {
+  public fromDB(_value: any, _rawData?: any, _options?: any): any {
     throw new MethodNotImplemented();
   }
 }

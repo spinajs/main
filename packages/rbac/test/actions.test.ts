@@ -63,16 +63,18 @@ describe('User model tests', function () {
 
   it('Should not send event when user is already activated', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
-
+    let user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
     await activate('test@spinajs.pl');
 
-    const user = await User.query().whereAnything('test-notactive@spinajs.pl').firstOrFail();
+    user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
 
     expect(user.IsActive).to.be.true;
     expect(eStub.called).to.be.false;
   });
 
-  it('Should deactivate user', async () => {});
+  it('Should deactivate user', async () => {
+    console.log("DA");
+  });
 
   it('Should create user', async () => {});
 

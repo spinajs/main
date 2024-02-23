@@ -473,16 +473,25 @@ export class ModelBase<M = unknown> implements IModelBase {
 
   public async update(data?: Partial<this>) {
     const { query } = this.createUpdateQuery();
+    let result = {
+      RowsAffected: 0,
+      LastInsertId: 0,
+    };
 
     if (data) {
       this.hydrate(data);
+    }
+
+    // if no changes, return without update
+    if (this.IsDirty === false) {
+      return result;
     }
 
     if (this.ModelDescriptor.Timestamps.UpdatedAt) {
       (this as any)[this.ModelDescriptor.Timestamps.UpdatedAt] = DateTime.now();
     }
 
-    const result = await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    result = await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
 
     this.IsDirty = false;
 
@@ -770,8 +779,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   update<T extends typeof ModelBase>(data: Partial<InstanceType<T>>) {
-
-    if(data instanceof ModelBase){
+    if (data instanceof ModelBase) {
       throw new OrmException(`use model::update() function to update model`);
     }
 

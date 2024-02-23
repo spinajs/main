@@ -10,7 +10,7 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 import { LogLevel } from '@spinajs/log-common';
 export * from './compilers.js';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ObjectToSqlConverter, OrmException } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ObjectToSqlConverter, OrmException, ValueConverter } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -214,6 +214,8 @@ export class SqliteOrmDriver extends SqlDriver {
    * @param _schema - optional schema name
    */
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
+    const converters = this.Container.get<Map<string, any>>('__orm_db_value_converters__');
+
     const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${name});`, null, QueryContext.Select)) as ITableInfo[];
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
@@ -235,11 +237,12 @@ export class SqliteOrmDriver extends SqlDriver {
 
     return tblInfo.map((r: ITableInfo) => {
       const fk = foreignKeys.find((i) => i.from === r.name);
+      const converter = converters.get(r.type.toLocaleLowerCase());
       return {
         Type: r.type,
         MaxLength: -1,
         Comment: '',
-        DefaultValue: r.dflt_value,
+        DefaultValue: converter ?  this.Container.resolve<ValueConverter>(converters.get(r.type.toLocaleLowerCase())).fromDB( r.dflt_value) : r.dflt_value,
         NativeType: r.type,
         Unsigned: false,
         Nullable: r.notnull === 0,
