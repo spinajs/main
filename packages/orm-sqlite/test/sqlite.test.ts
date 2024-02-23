@@ -742,7 +742,7 @@ describe('Sqlite queries', function () {
 
     });
 
-    await User.insert(new User({ Name: 'test', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd') }), InsertBehaviour.InsertOrUpdate);
+    await User.insert(new User({ Name: 'test', Password: 'test_password_2', CreatedAt: DateTime.fromFormat('2019-10-19', 'yyyy-MM-dd'), IsActive: true }), InsertBehaviour.InsertOrUpdate);
 
     const all = await User.all();
     const user = await User.get(1);
