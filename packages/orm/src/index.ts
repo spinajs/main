@@ -17,3 +17,4 @@ export * from './wrappers.js';
 export * from './exceptions.js';
 export * from "./metadata.js";
 export * from './fp.js';
+export * from './bootstrap.js';

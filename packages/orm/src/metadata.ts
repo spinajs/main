@@ -1,9 +1,10 @@
-import { DateTime } from 'luxon';
+import { _check_arg, _non_nil } from '@spinajs/util';
 import { Primary, UniversalConverter } from './decorators.js';
-import { OrmException } from './exceptions.js';
 import { IRelationDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 import { OneToManyRelationList } from './relation-objects.js';
+import GlobToRegExp from 'glob-to-regexp';
+import _ from "lodash";
 
 /**
  * Relation object for user metadata
@@ -31,28 +32,12 @@ export abstract class MetadataModel<T> extends ModelBase<MetadataModel<T>> {
     this.Type = this.getType(value);
   }
 
-  protected getType(val: any) {
-    if (val instanceof DateTime) {
-      return 'datetime';
-    }
-
-    if (typeof val === 'number') {
-      return 'number';
-    }
-
-    if (typeof val === 'boolean') {
-      return 'boolean';
-    }
-
-    if (typeof val === 'string') {
-      return 'string';
-    }
-
+  protected getType(val: any): 'number' | 'float' | 'string' | 'json' | 'boolean' | 'datetime' {
     if (typeof val === 'object') {
       return 'json';
     }
 
-    throw new OrmException(`Cannot guess type for ${val}`);
+    return (typeof val).toLocaleLowerCase() as any;
   }
 }
 
@@ -74,52 +59,48 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
     super(owner, relation, objects);
 
     return new Proxy(this, {
-      set: (target: OneToManyRelationList<MetadataModel<unknown>, ModelBase<unknown>>, prop: string, value: any) => {
-        if (prop in target || !isNaN(prop as any)) {
-          (target as any)[prop] = value;
-        } else {
-          const isRegEx = (prop: string) => prop.startsWith('/') && prop.endsWith('/');
-          let test: (model: MetadataModel<unknown>) => boolean = null;
-
-          if (isRegEx(prop)) {
-            const exprr = new RegExp(prop.substring(1, prop.length - 1));
-            test = (model: MetadataModel<unknown>) => exprr.test(model.Key);
-          } else {
-            test = (model: MetadataModel<unknown>) => model.Key === prop;
-          }
-
-          if (value === null || value === undefined) {
-            target.remove(test);
-          } else {
-            const found = target.filter(test);
-
-            if (found.length === 0 && !isRegEx(prop)) {
-              const userMeta = new this.Relation.TargetModel() as R;
-              userMeta.Key = prop;
-              userMeta.Value = value;
-
-              this.Owner.attach(userMeta);
-            } else {
-              found.forEach((x) => (x.Value = value));
-            }
-          }
+      set: (target: MetadataRelation<MetadataModel<unknown>, ModelBase<unknown>>, prop: string, value: any) => {
+        if (prop in target || !isNaN(parseFloat(prop))) {
+          target[prop] = value;
+          return true;
         }
 
+        const g = GlobToRegExp(prop);
+        const test = (m: MetadataModel<unknown>) => g.test(m.Key);
+        if (_.isNil(value)) {
+          target.remove(test);
+        } else {
+          const found = target.filter(test);
+          if (found.length === 0) {
+            const userMeta = new this.Relation.TargetModel() as R;
+            userMeta.Key = prop;
+            userMeta.Value = value;
+            this.Owner.attach(userMeta);
+          } else {
+            found.forEach((x) => (x.Value = value));
+          }
+        }
         return true;
       },
 
-      get: (target: OneToManyRelationList<R, ModelBase<unknown>>, prop: string) => {
-        if (prop in target || !isNaN(prop as any)) {
-          return (target as any)[prop];
+      get: (target: MetadataRelation<MetadataModel<unknown>, ModelBase<unknown>>, prop: string) => {
+        if (prop in target) {
+          return target[prop];
         }
 
-        const found = target.find((x: R) => x.Key === prop);
+        const g = GlobToRegExp(prop);
+        const test = (m: MetadataModel<unknown>) => g.test(m.Key);
+        const found = target.filter(test);
 
-        if (found) {
-          return found.Value;
+        if (found.length === 0) {
+          return null;
         }
 
-        return null;
+        if (found.length === 1) {
+          return found[0].Value;
+        }
+
+        return found.map(x => x.Value);
       },
     }) as any;
   }

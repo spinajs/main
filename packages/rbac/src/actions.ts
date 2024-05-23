@@ -3,7 +3,7 @@ import { _use, _zip, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _is_email,
 import _ from 'lodash';
 import { _email_deferred } from '@spinajs/email';
 import { _ev } from '@spinajs/queue';
-import { USER_COMMON_MEDATA, User } from './models/User.js';
+import { USER_COMMON_METADATA, User } from './models/User.js';
 import { _cfg, _service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
 import { Constructor } from '@spinajs/di';
@@ -229,15 +229,15 @@ export async function ban(identifier: number | string | User, reason?: string, d
   return _chain(
     _user(identifier),
     (u: User) => {
-      if (u.Metadata[USER_COMMON_MEDATA.USER_BAN_IS_BANNED]) {
+      if (u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
         throw new ErrorCode(E_CODES.E_USER_BANNED, `User is already banned`, { user: u });
       }
     },
     _set_user_meta([
-      { key: USER_COMMON_MEDATA.USER_BAN_DURATION, value: duration },
-      { key: USER_COMMON_MEDATA.USER_BAN_REASON, value: reason },
-      { key: USER_COMMON_MEDATA.USER_BAN_IS_BANNED, value: true },
-      { key: USER_COMMON_MEDATA.USER_BAN_START_DATE, value: DateTime.now() },
+      { key: USER_COMMON_METADATA.USER_BAN_DURATION, value: duration },
+      { key: USER_COMMON_METADATA.USER_BAN_REASON, value: reason },
+      { key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true },
+      { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
     ]),
     _user_ev(UserBanned),
     _user_email('banned'),
@@ -255,7 +255,7 @@ export async function unban(identifier: number | string | User): Promise<User> {
   return _chain(
     _user(identifier),
     (u: User) => {
-      if (!u.Metadata[USER_COMMON_MEDATA.USER_BAN_IS_BANNED]) {
+      if (!u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
         throw new ErrorCode(E_CODES.E_USER_BANNED, `User is already unbanned`, { user: u });
       }
     },
@@ -271,9 +271,9 @@ export async function passwordChangeRequest(identifier: number | string | User) 
   return _chain(
     _user(identifier),
     _set_user_meta([
-      { key: USER_COMMON_MEDATA.USER_PWD_RESET_START_DATE, value: DateTime.now() },
-      { key: USER_COMMON_MEDATA.USER_PWD_RESET_TOKEN, value: uuidv4() },
-      { key: USER_COMMON_MEDATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
+      { key: USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, value: DateTime.now() },
+      { key: USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, value: uuidv4() },
+      { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
     ]),
     _user_ev(UserPasswordChangeRequest),
     _user_email('changePassword'),
@@ -284,7 +284,7 @@ export async function confirmPasswordReset(identifier: number | string | User, n
   return _chain(
     _user(identifier),
     _tap((u: User) =>
-      _chain(u, _zip(_get_user_meta(USER_COMMON_MEDATA.USER_PWD_RESET_START_DATE), _get_user_meta(USER_COMMON_MEDATA.USER_PWD_RESET_WAIT_TIME)), ([dueDate, waitTime]: [DateTime, number]) => {
+      _chain(u, _zip(_get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE), _get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME)), ([dueDate, waitTime]: [DateTime, number]) => {
         if (dueDate.plus(waitTime) < DateTime.now()) {
           throw new ErrorCode(E_CODES.E_TOKEN_EXPIRED, `Password change token expired, token expiration date is: ${dueDate.toISO()}`, {
             dueDate,
@@ -296,7 +296,7 @@ export async function confirmPasswordReset(identifier: number | string | User, n
       }),
     ),
     _tap((u: User) =>
-      _chain(u, _get_user_meta(USER_COMMON_MEDATA.USER_PWD_RESET_TOKEN), async (resetToken: string) => {
+      _chain(u, _get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_TOKEN), async (resetToken: string) => {
         if (resetToken !== token) {
           throw new ErrorCode(E_CODES.E_TOKEN_INVALID, `Password change token invalid, operation not permitted`, {
             token,

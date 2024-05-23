@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { NonDbPropertyHydrator } from './../src/hydrators.js';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
+import { Bootstrapper, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -11,6 +11,7 @@ import * as sinon from 'sinon';
 import { ModelToSqlConverter, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableExistsCompiler, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter } from '../src/index.js';
 import { Migration1_2021_12_01_12_00_00, Migration2_2021_12_02_12_00_00 } from './mocks/migrations/index.js';
 import { OrmDriver } from '../src/driver.js';
+import "./../src/bootstrap.js";
 
 const expect = chai.expect;
 
@@ -37,6 +38,16 @@ describe('Orm migrations', () => {
     DI.register(StandardModelToSqlConverter).as(ModelToSqlConverter);
     DI.register(StandardObjectToSqlConverter).as(ObjectToSqlConverter);
   });
+
+  beforeEach(async () =>{ 
+
+    DI.removeAllListeners("di.resolve.Configuration");
+
+    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+    for (const b of bootstrappers) {
+      await b.bootstrap();
+    }
+  })
 
   afterEach(async () => {
     DI.clearCache();

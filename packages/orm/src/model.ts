@@ -606,7 +606,11 @@ export class ModelBase<M = unknown> implements IModelBase {
       if (rel.Factory) {
         (this as any)[rel.Name] = rel.Factory(this, rel, this.Container, []);
       } else if (rel.RelationClass) {
-        (this as any)[rel.Name] = this.Container.resolve(rel.RelationClass, [this, rel, []]);
+        if (_.isFunction(rel.RelationClass)) {
+          (this as any)[rel.Name] = this.Container.resolve(rel.RelationClass(), [this, rel, []]);
+        } else {
+          (this as any)[rel.Name] = this.Container.resolve(rel.RelationClass, [this, rel, []]);
+        }
       } else {
         (this as any)[rel.Name] = new SingleRelation(this, rel.TargetModel, rel, null);
       }

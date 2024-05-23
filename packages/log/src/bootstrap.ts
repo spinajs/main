@@ -3,6 +3,35 @@ import { Injectable, Bootstrapper, DI } from "@spinajs/di";
 import { Log } from "@spinajs/log-common";
 import CONFIGURATION_SCHEMA from "./schemas/log.configuration.js";
 
+const uncaughtExceptionHandler = (err: Error) => {
+  // if we have configuration resolved, we can assume that logger can read configuration
+  // so log to default log
+  // if not log to console
+  if (DI.has(Configuration)) {
+    const log = DI.resolve(Log, ["process"]);
+    log.fatal(err, "Unhandled exception occured");
+  } else {
+    console.error(
+      "Unhandled exception occured, reason:" + JSON.stringify(err)
+    );
+  }
+}
+
+const unhandledRejection = (reason : Error, p : Promise<unknown>) => {
+  // if we have configuration resolved, we can assume that logger can read configuration
+  // so log to default log
+  // if not log to console
+  if (DI.has(Configuration)) {
+    const log = DI.resolve(Log, ["process"]);
+    log.fatal(reason as Error, "Unhandled rejection at Promise %s", p);
+  } else {
+    console.error(
+      "Unhandled rejection at Promise %s, reason: " +
+        JSON.stringify(reason)
+    );
+  }
+};
+
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
   public bootstrap(): void {
@@ -12,34 +41,12 @@ export class LogBotstrapper extends Bootstrapper {
     // hook for uncaughtException causes to not showing
     // mocha errors in console
     if (!process.env.TESTING) {
-      process.on("uncaughtException", (err) => {
-        // if we have configuration resolved, we can assume that logger can read configuration
-        // so log to default log
-        // if not log to console
-        if (DI.has(Configuration)) {
-          const log = DI.resolve(Log, ["process"]);
-          log.fatal(err, "Unhandled exception occured");
-        } else {
-          console.error(
-            "Unhandled exception occured, reason:" + JSON.stringify(err)
-          );
-        }
-      });
+    
+      process.removeListener("uncaughtException",uncaughtExceptionHandler);
+      process.removeListener("unhandledRejection",uncaughtExceptionHandler);
 
-      process.on("unhandledRejection", (reason, p) => {
-        // if we have configuration resolved, we can assume that logger can read configuration
-        // so log to default log
-        // if not log to console
-        if (DI.has(Configuration)) {
-          const log = DI.resolve(Log, ["process"]);
-          log.fatal(reason as Error, "Unhandled rejection at Promise %s", p);
-        } else {
-          console.error(
-            "Unhandled rejection at Promise %s, reason: " +
-              JSON.stringify(reason)
-          );
-        }
-      });
+      process.on("uncaughtException", uncaughtExceptionHandler);
+      process.on("unhandledRejection", unhandledRejection);
     }
   }
 }

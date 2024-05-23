@@ -389,7 +389,7 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       PrimaryKey: options ? options.primaryKey ?? model.PrimaryKey : model.PrimaryKey,
       Recursive: false,
       Factory: options?.factory ? options.factory : null,
-      RelationClass: options?.type ? options.type : DI.resolve("__orm_relation_has_many_factory__", [type]),
+      RelationClass: options?.type ? options.type : () => DI.resolve("__orm_relation_has_many_factory__", [type]),
     });
   });
 }
@@ -434,7 +434,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       JunctionModel: junctionModel,
       JunctionModelTargetModelFKey_Name: options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
       JunctionModelSourceModelFKey_Name: options?.junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
-      RelationClass: options?.type ? options.type : DI.resolve("__orm_relation_has_many_to_many_factory__", [type]),
+      RelationClass: options?.type ? options.type :  () => DI.resolve("__orm_relation_has_many_to_many_factory__", [type]),
       Factory: options ? options.factory : null,
     });
   });

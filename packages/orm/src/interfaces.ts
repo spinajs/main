@@ -477,7 +477,7 @@ export interface IRelationDescriptor {
    *  sometimes we dont want to create standard relation object, so we create type
    *  that is passed in this property
    */
-  RelationClass?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>>;
+  RelationClass?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> | (() => Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>>);
 }
 
 export interface IModelStatic extends Constructor<ModelBase<unknown>> {

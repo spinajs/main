@@ -1,4 +1,7 @@
 import { InvalidArgument } from '@spinajs/exceptions';
+import '@spinajs/util';
+
+import GlobToRegExp from 'glob-to-regexp';
 
 /**
  * Helper function to validate arguments
@@ -16,7 +19,6 @@ export function _check_arg(...checks: ((arg: any, name: string) => any)[]) {
   };
 }
 
- 
 /**
  * Validate number, if not number throws InvalidArgument
  *
@@ -141,9 +143,11 @@ export function _to_lower() {
   };
 }
 
-export function _trim() {
+export function _trim(char?: string) {
   return function (arg: unknown, _name: string) {
-    if (typeof arg === 'string') return arg.trim();
+    if (typeof arg === 'string') {
+      return char ? arg.trimChar(char) : arg.trim();
+    }
     return arg;
   };
 }
@@ -224,6 +228,16 @@ export function _non_undefined(error?: Error) {
   };
 }
 
+export function _non_NaN(error?: Error) {
+  return function (arg: any, name: string) {
+    if (isNaN(arg)) {
+      throw error ?? new InvalidArgument(`${name} is NaN`);
+    }
+
+    return arg;
+  };
+}
+
 export function _non_nil(error?: Error) {
   return function (arg: any, name: string) {
     if (arg === null || arg === undefined || arg === '' || (Array.isArray(arg) && arg.length === 0) || (typeof arg === 'object' && Object.keys(arg).length === 0)) {
@@ -257,8 +271,12 @@ export function _default<T>(value: T | (() => T)): (arg: T, name: string) => T {
   };
 }
 
-export function _contains<T>(values: T[], error?: Error) {
+export function _contains<T>(values: unknown, error?: Error) {
   return function (arg: T, name: string) {
+    if (!Array.isArray(values)) {
+      throw new InvalidArgument(`${name} should be an array`);
+    }
+
     if (!values.includes(arg)) {
       throw error ?? new InvalidArgument(`${name} should be one of ${values.join(', ')}`);
     }
@@ -306,6 +324,15 @@ export function _reg_match(reg: RegExp, error?: Error) {
     }
 
     return arg;
+  };
+}
+
+export function _glob_match(glob: string, error?: Error) {
+  return function (arg: unknown, name: string) {
+    if (typeof arg !== 'string') {
+      return arg;
+    }
+    return _reg_match(GlobToRegExp(glob), error)(arg, name);
   };
 }
 

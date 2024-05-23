@@ -1,4 +1,5 @@
 /* eslint-disable prettier/prettier */
+import "./../src/bootstrap.js";
 import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator } from './../src/hydrators.js';
 import { ModelNoConnection } from './mocks/models/ModelNoConnection.js';
 import { ModelNoDescription } from './mocks/models/ModelNoDescription.js';
@@ -6,7 +7,7 @@ import { SelectQueryBuilder } from './../src/builders.js';
 import { Model1 } from './mocks/models/Model1.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './../src/decorators.js';
 import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
+import { Bootstrapper, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -49,6 +50,14 @@ describe('General model tests', () => {
     DI.register(FakeConverter).as(DatetimeValueConverter);
   });
 
+  beforeEach(async () =>{ 
+    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+    for (const b of bootstrappers) {
+      await b.bootstrap();
+    }
+  })
+
+
   afterEach(async () => {
     DI.clearCache();
 
@@ -60,7 +69,7 @@ describe('General model tests', () => {
     const orm = await db();
     const models = await orm.Models;
 
-    expect(models.length).to.eq(19);
+    expect(models.length).to.eq(21);
   });
 
   it('Should set different connections to model', async () => {

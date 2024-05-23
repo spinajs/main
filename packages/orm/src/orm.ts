@@ -126,6 +126,12 @@ export class Orm extends AsyncService {
       const descriptor = extractModelDescriptor(m.type);
       if (descriptor) {
         const connection = this.Connections.get(descriptor.Connection);
+
+        if (!connection) {
+          this.Log.warn(`Cannot find connection ${descriptor.Connection} in connection list (model ${descriptor.Name})`);
+          continue;
+        }
+
         const converters = connection.Container.get<Map<string, any>>('__orm_db_value_converters__');
 
         if (connection) {

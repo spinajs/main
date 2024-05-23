@@ -8,7 +8,7 @@ import { DI } from '@spinajs/di';
 import { OrmException } from './exceptions.js';
 
 export class HasManyRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _path: string) { }
+  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _path: string) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -41,12 +41,15 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
           if (self._description.Factory) {
             d[self._description.Name] = self._description.Factory(d, self._description, d.Container, relData);
           } else {
-
             if (!self._description.RelationClass) {
               throw new OrmException(`Relation class not defined for ${self._description.Name} in ${self._description.SourceModel.name}`);
             }
 
-            d[self._description.Name] = DI.resolve(self._description.RelationClass, [d, self._description, relData]);
+            if (_.isFunction(self._description.RelationClass)) {
+              d[self._description.Name] = DI.resolve(self._description.RelationClass(), [d, self._description, relData]);
+            } else {
+              d[self._description.Name] = DI.resolve(self._description.RelationClass, [d, self._description, relData]);
+            }
           }
         });
       },
@@ -63,7 +66,7 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
 }
 
 export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
-  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) { }
+  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -136,7 +139,7 @@ export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware 
 }
 
 export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) { }
+  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -192,7 +195,7 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 }
 
 export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
-  constructor(protected _description: IRelationDescriptor, protected relation: BelongsToRelation) { }
+  constructor(protected _description: IRelationDescriptor, protected relation: BelongsToRelation) {}
 
   afterQuery(data: any[]): any[] {
     return data;
@@ -237,7 +240,7 @@ export class BelongsToRelationResultTransformMiddleware implements IBuilderMiddl
   }
 
   // tslint:disable-next-line: no-empty
-  public async afterHydration(_data: Array<ModelBase>) { }
+  public async afterHydration(_data: Array<ModelBase>) {}
 
   /**
    * Dynamically sets a deeply nested value in an object.
@@ -269,7 +272,7 @@ export class BelongsToRelationResultTransformMiddleware implements IBuilderMiddl
 }
 
 export class DiscriminationMapMiddleware implements IBuilderMiddleware {
-  constructor(protected _description: IModelDescriptor) { }
+  constructor(protected _description: IModelDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -290,5 +293,5 @@ export class DiscriminationMapMiddleware implements IBuilderMiddleware {
   }
 
   // tslint:disable-next-line: no-empty
-  public async afterHydration(_data: ModelBase[]) { }
+  public async afterHydration(_data: ModelBase[]) {}
 }

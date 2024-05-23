@@ -1,5 +1,5 @@
 import { AthenticationErrorCodes, AuthProvider, IAuthenticationResult, PasswordProvider } from './interfaces.js';
-import { USER_COMMON_MEDATA, User } from './models/User.js';
+import { USER_COMMON_METADATA, User } from './models/User.js';
 import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -62,7 +62,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
       };
     }
 
-    if (result.Metadata[USER_COMMON_MEDATA.USER_BAN_IS_BANNED] === true) {
+    if (result.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] === true) {
       return {
         User: result,
         Error: {
@@ -88,7 +88,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
   public async isBanned(userOrEmail: User | string): Promise<boolean> {
 
     const result = await User.where({ Email: userOrEmail instanceof User ? userOrEmail.Email : userOrEmail }).populate("Metadata", function () {
-      this.where("Key", USER_COMMON_MEDATA.USER_BAN_IS_BANNED)
+      this.where("Key", USER_COMMON_METADATA.USER_BAN_IS_BANNED)
         .andWhere("Value", true);
     }).first();
 

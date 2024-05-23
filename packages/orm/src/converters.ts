@@ -48,8 +48,6 @@ export class UuidConverter extends ValueConverter {
 export class UniversalValueConverter extends ValueConverter {
   public toDB(value: any, model: ModelBase, options: IUniversalConverterOptions) {
 
-  
-
     const type = (model as any)[options.TypeColumn];
     switch (type) {
       case 'string':

@@ -1,11 +1,12 @@
 /* eslint-disable prettier/prettier */
 import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
+import { Bootstrapper, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
 import { Orm, TableQueryCompiler, InsertQueryCompiler, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, DropTableCompiler } from '../src/index.js';
 import { ConnectionConf, FakeSqliteDriver, FakeMysqlDriver, FakeTableQueryCompiler, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, FakeDropTableCompiler } from './misc.js';
+import "./../src/bootstrap.js";
 import * as sinon from 'sinon';
 import "@spinajs/log";
 
@@ -27,6 +28,17 @@ describe('Orm general', () => {
     DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
     DI.register(FakeDropTableCompiler).as(DropTableCompiler);
   });
+
+  beforeEach(async () =>{ 
+
+    DI.removeAllListeners("di.resolve.Configuration");
+    
+    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+    for (const b of bootstrappers) {
+      await b.bootstrap();
+    }
+  })
+
 
   afterEach(async () => {
     sinon.restore();

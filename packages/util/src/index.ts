@@ -4,3 +4,4 @@ export * from "./json.js";
 export * from "./thread.js";
 export * from "./args.js";
 export * from "./fp.js";
+export * from "./string.js";

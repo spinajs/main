@@ -58,18 +58,22 @@ export class UserQueryScopes implements QueryScope {
   public whereAnything(this: ISelectQueryBuilder<User[] | User> & UserQueryScopes, identifier: string | number) {
     identifier = _check_arg(_or(_is_number(_gt(0)), _to_int(), _is_string(_trim(), _non_empty())))(identifier, 'identifier');
 
-    if (typeof identifier === 'number') {
-      return this.where('Id', identifier);
-    }
-
-    return this.where('Uuid', identifier).orWhere('Email', identifier).orWhere('Login', identifier);
+    return this.when(
+      typeof identifier === 'number',
+      function () {
+        this.where('Id', identifier);
+      },
+      function () {
+        this.where('Uuid', identifier).orWhere('Email', identifier).orWhere('Login', identifier);
+      },
+    );
   }
 }
 
 /**
  * Common user metadata keys
  */
-export enum USER_COMMON_MEDATA {
+export enum USER_COMMON_METADATA {
   /** BAN RELATED META KEYS  */
   USER_BAN_IS_BANNED = 'user:ban:is_banned',
   USER_BAN_START_DATE = 'user:ban:start_date',
@@ -89,7 +93,7 @@ export enum USER_COMMON_MEDATA {
   /** Reset password */
 
   // is reset password in progress
-  USER_PWD_RESET = 'user:pwd:reset', 
+  USER_PWD_RESET = 'user:pwd:reset',
   // start date of reset password
   USER_PWD_RESET_START_DATE = 'user:pwd_reset:start_date',
   // wait time for reset password
@@ -121,11 +125,7 @@ export class User extends ModelBase {
     super(data);
 
     this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
-    this.Role = _check_arg(_default(
-      [
-        _cfg('rbac.defaultRole')
-      ]
-    ))(this.Role, 'role');
+    this.Role = _check_arg(_default([_cfg('rbac.defaultRole')]))(this.Role, 'role');
 
     this._ac = DI.get('AccessControl');
   }
@@ -192,7 +192,6 @@ export class User extends ModelBase {
   }
 
   public can(resource: string, permission: string): Permission {
-
     resource = _check_arg(_trim(), _non_empty())(resource, 'resource');
     permission = _check_arg(_trim(), _non_empty())(permission, 'permission');
 

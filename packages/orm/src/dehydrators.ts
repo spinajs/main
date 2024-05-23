@@ -2,7 +2,7 @@ import { OrmException } from './exceptions.js';
 import { RelationType } from './interfaces.js';
 import { ModelBase } from './model.js';
 import { Relation } from './relation-objects.js';
- 
+
 export abstract class ModelDehydrator {
   public abstract dehydrate(model: ModelBase, omit?: string[]): any;
 }
@@ -43,7 +43,12 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
 
       if (val.Type === RelationType.Many) {
         if ((model as any)[val.Name]) {
-          (obj as any)[val.Name] = [...((model as any)[val.Name] as Relation<ModelBase, any>).map((x) => x.dehydrateWithRelations())];
+          const v = [...((model as any)[val.Name] as Relation<ModelBase, any>)];
+          if (v.length === 0) {
+            (obj as any)[val.Name] = [];
+          } else {
+            (obj as any)[val.Name] = [v.map((x) => x.dehydrateWithRelations())];
+          }
         }
       }
     }
