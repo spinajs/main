@@ -9,10 +9,26 @@ import { __translate, __translateH, __translateL, __translateNumber } from '@spi
 import { Templates } from '@spinajs/templates';
 import { fs } from '@spinajs/fs';
 import { ServerError } from './index.js';
+import * as cs from 'cookie-signature';
 
 export function _setCoockies(res: express.Response, options?: IResponseOptions) {
+  const cfg: Configuration = DI.get(Configuration);
+
+  // default coockie optiosn set in config for all cockies
+  const opt = cfg.get<express.CookieOptions>('http.cookie.options', {});
+
   options?.Coockies?.forEach((c) => {
-    res.cookie(c.Name, c.Value, c.Options);
+    let cookieValue = c.Value;
+
+    if (c.Options.signed) {
+      const secureKey = cfg.get<string>('http.cookie.secret');
+      cookieValue = cs.sign(this.responseData, secureKey);
+    }
+
+    res.cookie(c.Name, cookieValue, {
+      ...opt,
+      ...c.Options,
+    });
   });
 }
 

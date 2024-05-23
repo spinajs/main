@@ -1,7 +1,7 @@
 import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions } from '../interfaces.js';
 import { httpResponse } from '../responses.js';
-import { BadRequest } from './errorResponse.js';
+import { BadRequest } from './badRequest.js';
 
 /**
  * Internall response function.

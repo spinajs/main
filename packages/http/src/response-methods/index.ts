@@ -8,6 +8,5 @@ export * from './ok.js';
 export * from './template.js';
 export * from './serverError.js';
 export * from './unauthorized.js';
-export * from './cookieResponse.js';
 export * from './conflict.js';
 export * from './notAllowed.js';
