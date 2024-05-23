@@ -2,6 +2,7 @@ import * as express from 'express';
 import { Constructor, AsyncService, Class } from '@spinajs/di';
 import { fs } from '@spinajs/fs';
 import formidable from 'formidable';
+import { CookieOptions } from 'express';
 
 /**
  * Accept header enum
@@ -124,6 +125,23 @@ export interface IActionLocalStoregeContext {
   responseEnd: Date;
   responseTime: number;
   realIp: string;
+}
+
+export interface IResponseHeader {
+  Name: string;
+  Value: string | number | readonly string[];
+}
+
+export interface ICookie {
+  Name: string;
+  Value: string;
+  Options: CookieOptions;
+}
+
+export interface IResponseOptions {
+  Headers?: IResponseHeader[];
+  Coockies?: ICookie[];
+  StatusCode?: HTTP_STATUS_CODE;
 }
 
 export abstract class ServerMiddleware extends AsyncService {
@@ -325,6 +343,11 @@ export enum ParameterType {
    * From JSON file
    */
   FromJSONFile = 'FromJSONFile',
+
+  /**
+   * From user session
+   */
+  FromSession = 'FromSession',
 
   /**
    * From form field

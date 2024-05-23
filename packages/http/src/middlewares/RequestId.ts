@@ -11,8 +11,11 @@ export class RequestId extends ServerMiddleware {
     this.Order = 1;
   }
 
-  public after(): (_req: sRequest, _res: express.Response, _next: express.NextFunction) => void {
-    return null;
+  public after(): (_req: sRequest, _res: express.Response, next: express.NextFunction) => void {
+    return (req: sRequest, res: express.Response, next: express.NextFunction) => {
+      res.header('x-request-id', req.storage.requestId);
+      next();
+    };
   }
 
   public before(): (req: sRequest, res: Response<any, Record<string, any>>, next: NextFunction) => void {

@@ -1,5 +1,5 @@
 import * as express from 'express';
-import { HTTP_STATUS_CODE, HttpAcceptHeaders, DataTransformer } from './interfaces.js';
+import { HTTP_STATUS_CODE, HttpAcceptHeaders, DataTransformer, IResponseOptions } from './interfaces.js';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
@@ -10,15 +10,30 @@ import { Templates } from '@spinajs/templates';
 import { fs } from '@spinajs/fs';
 import { ServerError } from './index.js';
 
+export function _setCoockies(res: express.Response, options?: IResponseOptions) {
+  options?.Coockies?.forEach((c) => {
+    res.cookie(c.Name, c.Value, c.Options);
+  });
+}
+
+export function _setHeaders(res: express.Response, options?: IResponseOptions) {
+  options?.Headers?.forEach((c) => {
+    res.setHeader(c.Name, c.Value);
+  });
+}
+
 /**
  * Sends data & sets proper header as json
  *
  * @param model - data to send
  * @param status - status code
  */
-export function jsonResponse(model: any, status?: HTTP_STATUS_CODE) {
+export function jsonResponse(model: any, options?: IResponseOptions) {
   return (_req: express.Request, res: express.Response) => {
-    res.status(status ? status : HTTP_STATUS_CODE.OK);
+    res.status(options?.StatusCode ? options?.StatusCode : HTTP_STATUS_CODE.OK);
+
+    _setCoockies(res, options);
+    _setHeaders(res, options);
 
     if (model) {
       res.json(model);
@@ -34,9 +49,12 @@ export function jsonResponse(model: any, status?: HTTP_STATUS_CODE) {
  * @param model - data to send
  * @param status - status code
  */
-export function textResponse(model: any, status?: HTTP_STATUS_CODE) {
+export function textResponse(model: any, options?: IResponseOptions) {
   return (_req: express.Request, res: express.Response) => {
-    res.status(status ? status : HTTP_STATUS_CODE.OK);
+    res.status(options?.StatusCode ? options?.StatusCode : HTTP_STATUS_CODE.OK);
+
+    _setCoockies(res, options);
+    _setHeaders(res, options);
 
     if (model) {
       res.set('Content-Type', 'text/plain');
@@ -52,7 +70,7 @@ export function textResponse(model: any, status?: HTTP_STATUS_CODE) {
  * @param model - data passed to template
  * @param status - optional status code
  */
-export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE) {
+export function htmlResponse(file: string, model: any, options?: IResponseOptions) {
   const cfg: Configuration = DI.get(Configuration);
 
   return (req: express.Request, res: express.Response) => {
@@ -66,8 +84,11 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
               code: 400,
             },
           },
-          HTTP_STATUS_CODE.BAD_REQUEST,
           file,
+          {
+            ...options,
+            StatusCode: HTTP_STATUS_CODE.BAD_REQUEST,
+          },
         )(req, res);
       });
 
@@ -76,7 +97,10 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
 
     res.set('Content-Type', 'text/html');
 
-    _render(file, model, status).catch((err) => {
+    _setCoockies(res, options);
+    _setHeaders(res, options);
+
+    _render(file, model, options?.StatusCode).catch((err) => {
       const log: Log = DI.resolve(Log, ['http']);
 
       log.warn(`Cannot render html file ${file}, error: ${err.message}:${err.stack}`, err);
@@ -118,7 +142,7 @@ export function htmlResponse(file: string, model: any, status?: HTTP_STATUS_CODE
  * @param template - template to render without extension eg. `views/responses/ok`. It will try to match .pug, .xml or whatever to match response
  *                  to `Accept` header
  */
-export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: string) {
+export function httpResponse(model: any, template: string, options?: IResponseOptions) {
   const cfg: Configuration = DI.get(Configuration);
   const acceptedHeaders = cfg.get<HttpAcceptHeaders>('http.AcceptHeaders');
   const transformers = DI.resolve(Array.ofType(DataTransformer));
@@ -130,10 +154,10 @@ export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: strin
       if (!fs) {
         throw new ServerError('file provider __fs_http_response_templates__ not set. Pleas set response template file provider for html http default responses !');
       }
-      
+
       fs.download(template)
         .then((file) => {
-          htmlResponse(file, model, code)(req, res);
+          htmlResponse(file, model, options)(req, res);
         })
         .catch((err) => {
           const log: Log = DI.resolve(Log, ['http']);
@@ -141,14 +165,21 @@ export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: strin
           log.warn(`Cannot render html file ${template}, error: ${err.message}:${err.stack}`, err);
           fs.download('serverError.pug').then((file) => {
             // try to render server error response
-            htmlResponse(file, { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR)(req, res);
+            htmlResponse(
+              file,
+              { error: err },
+              {
+                ...options,
+                StatusCode: HTTP_STATUS_CODE.INTERNAL_ERROR,
+              },
+            )(req, res);
           });
         });
     } else if (req.accepts('json') && (acceptedHeaders & HttpAcceptHeaders.JSON) === HttpAcceptHeaders.JSON) {
       if (req.headers['x-data-transform']) {
         const transformer = transformers.find((t) => t.Type === req.headers['x-data-transform']);
         if (transformer) {
-          jsonResponse(transformer.transform(model, req), code)(req, res);
+          jsonResponse(transformer.transform(model, req), options)(req, res);
         } else {
           jsonResponse(
             {
@@ -157,14 +188,17 @@ export function httpResponse(model: any, code: HTTP_STATUS_CODE, template: strin
                 code: 400,
               },
             },
-            HTTP_STATUS_CODE.BAD_REQUEST,
+            {
+              ...options,
+              StatusCode: HTTP_STATUS_CODE.BAD_REQUEST,
+            },
           )(req, res);
         }
       } else {
-        jsonResponse(model, code)(req, res);
+        jsonResponse(model, options)(req, res);
       }
     } else {
-      textResponse(model, code)(req, res);
+      textResponse(model, options)(req, res);
     }
   };
 }

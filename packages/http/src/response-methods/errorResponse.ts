@@ -1,12 +1,12 @@
 import * as express from 'express';
-import { HTTP_STATUS_CODE, Response } from '../interfaces.js';
+import { HTTP_STATUS_CODE, IResponseOptions, Response } from '../interfaces.js';
 import { httpResponse } from '../responses.js';
 import _ from 'lodash';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 
-export class ErrorResponse extends Response {
-  constructor(error: any) {
+export class BadRequest extends Response {
+  constructor(error: any, protected options?: IResponseOptions) {
     super(error);
 
     const isDev = DI.get(Configuration).get('configuration.isDevelopment');
@@ -16,6 +16,9 @@ export class ErrorResponse extends Response {
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    return await httpResponse(this.responseData, HTTP_STATUS_CODE.BAD_REQUEST, 'badRequest.pug');
+    return await httpResponse(this.responseData, 'badRequest.pug', {
+      ...this.options,
+      StatusCode: HTTP_STATUS_CODE.BAD_REQUEST,
+    });
   }
 }

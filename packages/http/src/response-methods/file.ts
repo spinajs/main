@@ -3,15 +3,16 @@ import { IOFail, ResourceNotFound } from '@spinajs/exceptions';
 import * as express from 'express';
 import _ from 'lodash';
 import mime from 'mime';
-import { IFileResponseOptions, Response } from './../interfaces.js';
+import { IFileResponseOptions, IResponseOptions, Response } from './../interfaces.js';
 import { fs } from '@spinajs/fs';
+import { _setCoockies, _setHeaders } from '../index.js';
 
 export class ZipResponse extends Response {
   /**
    * Sends zipped file to client at given path & filename. If file exists
    * it will send file with 200 OK, if not exists 404 NOT FOUND
    */
-  constructor(protected Options: IFileResponseOptions) {
+  constructor(protected Options: IFileResponseOptions, protected responseOptions?: IResponseOptions) {
     super(null);
 
     this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename);
@@ -30,6 +31,9 @@ export class ZipResponse extends Response {
     const fPath = zippedFile.asFilePath();
 
     return new Promise((resolve, reject) => {
+      _setCoockies(res, this.responseOptions);
+      _setHeaders(res, this.responseOptions);
+
       res.download(zippedFile.fs.resolvePath(fPath), this.Options.filename, (err: Error) => {
         zippedFile.fs.rm(fPath).finally(() => {
           if (!_.isNil(err)) {
@@ -48,7 +52,7 @@ export class FileResponse extends Response {
    * Sends file to client at given path & filename. If file exists
    * it will send file with 200 OK, if not exists 404 NOT FOUND
    */
-  constructor(protected Options: IFileResponseOptions) {
+  constructor(protected Options: IFileResponseOptions, protected responseOptions?: IResponseOptions) {
     super(null);
 
     this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename);
@@ -70,6 +74,9 @@ export class FileResponse extends Response {
     const file = await provider.download(this.Options.path);
 
     return new Promise((resolve, reject) => {
+      _setCoockies(res, this.responseOptions);
+      _setHeaders(res, this.responseOptions);
+
       res.download(file, this.Options.filename, (err: Error) => {
         const r = () => {
           if (!_.isNil(err)) {
@@ -90,7 +97,7 @@ export class FileResponse extends Response {
 }
 
 export class JsonFileResponse extends Response {
-  constructor(protected data: any, protected filename: string) {
+  constructor(protected data: any, protected filename: string, protected responseOptions?: IResponseOptions) {
     super(null);
   }
 
@@ -100,6 +107,9 @@ export class JsonFileResponse extends Response {
     provider.write(tmpPath, JSON.stringify(this.data));
 
     return new Promise((resolve, reject) => {
+      _setCoockies(res, this.responseOptions);
+      _setHeaders(res, this.responseOptions);
+
       res.download(tmpPath, this.filename, (err: Error) => {
         provider.rm(tmpPath).finally(() => {
           if (err) {

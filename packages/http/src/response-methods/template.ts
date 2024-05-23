@@ -3,7 +3,7 @@ import { IOFail } from '@spinajs/exceptions';
 import { fs } from '@spinajs/fs';
 import * as express from 'express';
 import _ from 'lodash';
-import { HTTP_STATUS_CODE, ITemplateResponseOptions, Response } from '../interfaces.js';
+import { HTTP_STATUS_CODE, IResponseOptions, ITemplateResponseOptions, Response } from '../interfaces.js';
 import { htmlResponse } from '../responses.js';
 
 /**
@@ -11,12 +11,11 @@ import { htmlResponse } from '../responses.js';
  */
 export class TemplateResponse extends Response {
   protected file: string;
-  protected status: HTTP_STATUS_CODE = null;
 
   protected fsTemplates: fs;
   protected templateFile: string | ITemplateResponseOptions;
 
-  constructor(file: string | ITemplateResponseOptions, model: any, status?: HTTP_STATUS_CODE) {
+  constructor(file: string | ITemplateResponseOptions, model: any, protected options? : IResponseOptions) {
     super(model);
 
     this.fsTemplates = _.isString(file)
@@ -24,7 +23,6 @@ export class TemplateResponse extends Response {
       : DI.resolve<fs>('__file_provider__', [file.provider]);
 
     this.templateFile = file;
-    this.status = status;
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
@@ -38,6 +36,9 @@ export class TemplateResponse extends Response {
       ? await this.fsTemplates.download(this.templateFile)
       : await this.fsTemplates.download(this.templateFile.template);
 
-    return await htmlResponse(this.file, this.responseData, this.status ? this.status : HTTP_STATUS_CODE.OK);
+    return await htmlResponse(this.file, this.responseData, {
+      ...this.options,
+      StatusCode: this.options.StatusCode ? this.options.StatusCode : HTTP_STATUS_CODE.OK
+    });
   }
 }
