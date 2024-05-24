@@ -27,7 +27,7 @@ export function _service<T>(path: string): () => Promise<T> {
     _chain(
       _cfg(path),
       _catch(
-        (val: string) => DI.resolve(val),
+        ({ service }: { service: string }) => DI.resolve(service),
         (err: Error) => {
           throw new ResolveException(
             `Cannot resolve service from ${path}. Check your configuration file at this path.`,

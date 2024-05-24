@@ -59,7 +59,7 @@ describe('User model tests', function () {
 
     user = await User.query().whereAnything('test-notactive@spinajs.pl').firstOrFail();
 
-    expect(user.IsActive).to.eq(1);
+    expect(user.IsActive).to.eq(true);
     expect(eStub.callCount).to.eq(3);
     expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserChanged);
     expect((eStub.args[1] as any)[0]).to.be.instanceOf(UserActivated);

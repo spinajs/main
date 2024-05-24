@@ -38,7 +38,7 @@ export function _use(value: () => Promise<unknown>, name: string) {
  * @returns
  */
 export function _catch(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => void) {
-  return (arg?: unknown) => promise(arg).catch(onError);
+  return (arg?: unknown) => Promise.resolve(promise(arg)).catch(onError);
 }
 
 /**
@@ -51,7 +51,7 @@ export function _catch(promise: (arg: unknown) => Promise<unknown>, onError: (er
  */
 export function _catchFilter(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => void, filter: (err: Error) => boolean) {
   return (arg?: unknown) =>
-    promise(arg).catch((err) => {
+    Promise.resolve(promise(arg)).catch((err) => {
       if (filter(err)) {
         return onError(err);
       } else {
@@ -61,7 +61,7 @@ export function _catchFilter(promise: (arg: unknown) => Promise<unknown>, onErro
 }
 
 export function _catchValue(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => unknown, value: unknown) {
-  return (arg?: unknown) => promise(arg).catch((err) => (err === value ? onError(err) : Promise.reject(err)));
+  return (arg?: unknown) => Promise.resolve(promise(arg)).catch((err) => (err === value ? onError(err) : Promise.reject(err)));
 }
 
 /**
@@ -74,7 +74,7 @@ export function _catchValue(promise: (arg: unknown) => Promise<unknown>, onError
  */
 export function _catchException(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => void, exception: Constructor<Error>) {
   return (arg?: unknown) =>
-    promise(arg).catch((err) => {
+    Promise.resolve(promise(arg)).catch((err) => {
       if (typeof err === 'object' && err instanceof exception) {
         return onError(err);
       } else {

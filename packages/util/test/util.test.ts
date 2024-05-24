@@ -75,6 +75,12 @@ describe('util', () => {
             await expect(_chain(_catch(a, (err) => { throw err; }))).to.be.rejectedWith(Error);
         });
 
+        it('catch with no promise'   , async () => {
+            const a = () => { throw new Error('error'); }
+
+            await expect(_chain(_catch(a, (err) => { throw err; }))).to.be.rejectedWith(Error);
+        });
+
         it('catch with error', async () => {
 
             class TestError extends Error { }
