@@ -1,3 +1,5 @@
+import { Constructor } from '@spinajs/di';
+
 /**
  * Chains a list of functions together, passing the result of each function to the next.
  *
@@ -15,7 +17,6 @@ export function _chain<T>(...fns: (((arg?: any) => Promise<any>) | any | Promise
     }
   }, Promise.resolve(null));
 }
-
 
 export function _zip(...fns: ((arg?: any) => Promise<any>)[]) {
   return (val: unknown) => Promise.all(fns.map((fn) => fn(val)));
@@ -40,16 +41,58 @@ export function _catch(promise: (arg: unknown) => Promise<unknown>, onError: (er
   return (arg?: unknown) => promise(arg).catch(onError);
 }
 
+/**
+ * Catch errors from a promise and call the provided error handler if the error matches the filter.
+ *
+ * @param promise
+ * @param onError
+ * @param filter
+ * @returns
+ */
+export function _catchFilter(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => void, filter: (err: Error) => boolean) {
+  return (arg?: unknown) =>
+    promise(arg).catch((err) => {
+      if (filter(err)) {
+        return onError(err);
+      } else {
+        throw err;
+      }
+    });
+}
+
+export function _catchValue(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => unknown, value: unknown) {
+  return (arg?: unknown) => promise(arg).catch((err) => (err === value ? onError(err) : Promise.reject(err)));
+}
+
+/**
+ * Cactches exception of specific type and calls provided error handler.
+ *
+ * @param promise
+ * @param onError
+ * @param exception
+ * @returns
+ */
+export function _catchException(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => void, exception: Constructor<Error>) {
+  return (arg?: unknown) =>
+    promise(arg).catch((err) => {
+      if (typeof err === 'object' && err instanceof exception) {
+        return onError(err);
+      } else {
+        throw err;
+      }
+    });
+}
+
 export function _fallback(promise: (arg: unknown) => Promise<unknown>, fallback: (err: Error) => unknown) {
   return (arg?: unknown) => promise(arg).catch(fallback);
 }
 
-export function _tap(promise: ((arg: unknown) => Promise<unknown>) | Promise<unknown> ) {
+export function _tap(promise: ((arg: unknown) => Promise<unknown>) | Promise<unknown>) {
   return (arg?: unknown) => {
-    if(promise instanceof Promise) {
+    if (promise instanceof Promise) {
       return promise.then(() => arg);
     }
 
     return promise(arg).then(() => arg);
-  }
+  };
 }

@@ -10,10 +10,10 @@ export class SqlSetConverter implements IValueConverter {
   }
 
   public fromDB(value: string | string[]) {
-    if (value) {
+    if (typeof value === 'string') {
       return value.split(',');
     }
-    return [];
+    return value ?? [];
   }
 }
 

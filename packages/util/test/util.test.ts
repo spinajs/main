@@ -2,7 +2,7 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
 
-import { _check_arg, _default, _is_array, _is_object, _is_string, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _zip, _catch, _use, _fallback, _tap } from '../src/index.js';
+import { _check_arg, _default, _is_array, _is_object, _is_string,_catchFilter, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _zip, _catch, _use, _fallback, _tap, _catchException, _catchValue } from '../src/index.js';
 import _ from 'lodash';
 
 
@@ -73,6 +73,31 @@ describe('util', () => {
             const a = () => Promise.reject(new Error('error'));
 
             await expect(_chain(_catch(a, (err) => { throw err; }))).to.be.rejectedWith(Error);
+        });
+
+        it('catch with error', async () => {
+
+            class TestError extends Error { }
+
+            const a = () => Promise.reject(new TestError('error'));
+
+            await expect(_chain(_catchException(a, (_err) => { return true },TestError))).to.be.become(true);
+            await expect(_chain(_catchException(a, (err) => { throw err; }, Error))).to.be.rejectedWith(TestError);
+        });
+
+        it('catch with value', async () => {
+            const a = () => Promise.reject("E_ERROR");
+
+            await expect(_chain(_catchValue(a, (_err) => { return true; }, "E_ERROR"))).to.be.become(true);
+            await expect(_chain(_catchValue(a, (_err) => { return true; }, "E_ERROR2"))).to.be.rejectedWith("E_ERROR");
+
+        });
+
+        it('catch with filter', async () => {
+            const a = () => Promise.reject(new Error('error'));
+
+            await expect(_chain(_catchFilter(a, (_err) => { return true; }, (err) => err.message === 'error'))).to.be.become(true);
+            await expect(_chain(_catchFilter(a, (_err) => { return true; }, (err) => err.message === 'error 2'))).to.be.rejectedWith("error");
         });
 
         it('catch with chained method', async () => {

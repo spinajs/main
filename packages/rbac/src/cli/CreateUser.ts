@@ -1,6 +1,6 @@
 import { Log, Logger } from '@spinajs/log';
 import { CliCommand, Command, Option } from '@spinajs/cli';
-import { Commands } from '../models/User.js';
+import { create } from '../actions.js';
 
 interface UserCreationOptions {
   email: string;
@@ -20,7 +20,7 @@ export class CreateUser extends CliCommand {
 
   public async execute(options: UserCreationOptions): Promise<void> {
     try {
-      await Commands.create(options.email, options.login, options.password, options.roles.split(','));
+      await create(options.email, options.login, options.password, options.roles.split(","));
       this.Log.success(`User created`);
     } catch (e) {
       this.Log.error(`Error while creating user ${e.message}`);

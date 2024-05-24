@@ -1,8 +1,8 @@
 import { BasicPasswordProvider } from '../src/password.js';
-import { DI } from '@spinajs/di';
+import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
@@ -34,6 +34,11 @@ describe('User model tests', function () {
   });
 
   beforeEach(async () => {
+    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+    for (const b of bootstrappers) {
+      await b.bootstrap();
+    }
+
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
     await DI.resolve(Orm);
   });
@@ -49,7 +54,7 @@ describe('User model tests', function () {
 
     let user = await User.query().whereAnything('test-notactive@spinajs.pl').firstOrFail();
 
-    expect(user.IsActive).to.eq(0);
+    expect(user.IsActive).to.eq(false);
     await activate('test-notactive@spinajs.pl');
 
     user = await User.query().whereAnything('test-notactive@spinajs.pl').firstOrFail();
@@ -62,27 +67,71 @@ describe('User model tests', function () {
   });
 
   it('Should not send event when user is already activated', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
-    let user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
-    await activate('test@spinajs.pl');
-
-    user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
-
-    expect(user.IsActive).to.be.true;
-    expect(eStub.called).to.be.false;
+    expect(activate('test@spinajs.pl')).to.be.rejected;
   });
 
   it('Should deactivate user', async () => {
-    console.log("DA");
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+
+    let user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    expect(user.IsActive).to.eq(true);
+    await deactivate('test@spinajs.pl');
+
+    user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    expect(user.IsActive).to.eq(false);
+    expect(eStub.callCount).to.eq(3);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserChanged);
+    expect((eStub.args[1] as any)[0]).to.be.instanceOf(UserDeactivated);
+    expect((eStub.args[2] as any)[0]).to.be.instanceOf(EmailSend);
   });
 
-  it('Should create user', async () => {});
+  it('Should create user', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
 
-  it('Shouldn create user with already existing email', async () => {});
+    const { User: U, Password } = await create('test@wp.pl', 'test', 'bbbb', ['admin']);
 
-  it('Shouldn create user with already existing login', async () => {});
+    const user = await User.query().whereAnything('test@wp.pl').firstOrFail();
+    expect(user).to.be.not.null;
+    expect(user.IsActive).to.eq(false);
+    expect(user.Login).to.eq('test');
+    expect(user.Email).to.eq('test@wp.pl');
+    expect(user.Role).to.include('admin');
 
-  it('Should delete user', async () => {});
+    expect(eStub.callCount).to.eq(2);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserCreated);
+    expect((eStub.args[1] as any)[0]).to.be.instanceOf(EmailSend);
+
+    expect(U).to.be.instanceOf(User);
+    expect(Password).to.be.not.null;
+    expect(Password).to.be.a('string');
+  });
+
+  it('Shouldn create user with already existing email', async () => {
+    expect(create('test@spinajs.pl', 'test', 'bbbb', ['admin'])).to.be.rejected;
+  });
+
+  it('Shouldn create user with already existing login', async () => {
+    expect(create('dasda@wp.pl', 'test', 'bbbb', ['admin'])).to.be.rejected;
+  });
+
+  it('Should delete user', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+
+    let user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+
+    expect(user).to.be.not.null;
+
+    await deleteUser(user);
+
+    user = await User.query().whereAnything('test@spinajs.pl').first();
+
+    expect(user).to.be.not.null;
+    expect(user.DeletedAt).to.be.not.null;
+
+    expect(eStub.callCount).to.eq(2);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserDeleted);
+    expect((eStub.args[1] as any)[0]).to.be.instanceOf(EmailSend);
+  });
 
   it('Should ban user', async () => {});
 

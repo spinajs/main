@@ -1,6 +1,6 @@
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
-import { Commands } from '../models/User.js';
+import { ban, unban } from '../actions.js';
 
 @Command('rbac:user-ban', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')
@@ -11,13 +11,10 @@ export class BanUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
-  public async execute(idOrUuid: string, ban: boolean, duration: number, reason: string): Promise<void> {
+  public async execute(idOrUuid: string, banOrUnban: boolean, duration: number, reason: string): Promise<void> {
     try {
-      if (ban) {
-        await Commands.ban(idOrUuid, reason, duration);
-      } else {
-        await Commands.unban(idOrUuid);
-      }
+
+      await banOrUnban ? ban(idOrUuid, reason, duration) : unban(idOrUuid);
 
       this.Log.success(`User ${idOrUuid} ${ban ? 'banned' : 'unbanned'}`);
     } catch (e) {

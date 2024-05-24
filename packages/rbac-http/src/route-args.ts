@@ -16,9 +16,19 @@ export class UserArg extends RouteArgs {
 @Injectable()
 export class SessionArg extends RouteArgs {
   get SupportedType(): string {
-    throw new Error('Method not implemented.');
+    return ParameterType.FromSession;
   }
   public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
     return { CallData: callData, Args: req.storage.session ? req.storage.session.Data.get(param.Name) : undefined };
+  }
+}
+
+@Injectable()
+export class CurrentSessionArg extends RouteArgs {
+  get SupportedType(): string {
+    return ParameterType.Other;
+  }
+  public async extract(callData: IRouteCall, _param: IRouteParameter, req: Request) {
+    return { CallData: callData, Args: req.storage.session };
   }
 }

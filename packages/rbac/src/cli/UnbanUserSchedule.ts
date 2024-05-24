@@ -17,9 +17,7 @@ export class UnbanUserSchedule extends CliCommand {
   public async execute(): Promise<void> {
     new CronJob(
       this.CronSchedule,
-      async () => {
-        
-      },
+      async () => {},
       () => {
         this.Log.info('rbac:cleanup-schedule stopped');
       },

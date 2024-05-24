@@ -9,7 +9,7 @@ import _ from 'lodash';
  * Session base class
  */
 @NewInstance()
-export class Session implements ISession {
+export class UserSession implements ISession {
   @Config('rbac.session.expiration')
   protected SessionExpirationTime: number;
 

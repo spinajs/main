@@ -86,6 +86,10 @@ export function User() {
 /**
  * Extract args from user session
  */
-export function Session() {
+export function FromSession() {
   return Route(Parameter('SessionArg'));
+}
+
+export function Session(){ 
+  return Route(Parameter("CurrentSessionArg"));
 }

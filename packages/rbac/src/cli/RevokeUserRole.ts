@@ -2,6 +2,7 @@ import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import _ from 'lodash';
+import { revoke } from '../actions.js';
 
 @Command('rbac:user-revoke', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')
@@ -12,7 +13,9 @@ export class RevokeUserRole extends CliCommand {
 
   public async execute(idOrUuid: string, role: string): Promise<void> {
     try {
-      await Commands.revoke(idOrUuid, role);
+
+      await revoke(idOrUuid, role);
+
       this.Log.success(`Role ${role} revoked from user ${idOrUuid}`);
     } catch (e) {
       if (e instanceof ResourceNotFound) {

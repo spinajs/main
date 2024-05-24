@@ -1,6 +1,7 @@
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
-import { Commands } from '../models/User.js';
+import { _user, changePassword } from '../actions.js';
+import { _chain } from '@spinajs/util';
 
 @Command('rbac:user-change-password', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')
@@ -11,7 +12,7 @@ export class ChangeUserPassword extends CliCommand {
 
   public async execute(idOrUuid: string, newPassword: string): Promise<void> {
     try {
-      await Commands.changePassword(idOrUuid, newPassword);
+      await _chain(_user(idOrUuid), changePassword(newPassword));
       this.Log.success(`User ${idOrUuid} password changed`);
     } catch (e) {
       this.Log.error(`Error while changing user password ${idOrUuid} ${e.message}`);

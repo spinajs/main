@@ -10,3 +10,4 @@ export * from './UserRoleRevoked.js';
 export * from './UserUnbanned.js';
 export * from './UserPasswordChangeRequest.js';
 export * from './UserLogged.js';
+export * from "./UserEvent.js";

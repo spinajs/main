@@ -1,5 +1,5 @@
 import { _insert, _update } from '@spinajs/orm';
-import { _use, _zip, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length } from '@spinajs/util';
+import { _use, _zip, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _non_null } from '@spinajs/util';
 import _ from 'lodash';
 import { _email_deferred } from '@spinajs/email';
 import { _ev } from '@spinajs/queue';
@@ -12,6 +12,7 @@ import { AuthProvider, PasswordProvider, PasswordValidationProvider } from './in
 import { DateTime } from 'luxon';
 import { ErrorCode } from '@spinajs/exceptions';
 import { v4 as uuidv4 } from 'uuid';
+import { UserLoginFailed } from './events/UserLoginFailed.js';
 
 export enum E_CODES {
   E_TOKEN_EXPIRED,
@@ -45,7 +46,7 @@ export enum E_CODES {
  * ===============================================
  */
 
-function _set_user_meta(meta: string | { key: string; value: any }[], value: any = null) {
+export function _set_user_meta(meta: string | { key: string; value: any }[], value: any = null) {
   return async (u: User) => {
     _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u })))(u.Metadata, 'Metadata');
 
@@ -62,7 +63,7 @@ function _set_user_meta(meta: string | { key: string; value: any }[], value: any
   };
 }
 
-function _get_user_meta(key: string) {
+export function _get_user_meta(key: string) {
   return async (u: User) => {
     _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u, key })))(u.Metadata, 'Metadata');
     _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_FOUND, 'Metadata not found in user data', { user: u, key })))(u.Metadata[key], `Metadata.${key}`);
@@ -78,7 +79,7 @@ function _get_user_meta(key: string) {
  * @param cfgTemplate
  * @returns
  */
-function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'deleted' | 'unbanned' | 'banned') {
+export function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned') {
   interface _tCfg {
     enabled: boolean;
     template: string;
@@ -106,21 +107,21 @@ function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'de
   };
 }
 
-function _user_ev(event: Constructor<UserEvent>, ...args: any[]) {
+export function _user_ev(event: Constructor<UserEvent>, ...args: any[]) {
   return async (u: User) => {
     await _ev(new event(u, ...args))();
     return u;
   };
 }
 
-function _user_update(data?: Partial<User>) {
+export function _user_update(data?: Partial<User>) {
   return async (u: User) => {
     await _chain(u, _update<User>(data), _user_ev(UserChanged));
     return u;
   };
 }
 
-function _user(identifier: number | string | User): () => Promise<User> {
+export function _user(identifier: number | string | User): () => Promise<User> {
   const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
 
   if (id instanceof User) {
@@ -137,14 +138,14 @@ function _user(identifier: number | string | User): () => Promise<User> {
  */
 
 export async function activate(identifier: number | string | User) {
-  return _chain(_user(identifier), _user_update({ IsActive: true }), _user_ev(UserActivated), _user_email('created'));
+  return _chain(_user(identifier), _user_update({ IsActive: true }), _user_ev(UserActivated), _user_email('activated'));
 }
 
 export async function deactivate(identifier: number | string): Promise<void> {
-  return _chain(_user(identifier), _update<User>({ IsActive: true }), _user_ev(UserDeactivated), _user_email('deactivated'));
+  return _chain(_user(identifier), _user_update({ IsActive: false }), _user_ev(UserDeactivated), _user_email('deactivated'));
 }
 
-export async function create(email: string, login: string, password: string, roles: string[]): Promise<User> {
+export async function create(email: string, login: string, password: string, roles: string[]): Promise<{ User: User; Password: string }> {
   const sPassword = await _service<PasswordProvider>('rbac.password')();
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
@@ -187,8 +188,8 @@ export async function create(email: string, login: string, password: string, rol
   );
 }
 
-export async function deleteUser(identifier: number | string): Promise<User> {
-  return _chain(_user(identifier), (u: User) => u.destroy(), _user_ev(UserDeleted), _user_email('deleted'), true);
+export async function deleteUser(identifier: number | string | User): Promise<void> {
+  return _chain(_user(identifier), (u: User) => u.destroy(), _user_ev(UserDeleted), _user_email('deleted'));
 }
 
 export async function grant(identifier: number | string, role: string): Promise<User> {
@@ -246,7 +247,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
 
 /**
  *
- * Unba user
+ * Unban user
  *
  * @param identifier
  * @returns
@@ -334,17 +335,28 @@ export async function changePassword(password: string): Promise<(u: User) => Pro
 export async function auth(identifier: number | string | User, password: string): Promise<(u: User) => Promise<User>> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
-  return _chain(
-    _user(identifier),
-    _tap((u: User) =>
-      _chain(_service<AuthProvider>('rbac.auth.service'), async (sAuth: AuthProvider) => {
-        const result = await sAuth.authenticate(u.Email, password);
-        if (!result.User) {
-          throw new ErrorCode(E_CODES.E_NOT_LOGGED, `User not found`, { identifier });
+  return _chain(_user(identifier), (u: User) => {
+    return _catch(
+      () => {
+        return _chain(
+          _service<AuthProvider>('rbac.auth.service'),
+          async (sAuth: AuthProvider) => {
+            const result = await sAuth.authenticate(u.Email, password);
+            if (!result.User) {
+              throw new ErrorCode(E_CODES.E_NOT_LOGGED, `User not found`, { identifier });
+            }
+          },
+          _update<User>({ LastLoginAt: DateTime.now() }),
+          _user_ev(UserLogged),
+        );
+      },
+      (err) => {
+        if (err instanceof ErrorCode) {
+          if (err.code === E_CODES.E_NOT_LOGGED) {
+            return _user_ev(UserLoginFailed);
+          }
         }
-      }),
-    ),
-    _update<User>({ LastLoginAt: DateTime.now() }),
-    _user_ev(UserLogged),
-  );
+      },
+    );
+  });
 }

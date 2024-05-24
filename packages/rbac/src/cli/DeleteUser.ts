@@ -3,7 +3,7 @@ import { QueueService } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
-import { Commands } from '../models/User.js';
+import { deleteUser } from '../actions.js';
 
 @Command('rbac:user-delete', 'Deletes user from database permanently')
 @Argument('idOrUuid', 'numeric id or uuid')
@@ -16,7 +16,8 @@ export class DeleteUser extends CliCommand {
 
   public async execute(idOrUuid: string): Promise<void> {
     try {
-      await Commands.deleteUser(idOrUuid);
+
+      await deleteUser(idOrUuid); 
       this.Log.success(`User ${idOrUuid} deleted`);
     } catch (e) {
       if (e instanceof ResourceNotFound) {

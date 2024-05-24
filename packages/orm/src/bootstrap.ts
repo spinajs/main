@@ -2,7 +2,7 @@ import { Bootstrapper, Constructor, Container, DI, Injectable } from '@spinajs/d
 import { ManyToManyRelationList, OneToManyRelationList } from './relation-objects.js';
 
 @Injectable(Bootstrapper)
-export class HttpBootstrapper extends Bootstrapper {
+export class OrmBootstrapper extends Bootstrapper {
   bootstrap(): void | Promise<void> {
     /**
      * Register default relation type factory

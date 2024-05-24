@@ -2,7 +2,7 @@ import { QueueService } from '@spinajs/Queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
-import { Commands } from '../models/User.js';
+import { activate, deactivate } from '../actions.js';
 
 @Command('rbac:user-activate', 'Sets active or inactive user')
 @Argument('idOrUuid', 'numeric id or uuid')
@@ -16,11 +16,8 @@ export class ActivateUser extends CliCommand {
 
   public async execute(idOrUuid: string, active: boolean): Promise<void> {
     try {
-      if (active) {
-        await Commands.activate(idOrUuid);
-      } else {
-        await Commands.unban(idOrUuid);
-      }
+      await active ? activate(idOrUuid) : deactivate(idOrUuid);
+
       this.Log.success(`User ${idOrUuid} ${active ? 'activated' : 'deactivated'}`);
     } catch (e) {
       this.Log.error(`Error while activating user user ${idOrUuid} ${e.message}`);

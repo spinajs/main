@@ -72,6 +72,12 @@ export class TestConfiguration extends FrameworkConfiguration {
             subject: 'Account deleted',
           },
 
+          activated: {
+            enabled: true,
+            template: './user-deactivated-email-template.pug',
+            subject: 'Account deactivated',
+          },
+
           deactivated: {
             enabled: true,
             template: './user-deactivated-email-template.pug',

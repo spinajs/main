@@ -17,7 +17,7 @@ import { DateTime } from 'luxon';
 import { UserAction } from '@spinajs/rbac';
 import { UserLoginSuccess } from '../events/UserLoginSuccess.js';
 
-@BasePath('user/auth')
+@BasePath('auth')
 @Policy(NotLoggedPolicy)
 export class LoginController extends BaseController {
   @Autoinject()
