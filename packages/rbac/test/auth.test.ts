@@ -114,16 +114,16 @@ describe('Authorization provider tests', () => {
 
   it('should auth fail on banned user', async () => {
     const provider = DI.resolve(AuthProvider);
-    expect(async () => await provider.authenticate('test-banned@spinajs.pl', 'bbbb')).to.be.rejected;
+    await expect(provider.authenticate('test-banned@spinajs.pl', 'bbbb')).to.be.rejected;
   });
 
   it('should auth fail on user not active', async () => {
     const provider = DI.resolve(AuthProvider);
-    expect(async () => await provider.authenticate('test-notactive@spinajs.pl', 'bbbb')).to.be.rejected;
+    await expect(provider.authenticate('test-notactive@spinajs.pl', 'bbbb')).to.be.rejected;
   });
 
   it('Should auth fail on user deleted', async () => {
     const provider = DI.resolve(AuthProvider);
-    expect(async () => await provider.authenticate('test-deleted@spinajs.pl', 'bbbb')).to.be.rejected;
+    await expect(provider.authenticate('test-deleted@spinajs.pl', 'bbbb')).to.be.rejected;
   });
 });

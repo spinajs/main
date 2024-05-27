@@ -251,10 +251,10 @@ export abstract class SessionProvider<T = ISession> extends AsyncService {
 }
 
 export enum AthenticationErrorCodes {
-  E_USER_BANNED = 'E_USER_BANNED',
-  E_USER_NOT_ACTIVE = 'E_USER_NOT_ACTIVE',
-  E_INVALID_CREDENTIALS = 'E_INVALID_CREDENTIALS',
-  E_LOGIN_ATTEMPTS_EXCEEDED = 'E_LOGIN_ATTEMPTS_EXCEEDED',
+  E_USER_BANNED = 1,
+  E_USER_NOT_ACTIVE = 2,
+  E_INVALID_CREDENTIALS = 3,
+  E_LOGIN_ATTEMPTS_EXCEEDED = 4,
 }
 
 export interface IRbacModelDescriptor extends IModelDescriptor {

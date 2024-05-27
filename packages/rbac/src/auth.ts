@@ -1,8 +1,9 @@
 import { AthenticationErrorCodes, AuthProvider, IAuthenticationResult, PasswordProvider } from './interfaces.js';
-import { USER_COMMON_METADATA, User } from './models/User.js';
+import { User } from './models/User.js';
 import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
-import { _check_arg, _is_object, _is_string, _non_empty, _non_nil, _or, _trim } from '@spinajs/util';
+import { _check_arg, _is_email, _is_object, _is_string, _max_length, _non_empty, _non_nil, _or, _trim } from '@spinajs/util';
+import { ErrorCode } from '@spinajs/exceptions';
 
 @Injectable(AuthProvider)
 export class SimpleDbAuthProvider implements AuthProvider<User> {
@@ -34,81 +35,41 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
   }
 
   public async authenticate(email: string, password: string): Promise<IAuthenticationResult<User>> {
-    const result = await User.where({ Email: email, DeletedAt: null })
-      .populate('Metadata', function () {
-        this.where('Key', 'like', '%user:ban:%');
-      })
-      .first();
+    _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
+    _check_arg(_trim(), _non_empty(), _max_length(64))(password, 'password');
 
-    const eInvalidCredentials = {
-      Error: {
-        Code: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
-        Message: 'Invalid user credentials, or user not exist.',
-      },
-    };
+    const user = await User.query().whereEmail(email).notDeleted().populate('Metadata').firstOrThrow(new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS));
 
-    /**
-     * If user not exists, is deleted, or password dont match
-     * return E_INVALID_CREDENTIALS for security reasons ( so attaker wont now if email is valid, or password don match)
-     */
-    if (!result) {
-      return eInvalidCredentials;
-    }
-
-    const valid = await this.PasswordProvider.verify(result.Password, password);
+    const valid = await this.PasswordProvider.verify(user.Password, password);
     if (!valid) {
-      return {
-        User: undefined,
-        ...eInvalidCredentials,
-      };
+      throw new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS);
     }
 
-    if (result.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] === true) {
-      return {
-        User: result,
-        Error: {
-          Code: AthenticationErrorCodes.E_USER_BANNED,
-        },
-      };
+    if (user.IsBanned) {
+      throw new ErrorCode(AthenticationErrorCodes.E_USER_BANNED);
     }
 
-    if (result.IsActive) {
-      return {
-        User: result,
-        Error: {
-          Code: AthenticationErrorCodes.E_USER_NOT_ACTIVE,
-        },
-      };
+    if (user.IsActive) {
+      throw new ErrorCode(AthenticationErrorCodes.E_USER_NOT_ACTIVE);
     }
 
     return {
-      User: result,
+      User: user,
     };
   }
 
   public async isBanned(userOrEmail: User | string): Promise<boolean> {
-    _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(userOrEmail, 'userOrEmail');
-
-    const result = await User.where({ Email: userOrEmail instanceof User ? userOrEmail.Email : userOrEmail })
-      .populate('Metadata', function () {
-        this.where('Key', USER_COMMON_METADATA.USER_BAN_IS_BANNED).andWhere('Value', "true");
-      })
-      .first();
-
-    return result?.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] === true;
+    const result = await User.query().whereUser(userOrEmail).checkIsBanned();
+    return result;
   }
 
   public async isActive(userOrEmail: User | string): Promise<boolean> {
-    _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(userOrEmail, 'userOrEmail');
-
-    const result = await User.where({ Email: userOrEmail instanceof User ? userOrEmail.Email : userOrEmail, IsActive: true }).first();
-    return result !== undefined;
+    const result = await User.query().whereUser(userOrEmail).checkIsActive();
+    return result;
   }
 
   public async isDeleted(userOrEmail: User | string): Promise<boolean> {
-    _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(userOrEmail, 'userOrEmail');
-
-    const result = await User.where('Email', userOrEmail instanceof User ? userOrEmail.Email : userOrEmail).first();
-    return result === undefined ||result.DeletedAt !== null;
+    const result = await User.query().whereUser(userOrEmail).notDeleted().first();
+    return result === undefined;
   }
 }

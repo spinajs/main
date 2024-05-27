@@ -343,7 +343,7 @@ export async function auth(identifier: number | string | User, password: string)
           async (sAuth: AuthProvider) => {
             const result = await sAuth.authenticate(u.Email, password);
             if (!result.User) {
-              throw new ErrorCode(E_CODES.E_NOT_LOGGED, `User not found`, { identifier });
+              throw new ErrorCode(E_CODES.E_NOT_LOGGED, `User not logged`, { identifier });
             }
           },
           _update<User>({ LastLoginAt: DateTime.now() }),

@@ -1,14 +1,48 @@
 import { DateTime } from 'luxon';
-import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, Uuid, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation } from '@spinajs/orm';
+import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, Uuid, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery } from '@spinajs/orm';
 import { AccessControl, Permission } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata.js';
 import { v4 as uuidv4 } from 'uuid';
-import { _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length } from '@spinajs/util';
+import { _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _is_object } from '@spinajs/util';
 import _ from 'lodash';
 import { _cfg } from '@spinajs/configuration';
 
 export class UserQueryScopes implements QueryScope {
+  public whereUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes, userOrEmail: User | string) {
+    _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(userOrEmail, 'userOrEmail');
+
+    return this.where('Email', userOrEmail instanceof User ? userOrEmail.Email : userOrEmail);
+  }
+
+  public async checkIsBanned(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
+    const banned = await this.clearColumns()
+      .count('*', 'BannedCount')
+      .setAlias('banned_count')
+      .whereExist(
+        UserMetadata.query().where(function () {
+          this.where('Key', USER_COMMON_METADATA.USER_BAN_IS_BANNED);
+          this.where('Value', 'true');
+          this.where(new RawQuery('user_id = banned_count.Id'));
+        }),
+      )
+      .asRaw<{ banned_count: number }[]>();
+
+    return banned[0].banned_count > 0;
+  }
+
+  public async checkIsActive(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
+    const active = await this.clearColumns().count('*', 'active_count').where('IsActive', true).asRaw<{ active_count: number }[]>();
+
+    return active[0].active_count > 0;
+  }
+
+  public notDeleted(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
+    return this.where({
+      DeletedAt: null,
+    });
+  }
+
   /**
    *
    * Fetch users that are not banned, are active & email confirmed, not deleted
@@ -189,6 +223,10 @@ export class User extends ModelBase {
 
   public get IsGuest(): boolean {
     return this.Role.indexOf('guest') !== -1 || this.Role.length === 0;
+  }
+
+  public get IsBanned(): boolean {
+    return this.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] === true;
   }
 
   public can(resource: string, permission: string): Permission {
