@@ -6,7 +6,7 @@
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from './../src/index.js';
-import { DI } from '@spinajs/di';
+import { Bootstrapper, DI } from '@spinajs/di';
 import { Dataset, ModelBase, Orm } from '@spinajs/orm';
 import _ from 'lodash';
 import * as chai from 'chai';
@@ -20,15 +20,27 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 describe('Sqlite - relations test', function () {
   this.timeout(10000);
-  beforeEach(async () => {
-    DI.clearCache();
+
+  before(() => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  });
+
+  beforeEach(async () => {
+    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+    for (const b of bootstrappers) {
+      await b.bootstrap();
+    }
+
     await DI.resolve(Orm);
 
     await db().migrateUp();
     await db().reloadTableInfo();
-  })
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
 
   it('should find diff  in oneToMany', async () => {
     await db();
@@ -38,12 +50,12 @@ describe('Sqlite - relations test', function () {
         Val: 10,
       }),
       new SetItem({
-        Val: 13
-      })
-    ]
+        Val: 13,
+      }),
+    ];
 
-    const set = await DataSet.where({ Id: 1 }).populate("Dataset").first();
-    set.Dataset.set(Dataset.diff(dataset, (a,b) => a.Val === b.Val));
+    const set = await DataSet.where({ Id: 1 }).populate('Dataset').first();
+    set.Dataset.set(Dataset.diff(dataset, (a, b) => a.Val === b.Val));
 
     await set.Dataset.sync();
 
@@ -53,7 +65,6 @@ describe('Sqlite - relations test', function () {
     expect(result[0].Val).to.eq(11);
     expect(result[1].Val).to.eq(12);
     expect(result[2].Val).to.eq(13);
-    
   });
 
   it('should set in oneToMany', async () => {
@@ -64,11 +75,11 @@ describe('Sqlite - relations test', function () {
         Val: 10,
       }),
       new SetItem({
-        Val: 13
-      })
-    ]
+        Val: 13,
+      }),
+    ];
 
-    const set = await DataSet.where({ Id: 1 }).populate("Dataset").first();
+    const set = await DataSet.where({ Id: 1 }).populate('Dataset').first();
 
     set.Dataset.set(dataset);
 
@@ -92,11 +103,11 @@ describe('Sqlite - relations test', function () {
         Id: 1,
       }),
       new SetItem({
-        Val: 13
-      })
-    ]
+        Val: 13,
+      }),
+    ];
 
-    const set = await DataSet.where({ Id: 1 }).populate("Dataset").first();
+    const set = await DataSet.where({ Id: 1 }).populate('Dataset').first();
 
     expect(set.Dataset.length).to.eq(3);
 
@@ -120,11 +131,11 @@ describe('Sqlite - relations test', function () {
         Val: 14,
       }),
       new SetItem({
-        Val: 13
-      })
-    ]
+        Val: 13,
+      }),
+    ];
 
-    const set = await DataSet.where({ Id: 1 }).populate("Dataset").first();
+    const set = await DataSet.where({ Id: 1 }).populate('Dataset').first();
 
     set.Dataset.union(dataset);
 
@@ -137,7 +148,6 @@ describe('Sqlite - relations test', function () {
     expect(set.Dataset[3].Val).to.eq(14);
     expect(set.Dataset[4].Val).to.eq(13);
 
-
     await set.Dataset.sync();
 
     const result = await SetItem.where({ dataset_id: 1 });
@@ -146,13 +156,11 @@ describe('Sqlite - relations test', function () {
   });
 
   it('Should sync only dirty models', async () => {
-
     const sb = sinon.createSandbox();
     sb.spy(ModelBase.prototype);
 
-
-    const set = await DataSet.where({ Id: 1 }).populate("Dataset").first();
-    const spy = set.Dataset[0].insertOrUpdate as any as sinon.SinonSpy;
+    const set = await DataSet.where({ Id: 1 }).populate('Dataset').first();
+    const spy = set.Dataset[0].insert as any as sinon.SinonSpy;
     await set.Dataset.sync();
     expect(spy.called).to.be.false;
     expect(spy.callCount).to.eq(0);
@@ -163,8 +171,5 @@ describe('Sqlite - relations test', function () {
 
     expect(spy.called).to.be.true;
     expect(spy.callCount).to.eq(1);
-  })
-
+  });
 });
-
-

@@ -125,7 +125,7 @@ export class User extends ModelBase {
     super(data);
 
     this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
-    this.Role = _check_arg(_default([_cfg('rbac.defaultRole')]))(this.Role, 'role');
+    this.Role = _check_arg(_default([_cfg('rbac.defaultRole')()]))(this.Role, 'role');
 
     this._ac = DI.get('AccessControl');
   }

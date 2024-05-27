@@ -6,12 +6,12 @@ import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserMetadat
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm } from '@spinajs/orm';
+import { Orm, QueryContext } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 import { DateTime } from 'luxon';
 
-import "./migration/rbac.migration.js";
+import './migration/rbac.migration.js';
 import { TEST_USER_UUID, TEST_USER_UUID_2 } from './migration/rbac.migration.js';
 
 chai.use(chaiAsPromised);
@@ -20,9 +20,7 @@ function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
-
 describe('User model tests', function () {
-
   this.timeout(15000);
 
   before(async () => {
@@ -48,7 +46,6 @@ describe('User model tests', function () {
     });
 
     it('whereEmail query scope should work', async () => {
-
       const user = User.query().whereEmail('test@spinajs.pl').first();
       expect(user).to.be.not.null;
     });
@@ -59,10 +56,8 @@ describe('User model tests', function () {
     });
 
     it('getByLogin should work', async () => {
-
       const user = await User.getByLogin('test');
       expect(user).to.be.not.null;
-
     });
 
     it('getByEmail should work', async () => {
@@ -78,12 +73,11 @@ describe('User model tests', function () {
 
   describe('User roles', () => {
     it('Should check if guest role is set by default', async () => {
-
       const user = new User({
         Email: 'test@test.pl',
-        Login: "tes t",
+        Login: 'tes t',
         IsActive: true,
-        Password: "test",
+        Password: 'test',
         Uuid: TEST_USER_UUID_2,
       });
 
@@ -94,50 +88,45 @@ describe('User model tests', function () {
       const user2 = await User.get(user.Id);
       expect(user2.IsGuest).to.be.true;
       expect(user2.Role.length).to.be.eq(1);
-
     });
 
     it('Should save multiple roles', async () => {
-
       const user = new User({
         Email: 'test@test.pl',
-        Login: "test ddd",
+        Login: 'test ddd',
         IsActive: true,
         Uuid: TEST_USER_UUID_2,
-        Password: "test",
-        Role: ["admin", "user"]
+        Password: 'test',
+        Role: ['admin', 'user'],
       });
 
       await user.insert();
 
       const user2 = await User.get(user.Id);
       expect(user2.Role.length).to.be.eq(2);
-
     });
 
-    it('canReadAny should work', async () => { });
+    it('canReadAny should work', async () => {});
 
-    it('canUpdateAny should work', async () => { });
+    it('canUpdateAny should work', async () => {});
 
-    it('canDeleteAny should work', async () => { });
+    it('canDeleteAny should work', async () => {});
 
-    it('canCreateAny should work', async () => { });
+    it('canCreateAny should work', async () => {});
 
-    it('canReadOwn should work', async () => { });
+    it('canReadOwn should work', async () => {});
 
-    it('canUpdateOwn should work', async () => { });
+    it('canUpdateOwn should work', async () => {});
 
-    it('canDeleteOwn should work', async () => { });
+    it('canDeleteOwn should work', async () => {});
 
-    it('canCreateOwn should work', async () => { });
+    it('canCreateOwn should work', async () => {});
 
-    it('Should convert roles to and from string to array', async () => { });
+    it('Should convert roles to and from string to array', async () => {});
   });
 
   describe('User metadata', () => {
-
     it('Should get metadata', async () => {
-
       const user = await User.where('Email', 'test@spinajs.pl').populate('Metadata').first();
 
       expect(user.Metadata).to.be.not.null;
@@ -180,7 +169,7 @@ describe('User model tests', function () {
 
       await user.Metadata.sync();
 
-      user.Metadata["/test:.*/"] = null;
+      user.Metadata['test:*'] = null;
 
       expect(user.Metadata.length).to.be.eq(0);
 
@@ -192,7 +181,10 @@ describe('User model tests', function () {
 
     it('Should update metadata', async () => {
       const user = await User.getByEmail('test@spinajs.pl');
-      user.Metadata['test:test'] = 'test';
+
+      await user.Metadata.populate();
+
+      user.Metadata['test:test'] = 'test11';
 
       await user.Metadata.sync();
 
@@ -200,8 +192,11 @@ describe('User model tests', function () {
       expect(meta.Value).to.be.eq('test');
 
       user.Metadata['test:test'] = 'test-2';
-
+      let m = await UserMetadata.all();
       await user.Metadata.sync();
+
+      m = await UserMetadata.all();
+      console.log(m);
 
       meta = await UserMetadata.where('Key', 'test:test').first();
       expect(meta.Value).to.be.eq('test-2');
@@ -242,9 +237,24 @@ describe('User model tests', function () {
 
     it('Should automatically convert meta value to datetime', async () => {
       const user = await User.getByEmail('test@spinajs.pl');
-      user.Metadata['test:test'] = DateTime.now();
+      user.Metadata['test:test222'] = DateTime.now();
+
+      let all = await UserMetadata.all();
+
+      
+
+     // await ((await DI.resolve(Orm)).Connections.get('sqlite') as SqliteOrmDriver).executeOnDb("VACUUM MAIN INTO 'D:\\testssss.sqlite'", null, QueryContext.Schema);
+
+     await ((await DI.resolve(Orm)).Connections.get('sqlite') as SqliteOrmDriver).executeOnDb('INSERT INTO `users_metadata` (`Key`,`Type`,`Value`,`user_id`) VALUES ("test:test222","datetime","2024-05-27T06:10:42.699+02:00",1) ON CONFLICT(Key,user_id) DO UPDATE SET Key = "test:test222",Type = "datetime",Value = "ddsssssd111",user_id = 1 RETURNING *;', null, QueryContext.Select);
+
+      await ((await DI.resolve(Orm)).Connections.get('sqlite') as SqliteOrmDriver).executeOnDb('INSERT INTO `users_metadata` (`Key`,`Type`,`Value`,`user_id`) VALUES ("test:test222","datetime","2024-05-27T06:10:42.699+02:00",1) ON CONFLICT(Key,user_id) DO UPDATE SET Key = "test:test222",Type = "datetime",Value = "ddsssssd111",user_id = 1 RETURNING *;', null, QueryContext.Select);
+
 
       await user.Metadata.sync();
+
+      all = await UserMetadata.all();
+
+      console.log(all);
 
       const meta = await UserMetadata.where('Key', 'test:test').first();
       expect(meta.Type).to.be.eq('datetime');
@@ -252,9 +262,8 @@ describe('User model tests', function () {
     });
 
     it('Should filter metadata by key', async () => {
-
       const user = await User.where('Email', 'test@spinajs.pl').populate('Metadata').first();
-      const meta = user.Metadata.filter(x => x.Key === 'test:test');
+      const meta = user.Metadata.filter((x) => x.Key === 'test:test');
 
       expect(meta.length).to.be.eq(1);
       expect(meta[0].Value).to.be.eq('test');
@@ -262,13 +271,11 @@ describe('User model tests', function () {
 
     it('Should find metadata by key', async () => {
       const user = await User.where('Email', 'test@spinajs.pl').populate('Metadata').first();
-      const meta = user.Metadata.find(x => x.Key === 'test:test');
+      const meta = user.Metadata.find((x) => x.Key === 'test:test');
 
       expect(meta).to.be.not.undefined;
       expect(meta.Value).to.be.eq('test');
-
     });
-
   });
 
   describe('Model tests', () => {
@@ -311,7 +318,6 @@ describe('User model tests', function () {
     });
 
     it('Should throw if same uuid is used', async () => {
-
       const provider = DI.resolve(PasswordProvider);
 
       const user = new User({
@@ -324,7 +330,6 @@ describe('User model tests', function () {
       });
 
       await expect(user.insert()).to.be.rejectedWith('SQLITE_CONSTRAINT: UNIQUE constraint failed: users.Uuid');
-
     });
 
     it('Should throw if same login is used', async () => {
@@ -358,8 +363,6 @@ describe('User model tests', function () {
       expect(user.Password).to.be.not.undefined;
 
       expect(user.toJSON().Password).to.be.undefined;
-
-
     });
   });
 });

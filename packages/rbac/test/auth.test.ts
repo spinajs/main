@@ -72,13 +72,12 @@ describe('Authorization provider tests', () => {
     );
 
     expect(result).to.be.true;
-
-    result = await provider.isActive(null);
-    expect(result).to.be.false;
+    expect(provider.isActive(null)).to.be.rejected;
   });
+
   it('Should check for deleted user', async () => {
     const provider = DI.resolve(AuthProvider);
-    let result = await provider.isDeleted('test2@spinajs.pl');
+    let result = await provider.isDeleted('test-deleted@spinajs.pl');
 
     expect(result).to.be.true;
   });

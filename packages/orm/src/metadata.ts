@@ -5,6 +5,7 @@ import { ModelBase } from './model.js';
 import { OneToManyRelationList } from './relation-objects.js';
 import GlobToRegExp from 'glob-to-regexp';
 import _ from "lodash";
+import { DateTime } from 'luxon';
 
 /**
  * Relation object for user metadata
@@ -33,6 +34,10 @@ export abstract class MetadataModel<T> extends ModelBase<MetadataModel<T>> {
   }
 
   protected getType(val: any): 'number' | 'float' | 'string' | 'json' | 'boolean' | 'datetime' {
+    if (val instanceof DateTime) {
+      return 'datetime';
+    }
+
     if (typeof val === 'object') {
       return 'json';
     }

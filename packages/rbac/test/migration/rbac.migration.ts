@@ -1,5 +1,5 @@
 import { IDriverOptions, Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
-import { User } from '../../src/models/User.js';
+import { USER_COMMON_METADATA, User } from '../../src/models/User.js';
 import { v4 as uuidv4 } from 'uuid';
 import { DI } from '@spinajs/di';
 import { PasswordProvider } from '../../src/interfaces.js';
@@ -45,7 +45,9 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
     });
 
     await bannedUser.insert();
-    //await ban(TEST_USER_UUID_3);
+    
+    bannedUser.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] = true;
+    await bannedUser.Metadata.sync();
 
     const notActiveUser = new User({
       Email: 'test-notactive@spinajs.pl',

@@ -330,7 +330,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     });
 
     for (const f of dirty) {
-      await f.insert(InsertBehaviour.InsertOrReplace);
+      await f.insert(InsertBehaviour.InsertOrUpdate);
     }
 
     await this._dbDiff(this);

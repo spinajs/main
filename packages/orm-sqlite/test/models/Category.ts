@@ -1,4 +1,4 @@
-import { ModelBase, Primary, Connection, Model, HasMany, Recursive, IRelation } from '@spinajs/orm';
+import { ModelBase, Primary, Connection, Model, HasMany, Recursive, Relation } from '@spinajs/orm';
 
 
 @Connection('sqlite')
@@ -11,5 +11,5 @@ export class Category extends ModelBase<Category> {
 
   @Recursive()
   @HasMany("Category", { foreignKey: 'parent_id' })
-  public Children: IRelation<Category, Category>;
+  public Children: Relation<Category, Category>;
 }

@@ -420,6 +420,8 @@ export class ModelBase<M = unknown> implements IModelBase {
         }
       }
     }
+
+    this.IsDirty = true;
   }
 
   /**

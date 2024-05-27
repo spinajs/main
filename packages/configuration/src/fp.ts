@@ -1,5 +1,5 @@
 import { Configuration } from '@spinajs/configuration-common';
-import { DI, ResolveException } from '@spinajs/di';
+import { Class, Constructor, DI, ResolveException } from '@spinajs/di';
 import { _catch, _chain, _check_arg, _non_empty, _non_nil } from '@spinajs/util';
 
 /**
@@ -12,7 +12,7 @@ import { _catch, _chain, _check_arg, _non_empty, _non_nil } from '@spinajs/util'
 export function _cfg<T>(path: string, defaultValue?: T) {
   _check_arg(_non_empty())(path, 'path');
 
-  return () => Promise.resolve<T>(_check_arg(_non_nil())(DI.get(Configuration).get<T>(path, defaultValue), path));
+  return () => _check_arg(_non_nil())(DI.get(Configuration).get<T>(path, defaultValue), path);
 }
 
 /**
@@ -22,12 +22,17 @@ export function _cfg<T>(path: string, defaultValue?: T) {
  * @param path
  * @returns
  */
-export function _service<T>(path: string): () => Promise<T> {
+export function _service<T>(path: string, type: Class<T>): () => Promise<T> {
   return () =>
     _chain(
       _cfg(path),
       _catch(
-        ({ service }: { service: string }) => DI.resolve(service),
+        ({ service }: { service: string }) =>
+          _chain(
+            () => DI.getRegisteredTypes(type),
+            (types: Constructor<unknown>[]) => types.find((t) => t.name === service),
+            (t: Constructor<unknown>) => DI.resolve(t),
+          ),
         (err: Error) => {
           throw new ResolveException(
             `Cannot resolve service from ${path}. Check your configuration file at this path.`,

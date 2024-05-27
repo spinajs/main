@@ -88,12 +88,12 @@ describe('User model tests', function () {
   it('Should create user', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
 
-    const { User: U, Password } = await create('test@wp.pl', 'test', 'bbbb', ['admin']);
+    const { User: U, Password } = await create('test@wp.pl', 'test222', 'bbbb', ['admin']);
 
     const user = await User.query().whereAnything('test@wp.pl').firstOrFail();
     expect(user).to.be.not.null;
     expect(user.IsActive).to.eq(false);
-    expect(user.Login).to.eq('test');
+    expect(user.Login).to.eq('test222');
     expect(user.Email).to.eq('test@wp.pl');
     expect(user.Role).to.include('admin');
 

@@ -146,7 +146,7 @@ export async function deactivate(identifier: number | string): Promise<void> {
 }
 
 export async function create(email: string, login: string, password: string, roles: string[]): Promise<{ User: User; Password: string }> {
-  const sPassword = await _service<PasswordProvider>('rbac.password')();
+  const sPassword = await _service('rbac.password',PasswordProvider)();
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
   login = _check_arg(_trim(), _non_empty(), _max_length(32))(login, 'login');
@@ -179,7 +179,7 @@ export async function create(email: string, login: string, password: string, rol
     _user_ev(UserCreated, (u: User) => u.toJSON()),
 
     // send email if needed
-    _user_email('confirm'),
+    _tap(_user_email('confirm')), // send email
 
     // return user & password - if generated we want to know not hashed password
     (u: User) => {
@@ -316,8 +316,8 @@ export async function changePassword(password: string): Promise<(u: User) => Pro
 
   return async (u: User) => {
     return _chain(
-      _use(_service<PasswordProvider>('rbac.password'), 'pwd'),
-      _use(_service<PasswordValidationProvider>('rbac.password.validation'), 'validator'),
+      _use(_service('rbac.password',PasswordProvider), 'pwd'),
+      _use(_service('rbac.password.validation',PasswordValidationProvider), 'validator'),
 
       _tap(async ({ validator }: { validator: PasswordValidationProvider }) => {
         if (!validator.check(password)) {
@@ -339,7 +339,7 @@ export async function auth(identifier: number | string | User, password: string)
     return _catch(
       () => {
         return _chain(
-          _service<AuthProvider>('rbac.auth.service'),
+          _service('rbac.auth.service',AuthProvider),
           async (sAuth: AuthProvider) => {
             const result = await sAuth.authenticate(u.Email, password);
             if (!result.User) {
