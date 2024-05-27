@@ -126,6 +126,13 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
   public abstract sync(): Promise<void>;
 
   /**
+   * Updates or ads data to relation
+   * It will not delete data from db that are not in relation. It will only update or insert new data.
+   * Only dirty models are updated.
+   */
+  public abstract update(): Promise<void>;
+
+  /**
    *
    * Calculates intersection between data in this relation and provided dataset
    * It saves result to db
@@ -252,6 +259,10 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     throw new Error('Method not implemented.');
   }
 
+  public async update() {
+    throw new Error('Method not implemented.');
+  }
+
   public async populate() {
     throw new Error('Method not implemented.');
   }
@@ -309,6 +320,11 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
 
     if (result) {
       this.length = 0;
+
+      result.forEach((r: ModelBase) => {
+        this.Owner.attach(r);
+      });
+
       this.push(...result);
     }
 
@@ -323,6 +339,16 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    *  Inserts or updates models that are dirty only.
    */
   public async sync() {
+    await this.update();
+    await this._dbDiff(this);
+  }
+
+  /**
+   * Updates or ads data to relation
+   * It will not delete data from db that are not in relation. It will only update or insert new data.
+   * Only dirty models are updated.
+   */
+  public async update() {
     const dirty = this.filter((x) => x.IsDirty || x.PrimaryKeyValue === null);
 
     this.forEach((d) => {
@@ -332,8 +358,6 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     for (const f of dirty) {
       await f.insert(InsertBehaviour.InsertOrUpdate);
     }
-
-    await this._dbDiff(this);
   }
 
   /**

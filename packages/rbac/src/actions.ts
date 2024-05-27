@@ -189,7 +189,7 @@ export async function create(email: string, login: string, password: string, rol
 }
 
 export async function deleteUser(identifier: number | string | User): Promise<void> {
-  return _chain(_user(identifier), (u: User) => u.destroy(), _user_ev(UserDeleted), _user_email('deleted'));
+  return _chain(_user(identifier), _tap((u: User) => u.destroy()), _user_ev(UserDeleted), _user_email('deleted'));
 }
 
 export async function grant(identifier: number | string, role: string): Promise<User> {

@@ -107,11 +107,11 @@ describe('User model tests', function () {
   });
 
   it('Shouldn create user with already existing email', async () => {
-    expect(create('test@spinajs.pl', 'test', 'bbbb', ['admin'])).to.be.rejected;
+    await expect(create('test@spinajs.pl', 'test', 'bbbb', ['admin'])).to.be.rejected;
   });
 
   it('Shouldn create user with already existing login', async () => {
-    expect(create('dasda@wp.pl', 'test', 'bbbb', ['admin'])).to.be.rejected;
+    await expect(create('dasda@wp.pl', 'test', 'bbbb', ['admin'])).to.be.rejected;
   });
 
   it('Should delete user', async () => {

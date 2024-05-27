@@ -35,23 +35,23 @@ describe('User model tests', function () {
     await DI.resolve(Orm);
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     DI.clearCache();
   });
 
   describe('Scope tests', () => {
     it('isActiveUser query scope should work', async () => {
-      const user = User.query().isActiveUser().first();
+      const user = await User.query().isActiveUser().first();
       expect(user).to.be.not.null;
     });
 
     it('whereEmail query scope should work', async () => {
-      const user = User.query().whereEmail('test@spinajs.pl').first();
+      const user = await User.query().whereEmail('test@spinajs.pl').first();
       expect(user).to.be.not.null;
     });
 
     it('whereLogin query scope should work', async () => {
-      const user = User.query().whereLogin('test').first();
+      const user = await User.query().whereLogin('test').first();
       expect(user).to.be.not.null;
     });
 
@@ -189,14 +189,10 @@ describe('User model tests', function () {
       await user.Metadata.sync();
 
       let meta = await UserMetadata.where('Key', 'test:test').first();
-      expect(meta.Value).to.be.eq('test');
+      expect(meta.Value).to.be.eq('test11');
 
       user.Metadata['test:test'] = 'test-2';
-      let m = await UserMetadata.all();
       await user.Metadata.sync();
-
-      m = await UserMetadata.all();
-      console.log(m);
 
       meta = await UserMetadata.where('Key', 'test:test').first();
       expect(meta.Value).to.be.eq('test-2');

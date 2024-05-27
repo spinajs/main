@@ -527,7 +527,8 @@ export class ModelBase<M = unknown> implements IModelBase {
           },
           modelCreation: (): any => null,
           afterHydration: (): any => null,
-        })
+        })   
+        
       : query.middleware({
           afterQuery: (data: IUpdateResult) => {
             this.PrimaryKeyValue = this.PrimaryKeyValue ?? data.LastInsertId;
