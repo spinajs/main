@@ -55,6 +55,7 @@ export class SqliteOrmDriver extends SqlDriver {
           break;
 
         case QueryContext.Select:
+        case QueryContext.Upsert:
           this.Db.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
             if (err) {
               reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`, err));
@@ -64,6 +65,7 @@ export class SqliteOrmDriver extends SqlDriver {
             resolve(rows);
           });
           break;
+        
         case QueryContext.Insert:
           this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: any) {
             if (err) {

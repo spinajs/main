@@ -78,9 +78,11 @@ export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler 
       }
     });
 
+    const returning = this._builder.getReturning()[0] === '*' ? ['*'] : this._builder.getReturning().map((c: string) => `\`${c}\``);
+
     return {
       bindings,
-      expression: `ON CONFLICT(${this._builder.getColumn().join(',')}) DO UPDATE SET ${columns.join(',')}`,
+      expression: `ON CONFLICT(${this._builder.getColumn().join(',')}) DO UPDATE SET ${columns.join(',')} RETURNING ${returning.join(',')};`,
     };
   }
 }
@@ -184,7 +186,7 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
         _stmt.push('INTEGER');
         break;
       case 'boolean':
-        _stmt.push(`BOOLEAN NOT NULL CHECK ( \`${this.builder.Name}\` IN (0, 1))`)
+        _stmt.push(`BOOLEAN NOT NULL CHECK ( \`${this.builder.Name}\` IN (0, 1))`);
         break;
     }
 

@@ -1119,11 +1119,18 @@ export class OnDuplicateQueryBuilder {
 
   protected _container: IContainer;
 
-  constructor(container: IContainer, insertQueryBuilder: QueryBuilder, column?: string | string[]) {
+  protected _returning : string [];
+
+  constructor(container: IContainer, insertQueryBuilder: QueryBuilder, column?: string | string[], returning? : string[]) {
     this._parent = insertQueryBuilder;
     this._container = container;
 
     this._column = _.isArray(column) ? column : [column];
+    this._returning = returning ?? ["*"];
+  }
+
+  public getReturning() : string[]{
+    return this._returning;
   }
 
   public getColumn(): string[] {
@@ -1193,7 +1200,7 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
 }
 
 @NewInstance()
-export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
+export class InsertQueryBuilder extends QueryBuilder<IUpdateResult | any> {
   public DuplicateQueryBuilder: OnDuplicateQueryBuilder;
 
   protected _values: any[][];
@@ -1205,6 +1212,8 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   protected _update: boolean = false;
 
   protected _replace: boolean = false;
+
+  protected _returning: string[];
 
   @use(ColumnsBuilder) this: this;
 
@@ -1245,6 +1254,12 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
 
   public orReplace() {
     this._replace = true;
+
+    return this;
+  }
+
+  public returning(columns: string[]) {
+    this._returning = columns;
 
     return this;
   }
@@ -1294,7 +1309,9 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     }
 
     this._update = true;
-    this.DuplicateQueryBuilder = new OnDuplicateQueryBuilder(this._container, this, columnToCheck);
+    this.DuplicateQueryBuilder = new OnDuplicateQueryBuilder(this._container, this, columnToCheck, this._returning);
+    this.QueryContext = QueryContext.Upsert;
+
     return this.DuplicateQueryBuilder;
   }
 

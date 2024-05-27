@@ -19,6 +19,9 @@ export enum QueryContext {
   Delete,
   Schema,
   Transaction,
+
+  // Insert or UPDATE
+  Upsert,
 }
 
 export enum ColumnAlterationType {

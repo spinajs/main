@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, QueryContext } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders.js';
 import { Op } from './enums.js';
@@ -519,16 +519,23 @@ export class ModelBase<M = unknown> implements IModelBase {
         break;
     }
 
-    const iMidleware = {
-      afterQuery: (data: IUpdateResult) => {
-        this.PrimaryKeyValue = this.PrimaryKeyValue ?? data.LastInsertId;
-        return data;
-      },
-      modelCreation: (): any => null,
-      afterHydration: (): any => null,
-    };
-
-    query.middleware(iMidleware);
+    query.QueryContext === QueryContext.Upsert
+    // when upsert, we take affecter row ID from primary key returned ( returning statement)
+      ? query.middleware({
+          afterQuery: (data: any) => {
+            this.PrimaryKeyValue = this.PrimaryKeyValue ?? data[0][this.PrimaryKeyName];
+          },
+          modelCreation: (): any => null,
+          afterHydration: (): any => null,
+        })
+      : query.middleware({
+          afterQuery: (data: IUpdateResult) => {
+            this.PrimaryKeyValue = this.PrimaryKeyValue ?? data.LastInsertId;
+            return data;
+          },
+          modelCreation: (): any => null,
+          afterHydration: (): any => null,
+        });
 
     const result = query.values(this.toSql());
 

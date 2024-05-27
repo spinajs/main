@@ -6,7 +6,7 @@ import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserMetadat
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm, QueryContext } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 import { DateTime } from 'luxon';
@@ -237,25 +237,10 @@ describe('User model tests', function () {
 
     it('Should automatically convert meta value to datetime', async () => {
       const user = await User.getByEmail('test@spinajs.pl');
-      user.Metadata['test:test222'] = DateTime.now();
-
-      let all = await UserMetadata.all();
-
-      
-
-     // await ((await DI.resolve(Orm)).Connections.get('sqlite') as SqliteOrmDriver).executeOnDb("VACUUM MAIN INTO 'D:\\testssss.sqlite'", null, QueryContext.Schema);
-
-     await ((await DI.resolve(Orm)).Connections.get('sqlite') as SqliteOrmDriver).executeOnDb('INSERT INTO `users_metadata` (`Key`,`Type`,`Value`,`user_id`) VALUES ("test:test222","datetime","2024-05-27T06:10:42.699+02:00",1) ON CONFLICT(Key,user_id) DO UPDATE SET Key = "test:test222",Type = "datetime",Value = "ddsssssd111",user_id = 1 RETURNING *;', null, QueryContext.Select);
-
-      await ((await DI.resolve(Orm)).Connections.get('sqlite') as SqliteOrmDriver).executeOnDb('INSERT INTO `users_metadata` (`Key`,`Type`,`Value`,`user_id`) VALUES ("test:test222","datetime","2024-05-27T06:10:42.699+02:00",1) ON CONFLICT(Key,user_id) DO UPDATE SET Key = "test:test222",Type = "datetime",Value = "ddsssssd111",user_id = 1 RETURNING *;', null, QueryContext.Select);
-
+      user.Metadata['test:test'] = DateTime.now();
 
       await user.Metadata.sync();
-
-      all = await UserMetadata.all();
-
-      console.log(all);
-
+ 
       const meta = await UserMetadata.where('Key', 'test:test').first();
       expect(meta.Type).to.be.eq('datetime');
       expect(meta.Value).to.be.instanceOf(DateTime);
