@@ -34,6 +34,9 @@ export class LoginController extends BaseController {
       // TEMP
       session.Data.set('Authorized', true);
 
+      // set expiration time ( default val in config )
+      session.extend();
+
       await this.SessionProvider.save(session);
 
       this._log.trace('User logged in', user);
@@ -46,7 +49,9 @@ export class LoginController extends BaseController {
             Options: {
               signed: true,
               httpOnly: true,
-              maxAge: this.SessionExpirationTime,
+
+              // set expiration time in ms
+              maxAge: this.SessionExpirationTime * 1000,
             },
           },
         ],
