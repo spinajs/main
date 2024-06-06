@@ -44,6 +44,7 @@ export class LoginController extends BaseController {
             Name: 'ssid',
             Value: session.SessionId,
             Options: {
+              signed: true,
               httpOnly: true,
               maxAge: this.SessionExpirationTime,
             },

@@ -9,7 +9,7 @@ interface UserCreationOptions {
   password: string;
 }
 
-@Command('rbas:user-create', 'Creates user with given credentials')
+@Command('rbac:user-create', 'Creates user with given credentials')
 @Option('-e, --email <email>', true, 'user email')
 @Option('-r, --roles <roles>', true, 'user roles, comma separated')
 @Option('-l, --login <login>', true, 'user login')
