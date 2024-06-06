@@ -10,9 +10,6 @@
   "references": [
     {
       "path": "../exceptions/tsconfig.mjs.json"
-    },
-    {
-      "path": "../di/tsconfig.mjs.json"
     }
   ]
 }

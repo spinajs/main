@@ -1,4 +1,5 @@
-import { Constructor } from '@spinajs/di';
+export type Constructor<T> = new (...args: any[]) => T;
+
 
 /**
  * Chains a list of functions together, passing the result of each function to the next.
