@@ -1,5 +1,5 @@
 import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/http';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { Forbidden } from '@spinajs/exceptions';
 
 /**
  * Simple policy to only check if user is authorized ( do not check permissions for routes)
@@ -15,6 +15,7 @@ export class NotLoggedPolicy extends BasePolicy {
       return Promise.resolve();
     }
 
-    throw new InvalidOperation('Cannot perform action when user is logged.');
+    throw new Forbidden('User already logged in, please logout first');
+
   }
 }
