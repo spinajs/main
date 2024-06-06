@@ -1,4 +1,4 @@
-import { SessionProvider, ISession } from '@spinajs/rbac';
+import { SessionProvider, ISession, UserSession } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession.js';
@@ -47,7 +47,7 @@ export class DbSessionStore extends SessionProvider {
 
     const sData = JSON.parse(session.Data);
 
-    return new Session({
+    return new UserSession({
       SessionId: session.SessionId,
       Creation: session.CreatedAt,
       Data: new Map(Object.entries(sData)),
