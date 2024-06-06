@@ -28,6 +28,11 @@ export function _setCoockies(res: express.Response, options?: IResponseOptions) 
     res.cookie(c.Name, cookieValue, {
       ...opt,
       ...c.Options,
+
+      // we manage signed coockies by ourself
+      ...{
+        signed: false,
+      },
     });
   });
 }
