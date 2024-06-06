@@ -1,5 +1,6 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import GlobToRegExp from 'glob-to-regexp';
+import { trimChar } from './string.js';
 
 /**
  * Helper function to validate arguments
@@ -154,7 +155,7 @@ export function _to_lower() {
 export function _trim(char?: string) {
   return function (arg: unknown, _name: string) {
     if (typeof arg === 'string') {
-      return char ? arg.trimChar(char) : arg.trim();
+      return char ? trimChar(arg, char) : arg.trim();
     }
     return arg;
   };
