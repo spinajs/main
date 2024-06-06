@@ -33,6 +33,7 @@
     { "path": "./packages/queue-stomp-transport/tsconfig.cjs.json" },
     { "path": "./packages/rbac/tsconfig.cjs.json" },
     { "path": "./packages/rbac-http/tsconfig.cjs.json" },
+    { "path": "./packages/rbac-http-user/tsconfig.cjs.json" },
     { "path": "./packages/reflection/tsconfig.cjs.json" },
     { "path": "./packages/session-provider-db/tsconfig.cjs.json" },
     { "path": "./packages/session-provider-dynamodb/tsconfig.cjs.json" },
