@@ -1,6 +1,4 @@
 import { InvalidArgument } from '@spinajs/exceptions';
-import '@spinajs/util';
-
 import GlobToRegExp from 'glob-to-regexp';
 
 /**
@@ -131,6 +129,16 @@ export function _to_upper() {
     }
     return arg.toUpperCase();
   };
+}
+
+export function _to_array() { 
+  return function (arg : unknown){
+    if (Array.isArray(arg)) {
+      return arg;
+    }
+
+    return [arg];
+  }
 }
 
 export function _to_lower() {

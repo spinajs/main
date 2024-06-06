@@ -1,5 +1,5 @@
 import { _insert, _update } from '@spinajs/orm';
-import { _use, _zip, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _non_null } from '@spinajs/util';
+import { _use, _zip, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _either, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _non_null, _to_array } from '@spinajs/util';
 import _ from 'lodash';
 import { _email_deferred } from '@spinajs/email';
 import { _ev } from '@spinajs/queue';
@@ -13,6 +13,7 @@ import { DateTime } from 'luxon';
 import { ErrorCode } from '@spinajs/exceptions';
 import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
+import { UserMetadataChange } from './events/UserMetadataChange.js';
 
 export enum E_CODES {
   E_TOKEN_EXPIRED,
@@ -48,16 +49,21 @@ export enum E_CODES {
 
 export function _set_user_meta(meta: string | { key: string; value: any }[], value: any = null) {
   return async (u: User) => {
-    _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u })))(u.Metadata, 'Metadata');
+    const mArgs = _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u })), _to_array())(meta, 'Metadata');
 
-    if (Array.isArray(meta)) {
-      for (const m of meta) {
-        u.Metadata[m.key] = m.value;
-      }
-    } else {
-      u.Metadata[meta] = value;
-    }
-    await u.Metadata.sync();
+    mArgs.forEach((m: string | { key: string; value: any }) => {
+      _.isString(m) ? (u.Metadata[m] = value) : (u.Metadata[m.key] = m.value);
+    });
+
+    await _chain(
+      u,
+      _tap(() => u.Metadata.sync()),
+      _user_ev(UserMetadataChange, () => {
+        return mArgs.map((m: string | { key: string; value: any }) => {
+          return _.isString(m) ? { key: m, value } : m;
+        });
+      }),
+    );
 
     return u;
   };
@@ -146,7 +152,7 @@ export async function deactivate(identifier: number | string): Promise<void> {
 }
 
 export async function create(email: string, login: string, password: string, roles: string[]): Promise<{ User: User; Password: string }> {
-  const sPassword = await _service('rbac.password',PasswordProvider)();
+  const sPassword = await _service('rbac.password', PasswordProvider)();
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
   login = _check_arg(_trim(), _non_empty(), _max_length(32))(login, 'login');
@@ -189,7 +195,12 @@ export async function create(email: string, login: string, password: string, rol
 }
 
 export async function deleteUser(identifier: number | string | User): Promise<void> {
-  return _chain(_user(identifier), _tap((u: User) => u.destroy()), _user_ev(UserDeleted), _user_email('deleted'));
+  return _chain(
+    _user(identifier),
+    _tap((u: User) => u.destroy()),
+    _user_ev(UserDeleted),
+    _user_email('deleted'),
+  );
 }
 
 export async function grant(identifier: number | string, role: string): Promise<User> {
@@ -233,6 +244,8 @@ export async function ban(identifier: number | string | User, reason?: string, d
       if (u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
         throw new ErrorCode(E_CODES.E_USER_BANNED, `User is already banned`, { user: u });
       }
+
+      return u;
     },
     _set_user_meta([
       { key: USER_COMMON_METADATA.USER_BAN_DURATION, value: duration },
@@ -316,8 +329,8 @@ export async function changePassword(password: string): Promise<(u: User) => Pro
 
   return async (u: User) => {
     return _chain(
-      _use(_service('rbac.password',PasswordProvider), 'pwd'),
-      _use(_service('rbac.password.validation',PasswordValidationProvider), 'validator'),
+      _use(_service('rbac.password', PasswordProvider), 'pwd'),
+      _use(_service('rbac.password.validation', PasswordValidationProvider), 'validator'),
 
       _tap(async ({ validator }: { validator: PasswordValidationProvider }) => {
         if (!validator.check(password)) {
@@ -335,28 +348,25 @@ export async function changePassword(password: string): Promise<(u: User) => Pro
 export async function auth(identifier: number | string | User, password: string): Promise<(u: User) => Promise<User>> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
-  return _chain(_user(identifier), (u: User) => {
-    return _catch(
-      () => {
+  return await _chain(
+    _user(identifier),
+    _catch(
+      (u: User) => {
+        return _chain(_service('rbac.auth', AuthProvider), async (sAuth: AuthProvider) => sAuth.authenticate(u.Email, password), _update<User>({ LastLoginAt: DateTime.now() }), _user_ev(UserLogged));
+      },
+      (err, u: User) => {
         return _chain(
-          _service('rbac.auth.service',AuthProvider),
-          async (sAuth: AuthProvider) => {
-            const result = await sAuth.authenticate(u.Email, password);
-            if (!result.User) {
-              throw new ErrorCode(E_CODES.E_NOT_LOGGED, `User not logged`, { identifier });
-            }
+          () => u,
+
+          // send event of failed login
+          _user_ev(UserLoginFailed, err),
+
+          // rethrow error for caller
+          () => {
+            throw err;
           },
-          _update<User>({ LastLoginAt: DateTime.now() }),
-          _user_ev(UserLogged),
         );
       },
-      (err) => {
-        if (err instanceof ErrorCode) {
-          if (err.code === E_CODES.E_NOT_LOGGED) {
-            return _user_ev(UserLoginFailed);
-          }
-        }
-      },
-    );
-  });
+    ),
+  );
 }

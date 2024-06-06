@@ -2,7 +2,7 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
 
-import { _check_arg, _default, _is_array, _is_object, _is_string,_catchFilter, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _zip, _catch, _use, _fallback, _tap, _catchException, _catchValue } from '../src/index.js';
+import { _check_arg, _default, _is_array, _is_object, _is_string,_catchFilter, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _zip, _catch, _use, _fallback, _tap, _catchException, _catchValue, _either } from '../src/index.js';
 import _ from 'lodash';
 
 
@@ -154,6 +154,16 @@ describe('util', () => {
 
             const res = await _chain(a, _tap(b));
             expect(res).to.be.eq("service A");
+        });
+
+        it('_either', async () => {
+
+
+            const a = _chain(true, _either(async (arg) => arg, async () => "true", async () => "false"));
+            const b = _chain(false, _either(async (arg) => arg, async () => "true", async () => "false"));
+
+            expect(await a).to.be.eq("true");
+            expect(await b).to.be.eq("false");
         });
     });
 

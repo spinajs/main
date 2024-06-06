@@ -1,4 +1,4 @@
-import { AthenticationErrorCodes, AuthProvider, IAuthenticationResult, PasswordProvider } from './interfaces.js';
+import { AthenticationErrorCodes, AuthProvider, PasswordProvider } from './interfaces.js';
 import { User } from './models/User.js';
 import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
@@ -34,7 +34,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
     return User.getByUuid(uuid);
   }
 
-  public async authenticate(email: string, password: string): Promise<IAuthenticationResult<User>> {
+  public async authenticate(email: string, password: string): Promise<User> {
     _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
     _check_arg(_trim(), _non_empty(), _max_length(64))(password, 'password');
 
@@ -49,13 +49,11 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
       throw new ErrorCode(AthenticationErrorCodes.E_USER_BANNED);
     }
 
-    if (user.IsActive) {
+    if (!user.IsActive) {
       throw new ErrorCode(AthenticationErrorCodes.E_USER_NOT_ACTIVE);
     }
 
-    return {
-      User: user,
-    };
+    return user;
   }
 
   public async isBanned(userOrEmail: User | string): Promise<boolean> {

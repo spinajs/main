@@ -177,6 +177,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           UserPasswordChangeRequest: { connection: 'default-test-queue' },
           UserRoleGranted: { connection: 'default-test-queue' },
           UserRoleRevoked: { connection: 'default-test-queue' },
+          UserMetadataChange: { connection: 'default-test-queue' },
         },
 
         connections: [

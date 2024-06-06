@@ -117,7 +117,7 @@ export abstract class AuthProvider<U = User> {
    * @param login - user login
    * @param password  - user password
    */
-  public abstract authenticate(login: string, password: string): Promise<IAuthenticationResult<U>>;
+  public abstract authenticate(login: string, password: string): Promise<U>;
 
   /**
    *
@@ -197,7 +197,7 @@ export abstract class FederatedAuthProvider<C, U = User> {
    *
    * @param credentials - provided credentials eg. data with token
    */
-  public abstract authenticate(credentials: C): Promise<IAuthenticationResult<U>>;
+  public abstract authenticate(credentials: C): Promise<U>;
 }
 
 export abstract class SessionProvider<T = ISession> extends AsyncService {
@@ -259,31 +259,6 @@ export enum AthenticationErrorCodes {
 
 export interface IRbacModelDescriptor extends IModelDescriptor {
   RbacResource: string;
-}
-
-/**
- * Authentication result
- */
-export interface IAuthenticationResult<U = User> {
-  /**
-   * If auth is succeded, user field is not null
-   */
-  User?: U;
-
-  /**
-   * If result failed, Error field is not null
-   */
-  Error?: {
-    /**
-     * Error code eg E_IS_BANNED
-     */
-    Code: string | AthenticationErrorCodes;
-
-    /**
-     * Optional message
-     */
-    Message?: string;
-  };
 }
 
 /**

@@ -26,15 +26,15 @@ export class UserQueryScopes implements QueryScope {
           this.where(new RawQuery('user_id = banned_count.Id'));
         }),
       )
-      .asRaw<{ banned_count: number }[]>();
+      .asRaw<{ BannedCount: number }[]>();
 
-    return banned[0].banned_count > 0;
+    return banned[0].BannedCount > 0;
   }
 
   public async checkIsActive(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
-    const active = await this.clearColumns().count('*', 'active_count').where('IsActive', true).asRaw<{ active_count: number }[]>();
+    const active = await this.clearColumns().count('*', 'ActiveCount').where('IsActive', true).asRaw<{ ActiveCount: number }[]>();
 
-    return active[0].active_count > 0;
+    return active[0].ActiveCount > 0;
   }
 
   public notDeleted(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {

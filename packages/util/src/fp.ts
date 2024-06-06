@@ -37,8 +37,8 @@ export function _use(value: () => Promise<unknown>, name: string) {
  * @param onError
  * @returns
  */
-export function _catch(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => void) {
-  return (arg?: unknown) => Promise.resolve(promise(arg)).catch(onError);
+export function _catch(promise: (...arg: unknown[]) => Promise<unknown>, onError: (err: Error, ...arg: unknown[]) => Promise<void>) {
+  return (...arg: unknown[]) => Promise.resolve(promise(...arg)).catch(async (err) => await onError(err, ...arg));
 }
 
 /**
@@ -95,4 +95,8 @@ export function _tap(promise: ((arg: unknown) => Promise<unknown>) | Promise<unk
 
     return promise(arg).then(() => arg);
   };
+}
+
+export function _either(cond: (arg: unknown) => Promise<unknown>, onFulfilled: () => Promise<unknown>, onRejected: () => Promise<unknown>) {
+  return (arg?: unknown) => cond(arg).then((res: unknown) => (res ? onFulfilled() : onRejected()));
 }

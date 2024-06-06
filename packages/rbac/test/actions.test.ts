@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, USER_COMMON_METADATA, auth, UserLogged, UserBanned } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
@@ -16,6 +16,9 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { activate } from '../src/actions.js';
 import _ from 'lodash';
 import { EmailSend } from '@spinajs/email';
+import { UserMetadataChange } from '../src/events/UserMetadataChange.js';
+import { DateTime } from 'luxon';
+import { UserLoginFailed } from '../src/events/UserLoginFailed.js';
 
 chai.use(chaiAsPromised);
 
@@ -133,7 +136,27 @@ describe('User model tests', function () {
     expect((eStub.args[1] as any)[0]).to.be.instanceOf(EmailSend);
   });
 
-  it('Should ban user', async () => {});
+  it('Should ban user', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+
+    await ban('test@spinajs.pl', 'Banned by admin', 100);
+
+    let user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+
+    expect(user).to.be.not.null;
+    expect(user.IsBanned).to.be.true;
+
+    expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]).to.be.eq(true);
+    expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_REASON]).to.be.eq('Banned by admin');
+    expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_DURATION]).to.be.eq(100);
+    expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_START_DATE]).to.be.not.null;
+    expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_START_DATE]).to.be.instanceOf(DateTime);
+
+    expect(eStub.callCount).to.eq(3);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserMetadataChange);
+    expect((eStub.args[1] as any)[0]).to.be.instanceOf(UserBanned);
+    expect((eStub.args[2] as any)[0]).to.be.instanceOf(EmailSend);
+  });
 
   it('Should unban user', async () => {});
 
@@ -145,9 +168,46 @@ describe('User model tests', function () {
 
   it('Should update user', async () => {});
 
-  it('Should authenticate user', async () => {});
+  it('Should authenticate user', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
 
-  it('Should reject auth with invalid password', async () => {});
+    const user = await auth('test@spinajs.pl', 'bbbb');
+
+    expect(user).to.be.not.null;
+    expect(eStub.callCount).to.eq(1);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLogged);
+  });
+
+  it('Should not auth with invalid password', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+
+    await expect(auth('test@spinajs.pl', 'bbbbssss')).to.be.rejected;
+    expect(eStub.callCount).to.eq(1);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLoginFailed);
+
+  });
+
+  it('Should not auth with invalid login', async () => {
+    await expect(auth('testssssss@spinajs.pl', 'bbbb')).to.be.rejected;
+  });
+
+  it('Should reject auth with banned user', async () => {
+
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+
+    await expect(auth('test-banned@spinajs.pl', 'bbbb')).to.be.rejected;
+    expect(eStub.callCount).to.eq(1);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLoginFailed);
+  });
+
+  it('Should reject auth with not active user', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+
+    await expect(auth('test-notactive@spinajs.pl', 'bbbb')).to.be.rejected;
+    expect(eStub.callCount).to.eq(1);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLoginFailed);
+  });
+
 
   it('Password change request ', async () => {});
 
