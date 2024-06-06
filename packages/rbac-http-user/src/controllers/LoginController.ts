@@ -6,7 +6,7 @@ import { AutoinjectService, Config, Configuration } from '@spinajs/configuration
 import _ from 'lodash';
 import { LoggedPolicy, NotLoggedPolicy } from '@spinajs/rbac-http';
 
-@BasePath('/auth')
+@BasePath('auth')
 export class LoginController extends BaseController {
   @Autoinject()
   protected Configuration: Configuration;
