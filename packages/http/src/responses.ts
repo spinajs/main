@@ -22,7 +22,7 @@ export function _setCoockies(res: express.Response, options?: IResponseOptions) 
 
     if (c.Options.signed) {
       const secureKey = cfg.get<string>('http.cookie.secret');
-      cookieValue = cs.sign(this.responseData, secureKey);
+      cookieValue = cs.sign(cookieValue, secureKey);
     }
 
     res.cookie(c.Name, cookieValue, {
