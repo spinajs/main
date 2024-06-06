@@ -345,7 +345,7 @@ export async function changePassword(password: string): Promise<(u: User) => Pro
   };
 }
 
-export async function auth(identifier: number | string | User, password: string): Promise<(u: User) => Promise<User>> {
+export async function auth(identifier: number | string | User, password: string): Promise<User> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
   return await _chain(

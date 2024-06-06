@@ -4,7 +4,7 @@ import { Forbidden } from '@spinajs/exceptions';
 /**
  * Policy to block guests
  */
-export class BlockGuest extends BasePolicy {
+export class AllowGuest extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     // acl is always on if set
     return true;
