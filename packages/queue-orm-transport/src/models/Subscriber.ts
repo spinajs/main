@@ -16,6 +16,11 @@ export class Subscriber extends ModelBase {
   @Primary()
   public Name: string;
 
-  @HasManyToMany(Queue, Event, 'Id', 'Id', 'orm_event_transport__event_Id', 'orm_event_transport__subscribers_Id')
+  @HasManyToMany(Queue, Event, {
+    targetModelPKey: 'Id',
+    sourceModelPKey: 'Id',
+    junctionModelTargetPk: 'orm_event_transport__event_Id',
+    junctionModelSourcePk: 'orm_event_transport__subscribers_Id',
+  })
   public Events: ManyToManyRelationList<Event, Subscriber>;
 }

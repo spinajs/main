@@ -1,4 +1,4 @@
-import { SessionProvider, Session, ISession } from '@spinajs/rbac';
+import { SessionProvider, ISession } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession.js';
@@ -32,7 +32,7 @@ export class DbSessionStore extends SessionProvider {
     }, this.CleanupInterval);
   }
 
-  public async restore(sessionId: string): Promise<Session> {
+  public async restore(sessionId: string): Promise<ISession> {
     const session = await DbSession.where({
       SessionId: sessionId,
     }).first();

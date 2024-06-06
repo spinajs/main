@@ -1,7 +1,7 @@
 import AWS from 'aws-sdk';
 import { DateTime } from 'luxon';
 
-import { SessionProvider, Session, ISession } from '@spinajs/rbac';
+import { SessionProvider, UserSession, ISession } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
@@ -100,7 +100,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
     }
   }
 
-  public async restore(sessionId: string): Promise<Session> {
+  public async restore(sessionId: string): Promise<UserSession> {
     const params = {
       TableName: this.Table,
       Key: {
@@ -123,7 +123,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
 
       const data = JSON.parse(result.Item.Data.S);
 
-      return new Session({
+      return new UserSession({
         Creation: DateTime.fromISO(result.Item.Creation.S),
         Expiration: DateTime.fromMillis(ttl),
         SessionId: result.Item.SessionId.S,

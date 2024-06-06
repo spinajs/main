@@ -32,11 +32,17 @@ export class Translatable extends ModelBase {
     this.Language = lang;
   }
 
-  public async update(): Promise<void> {
+  public async update(data?: Partial<this>) {
     const selectedLang = guessLanguage(this.Language);
     const defaultLanguage = DI.get(Configuration).get<string>('intl.defaultLocale');
+
+    let result = {
+      RowsAffected: 0,
+      LastInsertId: 0,
+    };
+
     if (!selectedLang || defaultLanguage === selectedLang) {
-      await super.update();
+      return await super.update(data);
     } else {
       this.Language = selectedLang;
       // TODO: temporaty use uniqyBy, pls FIX model descriptor proper handling in ORM module
@@ -73,6 +79,10 @@ export class Translatable extends ModelBase {
       for (const t of translations) {
         await t.insert(InsertBehaviour.InsertOrUpdate);
       }
+
+
+      // TODO: fixit
+      return result;
     }
   }
 }
