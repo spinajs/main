@@ -12,5 +12,8 @@
     {
       "path": "../exceptions/tsconfig.cjs.json"
     },
+    {
+      "path": "../di/tsconfig.cjs.json"
+    },
   ]
 }
