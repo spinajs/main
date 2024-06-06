@@ -1,5 +1,5 @@
-import { Injectable } from '@spinajs/di';
-import { FingerprintProvider } from '../interfaces.js';
+// import { Injectable } from '@spinajs/di';
+// import { FingerprintProvider } from '../interfaces.js';
 
-@Injectable(FingerprintProvider)
-export class FingerprintJs extends FingerprintProvider {}
+// @Injectable(FingerprintProvider)
+// export class FingerprintJs extends FingerprintProvider {}
