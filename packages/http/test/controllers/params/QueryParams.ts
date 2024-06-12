@@ -51,6 +51,7 @@ export class QueryParams extends BaseController {
     return new Ok({ id });
   }
 
+  @Get()
   public array(@Query() a: string[]) {
     return new Ok({ a });
   }
