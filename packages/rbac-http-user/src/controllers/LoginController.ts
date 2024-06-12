@@ -4,8 +4,8 @@ import { AuthProvider, SessionProvider, auth, UserSession } from '@spinajs/rbac'
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, NotLoggedPolicy } from '@spinajs/rbac-http';
-
+import { LoggedPolicy, NotLoggedPolicy, User as UserRouteArg  } from '@spinajs/rbac-http';
+import { User } from '@spinajs/rbac';
 @BasePath('auth')
 export class LoginController extends BaseController {
   @Autoinject()
@@ -196,6 +196,14 @@ export class LoginController extends BaseController {
         },
       ],
     });
+  }
+
+  @Get()
+  @Policy(LoggedPolicy)
+  public async whoami(@UserRouteArg() User: User) {
+
+    // user is taken from session data
+    return new Ok(User);
   }
 
   // protected async authenticate(user: UserModel, federated?: boolean) {
