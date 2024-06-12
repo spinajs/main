@@ -24,6 +24,11 @@ const rbacHttp = {
       maxDevices: 3,
       service: 'FingerprintJs',
     },
+    session:{ 
+      cookie: { 
+        sameSite: 'lax'
+      }
+    },
     password: {
       // password reset token ttl in minutes
       tokenTTL: 60,

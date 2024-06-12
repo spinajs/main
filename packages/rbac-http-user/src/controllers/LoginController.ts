@@ -22,6 +22,9 @@ export class LoginController extends BaseController {
   })
   protected SessionExpirationTime: number;
 
+  @Config('rbac.session.cookie', {})
+  protected SessionCookieConfig: any;
+
   @Post()
   @Policy(NotLoggedPolicy)
   public async login(@Body() credentials: UserLoginDto) {
@@ -52,6 +55,10 @@ export class LoginController extends BaseController {
 
               // set expiration time in ms
               maxAge: this.SessionExpirationTime * 1000,
+
+              // any optopnal cookie options
+              // or override default ones
+              ...this.SessionCookieConfig
             },
           },
         ],
@@ -192,6 +199,10 @@ export class LoginController extends BaseController {
           Options: {
             httpOnly: true,
             maxAge: 0,
+            
+            // any optopnal cookie options
+            // or override default ones
+            ...this.SessionCookieConfig
           },
         },
       ],
