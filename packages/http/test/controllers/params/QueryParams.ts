@@ -2,6 +2,7 @@ import { DateTime } from 'luxon';
 import { ParameterType } from '../../../src/interfaces.js';
 import { BasePath, BaseController, Get, Query, Ok, Uuid, PKey } from '../../../src/index.js';
 import { SampleObject, SampleModel, SampleModelWithSchema } from '../../dto/index.js';
+import "@spinajs/di";
 
 @BasePath('params/query')
 export class QueryParams extends BaseController {
@@ -48,5 +49,9 @@ export class QueryParams extends BaseController {
   @Get()
   public pkey(@PKey(ParameterType.FromQuery) id: number) {
     return new Ok({ id });
+  }
+
+  public array(@Query() a: string[]) {
+    return new Ok({ a });
   }
 }

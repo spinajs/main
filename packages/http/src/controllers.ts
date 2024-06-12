@@ -165,6 +165,10 @@ export abstract class BaseController extends AsyncService implements IController
       handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onAfter.bind(m), route)));
 
       // register to express router
+      if(route.InternalType === 'unknown') {
+        this._log.warn(`Unknown route type for ${this.constructor.name}::${route.Method} at path ${path}`);
+        return;
+      }
       (this._router as any)[route.InternalType as string](path, handlers);
     }
 

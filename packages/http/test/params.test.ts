@@ -146,6 +146,12 @@ describe('controller action test params', function () {
       await req().get('params/query/pkey?id=1');
       expect(spy.args[0][0]).to.eq(1);
     });
+    it('array', async () => {
+      const spy = DI.get(QueryParams).array as sinon.SinonSpy;
+      await req().get('params/query/array?a=["1","2","3"]');
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0]).to.include.members(['1', '2', '3']);
+    });
   });
 
   describe('headers params', function () {
