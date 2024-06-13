@@ -21,7 +21,7 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
       // this way insertquerycompiler will not try to fill DEFAULT in missing data
       if (val === undefined) return;
 
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, model.ModelDescriptor.Converters.get(c.Name)?.Options) : val;
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor.Converters.get(c.Name)?.Options) : val;
     });
 
     for (const val of relArr) {

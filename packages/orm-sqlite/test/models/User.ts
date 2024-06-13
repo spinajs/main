@@ -1,4 +1,4 @@
-import { ModelBase, Primary, CreatedAt, Connection, Model } from '@spinajs/orm';
+import { ModelBase, Primary, CreatedAt, Connection, Model, DateTime as DT } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 @Connection('sqlite')
@@ -15,4 +15,7 @@ export class User extends ModelBase {
 
   @CreatedAt()
   public CreatedAt: DateTime;
+
+  @DT()
+  public DateTime: DateTime;
 }

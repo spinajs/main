@@ -704,7 +704,7 @@ export interface IValueConverter {
    *
    * @param value - value to convert
    */
-  toDB(value: any, model: ModelBase, options: any): any;
+  toDB(value: any, model: ModelBase, column: IColumnDescriptor, options: any): any;
 
   /**
    * Converts value from database type eg. mysql timestamp to DateTime
@@ -1207,7 +1207,7 @@ export class ValueConverter implements IValueConverter {
    *
    * @param value - value to convert
    */
-  public toDB(_value: any, _model: ModelBase<any>, _options?: any): any {
+  public toDB(_value: any, _model: ModelBase<any>, _column: IColumnDescriptor, _options?: any): any {
     throw new MethodNotImplemented();
   }
 

@@ -1,4 +1,4 @@
-import { BooleanValueConverter, DatetimeValueConverter, IValueConverter } from '@spinajs/orm';
+import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IValueConverter, ModelBase } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 export class SqlSetConverter implements IValueConverter {
@@ -27,16 +27,16 @@ export class SqlBooleanValueConverter implements BooleanValueConverter {
 }
 
 export class SqlDatetimeValueConverter extends DatetimeValueConverter {
-  public toDB(value: Date | DateTime) {
-    if (value instanceof Date) {
-      return DateTime.fromJSDate(value).toSQL({ includeOffset: false });
+  public toDB(value: Date | DateTime, _model: ModelBase<unknown>, column: IColumnDescriptor) {
+    const numericalTypes = ['int', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal'];
+
+    let dt = value instanceof DateTime ? value : DateTime.fromJSDate(value);
+
+    if (numericalTypes.includes(column.Type)) {
+      return dt?.toUnixInteger() ?? 0;
     }
 
-    if (value instanceof DateTime) {
-      return value.toSQL({ includeOffset: false });
-    }
-
-    return null;
+    return dt?.toSQL({ includeOffset: false }) ?? "1970-01-01 00:00:00";
   }
 
   public fromDB(value: string | DateTime | Date | number) {

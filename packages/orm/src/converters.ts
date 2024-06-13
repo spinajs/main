@@ -1,7 +1,7 @@
 import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { OrmException } from './exceptions.js';
-import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter } from './interfaces.js';
+import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter, IColumnDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 
 export class JsonValueConverter extends ValueConverter {
@@ -46,7 +46,7 @@ export class UuidConverter extends ValueConverter {
 }
 
 export class UniversalValueConverter extends ValueConverter {
-  public toDB(value: any, model: ModelBase, options: IUniversalConverterOptions) {
+  public toDB(value: any, model: ModelBase, _column: IColumnDescriptor, options: IUniversalConverterOptions) {
 
     const type = (model as any)[options.TypeColumn];
     switch (type) {
