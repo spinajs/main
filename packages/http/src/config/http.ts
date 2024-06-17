@@ -42,7 +42,14 @@ const http = {
       },
     ],
   },
+  https: false,
   http: {
+
+    ssl: {
+      key: '',
+      cert: '',
+    },
+
     port: 1337,
     middlewares: [
       helmet(),

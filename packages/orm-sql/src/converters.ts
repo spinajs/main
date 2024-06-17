@@ -1,6 +1,8 @@
 import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IValueConverter, ModelBase } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
+const DATE_NUMERICAL_TYPES = ['int', 'integer', 'float', 'double', 'decimal', 'bigint', 'smallint', 'tinyint', 'mediumint'];
+
 export class SqlSetConverter implements IValueConverter {
   public toDB(value: unknown[]) {
     if (value) {
@@ -28,15 +30,20 @@ export class SqlBooleanValueConverter implements BooleanValueConverter {
 
 export class SqlDatetimeValueConverter extends DatetimeValueConverter {
   public toDB(value: Date | DateTime, _model: ModelBase<unknown>, column: IColumnDescriptor) {
-    const numericalTypes = ['int', 'tinyint', 'smallint', 'mediumint', 'bigint', 'float', 'double', 'decimal'];
-
-    let dt = value instanceof DateTime ? value : DateTime.fromJSDate(value);
-
-    if (numericalTypes.includes(column.Type)) {
-      return dt?.toUnixInteger() ?? 0;
+    if (value === null) {
+      return null;
     }
 
-    return dt?.toSQL({ includeOffset: false }) ?? "1970-01-01 00:00:00";
+    if (value === undefined) {
+      return '1970-01-01 00:00:00';
+    }
+
+    let dt = value instanceof DateTime ? value : DateTime.fromJSDate(value);
+    if (DATE_NUMERICAL_TYPES.includes(column.Type)) {
+      return dt.toUnixInteger() ?? 0;
+    }
+
+    return dt.toSQL({ includeOffset: false });
   }
 
   public fromDB(value: string | DateTime | Date | number) {

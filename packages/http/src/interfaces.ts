@@ -46,6 +46,41 @@ export enum HttpAcceptHeaders {
   ALL = 1 | 2 | 4,
 }
 
+export interface IHttpServerConfiguration {
+
+  /**
+   * Https server configuration
+   */
+  ssl: {
+    key: string;
+    cert: string;
+  };
+
+  /**
+   * Http server port
+   */
+  port: number;
+
+  /**
+   * Middlewares used by server
+   */
+  middlewares: express.RequestHandler[];
+
+  /**
+   * Static files folder. Feel free to override this per app
+   */
+  Static: IHttpStaticFileConfiguration[];
+
+  /**
+   * Whitch accept headers we support (default JSON & HTML)
+   */
+  AcceptHeaders: HttpAcceptHeaders;
+
+  FatalTemplate: string;
+
+  
+}
+
 /**
  * Config options for static files
  */

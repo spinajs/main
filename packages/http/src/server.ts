@@ -1,20 +1,22 @@
 import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject, DI } from '@spinajs/di';
 import { ValidationFailed } from '@spinajs/validation';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { fsNative, IFsLocalOptions } from '@spinajs/fs';
 import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
 import { Templates } from '@spinajs/templates';
 import '@spinajs/templates-pug';
 
-import { Server } from 'http';
+import { Server as Http, createServer as HttpCreateServer } from 'http';
+import { Server as Https, createServer as HttpsCreateServer } from 'https';
 import { existsSync } from 'fs';
 import cors from 'cors';
 import randomstring from 'randomstring';
 import Express, { RequestHandler } from 'express';
 import _ from 'lodash';
+import fs from 'fs';
 
-import { IHttpStaticFileConfiguration, ServerMiddleware, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders } from './interfaces.js';
+import { ServerMiddleware, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, IHttpServerConfiguration } from './interfaces.js';
 import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods/index.js';
 import './transformers/index.js';
 import { ValidationError } from './response-methods/validationError.js';
@@ -36,6 +38,12 @@ export class HttpServer extends AsyncService {
   @Autoinject(ServerMiddleware)
   protected Middlewares: ServerMiddleware[];
 
+  @Config('http')
+  protected HttpConfig: IHttpServerConfiguration;
+
+  @Config('https')
+  protected HttpsEnabled: boolean;
+
   /**
    * Express app instance
    */
@@ -44,7 +52,12 @@ export class HttpServer extends AsyncService {
   /**
    * Http socket server
    */
-  protected Server: Server;
+  protected _httpServer: Http;
+  protected _httpsServer: Https;
+
+  protected get Server(): Http | Https {
+    return this.HttpsEnabled ? this._httpsServer : this._httpServer;
+  }
 
   /**
    * Logger for this module
@@ -65,10 +78,8 @@ export class HttpServer extends AsyncService {
       this.Log.info(`Response templates path at ${f.Options.basePath}`);
     }
 
-    /**
-     * Register default middlewares from cfg
-     */
-    this.Configuration.get<any[]>('http.middlewares', []).forEach((m) => {
+    this.HttpConfig.middlewares.forEach((m) => {
+      this.Log.info(`Using server middleware::before() - ${m.constructor.name}`);
       this.use(m);
     });
 
@@ -118,7 +129,7 @@ export class HttpServer extends AsyncService {
     /**
      * Server static files
      */
-    _.uniq(this.Configuration.get<IHttpStaticFileConfiguration[]>('http.Static', [])).forEach((s) => {
+    _.uniq(this.HttpConfig.Static).forEach((s) => {
       if (!existsSync(s.Path)) {
         this.Log.warn(`static file path ${s.Path} not exists`);
         return;
@@ -135,8 +146,6 @@ export class HttpServer extends AsyncService {
    * Starts http server & express
    */
   public start() {
-    // start http server & express
-    const port = this.Configuration.get('http.port', 1337);
     return new Promise<void>((res, rej) => {
       this.handleResponse();
       this.handleErrors();
@@ -150,12 +159,34 @@ export class HttpServer extends AsyncService {
         }
       });
 
-      this.Server = this.Express.listen(port, () => {
-        this.Log.info(`Http server started at port ${port}`);
+      if (this.HttpsEnabled) {
+
+        this.Log.info(`Using https key file ${this.HttpConfig.ssl.key}`);
+        this.Log.info(`Using https cert file ${this.HttpConfig.ssl.cert}`);
+
+        const key = fs.readFileSync(this.HttpConfig.ssl.key);
+        const cert = fs.readFileSync(this.HttpConfig.ssl.cert);
+
+        this._httpsServer = HttpsCreateServer(
+          {
+            key: key,
+            cert: cert,
+          },
+          this.Express,
+        );
+
+        this.Log.info(`HTTPS enabled !`);
+      } else {
+        this._httpServer = HttpCreateServer(this.Express);
+        this.Log.info(`HTTP enabled !`);
+      }
+
+      this.Server.listen(this.HttpConfig.port, () => {
+        this.Log.info(`Server started at port ${this.HttpConfig.port}`);
         res();
       }).on('error', (err: any) => {
         if (err.errno === 'EADDRINUSE') {
-          this.Log.error(`----- Port ${port} is busy -----`);
+          this.Log.error(`----- Port ${this.HttpConfig.port} is busy -----`);
         }
 
         rej(err);
@@ -166,7 +197,6 @@ export class HttpServer extends AsyncService {
   public stop() {
     if (this.Server) {
       this.Server.close();
-      this.Server = null;
     }
   }
 
@@ -236,9 +266,9 @@ export class HttpServer extends AsyncService {
       // todo refactor this
       // to use responses with proper exception decorators
       switch (err.constructor) {
-        case EntityTooLargeException: 
-        response = new EntityTooLarge(error);
-        break;
+        case EntityTooLargeException:
+          response = new EntityTooLarge(error);
+          break;
         case AuthenticationFailed:
           response = new Unauthorized(error);
           break;
@@ -279,13 +309,12 @@ export class HttpServer extends AsyncService {
           // last resort error handling
 
           this.Log.fatal(err, `Cannot send error response`);
-          const acceptedHeaders = this.Configuration.get<HttpAcceptHeaders>('http.AcceptHeaders');
           res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
 
-          if (req.accepts('html') && (acceptedHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
+          if (req.accepts('html') && (this.HttpConfig.AcceptHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
             // final fallback rendering error fails, we render embedded html error page
             const ticketNo = randomstring.generate(7);
-            res.send(this.Configuration.get<string>('http.FatalTemplate').replace('{ticket}', ticketNo));
+            res.send(this.HttpConfig.FatalTemplate.replace('{ticket}', ticketNo));
           } else {
             res.json(error);
           }
