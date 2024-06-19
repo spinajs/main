@@ -88,7 +88,13 @@ export abstract class QueueMessage implements IQueueMessage {
 
   public CreatedAt: DateTime;
 
-  public Name: string;
+  // event name
+  // defaults to class name
+  public get Name(): string{ 
+
+    // default name is class name
+    return this.constructor.name;
+  }
 
   public Type: QueueMessageType;
 
@@ -178,7 +184,6 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
     super();
 
     this.Type = QueueMessageType.Job;
-    this.Name = this.constructor.name;
   }
 
   public abstract execute(progress: (p: number) => Promise<void>): Promise<unknown>;
@@ -258,11 +263,13 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    */
   public getChannelForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
     const options = Reflect.getMetadata('queue:options', event);
-    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name;
+    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
     const isJob = (event as IQueueMessage).Type ? (event as IQueueMessage).Type === QueueMessageType.Job : options ? options.type === 'job' : false;
     const rOption = this.Routing[eName];
 
     if (!rOption) {
+
+      this.Log.warn(`No routing for event ${eName} found, using default channel`);
       return [isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel];
     }
 
