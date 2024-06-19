@@ -1,3 +1,4 @@
+import { ConnectionNotFound } from './../../exceptions/src/index';
 import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
@@ -52,7 +53,12 @@ export class DefaultQueueService extends QueueService {
         event.JobId = jModel.JobId;
       }
 
-      await this.Connections.get(c).emit(event);
+      const connection = this.Connections.get(c);
+      if(!connection) {
+        throw new ConnectionNotFound(`Queue connection ${c} not found. Please check your configuration before emitting events to this connection.`);
+      }
+
+      await connection.emit(event);
 
       this.Log.trace(`Emitted message ${event.Name}, type: ${event.Type} to connection ${c}`);
     }

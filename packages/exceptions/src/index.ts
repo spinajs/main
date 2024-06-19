@@ -23,6 +23,11 @@ export class ErrorCode extends Exception {
 }
 
 /**
+ * Exception thrown when connection to resource is not found
+ */
+export class ConnectionNotFound extends Exception {}
+
+/**
  * Exception thrown when functionality is not supported
  */
 export class NotSupported extends Exception {}
