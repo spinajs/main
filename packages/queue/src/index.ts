@@ -1,5 +1,4 @@
-import { ConnectionNotFound } from './../../exceptions/src/index';
-import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
+import { UnexpectedServerError, InvalidArgument, ConnectionNotFound } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces.js';
@@ -39,6 +38,11 @@ export class DefaultQueueService extends QueueService {
     const connections = this.getConnectionsForMessage(event);
 
     for (let c of connections) {
+      const connection = this.Connections.get(c);
+      if (!connection) {
+        throw new ConnectionNotFound(`Queue connection ${c} not found. Please check your configuration before emitting events to this connection.`);
+      }
+
       if (isJob(event)) {
         const jModel = new JobModel();
 
@@ -51,11 +55,6 @@ export class DefaultQueueService extends QueueService {
         await jModel.insert();
 
         event.JobId = jModel.JobId;
-      }
-
-      const connection = this.Connections.get(c);
-      if(!connection) {
-        throw new ConnectionNotFound(`Queue connection ${c} not found. Please check your configuration before emitting events to this connection.`);
       }
 
       await connection.emit(event);
