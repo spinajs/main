@@ -590,6 +590,11 @@ export class Container extends EventEmitter implements IContainer {
 
     geAllTypes(type);
 
+    // remove duplicates
+    // when we have multiple classes in hierarchy
+    // with same injection types, we have to remove duplicates
+    descriptor.inject = _.uniqBy(descriptor.inject, (x) => x.autoinjectKey);
+
     return descriptor;
   }
 }
