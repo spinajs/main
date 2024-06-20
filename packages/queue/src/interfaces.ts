@@ -90,11 +90,7 @@ export abstract class QueueMessage implements IQueueMessage {
 
   // event name
   // defaults to class name
-  public get Name(): string{ 
-
-    // default name is class name
-    return this.constructor.name;
-  }
+  public Name: string;
 
   public Type: QueueMessageType;
 
@@ -128,6 +124,7 @@ export abstract class QueueMessage implements IQueueMessage {
     }
 
     this.CreatedAt = DateTime.now();
+    this.Name = this.constructor.name;
   }
 
   public hydrate(payload: any) {
