@@ -72,6 +72,8 @@ export abstract class QueueService extends AsyncService {
           }
         }),
       );
+    } else {
+      return [option.connection];
     }
   }
 }
@@ -265,7 +267,6 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     const rOption = this.Routing[eName];
 
     if (!rOption) {
-
       this.Log.warn(`No routing for event ${eName} found, using default channel`);
       return [isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel];
     }
@@ -281,12 +282,12 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
             return x;
           }
 
-          return x.channel ?? isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel;
+          return x.channel ?? (isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel);
         }),
       );
     }
 
-    return [rOption.channel ?? isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel];
+    return [rOption.channel ?? (isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel)];
   }
 }
 
