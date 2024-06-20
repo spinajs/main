@@ -19,12 +19,15 @@ export class StompQueueClient extends QueueClient {
   }
 
   public async resolve() {
+
+    const clientId = this.Options.clientId ?? this.Options.name;
+
     this.Client = new Stomp.Client({
       brokerURL: this.Options.host,
       connectHeaders: {
         login: this.Options.login,
         passcode: this.Options.password,
-        'client-id': this.Options.clientId ?? this.Options.name,
+        'client-id': clientId,
       },
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,
@@ -46,7 +49,7 @@ export class StompQueueClient extends QueueClient {
       };
 
       this.Client.onConnect = () => {
-        this.Log.success('Connected to STOMP client');
+        this.Log.success('Connected to STOMP client, client-id: ' + clientId);
 
         resolve();
 
