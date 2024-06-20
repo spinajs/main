@@ -81,6 +81,16 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
     this.IsModelAForwardRef = !isConstructor(this.Model);
   }
 
+  public map<U>(callbackfn: (value: R, index: number, array: R[]) => U, thisArg?: any): U[] {
+    const result: U[] = [];
+    for (let index = 0; index < this.length; index++) {
+      const element = this[index];
+      result.push(callbackfn.call(thisArg, element, index, this));
+    }
+
+    return result;
+  }
+
   /**
    * Removes all objects from relation by comparison functions
    *
@@ -226,9 +236,9 @@ export class SingleRelation<R extends ModelBase> {
 
     const relColumn = this._owner.ModelDescriptor.Columns.find((c) => c.Name === this.Relation.ForeignKey);
     if (relColumn.Nullable) {
-      this.Value  = await query.first();
+      this.Value = await query.first();
     } else {
-      this.Value  = await query.firstOrFail();
+      this.Value = await query.firstOrFail();
     }
     this.Populated = true;
   }
