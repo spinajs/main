@@ -24,7 +24,7 @@ export class StompQueueClient extends QueueClient {
       connectHeaders: {
         login: this.Options.login,
         passcode: this.Options.password,
-        'client-id': this.Options.name,
+        'client-id': this.Options.clientId ?? this.Options.name,
       },
       reconnectDelay: 5000,
       heartbeatIncoming: 4000,

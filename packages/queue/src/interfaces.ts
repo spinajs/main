@@ -321,6 +321,7 @@ export interface IMessageRoutingOption {
 export interface IQueueConnectionOptions {
   transport: string;
   name: string;
+  clientId?: string;
   login?: string;
   password?: string;
   host?: string;
