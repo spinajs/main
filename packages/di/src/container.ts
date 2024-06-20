@@ -257,7 +257,8 @@ export class Container extends EventEmitter implements IContainer {
       // we can select whitch of targetType to resolve
       //
       // if not, by default last registered type is resolved
-      const fType = tType ?? targetType[targetType.length - 1];
+      // if we have override for target type in registry, resolve it ( last registered ) otherwise resolve target type type itself
+      const fType = targetType[targetType.length - 1] ?? tType;
       const rValue = this.resolveType(sourceType, fType, opt);
       return rValue as any;
     }
