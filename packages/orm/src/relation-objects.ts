@@ -224,12 +224,12 @@ export class SingleRelation<R extends ModelBase> {
       callback.apply(query);
     }
 
-    const result = await query.firstOrFail();
-
-    if (result) {
-      this.Value = result;
+    const relColumn = this._owner.ModelDescriptor.Columns.find((c) => c.Name === this.Relation.ForeignKey);
+    if (relColumn.Nullable) {
+      this.Value  = await query.first();
+    } else {
+      this.Value  = await query.firstOrFail();
     }
-
     this.Populated = true;
   }
 }
