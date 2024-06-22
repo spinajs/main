@@ -61,6 +61,12 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
     if (this.RunApp) {
       this.CommonDirs = this.CommonDirs.concat([join(this.appBaseDir, `/${this.RunApp}/config`)]);
+
+      // common dirs for app where config resides
+      this.CommonDirs = this.CommonDirs.concat([join(process.cwd(), `/apps/${this.RunApp}/config`)]);
+      this.CommonDirs = this.CommonDirs.concat([join(process.cwd(), `/dist/apps/${this.RunApp}/config`)]);
+      this.CommonDirs = this.CommonDirs.concat([join(process.cwd(), `/lib/apps/${this.RunApp}/config`)]);
+      this.CommonDirs = this.CommonDirs.concat([join(process.cwd(), `/build/apps/${this.RunApp}/config`)]);
     }
 
     if (this.CustomConfigPaths) {
