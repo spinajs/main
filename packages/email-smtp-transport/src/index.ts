@@ -60,15 +60,20 @@ export class EmailSenderSmtp extends EmailSender {
   }
 
   public async send(email: IEmail): Promise<void> {
+
+    if (!email.from || !this.Options.defaults?.mailFrom) {
+      throw new IOFail(`Email from address is required. Please provide it in email or in configuration`);
+    }
+
     const options = {
-      from: email.from ?? this.Options.defaults.mailFrom, // sender address
+      from: email.from ?? this.Options.defaults?.mailFrom, // sender address
       to: email.to.join(','), // list of receivers
       cc: email.cc ? email.cc.join(',') : null,
       bcc: email.bcc ? email.bcc.join(',') : null,
       replyTo: email.replyTo,
       subject: email.subject, // Subject line
       text: email.text, // plain text body
-      html: email.template ? await this.Tempates.render(email.template, { ...email.model, ...this.Options.defaults }, email.lang) : null,
+      html: email.template ? await this.Tempates.render(email.template, { ...email.model, ...this.Options.templates.defaults }, email.lang) : null,
       attachments: [] as any[],
     };
 
