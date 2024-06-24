@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/validation",
-  "version": "2.0.206",
+  "version": "2.0.207",
   "description": "validation library for spinajs framework",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,10 +51,10 @@
     "@types/ajv-merge-patch": "^4.1.2"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.206",
-    "@spinajs/di": "^2.0.206",
-    "@spinajs/exceptions": "^2.0.206",
-    "@spinajs/log": "^2.0.206",
+    "@spinajs/configuration": "^2.0.207",
+    "@spinajs/di": "^2.0.207",
+    "@spinajs/exceptions": "^2.0.207",
+    "@spinajs/log": "^2.0.207",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",

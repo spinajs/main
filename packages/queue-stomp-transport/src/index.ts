@@ -169,7 +169,7 @@ export class StompQueueClient extends QueueClient {
         return;
       }
 
-      const headers: { [key: string]: string | number } = { ack: 'client', 'activemq.prefetchSize': 1 };
+      const headers: { [key: string]: string  } = { ack: 'client', 'activemq.prefetchSize': "1" };
 
       if (subscriptionId) {
         headers.id = subscriptionId;
