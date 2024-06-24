@@ -20,7 +20,6 @@ export abstract class EmailSender extends AsyncService implements IInstanceCheck
 @Injectable(EmailSender)
 @PerInstanceCheck()
 export class BlackHoleEmailSender extends EmailSender {
-
   @Logger('email')
   protected Log: Log;
 
@@ -81,7 +80,7 @@ export interface IEmail {
   /**
    * Data passed to template
    */
-  model?: unknown;
+  model?: any;
 
   /**
    * Text representation of email
@@ -121,6 +120,11 @@ export interface EmailConnectionOptions {
   user?: string;
   pass?: string;
   ssl?: boolean;
+
+  templates?: {
+    // defaults passed to email templates
+    defaults?: any;
+  };
 
   /**
    * defaults for messages
