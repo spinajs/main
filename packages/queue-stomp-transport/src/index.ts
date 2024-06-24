@@ -14,7 +14,7 @@ export class StompQueueClient extends QueueClient {
 
   protected Subscriptions = new Map<string, Stomp.StompSubscription>();
 
-  public get ClientId() { 
+  public get ClientId() {
     return this.Options.clientId ?? this.Options.name;
   }
 
@@ -23,7 +23,6 @@ export class StompQueueClient extends QueueClient {
   }
 
   public async resolve() {
-     
     this.Client = new Stomp.Client({
       brokerURL: this.Options.host,
       connectHeaders: {
@@ -114,7 +113,7 @@ export class StompQueueClient extends QueueClient {
     const headers: Stomp.StompHeaders = {};
 
     if (message.Persistent) {
-      headers['persistent'] = "true";
+      headers['persistent'] = 'true';
     }
 
     if (message.Priority) {
@@ -136,7 +135,7 @@ export class StompQueueClient extends QueueClient {
     if (message.ScheduleRepeat) {
       headers['AMQ_SCHEDULED_REPEAT'] = message.ScheduleRepeat.toString();
     }
-    
+
     channels.forEach((c) => {
       this.Client.publish({
         destination: c,
@@ -170,7 +169,7 @@ export class StompQueueClient extends QueueClient {
         return;
       }
 
-      const headers: { [key: string]: string } = { ack: 'client' };
+      const headers: { [key: string]: string | number } = { ack: 'client', 'activemq.prefetchSize': 1 };
 
       if (subscriptionId) {
         headers.id = subscriptionId;
