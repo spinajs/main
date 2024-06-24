@@ -61,7 +61,7 @@ export class EmailSenderSmtp extends EmailSender {
 
   public async send(email: IEmail): Promise<void> {
 
-    if (!email.from || !this.Options.defaults?.mailFrom) {
+    if (!email.from && !this.Options.defaults?.mailFrom) {
       throw new IOFail(`Email from address is required. Please provide it in email or in configuration`);
     }
 
