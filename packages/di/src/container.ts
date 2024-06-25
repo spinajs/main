@@ -593,7 +593,12 @@ export class Container extends EventEmitter implements IContainer {
     // remove duplicates
     // when we have multiple classes in hierarchy
     // with same injection types, we have to remove duplicates
-    descriptor.inject = _.uniqBy(descriptor.inject, (x) => x.autoinjectKey);
+
+    // constructor injects have no autoInject key, so we can filter them out
+    // and add them first
+    const constructorInject = descriptor.inject.filter((x) => x.autoinjectKey === '');
+    const rest = descriptor.inject.filter((x) => x.autoinjectKey !== '');
+    descriptor.inject = [...constructorInject, ..._.uniqBy(rest, (x) => x.autoinjectKey)];
 
     return descriptor;
   }
