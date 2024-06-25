@@ -326,6 +326,14 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   /**
+   * Selects data from db. It returns query builder that can be used to fetch data from db
+   * 
+   */
+  public static select<T extends typeof ModelBase>(this: T): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
+    throw new Error('Method not implemented.');
+  }
+
+  /**
    *
    * Checks if model with pk key / unique fields exists and if not creates one and saves to db
    * NOTE: it checks for unique fields too.
@@ -520,15 +528,14 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     query.QueryContext === QueryContext.Upsert
-    // when upsert, we take affecter row ID from primary key returned ( returning statement)
-      ? query.middleware({
+      ? // when upsert, we take affecter row ID from primary key returned ( returning statement)
+        query.middleware({
           afterQuery: (data: any) => {
             this.PrimaryKeyValue = this.PrimaryKeyValue ?? data[0][this.PrimaryKeyName];
           },
           modelCreation: (): any => null,
           afterHydration: (): any => null,
-        })   
-
+        })
       : query.middleware({
           afterQuery: (data: IUpdateResult) => {
             this.PrimaryKeyValue = this.PrimaryKeyValue ?? data.LastInsertId;
@@ -782,6 +789,12 @@ export const MODEL_STATIC_MIXINS = {
 
   query(): SelectQueryBuilder {
     const { query } = createQuery(this, SelectQueryBuilder);
+    return query;
+  },
+
+  select(): SelectQueryBuilder {
+    const { query } = createQuery(this, SelectQueryBuilder);
+    query.select('*');
     return query;
   },
 
