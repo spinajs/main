@@ -19,6 +19,7 @@ import { DI, isConstructor, Class, IContainer, Constructor } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
+import { IOrmRelation } from './relations.js';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
@@ -326,8 +327,18 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   /**
+   * Populates relation data. It returns query builder that can be used to fetch data from db
+   *
+   * @param _relation - relation name
+   * @param _owner - owner model
+   */
+  public static populate<T extends typeof ModelBase>(this: T, _relation: string, _owner: ModelBase | number | string): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
+    throw new Error('Not implemented');
+  }
+
+  /**
    * Selects data from db. It returns query builder that can be used to fetch data from db
-   * 
+   *
    */
   public static select<T extends typeof ModelBase>(this: T): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
     throw new Error('Method not implemented.');
@@ -785,6 +796,28 @@ export const MODEL_STATIC_MIXINS = {
     }
 
     return driver;
+  },
+
+  populate(this: ModelBase, relation: string, owner: ModelBase | number | string): SelectQueryBuilder {
+    if (!this.ModelDescriptor.Relations.has(relation)) {
+      throw new OrmException(`Model ${this.constructor.name} has no relation ${relation}`);
+    }
+
+    const relationDescriptor = this.ModelDescriptor.Relations.get(relation);
+    const { query } = createQuery(relationDescriptor.TargetModel, SelectQueryBuilder);
+
+    switch (relationDescriptor.Type) {
+      case RelationType.One:
+        query.rightJoin(this.ModelDescriptor.TableName, relationDescriptor.ForeignKey, this.ModelDescriptor.PrimaryKey, this.ModelDescriptor.Driver.Options.Database);
+        break;
+      case RelationType.ManyToMany:
+        throw new OrmException(`many to many relation not supported in populate`);
+      break;
+      case RelationType.Many:
+        query.where(relationDescriptor.ForeignKey, owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
+        break;
+    }
+    return query;
   },
 
   query(): SelectQueryBuilder {
