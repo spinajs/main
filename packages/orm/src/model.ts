@@ -19,7 +19,6 @@ import { DI, isConstructor, Class, IContainer, Constructor } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
-import { IOrmRelation } from './relations.js';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
@@ -332,7 +331,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param _relation - relation name
    * @param _owner - owner model
    */
-  public static populate<T extends typeof ModelBase>(this: T, _relation: string, _owner: ModelBase | number | string): ISelectQueryBuilder<Array<InstanceType<T>>> & T['_queryScopes'] {
+  public static populate<R extends typeof ModelBase>(_relation: string, _owner: ModelBase | number | string): ISelectQueryBuilder<Array<InstanceType<R>>> & R['_queryScopes'] {
     throw new Error('Not implemented');
   }
 
@@ -799,25 +798,50 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   populate(this: ModelBase, relation: string, owner: ModelBase | number | string): SelectQueryBuilder {
-    if (!this.ModelDescriptor.Relations.has(relation)) {
+    //TODO: fix cast
+    const modelDescriptor = (this as any).getModelDescriptor() as IModelDescriptor;
+
+    if (!modelDescriptor) {
+      throw new OrmException(`Model ${this.constructor.name} has no descriptor`);
+    }
+
+    if (!modelDescriptor.Relations.has(relation)) {
       throw new OrmException(`Model ${this.constructor.name} has no relation ${relation}`);
     }
 
-    const relationDescriptor = this.ModelDescriptor.Relations.get(relation);
-    const { query } = createQuery(relationDescriptor.TargetModel, SelectQueryBuilder);
+    const relationDescriptor = modelDescriptor.Relations.get(relation);
+
+    const hydrateMiddleware = {
+      afterQuery(data: any[]) {
+        return data;
+      },
+      modelCreation(_: any): ModelBase {
+        return DI.resolve<ModelBase>('__orm_model_factory__', [relationDescriptor.TargetModel]);
+      },
+      async afterHydration(_relationData: ModelBase[]) {},
+    };
 
     switch (relationDescriptor.Type) {
       case RelationType.One:
-        query.rightJoin(this.ModelDescriptor.TableName, relationDescriptor.ForeignKey, this.ModelDescriptor.PrimaryKey, this.ModelDescriptor.Driver.Options.Database);
-        break;
+        const { query: JoinQuery } = createQuery(relationDescriptor.SourceModel, SelectQueryBuilder);
+
+        // NOTE: we could use simple right join, but we use LEFT JOIN
+        // becouse sqlite does not support right join
+
+        // UPDATE: newest sqlite engine does support right join
+        // but nodejs drivers use older version of sqlite
+        JoinQuery.leftJoin(relationDescriptor.TargetModel, function () {
+          this.select(new RawQuery(`'${this.TableAlias}'.*`));
+        });
+        JoinQuery.middleware(hydrateMiddleware);
+        return JoinQuery;
       case RelationType.ManyToMany:
         throw new OrmException(`many to many relation not supported in populate`);
-      break;
       case RelationType.Many:
+        const { query } = createQuery(relationDescriptor.TargetModel, SelectQueryBuilder);
         query.where(relationDescriptor.ForeignKey, owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
-        break;
+        return query;
     }
-    return query;
   },
 
   query(): SelectQueryBuilder {

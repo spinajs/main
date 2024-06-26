@@ -231,10 +231,10 @@ export abstract class JoinStatement extends QueryStatement {
       }
 
       this._table = tDesc.TableName;
-      this._primaryKey = relation.value.ForeignKey;
+      this._primaryKey = sDesc.PrimaryKey;
       this._alias = sAlias;
 
-      this._foreignKey = sDesc.PrimaryKey;
+      this._foreignKey = relation.value.ForeignKey;
     }
   }
 

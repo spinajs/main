@@ -15,6 +15,9 @@ import '@spinajs/log';
 import { ConnectionConf, db } from './common.js';
 import { DataSet, SetItem } from './models/Relation.js';
 import sinon from 'sinon';
+import { Location as LocationModel } from './models/Location.js';
+import { LocationNetwork } from './models/LocationNetwork.js';
+import { LocationNetworkMetadata } from './models/LocationNetworkMetadata.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -171,5 +174,22 @@ describe('Sqlite - relations test', function () {
 
     expect(spy.called).to.be.true;
     expect(spy.callCount).to.eq(1);
+  });
+
+  it('Static method populate on oneToMany', async () => {
+
+    const network = await LocationModel.populate<typeof LocationNetwork>("Network", 1).first();
+    expect(network).to.be.not.null;
+    expect(network.Id).to.eq(1);
+    expect(network.Name).to.eq('Network 1');
+
+  });
+
+  it('Static method populate on OneToOne', async () => {  
+    const location = await LocationNetwork.populate<typeof LocationNetworkMetadata>("Metadata", 1);
+    expect(location).to.be.not.null;
+    expect(location.length).to.eq(2);
+    expect(location[0].Key).to.eq('meta 1');
+    expect(location[1].Key).to.eq('meta 2');
   });
 });

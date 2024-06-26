@@ -39,8 +39,10 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
     }
 
     let dt = value instanceof DateTime ? value : DateTime.fromJSDate(value);
-    if (DATE_NUMERICAL_TYPES.includes(column.Type)) {
-      return dt.toUnixInteger() ?? 0;
+    if (column) {
+      if (DATE_NUMERICAL_TYPES.includes(column.Type)) {
+        return dt.toUnixInteger() ?? 0;
+      }
     }
 
     return dt.toSQL({ includeOffset: false });

@@ -98,10 +98,10 @@ export class Builder<T = any> implements IBuilder<T> {
 
               if (model === null) {
                 model = DI.resolve<ModelBase>('__orm_model_factory__', [this._model]);
-                model.hydrate(r);
-                model.IsDirty = false;
               }
-
+              
+              model.hydrate(r);
+              model.IsDirty = false;
               return model;
             });
 
@@ -925,9 +925,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     if (typeof relation === 'object') {
       for (const i in relation) {
         this.populate(i, () => {
-
           // TODO: remove cast, linter thinks relation is null ???
-          if (typeof(relation as any)[i] !== null ) this.populate((relation as any)[i]);
+          if (typeof (relation as any)[i] !== null) this.populate((relation as any)[i]);
         });
       }
 
