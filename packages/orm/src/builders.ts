@@ -5,7 +5,7 @@ import { OrmException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, IFilter } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import { OrmDriver } from './driver.js';
@@ -99,7 +99,7 @@ export class Builder<T = any> implements IBuilder<T> {
               if (model === null) {
                 model = DI.resolve<ModelBase>('__orm_model_factory__', [this._model]);
               }
-              
+
               model.hydrate(r);
               model.IsDirty = false;
               return model;
@@ -612,6 +612,54 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     } else if (callbackElse) {
       callbackElse.call(this);
     }
+    return this;
+  }
+
+  public filter(filters: IFilter[]) {
+    filters.forEach((filter) => {
+      switch (filter.Operator) {
+        case 'eq':
+          this.andWhere(filter.Column, SqlOperator.EQ, filter.Value);
+          break;
+        case 'neq':
+          this.andWhere(filter.Column, SqlOperator.NOT, filter.Value);
+          break;
+        case 'gt':
+          this.andWhere(filter.Column, SqlOperator.GT, filter.Value);
+          break;
+        case 'gte':
+          this.andWhere(filter.Column, SqlOperator.GTE, filter.Value);
+          break;
+        case 'lt':
+          this.andWhere(filter.Column, SqlOperator.LT, filter.Value);
+          break;
+        case 'lte':
+          this.andWhere(filter.Column, SqlOperator.LTE, filter.Value);
+          break;
+        case 'like':
+          this.andWhere(filter.Column, SqlOperator.LIKE, filter.Value);
+          break;
+        case 'in':
+          this.andWhere(filter.Column, SqlOperator.IN, filter.Value);
+          break;
+        case 'nin':
+          this.andWhere(filter.Column, SqlOperator.NOT_IN, filter.Value);
+          break;
+        case 'between':
+          this.andWhere(filter.Column, SqlOperator.BETWEEN, filter.Value);
+          break;
+        case 'isnull':
+          this.andWhere(filter.Column, SqlOperator.NULL);
+          break;
+        case 'notnull':
+          this.andWhere(filter.Column, SqlOperator.NOT_NULL);
+          break;
+        case 'notbetween':
+          this.andWhere(filter.Column, SqlOperator.NOT_BETWEEN, filter.Value);
+          break;
+      }
+    });
+
     return this;
   }
 

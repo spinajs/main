@@ -34,4 +34,6 @@ export type PartialArray<T> = {
   [P in keyof T]: T[P] | T[P][];
 };
 
+
+export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween';
  

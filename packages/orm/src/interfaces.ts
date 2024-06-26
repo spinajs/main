@@ -3,7 +3,7 @@ import { Op } from './enums.js';
 import { QueryBuilder, RawQuery } from './builders.js';
 import { SortOrder, WhereBoolean } from './enums.js';
 import { IQueryStatement, Wrap } from './statements.js';
-import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
+import { FilterableOperators, ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
 import { IOrmRelation } from './relations.js';
 import { OrmDriver } from './driver.js';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
@@ -28,6 +28,12 @@ export enum ColumnAlterationType {
   Add,
   Modify,
   Rename,
+}
+
+export interface IFilter {
+  Column: string;
+  Operator: FilterableOperators;
+  Value: any;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
@@ -506,6 +512,19 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
   getRelationDescriptor(relation: string): IRelationDescriptor;
   whereExists<T extends typeof ModelBase>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   whereNotExists<T extends typeof ModelBase>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
+
+  /**
+   * Gets schema for filter columns of this model
+   */
+  filterSchema(): object;
+
+  /**
+   * Get list of filterable columns
+   */
+  filterColumns(): {
+    column: string;
+    operators: string[];
+  };
 }
 
 export interface IModelBase {
@@ -626,6 +645,11 @@ export interface IColumnDescriptor {
    * Column comment, use it for documentation purposes.
    */
   Comment: string;
+
+  /**
+   * If set column is fitlerable by this operators
+   */
+  Filterable?: FilterableOperators;
 
   /**
    * Default column value
@@ -900,6 +924,8 @@ export interface IWhereBuilder<T> {
   whereInSet(column: string, val: unknown[]): this;
   whereNotInSet(column: string, val: unknown[]): this;
   clearWhere(): this;
+
+  filter(filter: IFilter[]): this;
 }
 
 export interface IWithRecursiveBuilder {

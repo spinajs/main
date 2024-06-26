@@ -7,6 +7,7 @@ import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { Relation } from './relation-objects.js';
+import { FilterableOperators } from './types.js';
 
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
@@ -198,6 +199,18 @@ export function Primary() {
   return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     model.PrimaryKey = propertyKey;
   });
+}
+
+export function Filterable(operators: FilterableOperators) {
+  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+    const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
+    if (!columnDesc) {
+      // we dont want to fill all props, they will be loaded from db and mergeg with this
+      model.Columns.push({ Name: propertyKey, Filterable: operators } as any);
+    } else {
+      columnDesc.Filterable = operators;
+    }
+  }, true);
 }
 
 /**
