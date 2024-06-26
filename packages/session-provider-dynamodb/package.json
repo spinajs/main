@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/session-provider-dynamodb",
-  "version": "2.0.212",
+  "version": "2.0.213",
   "description": "dynamo db session store",
   
     "main": "lib/cjs/index.js",
@@ -56,12 +56,12 @@
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.212",
-    "@spinajs/di": "^2.0.212",
-    "@spinajs/exceptions": "^2.0.212",
-    "@spinajs/log": "^2.0.212",
-    "@spinajs/util": "^2.0.212",
-    "@spinajs/rbac": "^2.0.212",
+    "@spinajs/configuration": "^2.0.213",
+    "@spinajs/di": "^2.0.213",
+    "@spinajs/exceptions": "^2.0.213",
+    "@spinajs/log": "^2.0.213",
+    "@spinajs/util": "^2.0.213",
+    "@spinajs/rbac": "^2.0.213",
     "aws-sdk": "^2.1299.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
