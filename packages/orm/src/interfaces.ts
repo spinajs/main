@@ -649,7 +649,7 @@ export interface IColumnDescriptor {
   /**
    * If set column is fitlerable by this operators
    */
-  Filterable?: FilterableOperators;
+  Filterable?: FilterableOperators[];
 
   /**
    * Default column value

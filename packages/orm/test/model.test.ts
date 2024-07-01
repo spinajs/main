@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import "./../src/bootstrap.js";
+import './../src/bootstrap.js';
 import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator } from './../src/hydrators.js';
 import { ModelNoConnection } from './mocks/models/ModelNoConnection.js';
 import { ModelNoDescription } from './mocks/models/ModelNoDescription.js';
@@ -50,13 +50,12 @@ describe('General model tests', () => {
     DI.register(FakeConverter).as(DatetimeValueConverter);
   });
 
-  beforeEach(async () =>{ 
+  beforeEach(async () => {
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) {
       await b.bootstrap();
     }
-  })
-
+  });
 
   afterEach(async () => {
     DI.clearCache();

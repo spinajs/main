@@ -201,7 +201,7 @@ export function Primary() {
   });
 }
 
-export function Filterable(operators: FilterableOperators) {
+export function Filterable(operators: FilterableOperators[]) {
   return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {

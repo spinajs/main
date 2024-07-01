@@ -1,4 +1,4 @@
-import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
+import { FilterableOperators, ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
 import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, QueryContext } from './interfaces.js';
@@ -204,6 +204,23 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param _data - data to insert
    */
   public static insert<T extends typeof ModelBase>(this: T, _data: InstanceType<T> | Partial<InstanceType<T>> | PickRelations<T> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, _insertBehaviour: InsertBehaviour = InsertBehaviour.None): InsertQueryBuilder {
+    throw new Error('Not implemented');
+  }
+
+  /**
+   * Get list of filterable columns for this model and allowed operators
+   */
+  public static filterColumns(): {
+    column: string;
+    operators: FilterableOperators[];
+  }[] {
+    throw new Error('Not implemented');
+  }
+
+  /**
+   * Gets filter columns schema for validation
+   */
+  public static filterSchema() : any {
     throw new Error('Not implemented');
   }
 

@@ -73,7 +73,7 @@ export class EmailSenderSmtp extends EmailSender {
       replyTo: email.replyTo,
       subject: email.subject, // Subject line
       text: email.text, // plain text body
-      html: email.template ? await this.Tempates.render(email.template, { ...email.model, ...this.Options.templates.defaults }, email.lang) : null,
+      html: email.template ? await this.Tempates.render(email.template, { ...email.model, ...this.Options.templates?.defaults }, email.lang) : null,
       attachments: [] as any[],
     };
 
