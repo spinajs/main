@@ -20,6 +20,11 @@ export class JsonValueConverter extends ValueConverter {
    * @param value - value to convert
    */
   public fromDB(value: any): any {
+    
+    if(_.isObject(value) || _.isArray(value)) {
+      return value;
+    }
+
     return JSON.parse(value);
   }
 }
