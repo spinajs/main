@@ -10,3 +10,5 @@ export * from './serverError.js';
 export * from './unauthorized.js';
 export * from './conflict.js';
 export * from './notAllowed.js';
+export * from './validationError.js';
+
