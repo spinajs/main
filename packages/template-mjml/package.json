@@ -1,9 +1,8 @@
 {
-  "name": "@spinajs/templates-handlebars",
+  "name": "@spinajs/templates-mjml",
   "version": "2.0.216",
-  "description": "templates support eg. html file generation",
-  
-    "main": "lib/cjs/index.js",
+  "description": "templates support for mjlm - for generating responsive emails",
+  "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
       ".": {
@@ -61,9 +60,8 @@
     "@spinajs/exceptions": "^2.0.216",
     "@spinajs/intl": "^2.0.216",
     "@spinajs/log": "^2.0.216",
-    "@spinajs/templates":"^2.0.216",
-    "@spinajs/templates-handlebars":"^2.0.216",
-    "handlebars": "^4.7.7",
+    "@spinajs/templates": "^2.0.216",
+    "mjml": "^4.15.3",
     "tempfile": "4.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

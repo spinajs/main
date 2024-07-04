@@ -47,7 +47,7 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
           if (v.length === 0) {
             (obj as any)[val.Name] = [];
           } else {
-            (obj as any)[val.Name] = [v.map((x) => x.dehydrateWithRelations())];
+            (obj as any)[val.Name] = v.map((x) => x.dehydrateWithRelations());
           }
         }
       }

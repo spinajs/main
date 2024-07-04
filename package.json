@@ -113,6 +113,7 @@
     "@spinajs/templates-pdf": "files:packages/templates-pdf",
     "@spinajs/templates-pug": "file:packages\\templates-pug",
     "@spinajs/templates-xlsx": "file:packages\\templates-xlsx",
+    "@spinajs/templates-mjml": "file:packages\\templates-mjml",
     "@spinajs/util": "file:packages\\util",
     "@spinajs/validation": "file:packages\\validation",
     "@spinajs/orm-lowdb": "file:packages\\orm-lowdb",
