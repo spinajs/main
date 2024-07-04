@@ -397,7 +397,6 @@ export class ModelBase<M = unknown> implements IModelBase {
     throw new Error('Not implemented');
   }
 
-  public static whereExists<T extends typeof ModelBase>(this: T, _query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   public static whereExists<R extends typeof ModelBase, T extends typeof ModelBase>(this: T, _qOrR: string | ISelectQueryBuilder<T>, _func?: WhereFunction<InstanceType<R>>): ISelectQueryBuilder<Array<InstanceType<T>>> {
     throw new Error('Not implemented');
   }
@@ -1143,7 +1142,9 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async whereExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, qOrRel: ISelectQueryBuilder<Z> | string, callback: WhereFunction<InstanceType<T>>) {
-    const { query } = createQuery(this as any, SelectQueryBuilder);
+    const { query, description } = createQuery(this as any, SelectQueryBuilder);
+
+    query.setAlias('__exists__');
 
     if (typeof qOrRel === 'string') {
       const rel = this.getRelationDescriptor(qOrRel);
@@ -1163,16 +1164,14 @@ export const MODEL_STATIC_MIXINS = {
           break;
         case RelationType.Many:
           const relQuery = rel.TargetModel.query();
-          const targetDesc = rel.TargetModel.getModelDescriptor();
-          const sourcePKey = query.TableAlias ? `\`${query.TableAlias}\`.\`${rel.ForeignKey}\`` : `\`${rel.ForeignKey}\``;
-          relQuery.where(targetDesc.PrimaryKey, sourcePKey);
-          
+          const sourcePKey = `\`${query.TableAlias}\`.\`${description.PrimaryKey}\``;
+          relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
+
           if (callback) {
             callback.apply(relQuery);
           }
 
           query.whereExist(relQuery);
-
 
           break;
         case RelationType.ManyToMany:

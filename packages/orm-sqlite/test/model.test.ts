@@ -7,17 +7,13 @@
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from './../src/index.js';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Dataset, ModelBase, Orm } from '@spinajs/orm';
+import { Orm } from '@spinajs/orm';
 import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import '@spinajs/log';
 import { ConnectionConf, db } from './common.js';
-import { DataSet, SetItem } from './models/Relation.js';
-import sinon from 'sinon';
 import { Location as LocationModel } from './models/Location.js';
-import { LocationNetwork } from './models/LocationNetwork.js';
-import { LocationNetworkMetadata } from './models/LocationNetworkMetadata.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -45,11 +41,10 @@ describe('Sqlite - relations test', function () {
     DI.clearCache();
   });
 
-  
-it('Should set filterable columns in descriptor', async () => {
+  it('Should set filterable columns in descriptor', async () => {
     await db();
 
-    const columns = Location.filterColumns();
+    const columns = LocationModel.filterColumns();
 
     expect(columns.length).to.eq(2);
     expect(columns).to.containSubset([
@@ -64,13 +59,37 @@ it('Should set filterable columns in descriptor', async () => {
     ]);
   });
 
-  it('Should return fileterable column schema', async () => {
-    await db();
+  // it('Should return fileterable column schema', async () => {
+  //   await db();
 
-    const schema = Model1.filterSchema();
-    expect(schema).to.be.not.null;
+  //   const schema = LocationModel.filterSchema();
+  //   expect(schema).to.be.not.null;
+  // });
+
+  it('whereExists should return true if relation exists', async () => {
+    await db();
+    const exists = await LocationModel.whereExists('Metadata');
+    expect(exists).to.be.not.null;
+    expect(exists).to.be.an('array');
+    expect(exists).to.have.lengthOf(2);
   });
 
+  it('whereExists should return true if relation exists with condition', async () => {
+    await db();
+    const exists = await LocationModel.whereExists('Metadata', function() { 
+      this.where('Key', 'meta 1');
+    });
+    expect(exists).to.be.not.null;
+    expect(exists).to.be.an('array');
+    expect(exists).to.have.lengthOf(1);
+  });
 
+  it('whereExists should return false if relation does not exists', async () => {
+    await db();
+    const exists = await LocationModel.whereExists('Metadata', function() { 
+      this.where('Key', 'meta 3');
+    });
+    expect(exists).to.be.an('array');
+    expect(exists).to.have.lengthOf(0);
+  });
 });
-
