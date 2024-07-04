@@ -6,7 +6,7 @@ import { LocationNetwork } from './LocationNetwork.js';
 @Model('location')
 export class Location extends ModelBase {
   @Primary()
-  @Filterable("gt")
+  @Filterable(["gt"])
   public Id: number;
 
   @Filterable(["eq"])
