@@ -1,5 +1,5 @@
 {
-  "version": "2.0.217",
+  "version": "2.0.218",
   "description": "Log lib for all spinejs related libs",
   
     "main": "lib/cjs/index.js",
@@ -53,9 +53,9 @@
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "dependencies": {
-    "@spinajs/configuration-common": "^2.0.217",
-    "@spinajs/di": "^2.0.217",
-    "@spinajs/log": "^2.0.217",
+    "@spinajs/configuration-common": "^2.0.218",
+    "@spinajs/di": "^2.0.218",
+    "@spinajs/log": "^2.0.218",
     "axios": "^1.2.3",
     "lodash": "^4.17.21"
   }
