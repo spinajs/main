@@ -180,7 +180,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     throw new Error('Not implemented');
   }
 
-  public static getRelationDescriptor(_relation: string) {
+  public static getRelationDescriptor(_relation: string): IRelationDescriptor {
     throw new Error('Not implemented');
   }
 
@@ -220,7 +220,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Gets filter columns schema for validation
    */
-  public static filterSchema() : any {
+  public static filterSchema(): any {
     throw new Error('Not implemented');
   }
 
@@ -397,7 +397,8 @@ export class ModelBase<M = unknown> implements IModelBase {
     throw new Error('Not implemented');
   }
 
-  public static whereExists<T extends typeof ModelBase>(this: T, _query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>> {
+  public static whereExists<T extends typeof ModelBase>(this: T, _query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  public static whereExists<R extends typeof ModelBase, T extends typeof ModelBase>(this: T, _qOrR: string | ISelectQueryBuilder<T>, _func?: WhereFunction<InstanceType<R>>): ISelectQueryBuilder<Array<InstanceType<T>>> {
     throw new Error('Not implemented');
   }
 
@@ -1141,10 +1142,46 @@ export const MODEL_STATIC_MIXINS = {
     return false;
   },
 
-  async whereExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, q: ISelectQueryBuilder<Z>) {
+  async whereExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, qOrRel: ISelectQueryBuilder<Z> | string, callback: WhereFunction<InstanceType<T>>) {
     const { query } = createQuery(this as any, SelectQueryBuilder);
-    query.whereExist(q);
-    return await query;
+
+    if (typeof qOrRel === 'string') {
+      const rel = this.getRelationDescriptor(qOrRel);
+      if (!rel) {
+        throw new OrmException(`relation ${qOrRel} not found in model ${this.name}`);
+      }
+
+      switch (rel.Type) {
+        case RelationType.One:
+          query.whereNotNull(rel.ForeignKey);
+
+          // simply use right join for condition check
+          if (callback) {
+            query.rightJoin(rel.TargetModel, callback.bind(query));
+          }
+
+          break;
+        case RelationType.Many:
+          const relQuery = rel.TargetModel.query();
+          const targetDesc = rel.TargetModel.getModelDescriptor();
+          const sourcePKey = query.TableAlias ? `\`${query.TableAlias}\`.\`${rel.ForeignKey}\`` : `\`${rel.ForeignKey}\``;
+          relQuery.where(targetDesc.PrimaryKey, sourcePKey);
+          
+          if (callback) {
+            callback.apply(relQuery);
+          }
+
+          query.whereExist(relQuery);
+
+
+          break;
+        case RelationType.ManyToMany:
+          throw new OrmException(`not implemented`);
+      }
+    } else {
+      query.whereExist(qOrRel);
+    }
+    return query;
   },
 
   async whereNotExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, q: ISelectQueryBuilder<Z>) {

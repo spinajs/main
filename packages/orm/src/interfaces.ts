@@ -510,6 +510,8 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
 
   getModelDescriptor(): IModelDescriptor;
   getRelationDescriptor(relation: string): IRelationDescriptor;
+
+  whereExists<R extends typeof ModelBase,T extends typeof ModelBase>(relation: string, func: WhereFunction<InstanceType<R>>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   whereExists<T extends typeof ModelBase>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   whereNotExists<T extends typeof ModelBase>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
 
