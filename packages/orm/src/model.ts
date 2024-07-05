@@ -1142,44 +1142,11 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   async whereExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, qOrRel: ISelectQueryBuilder<Z> | string, callback: WhereFunction<InstanceType<T>>) {
-    const { query, description } = createQuery(this as any, SelectQueryBuilder);
+    const { query } = createQuery(this as any, SelectQueryBuilder);
 
     query.setAlias('__exists__');
-
-    if (typeof qOrRel === 'string') {
-      const rel = this.getRelationDescriptor(qOrRel);
-      if (!rel) {
-        throw new OrmException(`relation ${qOrRel} not found in model ${this.name}`);
-      }
-
-      switch (rel.Type) {
-        case RelationType.One:
-          query.whereNotNull(rel.ForeignKey);
-
-          // simply use right join for condition check
-          if (callback) {
-            query.rightJoin(rel.TargetModel, callback.bind(query));
-          }
-
-          break;
-        case RelationType.Many:
-          const relQuery = rel.TargetModel.query();
-          const sourcePKey = `\`${query.TableAlias}\`.\`${description.PrimaryKey}\``;
-          relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
-
-          if (callback) {
-            callback.apply(relQuery);
-          }
-
-          query.whereExist(relQuery);
-
-          break;
-        case RelationType.ManyToMany:
-          throw new OrmException(`not implemented`);
-      }
-    } else {
-      query.whereExist(qOrRel);
-    }
+    query.whereExist(qOrRel, callback);
+    
     return query;
   },
 

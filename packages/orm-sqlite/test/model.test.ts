@@ -66,7 +66,17 @@ describe('Sqlite - relations test', function () {
   //   expect(schema).to.be.not.null;
   // });
 
-  it('whereExists should return true if relation exists', async () => {
+  it('whereExists should return true on query builder', async () => {
+
+    await db();
+    const exists = await LocationModel.query().whereExist('Metadata');
+    expect(exists).to.be.not.null;
+    expect(exists).to.be.an('array');
+    expect(exists).to.have.lengthOf(2);
+
+  });
+
+  it('whereExists should return true if relation exists ( static )', async () => {
     await db();
     const exists = await LocationModel.whereExists('Metadata');
     expect(exists).to.be.not.null;
@@ -74,7 +84,7 @@ describe('Sqlite - relations test', function () {
     expect(exists).to.have.lengthOf(2);
   });
 
-  it('whereExists should return true if relation exists with condition', async () => {
+  it('whereExists should return true if relation exists with condition ( static )', async () => {
     await db();
     const exists = await LocationModel.whereExists('Metadata', function() { 
       this.where('Key', 'meta 1');
@@ -84,7 +94,7 @@ describe('Sqlite - relations test', function () {
     expect(exists).to.have.lengthOf(1);
   });
 
-  it('whereExists should return false if relation does not exists', async () => {
+  it('whereExists should return false if relation does not exists ( static )', async () => {
     await db();
     const exists = await LocationModel.whereExists('Metadata', function() { 
       this.where('Key', 'meta 3');
