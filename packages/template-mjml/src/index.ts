@@ -42,14 +42,10 @@ export class MjmlRenderer extends TemplateRenderer {
     const time = this.Log.timeEnd(`MjmlRenderer.render.start.${templateName}`);
     this.Log.trace(`Rendering mjml template ${templateName} ended, (${time} ms)`);
 
-    if (html.errors.length > 0) {
-      html.errors.forEach((error) => {
-        this.Log.error(`MJML error: ${error.formattedMessage}`);
-      });
-
-      return;
-    }
-
+    html.errors.forEach((error) => {
+      this.Log.warn(`MJML error: ${error.formattedMessage}`);
+    });
+    
     return html.html;
   }
 

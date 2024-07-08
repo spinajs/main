@@ -1,0 +1,9 @@
+<mjml>
+  <mj-body background-color="#F4F4F4" color="#55575d" font-family="Arial, sans-serif">
+    <mj-section background-color="#000000" background-repeat="no-repeat" text-align="center" vertical-align="top">
+      <mj-column>
+        <mj-text> {{hello}} </mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>
