@@ -6,10 +6,11 @@ import * as path from 'path';
 import _ from 'lodash';
 import { TemplateRenderer } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
-import { Injectable } from '@spinajs/di';
+import { Injectable, Singleton } from '@spinajs/di';
 import Handlebars from 'handlebars';
 import { normalize } from 'path';
 
+@Singleton()
 @Injectable(TemplateRenderer)
 export class HandlebarsRenderer extends TemplateRenderer {
   @Config('templates.handlebars')

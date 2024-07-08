@@ -14,30 +14,70 @@ export class Templates extends AsyncService {
   @Logger('templates')
   protected Log: Log;
 
-  @Autoinject(TemplateRenderer, {
-    mapFunc: (x) => x.ServiceName,
-  })
-  protected Renderers: Map<string, TemplateRenderer>;
+  @Autoinject(TemplateRenderer)
+  protected Renderers: TemplateRenderer[];
 
   public getRendererFor(extname: string): TemplateRenderer {
-    return this.Renderers.get(extname);
+    return this.Renderers.find((x) => x.Extension === extname);
   }
 
-  public async render(template: string , model: unknown, language?: string): Promise<string> {
+  public async compileToFile(template: string, renderer: string, model: unknown, filePath: string, language?: string): Promise<void> {
+    const engine = this.Renderers.find((x) => x.Type === renderer);
+    if (!engine) {
+      throw new InvalidOperation(`No renderer for ${renderer}`);
+    }
+
+    return await engine.renderToFile(template, model, filePath, language);
+  }
+
+  /**
+   * 
+   * Renders template with given model and language. Returns compiled content
+   * 
+   * @param template 
+   * @param renderer 
+   * @param model 
+   * @param language 
+   * @returns 
+   */
+  public async compile(template: string, renderer: string, model: unknown, language?: string): Promise<string> {
+    const engine = this.Renderers.find((x) => x.Type === renderer);
+    if (!engine) {
+      throw new InvalidOperation(`No renderer for ${renderer}`);
+    }
+
+    return await engine.render(template, model, language);
+  }
+
+  /**
+   * 
+   * Renders template with given model and language. Returns compiled content
+   * It detects automatically renderer based on file extension
+   * 
+   * @param template 
+   * @param model 
+   * @param language 
+   * @returns 
+   */
+  public async render(template: string, model: unknown, language?: string): Promise<string> {
     const extension = extname(template);
-    if (!this.Renderers.has(extension)) {
+    const renderer = this.Renderers.find((x) => x.Extension === extension);
+
+    if (!renderer) {
       throw new InvalidOperation(`No renderer for file ${template} with extension ${extension}`);
     }
 
-    return await this.Renderers.get(extension).render(template, model, language);
+    return await renderer.render(template, model, language);
   }
 
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
     const extension = extname(template);
-    if (!this.Renderers.has(extension)) {
+    const renderer = this.Renderers.find((x) => x.Extension === extension);
+
+    if (!renderer) {
       throw new InvalidOperation(`No renderer for file ${template} with extension ${extension}`);
     }
 
-    return await this.Renderers.get(extension).renderToFile(template, model, filePath, language);
+    return await renderer.renderToFile(template, model, filePath, language);
   }
 }

@@ -83,6 +83,7 @@
     "@spinajs/email-smtp-transport": "file:packages\\email-smtp-transport",
     "@spinajs/exceptions": "file:packages\\exceptions",
     "@spinajs/fs": "file:packages\\fs",
+    "@spinajs/fs-ftp": "file:packages\\fs-ftp",
     "@spinajs/http": "file:packages\\http",
     "@spinajs/internal-logger": "file:packages\\internal-logger",
     "@spinajs/intl": "file:packages\\intl",
@@ -94,6 +95,7 @@
     "@spinajs/orm": "file:packages\\orm",
     "@spinajs/orm-api": "files:packages/templates-pdf",
     "@spinajs/orm-http": "file:packages\\orm-http",
+    "@spinajs/orm-lowdb": "file:packages\\orm-lowdb",
     "@spinajs/orm-mssql": "file:packages\\orm-mssql",
     "@spinajs/orm-mysql": "file:packages\\orm-mysql",
     "@spinajs/orm-sql": "file:packages\\orm-sql",
@@ -110,14 +112,13 @@
     "@spinajs/templates": "file:packages\\templates",
     "@spinajs/templates-cvs": "files:packages/templates-cvs",
     "@spinajs/templates-handlebars": "file:packages\\templates-handlebars",
+    "@spinajs/templates-mjml": "file:packages\\templates-mjml",
     "@spinajs/templates-pdf": "files:packages/templates-pdf",
     "@spinajs/templates-pug": "file:packages\\templates-pug",
     "@spinajs/templates-xlsx": "file:packages\\templates-xlsx",
-    "@spinajs/templates-mjml": "file:packages\\templates-mjml",
     "@spinajs/util": "file:packages\\util",
     "@spinajs/validation": "file:packages\\validation",
-    "@spinajs/orm-lowdb": "file:packages\\orm-lowdb",
-    "@spinajs/fs-ftp": "file:packages\\fs-ftp",
-    "@types/ajv-merge-patch": "^4.1.2"
+    "@types/ajv-merge-patch": "^4.1.2",
+    "@types/mjml": "^4.7.4"
   }
 }

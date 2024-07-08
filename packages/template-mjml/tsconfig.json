@@ -6,14 +6,6 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*","test/**/*"],
-  "references": [
-    { "path": "../configuration/tsconfig.json" },
-    { "path": "../di/tsconfig.json" },
-    { "path": "../exceptions/tsconfig.json" },
-    { "path": "../log/tsconfig.json" },
-    { "path": "../intl/tsconfig.json"},
-    { "path": "../templates/tsconfig.json"}
-  ]
+  "include": ["src/**/*", "test/**/*"],
+  "references": [{ "path": "../configuration/tsconfig.json" }, { "path": "../di/tsconfig.json" }, { "path": "../exceptions/tsconfig.json" }, { "path": "../log/tsconfig.json" }, { "path": "../intl/tsconfig.json" }, { "path": "../templates/tsconfig.json" }, { "path": "../templates-handlebars/tsconfig.json" }]
 }
-

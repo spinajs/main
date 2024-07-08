@@ -13,7 +13,9 @@
     { "path": "../exceptions/tsconfig.mjs.json" },
     { "path": "../log/tsconfig.mjs.json" },
     { "path": "../intl/tsconfig.mjs.json"},
-    { "path": "../templates/tsconfig.mjs.json"}
+    { "path": "../templates/tsconfig.mjs.json"},
+    { "path": "../templates-handlebars/tsconfig.mjs.json"}
+
   ]
 }
 
