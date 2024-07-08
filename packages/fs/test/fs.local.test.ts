@@ -4,7 +4,7 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { fs, FsBootsrapper } from './../src/index.js';
+import { fs, FsBootsrapper, fsService } from './../src/index.js';
 import '@spinajs/templates-pug';
 import { dir, TestConfiguration } from './common.js';
 import { expect } from 'chai';
@@ -34,6 +34,9 @@ describe('fs local tests', function () {
 
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
+
+    await DI.resolve(fsService);
+
   });
 
   after(async () => {});

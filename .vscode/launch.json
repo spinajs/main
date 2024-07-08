@@ -26,6 +26,17 @@
     {
       "type": "node",
       "request": "launch",
+      "name": "[ FS ] fs ftp",
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/fs-ftp/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+    {
+      "type": "node",
+      "request": "launch",
       "name": "[ UTIL ] utils test",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
       "cwd": "${workspaceFolder}/packages/util/",

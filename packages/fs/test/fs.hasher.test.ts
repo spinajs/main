@@ -7,7 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { FsBootsrapper } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 import { dir, TestConfiguration } from './common.js';
-import { FileHasher } from '../src/index.js';
+import { FileHasher, fsService } from '../src/index.js';
 import { IOFail } from '@spinajs/exceptions';
 
 
@@ -21,6 +21,9 @@ describe('fs hasher tests', function () {
 
         DI.register(TestConfiguration).as(Configuration);
         await DI.resolve(Configuration);
+
+        await DI.resolve(fsService);
+
     });
 
     after(async () => {

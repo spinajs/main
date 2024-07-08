@@ -7,7 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { FsBootsrapper } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
-import { fs } from '../src/index.js';
+import { fs, fsService } from '../src/index.js';
 import { sleep } from '@spinajs/util';
 
 async function tmp() {
@@ -23,6 +23,9 @@ describe('fs temp tests', function () {
 
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
+
+    await DI.resolve(fsService);
+
   });
 
   after(async () => {

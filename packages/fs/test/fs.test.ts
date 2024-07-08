@@ -9,6 +9,7 @@ import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 import { FileSystem } from '../src/decorators.js';
 import { fsNative } from '../src/local-provider.js';
+import { fsService } from '../src/index.js';
 
 @Injectable('fs')
 @PerInstanceCheck()
@@ -32,6 +33,8 @@ describe('general fs tests', function () {
     bootstrapper.bootstrap();
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
+
+    await DI.resolve(fsService);
   });
 
   afterEach(() => {
