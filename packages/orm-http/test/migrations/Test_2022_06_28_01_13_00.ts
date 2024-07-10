@@ -27,12 +27,26 @@ export class Test_2022_06_28_01_13_00 extends OrmMigration {
       table.int('test_id');
     });
 
+    
+    await connection.schema().createTable('filterable', (table) => {
+      table.int('Id').primaryKey().notNull().autoIncrement();
+      table.string('Text', 32).notNull();
+      table.int('Number');
+    });
+
 
     await connection.insert().into('test2').values({ Text: 'hello', Id: 1, test_id: 1 });
     await connection.insert().into('test2').values({ Text: 'world', Id: 2, test_id: 2 });
 
     await connection.insert().into('test2').values({ Text: 'world', Id: 3, test_id: 1 });
     await connection.insert().into('test2').values({ Text: 'hello', Id: 4, test_id: 2 });
+
+    await connection.insert().into('filterable').values({ Text: 'hello', Number: 1 });
+    await connection.insert().into('filterable').values({ Text: 'hello', Number: 2 });
+    await connection.insert().into('filterable').values({ Text: 'hello', Number: 3 });
+    await connection.insert().into('filterable').values({ Text: 'hello', Number: 4 });
+    await connection.insert().into('filterable').values({ Text: 'hello', Number: 5 });
+
   }
 
   // tslint:disable-next-line: no-empty

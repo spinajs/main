@@ -3,7 +3,7 @@ import { Op } from './enums.js';
 import { QueryBuilder, RawQuery } from './builders.js';
 import { SortOrder, WhereBoolean } from './enums.js';
 import { IQueryStatement, Wrap } from './statements.js';
-import { FilterableOperators, ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
+import { ModelData, ModelDataWithRelationData, ModelDataWithRelationDataSearchable, PartialArray, PickRelations, Unbox, WhereFunction } from './types.js';
 import { IOrmRelation } from './relations.js';
 import { OrmDriver } from './driver.js';
 import { NewInstance, Constructor, Singleton, IContainer } from '@spinajs/di';
@@ -30,11 +30,6 @@ export enum ColumnAlterationType {
   Rename,
 }
 
-export interface IFilter {
-  Column: string;
-  Operator: FilterableOperators;
-  Value: any;
-}
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
   TargetModelDescriptor: IModelDescriptor;
@@ -648,10 +643,6 @@ export interface IColumnDescriptor {
    */
   Comment: string;
 
-  /**
-   * If set column is fitlerable by this operators
-   */
-  Filterable?: FilterableOperators[];
 
   /**
    * Default column value
@@ -926,8 +917,6 @@ export interface IWhereBuilder<T> {
   whereInSet(column: string, val: unknown[]): this;
   whereNotInSet(column: string, val: unknown[]): this;
   clearWhere(): this;
-
-  filter(filter: IFilter[]): this;
 }
 
 export interface IWithRecursiveBuilder {

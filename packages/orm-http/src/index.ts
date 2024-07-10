@@ -1,6 +1,12 @@
 import { Orm, ModelBase, OrmException } from '@spinajs/orm';
 import { IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest, RouteArgs } from '@spinajs/http';
 import { IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
+import { MODEL_STATIC_MIXINS } from './model.js';
+
+export * from "./interfaces.js";
+export * from "./model.js";
+export * from "./decorators.js";
+export * from "./builders.js";
 
 @Injectable()
 export class AsDbModel extends RouteArgs {
@@ -18,7 +24,7 @@ export class AsDbModel extends RouteArgs {
     }
 
     result.hydrate(data);
-    
+
     return { CallData: callData, Args: result };
   }
 }
@@ -31,7 +37,7 @@ export class FromDbModel extends RouteArgs {
   @Autoinject(Orm)
   protected Orm: Orm;
 
-  async resolve(): Promise<void> { }
+  async resolve(): Promise<void> {}
 
   public get SupportedType(): string {
     return 'FromDB';
@@ -92,6 +98,14 @@ export class OrmHttpBootstrapper extends Bootstrapper {
       // set default route parameter hydrator for all loaded models
       orm.Models.forEach((m) => {
         Reflect.defineMetadata('custom:arg_hydrator', { hydrator: DbModelHydrator }, m.type);
+      });
+
+      // add custom mixins
+      orm.Models.forEach((m) => {
+        // tslint:disable-next-line: forin
+        for (const mixin in MODEL_STATIC_MIXINS) {
+          m.type[mixin] = (MODEL_STATIC_MIXINS as any)[mixin].bind(m.type);
+        }
       });
     });
   }

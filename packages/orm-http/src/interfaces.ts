@@ -25,3 +25,45 @@ export interface ITransformOptions {
   model: Class<ModelBase<unknown>>;
 }
 
+declare module '@spinajs/orm' {
+  export interface IColumnDescriptor {
+    /**
+     * If set column is fitlerable by this operators
+     */
+    Filterable?: FilterableOperators[];
+  }
+
+  export interface IWhereBuildet<T> {
+
+    /**
+     * 
+     * Add filter to query
+     * 
+     * @param filter 
+     */
+    filter(filter: IFilter[]): this;
+  }
+
+  export interface IModelBase {
+    // TODO: maybe proper return type
+    /**
+     * @returns json schema of filterable columns
+     */
+    filterSchema(): any;
+
+    filterColumns(): IColumFilter[];
+  }
+}
+
+export interface IColumFilter {
+  column: string;
+  operators: FilterableOperators[];
+}
+
+export interface IFilter {
+  Column: string;
+  Operator: FilterableOperators;
+  Value: any;
+}
+
+export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween';
