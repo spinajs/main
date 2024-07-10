@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-sqlite",
-  "version": "2.0.222",
+  "version": "2.0.223",
   "description": "framework orm sql-lite language module",
   
     "main": "lib/cjs/index.js",
@@ -52,12 +52,12 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.222",
-    "@spinajs/di": "^2.0.222",
-    "@spinajs/exceptions": "^2.0.222",
-    "@spinajs/log": "^2.0.222",
-    "@spinajs/orm": "^2.0.222",
-    "@spinajs/orm-sql": "^2.0.222",
+    "@spinajs/configuration": "^2.0.223",
+    "@spinajs/di": "^2.0.223",
+    "@spinajs/exceptions": "^2.0.223",
+    "@spinajs/log": "^2.0.223",
+    "@spinajs/orm": "^2.0.223",
+    "@spinajs/orm-sql": "^2.0.223",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1",
     "sqlite3": "^5.1.7",
