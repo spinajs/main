@@ -48,6 +48,11 @@ export interface IEmailAttachement {
    * File provider could be local fs, aws s3 etc. Default is always fs-local
    */
   provider?: string;
+
+  /**
+   * Content-id if provided to embedd image in message
+   */
+  cid? : string;
 }
 
 export interface IEmail {

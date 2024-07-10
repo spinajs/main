@@ -1,7 +1,7 @@
 import { IOFail } from '@spinajs/exceptions';
 import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { IEmail, EmailSender, EmailConnectionOptions } from '@spinajs/email';
+import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
 import * as nodemailer from 'nodemailer';
 import { fs } from '@spinajs/fs';
@@ -79,7 +79,7 @@ export class EmailSenderSmtp extends EmailSender {
 
     if (email.attachements) {
       options.attachments = await Promise.all(
-        email.attachements.map(async (a: any) => {
+        email.attachements.map(async (a: IEmailAttachement) => {
           // we allow to use multiple file sources, default is local
           const provider = this.FileSystems.get(a.provider ?? this.DefaultFileProvider);
           if (!provider) {
@@ -93,6 +93,7 @@ export class EmailSenderSmtp extends EmailSender {
           // prefer it when sending bigger files
           const file = await provider.download(a.path);
           return {
+            cid: a.cid,
             filename: a.name,
             path: file,
             provider: provider.Name,
