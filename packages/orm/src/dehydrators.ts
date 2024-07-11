@@ -39,9 +39,7 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
         if ((model as any)[val.Name].Value) {
           (obj as any)[val.Name] = (model as any)[val.Name].Value.dehydrateWithRelations();
         }
-      }
-
-      if (val.Type === RelationType.Many) {
+      } else {
         if ((model as any)[val.Name]) {
           const v = [...((model as any)[val.Name] as Relation<ModelBase, any>)];
           if (v.length === 0) {
