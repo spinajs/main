@@ -831,9 +831,10 @@ export const MODEL_STATIC_MIXINS = {
         // UPDATE: newest sqlite engine does support right join
         // but nodejs drivers use older version of sqlite
         JoinQuery.leftJoin(relationDescriptor.TargetModel, function () {
-          this.select(new RawQuery(`'${this.TableAlias}'.*`));
-        });
-        JoinQuery.middleware(hydrateMiddleware);
+          this.select(new RawQuery(`${this.TableAlias}.*`));
+      });
+      JoinQuery.where(relationDescriptor.SourceModel.getModelDescriptor().PrimaryKey, owner);
+      JoinQuery.middleware(hydrateMiddleware);
         return JoinQuery;
       case RelationType.ManyToMany:
         throw new OrmException(`many to many relation not supported in populate`);

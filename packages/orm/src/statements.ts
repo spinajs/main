@@ -215,9 +215,9 @@ export abstract class JoinStatement extends QueryStatement {
 
         const driver = this._builder.Driver;
         const cnt = driver.Container;
-        this._database = driver.Options.Database;
         this._whereBuilder = cnt.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, this._model, this]);
         this._whereBuilder.setAlias(this._tableAlias);
+        this._whereBuilder.database(driver.Options.Database);
 
         this._whereCallback.call(this._whereBuilder, [this]);
 
@@ -231,7 +231,7 @@ export abstract class JoinStatement extends QueryStatement {
       }
 
       this._table = tDesc.TableName;
-      this._primaryKey = sDesc.PrimaryKey;
+      this._primaryKey = tDesc.PrimaryKey;
       this._alias = sAlias;
 
       this._foreignKey = relation.value.ForeignKey;
