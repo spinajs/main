@@ -1039,6 +1039,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public mergeStatements(builder: SelectQueryBuilder, callback?: (statement: IQueryStatement) => boolean) {
     const stms = callback ? builder._statements.filter(callback) : builder._statements;
     this._statements = this._statements.concat(stms);
+    this._limit = builder._limit;
+    this._sort = builder._sort;
   }
 
   public min(column: string, as?: string): this {
