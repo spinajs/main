@@ -1,6 +1,7 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import GlobToRegExp from 'glob-to-regexp';
 import { trimChar } from './string.js';
+import { Constructor } from './fp.js';
 
 /**
  * Helper function to validate arguments
@@ -109,6 +110,16 @@ export function _is_object(...checks: ((arg: object, name: string) => object)[])
   };
 }
 
+export function _is_instance_of(c: Constructor<unknown>, ...checks: ((arg: object, name: string) => object)[]) {
+  return function (arg: object, name: string) {
+    if (typeof arg !== 'object' || arg === null || arg === undefined || Array.isArray(arg) || arg.constructor.name !== c.name) {
+      throw new InvalidArgument(`${name} is not type of ${c.name}`);
+    }
+
+    return _check_arg(...checks)(arg, name);
+  };
+}
+
 export function _or(...checks: ((arg: any, name: string) => any)[]) {
   return function (arg: any, name: string) {
     for (const check of checks) {
@@ -132,14 +143,14 @@ export function _to_upper() {
   };
 }
 
-export function _to_array() { 
-  return function (arg : unknown){
+export function _to_array() {
+  return function (arg: unknown) {
     if (Array.isArray(arg)) {
       return arg;
     }
 
     return [arg];
-  }
+  };
 }
 
 export function _to_lower() {
