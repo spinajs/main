@@ -4,7 +4,7 @@ import { IFilter } from "./interfaces.js";
 /**
  * Extend where builder with  flter func old style ( by prototype )
  */
-WhereBuilder.prototype.filter = function (this: WhereBuilder<any>, filters: IFilter[]) {
+(WhereBuilder.prototype as any).filter = function (this: WhereBuilder<any>, filters: IFilter[]) {
     filters.forEach((filter) => {
       switch (filter.Operator) {
         case 'eq':
