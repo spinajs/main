@@ -42,10 +42,10 @@ export class Test_2022_06_28_01_13_00 extends OrmMigration {
     await connection.insert().into('test2').values({ Text: 'hello', Id: 4, test_id: 2 });
 
     await connection.insert().into('filterable').values({ Text: 'hello', Number: 1 });
-    await connection.insert().into('filterable').values({ Text: 'hello', Number: 2 });
-    await connection.insert().into('filterable').values({ Text: 'hello', Number: 3 });
-    await connection.insert().into('filterable').values({ Text: 'hello', Number: 4 });
-    await connection.insert().into('filterable').values({ Text: 'hello', Number: 5 });
+    await connection.insert().into('filterable').values({ Text: 'hello1', Number: 2 });
+    await connection.insert().into('filterable').values({ Text: 'hello2', Number: 3 });
+    await connection.insert().into('filterable').values({ Text: 'hello3', Number: 4 });
+    await connection.insert().into('filterable').values({ Text: 'hello4', Number: 5 });
 
   }
 

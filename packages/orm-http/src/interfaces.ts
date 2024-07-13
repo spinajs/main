@@ -25,37 +25,7 @@ export interface ITransformOptions {
   model: Class<ModelBase<unknown>>;
 }
 
-declare module '@spinajs/orm' {
-  export interface IColumnDescriptor {
-    /**
-     * If set column is fitlerable by this operators
-     */
-    Filterable?: FilterableOperators[];
-  }
-
-  export interface IWhereBuildet<T> {
-
-    /**
-     * 
-     * Add filter to query
-     * 
-     * @param filter 
-     */
-    filter(filter: IFilter[]): this;
-  }
-
-  export interface IModelBase {
-    // TODO: maybe proper return type
-    /**
-     * @returns json schema of filterable columns
-     */
-    filterSchema(): any;
-
-    filterColumns(): IColumFilter[];
-  }
-}
-
-export interface IColumFilter {
+export interface IColumnFilter {
   column: string;
   operators: FilterableOperators[];
 }

@@ -49,6 +49,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       http: {
+        port: 1337,
         middlewares: [
           express.json({
             limit: '5mb',

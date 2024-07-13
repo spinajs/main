@@ -6,7 +6,8 @@ import { MODEL_STATIC_MIXINS } from './model.js';
 export * from "./interfaces.js";
 export * from "./model.js";
 export * from "./decorators.js";
-export * from "./builders.js";
+export * from './extension.js';
+export * from './builders.js';
 
 @Injectable()
 export class AsDbModel extends RouteArgs {

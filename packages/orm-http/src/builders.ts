@@ -1,53 +1,61 @@
-import { SqlOperator, WhereBuilder } from "@spinajs/orm";
-import { IFilter } from "./interfaces.js";
+import { SelectQueryBuilder, SqlOperator } from '@spinajs/orm';
+import { IFilter, IColumnFilter } from './interfaces.js';
 
 /**
  * Extend where builder with  flter func old style ( by prototype )
  */
-(WhereBuilder.prototype as any).filter = function (this: WhereBuilder<any>, filters: IFilter[]) {
-    filters.forEach((filter) => {
-      switch (filter.Operator) {
-        case 'eq':
-          this.andWhere(filter.Column, SqlOperator.EQ, filter.Value);
-          break;
-        case 'neq':
-          this.andWhere(filter.Column, SqlOperator.NOT, filter.Value);
-          break;
-        case 'gt':
-          this.andWhere(filter.Column, SqlOperator.GT, filter.Value);
-          break;
-        case 'gte':
-          this.andWhere(filter.Column, SqlOperator.GTE, filter.Value);
-          break;
-        case 'lt':
-          this.andWhere(filter.Column, SqlOperator.LT, filter.Value);
-          break;
-        case 'lte':
-          this.andWhere(filter.Column, SqlOperator.LTE, filter.Value);
-          break;
-        case 'like':
-          this.andWhere(filter.Column, SqlOperator.LIKE, filter.Value);
-          break;
-        case 'in':
-          this.andWhere(filter.Column, SqlOperator.IN, filter.Value);
-          break;
-        case 'nin':
-          this.andWhere(filter.Column, SqlOperator.NOT_IN, filter.Value);
-          break;
-        case 'between':
-          this.andWhere(filter.Column, SqlOperator.BETWEEN, filter.Value);
-          break;
-        case 'isnull':
-          this.andWhere(filter.Column, SqlOperator.NULL);
-          break;
-        case 'notnull':
-          this.andWhere(filter.Column, SqlOperator.NOT_NULL);
-          break;
-        case 'notbetween':
-          this.andWhere(filter.Column, SqlOperator.NOT_BETWEEN, filter.Value);
-          break;
-      }
-    });
+(SelectQueryBuilder.prototype as any).filter = function (this: SelectQueryBuilder<any>, filters: IFilter[]) {
+  const columns: IColumnFilter[] = (this._model as any).filterColumns();
 
-    return this;
-  }
+  filters.forEach((filter) => {
+    if (!columns.find((c) => c.column === filter.Column)) {
+      throw new Error(`Column ${filter.Column} is not filterable`);
+    }
+
+    // TODO: in futere add full expression tree support ( OR, AND, maybe nesting queries for relations, EXISTS maybe ?)
+
+    switch (filter.Operator) {
+      case 'eq':
+        this.andWhere(filter.Column, SqlOperator.EQ, filter.Value);
+        break;
+      case 'neq':
+        this.andWhere(filter.Column, SqlOperator.NOT, filter.Value);
+        break;
+      case 'gt':
+        this.andWhere(filter.Column, SqlOperator.GT, filter.Value);
+        break;
+      case 'gte':
+        this.andWhere(filter.Column, SqlOperator.GTE, filter.Value);
+        break;
+      case 'lt':
+        this.andWhere(filter.Column, SqlOperator.LT, filter.Value);
+        break;
+      case 'lte':
+        this.andWhere(filter.Column, SqlOperator.LTE, filter.Value);
+        break;
+      case 'like':
+        this.andWhere(filter.Column, SqlOperator.LIKE, filter.Value);
+        break;
+      case 'in':
+        this.andWhere(filter.Column, SqlOperator.IN, filter.Value);
+        break;
+      case 'nin':
+        this.andWhere(filter.Column, SqlOperator.NOT_IN, filter.Value);
+        break;
+      case 'between':
+        this.andWhere(filter.Column, SqlOperator.BETWEEN, filter.Value);
+        break;
+      case 'isnull':
+        this.andWhere(filter.Column, SqlOperator.NULL);
+        break;
+      case 'notnull':
+        this.andWhere(filter.Column, SqlOperator.NOT_NULL);
+        break;
+      case 'notbetween':
+        this.andWhere(filter.Column, SqlOperator.NOT_BETWEEN, filter.Value);
+        break;
+    }
+  });
+
+  return this;
+};

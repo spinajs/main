@@ -1,6 +1,13 @@
-import { IModelDescriptor, OrmException } from '@spinajs/orm';
+import { IModelDescriptor, OrmException, SelectQueryBuilder, createQuery } from '@spinajs/orm';
+import './builders.js';
+import { IFilter } from './interfaces.js';
 
 export const MODEL_STATIC_MIXINS = {
+  async filter(filters: IFilter[]) {
+    const { query } = createQuery(this, SelectQueryBuilder);
+    return (query as any).filter(filters);
+  },
+
   filterColumns() {
     const modelDescriptor = (this as any).getModelDescriptor() as IModelDescriptor;
 
