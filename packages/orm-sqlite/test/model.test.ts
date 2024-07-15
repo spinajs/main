@@ -14,6 +14,7 @@ import chaiAsPromised from 'chai-as-promised';
 import '@spinajs/log';
 import { ConnectionConf, db } from './common.js';
 import { Location as LocationModel } from './models/Location.js';
+import '@spinajs/orm-http';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -41,31 +42,23 @@ describe('Sqlite - relations test', function () {
     DI.clearCache();
   });
 
-  it('Should set filterable columns in descriptor', async () => {
-    await db();
+  it('Should populate nested relations in . format', async () =>{ 
 
-    const columns = LocationModel.filterColumns();
-
-    expect(columns.length).to.eq(2);
-    expect(columns).to.containSubset([
-      {
-        column: 'Bar',
-        operator: ['eq'],
-      },
-      {
-        column: 'UpdatedAt',
-        operator: ['gt'],
-      },
-    ]);
+    const locs = await LocationModel.where("Id", 1).populate("Network.Metadata");
+    expect(locs).to.be.not.null;
+    expect(locs).to.be.an('array');
+    expect(locs).to.have.lengthOf(1);
+    expect(locs[0].Network).to.be.not.null;
+    expect(locs[0].Network.Value).to.be.not.null;
+    expect(locs[0].Network.Value.Name).to.be.eq('Network  1');
+    expect(locs[0].Network.Value.Metadata).to.be.not.null;
+    expect(locs[0].Network.Value.Metadata).to.be.an('array');
+    expect(locs[0].Network.Value.Metadata).to.have.lengthOf(2);
+    expect(locs[0].Network.Value.Metadata[0].Key).to.be.eq('meta 1');
+    expect(locs[0].Network.Value.Metadata[1].Key).to.be.eq('meta 2');
   });
 
-  // it('Should return fileterable column schema', async () => {
-  //   await db();
-
-  //   const schema = LocationModel.filterSchema();
-  //   expect(schema).to.be.not.null;
-  // });
-
+   
   it('whereExists should return true on query builder', async () => {
 
     await db();

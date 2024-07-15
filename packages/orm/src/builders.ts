@@ -765,14 +765,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereExist<R>(query: ISelectQueryBuilder | string, callback? : WhereFunction<R>): this {
-
+  public whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
     // we must have alias or subquery could have conflicts on columns names
-    if(!this._tableAlias){
+    if (!this._tableAlias) {
       this._tableAlias = '__exists__';
     }
 
-    if(typeof query === 'string') {
+    if (typeof query === 'string') {
       const rel = (this._model as any).getRelationDescriptor(query);
       if (!rel) {
         throw new OrmException(`relation ${query} not found in model ${this.constructor.name}`);
@@ -784,11 +783,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           // simply use right join for condition check
           if (callback) {
-
             // TODO: cast fix
             (this as any).rightJoin(rel.TargetModel, callback.bind(query));
           }
-           
+
           break;
         case RelationType.Many:
           const relQuery = rel.TargetModel.query();
@@ -805,8 +803,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         case RelationType.ManyToMany:
           throw new OrmException(`not implemented`);
       }
-
-    }else{
+    } else {
       this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, false]));
     }
 
@@ -972,6 +969,17 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
           if (typeof (relation as any)[i] !== null) this.populate((relation as any)[i]);
         });
       }
+
+      return this;
+    }
+
+    // if relation is in path format eg. posts.comments.user
+    // we populate root relation and then call populate on next nested relation
+    if (typeof relation === 'string' && relation.includes('.')) {
+      const r = relation.slice(0, relation.indexOf('.'));
+      this.populate(r, function () {
+        this.populate(relation.slice(relation.indexOf('.') + 1));
+      });
 
       return this;
     }
