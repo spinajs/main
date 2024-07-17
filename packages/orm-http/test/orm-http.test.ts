@@ -10,7 +10,8 @@ import sinon from 'sinon';
 import { expect } from 'chai';
 import './../src/index.js';
 import { FilterableModel } from './models/Filterable.js';
-
+import { FilterC } from './controllers/Filter.js';
+import './../src/route-arg.js';
 
 describe('Http orm tests', function () {
   this.timeout(15000);
@@ -23,6 +24,7 @@ describe('Http orm tests', function () {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
 
     sb.spy(Simple.prototype as any);
+    sb.spy(FilterC.prototype as any);
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) {
@@ -47,6 +49,24 @@ describe('Http orm tests', function () {
   });
 
   describe('query params', function () {
+    it('Should filter route-args works', async () => {
+      const spy = DI.get(FilterC).testFilter as sinon.SinonSpy;
+      await req().get('filter/testFilter?filter=[{"Field": "Number", "Operator": "eq","Value": 1}]').set('Accept', 'application/json');
+
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0].length).to.eq(1);
+      expect(spy.args[0][0][0].Field).to.eq('Number');
+      expect(spy.args[0][0][0].Operator).to.eq('eq');
+      expect(spy.args[0][0][0].Value).to.eq(1);
+    });
+
+    it('Should validate filter schema', async () => {
+      const result = await req().get('filter/testFilter?filter=[{"Column": "Number", "Operator": "between","Value": 1}]').set('Accept', 'application/json');
+      expect(result.status).to.eq(400);
+      expect(result.body).to.be.an('object');
+      expect(result.body.message).to.be.eq('validation error');
+    });
+
     it('simple query', async () => {
       const spy = DI.get(Simple).testGet as sinon.SinonSpy;
 
@@ -90,26 +110,29 @@ describe('Http orm tests', function () {
       const schema = FilterableModel.filterSchema();
       expect(schema).to.deep.eq({
         type: 'array',
-        oneOf: [
-          {
-            type: 'object',
-            required: ['field', 'value', 'operator'],
-            properties: {
-              field: { const: 'Text' },
-              value: { type: ['string', 'integer'] },
-              operator: ['eq', 'like'],
+        items: {
+          type: 'object',
+          anyOf: [
+            {
+              type: 'object',
+              required: ['Field', 'Value', 'Operator'],
+              properties: {
+                Field: { const: 'Text' },
+                Value: { type: ['string', 'integer'] },
+                Operator: { type: 'string', enum: ['eq', 'like'] },
+              },
             },
-          },
-          {
-            type: 'object',
-            required: ['field', 'value', 'operator'],
-            properties: {
-              field: { const: 'Number' },
-              value: { type: ['string', 'integer'] },
-              operator: ['eq', 'gt', 'lt'],
+            {
+              type: 'object',
+              required: ['Field', 'Value', 'Operator'],
+              properties: {
+                Field: { const: 'Number' },
+                Value: { type: ['string', 'integer'] },
+                Operator:  { type: 'string', enum:  ['eq', 'gt', 'lt'] },
+              },
             },
-          },
-        ],
+          ],
+        },
       });
     });
 
