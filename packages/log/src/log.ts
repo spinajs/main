@@ -194,7 +194,7 @@ export class FrameworkLogger extends Log {
         ).map((t) => {
           if (!t.instance) {
             throw new InvalidOperation(
-              `Target for rule ${t.rule.name} not exists`
+              `Target ${t.rule.target} for rule ${t.rule.name} not exists`
             );
           }
 
