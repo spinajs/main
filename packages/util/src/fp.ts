@@ -101,7 +101,7 @@ export function _tap(promise: ((arg: unknown) => Promise<unknown>) | Promise<unk
 
 export function _either(cond: (arg: unknown) => Promise<unknown> | boolean, onFulfilled: (a?: unknown) => Promise<unknown>, onRejected: (arg?: unknown) => Promise<unknown>) {
   if (isPromise(cond)) {
-    return (arg?: unknown) => (cond(arg) as Promise<unknown>).then((res: unknown) => (res ? onFulfilled(arg) : onRejected(arg)));
+    return (arg?: unknown) => (cond(arg) as Promise<unknown>).then((res: unknown) => (res ? onFulfilled(arg) : onRejected ? onRejected(arg) : null));
   }
-  return (arg?: unknown) => (cond ? onFulfilled(arg) : onRejected(arg));
+  return (arg?: unknown) => (cond ? onFulfilled(arg) : onRejected ? onRejected(arg) : null);
 }

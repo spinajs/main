@@ -151,7 +151,7 @@ export async function deactivate(identifier: number | string): Promise<void> {
   return _chain(_user(identifier), _user_update({ IsActive: false }), _user_ev(UserDeactivated), _user_email('deactivated'));
 }
 
-export async function create(email: string, login: string, password: string, roles: string[], options?: IUserCreateOptions): Promise<{ User: User; Password: string }> {
+export async function create(email: string, login: string, password: string, roles: string[]): Promise<{ User: User; Password: string }> {
   const sPassword = await _service('rbac.password', PasswordProvider)();
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
@@ -183,10 +183,7 @@ export async function create(email: string, login: string, password: string, rol
 
     // send event
     _user_ev(UserCreated, (u: User) => u.toJSON()),
-
-    // send email if needed
-    _tap(_either(async () => options?.sendNotification, _user_email('confirm'), null)), // send email
-
+ 
     // return user & password - if generated we want to know not hashed password
     (u: User) => {
       return { User: u, Password: password };
@@ -198,8 +195,7 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
   return _chain(
     _user(identifier),
     _tap((u: User) => u.destroy()),
-    _user_ev(UserDeleted),
-    _user_email('deleted'),
+    _user_ev(UserDeleted)
   );
 }
 
@@ -253,8 +249,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
       { key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true },
       { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
     ]),
-    _user_ev(UserBanned),
-    _user_email('banned'),
+    _user_ev(UserBanned)
   );
 }
 
@@ -274,8 +269,7 @@ export async function unban(identifier: number | string | User): Promise<User> {
       }
     },
     _set_user_meta('/^user:ban/', null),
-    _user_ev(UserUnbanned),
-    _user_email('unbanned'),
+    _user_ev(UserUnbanned)
   );
 }
 
@@ -289,8 +283,7 @@ export async function passwordChangeRequest(identifier: number | string | User) 
       { key: USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, value: uuidv4() },
       { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
     ]),
-    _user_ev(UserPasswordChangeRequest),
-    _user_email('changePassword'),
+    _user_ev(UserPasswordChangeRequest)
   );
 }
 

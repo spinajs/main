@@ -38,10 +38,6 @@ declare module '@spinajs/orm' {
   }
 }
 
-export interface IUserCreateOptions{
-  sendNotification?: boolean;
-}
-
 export interface ISession {
   /**
    * Session identifier
