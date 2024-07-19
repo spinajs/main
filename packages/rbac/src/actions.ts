@@ -8,7 +8,7 @@ import { _cfg, _service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
 import { Constructor } from '@spinajs/di';
 import { UserEvent } from './events/UserEvent.js';
-import { AuthProvider, IUserCreateOptions, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
+import { AuthProvider, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
 import { ErrorCode } from '@spinajs/exceptions';
 import { v4 as uuidv4 } from 'uuid';
