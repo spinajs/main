@@ -1,5 +1,6 @@
-export type Constructor<T> = new (...args: any[]) => T;
+import { isPromise } from 'util/types';
 
+export type Constructor<T> = new (...args: any[]) => T;
 
 /**
  * Chains a list of functions together, passing the result of each function to the next.
@@ -98,6 +99,9 @@ export function _tap(promise: ((arg: unknown) => Promise<unknown>) | Promise<unk
   };
 }
 
-export function _either(cond: (arg: unknown) => Promise<unknown>, onFulfilled: () => Promise<unknown>, onRejected: () => Promise<unknown>) {
-  return (arg?: unknown) => cond(arg).then((res: unknown) => (res ? onFulfilled() : onRejected()));
+export function _either(cond: (arg: unknown) => Promise<unknown> | boolean, onFulfilled: (a?: unknown) => Promise<unknown>, onRejected: (arg?: unknown) => Promise<unknown>) {
+  if (isPromise(cond)) {
+    return (arg?: unknown) => (cond(arg) as Promise<unknown>).then((res: unknown) => (res ? onFulfilled(arg) : onRejected(arg)));
+  }
+  return (arg?: unknown) => (cond ? onFulfilled(arg) : onRejected(arg));
 }

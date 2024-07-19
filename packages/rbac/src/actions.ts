@@ -8,7 +8,7 @@ import { _cfg, _service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
 import { Constructor } from '@spinajs/di';
 import { UserEvent } from './events/UserEvent.js';
-import { AuthProvider, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
+import { AuthProvider, IUserCreateOptions, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
 import { ErrorCode } from '@spinajs/exceptions';
 import { v4 as uuidv4 } from 'uuid';
@@ -151,7 +151,7 @@ export async function deactivate(identifier: number | string): Promise<void> {
   return _chain(_user(identifier), _user_update({ IsActive: false }), _user_ev(UserDeactivated), _user_email('deactivated'));
 }
 
-export async function create(email: string, login: string, password: string, roles: string[]): Promise<{ User: User; Password: string }> {
+export async function create(email: string, login: string, password: string, roles: string[], options?: IUserCreateOptions): Promise<{ User: User; Password: string }> {
   const sPassword = await _service('rbac.password', PasswordProvider)();
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
@@ -185,7 +185,7 @@ export async function create(email: string, login: string, password: string, rol
     _user_ev(UserCreated, (u: User) => u.toJSON()),
 
     // send email if needed
-    _tap(_user_email('confirm')), // send email
+    _tap(_either(async () => options?.sendNotification, _user_email('confirm'), null)), // send email
 
     // return user & password - if generated we want to know not hashed password
     (u: User) => {
