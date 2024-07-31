@@ -212,8 +212,14 @@ export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
       .reduce((prev, current) => {
         return prev.concat(current);
       }, []);
+
+    // HACK
+    // TODO: this is only temporary solution to execute only unique middlewares.
+    // Somewhere else in code is bug that causes multiple same middlewares to be added to the query
+    // 
+    // Check hasmanytomany relation with multiple nested belongs to relation to see the bug
     return Promise.all(
-      middlewares.map((x: any) => {
+      _.uniqBy(middlewares, (x: { _description: { Name: string } }) => x._description.Name).map((x: any) => {
         return x.afterHydration(relData);
       }),
     );
