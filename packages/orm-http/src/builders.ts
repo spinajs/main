@@ -4,9 +4,15 @@ import { IFilter, IColumnFilter } from './interfaces.js';
 /**
  * Extend where builder with  flter func old style ( by prototype )
  */
-(SelectQueryBuilder.prototype as any).filter = function (this: SelectQueryBuilder<any>, filters: IFilter[]) {
-  const columns: IColumnFilter[] = (this._model as any).filterColumns();
+(SelectQueryBuilder.prototype as any).filter = function (this: SelectQueryBuilder<any>, filters?: IFilter[]) {
 
+
+  if(!filters || filters.length === 0)
+  {
+    return this;
+  }
+
+  const columns: IColumnFilter[] = (this._model as any).filterColumns();
   filters.forEach((filter) => {
     if (!columns.find((c) => c.column === filter.Column)) {
       throw new Error(`Column ${filter.Column} is not filterable`);
