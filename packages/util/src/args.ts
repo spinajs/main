@@ -387,3 +387,15 @@ export function _to_float(error?: Error) {
     return res;
   };
 }
+
+/**
+ * 
+ * Alias for _contains
+ * 
+ * @param oneOf 
+ * @param error 
+ * @returns 
+ */
+export function _one_of<T>(oneOf: T[], error?: Error) {
+  return _contains(oneOf, error);
+}

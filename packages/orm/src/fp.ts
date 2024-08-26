@@ -7,7 +7,7 @@ import { ModelBase } from './model.js';
  * @param data data to update
  * @returns
  */
-export function _update<T extends ModelBase>(data?: Partial<T>): (user: T) => Promise<T> {
+export function _update<T extends ModelBase>(data?: Partial<T>): (data: T) => Promise<T> {
   return (model: T) => {
     return model.update(data).then((res: IUpdateResult) => {
       if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {

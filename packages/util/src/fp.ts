@@ -24,6 +24,17 @@ export function _zip(...fns: ((arg?: any) => Promise<any>)[]) {
   return (val: unknown) => Promise.all(fns.map((fn) => fn(val)));
 }
 
+export function _map<T, R>(callback: (val: T) => Promise<R>) {
+  return (val: T[]) => val.map((v) => callback(v));
+}
+
+export function _all() {
+  return (val: Promise<unknown> | Promise<unknown>[]) => {
+    if (Array.isArray(val)) return Promise.all(val);
+    return val;
+  };
+}
+
 export function _use(value: () => Promise<unknown>, name: string) {
   return async (arg?: unknown) => Object.assign({}, arg, { [name]: await value() });
 }
@@ -100,8 +111,12 @@ export function _tap(promise: ((arg: unknown) => Promise<unknown>) | Promise<unk
 }
 
 export function _either(cond: (arg: unknown) => Promise<unknown> | boolean, onFulfilled: (a?: unknown) => Promise<unknown>, onRejected: (arg?: unknown) => Promise<unknown>) {
-  if (isPromise(cond)) {
-    return (arg?: unknown) => (cond(arg) as Promise<unknown>).then((res: unknown) => (res ? onFulfilled(arg) : onRejected ? onRejected(arg) : null));
-  }
-  return (arg?: unknown) => (cond ? onFulfilled(arg) : onRejected ? onRejected(arg) : null);
+  return (arg?: unknown) => {
+    const r = cond(arg);
+    if (isPromise(r)) {
+      return r.then((res: unknown) => (res ? onFulfilled(arg) : onRejected ? onRejected(arg) : null));
+    }
+
+    r ? onFulfilled(arg) : onRejected(arg);
+  };
 }
