@@ -958,7 +958,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
 
     if (Array.isArray(relation)) {
-      relation.forEach((x) => this.populate(x));
+      relation.forEach((x) => this.populate(x, callback));
       return this;
     }
 
