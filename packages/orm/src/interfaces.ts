@@ -467,6 +467,8 @@ export interface IRelationDescriptor {
   JunctionModelTargetModelFKey_Name?: string;
   JunctionModelSourceModelFKey_Name?: string;
 
+  JoinMode? : "LeftJoin" | "RightJoin";
+
   /**
    * Is this relation recursive ? Used for hierarchical / paren one-to-one relations
    */

@@ -360,6 +360,12 @@ export interface IHasManyToManyDecoratorOptions extends IRelationDecoratorOption
    * junction table source primary key name ( foreign key for source model )
    */
   junctionModelSourcePk?: string;
+
+  /**
+   * Join mode on relation
+   * Sometimes right side of junction relation not exists and we want to filter it out
+   */
+  joinMode? : "LeftJoin" | "RightJoin"
 }
 
 export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
@@ -433,6 +439,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       JunctionModelSourceModelFKey_Name: options?.junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
       RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_to_many_factory__', [type]),
       Factory: options ? options.factory : null,
+      JoinMode: options ? options.joinMode : null
     };
 
     

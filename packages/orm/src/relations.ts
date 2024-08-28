@@ -2,13 +2,13 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder } from './interfaces.js';
 import { NewInstance, DI, Constructor, Inject, Container } from '@spinajs/di';
- 
+
 import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, BelongsToRelationResultTransformMiddleware, DiscriminationMapMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware } from './middlewares.js';
 import { extractModelDescriptor, ModelBase } from './model.js';
 import { Orm } from './orm.js';
 import { OrmDriver } from './driver.js';
 import _ from 'lodash';
- 
+
 export interface IOrmRelation {
   /**
    * Executes relation, should be called only once.
@@ -56,8 +56,8 @@ export abstract class OrmRelation implements IOrmRelation {
   constructor(protected _container: Container, protected _query: ISelectQueryBuilder, protected _description: IRelationDescriptor, public parentRelation?: OrmRelation) {
     this._targetModel = this._description.TargetModel;
     this._targetModelDescriptor = _paramCheck(() => extractModelDescriptor(this._targetModel), `Model ${this._targetModel?.name} does not have model descriptor set`);
-    this._driver = _paramCheck(() => DI.resolve<OrmDriver>("OrmConnection", [this._targetModelDescriptor.Connection]), `Connection ${this._targetModelDescriptor.Connection} is not set in configuration file`)
-    this._relationQuery = this._container.resolve("SelectQueryBuilder", [this._driver, this._targetModel, this]);
+    this._driver = _paramCheck(() => DI.resolve<OrmDriver>('OrmConnection', [this._targetModelDescriptor.Connection]), `Connection ${this._targetModelDescriptor.Connection} is not set in configuration file`);
+    this._relationQuery = this._container.resolve('SelectQueryBuilder', [this._driver, this._targetModel, this]);
     this._separator = this._driver.Options.AliasSeparator;
 
     if (this._driver.Options.Database) {
@@ -188,7 +188,7 @@ export class ManyToManyRelation extends OrmRelation {
     const driver = orm.Connections.get(this._joinModelDescriptor.Connection);
 
     const cnt = driver.Container;
-    this._joinQuery = cnt.resolve<ISelectQueryBuilder>("SelectQueryBuilder", [driver, this._targetModel, this]);
+    this._joinQuery = cnt.resolve<ISelectQueryBuilder>('SelectQueryBuilder', [driver, this._targetModel, this]);
 
     if (driver.Options.Database) {
       this._joinQuery.database(driver.Options.Database);
@@ -208,7 +208,11 @@ export class ManyToManyRelation extends OrmRelation {
   }
 
   public execute(callback?: (this: ISelectQueryBuilder<any>, relation: OrmRelation) => void): void {
-    this._joinQuery.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
+    if (this._description.JoinMode === 'RightJoin') {
+      this._joinQuery.rightJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
+    } else {
+      this._joinQuery.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
+    }
 
     // execute callbacks on join query that is executed
     // for junction model, so we can execute any further queries on it after relation is populated
@@ -227,7 +231,6 @@ export class ManyToManyRelation extends OrmRelation {
       Recursive: false,
     };
 
-
     // todo fix this cast
     (this._joinQuery as any).mergeBuilder(this._relationQuery);
     (this._joinQuery as any).mergeRelations(this._relationQuery);
@@ -235,6 +238,3 @@ export class ManyToManyRelation extends OrmRelation {
     this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor));
   }
 }
-
-
-
