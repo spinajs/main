@@ -1,4 +1,4 @@
-import { IValueConverterDescriptor } from './interfaces.js';
+import { ForwardRefFunction, IValueConverterDescriptor } from './interfaces.js';
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer } from '@spinajs/di';
@@ -7,6 +7,7 @@ import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { Relation } from './relation-objects.js';
+import { Orm } from './orm.js';
 
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
@@ -376,9 +377,8 @@ export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
  */
 export function HasMany(targetModel: Constructor<ModelBase> | string, options?: IHasManyDecoratorOptions) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    
     let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target, propertyKey);
-   
+
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Many,
@@ -389,7 +389,7 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       PrimaryKey: options ? options.primaryKey ?? model.PrimaryKey : model.PrimaryKey,
       Recursive: false,
       Factory: options?.factory ? options.factory : null,
-      RelationClass: options?.type ? options.type : () => DI.resolve("__orm_relation_has_many_factory__", [type]),
+      RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_factory__', [type]),
     });
   });
 }
@@ -417,26 +417,54 @@ export function Historical(targetModel: Constructor<ModelBase>) {
  */
 export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase> | string, options?: IHasManyToManyDecoratorOptions) {
   return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const targetModelDescriptor = extractModelDescriptor(targetModel);
-
-    
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target, propertyKey);
-   
-    model.Relations.set(propertyKey, {
+    const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Recursive: false,
       Type: RelationType.ManyToMany,
       SourceModel: target.constructor,
       TargetModelType: targetModel,
       TargetModel: null,
-      ForeignKey: options?.targetModelPKey ?? targetModelDescriptor.PrimaryKey,
+      ForeignKey: '',
+      // ForeignKey: options?.targetModelPKey ?? targetModelDescriptor.PrimaryKey,
       PrimaryKey: options?.sourceModelPKey ?? model.PrimaryKey,
       JunctionModel: junctionModel,
-      JunctionModelTargetModelFKey_Name: options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
+      // JunctionModelTargetModelFKey_Name: options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
+      JunctionModelTargetModelFKey_Name: '',
       JunctionModelSourceModelFKey_Name: options?.junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
-      RelationClass: options?.type ? options.type :  () => DI.resolve("__orm_relation_has_many_to_many_factory__", [type]),
+      RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_to_many_factory__', [type]),
       Factory: options ? options.factory : null,
-    });
+    };
+
+    
+    // HACK:
+    // we should use ForwardRefFunction as targetModel type
+    // and lazy resolve foreginKey and JunctionModelTargetModelFKey_Name at runtime
+    // using of getters is temporary ??? too much code change for now
+    if (typeof targetModel === 'string') {
+      const getModel = function () {
+        return extractModelDescriptor(DI.get(Orm).Models.find((x) => x.name === targetModel).type);
+      };
+
+      Object.defineProperty(descriptor, 'ForeignKey', {
+        get: function () {
+          return options?.targetModelPKey ?? getModel().PrimaryKey;
+        },
+      });
+
+      Object.defineProperty(descriptor, 'JunctionModelTargetModelFKey_Name', {
+        get: function () {
+          options?.junctionModelTargetPk ?? `${getModel().Name.toLowerCase()}_id`;
+        },
+      });
+    } else {
+      const targetModelDescriptor = extractModelDescriptor(targetModel);
+      descriptor.ForeignKey = options?.targetModelPKey ?? targetModelDescriptor.PrimaryKey;
+      descriptor.JunctionModelTargetModelFKey_Name = options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`;
+    }
+
+    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target, propertyKey);
+
+    model.Relations.set(propertyKey, descriptor);
   });
 }
 
@@ -488,7 +516,7 @@ export function UniversalConverter(typeColumn?: string) {
     model.Converters.set(propertyKey, {
       Class: UniversalValueConverter,
       Options: {
-        TypeColumn: typeColumn ?? "Type",
+        TypeColumn: typeColumn ?? 'Type',
       },
     });
   });
