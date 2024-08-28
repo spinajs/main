@@ -68,7 +68,7 @@ export abstract class OrmRelation implements IOrmRelation {
   public abstract execute(callback?: (this: ISelectQueryBuilder, relation: OrmRelation) => void): void;
 
   public executeOnQuery(callback: (this: ISelectQueryBuilder<any>, relation: OrmRelation) => void): void {
-    callback.call(this._relationQuery, [this]);
+    callback.call(this._relationQuery, this);
   }
 }
 
@@ -92,7 +92,7 @@ export class BelongsToRelation extends OrmRelation {
     this._query.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.ForeignKey, `${this._description.PrimaryKey}`, this._targetModelDescriptor.Driver.Options.Database);
 
     if (callback) {
-      callback.call(this._relationQuery, [this]);
+      callback.call(this._relationQuery, this);
     }
 
     // todo: fix this cast
@@ -123,7 +123,7 @@ export class BelongsToRecursiveRelation extends OrmRelation {
 
   public execute(callback: (this: ISelectQueryBuilder, relation: OrmRelation) => void) {
     if (callback) {
-      callback.call(this._relationQuery, [this]);
+      callback.call(this._relationQuery, this);
     }
 
     this._query.middleware(new BelongsToRelationRecursiveMiddleware(this._relationQuery, this._description, this._targetModelDescriptor));
@@ -150,7 +150,7 @@ export class OneToManyRelation extends OrmRelation {
     }
 
     if (callback) {
-      callback.call(this._relationQuery, [this]);
+      callback.call(this._relationQuery, this);
     }
 
     this._query.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
@@ -217,7 +217,7 @@ export class ManyToManyRelation extends OrmRelation {
     // execute callbacks on join query that is executed
     // for junction model, so we can execute any further queries on it after relation is populated
     if (callback) {
-      callback.call(this._relationQuery, [this]);
+      callback.call(this._relationQuery, this);
     }
 
     const joinRelationDescriptor = {
