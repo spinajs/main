@@ -50,7 +50,7 @@ describe('Sqlite - relations test', function () {
     expect(locs).to.have.lengthOf(1);
     expect(locs[0].Network).to.be.not.null;
     expect(locs[0].Network.Value).to.be.not.null;
-    expect(locs[0].Network.Value.Name).to.be.eq('Network  1');
+    expect(locs[0].Network.Value.Name).to.be.eq('Network 1');
     expect(locs[0].Network.Value.Metadata).to.be.not.null;
     expect(locs[0].Network.Value.Metadata).to.be.an('array');
     expect(locs[0].Network.Value.Metadata).to.have.lengthOf(2);
