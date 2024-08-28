@@ -1,4 +1,4 @@
-import { ForwardRefFunction, IValueConverterDescriptor } from './interfaces.js';
+import {  IValueConverterDescriptor } from './interfaces.js';
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer } from '@spinajs/di';
