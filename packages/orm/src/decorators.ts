@@ -460,7 +460,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
 
       Object.defineProperty(descriptor, 'JunctionModelTargetModelFKey_Name', {
         get: function () {
-          options?.junctionModelTargetPk ?? `${getModel().Name.toLowerCase()}_id`;
+          return options?.junctionModelTargetPk ?? `${getModel().Name.toLowerCase()}_id`;
         },
       });
     } else {
