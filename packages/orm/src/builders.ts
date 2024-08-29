@@ -1026,8 +1026,6 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
 
     relInstance.execute(callback);
-    relInstance.Name = relation;
-
     this._relations.push(relInstance);
 
     return this;

@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { InvalidOperation } from '@spinajs/exceptions';
-import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder, IRelation } from './interfaces.js';
+import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder } from './interfaces.js';
 import { NewInstance, DI, Constructor, Inject, Container } from '@spinajs/di';
 
 import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, BelongsToRelationResultTransformMiddleware, DiscriminationMapMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware } from './middlewares.js';
