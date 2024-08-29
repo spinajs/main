@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { InvalidOperation } from '@spinajs/exceptions';
-import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder } from './interfaces.js';
+import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder, IRelation } from './interfaces.js';
 import { NewInstance, DI, Constructor, Inject, Container } from '@spinajs/di';
 
 import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, BelongsToRelationResultTransformMiddleware, DiscriminationMapMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware } from './middlewares.js';
@@ -28,6 +28,8 @@ export interface IOrmRelation {
    * Relation name
    */
   Name: string;
+
+  Descriptor: IRelationDescriptor;
 }
 
 function _paramCheck<T>(callback: () => T, err: string) {
@@ -47,7 +49,13 @@ export abstract class OrmRelation implements IOrmRelation {
   protected _separator: string;
   protected _driver: OrmDriver;
 
-  public Name: string;
+  public get Name() {
+    return this._description.Name;
+  }
+
+  public get Descriptor() {
+    return this._description;
+  }
 
   get Alias(): string {
     return this.parentRelation ? `${this.parentRelation.Alias}.${this._separator}${this._description.Name}${this._separator}` : `${this._separator}${this._description.Name}${this._separator}`;
