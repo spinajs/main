@@ -10,12 +10,16 @@ import { BadRequest } from './badRequest.js';
  */
 
 export class Forbidden extends BadRequest {
-  constructor(data?: any, protected options?: IResponseOptions) {
+  constructor(data?: string | object | Promise<unknown>, protected options?: IResponseOptions) {
     super(data);
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    return await httpResponse(this.responseData, 'forbidden.pug', {
+
+    const response = await this.prepareResponse();
+
+
+    return await httpResponse(response, 'forbidden.pug', {
       ...this.options,
       StatusCode: HTTP_STATUS_CODE.FORBIDDEN,
     });

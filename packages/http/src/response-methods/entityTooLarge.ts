@@ -8,12 +8,16 @@ import { httpResponse } from '../responses.js';
  * @param data - additional data eg. model pk
  */
 export class EntityTooLarge extends Response {
-  constructor(data: any, protected options?: IResponseOptions) {
+  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
     super(data);
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    return await httpResponse(this.responseData, 'entityTooLarge.pug', {
+
+    const response = await this.prepareResponse();
+
+
+    return await httpResponse(response, 'entityTooLarge.pug', {
       ...this.options,
       StatusCode: HTTP_STATUS_CODE.ENTITY_TOO_LARGE,
     });

@@ -9,12 +9,16 @@ import { BadRequest } from './badRequest.js';
  * @param err - error to send
  */
 export class NotFound extends BadRequest {
-  constructor(data?: any, protected options?: IResponseOptions) {
+  constructor(data?: string | object | Promise<unknown>, protected options?: IResponseOptions) {
     super(data);
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    return await httpResponse(this.responseData, 'notFound.pug', { 
+
+    const response = await this.prepareResponse();
+
+
+    return await httpResponse(response, 'notFound.pug', { 
       ...this.options,
       StatusCode: HTTP_STATUS_CODE.NOT_FOUND,
     });

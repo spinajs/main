@@ -8,12 +8,16 @@ import { httpResponse } from '../responses.js';
  * @param data - additional data eg. model pk
  */
 export class Created extends Response {
-  constructor(data: any, protected options?: IResponseOptions) {
+  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
     super(data);
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    return await httpResponse(this.responseData, 'created.pug',{
+
+    const response = await this.prepareResponse();
+
+
+    return await httpResponse(response, 'created.pug',{
       ...this.options,
       StatusCode: HTTP_STATUS_CODE.CREATED
     });

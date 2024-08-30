@@ -9,12 +9,16 @@ import { BadRequest } from './badRequest.js';
  * @param err - error to send
  */
 export class NoContent extends BadRequest {
-  constructor(data?: any, protected options?: IResponseOptions) {
+  constructor(data?: string | object | Promise<unknown>, protected options?: IResponseOptions) {
     super(data);
   }
 
   public async execute(_req: express.Request, _res: express.Response) {
-    return await httpResponse(this.responseData, 'noContent.pug', {
+
+    const response = await this.prepareResponse();
+
+
+    return await httpResponse(response, 'noContent.pug', {
       ...this.options,
       StatusCode: HTTP_STATUS_CODE.NO_CONTENT,
     });

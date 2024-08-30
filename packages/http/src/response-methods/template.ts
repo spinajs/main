@@ -15,7 +15,7 @@ export class TemplateResponse extends Response {
   protected fsTemplates: fs;
   protected templateFile: string | ITemplateResponseOptions;
 
-  constructor(file: string | ITemplateResponseOptions, model: any, protected options? : IResponseOptions) {
+  constructor(file: string | ITemplateResponseOptions, model: object | Promise<unknown>, protected options? : IResponseOptions) {
     super(model);
 
     this.fsTemplates = _.isString(file)
@@ -27,6 +27,8 @@ export class TemplateResponse extends Response {
 
   public async execute(_req: express.Request, _res: express.Response) {
 
+    const response = await this.prepareResponse();
+    
     if (!this.fsTemplates) {
       const provider = _.isString(this.templateFile) ? '__fs_http_templates__' : this.templateFile.provider;
       throw new IOFail(`Cannot find template file provider ${provider}. Please check configuration for provider or make sure that __fs_http_templates__ is configured.`)
@@ -36,7 +38,7 @@ export class TemplateResponse extends Response {
       ? await this.fsTemplates.download(this.templateFile)
       : await this.fsTemplates.download(this.templateFile.template);
 
-    return await htmlResponse(this.file, this.responseData, {
+    return await htmlResponse(this.file, response, {
       ...this.options,
       StatusCode: this.options.StatusCode ? this.options.StatusCode : HTTP_STATUS_CODE.OK
     });

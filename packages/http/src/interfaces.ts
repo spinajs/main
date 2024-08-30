@@ -1,5 +1,5 @@
 import * as express from 'express';
-import { Constructor, AsyncService, Class } from '@spinajs/di';
+import { Constructor, AsyncService, Class, isPromise } from '@spinajs/di';
 import { fs } from '@spinajs/fs';
 import formidable from 'formidable';
 import { CookieOptions } from 'express';
@@ -47,7 +47,6 @@ export enum HttpAcceptHeaders {
 }
 
 export interface IHttpServerConfiguration {
-
   /**
    * Https server configuration
    */
@@ -77,8 +76,6 @@ export interface IHttpServerConfiguration {
   AcceptHeaders: HttpAcceptHeaders;
 
   FatalTemplate: string;
-
-  
 }
 
 /**
@@ -671,9 +668,13 @@ export interface IPolicyDescriptor {
 export type ResponseFunction = (req: express.Request, res: express.Response) => void;
 
 export abstract class Response {
-  constructor(protected responseData: any) {}
+  constructor(protected responseData: string | object | Promise<unknown>) {}
 
   public abstract execute(req: express.Request, res: express.Response, next?: express.NextFunction): Promise<ResponseFunction | void>;
+
+  protected async prepareResponse() {
+    return isPromise(this.responseData) ? await this.responseData : this.responseData;
+  }
 }
 
 /**
