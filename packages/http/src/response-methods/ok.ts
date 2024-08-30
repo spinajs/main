@@ -1,7 +1,6 @@
 import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions, Response } from '../interfaces.js';
 import { httpResponse } from '../responses.js';
-import { isPromise } from '@spinajs/di';
 
 /**
  * Internall response function.
@@ -16,7 +15,7 @@ export class Ok extends Response {
   public async execute(_req: express.Request, _res: express.Response) {
 
     const response = await this.prepareResponse();
-    
+
     return await httpResponse(response, 'ok.pug', {
       ...this.options,
       StatusCode: HTTP_STATUS_CODE.OK,
