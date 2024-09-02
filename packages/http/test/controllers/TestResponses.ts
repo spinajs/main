@@ -26,4 +26,15 @@ export class TestResponses extends BaseController {
   public testDataTransformer() {
     return new Ok({ message: 'hello world' });
   }
+
+  @Get()
+  public fromPromise() {
+    const action = async () => {
+      return new Promise((res) => {
+        res({ message: 'hello world' });
+      });
+    };
+
+    return new Ok(action());
+  }
 }

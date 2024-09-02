@@ -6,7 +6,7 @@ import { Intl } from '@spinajs/intl';
 import sinon, { assert } from 'sinon';
 import { expect } from 'chai';
 
-import { fs as sFs } from '@spinajs/fs';
+import { fsService, fs as sFs } from '@spinajs/fs';
 
 import { dir, req, TestConfiguration } from './common.js';
 import { Controllers, HttpServer } from '../src/index.js';
@@ -46,6 +46,9 @@ describe('controller action test params', function () {
     }
 
     DI.register(TestConfiguration).as(Configuration);
+
+    await DI.resolve(Configuration);
+    await DI.resolve(fsService);
     await DI.resolve(Intl);
     await DI.resolve(Controllers);
     const server = await DI.resolve<HttpServer>(HttpServer);

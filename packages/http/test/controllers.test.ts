@@ -5,7 +5,7 @@ import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
-import { FsBootsrapper } from '@spinajs/fs';
+import { FsBootsrapper, fsService } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 
 import { Controllers, HttpServer } from '../src/index.js';
@@ -59,11 +59,11 @@ describe('http & controller tests', function () {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(TestTransformer).as(DataTransformer);
 
+    await DI.resolve(Configuration);
+    await DI.resolve(fsService);
     await DI.resolve(Intl);
     await DI.resolve(Controllers);
-
   });
-
 
   after(async () => {
     const server = await DI.resolve(HttpServer);
@@ -79,14 +79,12 @@ describe('http & controller tests', function () {
   it('should manual register controller', async () => {
     const c = await ctr();
     await c?.registerFromFile(join(dir('controllers2'), 'TestMethods2.ts'));
-    
+
     const server = await DI.resolve(HttpServer);
     server.start();
-    
+
     let response = await req().get('testmethods2/testGet2');
     expect(response).to.have.status(200);
-
-  
   });
 
   it('should load controllers from dir', async () => {
@@ -210,6 +208,16 @@ describe('http & controller tests', function () {
 
   it('json response should work', async () => {
     const response = await req().get('responses/data').set('Accept', 'application/json').send();
+    expect(response).to.have.status(200);
+    expect(response).to.be.json;
+    expect(response.body).to.be.not.null;
+    expect(response.body).to.include({
+      message: 'hello world',
+    });
+  });
+
+  it('Response with promise should work', async () => {
+    let response = await req().get('responses/fromPromise').set('Accept', 'application/json').send();
     expect(response).to.have.status(200);
     expect(response).to.be.json;
     expect(response.body).to.be.not.null;
