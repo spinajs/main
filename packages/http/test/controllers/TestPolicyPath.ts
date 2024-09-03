@@ -19,4 +19,11 @@ export class TestPolicyPath extends BaseController {
   public testGet3() {
     return new Ok();
   }
+
+  @Get()
+  @Policy(SamplePolicy3)
+  @Policy(SamplePolicy2)
+  public testMultiplePolicies(){
+    return new Ok();
+  }
 }

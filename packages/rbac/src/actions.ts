@@ -14,6 +14,7 @@ import { ErrorCode } from '@spinajs/exceptions';
 import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
+import { UserPasswordExpired } from './events/UserPasswordExpired.js';
 
 export enum E_CODES {
   E_TOKEN_EXPIRED,
@@ -85,7 +86,7 @@ export function _get_user_meta(key: string) {
  * @param cfgTemplate
  * @returns
  */
-export function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned') {
+export function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned' | 'passwordWillExpire' | 'passwordExpired') {
   interface _tCfg {
     enabled: boolean;
     template: string;
@@ -144,11 +145,11 @@ export function _user(identifier: number | string | User): () => Promise<User> {
  */
 
 export async function activate(identifier: number | string | User) {
-  return _chain(_user(identifier), _user_update({ IsActive: true }), _user_ev(UserActivated), _user_email('activated'));
+  return _chain(_user(identifier), _user_update({ IsActive: true }), _user_ev(UserActivated));
 }
 
-export async function deactivate(identifier: number | string): Promise<void> {
-  return _chain(_user(identifier), _user_update({ IsActive: false }), _user_ev(UserDeactivated), _user_email('deactivated'));
+export async function deactivate(identifier: number | string | User): Promise<void> {
+  return _chain(_user(identifier), _user_update({ IsActive: false }), _user_ev(UserDeactivated));
 }
 
 export async function create(email: string, login: string, password: string, roles: string[]): Promise<{ User: User; Password: string }> {
@@ -183,7 +184,7 @@ export async function create(email: string, login: string, password: string, rol
 
     // send event
     _user_ev(UserCreated, (u: User) => u.toJSON()),
- 
+
     // return user & password - if generated we want to know not hashed password
     (u: User) => {
       return { User: u, Password: password };
@@ -195,7 +196,7 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
   return _chain(
     _user(identifier),
     _tap((u: User) => u.destroy()),
-    _user_ev(UserDeleted)
+    _user_ev(UserDeleted),
   );
 }
 
@@ -249,7 +250,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
       { key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true },
       { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
     ]),
-    _user_ev(UserBanned)
+    _user_ev(UserBanned),
   );
 }
 
@@ -269,7 +270,7 @@ export async function unban(identifier: number | string | User): Promise<User> {
       }
     },
     _set_user_meta('/^user:ban/', null),
-    _user_ev(UserUnbanned)
+    _user_ev(UserUnbanned),
   );
 }
 
@@ -283,7 +284,7 @@ export async function passwordChangeRequest(identifier: number | string | User) 
       { key: USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, value: uuidv4() },
       { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
     ]),
-    _user_ev(UserPasswordChangeRequest)
+    _user_ev(UserPasswordChangeRequest),
   );
 }
 
@@ -333,9 +334,19 @@ export async function changePassword(password: string): Promise<(u: User) => Pro
 
       // update password
       ({ pwd }: { pwd: PasswordProvider }) => pwd.hash(password),
-      (hPassword: string) => _chain(u, _update<User>({ Password: hPassword }), _set_user_meta('/^user:pwd_reset/'), _user_ev(UserPasswordChanged)),
+      (hPassword: string) => _chain(u, _update<User>({ Password: hPassword }), _set_user_meta('/^user:pwd_reset/'), _set_user_meta('user:last_pwd_reset', DateTime.now().toISO()), _user_ev(UserPasswordChanged)),
     );
   };
+}
+
+/**
+ *
+ * Expire password for user
+ *
+ * @param identifier
+ */
+export async function expirePassword(identifier: number | string | User): Promise<void> {
+  return await _chain(_user(identifier), (user: User) => deactivate(user), _user_ev(UserPasswordExpired));
 }
 
 export async function auth(identifier: number | string | User, password: string): Promise<User> {

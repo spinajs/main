@@ -71,16 +71,28 @@ const rbac = {
         subject: 'Account unbanned',
       },
 
-      deleted: { 
+      deleted: {
         enabled: true,
         template: './user-deleted-email-template.pug',
         subject: 'Account deleted',
       },
 
-      deactivated: { 
+      deactivated: {
         enabled: true,
         template: './user-deactivated-email-template.pug',
         subject: 'Account deactivated',
+      },
+
+      passwordExpired: {
+        enabled: true,
+        template: './user-password-expired-template.pug',
+        subject: 'Password expired',
+      },
+
+      passwordWillExpire: {
+        enabled: true,
+        template: './user-password-will-expire-soon.pug',
+        subject: 'Your password will expire soon',
       },
 
       // when user is created, should he confirm email
@@ -90,7 +102,7 @@ const rbac = {
         enabled: true,
         template: './user-confirmation-email-template.pug',
         subject: 'Account created',
-      }
+      },
     },
     // default roles to manage users & guest account
     roles: [
@@ -128,7 +140,6 @@ const rbac = {
     },
     password: {
       service: 'BasicPasswordProvider',
-      
 
       validation: {
         service: 'BasicPasswordValidationProvider',
@@ -155,7 +166,13 @@ const rbac = {
       /**
        * Should password expire after some time ?
        */
-      passwordExpirationTime: 0,
+
+      expiration: {
+        enabled: true,
+
+        // in seconds
+        passwordExpirationTime: 31 * 24 * 60 * 60,
+      },
 
       /**
        * How long we should wait to reset password ( after this time reset token is invalid )

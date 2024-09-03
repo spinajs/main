@@ -117,7 +117,28 @@ export abstract class BaseController extends AsyncService implements IController
 
       this._log.trace(`Registering route ${route.Type.toUpperCase()} ${this.constructor.name}::${route.Method} at ${path}`);
 
-      handlers.push(...policies.filter((p) => p.isEnabled(route, this)).map((p) => _invokePolicyAction(p, p.execute.bind(p), route)));
+      // Execute all policies for route
+      // If at least ONE policy returns no error allow route to execute
+      // It allows to use multiple access to resource eg. token access & session
+      handlers.push((req: express.Request, _res: express.Response, next: express.NextFunction) => {
+        if(policies.length === 0){
+          next();
+          return;
+        }
+
+        Promise.any(
+          policies
+            .filter((p) => p.isEnabled(route, this))
+            .map((p) => {
+              return p.execute(req, route, this).catch((err) => {
+                this._log.trace(`Policy failed for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method} error ${err}, policy: ${p.constructor.name}`);
+                return err;
+              });
+            }),
+        )
+          .then(next)
+          .catch((err) => next(err));
+      });
       handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBefore.bind(m), route)));
 
       const acionWrapper = async (req: sRequest, res: express.Response, next: express.NextFunction) => {
@@ -165,7 +186,7 @@ export abstract class BaseController extends AsyncService implements IController
       handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onAfter.bind(m), route)));
 
       // register to express router
-      if(route.InternalType === 'unknown') {
+      if (route.InternalType === 'unknown') {
         this._log.warn(`Unknown route type for ${this.constructor.name}::${route.Method} at path ${path}`);
         return;
       }
@@ -187,25 +208,6 @@ export abstract class BaseController extends AsyncService implements IController
         value: source.constructor.name,
         writable: true,
       });
-      return wrapper;
-    }
-
-    function _invokePolicyAction(source: any, action: any, route: IRoute) {
-      const wrapper = (req: express.Request, _res: express.Response, next: express.NextFunction) => {
-        action(req, route, self)
-          .then(next)
-          .catch((err: any) => {
-            self._log.trace(`route ${self.constructor.name}:${route.Method} ${self.BasePath}${route.Path} error ${err}, policy: ${source.constructor.name}`);
-
-            next(err);
-          });
-      };
-
-      Object.defineProperty(wrapper, 'name', {
-        value: source.constructor.name,
-        writable: true,
-      });
-
       return wrapper;
     }
 

@@ -92,7 +92,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         targets: [
           {
             name: 'Empty',
-            type: 'BlackHoleTarget',
+            type: 'ConsoleTarget',
           },
         ],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],

@@ -697,7 +697,7 @@ export abstract class BasePolicy {
    *
    * @param req express request object
    */
-  public abstract execute(req: Request, action: IRoute, instance: IController): Promise<void>;
+  public abstract execute(req: express.Request, action: IRoute, instance: IController): Promise<void>;
 }
 
 /**

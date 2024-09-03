@@ -9,6 +9,7 @@ export * from "./decorators.js";
 export * from './extension.js';
 export * from "./route-arg.js";
 export * from './builders.js';
+export * from './dto.js';
 
 @Injectable()
 export class AsDbModel extends RouteArgs {

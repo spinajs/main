@@ -199,6 +199,11 @@ describe('http & controller tests', function () {
     expect(response).to.have.status(403);
   });
 
+  it('Multiple policy should allow if one ok', async () => {
+    let response = await req().get('testpolicypath/testMultiplePolicies');
+    expect(response).to.have.status(200);
+  });
+
   it('html response should work', async () => {
     const response = await req().get('responses/data').set('Accept', 'text/html').send();
     expect(response).to.have.status(200);
