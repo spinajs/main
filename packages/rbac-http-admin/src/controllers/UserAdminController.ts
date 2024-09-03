@@ -1,6 +1,42 @@
 import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
-import { Filter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
+import { CustomFilterSchema, Filter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { User } from '@spinajs/rbac';
+
+/**
+ * User model filter
+ * We declare it here to not include orm-http in rbac module
+ * and add unnessesery dependency
+ */
+const USER_FILTER: CustomFilterSchema[] = [
+  {
+    Field: 'Uuid',
+    Operators: ['eq'],
+  },
+  {
+    Field: 'Email',
+    Operators: ['eq', 'like'],
+  },
+  {
+    Field: 'Login',
+    Operators: ['eq', 'like'],
+  },
+  {
+    Field: 'CreatedAt',
+    Operators: ['eq', 'gte', 'lte', 'lt', 'gt'],
+  },
+  {
+    Field: 'LastLoginAt',
+    Operators: ['eq', 'gte', 'lte', 'lt', 'gt'],
+  },
+  {
+    Field: 'DeletedAt',
+    Operators: ['eq', 'gte', 'lte', 'lt', 'gt', 'isnull', 'notnull'],
+  },
+  {
+    Field: 'IsActive',
+    Operators: ['eq'],
+  },
+];
 
 @BasePath('user')
 export class UsersController extends BaseController {
@@ -16,7 +52,7 @@ export class UsersController extends BaseController {
       },
     })
     include?: string[],
-    @Filter(User)
+    @Filter(USER_FILTER)
     filter?: IFilter[],
   ) {
     const result = await User.select()
