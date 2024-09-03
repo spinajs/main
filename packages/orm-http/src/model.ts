@@ -37,7 +37,7 @@ export const MODEL_STATIC_MIXINS = {
         anyOf: modelDescriptor.Columns.filter((c) => c.Filterable !== null && c.Filterable !== undefined && c.Filterable.length > 0).map((c) => {
           return {
             type: 'object',
-            required: ['Column', 'Value', 'Operator'],
+            required: ['Field', 'Value', 'Operator'],
             properties: {
               Field: { const: c.Name },
               Value: { type: ['string', 'integer'] },

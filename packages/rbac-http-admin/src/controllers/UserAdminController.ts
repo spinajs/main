@@ -1,5 +1,4 @@
-import { BaseController, BasePath, Get, Ok, Query, Header } from '@spinajs/http';
-import { RawQuery } from '@spinajs/orm';
+import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
 import { Filter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { User } from '@spinajs/rbac';
 

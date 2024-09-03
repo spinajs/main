@@ -8,4 +8,17 @@ export class FilterC extends BaseController {
   public testFilter(@Filter(FilterableModel) filter: IFilter[]) {
     return new Ok(filter);
   }
+
+  @Get()
+  public testCustomFilter(
+    @Filter([
+      {
+        Field: 'Foo',
+        Operators: ['eq', 'gt'],
+      },
+    ])
+    filter: IFilter[],
+  ) {
+    return new Ok(filter);
+  }
 }

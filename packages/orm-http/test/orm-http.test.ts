@@ -51,11 +51,22 @@ describe('Http orm tests', function () {
   describe('query params', function () {
     it('Should filter route-args works', async () => {
       const spy = DI.get(FilterC).testFilter as sinon.SinonSpy;
-      await req().get('filter/testFilter?filter=[{"Column": "Number", "Operator": "eq","Value": 1}]').set('Accept', 'application/json');
+      await req().get('filter/testFilter?filter=[{"Field": "Number", "Operator": "eq","Value": 1}]').set('Accept', 'application/json');
 
       expect(spy.args[0][0]).to.be.an('array');
       expect(spy.args[0][0].length).to.eq(1);
-      expect(spy.args[0][0][0].Column).to.eq('Number');
+      expect(spy.args[0][0][0].Field).to.eq('Number');
+      expect(spy.args[0][0][0].Operator).to.eq('eq');
+      expect(spy.args[0][0][0].Value).to.eq(1);
+    });
+
+    it('Should custom filter route-args works', async () => {
+      const spy = DI.get(FilterC).testCustomFilter as sinon.SinonSpy;
+      await req().get('filter/testCustomFilter?filter=[{"Field": "Foo", "Operator": "eq","Value": 1}]').set('Accept', 'application/json');
+
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0].length).to.eq(1);
+      expect(spy.args[0][0][0].Field).to.eq('Foo');
       expect(spy.args[0][0][0].Operator).to.eq('eq');
       expect(spy.args[0][0][0].Value).to.eq(1);
     });
