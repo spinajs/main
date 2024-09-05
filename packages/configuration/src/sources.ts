@@ -119,8 +119,8 @@ export abstract class BaseFileSource extends ConfigurationSource {
 @Injectable(ConfigurationSource)
 export class JsFileSource extends BaseFileSource {
   public async Load(config: Configuration): Promise<IConfigLike> {
-    const common = await this.load('!(*.dev|*.prod).{cjs,js}', _load);
     const env = this.getEnvironment(config);
+    const common = await this.load(`!(*.dev|*.prod|*.${env}).{cjs,js}`, _load);
     const fExt =  `*.${env}.{cjs,js}`;
     const cfg = await this.load(fExt, _load);
     return _.mergeWith(common, cfg, mergeArrays);
@@ -141,8 +141,8 @@ export class JsFileSource extends BaseFileSource {
 @Injectable(ConfigurationSource)
 export class JsonFileSource extends BaseFileSource {
   public async Load(config: Configuration): Promise<IConfigLike> {
-    const common = await this.load('!(*.dev|*.prod).json', _load);
     const env = this.getEnvironment(config);
+    const common = await this.load(`!(*.dev|*.prod|*.${env}).json`, _load);
     const fExt =  `*.${env}.json`;
     const cfg = await this.load(fExt, _load);
     return _.mergeWith(common, cfg, mergeArrays);
