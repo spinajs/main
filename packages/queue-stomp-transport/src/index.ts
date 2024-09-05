@@ -79,6 +79,7 @@ export class StompQueueClient extends QueueClient {
       };
 
       this.Client.onWebSocketError = (err) => {
+        this.Log.error(`Websocket error: ${err}`);
         reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}, websocket error`, err));
       };
 
@@ -169,7 +170,7 @@ export class StompQueueClient extends QueueClient {
         return;
       }
 
-      const headers: { [key: string]: string  } = { ack: 'client', 'activemq.prefetchSize': "1" };
+      const headers: { [key: string]: string } = { ack: 'client', 'activemq.prefetchSize': '1' };
 
       if (subscriptionId) {
         headers.id = subscriptionId;

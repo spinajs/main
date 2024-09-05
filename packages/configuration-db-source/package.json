@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration-db-source",
-  "version": "2.0.241",
+  "version": "2.0.243",
   "description": "> TODO: description",
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
@@ -53,10 +53,10 @@
     "@types/luxon": "^3.2.0"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "^2.0.241",
-    "@spinajs/di": "^2.0.241",
-    "@spinajs/internal-logger": "^2.0.241",
-    "@spinajs/orm": "^2.0.241",
+    "@spinajs/configuration-common": "^2.0.243",
+    "@spinajs/di": "^2.0.243",
+    "@spinajs/internal-logger": "^2.0.243",
+    "@spinajs/orm": "^2.0.243",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1"
   },

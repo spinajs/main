@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/fs-ftp",
-  "version": "2.0.241",
+  "version": "2.0.243",
   "description": "file operations implementation for ftp",
   
     "main": "lib/cjs/index.js",
@@ -56,10 +56,10 @@
     "@types/archiver": "^5.3.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.241",
-    "@spinajs/di": "^2.0.241",
-    "@spinajs/fs": "^2.0.241",
-    "@spinajs/log": "^2.0.241",
+    "@spinajs/configuration": "^2.0.243",
+    "@spinajs/di": "^2.0.243",
+    "@spinajs/fs": "^2.0.243",
+    "@spinajs/log": "^2.0.243",
     "basic-ftp": "^5.0.5",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1"
