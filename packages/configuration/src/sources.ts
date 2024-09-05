@@ -100,14 +100,28 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
     return config;
   }
+
+  protected getEnvironment(config: Configuration) {
+    const env = config.get<string>('process.env.APP_ENV', 'production');
+    switch (env) {
+      case 'dev':
+      case 'development':
+        return 'dev';
+      case 'prod':
+      case 'production':
+        return 'prod';
+      default:
+        return env;
+    }
+  }
 }
 
 @Injectable(ConfigurationSource)
 export class JsFileSource extends BaseFileSource {
   public async Load(config: Configuration): Promise<IConfigLike> {
     const common = await this.load('!(*.dev|*.prod).{cjs,js}', _load);
-    const env = config.get<string>('process.env.APP_ENV', 'production');
-    const fExt = env === 'development' ? '*.dev.{cjs,js}' : '*.prod.{cjs,js}';
+    const env = this.getEnvironment(config);
+    const fExt =  `*.${env}.{cjs,js}`;
     const cfg = await this.load(fExt, _load);
     return _.mergeWith(common, cfg, mergeArrays);
 
@@ -128,8 +142,8 @@ export class JsFileSource extends BaseFileSource {
 export class JsonFileSource extends BaseFileSource {
   public async Load(config: Configuration): Promise<IConfigLike> {
     const common = await this.load('!(*.dev|*.prod).json', _load);
-    const env = config.get<string>('process.env.APP_ENV', 'production');
-    const fExt = env === 'development' ? '*.dev.json' : '*.prod.json';
+    const env = this.getEnvironment(config);
+    const fExt =  `*.${env}.json`;
     const cfg = await this.load(fExt, _load);
     return _.mergeWith(common, cfg, mergeArrays);
 
