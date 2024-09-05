@@ -83,7 +83,11 @@ export abstract class BaseController extends AsyncService implements IController
         if (route.Path === '/') {
           path = `/${this.BasePath}`;
         } else {
-          path = `/${this.BasePath}/${route.Path}`;
+          if (this.BasePath === '/') {
+            path = `/${route.Path}`;
+          } else {
+            path = `/${this.BasePath}/${route.Path}`;
+          }
         }
       } else {
         path = `/${this.BasePath}/${route.Method}`;
@@ -121,7 +125,7 @@ export abstract class BaseController extends AsyncService implements IController
       // If at least ONE policy returns no error allow route to execute
       // It allows to use multiple access to resource eg. token access & session
       handlers.push((req: express.Request, _res: express.Response, next: express.NextFunction) => {
-        if(policies.length === 0){
+        if (policies.length === 0) {
           next();
           return;
         }
