@@ -30,37 +30,38 @@ export class EmailSenderSmtp extends EmailSender {
   }
 
   public async resolve(): Promise<void> {
-    // create reusable transporter object using the default SMTP transport
-    this.Transporter = nodemailer.createTransport(
-      Object.assign(
-        {
-          host: this.Options.host,
-          port: this.Options.port,
-          secure: this.Options.ssl, // true for 465, false for other ports
-          auth: {
-            user: this.Options.user, // generated ethereal user
-            pass: this.Options.pass, // generated ethereal password
-          },
+    const options = Object.assign(
+      {
+        host: this.Options.host,
+        port: this.Options.port,
+        secure: this.Options.ssl, // true for 465, false for other ports
+        auth: {
+          user: this.Options.user, // generated ethereal user
+          pass: this.Options.pass, // generated ethereal password
         },
+      },
 
-        // all additional options merged
-        this.Options.options,
-      ),
+      // all additional options merged
+      this.Options.options,
     );
+
+    this.Log.info(`Creating connection to smtp: ${options.auth.user}@${options.host}:${options.port}, secure: ${options.secure}`)
+
+    // create reusable transporter object using the default SMTP transport
+    this.Transporter = nodemailer.createTransport(options);
 
     try {
       // verify returns Promise<true> so always is true
       // we must catch exception
       await this.Transporter.verify();
     } catch (err) {
-      throw new Error(`cannot send smtp emails, verify() failed. Pleas check email smtp configuration for connection ${this.Options.name}`);
+      throw new Error(`cannot send smtp emails, verify() failed. Please check email smtp configuration for connection ${this.Options.name}`);
     }
 
     this.Log.success(`Email smtp connection ${this.Options.name} on host ${this.Options.host} established !`);
   }
 
   public async send(email: IEmail): Promise<void> {
-
     if (!email.from && !this.Options.defaults?.mailFrom) {
       throw new IOFail(`Email from address is required. Please provide it in email or in configuration`);
     }

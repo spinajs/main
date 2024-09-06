@@ -79,7 +79,7 @@ export class StompQueueClient extends QueueClient {
       };
 
       this.Client.onWebSocketError = (err) => {
-        this.Log.error(`Websocket error: ${err}`);
+        this.Log.error(`Websocket error: ${JSON.stringify(err)}`);
         reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}, websocket error`, err));
       };
 
