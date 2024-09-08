@@ -27,13 +27,12 @@ const http = {
   },
   fs: {
     providers: [
-
-      // formidable default file provider, incoming 
+      // formidable default file provider, incoming
       // files via  form are stored in os.tmpdir()
       {
         service: 'fsNative',
         name: '__file_upload_default_provider__',
-        basePath: os.tmpdir()
+        basePath: os.tmpdir(),
       },
       {
         service: 'fsNative',
@@ -44,12 +43,16 @@ const http = {
   },
   https: false,
   http: {
-
     ssl: {
       key: '',
       cert: '',
     },
-
+    controllers: {
+      route: {
+        // added to all routes prefix to route path
+        prefix: '',
+      },
+    },
     port: 1337,
     middlewares: [
       helmet(),

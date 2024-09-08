@@ -93,6 +93,11 @@ export abstract class BaseController extends AsyncService implements IController
         path = `/${this.BasePath}/${route.Method}`;
       }
 
+      // add global route path prefix
+      if (this._cfg.get('http.controllers.route.prefix')) {
+        path = `/${this._cfg.get('http.controllers.route.prefix')}/${path}`;
+      }
+
       const middlewares = await Promise.all<RouteMiddleware>(
         this.Descriptor.Middlewares.concat(route.Middlewares || []).map((m: IMiddlewareDescriptor) => {
           return self._container.resolve(m.Type, m.Options);
