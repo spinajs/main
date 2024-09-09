@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-http",
-  "version": "2.0.246",
+  "version": "2.0.247",
   "description": "Orm extensions for HTTP module",
   
     "main": "lib/cjs/index.js",
@@ -50,19 +50,19 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.246",
-    "@spinajs/di": "^2.0.246",
-    "@spinajs/exceptions": "^2.0.246",
-    "@spinajs/http": "^2.0.246",
-    "@spinajs/intl-orm": "^2.0.246",
-    "@spinajs/log": "^2.0.246",
-    "@spinajs/orm": "^2.0.246",
-    "@spinajs/validation": "2.0.246",
+    "@spinajs/configuration": "^2.0.247",
+    "@spinajs/di": "^2.0.247",
+    "@spinajs/exceptions": "^2.0.247",
+    "@spinajs/http": "^2.0.247",
+    "@spinajs/intl-orm": "^2.0.247",
+    "@spinajs/log": "^2.0.247",
+    "@spinajs/orm": "^2.0.247",
+    "@spinajs/validation": "2.0.247",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.246"
+    "@spinajs/orm-sqlite": "^2.0.247"
   },
   "gitHead": "b0f038aa2814b69b242ab9a277b26d73d39544d2"
 }
