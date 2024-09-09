@@ -38,9 +38,9 @@ const USER_FILTER: CustomFilterSchema[] = [
   },
 ];
 
-@BasePath('user')
-export class UsersController extends BaseController {
-  @Get()
+@BasePath('users')
+export class UserAdminController extends BaseController {
+  @Get("/")
   public async list(
     @Query() pagination?: PaginationDTO,
     @Query() order?: OrderDTO,
