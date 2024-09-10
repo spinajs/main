@@ -314,7 +314,7 @@ export class Controllers extends AsyncService {
     const controllers = await this.Controllers;
 
     // extract parameters info from controllers source code & register in http server
-    for (const controller of controllers.filter((x) => x !== undefined && x !== null)) {
+    for (const controller of controllers) {
       this.register(controller);
     }
   }
