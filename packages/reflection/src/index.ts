@@ -153,7 +153,13 @@ function _listOrResolveFromFiles(
           logger.trace(`Loading file ${f}`);
 
           return DI.__spinajs_require__(f).then((fTypes: any) => {
-            for (const key of Object.keys(fTypes)) {
+            const _k = Object.keys(fTypes);
+            if (!_k) {
+              logger.warn(`File ${f} does not contain any exported type !`);
+              return null;
+            }
+
+            for (const key of _k) {
               const nameToResolve = typeMatcher ? typeMatcher(path.parse(f).name, key) : key;
               const type = fTypes[`${nameToResolve}`] as Class<any>;
 
@@ -178,7 +184,7 @@ function _listOrResolveFromFiles(
           });
         });
 
-      return Promise.all(fPromises);
+      return Promise.all(fPromises).then((x) => x.filter((i) => i !== null && i !== undefined));
     }
   };
 }
