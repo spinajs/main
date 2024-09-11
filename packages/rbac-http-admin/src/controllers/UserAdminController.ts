@@ -1,6 +1,7 @@
-import { BaseController, BasePath, Get, Ok, Query } from '@spinajs/http';
+import { BaseController, BasePath, Get, Ok, Policy, Query } from '@spinajs/http';
 import { CustomFilterSchema, Filter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { User } from '@spinajs/rbac';
+import { LoggedPolicy } from "@spinajs/rbac-http";
 
 /**
  * User model filter
@@ -39,6 +40,7 @@ const USER_FILTER: CustomFilterSchema[] = [
 ];
 
 @BasePath('users')
+@Policy(LoggedPolicy)
 export class UserAdminController extends BaseController {
   @Get("/")
   public async list(
@@ -59,10 +61,10 @@ export class UserAdminController extends BaseController {
       .populate(include)
       .take(pagination?.limit ?? 10)
       .skip(pagination?.limit * pagination?.page ?? 0)
-      .order(order?.column ?? 'creation_date', order?.order ?? 'DESC')
+      .order(order?.column ?? 'CreatedAt', order?.order ?? 'DESC')
       .filter(filter);
 
-    const { count } = await User.query().count('*', 'count').filter(filter).asRaw<{ count: number }>();
+    const { count } = await User.query().count('*', 'count').filter(filter).takeFirst().asRaw<{ count: number }>();
 
     return new Ok(
       result.map((x) => x.dehydrateWithRelations()),
