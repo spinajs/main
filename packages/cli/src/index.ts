@@ -1,33 +1,36 @@
+
 import { CliCommand, IArgument, ICommand, IOption } from './interfaces.js';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators.js';
-import { AsyncService, Class, DI } from '@spinajs/di';
+import { AsyncService, Class, ClassInfo, DI } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log-common';
 import { program } from 'commander';
+import { ResolveFromFiles } from '@spinajs/reflection';
 
 export * from './interfaces.js';
 export * from './decorators.js';
 
-DI.register(() => {
-  return process.argv;
-}).as('__cli_argv_provider__');
+
 
 export class Cli extends AsyncService {
   @Logger('CLI')
   protected Log: Log;
 
-  public Commands: Array<Class<CliCommand>> = [];
+  @ResolveFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')
+  public Commands: Promise<Array<ClassInfo<CliCommand>>>;
 
   public async resolve(): Promise<void> {
-    this.Commands = DI.getRegisteredTypes<CliCommand>('__cli_command__');
+    const commands = await this.Commands;
+    if(!commands || commands.length === 0)
+    {
+      this.Log.warn('No registered commands found !');
+      return;
+    }
 
-    for (const cClass of this.Commands) {
-      this.Log.trace(`Found command ${cClass.name}`);
-
-      const command = await DI.resolve(cClass);
-
-      const cMeta = Reflect.getMetadata(META_COMMAND, cClass as object) as ICommand;
-      const oMeta = Reflect.getMetadata(META_OPTION, cClass as object) as IOption[];
-      const aMeta = Reflect.getMetadata(META_ARGUMENT, cClass as object) as IArgument[];
+    for (const cmd of commands) {
+      this.Log.trace(`Found command ${cmd.name}`);
+      const cMeta = Reflect.getMetadata(META_COMMAND, cmd.instance as object) as ICommand;
+      const oMeta = Reflect.getMetadata(META_OPTION, cmd.instance as object) as IOption[];
+      const aMeta = Reflect.getMetadata(META_ARGUMENT, cmd.instance as object) as IArgument[];
 
       const c = program.command(cMeta.nameAndArgs, cMeta.description, cMeta.opts);
 
@@ -43,16 +46,17 @@ export class Cli extends AsyncService {
         c.argument(a.name, a.description, a.parser, a.defaultValue);
       });
 
-      command.onCreation(c);
+      cmd.instance.onCreation(c);
 
       c.action(async (...args) => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-        await command.execute(...args);
+        await cmd.instance.execute(...args);
       });
     }
 
     const argv = DI.resolve<string[]>('__cli_argv_provider__');
 
+   
     program.parse(argv);
   }
 }
