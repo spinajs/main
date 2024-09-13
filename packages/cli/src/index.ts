@@ -1,7 +1,7 @@
 
 import { CliCommand, IArgument, ICommand, IOption } from './interfaces.js';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators.js';
-import { AsyncService, Class, ClassInfo, DI } from '@spinajs/di';
+import { AsyncService, ClassInfo, DI } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log-common';
 import { program } from 'commander';
 import { ResolveFromFiles } from '@spinajs/reflection';

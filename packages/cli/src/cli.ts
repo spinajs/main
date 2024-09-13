@@ -10,6 +10,7 @@ DI.register(() => {
 
 async function cli() {
 
+  DI.setESMModuleSupport();
   await DI.resolve(Configuration);
 
   const log = DI.resolve(Log, ['CLI']);
