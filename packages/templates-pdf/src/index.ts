@@ -17,7 +17,7 @@ interface IPdfRendererOptions {
   static: {
     portRange: number[];
   };
-  args: puppeteer.PuppeteerLaunchOptions;
+  args: any;
   options: any;
   renderDurationWarning: number;
 }

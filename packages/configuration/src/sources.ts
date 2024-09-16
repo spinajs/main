@@ -152,7 +152,7 @@ export class JsonFileSource extends BaseFileSource {
     const common = await this.load(`!(*.*).json`, _load);
     const fExt = `*.${env}.json`;
     const cfg = await this.load(fExt, _load);
-    return _.mergeWith(common, cfg, mergeArrays);
+    return _.mergeWith(common, cfg, mergeArrays) as IConfigLike;
 
     function _load(file: string) {
       try {

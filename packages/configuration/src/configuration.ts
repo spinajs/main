@@ -66,7 +66,7 @@ export class FrameworkConfiguration extends Configuration {
   protected ValidationSchemas: IConfigurationSchema[];
 
   public get RootConfig() {
-    return this.Config;
+    return this.Config as IConfigLike;
   }
 
   @Autoinject()

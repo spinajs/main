@@ -56,7 +56,9 @@ export class ConfiguratioDbSource extends ConfigurationSource {
     });
 
     const grouped = _.groupBy(dbOptions, 'Group');
-    const final: IConfigLike = {};
+    const final: IConfigLike = {
+      onConfigLoad: null,
+    };
     for (const k in grouped) {
       final[k] = {};
       for (const v of grouped[k]) {
@@ -86,7 +88,6 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
     if (!cfgConnectionOptions) {
       throw new Error(`Connection for configuration-db-source named ${dbConnection} not exists, please check your default connection name or if ${dbConnection} exists in configuration.`);
-
     }
 
     InternalLogger.trace(`Using db connection ${dbConnection}`, 'Configuration-db-source');
