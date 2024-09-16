@@ -339,6 +339,11 @@ export class FrameworkConfiguration extends Configuration {
     for (const prop of Object.keys(this.Config)) {
       const subconfig = this.Config[`${prop}`] as IConfigurable;
 
+      if(!subconfig){
+        InternalLogger.warn(`Configuration for ${prop} not exists, check configuration file`,'configuration');
+        continue;
+      }
+
       if (subconfig.configure && typeof subconfig.configure === 'function') {
         subconfig.configure.apply(this);
       }

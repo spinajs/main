@@ -41,7 +41,7 @@ const http = {
       },
     ],
   },
-  https: false,
+  
   http: {
     ssl: {
       key: '',
