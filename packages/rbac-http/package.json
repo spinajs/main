@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac-http",
-  "version": "2.0.251",
+  "version": "2.0.253",
   "description": "HTTP rbac helpers eg, session retrieval, decorators for controllers, args retrieval etc. Use it for modules where you only need user information from session",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -47,20 +47,20 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.251",
-    "@spinajs/di": "^2.0.251",
-    "@spinajs/exceptions": "^2.0.251",
-    "@spinajs/http": "^2.0.251",
-    "@spinajs/log": "^2.0.251",
-    "@spinajs/orm": "^2.0.251",
-    "@spinajs/rbac": "^2.0.251",
-    "@spinajs/reflection": "^2.0.251",
+    "@spinajs/configuration": "^2.0.253",
+    "@spinajs/di": "^2.0.253",
+    "@spinajs/exceptions": "^2.0.253",
+    "@spinajs/http": "^2.0.253",
+    "@spinajs/log": "^2.0.253",
+    "@spinajs/orm": "^2.0.253",
+    "@spinajs/rbac": "^2.0.253",
+    "@spinajs/reflection": "^2.0.253",
     "accesscontrol": "^2.2.1",
     "luxon": "^3.2.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.251",
+    "@spinajs/orm-sqlite": "^2.0.253",
     "@types/uuid": "^9.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

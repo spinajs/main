@@ -50,6 +50,7 @@ async function c() {
 describe('Commands', () => {
   beforeEach(async () => {
     DI.clearCache();
+    DI.setESMModuleSupport();
     DI.register(ConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
   });
