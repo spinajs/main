@@ -63,6 +63,6 @@ export class Cli extends AsyncService {
 
     const argv = DI.resolve<string[]>('__cli_argv_provider__');
 
-    program.parse(argv);
+    await program.parseAsync(argv);
   }
 }
