@@ -2,7 +2,7 @@ const pdf = {
   templates: {
     pdf: {
       static: {
-        port: 3000,
+        portRange: [3000, 4000],
       },
       args: {
         headless: true,

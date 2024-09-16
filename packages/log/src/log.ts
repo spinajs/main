@@ -2,62 +2,22 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
-import {
-  DI,
-  IContainer,
-  NewInstance,
-} from "@spinajs/di";
-import {
-  ICommonTargetOptions,
-  LogLevel,
-  ILogOptions,
-  ILogEntry,
-  StrToLogLevel,
-  createLogMessageObject,
-  ILogTargetDesc,
-  LogTarget,
-  Log,
-} from "@spinajs/log-common";
+import { DI, IContainer, NewInstance } from "@spinajs/di";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogTargetDesc, LogTarget, Log } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
+import _ from "lodash";
 
 function wrapWrite(this: Log, level: LogLevel) {
   return (err: Error | string, message: string | any[], ...args: any[]) => {
     if (err instanceof Error) {
-      return this.write(
-        createLogMessageObject(
-          err,
-          message,
-          level,
-          this.Name,
-          this.Variables,
-          ...args
-        )
-      );
+      return this.write(createLogMessageObject(err, message, level, this.Name, this.Variables, ...args));
     } else {
       if (message) {
-        return this.write(
-          createLogMessageObject(
-            err,
-            null,
-            level,
-            this.Name,
-            this.Variables,
-            ...[message, ...args]
-          )
-        );
+        return this.write(createLogMessageObject(err, null, level, this.Name, this.Variables, ...[message, ...args]));
       } else {
-        return this.write(
-          createLogMessageObject(
-            err,
-            null,
-            level,
-            this.Name,
-            this.Variables,
-            ...args
-          )
-        );
+        return this.write(createLogMessageObject(err, null, level, this.Name, this.Variables, ...args));
       }
     }
   };
@@ -68,12 +28,7 @@ function wrapWrite(this: Log, level: LogLevel) {
  */
 @NewInstance()
 export class FrameworkLogger extends Log {
-
-  constructor(
-    public Name: string,
-    variables?: Record<string, unknown>,
-    protected Parent?: Log
-  ) {
+  constructor(public Name: string, variables?: Record<string, unknown>, protected Parent?: Log) {
     super();
 
     this.Variables = variables ?? {};
@@ -83,9 +38,7 @@ export class FrameworkLogger extends Log {
     const config = this.Container.get(Configuration);
 
     if (!config) {
-      throw new Error(
-        `Configuration module is not avaible. Please resolve configuration module before any logging can occur`
-      );
+      throw new Error(`Configuration module is not avaible. Please resolve configuration module before any logging can occur`);
     }
 
     this.Options = config.get<ILogOptions>("logger", {
@@ -98,6 +51,12 @@ export class FrameworkLogger extends Log {
       rules: [{ name: "*", level: "trace", target: "Console" }],
     });
 
+    // make unique targets
+    // some modules may add same logger so we have multiple console loggers etc.
+    this.Options.targets = _.uniqWith(this.Options.targets, (a, b) => {
+      return a.name === b.name && a.type === b.type;
+    });
+
     this.matchRulesToLogger();
     this.resolveLogTargets();
 
@@ -108,94 +67,58 @@ export class FrameworkLogger extends Log {
 
   public trace(message: string, ...args: any[]): void;
   public trace(err: Error, message: string, ...args: any[]): void;
-  public trace(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public trace(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Trace])(err, message, ...args);
   }
 
   public debug(message: string, ...args: any[]): void;
   public debug(err: Error, message: string, ...args: any[]): void;
-  public debug(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public debug(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Debug])(err, message, ...args);
   }
 
   public info(message: string, ...args: any[]): void;
   public info(err: Error, message: string, ...args: any[]): void;
-  public info(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public info(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Info])(err, message, ...args);
   }
 
   public warn(message: string, ...args: any[]): void;
   public warn(err: Error, message: string, ...args: any[]): void;
-  public warn(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public warn(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Warn])(err, message, ...args);
   }
 
   public error(message: string, ...args: any[]): void;
   public error(err: Error, message: string, ...args: any[]): void;
-  public error(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public error(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Error])(err, message, ...args);
   }
 
   public fatal(message: string, ...args: any[]): void;
   public fatal(err: Error, message: string, ...args: any[]): void;
-  public fatal(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public fatal(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Fatal])(err, message, ...args);
   }
 
   public security(message: string, ...args: any[]): void;
   public security(err: Error, message: string, ...args: any[]): void;
-  public security(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public security(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Security])(err, message, ...args);
   }
 
   public success(message: string, ...args: any[]): void;
   public success(err: Error, message: string, ...args: any[]): void;
-  public success(
-    err: Error | string,
-    message: string | any[],
-    ...args: any[]
-  ): void {
+  public success(err: Error | string, message: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Success])(err, message, ...args);
   }
 
   public write(entry: ILogEntry) {
     if (entry.Variables.logger === this.Name) {
       return Promise.allSettled(
-        this.Targets.filter(
-          (t) => entry.Level >= StrToLogLevel[t.rule.level]
-        ).map((t) => {
+        this.Targets.filter((t) => entry.Level >= StrToLogLevel[t.rule.level]).map((t) => {
           if (!t.instance) {
-            throw new InvalidOperation(
-              `Target ${t.rule.target} for rule ${t.rule.name} not exists`
-            );
+            throw new InvalidOperation(`Target ${t.rule.target} for rule ${t.rule.name} not exists`);
           }
 
           return t.instance.write(entry);
@@ -207,9 +130,7 @@ export class FrameworkLogger extends Log {
   protected resolveLogTargets() {
     this.Targets = this.Rules.map((r) => {
       const found = this.Options.targets.filter((t) => {
-        return Array.isArray(r.target)
-          ? r.target.includes(t.name)
-          : r.target === t.name;
+        return Array.isArray(r.target) ? r.target.includes(t.name) : r.target === t.name;
       });
 
       if (!found) {
@@ -223,10 +144,7 @@ export class FrameworkLogger extends Log {
           rule: r,
         };
       });
-    }).reduce(
-      (prev: ILogTargetDesc[], curr: ILogTargetDesc[]) => prev.concat(...curr),
-      []
-    );
+    }).reduce((prev: ILogTargetDesc[], curr: ILogTargetDesc[]) => prev.concat(...curr), []);
   }
 
   protected matchRulesToLogger() {

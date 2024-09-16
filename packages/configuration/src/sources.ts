@@ -121,15 +121,22 @@ export class JsFileSource extends BaseFileSource {
   public async Load(config: Configuration): Promise<IConfigLike> {
     const env = this.getEnvironment(config);
     const common = await this.load(`!(*.*).{cjs,js}`, _load);
-    const fExt =  `*.${env}.{cjs,js}`;
-    const cfg = await this.load(fExt, _load);
+    const fExt = `*.${env}.{cjs,js}`;
+    let cfg = (await this.load(fExt, _load)) as IConfigLike;
+
     return _.mergeWith(common, cfg, mergeArrays);
 
     async function _load(file: string) {
       try {
         InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
 
-        return await DI.__spinajs_require__(file);
+        let cfg = (await DI.__spinajs_require__(file)) as IConfigLike;
+        // execute config func before merge with rest of configuration
+        if (typeof cfg.onConfigLoad === 'function') {
+          cfg = await cfg.onConfigLoad(cfg);
+        }
+
+        return cfg;
       } catch (err) {
         InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
         return null;
@@ -143,7 +150,7 @@ export class JsonFileSource extends BaseFileSource {
   public async Load(config: Configuration): Promise<IConfigLike> {
     const env = this.getEnvironment(config);
     const common = await this.load(`!(*.*).json`, _load);
-    const fExt =  `*.${env}.json`;
+    const fExt = `*.${env}.json`;
     const cfg = await this.load(fExt, _load);
     return _.mergeWith(common, cfg, mergeArrays);
 

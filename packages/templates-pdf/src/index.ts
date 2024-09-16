@@ -10,6 +10,17 @@ import * as http from 'http';
 import cors from 'cors';
 
 import '@spinajs/templates-pug';
+import _ from 'lodash';
+import { AddressInfo } from 'net';
+
+interface IPdfRendererOptions {
+  static: {
+    portRange: number[];
+  };
+  args: puppeteer.PuppeteerLaunchOptions;
+  options: any;
+  renderDurationWarning: number;
+}
 
 @Injectable(TemplateRenderer)
 @PerInstanceCheck()
@@ -18,13 +29,15 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
    * General options from configuration
    */
   @Config('templates.pdf')
-  protected Options: any;
+  protected Options: IPdfRendererOptions;
 
   @Logger('pdf-templates')
   protected Log: Log;
 
   @LazyInject()
   protected TemplatingService: Templates;
+
+  protected static USED_PORTS: number[] = [];
 
   public get Type() {
     return 'pdf';
@@ -42,7 +55,7 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
     return JSON.stringify(this.pdfOptions) === JSON.stringify(creationOptions);
   }
 
-  public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
+  public async renderToFile(template: string, model: any, filePath: string, language?: string): Promise<void> {
     let server: http.Server = null;
     let browser: Browser = null;
     try {
@@ -50,12 +63,26 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
       this.Log.trace(`Rendering pdf template ${template} to file ${filePath}`);
 
       const templateBasePath = dirname(template);
-      const compiledTemplate = await this.TemplatingService.render(join(templateBasePath, basename(template, '.pdf')) + '.pug', model, language);
 
       // fire up local http server for serving images etc
       // becouse chromium prevents from reading local files when not
       // rendering file with file:// protocol for security reasons
       server = await this.runLocalServer(templateBasePath);
+      const httpPort = (server.address() as AddressInfo).port;
+
+      const compiledTemplate = await this.TemplatingService.render(
+        join(templateBasePath, basename(template, '.pdf')) + '.pug',
+        {
+          // add template temporary server port
+          // so we can use it to render images in template
+          __http_template_port__: httpPort,
+
+          // for convinience add full url to local http server
+          __http_template_address__: `http://localhost:${httpPort}`,
+          ...model,
+        },
+        language,
+      );
 
       browser = await puppeteer.launch(this.Options.args);
       const page = await browser.newPage();
@@ -108,7 +135,9 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
 
     return new Promise((resolve, reject) => {
       app
-        .listen(this.Options.static.port, function () {
+        // if no port is provided express will choose random port to start ( avaible )
+        // it not, we will get random from range in config
+        .listen(this.Options.static.portRange.length === 0 ? 0 : _.random(this.Options.static.portRange[0], this.Options.static.portRange[1]), function () {
           self.Log.trace(`PDF image server started`);
           self.Log.trace(`PDF static file dir at ${basePath}`);
 
