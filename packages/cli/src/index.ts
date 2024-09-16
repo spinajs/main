@@ -2,7 +2,7 @@ import { CliCommand, IArgument, ICommand, IOption } from './interfaces.js';
 import { META_ARGUMENT, META_COMMAND, META_OPTION } from './decorators.js';
 import { AsyncService, ClassInfo, DI } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log-common';
-import { program } from 'commander';
+import { Command } from 'commander';
 import { ResolveFromFiles } from '@spinajs/reflection';
 
 export * from './interfaces.js';
@@ -22,6 +22,8 @@ export class Cli extends AsyncService {
       return;
     }
 
+    const program = new Command();
+
     for (const cmd of commands) {
       this.Log.trace(`Found command ${cmd.name}`);
 
@@ -34,7 +36,8 @@ export class Cli extends AsyncService {
         continue;
       }
 
-      const c = program.command(cMeta.nameAndArgs, cMeta.description, cMeta.opts);
+      const c = new Command(cMeta.nameAndArgs);
+      c.description(cMeta.description);
 
       oMeta?.forEach((o) => {
         if (o.required) {
@@ -54,6 +57,8 @@ export class Cli extends AsyncService {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
         await cmd.instance.execute(...args);
       });
+
+      program.addCommand(c);
     }
 
     const argv = DI.resolve<string[]>('__cli_argv_provider__');

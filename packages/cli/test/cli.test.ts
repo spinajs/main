@@ -11,6 +11,7 @@ import '@spinajs/log';
 
 import { Cli } from './../src/index.js';
 import { TestCommand } from './commands/TestCommand.js';
+import { TestCommand2 } from './commands/TestCommand2.js';
 
 
 //const expect = chai.expect;
@@ -60,7 +61,7 @@ describe('Commands', () => {
 
     // fake params, __cli_arg_provider__ is helper
     // factory func for overriding node process.argv
-    DI.register(() => ['node', 'test-command', 'userLogin', 'userPassword', '-t', '10000']).as('__cli_argv_provider__');
+    DI.register(() => ['node','script.js', 'test-command', 'userLogin', 'userPassword', '-t', '10000']).as('__cli_argv_provider__');
 
     await c();
 
@@ -68,6 +69,22 @@ describe('Commands', () => {
     expect(execute.args[0].length).to.eq(4);
     expect(execute.args[0][0]).to.eq('userLogin');
     expect(execute.args[0][1]).to.eq('userPassword');
+    expect(execute.args[0][2]).to.have.property('timeout', 10000);
+  });
+
+  it('Should run second command with arg and options', async () => {
+    const execute = spy(TestCommand2.prototype, 'execute');
+
+    // fake params, __cli_arg_provider__ is helper
+    // factory func for overriding node process.argv
+    DI.register(() => ['node','script.js', 'test-command2', 'userLogin2', 'userPassword2', '-t', '10000']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0].length).to.eq(4);
+    expect(execute.args[0][0]).to.eq('userLogin2');
+    expect(execute.args[0][1]).to.eq('userPassword2');
     expect(execute.args[0][2]).to.have.property('timeout', 10000);
   });
 });
