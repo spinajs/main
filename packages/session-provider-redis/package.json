@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/session-provider-redis",
-  "version": "2.0.254",
+  "version": "2.0.255",
   "description": "jobs sending & pulling made easy",
   
     "main": "lib/cjs/index.js",
@@ -56,10 +56,10 @@
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.254",
-    "@spinajs/di": "^2.0.254",
-    "@spinajs/exceptions": "^2.0.254",
-    "@spinajs/log": "^2.0.254"
+    "@spinajs/configuration": "^2.0.255",
+    "@spinajs/di": "^2.0.255",
+    "@spinajs/exceptions": "^2.0.255",
+    "@spinajs/log": "^2.0.255"
   },
   "gitHead": "027c4862bbc97c4dd4f8e468a712b804c80b07f9"
 }
