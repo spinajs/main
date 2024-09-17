@@ -188,7 +188,7 @@ export class FrameworkConfiguration extends Configuration {
     this.set('process.env', {
       ...process.env,
       ...env,
-      APP_ENV: env?.APP_ENV ?? process.env.NODE_ENV ?? 'development',
+      APP_ENV: this.Env ?? env?.APP_ENV ?? process.env.NODE_ENV ?? 'development',
     });
 
     InternalLogger.info(`APP_ENV set to ${this.get<string>('process.env.APP_ENV')}`, 'Configuration');
