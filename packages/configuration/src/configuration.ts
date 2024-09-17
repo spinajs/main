@@ -42,6 +42,11 @@ export class FrameworkConfiguration extends Configuration {
    */
   public AppBaseDir = './';
 
+  /** 
+   * Env passed via CLI args  ( in case if NODE_ENV var is not set )
+   */
+  public Env = "development";
+
   /**
    * Current running app name
    */
@@ -84,6 +89,7 @@ export class FrameworkConfiguration extends Configuration {
     this.CustomConfigPaths = options?.cfgCustomPaths ?? [];
     this.RunApp = options?.app ?? parseArgv('--app');
     this.AppBaseDir = options?.appBaseDir ?? parseArgv('--apppath') ?? join(process.cwd(), '../apps/');
+    this.Env = process.env.APP_ENV ?? parseArgv('--env');
   }
 
   /**
@@ -218,6 +224,7 @@ export class FrameworkConfiguration extends Configuration {
       this.RunApp,
       this.CustomConfigPaths,
       this.AppBaseDir,
+      this.Env
     ]);
 
     // sort asc sources

@@ -230,4 +230,15 @@ describe("logger tests", function () {
       .to.be.a("string")
       .and.satisfy((msg: string) => msg.includes("ERROR hello world err Error: error message"));
   });
+
+  it('Should format message with one argunt', () =>{ 
+    const spy = sinon.spy(TestTarget.prototype, "sink");
+    const log = logger("test-format");
+
+    log.info("Hello %s", "world");
+
+    expect(spy.args[0][0])
+      .to.be.a("string")
+      .and.satisfy((msg: string) => msg.includes("Hello world"));
+  })
 });

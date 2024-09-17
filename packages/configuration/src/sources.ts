@@ -26,7 +26,12 @@ export abstract class BaseFileSource extends ConfigurationSource {
     return 1;
   }
 
-  constructor(protected RunApp?: string, protected CustomConfigPaths?: string[], protected appBaseDir?: string) {
+  constructor(
+    protected RunApp?: string,
+    protected CustomConfigPaths?: string[],
+    protected appBaseDir?: string,
+    protected Env?: string,
+  ) {
     super();
 
     const isESMMode = DI.get<boolean>('__esmMode__');
@@ -102,7 +107,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
   }
 
   protected getEnvironment(config: Configuration) {
-    const env = config.get<string>('process.env.APP_ENV', 'production');
+    let env = config.get<string>('process.env.APP_ENV', undefined) ?? this.Env ?? 'production';
     switch (env) {
       case 'dev':
       case 'development':
