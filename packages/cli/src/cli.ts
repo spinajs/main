@@ -3,10 +3,8 @@ import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { Cli } from './index.js';
 import { Configuration } from '@spinajs/configuration-common';
+import "./args.js"
 
-DI.register(() => {
-  return process.argv;
-}).as('__cli_argv_provider__');
 
 async function cli() {
 
