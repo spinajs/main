@@ -10,7 +10,7 @@ import { expect } from 'chai';
 import '@spinajs/orm-sqlite';
 import * as sinon from 'sinon';
 
-import '@spinajs/queue-stomp-transport';
+import '../../queue-stomp-transport/lib/mjs/connection.js';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
 chai.use(chaiAsPromised);

@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { StompQueueClient } from '../src/index.js';
+import { StompQueueClient } from '../src/connection.js';
 import _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import * as chai from 'chai';
@@ -115,6 +115,8 @@ describe('stomp queue transport test', function () {
       Name: 'TestJob',
       Type: QueueMessageType.Job,
       Foo: 'bar',
+      Persistent: false,
+      Priority: 0
     };
 
     const s = sinon.stub().returns(Promise.resolve());
@@ -135,6 +137,8 @@ describe('stomp queue transport test', function () {
       Name: 'TestEvent',
       Type: QueueMessageType.Event,
       Foo: 'far',
+      Persistent: false,
+      Priority: 0
     };
 
     const s = sinon.stub().returns(Promise.resolve());
@@ -155,6 +159,8 @@ describe('stomp queue transport test', function () {
       Name: 'TestEvent',
       Type: QueueMessageType.Event,
       Foo: 'far',
+      Persistent: false,
+      Priority: 0
     };
 
     const s = sinon.stub().returns(Promise.resolve());
@@ -177,6 +183,8 @@ describe('stomp queue transport test', function () {
       Name: 'TestEventDurable',
       Type: QueueMessageType.Event,
       Foo: 'far',
+      Persistent: false,
+      Priority: 0
     };
 
     const s = sinon.stub().returns(Promise.resolve());
@@ -211,6 +219,8 @@ describe('stomp queue transport test', function () {
       Name: 'TestJob',
       Type: QueueMessageType.Job,
       Foo: 'far',
+      Persistent: false,
+      Priority: 0
     };
 
     const s1 = sinon.stub().returns(Promise.resolve());
@@ -237,6 +247,8 @@ describe('stomp queue transport test', function () {
       Name: 'TestEvent',
       Type: QueueMessageType.Event,
       Foo: 'far',
+      Persistent: false,
+      Priority: 0
     };
 
     const s1 = sinon.stub().returns(Promise.resolve());
@@ -263,6 +275,8 @@ describe('stomp queue transport test', function () {
       Name: 'TestJobRouted',
       Type: QueueMessageType.Job,
       Foo: 'far',
+      Persistent: false,
+      Priority: 0
     };
 
     const s1 = sinon.stub().returns(Promise.resolve());
@@ -286,6 +300,8 @@ describe('stomp queue transport test', function () {
       Name: 'TestEventRouted',
       Type: QueueMessageType.Event,
       Foo: 'far',
+      Persistent: false,
+      Priority: 0
     };
 
     const s = sinon.stub().returns(Promise.resolve());
@@ -308,6 +324,8 @@ describe('stomp queue transport test', function () {
       Name: 'TestEvent',
       Type: QueueMessageType.Event,
       Foo: 'far',
+      Persistent: false,
+      Priority: 0
     };
 
     const s = sinon.stub().returns(Promise.resolve());
@@ -335,6 +353,8 @@ describe('stomp queue transport test', function () {
       Type: QueueMessageType.Event,
       Foo: 'far',
       ScheduleDelay: 5000,
+      Persistent: false,
+      Priority: 0
     };
 
     c.subscribe(TestEventChannelName, s);
@@ -367,6 +387,8 @@ describe('stomp queue transport test', function () {
       ScheduleDelay: 1000,
       ScheduleRepeat: 10,
       SchedulePeriod: 1000,
+      Persistent: false,
+      Priority: 0
     };
 
     c.subscribe(TestEventChannelName, s);
