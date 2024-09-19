@@ -2,7 +2,7 @@ import { UnexpectedServerError, InvalidArgument } from '@spinajs/exceptions';
 import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
 import Stomp from '@stomp/stompjs';
 import _ from 'lodash';
-import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
 import websocket from 'websocket';
 
 Object.assign(global, { WebSocket: websocket.w3cwebsocket });
