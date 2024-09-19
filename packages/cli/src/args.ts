@@ -11,7 +11,9 @@ DI.register(() => {
 
   for (const o of SPINAJS_ARGV_OPTIONS) {
     if (args.indexOf(o) !== -1) {
-      args = args.splice(process.argv.indexOf(o), 1);
+
+        // remove option
+        args.splice(process.argv.indexOf(o), 2);
     }
   }
 
