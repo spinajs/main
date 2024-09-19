@@ -4,7 +4,6 @@ import Stomp from '@stomp/stompjs';
 import _ from 'lodash';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import websocket from 'websocket';
-import { Config } from '@spinajs/configuration';
 
 Object.assign(global, { WebSocket: websocket.w3cwebsocket });
 
