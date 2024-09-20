@@ -15,10 +15,11 @@ DI.register(async (container, options: IQueueConnectionOptions) => {
 
   const cfg = container.get(Configuration);
   const appName = cfg.get<string>("app.name","no-app");
+  const env = cfg.get<string>("process.env.APP_ENV", "development");
 
   const c = new StompQueueClient({
     ...options,
-    clientId: `${appName}-${process.env.NODE_ENV}-${options.name}`,
+    clientId: `${appName}-${env}-${options.name}`,
   });
   await c.resolve();
 

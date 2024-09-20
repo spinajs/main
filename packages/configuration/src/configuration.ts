@@ -89,7 +89,7 @@ export class FrameworkConfiguration extends Configuration {
     this.CustomConfigPaths = options?.cfgCustomPaths ?? [];
     this.RunApp = options?.app ?? parseArgv('--app');
     this.AppBaseDir = options?.appBaseDir ?? parseArgv('--apppath') ?? join(process.cwd(), '../apps/');
-    this.Env = process.env.APP_ENV ?? parseArgv('--env');
+    this.Env = parseArgv('--env') ?? process.env.APP_ENV;
   }
 
   /**
