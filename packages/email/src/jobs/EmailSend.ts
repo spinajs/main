@@ -25,16 +25,8 @@ export class EmailSend extends QueueJob implements IEmail {
   public emailId?: string;
 
   public async execute() {
-    try {
-      const emails = await DI.resolve(EmailService);
-      await emails.send(this);
-    } catch (err) {
-      return {
-        result: false,
-        error: err,
-      };
-    }
-
+    const emails = await DI.resolve(EmailService);
+    await emails.send(this);
     return {
       result: true,
     };

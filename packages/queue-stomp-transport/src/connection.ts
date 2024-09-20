@@ -146,7 +146,7 @@ export class StompQueueClient extends QueueClient {
         headers,
       });
 
-      this.Log.trace(`Published ${message.Type} Name: ${message.Name}} to channel ${c} ( ${this.Options.name} )`);
+      this.Log.trace(`Published ${message.Type} Name: ${message.Name} to channel ${c} ( ${this.Options.name} )`);
     });
   }
 
