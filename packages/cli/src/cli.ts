@@ -21,7 +21,6 @@ async function cli() {
 
   try {
     await DI.resolve(Cli);
-    process.exit(1);
   } catch (err) {
     log.error(err.message as string);
     process.exit(-1);
