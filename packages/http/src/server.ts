@@ -251,7 +251,7 @@ export class HttpServer extends AsyncService {
       this.Log.error(err, `Route error: ${err}, stack: ${err.stack}`);
 
       const error = {
-        ...err,
+        error: err,
         message: err.message,
         stack: {},
       };

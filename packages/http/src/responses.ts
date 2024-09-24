@@ -220,6 +220,7 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
       if (options.StatusCode >= 400) {
         if (req.headers['x-error-transform']) {
           transform(req, res, 'x-error-transform');
+          return;
         }
       }
       if (req.headers['x-data-transform']) {
