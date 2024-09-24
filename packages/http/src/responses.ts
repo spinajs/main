@@ -168,6 +168,26 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
   const acceptedHeaders = cfg.get<HttpAcceptHeaders>('http.AcceptHeaders');
   const transformers = DI.resolve(Array.ofType(DataTransformer));
 
+  const transform = function (req: express.Request, res: express.Response, header: string) {
+    const transformer = transformers.find((t) => t.Type === req.headers[header]);
+    if (transformer) {
+      jsonResponse(transformer.transform(model, req), options)(req, res);
+    } else {
+      jsonResponse(
+        {
+          error: {
+            message: `invalid data transformer, remove header ${header} to return raw data or set proper data transformer`,
+            code: 400,
+          },
+        },
+        {
+          ...options,
+          StatusCode: HTTP_STATUS_CODE.BAD_REQUEST,
+        },
+      )(req, res);
+    }
+  };
+
   return (req: express.Request, res: express.Response) => {
     if (req.accepts('html') && (acceptedHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
       const fs = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
@@ -197,24 +217,13 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
           });
         });
     } else if (req.accepts('json') && (acceptedHeaders & HttpAcceptHeaders.JSON) === HttpAcceptHeaders.JSON) {
-      if (req.headers['x-data-transform']) {
-        const transformer = transformers.find((t) => t.Type === req.headers['x-data-transform']);
-        if (transformer) {
-          jsonResponse(transformer.transform(model, req), options)(req, res);
-        } else {
-          jsonResponse(
-            {
-              error: {
-                message: "invalid data transformer, remove header 'x-data-transform' to return raw data or set proper data transformer",
-                code: 400,
-              },
-            },
-            {
-              ...options,
-              StatusCode: HTTP_STATUS_CODE.BAD_REQUEST,
-            },
-          )(req, res);
+      if (options.StatusCode >= 400) {
+        if (req.headers['x-error-transform']) {
+          transform(req, res, 'x-error-transform');
         }
+      }
+      if (req.headers['x-data-transform']) {
+        transform(req, res, 'x-data-transform');
       } else {
         jsonResponse(model, options)(req, res);
       }
