@@ -1,12 +1,12 @@
 import { DI } from '@spinajs/di';
 import { IOFail } from '@spinajs/exceptions';
-import { fs } from '@spinajs/fs';
+import { fs, FileInfoService } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log-common';
 import { QueueJob, Job } from '@spinajs/queue';
 
 @Job()
 export class LazyUploadJob extends QueueJob {
-  @Logger('LazyFileUploader')
+  @Logger('LazyUploadJob')
   protected Log: Log;
 
   // Filesystem to upload to
@@ -22,6 +22,8 @@ export class LazyUploadJob extends QueueJob {
   public DeleteAfterUpload: boolean;
 
   public async execute(progress: (p: number) => Promise<void>) {
+    this.Log.info(`COPY: ${this.Path}, fs: ${this.SourceFilesystem} dst: ${this.ToFilesystem}, deleteAfterUpload: ${this.DeleteAfterUpload}`);
+
     const sFs = DI.resolve<fs>('__file_provider__', [this.SourceFilesystem]);
     const tFs = DI.resolve<fs>('__file_provider__', [this.ToFilesystem]);
 
@@ -33,7 +35,6 @@ export class LazyUploadJob extends QueueJob {
       throw new IOFail(`Filesystem ${this.ToFilesystem} not exists, pleas check your configuration`);
     }
 
-    this.Log.trace(`Copying ${this.Path} from ${this.SourceFilesystem} to ${this.ToFilesystem}`);
     this.Log.timeStart(`[COPY] ${this.Path}`);
 
     await progress(0);
