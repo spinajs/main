@@ -168,16 +168,26 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
   const acceptedHeaders = cfg.get<HttpAcceptHeaders>('http.AcceptHeaders');
   const transformers = DI.resolve(Array.ofType(DataTransformer));
 
-  const transform = function (req: express.Request, res: express.Response, header: string) {
-    const transformer = transformers.find((t) => t.Type === req.headers[header]);
+  const errorTransform = function (req: express.Request, res: express.Response) {
+    const transformerName = (req.headers['x-error-transform'] as string) ?? 'default-http-error-transform';
+    return transform(req, res, transformerName);
+  };
+
+  const dataTransform = function (req: express.Request, res: express.Response){ 
+    const transformerName = (req.headers['x-data-transform'] as string) ?? 'invalid-x-data-transform-header';
+    return transform(req, res, transformerName);
+  }
+
+  const transform = function (req: express.Request, res: express.Response, dataTransformer: string) {
+    const transformer = transformers.find((t) => t.Type === dataTransformer);
     if (transformer) {
       jsonResponse(transformer.transform(model, req), options)(req, res);
     } else {
       jsonResponse(
         {
           error: {
-            message: `invalid data transformer, remove header ${header} to return raw data or set proper data transformer`,
-            code: 400,
+            message: `invalid data transformer ${dataTransformer}`,
+            code: HTTP_STATUS_CODE.BAD_REQUEST,
           },
         },
         {
@@ -218,15 +228,13 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
         });
     } else if (req.accepts('json') && (acceptedHeaders & HttpAcceptHeaders.JSON) === HttpAcceptHeaders.JSON) {
       if (options.StatusCode >= 400) {
-        if (req.headers['x-error-transform']) {
-          transform(req, res, 'x-error-transform');
-          return;
-        }
-      }
-      if (req.headers['x-data-transform']) {
-        transform(req, res, 'x-data-transform');
+        errorTransform(req, res);
       } else {
-        jsonResponse(model, options)(req, res);
+        if (req.headers['x-data-transform']) {
+          dataTransform(req, res);
+        } else {
+          jsonResponse(model, options)(req, res);
+        }
       }
     } else {
       textResponse(model, options)(req, res);

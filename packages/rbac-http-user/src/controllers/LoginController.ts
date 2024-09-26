@@ -42,7 +42,9 @@ export class LoginController extends BaseController {
 
       await this.SessionProvider.save(session);
 
-      this._log.trace('User logged in', user);
+      this._log.trace('User logged in', {
+        Uuid: user.Uuid
+      });
 
       return new Ok(user, {
         Coockies: [

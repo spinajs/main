@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { IOFail } from '@spinajs/exceptions';
-import { fs, FileInfoService } from '@spinajs/fs';
+import { fs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log-common';
 import { QueueJob, Job } from '@spinajs/queue';
 
