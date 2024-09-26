@@ -256,8 +256,8 @@ export class HttpServer extends AsyncService {
         stack: {},
       };
 
-      this.Configuration.get('process.env.APP_ENV', 'development');
-      if (process.env.NODE_ENV === 'development') {
+      const env = this.Configuration.get('process.env.APP_ENV', 'development');
+      if (env === 'development') {
         error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
       }
 
