@@ -100,7 +100,7 @@ export function _fallback(promise: (arg: unknown) => Promise<unknown>, fallback:
   return (arg?: unknown) => promise(arg).catch(fallback);
 }
 
-export function _tap(promise: ((arg: unknown) => Promise<unknown>) | Promise<unknown>) {
+export function _tap(promise: ((arg: any) => Promise<unknown>) | Promise<unknown>) {
   return (arg?: unknown) => {
     if (promise instanceof Promise) {
       return promise.then(() => arg);

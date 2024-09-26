@@ -238,6 +238,21 @@ describe('util', () => {
       expect(res.b).to.be.eq('service B');
     });
 
+    it('_catch with nested chains', async () => {
+      const val = await _chain(
+        _catchValue(
+          () =>
+            _chain(() => {
+              return Promise.reject(1);
+            }),
+          () => 2,
+          1,
+        ),
+      );
+
+      expect(val).to.eq(2);
+    });
+
     it('_tap', async () => {
       const a = () => Promise.resolve('service A');
       const b = () => Promise.resolve('service B');
