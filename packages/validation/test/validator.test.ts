@@ -8,6 +8,7 @@ import _ from 'lodash';
 import { join, normalize, resolve } from 'path';
 import { DataValidator } from '../src/validator.js';
 import { Schema } from '../src/index.js';
+import "@spinajs/log";
 
 function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
@@ -42,6 +43,8 @@ class TestConfiguration extends FrameworkConfiguration {
 
         // The option coerceTypes allows you to have your data types coerced to the types specified in your schema type keywords
         coerceTypes: true,
+
+        messages: false
       },
     };
   }
@@ -148,7 +151,6 @@ describe('validator tests', function () {
         {
           instancePath: '/productId',
           keyword: 'type',
-          message: 'must be integer',
           schemaPath: '#/properties/productId/type',
           params: {
             type: 'integer',

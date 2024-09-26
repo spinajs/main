@@ -1,5 +1,30 @@
+import { Constructor } from '@spinajs/di';
 import { IUpdateResult } from './interfaces.js';
 import { ModelBase } from './model.js';
+import _ from 'lodash';
+
+/**
+ *
+ * Gets entity from db
+ * 
+ * @param idOrEntity - pkey or entity
+ * @param c - entity class constructor
+ * @param fresh - if entity, should it refresh from DB ?
+ * @returns
+ */
+export function _get_entity<T extends ModelBase>(idOrEntity: number | T, c: Constructor<T>, fresh?: boolean) {
+  return async () => {
+    if (_.isNumber(idOrEntity)) {
+      return (c as any).get(idOrEntity);
+    }
+
+    if (fresh) {
+      return idOrEntity.fresh();
+    }
+
+    return Promise.resolve(idOrEntity);
+  };
+}
 
 /**
  * Update model with data

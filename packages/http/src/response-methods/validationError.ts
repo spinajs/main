@@ -18,6 +18,7 @@ export class ValidationError extends BadRequest {
 
     const response = await this.prepareResponse();
     
+    
     return await httpResponse(response, 'validationError.pug', {
       ...this.options,
       StatusCode: HTTP_STATUS_CODE.BAD_REQUEST,
