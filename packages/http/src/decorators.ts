@@ -1,4 +1,4 @@
-import { Constructor } from '@spinajs/di';
+import { Constructor, DI } from '@spinajs/di';
 import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
@@ -141,12 +141,9 @@ export function Hydrator(hydrator: Constructor<ArgHydrator>, ...options: any[]) 
 
 export function HandleException(exception: Constructor<Error> | Constructor<Error>[]) {
   return (target: any) => {
-    let meta = Reflect.getMetadata('custom:exception_handler', target);
-    if (!meta) {
-      Reflect.defineMetadata('custom:exception_handler', toArray(exception), target);
-    } else {
-      meta.concat(toArray(exception));
-    }
+    toArray(exception).forEach((e) => {
+      DI.register(target).asMapValue('__http_error_map__', e.name);
+    });
   };
 }
 

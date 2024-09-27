@@ -1,9 +1,8 @@
-import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject, DI } from '@spinajs/di';
-import { ValidationFailed } from '@spinajs/validation';
+import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject, DI, Constructor } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { fsNative, IFsLocalOptions } from '@spinajs/fs';
-import { UnexpectedServerError, AuthenticationFailed, Forbidden, InvalidArgument, BadRequest, JsonValidationFailed, ExpectedResponseUnacceptable, ResourceNotFound, IOFail, MethodNotImplemented, ResourceDuplicated } from '@spinajs/exceptions';
+import { ResourceNotFound } from '@spinajs/exceptions';
 import { Templates } from '@spinajs/templates';
 import '@spinajs/templates-pug';
 
@@ -16,15 +15,12 @@ import Express, { RequestHandler } from 'express';
 import _ from 'lodash';
 import fs from 'fs';
 
-import { ServerMiddleware, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, IHttpServerConfiguration } from './interfaces.js';
-import { Unauthorized, NotFound, ServerError, BadRequestResponse, ForbiddenResponse, Conflict } from './response-methods/index.js';
+import { ServerMiddleware, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, IHttpServerConfiguration, Response as HttpResponse } from './interfaces.js';
+import { ServerError } from './response-methods/index.js';
 import './transformers/index.js';
-import { ValidationError } from './response-methods/validationError.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
 import './middlewares/RealIp.js';
-import { EntityTooLarge } from './response-methods/entityTooLarge.js';
-import { EntityTooLargeException } from './exceptions.js';
 
 @Injectable()
 @Inject(Templates)
@@ -48,6 +44,7 @@ export class HttpServer extends AsyncService {
     defaultValue: 'development',
   })
   protected AppEnv: string;
+
   /**
    * Express app instance
    */
@@ -254,50 +251,30 @@ export class HttpServer extends AsyncService {
       this.Log.error(err, `Route error: ${err}, stack: ${err.stack}`);
 
       const error = {
+        /**
+         * By default Error object dont copy values like message ( they are not enumerable )
+         * It only copies custom props added to Error ( via inheritance )
+         */
         ...err,
+
+        // make sure error message is added
         message: err.message,
         stack: {},
       };
 
+      // in dev mode add stack trace for debugging
       if (this.AppEnv === 'development') {
         error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
       }
 
-      let response = null;
-
-      // todo refactor this
-      // to use responses with proper exception decorators
-      switch (err.constructor) {
-        case EntityTooLargeException:
-          response = new EntityTooLarge(error);
-          break;
-        case AuthenticationFailed:
-          response = new Unauthorized(error);
-          break;
-        case Forbidden:
-          response = new ForbiddenResponse(error);
-          break;
-        case ResourceDuplicated:
-          response = new Conflict(error);
-          break;
-        case ValidationFailed:
-        case JsonValidationFailed:
-          response = new ValidationError(error);
-          break;
-        case InvalidArgument:
-        case BadRequest:
-        case ExpectedResponseUnacceptable:
-          response = new BadRequestResponse(error);
-          break;
-        case ResourceNotFound:
-          response = new NotFound(error);
-          break;
-        case UnexpectedServerError:
-        case IOFail:
-        case MethodNotImplemented:
-        default:
-          response = new ServerError(error);
-          break;
+      let response: HttpResponse = null;
+      const rMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__');
+      if (rMap.has(err.constructor.name)) {
+        const httpResponse = rMap.get(err.constructor.name);
+        response = new httpResponse(error);
+      } else {
+        this.Log.warn(`Error type ${error.constructor} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
+        response = new ServerError(error);
       }
 
       response
