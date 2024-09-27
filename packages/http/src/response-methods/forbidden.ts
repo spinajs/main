@@ -1,7 +1,8 @@
-import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions } from '../interfaces.js';
-import { httpResponse } from '../responses.js';
-import { BadRequest } from './badRequest.js';
+import { BadRequestResponse } from './badRequest.js';
+import { HandleException } from '../decorators.js';
+import { Forbidden } from '@spinajs/exceptions';
+import { Injectable } from '@spinajs/di';
 
 /**
  * Internall response function.
@@ -9,19 +10,13 @@ import { BadRequest } from './badRequest.js';
  * @param err - error to send
  */
 
-export class Forbidden extends BadRequest {
-  constructor(data?: string | object | Promise<unknown>, protected options?: IResponseOptions) {
-    super(data);
-  }
+@HandleException(Forbidden)
+@Injectable(Response)
+export class ForbiddenResponse extends BadRequestResponse {
+  protected _errorCode = HTTP_STATUS_CODE.FORBIDDEN;
+  protected _template = 'forbidden.pug';
 
-  public async execute(_req: express.Request, _res: express.Response) {
-
-    const response = await this.prepareResponse();
-
-
-    return await httpResponse(response, 'forbidden.pug', {
-      ...this.options,
-      StatusCode: HTTP_STATUS_CODE.FORBIDDEN,
-    });
+  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+    super(data, options);
   }
 }

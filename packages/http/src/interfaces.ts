@@ -3,6 +3,7 @@ import { Constructor, AsyncService, Class, isPromise } from '@spinajs/di';
 import { fs } from '@spinajs/fs';
 import formidable from 'formidable';
 import { CookieOptions } from 'express';
+import { httpResponse } from './responses.js';
 
 /**
  * Accept header enum
@@ -668,9 +669,18 @@ export interface IPolicyDescriptor {
 export type ResponseFunction = (req: express.Request, res: express.Response) => void;
 
 export abstract class Response {
-  constructor(protected responseData: string | object | Promise<unknown>) {}
+  protected _errorCode: number;
+  protected _template: string;
 
-  public abstract execute(req: express.Request, res: express.Response, next?: express.NextFunction): Promise<ResponseFunction | void>;
+  constructor(protected responseData: string | object | Promise<unknown>, protected options?: IResponseOptions) {}
+
+  public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {
+    const response = await this.prepareResponse();
+    return await httpResponse(response, this._template, {
+      ...this.options,
+      StatusCode: this._errorCode,
+    });
+  }
 
   protected async prepareResponse() {
     return isPromise(this.responseData) ? await this.responseData : this.responseData;

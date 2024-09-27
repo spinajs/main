@@ -1,7 +1,8 @@
-import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions } from '../interfaces.js';
-import { httpResponse } from '../responses.js';
-import { BadRequest } from './badRequest.js';
+import { BadRequestResponse } from './badRequest.js';
+import { AuthenticationFailed } from '@spinajs/exceptions';
+import { HandleException } from '../decorators.js';
+import { Injectable } from '@spinajs/di';
 
 /**
  * Internall response function.
@@ -9,18 +10,13 @@ import { BadRequest } from './badRequest.js';
  * @param data - data to send
  */
 
-export class Unauthorized extends BadRequest {
-  constructor(data?: string | object | Promise<unknown>, protected options?: IResponseOptions) {
-    super(data);
-  }
+@HandleException(AuthenticationFailed)
+@Injectable(Response)
+export class Unauthorized extends BadRequestResponse {
+  protected _errorCode = HTTP_STATUS_CODE.UNAUTHORIZED;
+  protected _template = 'unauthorized.pug';
 
-  public async execute(_req: express.Request, _res: express.Response) {
-
-    const response = await this.prepareResponse();
-
-    return await httpResponse(response, 'responses/unauthorized', {
-      ...this.options,
-      StatusCode: HTTP_STATUS_CODE.UNAUTHORIZED,
-    });
+  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+    super(data, options);
   }
 }

@@ -1,7 +1,5 @@
-import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions } from '../interfaces.js';
-import { httpResponse } from '../responses.js';
-import { BadRequest } from './badRequest.js';
+import { BadRequestResponse } from './badRequest.js';
 
 /**
  * Internall response function.
@@ -9,19 +7,11 @@ import { BadRequest } from './badRequest.js';
  * @param err - error to send
  */
 
-export class NotAllowed extends BadRequest {
-  constructor(data?: string | object | Promise<unknown>, protected options?: IResponseOptions) {
-    super(data);
-  }
+export class NotAllowed extends BadRequestResponse {
+  protected _errorCode = HTTP_STATUS_CODE.NOT_ALLOWED;
+  protected _template = 'not-allowed.pug';
 
-  public async execute(_req: express.Request, _res: express.Response) {
-
-    const response = await this.prepareResponse();
-
-
-    return await httpResponse(response, 'not-allowed.pug', {
-      ...this.options,
-      StatusCode: HTTP_STATUS_CODE.NOT_ALLOWED,
-    });
+  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+    super(data, options);
   }
 }

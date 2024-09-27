@@ -1,7 +1,8 @@
-import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions } from '../interfaces.js';
-import { httpResponse } from '../responses.js';
-import { BadRequest } from './badRequest.js';
+import { BadRequestResponse } from './badRequest.js';
+import { HandleException } from '../decorators.js';
+import { ResourceDuplicated } from '@spinajs/exceptions';
+import { Injectable } from '@spinajs/di';
 
 /**
  * Internall response function.
@@ -9,18 +10,13 @@ import { BadRequest } from './badRequest.js';
  * @param err - error to send
  */
 
-export class Conflict extends BadRequest {
-  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
-    super(data);
-  }
-  public async execute(_req: express.Request, _res: express.Response) {
+@HandleException(ResourceDuplicated)
+@Injectable(Response)
+export class Conflict extends BadRequestResponse {
+  protected _errorCode = HTTP_STATUS_CODE.CONFLICT;
+  protected _template = 'conflict.pug';
 
-    const response = await this.prepareResponse();
-
-
-    return await httpResponse(response, 'conflict.pug', {
-      ...this.options,
-      StatusCode: HTTP_STATUS_CODE.CONFLICT,
-    });
+  constructor(error: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+    super(error, options);
   }
 }

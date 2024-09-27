@@ -1,7 +1,8 @@
-import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions } from '../interfaces.js';
-import { httpResponse } from '../responses.js';
-import { BadRequest } from './badRequest.js';
+import { BadRequestResponse } from './badRequest.js';
+import { HandleException } from '../decorators.js';
+import { ValidationFailed } from '@spinajs/validation';
+import { Injectable } from '@spinajs/di';
 
 /**
  * Internall response function.
@@ -9,19 +10,13 @@ import { BadRequest } from './badRequest.js';
  * @param err - error to send
  */
 
-export class ValidationError extends BadRequest {
-  constructor(data?: string | object | Promise<unknown>, protected options?: IResponseOptions) {
-    super(data);
-  }
+@HandleException(ValidationFailed)
+@Injectable(Response)
+export class ValidationError extends BadRequestResponse {
+  protected _errorCode = HTTP_STATUS_CODE.BAD_REQUEST;
+  protected _template = 'validationError.pug';
 
-  public async execute(_req: express.Request, _res: express.Response) {
-
-    const response = await this.prepareResponse();
-    
-    
-    return await httpResponse(response, 'validationError.pug', {
-      ...this.options,
-      StatusCode: HTTP_STATUS_CODE.BAD_REQUEST,
-    });
+  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+    super(data, options);
   }
 }

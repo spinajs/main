@@ -1,7 +1,8 @@
-import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions } from '../interfaces.js';
-import { httpResponse } from '../responses.js';
-import { BadRequest } from './badRequest.js';
+import { BadRequestResponse } from './badRequest.js';
+import { HandleException } from '../decorators.js';
+import { Injectable } from '@spinajs/di';
+import { IOFail, MethodNotImplemented, UnexpectedServerError } from '@spinajs/exceptions';
 
 /**
  * Internall response function.
@@ -9,17 +10,13 @@ import { BadRequest } from './badRequest.js';
  * @param err - error to send
  */
 
-export class ServerError extends BadRequest {
-  constructor(data?: string | object | Promise<unknown>, protected options?: IResponseOptions) {
-    super(data);
-  }
+@HandleException([MethodNotImplemented, IOFail, UnexpectedServerError])
+@Injectable(Response)
+export class ServerError extends BadRequestResponse {
+  protected _errorCode = HTTP_STATUS_CODE.INTERNAL_ERROR;
+  protected _template = 'serverError.pug';
 
-  public async execute(_req: express.Request, _res: express.Response) {
-    const response = await this.prepareResponse();
-    
-    return await httpResponse({ error: response }, 'serverError.pug', {
-      ...this.options,
-      StatusCode: HTTP_STATUS_CODE.INTERNAL_ERROR,
-    });
+  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+    super(data, options);
   }
 }

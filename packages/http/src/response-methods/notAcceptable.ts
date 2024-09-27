@@ -1,7 +1,5 @@
-import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions } from '../interfaces.js';
-import { httpResponse } from '../responses.js';
-import { BadRequest } from './badRequest.js';
+import { BadRequestResponse } from './badRequest.js';
 
 /**
  * Internall response function.
@@ -9,19 +7,11 @@ import { BadRequest } from './badRequest.js';
  * When content requested in accept header format cannot be returned.
  * @param err - error to send
  */
-export class NotAcceptable extends BadRequest {
-  constructor(data?: string | object | Promise<unknown>, protected options? : IResponseOptions) {
-    super(data);
-  }
+export class NotAcceptable extends BadRequestResponse {
+  protected _errorCode = HTTP_STATUS_CODE.NOT_ACCEPTABLE;
+  protected _template = 'notAcceptable.pug';
 
-  public async execute(_req: express.Request, _res: express.Response) {
-
-    const response = await this.prepareResponse();
-
-
-    return await httpResponse(response, 'notAcceptable.pug', {
-      ...this.options,
-      StatusCode: HTTP_STATUS_CODE.NOT_ACCEPTABLE
-    });
+  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+    super(data, options);
   }
 }

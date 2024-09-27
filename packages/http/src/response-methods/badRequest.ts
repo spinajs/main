@@ -1,28 +1,16 @@
-import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions, Response } from '../interfaces.js';
-import { httpResponse } from '../responses.js';
 import _ from 'lodash';
-import { DI, isPromise } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { ExpectedResponseUnacceptable, InvalidArgument, BadRequest } from '@spinajs/exceptions';
+import { HandleException } from '../decorators.js';
+import { Injectable } from '@spinajs/di';
 
-export class BadRequest extends Response {
+@HandleException([InvalidArgument, BadRequest, ExpectedResponseUnacceptable])
+@Injectable(Response)
+export class BadRequestResponse extends Response {
+  protected _errorCode = HTTP_STATUS_CODE.BAD_REQUEST;
+  protected _template = 'badRequest.pug';
+
   constructor(error: string | object | Promise<unknown>, protected options?: IResponseOptions) {
-    super(error);
-
-    const isDev = DI.get(Configuration).get('configuration.isDevelopment');
-    if (!isDev) {
-      if (!_.isString(this.responseData) && !isPromise(this.responseData)) this.responseData = _.omit(this.responseData, ['stack']);
-    }
-  }
-
-  public async execute(_req: express.Request, _res: express.Response) {
-
-    const response = await this.prepareResponse();
-
-
-    return await httpResponse(response, 'badRequest.pug', {
-      ...this.options,
-      StatusCode: HTTP_STATUS_CODE.BAD_REQUEST,
-    });
+    super(error, options);
   }
 }

@@ -11,7 +11,7 @@ export class HttpBootstrapper extends Bootstrapper {
     // take last registered
     const dtHydrator = types[types.length - 1];
 
-    // attach to datetime meta
+    // attach to luxon datetime meta
     Reflect.defineMetadata(
       'custom:arg_hydrator',
       {

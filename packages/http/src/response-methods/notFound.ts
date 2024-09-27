@@ -1,26 +1,21 @@
-import * as express from 'express';
 import { HTTP_STATUS_CODE, IResponseOptions } from '../interfaces.js';
-import { httpResponse } from '../responses.js';
-import { BadRequest } from './badRequest.js';
+import { BadRequestResponse } from './badRequest.js';
+import { HandleException } from '../decorators.js';
+import { ResourceNotFound } from '@spinajs/exceptions';
+import { Injectable } from '@spinajs/di';
 
 /**
  * Internall response function.
  * Returns HTTP 404 NOT FOUND ERROR
  * @param err - error to send
  */
-export class NotFound extends BadRequest {
-  constructor(data?: string | object | Promise<unknown>, protected options?: IResponseOptions) {
-    super(data);
-  }
+@HandleException(ResourceNotFound)
+@Injectable(Response)
+export class NotFound extends BadRequestResponse {
+  protected _errorCode = HTTP_STATUS_CODE.NOT_FOUND;
+  protected _template = 'notFound.pug';
 
-  public async execute(_req: express.Request, _res: express.Response) {
-
-    const response = await this.prepareResponse();
-
-
-    return await httpResponse(response, 'notFound.pug', { 
-      ...this.options,
-      StatusCode: HTTP_STATUS_CODE.NOT_FOUND,
-    });
+  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+    super(data, options);
   }
 }

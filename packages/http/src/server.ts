@@ -17,7 +17,7 @@ import _ from 'lodash';
 import fs from 'fs';
 
 import { ServerMiddleware, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, IHttpServerConfiguration } from './interfaces.js';
-import { Unauthorized, NotFound, ServerError, BadRequest as BadRequestResponse, Forbidden as ForbiddenResponse, Conflict } from './response-methods/index.js';
+import { Unauthorized, NotFound, ServerError, BadRequestResponse, ForbiddenResponse, Conflict } from './response-methods/index.js';
 import './transformers/index.js';
 import { ValidationError } from './response-methods/validationError.js';
 import './middlewares/ResponseTime.js';
@@ -44,6 +44,10 @@ export class HttpServer extends AsyncService {
   @Config('https')
   protected HttpsEnabled: boolean;
 
+  @Config('process.env.APP_ENV', {
+    defaultValue: 'development',
+  })
+  protected AppEnv: string;
   /**
    * Express app instance
    */
@@ -160,7 +164,6 @@ export class HttpServer extends AsyncService {
       });
 
       if (this.HttpsEnabled) {
-
         this.Log.info(`Using https key file ${this.HttpConfig.ssl.key}`);
         this.Log.info(`Using https cert file ${this.HttpConfig.ssl.cert}`);
 
@@ -251,13 +254,12 @@ export class HttpServer extends AsyncService {
       this.Log.error(err, `Route error: ${err}, stack: ${err.stack}`);
 
       const error = {
-        error: err,
+        ...err,
         message: err.message,
         stack: {},
       };
 
-      const env = this.Configuration.get('process.env.APP_ENV', 'development');
-      if (env === 'development') {
+      if (this.AppEnv === 'development') {
         error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
       }
 
@@ -279,11 +281,11 @@ export class HttpServer extends AsyncService {
           response = new Conflict(error);
           break;
         case ValidationFailed:
+        case JsonValidationFailed:
           response = new ValidationError(error);
           break;
         case InvalidArgument:
         case BadRequest:
-        case JsonValidationFailed:
         case ExpectedResponseUnacceptable:
           response = new BadRequestResponse(error);
           break;

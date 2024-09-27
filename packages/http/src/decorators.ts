@@ -2,7 +2,8 @@ import { Constructor } from '@spinajs/di';
 import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
-import { Options  as CsvParseOptions } from "csv-parse"
+import { Options as CsvParseOptions } from 'csv-parse';
+import { toArray } from '@spinajs/util';
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
 
@@ -138,11 +139,22 @@ export function Hydrator(hydrator: Constructor<ArgHydrator>, ...options: any[]) 
   };
 }
 
+export function HandleException(exception: Constructor<Error> | Constructor<Error>[]) {
+  return (target: any) => {
+    let meta = Reflect.getMetadata('custom:exception_handler', target);
+    if (!meta) {
+      Reflect.defineMetadata('custom:exception_handler', toArray(exception), target);
+    } else {
+      meta.concat(toArray(exception));
+    }
+  };
+}
+
 /**
- * 
+ *
  * @param policy - policy to set. Could be type or path in configuration to with policy to inject ( eg. metrics.auth.policy )
- * @param options 
- * @returns 
+ * @param options
+ * @returns
  */
 export function Policy(policy: Constructor<BasePolicy> | string, ...options: any[]) {
   return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1: string, _2: number | PropertyDescriptor) => {
@@ -184,7 +196,6 @@ export function FromDI() {
   return Route(Parameter(ParameterType.FromDi));
 }
 
-
 /**
  * Gets whole body field
  * @returns body field of request
@@ -193,7 +204,7 @@ export function BodyField() {
   return Route(Parameter(ParameterType.BodyField));
 }
 
-export function AcceptType() { 
+export function AcceptType() {
   return Route(Parameter(ParameterType.RequestType));
 }
 
@@ -207,7 +218,7 @@ export function HeadersField() {
 
 /**
  * Get whole query field from request.
- * 
+ *
  * @returns whole request field of request
  */
 export function QueryField() {
@@ -221,8 +232,6 @@ export function QueryField() {
 export function ParamField() {
   return Route(Parameter(ParameterType.ParamField));
 }
-
-
 
 /**
  * Route parameter taken from query string eg. route?id=1
@@ -281,9 +290,7 @@ export function File(options?: IUploadOptions) {
  * @param schema - optional schema for data validation
  */
 export function CsvFile(cvsParseOptions?: CsvParseOptions) {
-  return Route(
-    Parameter(ParameterType.FromCSV, null, cvsParseOptions),
-  );
+  return Route(Parameter(ParameterType.FromCSV, null, cvsParseOptions));
 }
 
 /**
