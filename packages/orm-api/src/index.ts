@@ -1,6 +1,7 @@
-import { Orm, ModelBase, OrmException } from '@spinajs/orm';
+import { Orm, ModelBase, OrmException, SelectQueryBuilder, extractModelDescriptor, RelationType } from '@spinajs/orm';
 import { IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest, RouteArgs } from '@spinajs/http';
 import { IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
+import { FromModelOptions } from './interfaces.js';
 
 @Injectable()
 export class AsDbModel extends RouteArgs {
@@ -23,33 +24,73 @@ export class FromDbModel extends RouteArgs {
   @Autoinject(Orm)
   protected Orm: Orm;
 
-  async resolve(): Promise<void> { }
+  async resolve(): Promise<void> {}
 
   public get SupportedType(): string {
     return 'FromDB';
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: sRequest) {
-    let p: any = null;
+  public async extract(callData: IRouteCall, param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
+    let result = null;
 
-    switch (param.Options.type) {
+    if (param.Options.query) {
+      result = await param.Options.query.call(param.RuntimeType.query(), callData.Payload);
+    } else {
+      result = await this.fromDbModelDefaultQueryFunction(callData, param, req);
+    }
+
+    return { CallData: callData, Args: result };
+  }
+
+  protected fromDbModelDefaultQueryFunction(callData: IRouteCall, param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
+    let pkValue: any = null;
+    const field = param.Options.field ?? param.Name;
+
+    switch (param.Options.paramType) {
       case ParameterType.FromQuery:
-        p = req.query[param.Options.field ?? param.Name];
+        pkValue = req.query[field];
         break;
       case ParameterType.FromBody:
-        p = req.body[param.Options.field ?? param.Name];
+        pkValue = req.body[field];
         break;
       case ParameterType.FromHeader:
-        p = req.headers[param.Options.field ?? param.Name.toLowerCase()];
+        pkValue = req.headers[field.toLowerCase()];
         break;
       case ParameterType.FromParams:
       default:
-        p = req.params[param.Options.field ?? param.Name];
+        pkValue = req.params[field];
         break;
     }
 
-    const result = await param.RuntimeType['getOrFail'](p);
-    return { CallData: callData, Args: result };
+    const query = param.RuntimeType['query']() as SelectQueryBuilder;
+    const descriptor = extractModelDescriptor(param.RuntimeType);
+
+    query.where(descriptor.PrimaryKey, pkValue);
+
+    /**
+     * Checks BelongsToRelations
+     */
+    for (const [, v] of descriptor.Relations) {
+      // if its one-to-one relations ( belongsTo)
+      // check if we have same field in route param list
+      // If exists, we assume that we want parent ( owner of this model )
+      if (v.Type === RelationType.One) {
+        for (const p in callData.Payload) {
+          if (p === v.Name) {
+            query.where(v.ForeignKey, callData.Payload[p]);
+          }
+        }
+      }
+    }
+
+    /**
+     * Checks include field
+     */
+    if (callData.Payload.includes) {
+      query.populate(callData.Payload.includes);
+    }
+
+    return query.firstOrFail();
   }
 }
 
@@ -67,9 +108,9 @@ export class DbModelHydrator extends ArgHydrator {
 
 /**
  * Creates model base on body data. Data is taken from field name passed in options or from parameter name
- * 
+ *
  * @param field body field  name to get model data from
- * @returns 
+ * @returns
  */
 export function AsModel(field?: string) {
   return Route(Parameter('AsDbModel', null, { field }));
@@ -77,13 +118,13 @@ export function AsModel(field?: string) {
 
 /**
  * Loads model from db based on primary key added to route/param/body
- * 
+ *
  * @param field route/param/body field for primary key
  * @param type from where to get primary key value ( body, query, param )
- * @returns 
+ * @returns
  */
-export function FromModel(field?: string, type?: ParameterType) {
-  return Route(Parameter('FromDbModel', null, { field, type }));
+export function FromModel(options?: FromModelOptions<ModelBase<any>>) {
+  return Route(Parameter('FromDbModel', null, { options }));
 }
 
 @Injectable(Bootstrapper)

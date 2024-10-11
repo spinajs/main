@@ -28,7 +28,36 @@ export interface ITransformOptions {
   model: Class<ModelBase<unknown>>;
 }
 
-export interface IQueryFilterEntry{ 
+export interface FromModelOptions<T extends ModelBase> {
+  /**
+   * Optiona route/param/body field for primary key
+   * If not set , model primary key is used
+   */
+  field?: string;
+
+  /**
+   * From where to get primary key value
+   * Eg. body, query, param, header etc.
+   *
+   * If not set, param is used
+   */
+  paramType?: string;
+
+  /**
+   * 
+   * Callback on query builder before model is fetched from DB
+   * 
+   * It allows to modify query with data passed to route. 
+   * If not set it check for include, model owner ( if has @BelongsTo field marked) etc.
+   * 
+   * @param this 
+   * @param routeParams passed route params to query
+   * @returns 
+   */
+  query?: (this: SelectQueryBuilder<T>, routeParams: any) => SelectQueryBuilder;
+}
+
+export interface IQueryFilterEntry {
   val: string;
   op?: string;
 }
@@ -40,7 +69,6 @@ export interface IQueryFilterEntry{
 export abstract class CollectionApiTransformer {
   public abstract transform(data: ModelBase<unknown>[] | ModelBase<unknown>, options?: ITransformOptions): unknown;
 }
-
 
 /**
  * Base class for crud operations. Provides helper functions
