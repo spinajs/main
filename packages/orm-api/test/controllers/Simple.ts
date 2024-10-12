@@ -9,6 +9,16 @@ export class Simple extends BaseController {
     return new Ok({ Text: model.Text });
   }
 
+  @Get(':model')
+  public testWithInclude(_include: string, @FromModel() model: Test) {
+    return new Ok({ Text: model.Text });
+  }
+
+  @Get(':owner/:model')
+  public testWithParentRelation(_belongs : number, @FromModel() model: Test) {
+    return new Ok({ Text: model.Text });
+  }
+
   @Post()
   public testHydrate(@Body() model: Test) {
     return new Ok({ Text: model.Text });

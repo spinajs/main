@@ -18,7 +18,7 @@ import '../src/index.js';
 import { User } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 
-describe('crut tests', function () {
+describe('crud tests', function () {
   this.timeout(105000);
 
   before(async () => {
@@ -36,8 +36,9 @@ describe('crut tests', function () {
       await b.bootstrap();
     }
 
-    await DI.resolve(Configuration);
+    const c = await DI.resolve(Configuration);
     await DI.resolve(Controllers);
+    console.log(c.RootConfig);
 
     const server = await DI.resolve(HttpServer);
     server.start();

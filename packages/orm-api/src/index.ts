@@ -76,7 +76,8 @@ export class FromDbModel extends RouteArgs {
       // If exists, we assume that we want parent ( owner of this model )
       if (v.Type === RelationType.One) {
         for (const p in callData.Payload) {
-          if (p === v.Name) {
+          // we check for underscore becouse most likely this var is unused in route func () and linter is rasing warnings
+          if (p.toLowerCase() === v.Name.toLowerCase() || p.toLowerCase() === `_${v.Name.toLowerCase()}`) {
             query.where(v.ForeignKey, callData.Payload[p]);
           }
         }
@@ -86,8 +87,8 @@ export class FromDbModel extends RouteArgs {
     /**
      * Checks include field
      */
-    if (callData.Payload.includes) {
-      query.populate(callData.Payload.includes);
+    if (callData.Payload.include || callData.Payload._include) {
+      query.populate(callData.Payload.include ?? callData.Payload._include);
     }
 
     return query.firstOrFail();

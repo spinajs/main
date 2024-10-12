@@ -23,7 +23,7 @@ export function dir(path: string) {
 }
 
 export function req() {
-  return chai.request('http://localhost:1337/');
+  return chai.request('http://localhost:9999/');
 }
 
  
@@ -49,7 +49,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       http: {
-        port: 1337,
+        port: 9999,
         middlewares: [
           express.json({
             limit: '5mb',
