@@ -87,6 +87,32 @@ describe('Http orm tests', function () {
       expect(spy.args[0][0].Text).to.equal('witaj');
     });
 
+    it('simple query with include', async () =>{ 
+
+      const spy = DI.get(Simple).testInclude as sinon.SinonSpy;
+      
+      await req().get('simple/testinclude/1?include=["Belongs"]').set('Accept', 'application/json');
+      expect(spy.args[0][0].constructor.name).to.eq('Test');
+      expect(spy.args[0][0].Belongs.Value.Text).to.eq('belongs 1');
+      expect(spy.args[0][0].Text).to.equal('witaj');
+    });
+
+    it('simple query with parent model', async () =>{ 
+
+      const spy = DI.get(Simple).testWithParent as sinon.SinonSpy;
+      
+      await req().get('simple/testWithParent/1/1').set('Accept', 'application/json');
+      expect(spy.args[0][0].constructor.name).to.eq('Test');
+      expect(spy.args[0][0].Text).to.equal('witaj');
+    });
+
+    it('should fail if parent model not exist', async () =>{ 
+      const result = await req().get('simple/testWithParent/111/1').set('Accept', 'application/json');
+      expect(result.status).to.equal(404);
+     
+    });
+
+
     it('should hydrate data to model', async () => {
       const spy = DI.get(Simple).testHydrate as sinon.SinonSpy;
       await req()

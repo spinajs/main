@@ -1,8 +1,9 @@
-import { Orm, ModelBase, OrmException, extractModelDescriptor, SelectQueryBuilder, RelationType } from '@spinajs/orm';
+import { Orm, ModelBase, OrmException, extractModelDescriptor, SelectQueryBuilder, RelationType, OrmNotFoundException } from '@spinajs/orm';
 import { IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest, RouteArgs } from '@spinajs/http';
 import { IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
 import { MODEL_STATIC_MIXINS } from './model.js';
 import { FromModelOptions } from './interfaces.js';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 export * from './interfaces.js';
 export * from './model.js';
@@ -11,6 +12,7 @@ export * from './extension.js';
 export * from './route-arg.js';
 export * from './builders.js';
 export * from './dto.js';
+export * from './response-methods/OrmNotFound.js';
 
 @Injectable()
 export class AsDbModel extends RouteArgs {
@@ -82,6 +84,7 @@ export class FromDbModel extends RouteArgs {
     const query = param.RuntimeType['query']() as SelectQueryBuilder;
     const descriptor = extractModelDescriptor(param.RuntimeType);
 
+    query.select('*');
     query.where(descriptor.PrimaryKey, pkValue);
 
     /**
@@ -92,10 +95,20 @@ export class FromDbModel extends RouteArgs {
       // check if we have same field in route param list
       // If exists, we assume that we want parent ( owner of this model )
       if (v.Type === RelationType.One) {
-        for (const p in callData.Payload) {
-          // we check for underscore becouse most likely this var is unused in route func () and linter is rasing warnings
-          if (p.toLowerCase() === v.Name.toLowerCase() || p.toLowerCase() === `_${v.Name.toLowerCase()}`) {
-            query.where(v.ForeignKey, callData.Payload[p]);
+        const args = callData.Payload?.Param?.Args;
+
+        if (args) {
+          const keys = Object.keys(args);
+          const key = keys.find((k) => {
+            return k.toLowerCase() === v.Name.toLowerCase() || k.toLowerCase() === `_${v.Name.toLowerCase()}`;
+          });
+
+          if (key) {
+            if (callData.Payload.Param.Args[key]) {
+              query.where(v.ForeignKey, callData.Payload.Param.Args[key]);
+            } else {
+              throw new InvalidArgument(`no key for relation ${v.Name} was provided`);
+            }
           }
         }
       }
@@ -104,11 +117,11 @@ export class FromDbModel extends RouteArgs {
     /**
      * Checks include field
      */
-    if (callData.Payload.include || callData.Payload._include) {
-      query.populate(callData.Payload.include ?? callData.Payload._include);
+    if (callData.Payload?.Query?.Args?.include || callData.Payload?.Query?.Args?._include) {
+      query.populate(callData.Payload.Query.Args.include ?? callData.Payload.Query.Args._include);
     }
 
-    return query.firstOrFail();
+    return query.firstOrThrow(new OrmNotFoundException());
   }
 }
 

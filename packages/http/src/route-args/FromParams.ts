@@ -10,9 +10,29 @@ export class FromParams extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
+    ('');
+
+    // some framework route-args functions use _ prefix to make linter happy
+    // eg. orm-http uses include param for automatic inlude relations with @FromModel() decorator
+    const pArg = req.params[param.Name] ?? param.Name.startsWith('_') ? req.params[param.Name.substring(1, param.Name.length)] : undefined;
+    const args = await this.tryHydrateParam(pArg, param, route);
+    const arg: { [key: string]: any } = {};
+    arg[param.Name] = args;
+
     return {
-      CallData: callData,
-      Args: await this.tryHydrateParam(req.params[param.Name], param, route),
+      CallData: {
+        ...callData,
+
+        // args passed to another route-args params
+        Payload: {
+          Param: {
+            Args: arg,
+          },
+        },
+      },
+
+      // args passed to route
+      Args: args,
     };
   }
 }
