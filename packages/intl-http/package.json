@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl-http",
-  "version": "2.0.265",
+  "version": "2.0.266",
   "description": "Internationalization support for http module",
     "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -49,16 +49,16 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.265",
-    "@spinajs/di": "^2.0.265",
-    "@spinajs/exceptions": "^2.0.265",
-    "@spinajs/http": "^2.0.265",
-    "@spinajs/intl": "^2.0.265",
-    "@spinajs/log-common": "^2.0.265",
-    "@spinajs/reflection": "^2.0.265"
+    "@spinajs/configuration": "^2.0.266",
+    "@spinajs/di": "^2.0.266",
+    "@spinajs/exceptions": "^2.0.266",
+    "@spinajs/http": "^2.0.266",
+    "@spinajs/intl": "^2.0.266",
+    "@spinajs/log-common": "^2.0.266",
+    "@spinajs/reflection": "^2.0.266"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.265"
+    "@spinajs/orm-sqlite": "^2.0.266"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
