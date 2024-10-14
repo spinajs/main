@@ -1,7 +1,7 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable, NewInstance } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log';
-import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException, ServerResponseMapper } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolOptions } from 'mysql2';
@@ -9,6 +9,14 @@ import { MySqlTableExistsCompiler } from './compilers.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
 import { Client as SSHClient } from 'ssh2';
 import fs from 'fs';
+
+export class MysqlServerResponseMapper extends ServerResponseMapper {
+  public read(data: any) {
+    return {
+      LastInsertId: data.insertId,
+    };
+  }
+}
 
 @Injectable('orm-driver-mysql')
 @NewInstance()
@@ -80,6 +88,7 @@ export class MySqlOrmDriver extends SqlDriver {
     super.resolve();
 
     this.Container.register(MySqlTableExistsCompiler).as(TableExistsCompiler);
+    this.Container.register(MysqlServerResponseMapper).as(ServerResponseMapper);
   }
 
   public async ping(): Promise<boolean> {

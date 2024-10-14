@@ -30,7 +30,6 @@ export enum ColumnAlterationType {
   Rename,
 }
 
-
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
   TargetModelDescriptor: IModelDescriptor;
 
@@ -118,6 +117,13 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
    * Populates this relation ( loads all data related to owner of this relation)
    */
   populate(callback?: (this: ISelectQueryBuilder<this>) => void): Promise<void>;
+}
+
+export interface DbServerResponse {
+  LastInsertId: number;
+}
+export abstract class ServerResponseMapper {
+  public abstract read(response: any, pkName? : string): DbServerResponse;
 }
 
 export abstract class DefaultValueBuilder<T> {
@@ -467,7 +473,7 @@ export interface IRelationDescriptor {
   JunctionModelTargetModelFKey_Name?: string;
   JunctionModelSourceModelFKey_Name?: string;
 
-  JoinMode? : "LeftJoin" | "RightJoin";
+  JoinMode?: 'LeftJoin' | 'RightJoin';
 
   /**
    * Is this relation recursive ? Used for hierarchical / paren one-to-one relations
@@ -508,7 +514,7 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
   getModelDescriptor(): IModelDescriptor;
   getRelationDescriptor(relation: string): IRelationDescriptor;
 
-  whereExists<R extends typeof ModelBase,T extends typeof ModelBase>(relation: string, func: WhereFunction<InstanceType<R>>): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  whereExists<R extends typeof ModelBase, T extends typeof ModelBase>(relation: string, func: WhereFunction<InstanceType<R>>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   whereExists<T extends typeof ModelBase>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   whereNotExists<T extends typeof ModelBase>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
 
@@ -644,7 +650,6 @@ export interface IColumnDescriptor {
    * Column comment, use it for documentation purposes.
    */
   Comment: string;
-
 
   /**
    * Default column value
@@ -912,7 +917,7 @@ export interface IWhereBuilder<T> {
   whereNot(column: string, val: unknown): this;
   whereIn(column: string, val: unknown[]): this;
   whereNotIn(column: string, val: unknown[]): this;
-  whereExist<R>(query: ISelectQueryBuilder | string, callback? : WhereFunction<R>): this;
+  whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
   whereNotExists<M extends ModelBase | ModelBase[]>(query: ISelectQueryBuilder<M>): this;
   whereBetween(column: string, val: unknown[]): this;
   whereNotBetween(column: string, val: unknown[]): this;

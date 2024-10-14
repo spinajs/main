@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, QueryContext } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders.js';
 import { Op } from './enums.js';
@@ -524,6 +524,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public async insert(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
     const { query, description } = this.createInsertQuery();
+    const sResponseMapper = query.Container.resolve(ServerResponseMapper);
 
     switch (insertBehaviour) {
       case InsertBehaviour.InsertOrIgnore:
@@ -537,23 +538,14 @@ export class ModelBase<M = unknown> implements IModelBase {
         break;
     }
 
-    query.QueryContext === QueryContext.Upsert
-      ? // when upsert, we take affecter row ID from primary key returned ( returning statement)
-        query.middleware({
-          afterQuery: (data: any) => {
-            this.PrimaryKeyValue = this.PrimaryKeyValue ?? data[0][this.PrimaryKeyName];
-          },
-          modelCreation: (): any => null,
-          afterHydration: (): any => null,
-        })
-      : query.middleware({
-          afterQuery: (data: IUpdateResult) => {
-            this.PrimaryKeyValue = this.PrimaryKeyValue ?? data.LastInsertId;
-            return data;
-          },
-          modelCreation: (): any => null,
-          afterHydration: (): any => null,
-        });
+    query.middleware({
+      afterQuery: (data: any) => {
+        const response = sResponseMapper.read(data);
+        this.PrimaryKeyValue = response.LastInsertId;
+      },
+      modelCreation: (): any => null,
+      afterHydration: (): any => null,
+    });
 
     const result = query.values(this.toSql());
 
@@ -832,9 +824,9 @@ export const MODEL_STATIC_MIXINS = {
         // but nodejs drivers use older version of sqlite
         JoinQuery.leftJoin(relationDescriptor.TargetModel, function () {
           this.select(new RawQuery(`${this.TableAlias}.*`));
-      });
-      JoinQuery.where(relationDescriptor.SourceModel.getModelDescriptor().PrimaryKey, owner);
-      JoinQuery.middleware(hydrateMiddleware);
+        });
+        JoinQuery.where(relationDescriptor.SourceModel.getModelDescriptor().PrimaryKey, owner);
+        JoinQuery.middleware(hydrateMiddleware);
         return JoinQuery;
       case RelationType.ManyToMany:
         throw new OrmException(`many to many relation not supported in populate`);
@@ -1092,7 +1084,7 @@ export const MODEL_STATIC_MIXINS = {
 
     query.setAlias('__exists__');
     query.whereExist(qOrRel, callback);
-    
+
     return query;
   },
 

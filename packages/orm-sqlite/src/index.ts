@@ -10,7 +10,7 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 import { LogLevel } from '@spinajs/log-common';
 export * from './compilers.js';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ObjectToSqlConverter, OrmException, ValueConverter } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ObjectToSqlConverter, OrmException, ValueConverter, ServerResponseMapper } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -20,6 +20,14 @@ import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
 import { SqliteModelToSqlConverter, SqliteObjectToSqlConverter } from './converters.js';
+
+export class SqliteServerResponseMapper extends ServerResponseMapper {
+  public read(data: any, pkName: string) {
+    return {
+      LastInsertId: data[0][pkName],
+    };
+  }
+}
 
 @Injectable('orm-driver-sqlite')
 @NewInstance()
@@ -65,7 +73,7 @@ export class SqliteOrmDriver extends SqlDriver {
             resolve(rows);
           });
           break;
-        
+
         case QueryContext.Insert:
           this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: any) {
             if (err) {
@@ -183,6 +191,7 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqliteModelToSqlConverter).as(ModelToSqlConverter);
     this.Container.register(SqliteObjectToSqlConverter).as(ObjectToSqlConverter);
+    this.Container.register(SqliteServerResponseMapper).as(ServerResponseMapper);
   }
 
   public async transaction(qrOrCallback: QueryBuilder[] | TransactionCallback) {
@@ -244,7 +253,7 @@ export class SqliteOrmDriver extends SqlDriver {
         Type: r.type,
         MaxLength: -1,
         Comment: '',
-        DefaultValue: converter ?  this.Container.resolve<ValueConverter>(converters.get(r.type.toLocaleLowerCase())).fromDB( r.dflt_value) : r.dflt_value,
+        DefaultValue: converter ? this.Container.resolve<ValueConverter>(converters.get(r.type.toLocaleLowerCase())).fromDB(r.dflt_value) : r.dflt_value,
         NativeType: r.type,
         Unsigned: false,
         Nullable: r.notnull === 0,

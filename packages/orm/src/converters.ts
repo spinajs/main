@@ -20,8 +20,7 @@ export class JsonValueConverter extends ValueConverter {
    * @param value - value to convert
    */
   public fromDB(value: any): any {
-    
-    if(_.isObject(value) || _.isArray(value)) {
+    if (_.isObject(value) || _.isArray(value)) {
       return value;
     }
 
@@ -52,7 +51,6 @@ export class UuidConverter extends ValueConverter {
 
 export class UniversalValueConverter extends ValueConverter {
   public toDB(value: any, model: ModelBase, _column: IColumnDescriptor, options: IUniversalConverterOptions) {
-
     const type = (model as any)[options.TypeColumn];
     switch (type) {
       case 'string':
@@ -71,8 +69,6 @@ export class UniversalValueConverter extends ValueConverter {
 
   public fromDB(value: string, raw: any, options: IUniversalConverterOptions) {
     switch (raw[options.TypeColumn]) {
-      case 'string':
-        return value;
       case 'boolean':
         return value === 'true' ? true : false;
       case 'datetime':
@@ -83,6 +79,9 @@ export class UniversalValueConverter extends ValueConverter {
         return parseInt(value, 10);
       case 'json':
         return JSON.parse(value);
+      case 'string':
+      default:
+        return value;
     }
   }
 }
