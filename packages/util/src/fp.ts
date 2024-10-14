@@ -35,8 +35,10 @@ export function _all() {
   };
 }
 
-export function _use(value: () => Promise<unknown>, name: string) {
-  return async (arg?: unknown) => Object.assign({}, arg, { [name]: await value() });
+export function _use(value: () => Promise<unknown> | object | string | number, name: string) {
+  const val = value();
+
+  return async (arg?: unknown) => Object.assign({}, arg, { [name]: isPromise(val) ? await value() : val });
 }
 
 /**
