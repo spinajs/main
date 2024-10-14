@@ -672,7 +672,7 @@ export abstract class Response {
   protected _errorCode: number;
   protected _template: string;
 
-  constructor(protected responseData: string | object | Promise<unknown>, protected options?: IResponseOptions) {}
+  constructor(protected responseData?: string | object | Promise<unknown>, protected options?: IResponseOptions) {}
 
   public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {
     const response = await this.prepareResponse();
