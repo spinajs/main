@@ -10,6 +10,7 @@ export * from './local-temp-provider.js';
 export * from './decorators.js';
 export * from './file-hasher.js';
 export * from './file-info.js';
+export * from "./fp.js";
 
 export class fsService extends AsyncService {
 
