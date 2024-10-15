@@ -20,7 +20,7 @@ export function _fs(name: string) {
  * @returns 
  */
 export function _fileInfo() {
-  return (path: string) { 
+  return (path: string) => { 
     return _chain(_use(_resolve(FileInfoService), 'fileInfo'), ({ fileInfo }: { fileInfo: FileInfoService }) => {
       return fileInfo.getInfo(path);
     });
