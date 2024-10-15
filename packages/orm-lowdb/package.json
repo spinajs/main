@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-lowdb",
-  "version": "2.0.269",
+  "version": "2.0.270",
   "description": "framework orm sql-lite language module",
   
     "main": "lib/cjs/index.js",
@@ -52,11 +52,11 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.269",
-    "@spinajs/di": "^2.0.269",
-    "@spinajs/exceptions": "^2.0.269",
-    "@spinajs/log": "^2.0.269",
-    "@spinajs/orm": "^2.0.269",
+    "@spinajs/configuration": "^2.0.270",
+    "@spinajs/di": "^2.0.270",
+    "@spinajs/exceptions": "^2.0.270",
+    "@spinajs/log": "^2.0.270",
+    "@spinajs/orm": "^2.0.270",
     "lodash": "^4.17.21",
     "luxon": "^3.2.1",
     "lowdb": "^6.0.1"
