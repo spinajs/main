@@ -19,8 +19,10 @@ export function _fs(name: string) {
  * @param path abs path to file
  * @returns 
  */
-export function _fileInfo(path: string) {
-  return _chain(_use(_resolve(FileInfoService), 'fileInfo'), ({ fileInfo }: { fileInfo: FileInfoService }) => {
-    return fileInfo.getInfo(path);
-  });
+export function _fileInfo() {
+  return (path: string) { 
+    return _chain(_use(_resolve(FileInfoService), 'fileInfo'), ({ fileInfo }: { fileInfo: FileInfoService }) => {
+      return fileInfo.getInfo(path);
+    });
+  }
 }
