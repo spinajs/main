@@ -139,10 +139,15 @@ export abstract class BaseController extends AsyncService implements IController
           policies
             .filter((p) => p.isEnabled(route, this))
             .map((p) => {
-              return p.execute(req, route, this).catch((err) => {
-                this._log.trace(`Policy failed for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method} error ${err}, policy: ${p.constructor.name}`);
-                return err;
-              });
+              return p
+                .execute(req, route, this)
+                .then(() => {
+                  this._log.trace(`Policy succeded for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method}, policy: ${p.constructor.name}`);
+                })
+                .catch((err) => {
+                  this._log.trace(`Policy failed for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method} error ${err}, policy: ${p.constructor.name}`);
+                  throw err;
+                });
             }),
         )
           .then(next)
