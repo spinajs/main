@@ -14,7 +14,7 @@ export class FromParams extends RouteArgs {
 
     // some framework route-args functions use _ prefix to make linter happy
     // eg. orm-http uses include param for automatic inlude relations with @FromModel() decorator
-    const pArg = req.params[param.Name] ?? param.Name.startsWith('_') ? req.params[param.Name.substring(1, param.Name.length)] : undefined;
+    const pArg = req.params[param.Name] ?? (param.Name.startsWith('_') ? req.params[param.Name.substring(1, param.Name.length)] : undefined);
     const args = await this.tryHydrateParam(pArg, param, route);
     const arg: { [key: string]: any } = {};
     arg[param.Name] = args;
