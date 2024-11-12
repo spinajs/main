@@ -2,7 +2,7 @@ import { CliCommand, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import * as fs from 'fs';
 import { Logger, Log } from '@spinajs/log-common';
-import {  EmailService } from './../index.js';
+import { EmailSend, EmailService, IEmail } from './../index.js';
 
 interface EmailOptions {
   connection: string;
@@ -12,6 +12,10 @@ interface EmailOptions {
   model?: string;
   subject: string;
   content?: string;
+  deferred?: boolean;
+  scheduleCron?: string;
+  scheduleDelay?: number;
+  scheduleRepeat?: number;
 }
 
 @Command('email-send', 'Sends email, mainly for testing purpose or scheduled tasks')
@@ -21,7 +25,11 @@ interface EmailOptions {
 @Option('-e, --template [template]', false, 'template name')
 @Option('-m, --model [model]', false, 'path to model data for template, in json format')
 @Option('-s, --subject [model]', true, 'subject')
-@Option('-c, --content [content]', false, 'text content if template is not provided')
+@Option('-ct, --content [content]', false, 'text content if template is not provided')
+@Option('-sd, --schedule-delay', false, 'email delay')
+@Option('-sc, --schedule-cron', false, 'send email with cron schedule')
+@Option('-sr, --schedule-repeat', false, 'How many times to send')
+@Option('-df, --deferred', false, 'send email deferred ( send using queue & email srv')
 export class SendEmailCommand extends CliCommand {
   @Logger('email')
   protected Log: Log;
@@ -40,7 +48,7 @@ export class SendEmailCommand extends CliCommand {
         model = JSON.parse(mText);
       }
 
-      await emails.send({
+      const email: IEmail = {
         from: options.from,
         to: options.to.split(','),
         connection: options.connection,
@@ -48,7 +56,18 @@ export class SendEmailCommand extends CliCommand {
         model: model,
         subject: options.subject,
         text: options.content,
-      });
+        schedule: {
+          cron: options.scheduleCron,
+          delay: options.scheduleDelay,
+          repeat: options.scheduleRepeat,
+        },
+      };
+
+      if (options.deferred) {
+        await emails.sendDeferred(email);
+      } else {
+        await emails.send(email);
+      }
 
       this.Log.success(`Email send succesyfully to: ${options.to}, from: ${options.from}, subject: ${options.subject}`);
     } catch (err) {
