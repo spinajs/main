@@ -2,7 +2,7 @@ import { CliCommand, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import * as fs from 'fs';
 import { Logger, Log } from '@spinajs/log-common';
-import { EmailSend, EmailService, IEmail } from './../index.js';
+import {  EmailService, IEmail } from './../index.js';
 
 interface EmailOptions {
   connection: string;
