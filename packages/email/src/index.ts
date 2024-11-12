@@ -42,6 +42,15 @@ export class DefaultEmailService extends EmailService {
   public async sendDeferred(email: IEmail): Promise<EmailSend> {
     const dEmail = new EmailSend();
     dEmail.hydrate(email);
+
+    /** set queue schedule */
+    if(email.schedule){ 
+      dEmail.ScheduleCron = email.schedule.cron;
+      dEmail.ScheduleDelay = email.schedule.delay;
+      dEmail.SchedulePeriod = email.schedule.period;
+      dEmail.ScheduleRepeat = email.schedule.repeat;
+    }
+
     await this.Queue.emit(dEmail);
 
     return dEmail;

@@ -110,6 +110,33 @@ export interface IEmail {
    * Unique email id, for identification eg. in case of delivery failure
    */
   emailId?: string;
+
+  /**
+   * Email delivery schedule. If we want to repeat email, schedule to send at specific time, send delayed etc..
+   */
+  schedule?: { 
+
+    /**
+     * Use a Cron entry to set the schedule
+     */
+    cron?: string, 
+
+    /**
+     * The time in milliseconds that a message will wait before being scheduled to be delivered
+     */
+    delay?: number,
+
+    /**
+     * The time in milliseconds to wait after the start time to wait before scheduling the message again
+     */
+    period?: number,
+
+    /**
+     * The number of times to repeat scheduling a message for delivery
+     */
+    repeat? : number
+
+  }
 }
 
 export interface EmailConfiguration {
