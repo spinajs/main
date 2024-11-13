@@ -2,13 +2,19 @@ import { join, normalize, resolve } from 'path';
 
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
-  return resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'email', 'lib', inCommonJs ? 'cjs' : 'mjs', path)));
+  return [
+    resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'email', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+
+    // one up if we run from app or build folder
+    resolve(normalize(join(process.cwd(),'../','node_modules', '@spinajs', 'email', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+  ];
 }
+
 const email = {
   system: {
     dirs: {
-      cli: [dir('cli')],
-      jobs: [dir('jobs')],
+      cli: [...dir('cli')],
+      jobs: [...dir('jobs')],
     },
   },
   email: {

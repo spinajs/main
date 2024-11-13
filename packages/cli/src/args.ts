@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
  * Framework options eg. to set current app or env
  * Used internal
  */
-const SPINAJS_ARGV_OPTIONS = ['--app', '--env'];
+const SPINAJS_ARGV_OPTIONS = ['--app', '--env','--apppath'];
 
 DI.register(() => {
   let args = process.argv;

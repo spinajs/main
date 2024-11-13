@@ -1,16 +1,21 @@
 import { join, normalize, resolve } from 'path';
-import { DI } from '@spinajs/di';
-
-const isESMMode = DI.get<boolean>('__esmMode__');
-
+ 
 function dir(path: string) {
-  return resolve(normalize(join(process.cwd(), path)));
+  const inCommonJs = typeof module !== 'undefined';
+  return [
+    resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'rbac', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+
+    // one up if we run from app or build folder
+    resolve(normalize(join(process.cwd(),'../','node_modules', '@spinajs', 'rbac', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+  ];
 }
+
+ 
 
 const rbac = {
   system: {
     dirs: {
-      cli: [dir(`node_modules/@spinajs/cli/${isESMMode ? 'mjs/cli' : 'cjs/cli'}`)],
+      cli: [...dir('cli')],
     },
   },
   queue: {
