@@ -48,6 +48,15 @@ export abstract class BaseFileSource extends ConfigurationSource {
         ),
       ),
 
+      // if we run from local app dir
+      normalize(
+        join(
+          resolve(process.cwd()),
+          "../",
+          isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config',
+        ),
+      ),
+
       // project paths - last to allow overwrite @spinajs conf
       normalize(join(resolve(process.cwd()), 'lib/config')),
       normalize(join(resolve(process.cwd()), 'dist/config')),
