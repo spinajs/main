@@ -1,4 +1,4 @@
-import { QueueService } from '@spinajs/Queue';
+import { QueueService } from '@spinajs/queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { Autoinject } from '@spinajs/di';
