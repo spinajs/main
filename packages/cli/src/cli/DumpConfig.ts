@@ -1,5 +1,5 @@
 import { Log, Logger } from '@spinajs/log';
-import { CliCommand, Command, Option } from '@spinajs/cli';
+import { CliCommand, Command, Option } from '../index.js';
 import { Configuration } from '@spinajs/configuration-common';
 import { Autoinject } from '@spinajs/di';
 
