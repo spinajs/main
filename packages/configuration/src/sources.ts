@@ -150,7 +150,7 @@ export class JsFileSource extends BaseFileSource {
           cfg = await cfg.onConfigLoad(cfg);
         }
 
-        cfg.__file__ = file;
+        cfg.__file__ = [file];
         return cfg;
       } catch (err) {
         InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
@@ -174,7 +174,7 @@ export class JsonFileSource extends BaseFileSource {
         InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
 
         const cfg = JSON.parse(fs.readFileSync(file, 'utf-8')) as any;
-        cfg.__file__ = file;
+        cfg.__file__ = [file];
         return Promise.resolve(cfg);
       } catch (err) {
         console.error(`error loading configuration file ${file}, reasoun: ${(err as Error).message}`);
