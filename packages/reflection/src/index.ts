@@ -162,24 +162,27 @@ function _listOrResolveFromFiles(
             for (const key of _k) {
               const nameToResolve = typeMatcher ? typeMatcher(path.parse(f).name, key) : key;
               const type = fTypes[`${nameToResolve}`] as Class<any>;
+              try {
+                if (type.prototype instanceof AsyncService) {
+                  return (DI.resolve(type) as any).then((instance: any) => {
+                    return {
+                      file: f,
+                      instance,
+                      name: nameToResolve,
+                      type,
+                    };
+                  });
+                }
 
-              if (type.prototype instanceof AsyncService) {
-                return (DI.resolve(type) as any).then((instance: any) => {
-                  return {
-                    file: f,
-                    instance,
-                    name: nameToResolve,
-                    type,
-                  };
+                return Promise.resolve({
+                  file: f,
+                  instance: DI.resolve(type),
+                  name: nameToResolve,
+                  type,
                 });
+              } catch (err) {
+                logger.error(err, `Cannot resolve type ${type.name} from file ${f}`);
               }
-
-              return Promise.resolve({
-                file: f,
-                instance: DI.resolve(type),
-                name: nameToResolve,
-                type,
-              });
             }
           });
         });

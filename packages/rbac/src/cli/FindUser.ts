@@ -4,7 +4,7 @@ import { User } from '../models/User.js';
 
 @Command('rbac:user-find', 'Finds user with given identifier')
 @Option('-i, --identifier <idOrUuid>', false, 'numeric id or uuid')
-export class CreateUser extends CliCommand {
+export class FindUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
