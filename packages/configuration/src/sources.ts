@@ -52,7 +52,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
       normalize(
         join(
           resolve(process.cwd()),
-          "../",
+          '../',
           isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config',
         ),
       ),
@@ -150,6 +150,7 @@ export class JsFileSource extends BaseFileSource {
           cfg = await cfg.onConfigLoad(cfg);
         }
 
+        cfg.__file__ = file;
         return cfg;
       } catch (err) {
         InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
@@ -172,7 +173,9 @@ export class JsonFileSource extends BaseFileSource {
       try {
         InternalLogger.trace(`Trying to load file ${file}`, 'Configuration');
 
-        return Promise.resolve(JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown);
+        const cfg = JSON.parse(fs.readFileSync(file, 'utf-8')) as any;
+        cfg.__file__ = file;
+        return Promise.resolve(cfg);
       } catch (err) {
         console.error(`error loading configuration file ${file}, reasoun: ${(err as Error).message}`);
         return null;
