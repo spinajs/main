@@ -1,8 +1,8 @@
 import { CliCommand, Command, Option } from '@spinajs/cli';
-import { DI } from '@spinajs/di';
+import { DI, LazyInject } from '@spinajs/di';
 import * as fs from 'fs';
 import { Logger, Log } from '@spinajs/log-common';
-import {  EmailService, IEmail } from './../index.js';
+import { EmailService, IEmail } from './../index.js';
 
 interface EmailOptions {
   connection: string;
@@ -34,11 +34,13 @@ export class SendEmailCommand extends CliCommand {
   @Logger('email')
   protected Log: Log;
 
+  @LazyInject()
+  protected EmailSrv: EmailService;
+
   public async execute(options: EmailOptions): Promise<void> {
     this.Log.trace(`Sending email with options options: ${JSON.stringify(options)}`);
 
     try {
-      const emails = await DI.resolve(EmailService);
       let model = {};
 
       if (options.model && fs.existsSync(options.model)) {
@@ -64,9 +66,9 @@ export class SendEmailCommand extends CliCommand {
       };
 
       if (options.deferred) {
-        await emails.sendDeferred(email);
+        await this.EmailSrv.sendDeferred(email);
       } else {
-        await emails.send(email);
+        await this.EmailSrv.send(email);
       }
 
       this.Log.success(`Email send succesyfully to: ${options.to}, from: ${options.from}, subject: ${options.subject}`);
