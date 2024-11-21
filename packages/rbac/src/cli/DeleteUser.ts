@@ -1,8 +1,6 @@
 import { ResourceNotFound } from '@spinajs/exceptions';
-import { QueueService } from '@spinajs/queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
-import { Autoinject } from '@spinajs/di';
 import { deleteUser } from '../actions.js';
 
 @Command('rbac:user-delete', 'Deletes user from database permanently')
@@ -10,10 +8,6 @@ import { deleteUser } from '../actions.js';
 export class DeleteUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
-
-  @Autoinject(QueueService)
-  protected Queue: QueueService;
-
   public async execute(idOrUuid: string): Promise<void> {
     try {
 

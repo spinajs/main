@@ -1,7 +1,5 @@
-import { QueueService } from '@spinajs/queue';
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
-import { Autoinject } from '@spinajs/di';
 import { activate, deactivate } from '../actions.js';
 
 @Command('rbac:user-activate', 'Sets active or inactive user')
@@ -10,9 +8,6 @@ import { activate, deactivate } from '../actions.js';
 export class ActivateUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
-
-  @Autoinject(QueueService)
-  protected Queue: QueueService;
 
   public async execute(idOrUuid: string, active: boolean): Promise<void> {
     try {
