@@ -6,7 +6,7 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*","test/**/*"],
+  "include": ["src/**/*","test/**/*", "../cli/src/cli"],
   "references": [
     { "path": "../exceptions/tsconfig.json" },
     { "path": "../configuration-common/tsconfig.json" },
