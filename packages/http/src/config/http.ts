@@ -3,7 +3,6 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import compression from 'compression';
 import { join, normalize, resolve } from 'path';
-import { HttpAcceptHeaders } from '../interfaces.js';
 import os from 'os';
 
 function dir(path: string) {
@@ -86,7 +85,7 @@ const http = {
     /**
      * Whitch accept headers we support (default JSON & HTML)
      */
-    AcceptHeaders: HttpAcceptHeaders.HTML | HttpAcceptHeaders.JSON,
+    AcceptHeaders: 1 | 2,
 
     /**
      * Last resort fatal error fallback template, embedded in code
