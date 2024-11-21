@@ -1,5 +1,5 @@
 import { CliCommand, Command, Option } from '@spinajs/cli';
-import { DI, LazyInject } from '@spinajs/di';
+import { LazyInject } from '@spinajs/di';
 import * as fs from 'fs';
 import { Logger, Log } from '@spinajs/log-common';
 import { EmailService, IEmail } from './../index.js';
