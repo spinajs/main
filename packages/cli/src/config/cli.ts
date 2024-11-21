@@ -4,13 +4,13 @@ function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
   return [
     resolve(
-      normalize(join(process.cwd(), 'node_modules', '@spinajs', 'rbac', 'lib', inCommonJs ? 'cjs' : 'mjs', path)),
+      normalize(join(process.cwd(), 'node_modules', '@spinajs', 'cli', 'lib', inCommonJs ? 'cjs' : 'mjs', path)),
     ),
 
     // one up if we run from app or build folder
     resolve(
       normalize(
-        join(process.cwd(), '../', 'node_modules', '@spinajs', 'rbac', 'lib', inCommonJs ? 'cjs' : 'mjs', path),
+        join(process.cwd(), '../', 'node_modules', '@spinajs', 'cli', 'lib', inCommonJs ? 'cjs' : 'mjs', path),
       ),
     ),
   ];

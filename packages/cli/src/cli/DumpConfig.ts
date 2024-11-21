@@ -17,6 +17,6 @@ export class DumpConfiguration extends CliCommand {
   protected Config: Configuration;
 
   public async execute(options: DumpConfigOptions): Promise<void> {
-    this.Log.info(JSON.stringify(options.path ? this.Config.RootConfig : this.Config.get(options.path)));
+    this.Log.info(JSON.stringify(!options.path ? this.Config.RootConfig : this.Config.get(options.path), null, 4));
   }
 }
