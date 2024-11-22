@@ -4,7 +4,7 @@ import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { deleteUser } from '../actions.js';
 
 @Command('rbac:user-delete', 'Deletes user from database permanently')
-@Argument('idOrUuid', 'numeric id or uuid')
+@Argument('idOrUuid',true, 'numeric id or uuid')
 export class DeleteUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;

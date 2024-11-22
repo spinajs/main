@@ -3,18 +3,17 @@ import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { ban, unban } from '../actions.js';
 
 @Command('rbac:user-ban', 'Sets active or inactive user')
-@Argument('idOrUuid', 'numeric id or uuid')
-@Argument('ban', ' true / false', false, (opt: string) => (opt.toLowerCase() === 'true' ? true : false))
-@Argument('duration', 'how long should ban last ( in minutes )', 24 * 60, (opt: string) => parseInt(opt))
-@Argument('reason', 'reason for ban')
+@Argument('idOrUuid', true, 'numeric id or uuid')
+@Argument('ban', false, ' true / false', (opt: string) => (opt.toLowerCase() === 'true' ? true : false))
+@Argument('duration', true, 'how long should ban last ( in minutes )', 24 * 60, (opt: string) => parseInt(opt))
+@Argument('reason', true, 'reason for ban')
 export class BanUser extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
 
   public async execute(idOrUuid: string, banOrUnban: boolean, duration: number, reason: string): Promise<void> {
     try {
-
-      await banOrUnban ? ban(idOrUuid, reason, duration) : unban(idOrUuid);
+      (await banOrUnban) ? ban(idOrUuid, reason, duration) : unban(idOrUuid);
 
       this.Log.success(`User ${idOrUuid} ${ban ? 'banned' : 'unbanned'}`);
     } catch (e) {
