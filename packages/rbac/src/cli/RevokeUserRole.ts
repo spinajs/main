@@ -5,8 +5,8 @@ import _ from 'lodash';
 import { revoke } from '../actions.js';
 
 @Command('rbac:user-revoke', 'Sets active or inactive user')
-@Argument('idOrUuid', 'numeric id or uuid')
-@Argument('role', 'user role')
+@Argument('idOrUuid',true, 'numeric id or uuid')
+@Argument('role',true, 'user role')
 export class RevokeUserRole extends CliCommand {
   @Logger('rbac')
   protected Log: Log;

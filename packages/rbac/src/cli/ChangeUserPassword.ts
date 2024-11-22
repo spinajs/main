@@ -4,8 +4,8 @@ import { _user, changePassword } from '../actions.js';
 import { _chain } from '@spinajs/util';
 
 @Command('rbac:user-change-password', 'Sets active or inactive user')
-@Argument('idOrUuid', 'numeric id or uuid')
-@Argument('newPassword', 'new password')
+@Argument('idOrUuid', true,'numeric id or uuid')
+@Argument('newPassword', true, 'new password')
 export class ChangeUserPassword extends CliCommand {
   @Logger('rbac')
   protected Log: Log;
