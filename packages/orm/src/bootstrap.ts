@@ -1,20 +1,15 @@
-import { Bootstrapper, Constructor, Container, DI, Injectable } from '@spinajs/di';
+import { Constructor, Container, DI } from '@spinajs/di';
 import { ManyToManyRelationList, OneToManyRelationList } from './relation-objects.js';
 
-@Injectable(Bootstrapper)
-export class OrmBootstrapper extends Bootstrapper {
-  bootstrap(): void | Promise<void> {
-    /**
-     * Register default relation type factory
-     * for hasMany & hasManyToMany
-     *
-     * It can be overriden program-wide
-     * by registering new factory that return other type.
-     *
-     * To change relation type for single use - set relation option
-     * `type` property in decorators
-     */
-    DI.register((_: Container, type: Constructor<unknown>) => (type.name.toLowerCase() === 'relation' ? OneToManyRelationList : type)).as('__orm_relation_has_many_factory__');
-    DI.register((_: Container, type: Constructor<unknown>) => (type.name.toLowerCase() === 'relation' ? ManyToManyRelationList : type)).as('__orm_relation_has_many_to_many_factory__');
-  }
-}
+/**
+ * Register default relation type factory
+ * for hasMany & hasManyToMany
+ *
+ * It can be overriden program-wide
+ * by registering new factory that return other type.
+ *
+ * To change relation type for single use - set relation option
+ * `type` property in decorators
+ */
+DI.register((_: Container, type: Constructor<unknown>) => (type.name.toLowerCase() === 'relation' ? OneToManyRelationList : type)).as('__orm_relation_has_many_factory__');
+DI.register((_: Container, type: Constructor<unknown>) => (type.name.toLowerCase() === 'relation' ? ManyToManyRelationList : type)).as('__orm_relation_has_many_to_many_factory__');

@@ -77,12 +77,19 @@ export function Option(
  * @param parser - callback function for parsing value
  * @returns
  */
-export function Argument(name: string, description?: string, defaultValue?: any, parser?: (opt: string) => unknown) {
+export function Argument(
+  name: string,
+  required: boolean,
+  description?: string,
+  defaultValue?: any,
+  parser?: (opt: string) => unknown,
+) {
   return function (target: object) {
     const arg = {
       name,
       description,
       defaultValue,
+      required,
       parser,
     };
     let args: IArgument[] = [];
