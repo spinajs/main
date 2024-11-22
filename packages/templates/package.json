@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates",
-  "version": "2.0.284",
+  "version": "2.0.285",
   "description": "templates support eg. html file generation",
   
     "main": "lib/cjs/index.js",
@@ -57,12 +57,12 @@
     "rimraf": "^4.1.2"
   },
   "dependencies": {
-    "@spinajs/cli": "^2.0.284",
-    "@spinajs/configuration": "^2.0.284",
-    "@spinajs/di": "^2.0.284",
-    "@spinajs/exceptions": "^2.0.284",
-    "@spinajs/intl": "^2.0.284",
-    "@spinajs/log": "^2.0.284",
+    "@spinajs/cli": "^2.0.285",
+    "@spinajs/configuration": "^2.0.285",
+    "@spinajs/di": "^2.0.285",
+    "@spinajs/exceptions": "^2.0.285",
+    "@spinajs/intl": "^2.0.285",
+    "@spinajs/log": "^2.0.285",
     "tempfile": "4.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
