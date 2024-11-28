@@ -20,14 +20,14 @@ export function _fs(name: string) {
  * @param dstName
  * @returns absolute path to zipped file
  */
-export function _zip(files: string[], dstName: string) {
+// export function _zip(files: string[], dstName: string) {
 
-}
+// }
 
 
-export function _unzip(file: string, dst :string) {
-  
-}
+// export function _unzip(file: string, dst :string) {
+
+// }
 
 /**
  *
