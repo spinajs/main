@@ -1,5 +1,5 @@
 import { _resolve } from '@spinajs/di';
-import { FileInfoService, fs } from './interfaces.js';
+import { FileInfoService } from './interfaces.js';
 import { _chain, _use } from '@spinajs/util';
 
 /**
