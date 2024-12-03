@@ -1,7 +1,7 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable, NewInstance } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log';
-import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException, ServerResponseMapper } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolOptions } from 'mysql2';
@@ -82,6 +82,10 @@ export class MySqlOrmDriver extends SqlDriver {
 
         throw err;
       });
+  }
+
+  public supportedFeatures(): ISupportedFeature {
+    return { events: true };
   }
 
   public resolve() {

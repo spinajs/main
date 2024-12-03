@@ -13,6 +13,7 @@ import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { QueueService } from '@spinajs/queue';
 import { TestTask } from './Tasks/TestTask.js';
 import { __task, __task_history } from '../src/index.js';
+import "@spinajs/orm-sqlite";
 
 //const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -28,7 +29,7 @@ export class ConnectionConf extends FrameworkConfiguration {
         targets: [
           {
             name: 'Empty',
-            type: 'BlackHoleTarget',
+            type: 'ConsoleTarget',
             layout: '${datetime} ${level} ${message} ${error} duration: ${duration} (${logger})',
           },
         ],
@@ -97,6 +98,14 @@ describe('Commands', () => {
   });
 
   it('Should not run task function if already running', async () =>{ 
-    
-  })
+
+  });
+
+  it('Should save error when task function fails', async () =>{ 
+
+  });
+
+  it('Should emit succeed event to queue', async () =>{ 
+
+  });
 });

@@ -1,4 +1,3 @@
-import { QueueService } from '@spinajs/queue';
 import { DI } from '@spinajs/di';
 import { __task } from './models/__task.js';
 import { DateTime } from 'luxon';

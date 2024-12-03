@@ -30,6 +30,15 @@ export enum ColumnAlterationType {
   Rename,
 }
 
+export interface ISupportedFeature{ 
+
+  /**
+   * DB events support 
+   * To execute tasks accoriding to schedule in DB.
+   */
+  events: boolean;
+}
+
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
   TargetModelDescriptor: IModelDescriptor;
 

@@ -1,6 +1,6 @@
 import { Log } from '@spinajs/log-common';
 /* eslint-disable prettier/prettier */
-import { IColumnDescriptor, IDriverOptions, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
+import { IColumnDescriptor, IDriverOptions, ISupportedFeature, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder, Builder } from './builders.js';
 import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
@@ -17,7 +17,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     AliasSeparator: '$',
     Driver: 'unknown',
     Name: 'orm-driver',
-    DefaultConnection: false
+    DefaultConnection: false,
   } as T;
 
   public Container: IContainer;
@@ -58,6 +58,11 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * Disconnects from database
    */
   public abstract disconnect(): Promise<OrmDriver>;
+
+  /**
+   * Get list of supported features for this connection
+   */
+  public abstract supportedFeatures(): ISupportedFeature;
 
   public abstract tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]>;
 

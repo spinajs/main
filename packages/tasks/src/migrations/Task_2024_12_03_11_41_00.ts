@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
-import _, { every } from 'lodash';
 import { __task_history } from '../models/__task_history.js';
 import { DateTime } from 'luxon';
 
@@ -28,6 +27,8 @@ export class Task_2024_12_03_11_41_00 extends OrmMigration {
 
     await connection.index().unique().table('__tasks').name('__tasks_unique_name').columns(['Name']);
 
+
+    
     // create periodical task
     // to clear old event entries
     // default value is 7 days old
