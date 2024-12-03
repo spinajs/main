@@ -48,7 +48,9 @@
     { "path": "packages/templates-csv/tsconfig.mjs.json" },
     { "path": "packages/template-mjml/tsconfig.mjs.json" },
     { "path": "packages/orm-api/tsconfig.mjs.json" },
-    { "path": "packages/orm-lowdb/tsconfig.mjs.json" }
+    { "path": "packages/orm-lowdb/tsconfig.mjs.json" },
+    { "path": "packages/tasks/tsconfig.mjs.json" }
+
 
   ]
 }

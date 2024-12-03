@@ -1967,6 +1967,26 @@ export class EventIntervalDesc {
   public Minute: number;
   public Hour: number;
   public Second: number;
+
+  public second(s: number) {
+    this.Second = s;
+  }
+
+  public minute(m: number) {
+    this.Minute = m;
+  }
+
+  public hour(h: number) {
+    this.Hour = h;
+  }
+
+  public month(m: number) {
+    this.Month = m;
+  }
+
+  public year(y: number) {
+    this.Year = y;
+  }
 }
 
 @NewInstance()

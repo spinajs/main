@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./lib/cjs",
+    "module": "commonjs"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../di/tsconfig.cjs.json" },
+    { "path": "../exceptions/tsconfig.cjs.json" },
+    { "path": "../log-common/tsconfig.cjs.json" },
+    { "path": "../orm/tsconfig.cjs.json" },
+    { "path": "../queue/tsconfig.cjs.json" }
+
+  ]
+}

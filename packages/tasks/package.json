@@ -1,0 +1,55 @@
+{
+  "name": "@spinajs/tasks",
+  "version": "2.0.286",
+  "description": "SpinaJS tasks module",
+  "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+    ".": {
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "engines": {
+    "node": ">=16.11"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.mjs.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "bin": {
+    "spinajs": "./lib/mjs/cli.js"
+  },
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/spinajs/reflection/issues"
+  },
+  "homepage": "https://github.com/spinajs/reflection#readme",
+  "dependencies": {
+    "@spinajs/di": "^2.0.286",
+    "@spinajs/log": "^2.0.286",
+    "@spinajs/orm": "^2.0.286",
+    "@spinajs/queue": "^2.0.286"
+
+  },
+  "devDependencies": {
+    "@types/node": "^18.11.18"
+  },
+  "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
+}

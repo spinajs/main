@@ -24,7 +24,7 @@ async function cli() {
     // force process exit
     // TODO: could couse bug becouse process will be forced to exit
     // immediatelly
-    process.exit(1);
+    process.exit(0);
   } catch (err) {
     log.error(err.message as string);
     process.exit(-1);
