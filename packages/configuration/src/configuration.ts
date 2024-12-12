@@ -17,11 +17,12 @@ import {
   ConfigurationOptions,
   IConfigurable,
   IConfigurationSchema,
+  ConfigVarProtocol
 } from '@spinajs/configuration-common';
 import { Autoinject, Class, Container, Injectable, DI } from '@spinajs/di';
 
 import { InvalidConfiguration } from './exception.js';
-import { mergeArrays, parseArgv } from './util.js';
+import { mergeArrays, parseArgv, pickObjects, pickString } from './util.js';
 import config from './config/configuration.js';
 import './sources.js';
 
@@ -42,10 +43,10 @@ export class FrameworkConfiguration extends Configuration {
    */
   public AppBaseDir = './';
 
-  /** 
+  /**
    * Env passed via CLI args  ( in case if NODE_ENV var is not set )
    */
-  public Env = "development";
+  public Env = 'development';
 
   /**
    * Current running app name
@@ -213,6 +214,53 @@ export class FrameworkConfiguration extends Configuration {
         this.merge(k, c[`${k}`]);
       });
     });
+
+    // load config vars from various protocols
+    await this.loadProtocolVars();
+  }
+
+  protected async loadProtocolVars() {
+    const configProtocols = await DI.resolve(Array.ofType(ConfigVarProtocol));
+    const reg = /^([a-zA-Z]+:\/\/)+(.+)$/gm;
+
+    const iterate = async (obj: { [key: string]: unknown }) => {
+      if (!obj) {
+        return;
+      }
+
+      if (Array.isArray(obj)) {
+        obj.forEach((c) => iterate(c));
+        return;
+      }
+
+      await Promise.all(
+        pickString(obj).map(async ([key, val]) => {
+          reg.lastIndex = 0;
+          if (!reg.test(val)) {
+            return;
+          }
+
+          reg.lastIndex = 0;
+          const match = reg.exec(val);
+          const protocol = configProtocols.find((p) => p.Protocol === match[1]);
+
+          if (!protocol) {
+            InternalLogger.warn(`Protocol ${match[2]} used in configuration is not registered.`, 'Configuration');
+            return;
+          }
+
+          obj[key] = await protocol.getVar(match[2], this.Config);
+        }),
+      );
+
+      await Promise.all(
+        pickObjects(obj).map(async ([, val]) => {
+          await iterate(val);
+        }),
+      );
+    };
+
+    await iterate(this.Config);
   }
 
   protected onLoad(): unknown {
@@ -224,7 +272,7 @@ export class FrameworkConfiguration extends Configuration {
       this.RunApp,
       this.CustomConfigPaths,
       this.AppBaseDir,
-      this.Env
+      this.Env,
     ]);
 
     // sort asc sources
@@ -248,8 +296,6 @@ export class FrameworkConfiguration extends Configuration {
 
       const result = this.Validator.validate(s, config);
       if (!result) {
-        const error = new InvalidConfiguration('Validation error', this.Validator.errors);
-
         // @ts-ignore
         this.Validator.errors.forEach((ve) => {
           InternalLogger.error(
@@ -263,7 +309,7 @@ export class FrameworkConfiguration extends Configuration {
           );
         });
 
-        throw error;
+        throw new InvalidConfiguration('Validation error', this.Validator.errors);
       }
     });
   }
@@ -346,8 +392,8 @@ export class FrameworkConfiguration extends Configuration {
     for (const prop of Object.keys(this.Config)) {
       const subconfig = this.Config[`${prop}`] as IConfigurable;
 
-      if(!subconfig){
-        InternalLogger.warn(`Configuration for ${prop} not exists, check configuration file`,'configuration');
+      if (!subconfig) {
+        InternalLogger.warn(`Configuration for ${prop} not exists, check configuration file`, 'configuration');
         continue;
       }
 

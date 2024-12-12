@@ -51,7 +51,9 @@
     { "path": "packages/orm-lowdb/tsconfig.mjs.json" },
     { "path": "packages/tasks/tsconfig.mjs.json" },
     { "path": "packages/threading/tsconfig.mjs.json" },
-    { "path": "packages/orm-threading/tsconfig.mjs.json" }
+    { "path": "packages/orm-threading/tsconfig.mjs.json" },
+    { "path": "./packages/configuration-aws-secretmanager-protocol/tsconfig.mjs.json" }
+
 
 
 

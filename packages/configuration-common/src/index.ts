@@ -13,7 +13,7 @@ export interface IFrameworkVersion {
 export interface IConfigLike {
   [val: string]: unknown;
 
-  onConfigLoad(config : any) : Promise<IConfigLike> | undefined;
+  onConfigLoad(config: any): Promise<IConfigLike> | undefined;
 }
 
 export interface IConfigurationSchema {
@@ -131,4 +131,20 @@ export abstract class ConfigurationSource {
 export interface IConfigEntryOptions {
   defaultValue?: unknown;
   required?: boolean;
+}
+
+export abstract class ConfigVarProtocol extends AsyncService {
+  /**
+   * Protocol to handle eg. aws:// or db://
+   */
+  public abstract get Protocol(): string;
+
+  /**
+   *
+   *
+   *
+   * @param path var path to load eg. secretmanager:someval
+   * @param configuration - acces to whole configuration object ( sometimes we need to use other config vars to access it)
+   */
+  public abstract getVar(path: string, configuration: any): Promise<unknown>;
 }

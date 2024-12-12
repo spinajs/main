@@ -68,3 +68,19 @@ export function filterDirs(dir: string) {
   }
   return false;
 }
+
+export function pickString(obj: { [key: string]: any }): [string, string][] {
+  return Object.keys(obj)
+    .filter((k) => typeof obj[k] === 'string')
+    .map((k) => {
+      return [k, obj[k]];
+    });
+}
+
+export function pickObjects(obj: { [key: string]: any }): [string, any ][] {
+  return Object.keys(obj)
+    .filter((k) => (typeof obj[k] === 'object' || Array.isArray(obj[k])) && obj[k] !== null)
+    .map((k) => {
+      return [k, obj[k]];
+    });
+}

@@ -153,7 +153,9 @@ export class JsFileSource extends BaseFileSource {
         // all root props gets file info saved
         // for debugging purposes
         for (let k in cfg) {
-          (cfg[k] as any).__file__ = [file];
+          if (typeof cfg[k] === 'object' && !Array.isArray(cfg[k]) && cfg[k] !== null) {
+            (cfg[k] as any).__file__ = [file];
+          }
         }
 
         return cfg;
@@ -183,7 +185,9 @@ export class JsonFileSource extends BaseFileSource {
         // all root props gets file info saved
         // for debugging purposes
         for (let k in cfg) {
-          (cfg[k] as any).__file__ = [file];
+          if (typeof cfg[k] === 'object' && !Array.isArray(cfg[k]) && cfg[k] !== null) {
+            (cfg[k] as any).__file__ = [file];
+          }
         }
         return Promise.resolve(cfg);
       } catch (err) {

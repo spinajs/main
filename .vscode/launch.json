@@ -214,6 +214,17 @@
     {
       "type": "node",
       "request": "launch",
+      "name": "[ CONFIGURATION ] configuration-aws-secretsmanager tests",
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/configuration-aws-secretmanager-protocol/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+    {
+      "type": "node",
+      "request": "launch",
       "name": "[ CONFIGURATION ] configuration test",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
       "cwd": "${workspaceFolder}/packages/configuration/",

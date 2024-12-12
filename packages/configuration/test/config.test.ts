@@ -5,11 +5,12 @@ import * as chai from 'chai';
 import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { join, normalize } from 'path';
-import { DI, IMappableService } from '@spinajs/di';
+import { DI, IMappableService, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration-common';
 
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { AutoinjectService } from './../src/decorators.js';
+import { ConfigVarProtocol } from '../src/interfaces.js';
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 chai.use(chaiAsPromised);
@@ -37,6 +38,19 @@ function cfgNoApp() {
 
 class TestConfiguration extends FrameworkConfiguration {}
 
+@Injectable(ConfigVarProtocol)
+export class TestValProtocol extends ConfigVarProtocol{
+
+  public get Protocol () { 
+    return "test://"
+  };
+
+  public getVar(_path: string, _config : any): Promise<unknown> {
+      return Promise.resolve("sample-val-proto");
+  }
+  
+}
+
 describe('Configuration tests', () => {
   before(() => {
     DI.register(TestConfiguration).as(Configuration);
@@ -52,6 +66,12 @@ describe('Configuration tests', () => {
     const test = config.get(['test', 'value2']);
     expect(test).to.be.eq(666);
   });
+
+  it('Should load vars from conf protocol', async () =>{ 
+    const config = await cfgNoApp();
+    const test = config.get("protocol.test");
+    expect(test).to.be.eq("sample-val-proto");
+  })
 
   it('Should load config files without app specified', async () => {
     const config = await cfgNoApp();
