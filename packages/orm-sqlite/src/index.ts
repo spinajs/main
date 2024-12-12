@@ -24,7 +24,7 @@ import { SqliteModelToSqlConverter, SqliteObjectToSqlConverter } from './convert
 export class SqliteServerResponseMapper extends ServerResponseMapper {
   public read(data: any, pkName: string) {
     return {
-      LastInsertId: data[0][pkName],
+      LastInsertId: Array.isArray(data) ? data[data.length - 1][pkName] : data.LastInsertId,
     };
   }
 }

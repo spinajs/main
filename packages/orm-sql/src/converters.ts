@@ -38,7 +38,7 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
       return '1970-01-01 00:00:00';
     }
 
-    let dt = value instanceof DateTime ? value : DateTime.fromJSDate(value);
+    let dt = DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value);
     if (column) {
       if (DATE_NUMERICAL_TYPES.includes(column.Type)) {
         return dt.toUnixInteger() ?? 0;
@@ -51,6 +51,10 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
   public fromDB(value: string | DateTime | Date | number) {
     if (!value) {
       return null;
+    }
+
+    if(DateTime.isDateTime(value)){
+      return value;
     }
 
     // we do this checks, becose at creating models from data

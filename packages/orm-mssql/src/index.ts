@@ -88,7 +88,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     }
   }
 
-  public async supportedFeatures(): ISupportedFeature {
+  public supportedFeatures(): ISupportedFeature {
     return {
       events: true,
     };

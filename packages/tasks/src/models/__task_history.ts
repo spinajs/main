@@ -1,4 +1,4 @@
-import { ModelBase, Connection, Model, Primary, CreatedAt } from '@spinajs/orm';
+import { ModelBase, Connection, Model, Primary, CreatedAt, Json } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 @Connection('default')
@@ -15,7 +15,8 @@ export class __task_history extends ModelBase {
   /**
    * Task run result result
    */
-  public Result : string;
+  @Json()
+  public Result : any;
 
   @CreatedAt()
   /**

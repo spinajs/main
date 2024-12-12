@@ -163,7 +163,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   public abstract resolvePath(path: string): string;
   public abstract read(path: string, encoding?: BufferEncoding): Promise<string | Buffer>;
   public abstract readStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream>;
-  public abstract write(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void>;
+  public abstract write(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void>;
   public abstract writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
   public abstract writeStream(
     path: string,
@@ -180,7 +180,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   public abstract stat(path: string): Promise<IStat>;
   public abstract list(path: string): Promise<string[]>;
   public abstract tmppath(): string;
-  public abstract append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void>;
+  public abstract append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void>;
   /**
    *
    * Compress specified file or dir in provided path. If

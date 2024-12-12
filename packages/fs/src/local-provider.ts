@@ -102,7 +102,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   /**
    * Write to file string or buffer
    */
-  public async write(path: string, data: string | Buffer, encoding: BufferEncoding) {
+  public async write(path: string, data: string | Uint8Array, encoding: BufferEncoding) {
     let fHandle: FileHandle = null;
 
     try {
@@ -118,7 +118,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  public async append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
+  public async append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     await appendFile(path, data, encoding);
   }
 

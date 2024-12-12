@@ -8,7 +8,7 @@ import { FsBootsrapper } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 import { fs, fsService } from '../src/index.js';
-import { sleep } from '@spinajs/util';
+import { sleep } from '@spinajs/threading';
 
 async function tmp() {
   return await DI.resolve<fs>('__file_provider__', ['fs-temp']);

@@ -151,7 +151,10 @@ export abstract class BaseController extends AsyncService implements IController
             }),
         )
           .then(next)
-          .catch((err) => next(err));
+          
+          // thrown if all policy promises are rejected
+          // for simplicity return first encountered error
+          .catch((err) => next(err.errors[0]));
       });
       handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBefore.bind(m), route)));
 

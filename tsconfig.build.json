@@ -49,7 +49,11 @@
     { "path": "packages/template-mjml/tsconfig.mjs.json" },
     { "path": "packages/orm-api/tsconfig.mjs.json" },
     { "path": "packages/orm-lowdb/tsconfig.mjs.json" },
-    { "path": "packages/tasks/tsconfig.mjs.json" }
+    { "path": "packages/tasks/tsconfig.mjs.json" },
+    { "path": "packages/threading/tsconfig.mjs.json" },
+    { "path": "packages/orm-threading/tsconfig.mjs.json" }
+
+
 
 
   ]

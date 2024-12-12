@@ -350,7 +350,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    * @param data - model width data to check
    */
-  public static getOrCreate<T extends typeof ModelBase>(this: T, _pk: any, _data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
+  public static getOrCreate<T extends typeof ModelBase>(this: T, _pk: string | number | null, _data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
 
@@ -540,8 +540,13 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     query.middleware({
       afterQuery: (data: any) => {
-        const response = sResponseMapper.read(data);
-        this.PrimaryKeyValue = response.LastInsertId;
+        const response = sResponseMapper.read(data, this.PrimaryKeyName);
+        // if already exists do not overwrite
+        // sometimes we have models with primary key as string etc
+        // and not autoincrement
+        if (!this.PrimaryKeyValue) {
+          this.PrimaryKeyValue = response.LastInsertId;
+        }
       },
       modelCreation: (): any => null,
       afterHydration: (): any => null,
@@ -1013,7 +1018,7 @@ export const MODEL_STATIC_MIXINS = {
     return entity;
   },
 
-  async getOrCreate<T extends typeof ModelBase>(this: T, pk: any, data: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
+  async getOrCreate<T extends typeof ModelBase>(this: T, pk: string | number | null, data: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     // pk constrain
@@ -1023,7 +1028,7 @@ export const MODEL_STATIC_MIXINS = {
 
     // check for all unique columns ( unique constrain )
     description.Columns.filter((c) => c.Unique).forEach((c) => {
-      query.andWhere(c, (data as any)[c.Name]);
+      query.andWhere(c.Name, (data as any)[c.Name]);
     });
 
     _prepareOrderBy(description, query);

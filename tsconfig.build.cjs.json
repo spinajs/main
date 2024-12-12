@@ -50,8 +50,8 @@
     { "path": "./packages/orm-api/tsconfig.cjs.json" },
     { "path": "./packages/orm-lowdb/tsconfig.cjs.json" },
     { "path": "./packages/tasks/tsconfig.cjs.json" },
-
-
+    { "path": "./packages/threading/tsconfig.cjs.json" },
+    { "path": "./packages/orm-threading/tsconfig.cjs.json" }
 
   ]
 }

@@ -22,7 +22,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c,  model.ModelDescriptor.Converters.get(c.Name).Options) : val;
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c,  model.ModelDescriptor.Converters.get(c.Name)?.Options) : val;
     });
 
     return obj;

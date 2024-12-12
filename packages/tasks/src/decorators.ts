@@ -1,3 +1,5 @@
+import { mutex_acquire, mutext_release } from '@spinajs/threading';
+import { _check_arg, _non_empty, _trim } from '@spinajs/util';
 import { DI } from '@spinajs/di';
 import { __task } from './models/__task.js';
 import { DateTime } from 'luxon';
@@ -27,29 +29,32 @@ interface TaskOptions {
  * @param opts - additional options, see https://github.com/tj/commander.js
  */
 export function Task(taskName: string, description: string, opts?: TaskOptions) {
-  return function (target: any, _propertyKey: string | symbol, descriptor: PropertyDescriptor) {
+  const _name = _check_arg(_trim(), _non_empty())(taskName, 'Task name is empty');
+  const _description = _check_arg(_trim(), _non_empty())(description, 'Task description is empty');
+
+  return function (_target: any, _propertyKey: string | symbol, descriptor: PropertyDescriptor) {
+    const oldFunction: Function = descriptor.value;
     descriptor.value = async function (...args: any[]) {
       const log = DI.resolve('__log__', ['TASKS']) as Log;
 
-      try {
-        let task = await __task
-          .where({
-            Name: taskName,
-          })
-          .first();
+      log.info(`Executing task ${_name} ...`);
 
-        if (!task) {
-          task = new __task({
-            Name: taskName,
-            Description: description,
-            State: 'stopped',
+      try {
+        const task = await __task.getOrCreate(null, {
+          Name: _name,
+          Description: _description,
+          State: 'stopped',
+        });
+
+        if (!opts.taskStacking) {
+          const lock = await mutex_acquire({
+            Name: `task-${_name}`,
           });
 
-          await task.insert();
-        }
-
-        if (task.State === 'running' && opts.taskStacking === false) {
-          return Promise.reject(`Cannot stack task ${taskName} - task is already running`);
+          if (!lock.Locked) {
+            log.warn(`Cannot acquire mutex for task ${_name}, already locked !`);
+            return;
+          }
         }
 
         task.State = 'running';
@@ -59,10 +64,12 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
         let taskResult = null;
         const start = DateTime.now();
         try {
-          taskResult = await target.apply(this, args);
+          taskResult = await oldFunction.apply(this, args);
           await TaskSuccess.emit({
             TaskName: taskName,
           });
+
+          log.success(`Task ${taskName} executed !`);
         } catch (err) {
           log.error(err, `Cannot execute task ${taskName}`);
           taskResult = {
@@ -75,23 +82,22 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
             Reason: err.Message,
           });
         } finally {
-          const end = DateTime.now();
-
           try {
-            task.State = 'stopped';
-            await task.update();
-          } catch (err) {
-            log.error(err, `Cannot update task ${taskName} state`);
-          }
+            await mutext_release({
+              Name: `task-${name}`,
+            });
 
-          try {
-            __task_history.insert({
+            await task.update({
+              State: 'stopped',
+            });
+
+            await __task_history.insert({
               TaskId: task.Id,
-              Result: JSON.stringify(taskResult),
-              Duration: end.diff(start).milliseconds,
+              Result: taskResult,
+              Duration: DateTime.now().diff(start).milliseconds,
             });
           } catch (err) {
-            log.error(err, `Cannot update ${taskName} history`);
+            log.error(err, `Cannot finalize task`);
           }
 
           return taskResult;

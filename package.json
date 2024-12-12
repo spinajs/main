@@ -68,6 +68,7 @@
     "sinon": "^15.0.1",
     "ts-mocha": "^10.0.0",
     "ts-node": "^10.9.1",
+    "tsx": "^4.19.2",
     "typedoc": "^0.25.4",
     "typescript": "^5.2.2"
   },
@@ -118,6 +119,8 @@
     "@spinajs/templates-pug": "file:packages\\templates-pug",
     "@spinajs/templates-xlsx": "file:packages\\templates-xlsx",
     "@spinajs/util": "file:packages\\util",
+    "@spinajs/threading": "file:packages\\threading",
+    "@spinajs/orm-threading": "file:packages\\orm-threading",
     "@spinajs/validation": "file:packages\\validation",
     "@types/ajv-merge-patch": "^4.1.2",
     "@types/mjml": "^4.7.4"

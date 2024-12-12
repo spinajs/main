@@ -1,7 +1,7 @@
 {
-  "name": "@spinajs/tasks",
+  "name": "@spinajs/threading",
   "version": "2.0.286",
-  "description": "SpinaJS tasks module",
+  "description": "utility functions shared across @spinajs framework",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
@@ -19,6 +19,7 @@
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.mjs.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "watch": "tsc -b tsconfig.mjs.json -w",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -32,25 +33,25 @@
   "files": [
     "lib/**/*"
   ],
-  "bin": {
-    "spinajs": "./lib/mjs/cli.js"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
   },
-  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
-  "license": "ISC",
+  "keywords": [
+    "spinajs",
+    "http"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/spinajs/reflection/issues"
+    "url": "https://github.com/spinajs/main/issues"
   },
-  "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
+    "@spinajs/exceptions": "^2.0.286",
     "@spinajs/di": "^2.0.286",
-    "@spinajs/log": "^2.0.286",
-    "@spinajs/orm": "^2.0.286",
-    "@spinajs/queue": "^2.0.286",
-    "@spinajs/threading": "^2.0.286"
-
+    "@spinajs/log-common": "^2.0.286",
+    "luxon": "3.5.0"
   },
-  "devDependencies": {
-    "@types/node": "^18.11.18"
-  },
+  "homepage": "https://github.com/spinajs/main#readme",
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
