@@ -12,7 +12,9 @@
     { "path": "../exceptions/tsconfig.mjs.json" },
     { "path": "../log-common/tsconfig.mjs.json" },
     { "path": "../orm/tsconfig.mjs.json" },
-    { "path": "../queue/tsconfig.mjs.json" }
+    { "path": "../queue/tsconfig.mjs.json" },
+    { "path": "../threading/tsconfig.mjs.json" }
+
 
   ]
 }

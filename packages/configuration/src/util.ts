@@ -77,10 +77,32 @@ export function pickString(obj: { [key: string]: any }): [string, string][] {
     });
 }
 
-export function pickObjects(obj: { [key: string]: any }): [string, any ][] {
+export function pickObjects(obj: { [key: string]: any }): [string, any][] {
   return Object.keys(obj)
     .filter((k) => (typeof obj[k] === 'object' || Array.isArray(obj[k])) && obj[k] !== null)
     .map((k) => {
       return [k, obj[k]];
     });
+}
+
+/**
+ * recursively maps object values
+ *
+ * @param obj
+ * @param fn
+ * @returns
+ */
+export function mapObject(obj: any, fn: (obj: any) => any) {
+  return Object.keys(obj).reduce((acc: any, key: string) => {
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      acc[key] = value.map((x) => mapObject(x, fn));
+    } else if (typeof value === 'object' && value !== null) {
+      mapObject(value, fn);
+      acc[key] = fn(value);
+    } else {
+      acc[key] = value;
+    }
+    return acc;
+  }, {});
 }

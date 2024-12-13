@@ -121,7 +121,9 @@
     "@spinajs/util": "file:packages\\util",
     "@spinajs/threading": "file:packages\\threading",
     "@spinajs/orm-threading": "file:packages\\orm-threading",
+    "@spinajs/configuration-aws-secretmanager-protocol": "file:packages\\configuration-aws-secretmanager-protocol",
     "@spinajs/validation": "file:packages\\validation",
+    "@spinajs/configuration-fs-protocol": "file:packages\\configuration-fs-protocol",
     "@types/ajv-merge-patch": "^4.1.2",
     "@types/mjml": "^4.7.4"
   }

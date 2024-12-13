@@ -6,11 +6,11 @@ import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { join, normalize } from 'path';
 import { DI, IMappableService, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration-common';
+import { Configuration, ConfigVar, ConfigVarProtocol } from '@spinajs/configuration-common';
 
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { AutoinjectService } from './../src/decorators.js';
-import { ConfigVarProtocol } from '../src/interfaces.js';
+ 
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 chai.use(chaiAsPromised);
@@ -39,16 +39,29 @@ function cfgNoApp() {
 class TestConfiguration extends FrameworkConfiguration {}
 
 @Injectable(ConfigVarProtocol)
-export class TestValProtocol extends ConfigVarProtocol{
-
-  public get Protocol () { 
-    return "test://"
-  };
-
-  public getVar(_path: string, _config : any): Promise<unknown> {
-      return Promise.resolve("sample-val-proto");
+export class TestValProtocol extends ConfigVarProtocol {
+  public get Protocol() {
+    return 'test://';
   }
-  
+
+  public getVar(_path: string, _config: any): Promise<unknown> {
+    return Promise.resolve('sample-val-proto');
+  }
+}
+
+@Injectable(ConfigVarProtocol)
+export class Test2ValProtocol extends ConfigVarProtocol {
+  public get Protocol() {
+    return 'test2://';
+  }
+
+  public getVar(_path: string, _config: any): Promise<unknown> {
+    return Promise.resolve(
+      new ConfigVar(() => {
+        return 'test2-val';
+      }),
+    );
+  }
 }
 
 describe('Configuration tests', () => {
@@ -67,11 +80,17 @@ describe('Configuration tests', () => {
     expect(test).to.be.eq(666);
   });
 
-  it('Should load vars from conf protocol', async () =>{ 
+  it('Should load vars from conf protocol', async () => {
     const config = await cfgNoApp();
-    const test = config.get("protocol.test");
-    expect(test).to.be.eq("sample-val-proto");
-  })
+    const test = config.get('protocol.test');
+    expect(test).to.be.eq('sample-val-proto');
+  });
+
+  it('Should load vars from conf protocol - lazy value', async () => {
+    const config = await cfgNoApp();
+    const test = config.get('protocol.test2');
+    expect(test).to.be.eq('test2-val');
+  });
 
   it('Should load config files without app specified', async () => {
     const config = await cfgNoApp();

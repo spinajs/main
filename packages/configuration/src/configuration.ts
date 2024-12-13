@@ -17,12 +17,13 @@ import {
   ConfigurationOptions,
   IConfigurable,
   IConfigurationSchema,
-  ConfigVarProtocol
+  ConfigVarProtocol,
+  ConfigVar,
 } from '@spinajs/configuration-common';
 import { Autoinject, Class, Container, Injectable, DI } from '@spinajs/di';
 
 import { InvalidConfiguration } from './exception.js';
-import { mergeArrays, parseArgv, pickObjects, pickString } from './util.js';
+import { mapObject, mergeArrays, parseArgv, pickObjects, pickString } from './util.js';
 import config from './config/configuration.js';
 import './sources.js';
 
@@ -217,11 +218,28 @@ export class FrameworkConfiguration extends Configuration {
 
     // load config vars from various protocols
     await this.loadProtocolVars();
+
+    /**
+     * Each object in config replace with proxy to
+     * handle protocols etc.
+     */
+    const proxyFunc = (obj: any) => {
+      return new Proxy(obj, {
+        get: (obj, prop) => {
+          if (obj[prop] instanceof ConfigVar) {
+            return obj[prop].get();
+          }
+
+          return obj[prop];
+        },
+      });
+    };
+    this.Config = proxyFunc(mapObject(this.Config, proxyFunc));
   }
 
   protected async loadProtocolVars() {
     const configProtocols = await DI.resolve(Array.ofType(ConfigVarProtocol));
-    const reg = /^([a-zA-Z]+:\/\/)+(.+)$/gm;
+    const reg = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
 
     const iterate = async (obj: { [key: string]: unknown }) => {
       if (!obj) {

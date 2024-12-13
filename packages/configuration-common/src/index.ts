@@ -133,6 +133,24 @@ export interface IConfigEntryOptions {
   required?: boolean;
 }
 
+/**
+ * wrapper for lazy load config vars from protocols
+ * it allow to calculate vars only when needed / all modules are resolved
+ */
+export class ConfigVar {
+  protected cache: any;
+
+  constructor(protected lazyVal: () => any) {}
+
+  public get() {
+    if (!this.cache) {
+      this.cache = this.lazyVal();
+    }
+
+    return this.cache;
+  }
+}
+
 export abstract class ConfigVarProtocol extends AsyncService {
   /**
    * Protocol to handle eg. aws:// or db://
@@ -146,5 +164,5 @@ export abstract class ConfigVarProtocol extends AsyncService {
    * @param path var path to load eg. secretmanager:someval
    * @param configuration - acces to whole configuration object ( sometimes we need to use other config vars to access it)
    */
-  public abstract getVar(path: string, configuration: any): Promise<unknown>;
+  public abstract getVar(path: string, configuration: any): Promise<string | number | boolean | ConfigVar | {}>;
 }

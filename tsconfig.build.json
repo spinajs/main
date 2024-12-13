@@ -52,7 +52,8 @@
     { "path": "packages/tasks/tsconfig.mjs.json" },
     { "path": "packages/threading/tsconfig.mjs.json" },
     { "path": "packages/orm-threading/tsconfig.mjs.json" },
-    { "path": "./packages/configuration-aws-secretmanager-protocol/tsconfig.mjs.json" }
+    { "path": "packages/configuration-aws-secretmanager-protocol/tsconfig.mjs.json" },
+    { "path": "packages/configuration-fs-protocol/tsconfig.mjs.json"}
 
 
 

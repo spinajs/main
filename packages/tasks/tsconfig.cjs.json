@@ -11,7 +11,8 @@
     { "path": "../exceptions/tsconfig.cjs.json" },
     { "path": "../log-common/tsconfig.cjs.json" },
     { "path": "../orm/tsconfig.cjs.json" },
-    { "path": "../queue/tsconfig.cjs.json" }
+    { "path": "../queue/tsconfig.cjs.json" },
+    { "path": "../threading/tsconfig.cjs.json" }
 
   ]
 }
