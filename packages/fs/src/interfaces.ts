@@ -1,14 +1,19 @@
-import { tmpdir } from 'os';
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { AsyncService, DI, IInstanceCheck, IMappableService } from '@spinajs/di';
-import { IOFail } from '@spinajs/exceptions';
+import { InvalidArgument, IOFail } from '@spinajs/exceptions';
 import { ReadStream, WriteStream } from 'fs';
 import { DateTime } from 'luxon';
 import { PassThrough } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 
 function uriToFs(path: string): [fs, string] {
-  const args = path.split('/');
+  const reg = /^(fs+:\/\/)+(.+)$/gm;
+
+  if (!reg.test(path)) {
+    throw new InvalidArgument(`path is not valid filesystem URI`);
+  }
+
+  const args = reg.exec(path)[2].split('/');
   const fsName = args[0];
   const fPath = args[1];
   const f = DI.resolve<fs>('__file_provider__', [fsName]);
