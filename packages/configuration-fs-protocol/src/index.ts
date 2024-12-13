@@ -4,9 +4,9 @@ import { fs } from '@spinajs/fs';
 
 @Singleton()
 @Injectable(ConfigVarProtocol)
-export class ConfigurationFsProtocol extends ConfigVarProtocol {
+export class ConfigurationFsPathProtocol extends ConfigVarProtocol {
   get Protocol(): string {
-    return 'fs://';
+    return 'fs-path://';
   }
 
   public async getVar(path: string): Promise<unknown> {

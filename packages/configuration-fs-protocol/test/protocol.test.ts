@@ -44,10 +44,10 @@ export class ConnectionConf extends FrameworkConfiguration {
           },
         ],
       },
-      test: 'fs://fs-temp//somepath',
+      test: 'fs-path://fs-temp//somepath',
       nested: {
         fs: {
-          path: 'fs://fs-temp//somepath2',
+          path: 'fs-path://fs-temp//somepath2',
         },
       },
     };

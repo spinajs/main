@@ -1,9 +1,24 @@
+import { tmpdir } from 'os';
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { AsyncService, DI, IInstanceCheck, IMappableService } from '@spinajs/di';
+import { IOFail } from '@spinajs/exceptions';
 import { ReadStream, WriteStream } from 'fs';
 import { DateTime } from 'luxon';
 import { PassThrough } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
+
+function uriToFs(path: string): [fs, string] {
+  const args = path.split('/');
+  const fsName = args[0];
+  const fPath = args[1];
+  const f = DI.resolve<fs>('__file_provider__', [fsName]);
+
+  if (!f) {
+    throw new IOFail(`Filesystem ${fsName} not registered, check your fs configuration !`);
+  }
+
+  return [f, fPath];
+}
 
 export interface IProviderConfiguration {
   name: string;
@@ -142,7 +157,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    */
   public abstract upload(srcPath: string, destPath?: string): Promise<void>;
 
-    /**
+  /**
    *
    * Returns hash of file
    *
@@ -153,7 +168,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
     const hasher = DI.resolve<FileHasher>(FileHasher, [algo]);
     return hasher.hash(this.resolvePath(path));
   }
- 
+
   /**
    *
    * Returns full LOCAL path to file
@@ -196,7 +211,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    *
    * @param path path to zip file
    * @param destPath path to destination dir
-   * 
+   *
    * @returns path to unzipped file
    */
   public abstract unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string>;
@@ -211,6 +226,189 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
 
   public tmpname() {
     return uuidv4();
+  }
+
+  /**
+   * -------------------------------------------------------------------------
+   *
+   * STATIC METHODS
+   *
+   * -------------------------------------------------------------------------
+   */
+
+  /**
+   * Downloads file to local storage and returns path to it.
+   * If used on local storage provider eg. hard drive it only returns full path to file
+   *
+   * On remote storage provivers eg. amazon s3 - it tries to download it to local disk first and returns
+   * full path.
+   *
+   * Returns local path to file
+   *
+   * @param path path to download
+   */
+  public static download(path: string): Promise<string> {
+    const [fs, p] = uriToFs(path);
+    return fs.download(p);
+  }
+
+  /**
+   * Copies local file into fs
+   *
+   * @param srcPath source path ( full absolute path eg. file from local disk )
+   * @param destPath dest path ( relative to base path of provider )
+   */
+  public static upload(srcPath: string, destPath?: string): Promise<void> {
+    const [fs, p] = uriToFs(destPath);
+    return fs.upload(srcPath, p);
+  }
+
+  /**
+   *
+   * Returns hash of file
+   *
+   * @param srcPath file to calculate hash
+   * @param algo optional hash alghoritm, default is md5
+   */
+  public static hash(path: string, algo?: string): Promise<string> {
+    const [fs, p] = uriToFs(path);
+    return fs.hash(p, algo);
+  }
+
+  /**
+   *
+   * Returns full LOCAL path to file
+   *
+   * @param path path to resolve
+   */
+  public static resolvePath(path: string): string {
+    const [fs, p] = uriToFs(path);
+    return fs.resolvePath(p);
+  }
+
+  public static read(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
+    const [fs, p] = uriToFs(path);
+    return fs.read(p, encoding);
+  }
+
+  public static readStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
+    const [fs, p] = uriToFs(path);
+    return fs.readStream(p, encoding);
+  }
+
+  public static write(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+    const [fs, p] = uriToFs(path);
+    return fs.write(p, data, encoding);
+  }
+
+  public static writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
+  public static writeStream(
+    path: string,
+    readStream: NodeJS.ReadableStream | BufferEncoding,
+    encoding?: BufferEncoding,
+  ): Promise<WriteStream | PassThrough> {
+    const [fs, p] = uriToFs(path);
+    return fs.writeStream(p, readStream, encoding);
+  }
+
+  public static exists(path: string): Promise<boolean> {
+    const [fs, p] = uriToFs(path);
+    return fs.exists(p);
+  }
+
+  public static dirExists(path: string): Promise<boolean> {
+    const [fs, p] = uriToFs(path);
+    return fs.dirExists(p);
+  }
+
+  public static copy(path: string, dest: string, dstFs?: fs): Promise<void> {
+    const [fs, p] = uriToFs(path);
+    const [dFs, dP] = uriToFs(dest);
+    return fs.copy(p, dP, dFs ?? dstFs);
+  }
+
+  public static move(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
+    const [fs, p] = uriToFs(oldPath);
+    const [dFs, dP] = uriToFs(newPath);
+    return fs.move(p, dP, dFs ?? dstFs);
+  }
+  public static rename(oldPath: string, newPath: string): Promise<void> {
+    const [fs, p] = uriToFs(oldPath);
+    const [, p2] = uriToFs(newPath);
+    return fs.rename(p, p2);
+  }
+  public static rm(path: string): Promise<void> {
+    const [fs, p] = uriToFs(path);
+    return fs.rm(p);
+  }
+
+  public static mkdir(path: string): Promise<void> {
+    const [fs, p] = uriToFs(path);
+    return fs.mkdir(p);
+  }
+
+  public static stat(path: string): Promise<IStat> {
+    const [fs, p] = uriToFs(path);
+    return fs.stat(p);
+  }
+
+  public static list(path: string): Promise<string[]> {
+    const [fs, p] = uriToFs(path);
+    return fs.list(p);
+  }
+
+  public static tmppath(fs: string): string {
+    const f = DI.resolve<fs>('__file_provider__', [fs]);
+    if (!f) {
+      throw new IOFail(`Filesystem ${fs} not exists, check your configuration`);
+    }
+
+    return f.tmppath();
+  }
+
+  public static append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+    const [fs, p] = uriToFs(path);
+    return fs.append(p, data, encoding);
+  }
+  /**
+   *
+   * Compress specified file or dir in provided path. If
+   * Dir is compressed recursively
+   *
+   * @param path - path to zip
+   * @param dstFile - destination file name
+   */
+  public static zip(path: string, dstFs?: fs, dstFile?: string): Promise<IZipResult> {
+    const [fs, p] = uriToFs(path);
+    const [dFs, fP] = uriToFs(dstFile);
+
+    return fs.zip(p, dFs ?? dstFs, fP);
+  }
+
+  /**
+   * Decompress given file to destination path
+   *
+   * @param path path to zip file
+   * @param destPath path to destination dir
+   *
+   * @returns path to unzipped file
+   */
+  public static unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
+    const [fs, p] = uriToFs(srcPath);
+    const [dFs, fP] = uriToFs(destPath);
+
+    return fs.unzip(p, fP, dFs ?? dstFs);
+  }
+
+  /**
+   *
+   * Checks if given path is dir
+   *
+   * @param path path to check
+   */
+  public static isDir(path: string): Promise<boolean> {
+    const [fs, p] = uriToFs(path);
+    return fs.isDir(p);
   }
 }
 
