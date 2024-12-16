@@ -1,6 +1,6 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { AsyncService, DI, IInstanceCheck, IMappableService } from '@spinajs/di';
-import { InvalidArgument, IOFail } from '@spinajs/exceptions';
+import { IOFail } from '@spinajs/exceptions';
 import { ReadStream, WriteStream } from 'fs';
 import { DateTime } from 'luxon';
 import { PassThrough } from 'stream';
@@ -10,7 +10,7 @@ function uriToFs(path: string): [fs, string] {
   const reg = /^(fs+:\/\/)+(.+)$/gm;
 
   if (!reg.test(path)) {
-    throw new InvalidArgument(`path is not valid filesystem URI`);
+    return [null, path];
   }
 
   const args = reg.exec(path)[2].split('/');
@@ -377,17 +377,19 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   }
   /**
    *
-   * Compress specified file or dir in provided path. If
+   * Compress specified file or dir in provided path.
    * Dir is compressed recursively
    *
    * @param path - path to zip
    * @param dstFile - destination file name
    */
-  public static zip(path: string, dstFs?: fs, dstFile?: string): Promise<IZipResult> {
-    const [fs, p] = uriToFs(path);
+  public static zip(path: string | string[], dstFile?: string, dstFs?: fs): Promise<IZipResult> {
+    const [fs] = !Array.isArray(path) ? uriToFs(path) : uriToFs(path[0]);
     const [dFs, fP] = uriToFs(dstFile);
 
-    return fs.zip(p, dFs ?? dstFs, fP);
+    const files = Array.isArray(path) ? path.map((x) => uriToFs(x)[1]) : uriToFs(path)[1];
+
+    return fs.zip(files, dFs ?? dstFs, fP ?? dstFile);
   }
 
   /**
