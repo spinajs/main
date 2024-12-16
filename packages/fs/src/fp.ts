@@ -1,5 +1,5 @@
 import { _resolve } from '@spinajs/di';
-import { FileHasher, FileInfoService, fs } from './interfaces.js';
+import { FileHasher, FileInfoService, fs, IFileInfo } from './interfaces.js';
 import { _chain, _check_arg, _use } from '@spinajs/util';
 
 /**
@@ -47,7 +47,7 @@ export function _unzip(srcPath: string, dstName: string, srcFs?: string | fs) {
  * @param path abs path to file
  * @returns
  */
-export function _fileInfo(path: string) {
+export function _fileInfo(path: string): Promise<IFileInfo> {
   return _chain(_use(_resolve(FileInfoService), 'fileInfo'), ({ fileInfo }: { fileInfo: FileInfoService }) => {
     return fileInfo.getInfo(path);
   });
@@ -58,7 +58,7 @@ export function _fileInfo(path: string) {
  * @param path  abs path to file
  * @returns
  */
-export function _file_hash(path: string) {
+export function _file_hash(path: string): Promise<string> {
   return _chain(_use(_resolve(FileHasher), 'hash'), ({ hash }: { hash: FileHasher }) => {
     return hash.hash(path);
   });
