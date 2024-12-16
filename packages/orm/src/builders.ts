@@ -618,7 +618,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | PickRelations<T>, operator?: SqlOperator | any, value?: any): this {
     const self = this;
 
-    if (column === null || (undefined && arguments.length === 1)) {
+    if (column === null || (column === undefined && arguments.length === 1)) {
       return;
     }
 
