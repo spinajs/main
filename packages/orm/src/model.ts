@@ -56,7 +56,14 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
   const inheritanceChain = getConstructorChain(target).reverse();
 
   return inheritanceChain.reduce((prev, c) => {
-    return { ...prev, ...metadata[c] };
+    return {
+      ...prev,
+      ...metadata[c],
+      Converters: new Map({
+        ...prev.Converters,
+        ...metadata[c].Converters
+      }),
+    };
   }, {});
 }
 
@@ -68,7 +75,7 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
  * @param descriptor
  * @returns
  */
-export function updateModelDescriptor(targetOrForward: any, callback : (descriptor: IModelDescriptor) => void): void {
+export function updateModelDescriptor(targetOrForward: any, callback: (descriptor: IModelDescriptor) => void): void {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
 
   if (!target) {
