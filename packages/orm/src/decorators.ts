@@ -11,9 +11,36 @@ import { Orm } from './orm.js';
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
 
-export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
-  return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
-    let metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target.constructor) ?? {
+function _getMetadataFrom(target: any) {
+  let metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target) ?? {};
+
+  /**
+   * NOTE:
+   * We hold metadata information as poperty of object stored by normal metadata. 
+   * This way we can avoid overwritting metadata properties by inherited classes.
+   * 
+   * Eg. given class hierarchy:
+   * 
+   *  @Decorator({ a: 1})
+   *  class A {}
+   *  
+   *  @Decorator({ a: 2})
+   *  class B extends A {} 
+   *  
+   *  @Decorator({ a: 3})
+   *  class C extends A {}
+   * 
+   *  Normally metadata is created for class A due import order. Reflect.metadata() searches in prototype chain, so
+   *  when class B gets decorator executed it will find already defined from class A. Then class C decorator will overwrite 
+   *  decorator for class A ( B decorator is lost ).
+   * 
+   *  This is becouse decorator is saerched in protype chain of object.
+   *  
+   *  When we need metadata value, we collapse this object with proper inheritance object
+   */
+
+  if (!metadata.hasOwnProperty(target.name)) {
+    metadata[target.name] = {
       Driver: null,
       Converters: new Map(),
       Columns: [],
@@ -31,7 +58,7 @@ export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescr
         UpdatedAt: '',
       },
       Relations: new Map(),
-      Name: target.constructor.name,
+      Name: target.name,
       JunctionModelProperties: [],
       DiscriminationMap: {
         Field: '',
@@ -39,8 +66,15 @@ export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescr
       },
       Schema: {},
     };
+  }
+  Reflect.defineMetadata(MODEL_DESCTRIPTION_SYMBOL, metadata, target);
 
-    Reflect.defineMetadata(MODEL_DESCTRIPTION_SYMBOL, metadata, target.constructor);
+  return metadata[target.name];
+}
+
+export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
+  return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
+    const metadata = _getMetadataFrom(target.constructor);
     if (callback) {
       callback(metadata, target.constructor, propertyKey, indexOrDescriptor);
     }
@@ -52,35 +86,7 @@ export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescr
  */
 export function extractDecoratorDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
-    let metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target) ?? {
-      Driver: null,
-      Converters: new Map(),
-      Columns: [],
-      Connection: null,
-      PrimaryKey: '',
-      SoftDelete: {
-        DeletedAt: '',
-      },
-      Archived: {
-        ArchivedAt: '',
-      },
-      TableName: '',
-      Timestamps: {
-        CreatedAt: '',
-        UpdatedAt: '',
-      },
-      Relations: new Map(),
-      Name: target.constructor.name,
-      JunctionModelProperties: [],
-      DiscriminationMap: {
-        Field: '',
-        Models: null,
-      },
-      Schema: {},
-    };
-
-    Reflect.defineMetadata(MODEL_DESCTRIPTION_SYMBOL, metadata, target);
-
+    const metadata = _getMetadataFrom(target);
     if (callback) {
       callback(metadata, target, propertyKey, indexOrDescriptor);
     }

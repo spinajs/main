@@ -3,9 +3,9 @@ import { Configuration } from '@spinajs/configuration-common';
 import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
-import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode, IModelDescriptor } from './interfaces.js';
-import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor } from './model.js';
-import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
+import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode } from './interfaces.js';
+import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor, updateModelDescriptor } from './model.js';
+import { MIGRATION_DESCRIPTION_SYMBOL } from './decorators.js';
 import { OrmDriver } from './driver.js';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
@@ -134,13 +134,15 @@ export class Orm extends AsyncService {
 
         const converters = connection.Container.get<Map<string, any>>('__orm_db_value_converters__');
 
-        if (connection) {
-          const metadata: IModelDescriptor = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, m.type);
-          metadata.Driver = connection;
-          const columns = await connection.tableInfo(descriptor.TableName, connection.Options.Database);
-          if (columns) {
-            metadata.Columns = _.uniqBy(
-              _.map(columns, (c) => {
+        updateModelDescriptor(m.type, (d) => {
+          d.Driver = connection;
+        });
+
+        const columns = await connection.tableInfo(descriptor.TableName, connection.Options.Database);
+        if (columns) {
+          updateModelDescriptor(m.type, (d) => {
+            d.Columns = _.uniqBy(
+              columns.map((c) => {
                 return _.assign(c, _.find(descriptor.Columns, { Name: c.Name }));
               }),
               'Name',
@@ -153,7 +155,7 @@ export class Orm extends AsyncService {
              * eg. @CreatedAt decorator etc.
              */
             for (const [key, val] of descriptor.Converters) {
-              const column = metadata.Columns.find((c) => c.Name === key);
+              const column = d.Columns.find((c) => c.Name === key);
               if (column) {
                 column.Converter = connection.Container.hasRegistered(val.Class) ? connection.Container.resolve(val.Class) : null;
               }
@@ -163,14 +165,14 @@ export class Orm extends AsyncService {
              * Add any other converted that is not set by decorators, but is set in container
              * for given column type eg. default boolean converter
              */
-            columns.forEach((c) => {
+            d.Columns.forEach((c) => {
               if (!c.Converter) {
                 if (converters && converters.has(c.NativeType.toLocaleLowerCase())) {
                   c.Converter = connection.Container.resolve(converters.get(c.NativeType.toLocaleLowerCase()));
                 }
               }
             });
-          }
+          });
         }
       }
     }

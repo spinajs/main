@@ -34,6 +34,15 @@ const MODEL_PROXY_HANDLER = {
   },
 };
 
+function getConstructorChain(obj: any) {
+  var cs = [obj.name],
+    pt = obj;
+  do {
+    if ((pt = Object.getPrototypeOf(pt))) cs.push(pt.constructor.name || null);
+  } while (pt != null);
+  return cs.filter((x) => x !== 'Function' && x !== 'Object');
+}
+
 export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
 
@@ -41,34 +50,33 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
     return null;
   }
 
-  let descriptor: any = null;
-  _reduce(target);
-  return descriptor;
+  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
 
-  function _reduce(t: any) {
-    if (!t) {
-      return;
-    }
+  // we want collapse metadata vals in reverse order ( base class first )
+  const inheritanceChain = getConstructorChain(target).reverse();
 
-    if (Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target) ) {
-      descriptor = descriptor ?? {};
+  return inheritanceChain.reduce((prev, c) => {
+    return { ...prev, ...metadata[c] };
+  }, {});
+}
 
-      _.mergeWith(descriptor, Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target) , (a: any, b: any) => {
-        if (!a) {
-          return b;
-        }
+/**
+ *
+ * Updates model descriptor
+ *
+ * @param targetOrForward
+ * @param descriptor
+ * @returns
+ */
+export function updateModelDescriptor(targetOrForward: any, callback : (descriptor: IModelDescriptor) => void): void {
+  const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
 
-        if (Array.isArray(a)) {
-          return _.uniq(a.concat(b));
-        }
-
-        return a;
-      });
-    }
-
-    _reduce(t.prototype);
-    _reduce(t.__proto__);
+  if (!target) {
+    return null;
   }
+
+  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
+  callback(metadata[target.name]);
 }
 
 export class ModelBase<M = unknown> implements IModelBase {
@@ -655,7 +663,7 @@ export class ModelBase<M = unknown> implements IModelBase {
 }
 
 function _descriptor(model: Class<any>) {
-  return Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, model) as IModelDescriptor;
+  return extractModelDescriptor(model);
 }
 
 function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
