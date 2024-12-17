@@ -206,12 +206,7 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
    * @param database - schema or database name in database
    */
   public database(database: string) {
-    if (!database) {
-      throw new InvalidArgument(`schema argument cannot be null or empty`);
-    }
-
     this._database = database;
-
     return this;
   }
 

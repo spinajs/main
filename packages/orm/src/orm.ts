@@ -135,10 +135,11 @@ export class Orm extends AsyncService {
         const converters = connection.Container.get<Map<string, any>>('__orm_db_value_converters__');
 
         if (connection) {
-          (m.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor).Driver = connection;
+          const metadata: IModelDescriptor = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, m.type);
+          metadata.Driver = connection;
           const columns = await connection.tableInfo(descriptor.TableName, connection.Options.Database);
           if (columns) {
-            m.type[MODEL_DESCTRIPTION_SYMBOL].Columns = _.uniqBy(
+            metadata.Columns = _.uniqBy(
               _.map(columns, (c) => {
                 return _.assign(c, _.find(descriptor.Columns, { Name: c.Name }));
               }),
@@ -152,7 +153,7 @@ export class Orm extends AsyncService {
              * eg. @CreatedAt decorator etc.
              */
             for (const [key, val] of descriptor.Converters) {
-              const column = (m.type[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor).Columns.find((c) => c.Name === key);
+              const column = metadata.Columns.find((c) => c.Name === key);
               if (column) {
                 column.Converter = connection.Container.hasRegistered(val.Class) ? connection.Container.resolve(val.Class) : null;
               }

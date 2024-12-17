@@ -50,10 +50,10 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
       return;
     }
 
-    if (t[MODEL_DESCTRIPTION_SYMBOL]) {
+    if (Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target) ) {
       descriptor = descriptor ?? {};
 
-      _.mergeWith(descriptor, t[MODEL_DESCTRIPTION_SYMBOL], (a: any, b: any) => {
+      _.mergeWith(descriptor, Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target) , (a: any, b: any) => {
         if (!a) {
           return b;
         }
@@ -655,7 +655,7 @@ export class ModelBase<M = unknown> implements IModelBase {
 }
 
 function _descriptor(model: Class<any>) {
-  return (model as any)[MODEL_DESCTRIPTION_SYMBOL] as IModelDescriptor;
+  return Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, model) as IModelDescriptor;
 }
 
 function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {

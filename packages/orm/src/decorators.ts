@@ -1,4 +1,3 @@
-import {  IValueConverterDescriptor } from './interfaces.js';
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer } from '@spinajs/di';
@@ -12,52 +11,75 @@ import { Orm } from './orm.js';
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
 
+export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
+  return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
+    let metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target.constructor) ?? {
+      Driver: null,
+      Converters: new Map(),
+      Columns: [],
+      Connection: null,
+      PrimaryKey: '',
+      SoftDelete: {
+        DeletedAt: '',
+      },
+      Archived: {
+        ArchivedAt: '',
+      },
+      TableName: '',
+      Timestamps: {
+        CreatedAt: '',
+        UpdatedAt: '',
+      },
+      Relations: new Map(),
+      Name: target.constructor.name,
+      JunctionModelProperties: [],
+      DiscriminationMap: {
+        Field: '',
+        Models: null,
+      },
+      Schema: {},
+    };
+
+    Reflect.defineMetadata(MODEL_DESCTRIPTION_SYMBOL, metadata, target.constructor);
+    if (callback) {
+      callback(metadata, target.constructor, propertyKey, indexOrDescriptor);
+    }
+  };
+}
+
 /**
  * Helper func to create model metadata
  */
-export function extractDecoratorDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void, base = false): any {
+export function extractDecoratorDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
-    let metadata: IModelDescriptor = null;
-    if (!base) {
-      metadata = target.constructor[MODEL_DESCTRIPTION_SYMBOL];
-    } else {
-      metadata = target[MODEL_DESCTRIPTION_SYMBOL];
-    }
+    let metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target) ?? {
+      Driver: null,
+      Converters: new Map(),
+      Columns: [],
+      Connection: null,
+      PrimaryKey: '',
+      SoftDelete: {
+        DeletedAt: '',
+      },
+      Archived: {
+        ArchivedAt: '',
+      },
+      TableName: '',
+      Timestamps: {
+        CreatedAt: '',
+        UpdatedAt: '',
+      },
+      Relations: new Map(),
+      Name: target.constructor.name,
+      JunctionModelProperties: [],
+      DiscriminationMap: {
+        Field: '',
+        Models: null,
+      },
+      Schema: {},
+    };
 
-    if (!metadata) {
-      metadata = {
-        Driver: null,
-        Converters: new Map<string, IValueConverterDescriptor>(),
-        Columns: [],
-        Connection: null,
-        PrimaryKey: '',
-        SoftDelete: {
-          DeletedAt: '',
-        },
-        Archived: {
-          ArchivedAt: '',
-        },
-        TableName: '',
-        Timestamps: {
-          CreatedAt: '',
-          UpdatedAt: '',
-        },
-        Relations: new Map<string, IRelationDescriptor>(),
-        Name: target.constructor.name,
-        JunctionModelProperties: [],
-        DiscriminationMap: {
-          Field: '',
-          Models: null,
-        },
-        Schema: {},
-      };
-
-      if (!base) {
-        target.constructor[MODEL_DESCTRIPTION_SYMBOL] = metadata;
-      } else {
-        target[MODEL_DESCTRIPTION_SYMBOL] = metadata;
-      }
-    }
+    Reflect.defineMetadata(MODEL_DESCTRIPTION_SYMBOL, metadata, target);
 
     if (callback) {
       callback(metadata, target, propertyKey, indexOrDescriptor);
@@ -95,7 +117,7 @@ export function Migration(connection: string) {
 export function Connection(name: string) {
   return extractDecoratorDescriptor((model: IModelDescriptor) => {
     model.Connection = name;
-  }, true);
+  });
 }
 
 /**
@@ -108,7 +130,7 @@ export function Model(tableName: string) {
     DI.register(target).as('__models__');
     model.TableName = tableName;
     model.Name = target.name;
-  }, true);
+  });
 }
 
 /**
@@ -116,8 +138,8 @@ export function Model(tableName: string) {
  * It allow to track creation times & changes to model
  */
 export function CreatedAt() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const type = Reflect.getMetadata('design:type', target, propertyKey);
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
     if (type.name !== 'DateTime') {
       throw Error(`Proprety ${propertyKey} marked as CreatedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
@@ -136,8 +158,8 @@ export function CreatedAt() {
  * It allow to track creation times & changes to model
  */
 export function UpdatedAt() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const type = Reflect.getMetadata('design:type', target, propertyKey);
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
     if (type.name !== 'DateTime') {
       throw Error(`Proprety ${propertyKey} marked as UpdatedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
@@ -156,8 +178,8 @@ export function UpdatedAt() {
  * select result by default.
  */
 export function SoftDelete() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const type = Reflect.getMetadata('design:type', target, propertyKey);
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
     if (type.name !== 'DateTime') {
       throw Error(`Proprety ${propertyKey} marked as DeletedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
@@ -177,8 +199,8 @@ export function SoftDelete() {
  *
  */
 export function Archived() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const type = Reflect.getMetadata('design:type', target, propertyKey);
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
     if (type.name !== 'DateTime') {
       throw Error(`Proprety ${propertyKey} marked as ArchivedAt must be DateTime type, but is ${type.name}. Type: ${target.name}`);
     }
@@ -196,7 +218,7 @@ export function Archived() {
  * Makrs field as primary key
  */
 export function Primary() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     model.PrimaryKey = propertyKey;
   });
 }
@@ -205,7 +227,7 @@ export function Primary() {
  * Marks columns as UUID. Column will be generated ad creation
  */
 export function Ignore() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
@@ -213,14 +235,14 @@ export function Ignore() {
     } else {
       columnDesc.Ignore = true;
     }
-  }, true);
+  });
 }
 
 /**
  * Marks columns as UUID. Column will be generated ad creation
  */
 export function Uuid() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
@@ -232,14 +254,14 @@ export function Uuid() {
     model.Converters.set(propertyKey, {
       Class: UuidConverter,
     });
-  }, true);
+  });
 }
 
 export function JunctionTable() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.JunctionModelProperties.push({
       Name: propertyKey,
-      Model: Reflect.getMetadata('design:type', target, propertyKey),
+      Model: Reflect.getMetadata('design:type', target.prototype, propertyKey),
     });
   });
 }
@@ -259,7 +281,7 @@ export function DiscriminationMap(fieldName: string, discriminationMap: IDiscrim
     discriminationMap.forEach((d) => {
       model.DiscriminationMap.Models.set(d.Key, d.Value);
     });
-  }, true);
+  });
 }
 
 /**
@@ -267,7 +289,7 @@ export function DiscriminationMap(fieldName: string, discriminationMap: IDiscrim
  *
  */
 export function Recursive() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     if (!model.Relations.has(propertyKey)) {
       throw new InvalidOperation(`cannot set recursive on not existing relation ( relation ${propertyKey} on model ${model.Name} )`);
     }
@@ -291,11 +313,11 @@ export const forwardRef = (fn: () => any): IForwardReference => ({
  * @param primaryKey - primary key in related model, defaults to primary key taken from db
  */
 export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignKey?: string, primaryKey?: string) {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.One,
-      SourceModel: target.constructor,
+      SourceModel: target,
       TargetModelType: targetModel,
       TargetModel: null,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
@@ -312,11 +334,11 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
  * @param primaryKey - primary key in related model, defaults to primary key taken from db
  */
 export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: string, primaryKey?: string) {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.One,
-      SourceModel: target.constructor,
+      SourceModel: target,
       TargetModelType: forwardRef.forwardRef,
       TargetModel: null,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
@@ -365,7 +387,7 @@ export interface IHasManyToManyDecoratorOptions extends IRelationDecoratorOption
    * Join mode on relation
    * Sometimes right side of junction relation not exists and we want to filter it out
    */
-  joinMode? : "LeftJoin" | "RightJoin"
+  joinMode?: 'LeftJoin' | 'RightJoin';
 }
 
 export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
@@ -382,13 +404,13 @@ export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
  *
  */
 export function HasMany(targetModel: Constructor<ModelBase> | string, options?: IHasManyDecoratorOptions) {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target, propertyKey);
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
 
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Many,
-      SourceModel: target.constructor,
+      SourceModel: target,
       TargetModelType: targetModel,
       TargetModel: null,
       ForeignKey: options ? options.foreignKey ?? `${model.Name.toLowerCase()}_id` : `${model.Name.toLowerCase()}_id`,
@@ -401,11 +423,11 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
 }
 
 export function Historical(targetModel: Constructor<ModelBase>) {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Many,
-      SourceModel: target.constructor,
+      SourceModel: target,
       TargetModelType: targetModel,
       TargetModel: null,
       ForeignKey: model.PrimaryKey,
@@ -422,12 +444,12 @@ export function Historical(targetModel: Constructor<ModelBase>) {
  * @param targetModel - model for related data
  */
 export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel: Constructor<ModelBase> | string, options?: IHasManyToManyDecoratorOptions) {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Recursive: false,
       Type: RelationType.ManyToMany,
-      SourceModel: target.constructor,
+      SourceModel: target,
       TargetModelType: targetModel,
       TargetModel: null,
       ForeignKey: '',
@@ -439,10 +461,9 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       JunctionModelSourceModelFKey_Name: options?.junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
       RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_to_many_factory__', [type]),
       Factory: options ? options.factory : null,
-      JoinMode: options ? options.joinMode : null
+      JoinMode: options ? options.joinMode : null,
     };
 
-    
     // HACK:
     // we should use ForwardRefFunction as targetModel type
     // and lazy resolve foreginKey and JunctionModelTargetModelFKey_Name at runtime
@@ -469,7 +490,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       descriptor.JunctionModelTargetModelFKey_Name = options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`;
     }
 
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target, propertyKey);
+    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
 
     model.Relations.set(propertyKey, descriptor);
   });
@@ -480,8 +501,8 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
  * saves datetime as TEXT and ISO8601 strings
  */
 export function DateTime() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const type = Reflect.getMetadata('design:type', target, propertyKey);
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
     if (type.name !== 'DateTime') {
       throw Error(`Proprety  ${propertyKey} must be DateTime type`);
     }
@@ -502,7 +523,7 @@ export function DateTime() {
  * ORM will detect automatically if field is native JSON DB type.
  */
 export function Json() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
     // add converter for this field
     model.Converters.set(propertyKey, {
       Class: JsonValueConverter,
@@ -518,7 +539,7 @@ export function Json() {
  * @param typeColumn - type column that defines final type of value
  */
 export function UniversalConverter(typeColumn?: string) {
-  return extractDecoratorDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
     // add converter for this field
     model.Converters.set(propertyKey, {
       Class: UniversalValueConverter,
@@ -533,8 +554,8 @@ export function UniversalConverter(typeColumn?: string) {
  * Mark field as SET type. It will ensure that conversion to & from DB is valid, eg. to emulate field type SET in sqlite
  */
 export function Set() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const type = Reflect.getMetadata('design:type', target, propertyKey);
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
     if (type.name !== 'Array') {
       throw Error(`Proprety  ${propertyKey} must be an array type`);
     }
