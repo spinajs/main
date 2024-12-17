@@ -13,7 +13,7 @@ import {
 import { Upload } from '@aws-sdk/lib-storage';
 import { Config } from '@spinajs/configuration';
 import path, { basename } from 'path';
-import { IOFail, MethodNotImplemented } from '@spinajs/exceptions';
+import { InvalidArgument, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
 import { createReadStream, existsSync } from 'fs';
 import { DateTime } from 'luxon';
 import { Readable } from 'stream';
@@ -146,7 +146,15 @@ export class fsS3 extends fs {
   /**
    * Write to file string or buffer
    */
-  public async write(path: string, data: string | Buffer, encoding?: BufferEncoding) {
+  public async write(path: string, data: string | Uint8Array, encoding?: BufferEncoding) {
+    const fInfo = await this.FileInfo.getInfo(this.resolvePath(path));
+
+    // calculate from physycal file hash
+    // s3 hash gets from metadata
+    const shaHash = await super.hash(path, 'sha256');
+
+    delete fInfo.Raw;
+
     const upload = new Upload({
       client: this.S3,
       params: {
@@ -154,8 +162,17 @@ export class fsS3 extends fs {
         Key: path,
         Body: data,
         ContentEncoding: encoding,
+
+        // add metadata to file
+        Metadata: Object.fromEntries(
+          Object.entries({
+            ...fInfo,
+            hash: shaHash,
+          }).map(([key, value]) => [key, String(value)]),
+        ),
       },
     });
+
     await upload.done();
   }
 
@@ -167,7 +184,7 @@ export class fsS3 extends fs {
    * @param data
    * @param encoding
    */
-  public async append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
+  public async append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
     /**
      * We cannot append to file in s3 directly,
      * we have to download file first, append locally, then upload again new file
@@ -178,6 +195,28 @@ export class fsS3 extends fs {
     await this.upload(fLocal, path);
   }
 
+  /**
+   *
+   * Returns hash of file
+   *
+   * @param srcPath file to calculate hash
+   * @param algo optional hash alghoritm, default is md5
+   */
+  public async hash(path: string, algo?: string): Promise<string> {
+    if (algo) {
+      throw new InvalidArgument(`Hash alghoritm is not supported in s3 filesystem`);
+    }
+
+    const command = new HeadObjectCommand({
+      Bucket: this.Options.bucket,
+      Key: path,
+    });
+
+    const result = await this.S3.send(command);
+
+    return result.Metadata['hash'];
+  }
+
   public async upload(srcPath: string, destPath?: string) {
     if (!existsSync(srcPath)) {
       throw new IOFail(`file ${srcPath} does not exists`);
@@ -185,8 +224,16 @@ export class fsS3 extends fs {
 
     const dPath = destPath ?? basename(srcPath);
     const rStream = createReadStream(srcPath);
-    const hash = await this.hash(srcPath, 'md5');
+
+    // calculate from physycal file hash
+    // s3 hash gets from metadata
+    const hash = await super.hash(srcPath, 'md5');
+    const shaHash = await super.hash(srcPath, 'sha256');
+
     const fInfo = await this.FileInfo.getInfo(this.resolvePath(srcPath));
+
+    // delete raw information from exif
+    delete fInfo.Raw;
 
     const upload = new Upload({
       client: this.S3,
@@ -199,7 +246,12 @@ export class fsS3 extends fs {
         ContentMD5: Buffer.from(hash, 'hex').toString('base64'),
 
         // convert all metadata values to string, and back to object with key-value pair of strings
-        Metadata: Object.fromEntries(Object.entries(fInfo).map(([key, value]) => [key, String(value)])),
+        Metadata: Object.fromEntries(
+          Object.entries({
+            ...fInfo,
+            hash: shaHash,
+          }).map(([key, value]) => [key, String(value)]),
+        ),
       },
     });
 
@@ -257,7 +309,8 @@ export class fsS3 extends fs {
   }
 
   public async dirExists(): Promise<boolean> {
-    throw new IOFail('Method not implemented, s3 does not support directories');
+    // always true, s3 does not have concept od directories
+    return Promise.resolve(true);
   }
 
   /**
@@ -319,11 +372,15 @@ export class fsS3 extends fs {
    *
    */
   public async mkdir() {
-    throw new IOFail('Method not implemented, s3 does not support directories');
+    // some users makes dir if not exists in fs
+    // as s3 does not make use of directories always return true
+    return Promise.resolve();
   }
 
   public async isDir(_path: string): Promise<boolean> {
-    throw new IOFail('Method not implemented, s3 does not support directories');
+    // some users makes dir if not exists in fs
+    // as s3 does not make use of directories always return false for simplicity
+    return Promise.resolve(false);
   }
 
   /**
@@ -383,7 +440,7 @@ export class fsS3 extends fs {
     return result.Contents.map((x) => x.Key);
   }
 
-  public async unzip(_path: string, _destPath?: string, _dstFs?: fs) : Promise<string> {
+  public async unzip(_path: string, _destPath?: string, _dstFs?: fs): Promise<string> {
     throw new IOFail('Method not implemented, you should download zipped to local fs first, then unzip it');
   }
 
