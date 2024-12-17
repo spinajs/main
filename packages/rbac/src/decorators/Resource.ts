@@ -11,5 +11,5 @@ import { IRbacModelDescriptor } from '../interfaces.js';
 export function OrmResource(resourceName: string) {
   return extractDecoratorDescriptor((model: IRbacModelDescriptor) => {
     model.RbacResource = resourceName;
-  }, false);
+  });
 }

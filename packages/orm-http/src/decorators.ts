@@ -1,10 +1,10 @@
-import { IModelDescriptor, ModelBase, extractDecoratorDescriptor } from '@spinajs/orm';
+import { IModelDescriptor, ModelBase, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
 import { FilterableOperators } from './interfaces.js';
 import {  Constructor } from '@spinajs/di';
 import { Parameter, Route } from '@spinajs/http';
 
 export function Filterable(operators: FilterableOperators[]) {
-  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
@@ -12,7 +12,7 @@ export function Filterable(operators: FilterableOperators[]) {
     } else {
       columnDesc.Filterable = operators;
     }
-  }, true);
+  });
 }
 
 export type CustomFilterSchema  = { Field : string, Operators : FilterableOperators[]};

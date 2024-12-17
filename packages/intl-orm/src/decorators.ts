@@ -1,7 +1,7 @@
-import { extractDecoratorDescriptor, IModelDescriptor } from '@spinajs/orm';
+import { extractDecoratorPropertyDescriptor, IModelDescriptor } from '@spinajs/orm';
 
 export function Translate() {
-  return extractDecoratorDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
@@ -11,5 +11,5 @@ export function Translate() {
     }
 
     (model as any).Translatable = true;
-  }, true);
+  });
 }
