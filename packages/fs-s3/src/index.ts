@@ -1,6 +1,6 @@
 import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, IStat, IZipResult, FileSystem, FileInfoService } from '@spinajs/fs';
+import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo } from '@spinajs/fs';
 import {
   S3Client,
   S3ClientConfig,
@@ -193,6 +193,18 @@ export class fsS3 extends fs {
 
     await this.TempFs.append(fLocal, data, encoding);
     await this.upload(fLocal, path);
+  }
+
+  public async metadata(path: string) : Promise<IFileInfo> {
+    const command = new HeadObjectCommand({
+      Bucket: this.Options.bucket,
+      Key: path,
+    });
+    const result = await this.S3.send(command);
+
+    // NOTE:
+    // allow this cast, becouse s3 metadata is serialized IFileInfo struct 
+    return result.Metadata as any as IFileInfo;
   }
 
   /**

@@ -174,6 +174,11 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
     return hasher.hash(this.resolvePath(path));
   }
 
+  public async metadata(path: string) {
+    const fInfo = DI.resolve<FileInfoService>(FileInfoService);
+    return fInfo.getInfo(this.resolvePath(path));
+  }
+
   /**
    *
    * Returns full LOCAL path to file
