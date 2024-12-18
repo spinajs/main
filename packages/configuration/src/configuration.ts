@@ -234,7 +234,12 @@ export class FrameworkConfiguration extends Configuration {
         },
       });
     };
-    this.Config = proxyFunc(mapObject(this.Config, proxyFunc));
+
+    // omit system config prop couse dir dynamic loading
+    this.Config = {
+      system: { ...(this.Config.system as {}) },
+      ...proxyFunc(mapObject(_.omit(this.Config, ['system']), proxyFunc)),
+    };
   }
 
   protected async loadProtocolVars() {
