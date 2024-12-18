@@ -213,6 +213,8 @@ export class Orm extends AsyncService {
   protected registerDefaultConverters() {
     this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', Date.name);
     this.Container.register(DatetimeValueConverter).asMapValue('__orm_db_value_converters__', DateTime.name);
+    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', Boolean.name);
+    this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', 'Bool');
     this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', Boolean.name.toLowerCase());
     this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', 'bool');
   }

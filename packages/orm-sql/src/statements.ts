@@ -96,11 +96,19 @@ export class SqlWhereStatement extends WhereStatement {
       if (val instanceof ModelBase) {
         val = val.PrimaryKeyValue;
       } else {
-        const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
-        if (converters && this._value && converters.has(this._value.constructor.name)) {
-          const converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
-          val = converter.toDB(val, null, null);
+        const dsc = extractModelDescriptor(this._model);
+        let converter: ValueConverter = null;
+        if (dsc && dsc.Converters.has(this._column as string)) {
+          converter = this._container.resolve<ValueConverter>(dsc.Converters.get(this._column as string).Class);
+        } else {
+          const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
+          if (converters && this._value && converters.has(this._value.constructor.name)) {
+            converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
+            val = converter.toDB(val, null, null);
+          }
         }
+
+        val = converter ? converter.toDB(this._value, null, null) : this._value;
       }
     }
 
