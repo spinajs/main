@@ -1295,5 +1295,5 @@ export abstract class ModelToSqlConverter {
 }
 
 export abstract class ObjectToSqlConverter {
-  public abstract toSql(model: unknown): unknown;
+  public abstract toSql(model: unknown, descriptor : IModelDescriptor): unknown;
 }

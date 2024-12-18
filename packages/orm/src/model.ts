@@ -54,11 +54,21 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
 
   // we want collapse metadata vals in reverse order ( base class first )
   const inheritanceChain = getConstructorChain(target).reverse();
+  const merger = (a: any, b: any) => {
+    if (_.isArray(a)) {
+      return a.concat(b);
+    }
+
+    if (!(_.isNil(a) || _.isEmpty(a)) && (_.isNil(b) || _.isEmpty(b))) {
+      return a;
+    }
+
+    return b;
+  };
 
   return inheritanceChain.reduce((prev, c) => {
     return {
-      ...prev,
-      ...metadata[c],
+      ..._.assignWith(prev, metadata[c], merger),
       Converters: new Map([...(prev.Converters ?? []), ...(metadata[c] ? metadata[c].Converters : [])]),
     };
   }, {});
@@ -910,7 +920,7 @@ export const MODEL_STATIC_MIXINS = {
           if (d instanceof ModelBase) {
             return d.toSql();
           }
-          return converter.toSql(d);
+          return converter.toSql(d, description);
         }),
       );
     } else {
@@ -929,7 +939,7 @@ export const MODEL_STATIC_MIXINS = {
       if (data instanceof ModelBase) {
         query.values(data.toSql());
       } else {
-        query.values(converter.toSql(data));
+        query.values(converter.toSql(data, description));
       }
     }
 

@@ -10,7 +10,7 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 import { LogLevel } from '@spinajs/log-common';
 export * from './compilers.js';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, ObjectToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -19,7 +19,7 @@ import { ResourceDuplicated } from '@spinajs/exceptions';
 import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
-import { SqliteModelToSqlConverter, SqliteObjectToSqlConverter } from './converters.js';
+import { SqliteModelToSqlConverter } from './converters.js';
 
 export class SqliteServerResponseMapper extends ServerResponseMapper {
   public read(data: any, pkName: string) {
@@ -194,7 +194,6 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqlLiteDefaultValueBuilder).as(DefaultValueBuilder);
     this.Container.register(SqliteTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqliteModelToSqlConverter).as(ModelToSqlConverter);
-    this.Container.register(SqliteObjectToSqlConverter).as(ObjectToSqlConverter);
     this.Container.register(SqliteServerResponseMapper).as(ServerResponseMapper);
   }
 

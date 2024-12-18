@@ -1,7 +1,7 @@
 import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { OrmException } from './exceptions.js';
-import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter, IColumnDescriptor } from './interfaces.js';
+import { IUniversalConverterOptions, ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 
 export class JsonValueConverter extends ValueConverter {
@@ -112,7 +112,24 @@ export class StandardModelToSqlConverter extends ModelToSqlConverter {
 }
 
 export class StandardObjectToSqlConverter extends ObjectToSqlConverter {
-  public toSql(model: unknown): unknown {
-    return model;
+  public toSql(model: unknown, descriptor: IModelDescriptor): unknown {
+    const obj = {};
+    const relArr = [...descriptor.Relations.values()];
+
+    descriptor.Columns.forEach((c) => {
+      const val = (model as any)[c.Name];
+      if ( val === undefined) return;
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, null, c, descriptor.Converters.get(c.Name)?.Options) : val;
+    });
+
+    relArr
+      .filter((r) => r.Type === RelationType.One)
+      .forEach((r) => {
+        if ((model as any)[r.Name] instanceof ModelBase) {
+          (obj as any)[r.ForeignKey] = (model as any)[r.Name].PrimaryKeyValue;
+        }
+      });
+
+    return obj;
   }
 }

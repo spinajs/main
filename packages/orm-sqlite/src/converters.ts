@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { ModelBase, ModelToSqlConverter, ObjectToSqlConverter, OrmException, RelationType } from '@spinajs/orm';
+import { ModelBase, ModelToSqlConverter, OrmException, RelationType } from '@spinajs/orm';
 
 export class SqliteModelToSqlConverter extends ModelToSqlConverter {
   public toSql(model: ModelBase<unknown>): unknown {
@@ -33,24 +33,5 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
     }
 
     return obj;
-  }
-}
-
-export class SqliteObjectToSqlConverter extends ObjectToSqlConverter {
-  public toSql(model: unknown): unknown {
-    const sqlModel = {};
-
-    // undefined properties we omit,
-    // assume that those values have default value in DB defined,
-    // SQLITE does not support DEFAULT keyword in insert statements
-    // this way insertquerycompiler will not try to fill DEFAULT in missing data
-
-    Object.keys(model).forEach((key) => {
-      if ((model as any)[key] !== undefined) {
-        (sqlModel as any)[key] = (model as any)[key];
-      }
-    });
-
-    return sqlModel;
   }
 }
