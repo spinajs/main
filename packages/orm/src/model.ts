@@ -1096,7 +1096,7 @@ export const MODEL_STATIC_MIXINS = {
     return false;
   },
 
-  async whereExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, qOrRel: ISelectQueryBuilder<Z> | string, callback: WhereFunction<InstanceType<T>>) {
+  whereExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, qOrRel: ISelectQueryBuilder<Z> | string, callback: WhereFunction<InstanceType<T>>) {
     const { query } = createQuery(this as any, SelectQueryBuilder);
 
     query.setAlias('__exists__');
@@ -1105,10 +1105,10 @@ export const MODEL_STATIC_MIXINS = {
     return query;
   },
 
-  async whereNotExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, q: ISelectQueryBuilder<Z>) {
+  whereNotExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, q: ISelectQueryBuilder<Z>) {
     const { query } = createQuery(this as any, SelectQueryBuilder);
     query.whereNotExists(q);
-    return await query;
+    return query;
   },
 
   async first<T extends typeof ModelBase>(this: T, callback?: (builder: IWhereBuilder<T>) => void): Promise<InstanceType<T>> {
