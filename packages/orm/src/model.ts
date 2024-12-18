@@ -38,9 +38,9 @@ function getConstructorChain(obj: any) {
   var cs = [obj.name],
     pt = obj;
   do {
-    if ((pt = Object.getPrototypeOf(pt))) cs.push(pt.constructor.name || null);
+    if ((pt = Object.getPrototypeOf(pt))) cs.push(pt.name || null);
   } while (pt != null);
-  return cs.filter((x) => x !== 'Function' && x !== 'Object');
+  return cs.filter((x) => x !== 'Function' && x !== 'Object' && x !== null);
 }
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
@@ -59,10 +59,7 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
     return {
       ...prev,
       ...metadata[c],
-      Converters: new Map({
-        ...prev.Converters,
-        ...metadata[c].Converters
-      }),
+      Converters: new Map([...(prev.Converters ?? []), ...(metadata[c] ? metadata[c].Converters : [])]),
     };
   }, {});
 }
