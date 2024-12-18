@@ -1,6 +1,8 @@
 import { ConfigVar, ConfigVarProtocol } from '@spinajs/configuration-common';
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import { fs } from '@spinajs/fs';
+import { InternalLogger } from '@spinajs/internal-logger';
+
 
 @Singleton()
 @Injectable(ConfigVarProtocol)
@@ -23,6 +25,8 @@ export class ConfigurationFsPathProtocol extends ConfigVarProtocol {
       if (f) {
         return f.resolvePath(fPath);
       }
+
+      InternalLogger.warn(`fs-path filesystem ${fsName} not exists, check your configuration file !`, 'Configuration');
 
       return null;
     });

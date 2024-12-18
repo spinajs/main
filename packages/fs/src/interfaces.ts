@@ -1,28 +1,34 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { AsyncService, DI, IInstanceCheck, IMappableService } from '@spinajs/di';
-import { IOFail } from '@spinajs/exceptions';
+import { InvalidArgument, IOFail } from '@spinajs/exceptions';
 import { ReadStream, WriteStream } from 'fs';
 import { DateTime } from 'luxon';
 import { PassThrough } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 
-function uriToFs(path: string): [fs, string] {
-  const reg = /^(fs+:\/\/)+(.+)$/gm;
+/**
+ * Class for handling fs URI eg. fs://fs-temp/path/to/file
+ */
+export class URI {
+  public Fs: fs;
+  public Path: string;
 
-  if (!reg.test(path)) {
-    return [null, path];
+  constructor(uri: string) {
+    const reg = /^(fs+:\/\/)+(.+)$/gm;
+
+    if (!reg.test(uri)) {
+      throw new InvalidArgument(`URI ${uri} is not valid`);
+    }
+
+    const args = reg.exec(uri)[2].split('/');
+    const fsName = args[0];
+    this.Path = args[1];
+    this.Fs = DI.resolve<fs>('__file_provider__', [fsName]);
+
+    if (!this.Fs) {
+      throw new InvalidArgument(`Filesystem ${fsName} not registered, check your fs configuration !`);
+    }
   }
-
-  const args = reg.exec(path)[2].split('/');
-  const fsName = args[0];
-  const fPath = args[1];
-  const f = DI.resolve<fs>('__file_provider__', [fsName]);
-
-  if (!f) {
-    throw new IOFail(`Filesystem ${fsName} not registered, check your fs configuration !`);
-  }
-
-  return [f, fPath];
 }
 
 export interface IProviderConfiguration {
@@ -257,9 +263,8 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    *
    * @param path path to download
    */
-  public static download(path: string): Promise<string> {
-    const [fs, p] = uriToFs(path);
-    return fs.download(p);
+  public static download(path: URI): Promise<string> {
+    return path.Fs.download(path.Path);
   }
 
   /**
@@ -268,9 +273,8 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * @param srcPath source path ( full absolute path eg. file from local disk )
    * @param destPath dest path ( relative to base path of provider )
    */
-  public static upload(srcPath: string, destPath?: string): Promise<void> {
-    const [fs, p] = uriToFs(destPath);
-    return fs.upload(srcPath, p);
+  public static upload(srcPath: string, destPath?: URI): Promise<void> {
+    return destPath.Fs.upload(srcPath, destPath.Path);
   }
 
   /**
@@ -280,9 +284,8 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * @param srcPath file to calculate hash
    * @param algo optional hash alghoritm, default is md5
    */
-  public static hash(path: string, algo?: string): Promise<string> {
-    const [fs, p] = uriToFs(path);
-    return fs.hash(p, algo);
+  public static hash(path: URI, algo?: string): Promise<string> {
+    return path.Fs.hash(path.Path, algo);
   }
 
   /**
@@ -291,80 +294,64 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    *
    * @param path path to resolve
    */
-  public static resolvePath(path: string): string {
-    const [fs, p] = uriToFs(path);
-    return fs.resolvePath(p);
+  public static resolvePath(path: URI): string {
+    return path.Fs.resolvePath(path.Path);
   }
 
-  public static read(path: string, encoding?: BufferEncoding): Promise<string | Buffer> {
-    const [fs, p] = uriToFs(path);
-    return fs.read(p, encoding);
+  public static read(path: URI, encoding?: BufferEncoding): Promise<string | Buffer> {
+    return path.Fs.read(path.Path, encoding);
   }
 
-  public static readStream(path: string, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
-    const [fs, p] = uriToFs(path);
-    return fs.readStream(p, encoding);
+  public static readStream(path: URI, encoding?: BufferEncoding): Promise<NodeJS.ReadableStream> {
+    return path.Fs.readStream(path.Path, encoding);
   }
 
-  public static write(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
-    const [fs, p] = uriToFs(path);
-    return fs.write(p, data, encoding);
+  public static write(path: URI, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+    return path.Fs.write(path.Path, data, encoding);
   }
 
-  public static writeStream(path: string, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
+  public static writeStream(path: URI, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
   public static writeStream(
-    path: string,
+    path: URI,
     readStream: NodeJS.ReadableStream | BufferEncoding,
     encoding?: BufferEncoding,
   ): Promise<WriteStream | PassThrough> {
-    const [fs, p] = uriToFs(path);
-    return fs.writeStream(p, readStream, encoding);
+    return path.Fs.writeStream(path.Path, readStream, encoding);
   }
 
-  public static exists(path: string): Promise<boolean> {
-    const [fs, p] = uriToFs(path);
-    return fs.exists(p);
+  public static exists(path: URI): Promise<boolean> {
+    return path.Fs.exists(path.Path);
   }
 
-  public static dirExists(path: string): Promise<boolean> {
-    const [fs, p] = uriToFs(path);
-    return fs.dirExists(p);
+  public static dirExists(path: URI): Promise<boolean> {
+    return path.Fs.dirExists(path.Path);
   }
 
-  public static copy(path: string, dest: string, dstFs?: fs): Promise<void> {
-    const [fs, p] = uriToFs(path);
-    const [dFs, dP] = uriToFs(dest);
-    return fs.copy(p, dP, dFs ?? dstFs);
+  public static copy(src: URI, dest: URI): Promise<void> {
+    return src.Fs.copy(src.Path, dest.Path, dest.Fs);
   }
 
-  public static move(oldPath: string, newPath: string, dstFs?: fs): Promise<void> {
-    const [fs, p] = uriToFs(oldPath);
-    const [dFs, dP] = uriToFs(newPath);
-    return fs.move(p, dP, dFs ?? dstFs);
-  }
-  public static rename(oldPath: string, newPath: string): Promise<void> {
-    const [fs, p] = uriToFs(oldPath);
-    const [, p2] = uriToFs(newPath);
-    return fs.rename(p, p2);
-  }
-  public static rm(path: string): Promise<void> {
-    const [fs, p] = uriToFs(path);
-    return fs.rm(p);
+  public static move(src: URI, dest: URI): Promise<void> {
+    return src.Fs.move(src.Path, dest.Path, dest.Fs);
   }
 
-  public static mkdir(path: string): Promise<void> {
-    const [fs, p] = uriToFs(path);
-    return fs.mkdir(p);
+  public static rename(src: URI, dest: URI | string): Promise<void> {
+    return src.Fs.rename(src.Path, dest instanceof URI ? dest.Path : dest);
+  }
+  public static rm(path: URI): Promise<void> {
+    return path.Fs.rm(path.Path);
   }
 
-  public static stat(path: string): Promise<IStat> {
-    const [fs, p] = uriToFs(path);
-    return fs.stat(p);
+  public static mkdir(path: URI): Promise<void> {
+    return path.Fs.mkdir(path.Path);
   }
 
-  public static list(path: string): Promise<string[]> {
-    const [fs, p] = uriToFs(path);
-    return fs.list(p);
+  public static stat(path: URI): Promise<IStat> {
+    return path.Fs.stat(path.Path);
+  }
+
+  public static list(path: URI): Promise<string[]> {
+    return path.Fs.list(path.Path);
   }
 
   public static tmppath(fs: string): string {
@@ -376,9 +363,8 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
     return f.tmppath();
   }
 
-  public static append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
-    const [fs, p] = uriToFs(path);
-    return fs.append(p, data, encoding);
+  public static append(path: URI, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
+    return path.Fs.append(path.Path, data, encoding);
   }
   /**
    *
@@ -388,13 +374,10 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * @param path - path to zip
    * @param dstFile - destination file name
    */
-  public static zip(path: string | string[], dstFile?: string, dstFs?: fs): Promise<IZipResult> {
-    const [fs] = !Array.isArray(path) ? uriToFs(path) : uriToFs(path[0]);
-    const [dFs, fP] = uriToFs(dstFile);
-
-    const files = Array.isArray(path) ? path.map((x) => uriToFs(x)[1]) : uriToFs(path)[1];
-
-    return fs.zip(files, dFs ?? dstFs, fP ?? dstFile);
+  public static zip(path: URI | URI[], dstFile: URI): Promise<IZipResult> {
+    const fs = !Array.isArray(path) ? path.Fs : path[0].Fs;
+    const files = Array.isArray(path) ? path.map( x=> x.Path) : path.Path;
+    return fs.zip(files,dstFile.Fs, dstFile.Path);
   }
 
   /**
@@ -405,11 +388,8 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    *
    * @returns path to unzipped file
    */
-  public static unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
-    const [fs, p] = uriToFs(srcPath);
-    const [dFs, fP] = uriToFs(destPath);
-
-    return fs.unzip(p, fP, dFs ?? dstFs);
+  public static unzip(srcPath: URI, destPath: URI): Promise<string> {
+    return srcPath.Fs.unzip(srcPath.Path,destPath.Path, destPath.Fs);
   }
 
   /**
@@ -418,9 +398,8 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    *
    * @param path path to check
    */
-  public static isDir(path: string): Promise<boolean> {
-    const [fs, p] = uriToFs(path);
-    return fs.isDir(p);
+  public static isDir(path: URI): Promise<boolean> {
+    return path.Fs.isDir(path.Path);
   }
 }
 
