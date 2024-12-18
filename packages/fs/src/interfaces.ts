@@ -14,7 +14,7 @@ export class URI {
   public Path: string;
 
   constructor(uri: string) {
-    const reg = /^(fs+:\/\/)+(.+)$/gm;
+    const reg = /^(fs+:\/\/)+(.+)$/;
 
     if (!reg.test(uri)) {
       throw new InvalidArgument(`URI ${uri} is not valid`);

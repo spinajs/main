@@ -281,14 +281,26 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     // pipe archive data to the file
     archive.pipe(wStream);
 
-    for (const p of paths.map((p) => this.resolvePath(p))) {
-      if (await this.isDir(p)) {
-        archive.directory(p, false);
-        continue;
+    for (const p of paths) {
+      if (!Array.isArray(p)) {
+        if (await this.isDir(p)) {
+          archive.directory(this.resolvePath(p), false);
+          continue;
+        }
       }
 
-      archive.file(p, { name: basename(p) });
+      archive.file(this.resolvePath(Array.isArray(p) ? p[0] : p), { name: basename(Array.isArray(p) ? p[1] : p) });
     }
+
+    archive.on('entry', (entry) => {
+      this.Logger.trace(`Archiving file ${entry.name}, size: ${entry.stats?.size} into ${outFile}, fs: ${fs.Name}`);
+    });
+
+    archive.on('progress', (entry) => {
+      this.Logger.trace(
+        `Entries ${entry.entries.total}/${entry.entries.processed}, fs: ${entry.fs.totalBytes}/${entry.fs.processedBytes}`,
+      );
+    });
 
     return new Promise<IZipResult>((resolve, reject) => {
       archive.on('warning', (err) => {
@@ -302,10 +314,6 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
 
       archive.on('error', (err) => {
         reject(new IOFail('Archiving error', err));
-      });
-
-      archive.on('entry', (entry) => {
-        this.Logger.trace(`Archiving file ${entry.name}, size: ${entry.stats?.size} into ${outFile}, fs: ${fs.Name}`);
       });
 
       wStream.on('close', () => {
