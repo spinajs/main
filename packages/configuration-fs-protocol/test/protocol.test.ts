@@ -44,10 +44,16 @@ export class ConnectionConf extends FrameworkConfiguration {
           },
         ],
       },
-      test: 'fs-path://fs-temp//somepath',
+      test: 'fs-path://fs-temp/somepath',
+
       nested: {
+        array: [
+          {
+            path: 'fs-path://fs-temp/somepath3',
+          },
+        ],
         fs: {
-          path: 'fs-path://fs-temp//somepath2',
+          path: 'fs-path://fs-temp/somepath2',
         },
       },
     };
@@ -84,5 +90,8 @@ describe('fs protocol test', function () {
   it('Should load aws value to configuration', async () => {
     const c = await cfg();
     expect(c.get<string>('test').endsWith('packages\\configuration-fs-protocol\\test\\temp')).to.be.true;
+    expect(c.get<string>('nested.fs.path').endsWith('packages\\configuration-fs-protocol\\test\\temp')).to.be.true;
+    expect((c.get<[0]>('nested.array.path')[0] as any).path.endsWith('packages\\configuration-fs-protocol\\test\\temp')).to.be.true;
+
   });
 });

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/unbound-method */
+import { ConfigVar } from '@spinajs/configuration-common';
 import * as fs from 'fs';
 import _ from 'lodash';
 import { dirname, join, resolve } from 'path';
@@ -96,10 +97,9 @@ export function mapObject(obj: any, fn: (obj: any) => any) {
   return Object.keys(obj).reduce((acc: any, key: string) => {
     const value = obj[key];
     if (Array.isArray(value)) {
-      acc[key] = value.map((x) => mapObject(x, fn));
-    } else if (typeof value === 'object' && value !== null) {
-      mapObject(value, fn);
-      acc[key] = fn(value);
+      acc[key] = value.map((x) => fn(mapObject(x, fn)));
+    } else if (typeof value === 'object' && value !== null && !(value instanceof ConfigVar)) {
+      acc[key] = fn(mapObject(value, fn));
     } else {
       acc[key] = value;
     }

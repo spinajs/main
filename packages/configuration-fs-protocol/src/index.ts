@@ -13,9 +13,11 @@ export class ConfigurationFsPathProtocol extends ConfigVarProtocol {
     // we defer invocation of path resolve
     // to be sure Config & fsService are resolved
     return new ConfigVar(() => {
-      const args = path.split('/');
-      const fsName = args[0];
-      const fPath = args[1];
+
+      const reg = /^(.*)\/(.*)/;
+      const args = path.match(reg);
+      const fsName = args[1];
+      const fPath = args[2];
       const f = DI.resolve<fs>('__file_provider__', [fsName]);
 
       if (f) {
