@@ -22,7 +22,7 @@ export function _cfg<T>(path: string, defaultValue?: T) {
  * @param path
  * @returns
  */
-export function _service<T>(path: string, type: Class<T>): () => Promise<T> {
+export function _service<T>(path: string, type: Class<T>, options?: []): () => Promise<T> {
   return () =>
     _chain(
       _cfg(path),
@@ -31,7 +31,7 @@ export function _service<T>(path: string, type: Class<T>): () => Promise<T> {
           _chain(
             () => DI.getRegisteredTypes(type),
             (types: Constructor<unknown>[]) => types.find((t) => t.name === service),
-            (t: Constructor<unknown>) => DI.resolve(t),
+            (t: Constructor<unknown>) => DI.resolve(t, options),
           ),
         (err: Error) => {
           throw new ResolveException(
