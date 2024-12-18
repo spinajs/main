@@ -51,7 +51,7 @@ export class UuidConverter extends ValueConverter {
 
 export class UniversalValueConverter extends ValueConverter {
   public toDB(value: any, model: ModelBase, _column: IColumnDescriptor, options: IUniversalConverterOptions) {
-    const type = (model as any)[options.TypeColumn];
+    const type = model ? (model as any)[options.TypeColumn] : (typeof value).toLowerCase();
     switch (type) {
       case 'string':
         return value;
