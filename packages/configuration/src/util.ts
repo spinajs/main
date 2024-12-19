@@ -94,6 +94,7 @@ export function pickObjects(obj: { [key: string]: any }): [string, any][] {
  * @returns
  */
 export function mapObject(obj: any, fn: (obj: any) => any) {
+  if(typeof obj !== 'object') return obj;
   return Object.keys(obj).reduce((acc: any, key: string) => {
     const value = obj[key];
     if (Array.isArray(value)) {
