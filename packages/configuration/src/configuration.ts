@@ -31,6 +31,8 @@ import { default as ajvMergePath } from 'ajv-merge-patch';
 import { default as ajvFormats } from 'ajv-formats';
 import { default as ajvKeywords } from 'ajv-keywords';
 
+const PROTOCOL_REGEXP = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
+
 /**
  * HACK:
  * Becouse of ajv not supporting esm default exports we need to
@@ -224,6 +226,17 @@ export class FrameworkConfiguration extends Configuration {
      * handle protocols etc.
      */
     const proxyFunc = (obj: any) => {
+      const haveProtoVals = Object.values(obj).some((v) => {
+        if (v instanceof ConfigVar) {
+          return true;
+        }
+        return false;
+      });
+
+      if (!haveProtoVals) {
+        return obj;
+      }
+
       return new Proxy(obj, {
         get: (obj, prop) => {
           if (obj[prop] instanceof ConfigVar) {
@@ -244,7 +257,6 @@ export class FrameworkConfiguration extends Configuration {
 
   protected async loadProtocolVars() {
     const configProtocols = await DI.resolve(Array.ofType(ConfigVarProtocol));
-    const reg = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
 
     const iterate = async (obj: { [key: string]: unknown }) => {
       if (!obj) {
@@ -258,13 +270,13 @@ export class FrameworkConfiguration extends Configuration {
 
       await Promise.all(
         pickString(obj).map(async ([key, val]) => {
-          reg.lastIndex = 0;
-          if (!reg.test(val)) {
+          PROTOCOL_REGEXP.lastIndex = 0;
+          if (!PROTOCOL_REGEXP.test(val)) {
             return;
           }
 
-          reg.lastIndex = 0;
-          const match = reg.exec(val);
+          PROTOCOL_REGEXP.lastIndex = 0;
+          const match = PROTOCOL_REGEXP.exec(val);
           const protocol = configProtocols.find((p) => p.Protocol === match[1]);
 
           if (!protocol) {
