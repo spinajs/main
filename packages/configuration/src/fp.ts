@@ -27,7 +27,7 @@ export function _service<T>(path: string, type: Class<T>, options?: []): () => P
     _chain(
       _cfg(path),
       _catch(
-        (service: string) =>
+        ({service} : {service: string}) =>
           _chain(
             () => DI.getRegisteredTypes(type),
             (types: Constructor<unknown>[]) => types.find((t) => t.name === service),

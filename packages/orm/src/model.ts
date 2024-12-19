@@ -27,6 +27,9 @@ const MODEL_PROXY_HANDLER = {
 
       if (p !== 'IsDirty' && target.ModelDescriptor.Columns.find((x) => x.Name === p)) {
         target.IsDirty = true;
+
+        // HACK to access private prop ( internal use )
+        (target as any).__dirty_props__.push(p);
       }
     }
 
@@ -94,12 +97,29 @@ export function updateModelDescriptor(targetOrForward: any, callback: (descripto
 }
 
 export class ModelBase<M = unknown> implements IModelBase {
+  private __is_dirty__ = false;
   /**
    * Marks model as dirty. It means that model have unsaved changes
    */
-  public IsDirty = false;
+
+  public get IsDirty() {
+    return this.__is_dirty__;
+  }
+
+  public set IsDirty(val: boolean) {
+    this.__is_dirty__ = val;
+    if (!val) {
+      this.__dirty_props__ = [];
+    }
+  }
 
   private _container: IContainer;
+
+  /**
+   * prop to track model props that changeded since last update
+   */
+
+  private __dirty_props__: string[] = [];
 
   /**
    * List of hidden properties from JSON / dehydrations
@@ -481,8 +501,15 @@ export class ModelBase<M = unknown> implements IModelBase {
     return this.Container.resolve(StandardModelWithRelationsDehydrator).dehydrate(this, [...(omit ?? []), ...this._hidden]) as ModelDataWithRelationData<this>;
   }
 
-  public toSql(): Partial<this> {
-    return this.Container.resolve(ModelToSqlConverter).toSql(this) as Partial<this>;
+  public toSql(onlyDirty? : boolean): Partial<this> {
+
+    const vals = this.Container.resolve(ModelToSqlConverter).toSql(this) as Partial<this>;
+    
+    if(onlyDirty){
+      return _.pick(vals, this.__dirty_props__);
+    }
+
+    return vals;
   }
 
   /**
@@ -533,7 +560,7 @@ export class ModelBase<M = unknown> implements IModelBase {
       (this as any)[this.ModelDescriptor.Timestamps.UpdatedAt] = DateTime.now();
     }
 
-    result = await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    result = await query.update(this.toSql(true)).where(this.PrimaryKeyName, this.PrimaryKeyValue);
 
     this.IsDirty = false;
 
