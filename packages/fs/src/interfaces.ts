@@ -20,9 +20,9 @@ export class URI {
       throw new InvalidArgument(`URI ${uri} is not valid`);
     }
 
-    const args = reg.exec(uri)[2].split('/');
-    const fsName = args[0];
-    this.Path = args[1];
+    const match = reg.exec(uri)[2];
+    const fsName = match.substring(0, match.indexOf('/'));
+    this.Path = match.substring(match.indexOf('/') + 1);
     this.Fs = DI.resolve<fs>('__file_provider__', [fsName]);
 
     if (!this.Fs) {
@@ -376,8 +376,8 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    */
   public static zip(path: URI | URI[], dstFile: URI): Promise<IZipResult> {
     const fs = !Array.isArray(path) ? path.Fs : path[0].Fs;
-    const files = Array.isArray(path) ? path.map( x=> x.Path) : path.Path;
-    return fs.zip(files,dstFile.Fs, dstFile.Path);
+    const files = Array.isArray(path) ? path.map((x) => x.Path) : path.Path;
+    return fs.zip(files, dstFile.Fs, dstFile.Path);
   }
 
   /**
@@ -389,7 +389,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * @returns path to unzipped file
    */
   public static unzip(srcPath: URI, destPath: URI): Promise<string> {
-    return srcPath.Fs.unzip(srcPath.Path,destPath.Path, destPath.Fs);
+    return srcPath.Fs.unzip(srcPath.Path, destPath.Path, destPath.Fs);
   }
 
   /**

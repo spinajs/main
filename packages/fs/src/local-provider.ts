@@ -271,8 +271,8 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
   }
 
-  public async zip(path: string | string[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
-    const paths = toArray(path);
+  public async zip(path: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
+    const paths = toArray(path as any);
     const fs = dstFs ?? (await DI.resolve<fs>('__file_provider__', ['fs-temp']));
     const outFile = dstFile ?? `${fs.tmpname()}.zip`;
     const wStream = await fs.writeStream(outFile);
