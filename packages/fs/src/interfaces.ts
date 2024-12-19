@@ -220,7 +220,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * @param path - path to zip
    * @param dstFile - destination file name
    */
-  public abstract zip(path: string | string[], dstFs?: fs, dstFile?: string): Promise<IZipResult>;
+  public abstract zip(path:  string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult>;
 
   /**
    * Decompress given file to destination path
