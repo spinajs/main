@@ -167,7 +167,6 @@ export class User extends ModelBase {
   @Primary()
   public Id: number;
 
-  @Uuid()
   public Uuid: string;
 
   public Email: string;
