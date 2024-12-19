@@ -61,6 +61,7 @@ export enum SqlOperator {
   NOT_BETWEEN = 'not between',
   LIKE = 'like',
   RLIKE = 'rlike',
+  REGEXP = "regexp"
 }
 
 export type Op = '<' | '>' | '!=' | '<=>' | '>=' | '<=' | '<>' | 'like' | '=' | 'rlike';
