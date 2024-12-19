@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, Uuid, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery } from '@spinajs/orm';
+import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery } from '@spinajs/orm';
 import { AccessControl, Permission } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata } from './UserMetadata.js';
