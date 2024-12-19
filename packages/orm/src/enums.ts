@@ -64,7 +64,7 @@ export enum SqlOperator {
   REGEXP = "regexp"
 }
 
-export type Op = '<' | '>' | '!=' | '<=>' | '>=' | '<=' | '<>' | 'like' | '=' | 'rlike';
+export type Op = '<' | '>' | '!=' | '<=>' | '>=' | '<=' | '<>' | 'like' | '=' | 'rlike' | 'regexp';
 
 /**
  * Allowed join methods in queries
