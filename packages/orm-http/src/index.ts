@@ -121,7 +121,7 @@ export class FromDbModel extends RouteArgs {
       query.populate(callData.Payload.Query.Args.include ?? callData.Payload.Query.Args._include);
     }
 
-    return query.firstOrThrow(new OrmNotFoundException());
+    return query.firstOrThrow(new OrmNotFoundException("Resource not found"));
   }
 }
 
