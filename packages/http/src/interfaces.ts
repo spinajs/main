@@ -683,6 +683,9 @@ export abstract class Response {
   }
 
   protected async prepareResponse() {
+    if (Array.isArray(this.responseData)) {
+      return Promise.all(this.responseData);
+    }
     return isPromise(this.responseData) ? await this.responseData : this.responseData;
   }
 }
