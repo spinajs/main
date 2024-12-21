@@ -15,7 +15,7 @@ export class AwsSecretsManagerVarProtocol extends ConfigVarProtocol {
   public async getVar(path: string, configuration: any): Promise<unknown> {
     if (!this.Client) {
       this.Client = new SecretsManagerClient({
-        ...configuration.aws.secretsManager,
+        ...configuration?.aws?.secretsManager,
         logger: {
           trace: (msg: any) => InternalLogger.trace(msg, 'AwsSecretsManagerVarProtocol'),
           debug: (msg: any) => InternalLogger.debug(msg, 'AwsSecretsManagerVarProtocol'),
