@@ -56,7 +56,7 @@ export class HttpServer extends AsyncService {
   protected _httpServer: Http;
   protected _httpsServer: Https;
 
-  protected get Server(): Http | Https {
+  public get Server(): Http | Https {
     return this.HttpsEnabled ? this._httpsServer : this._httpServer;
   }
 

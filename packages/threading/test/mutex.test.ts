@@ -5,8 +5,10 @@ import { expect } from 'chai';
 
 chai.use(chaiAsPromised);
 
-describe('threading', () => {
+describe('threading', function {
+  this.timeout(10000);
+
   describe('mutex', () => {
-    
-  });
+ 
+  }); 
 });

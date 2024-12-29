@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { _modelProxyFactory, MigrationTransactionMode, Orm } from '@spinajs/orm';
-import { __mutex__, OrmMutext } from '../src/index';
+import { __mutex__, OrmMutex } from '../src/index';
 
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
@@ -59,7 +59,7 @@ export class ConnectionConf extends FrameworkConfiguration {
 describe('orm-threading', function () {
   this.timeout(15000);
   before(() => {
-    DI.register(OrmMutext).as(Mutex);
+    DI.register(OrmMutex).as(Mutex);
     DI.register(ConnectionConf).as(Configuration);
   });
 
