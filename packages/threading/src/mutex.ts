@@ -31,7 +31,7 @@ export interface MutexLock {
   Updated_at: DateTime;
 }
 
-export interface MutextLockOptions {
+export interface MutexLockOptions {
   /**
    * Mutex name
    */
@@ -64,7 +64,7 @@ export abstract class Mutex {
    * Acquire mutex. If not exists, creates it
    * @param options
    */
-  public abstract acquire(options: MutextLockOptions): Promise<LockResult>;
+  public abstract acquire(options: MutexLockOptions): Promise<LockResult>;
 
   /**
    *
@@ -73,20 +73,20 @@ export abstract class Mutex {
    * @param name
    * @param deleteOnClose
    */
-  public abstract release(options: MutextLockOptions, deleteOnClose?: boolean): Promise<boolean>;
+  public abstract release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean>;
 
   /**
    * Create mutex. It will not lock it
    * @param options
    */
-  public abstract create(options: MutextLockOptions): Promise<MutexLock>;
+  public abstract create(options: MutexLockOptions): Promise<MutexLock>;
 
   /**
    * Deletes mutex if its not locked
    * @param name
    * @returns true if deleted
    */
-  public abstract delete(options: MutextLockOptions): Promise<boolean>;
+  public abstract delete(options: MutexLockOptions): Promise<boolean>;
 
   /**
    * Retrieve mutex information if exists
@@ -109,7 +109,7 @@ export abstract class Mutex {
  * Create mutex. It will not lock it
  * @param options
  */
-export function mutex_create(options: MutextLockOptions): Promise<MutexLock> {
+export function mutex_create(options: MutexLockOptions): Promise<MutexLock> {
   return DI.resolve(Mutex).create(options);
 }
 
@@ -138,7 +138,7 @@ export function mutex_wait(name: string, timeout?: number): Promise<boolean> {
  * @param name
  * @returns true if deleted
  */
-export function mutex_delete(options: MutextLockOptions): Promise<boolean> {
+export function mutex_delete(options: MutexLockOptions): Promise<boolean> {
   return DI.resolve(Mutex).delete(options);
 }
 
@@ -146,7 +146,7 @@ export function mutex_delete(options: MutextLockOptions): Promise<boolean> {
  * Acquire mutex. If not exists, creates it
  * @param options
  */
-export function mutex_acquire(options: MutextLockOptions): Promise<LockResult> {
+export function mutex_acquire(options: MutexLockOptions): Promise<LockResult> {
   return DI.resolve(Mutex).acquire(options);
 }
 
@@ -157,6 +157,6 @@ export function mutex_acquire(options: MutextLockOptions): Promise<LockResult> {
  * @param name
  * @param deleteOnClose
  */
-export function mutext_release(options : MutextLockOptions, deleteOnClose?: boolean): Promise<boolean> {
+export function mutex_release(options : MutexLockOptions, deleteOnClose?: boolean): Promise<boolean> {
   return DI.resolve(Mutex).release(options, deleteOnClose);
 }

@@ -8,7 +8,7 @@ import { expect } from 'chai';
 import _ from 'lodash';
 import { DI } from '@spinajs/di';
 import { join, normalize, resolve } from 'path';
-import { Mutex, mutex_create, mutex_get, mutex_delete, mutex_acquire, mutext_release, mutex_wait } from '@spinajs/threading';
+import { Mutex, mutex_create, mutex_get, mutex_delete, mutex_acquire, mutex_release, mutex_wait } from '@spinajs/threading';
 import '@spinajs/log';
 import '@spinajs/orm-sqlite';
 import { DateTime } from 'luxon';
@@ -166,7 +166,7 @@ describe('orm-threading', function () {
     let m = await __mutex__.get('test');
     expect(m.Locked).to.be.true;
 
-    await mutext_release(r.Mutex);
+    await mutex_release(r.Mutex);
 
     await m.refresh();
     expect(m.Locked).to.be.false;
@@ -181,7 +181,7 @@ describe('orm-threading', function () {
     let m = await __mutex__.get('test');
     expect(m.Locked).to.be.true;
 
-    await mutext_release({
+    await mutex_release({
       Name: 'test',
       Tenant: 'test-2',
     });
@@ -199,7 +199,7 @@ describe('orm-threading', function () {
     const m = await __mutex__.get('test');
     expect(m.Locked).to.be.true;
 
-    await mutext_release(r.Mutex, true);
+    await mutex_release(r.Mutex, true);
 
     const m2 = await __mutex__.get('test');
     expect(m2).to.be.undefined;
@@ -227,7 +227,7 @@ describe('orm-threading', function () {
     });
 
     setTimeout(async () => {
-      await mutext_release({
+      await mutex_release({
         Name: 'test',
         Tenant: 'test-1',
       });

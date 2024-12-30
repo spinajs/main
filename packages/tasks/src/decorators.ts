@@ -1,4 +1,4 @@
-import { mutex_acquire, mutext_release } from '@spinajs/threading';
+import { mutex_acquire, mutex_release } from '@spinajs/threading';
 import { _check_arg, _non_empty, _trim } from '@spinajs/util';
 import { DI } from '@spinajs/di';
 import { __task } from './models/__task.js';
@@ -83,7 +83,7 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
           });
         } finally {
           try {
-            await mutext_release({
+            await mutex_release({
               Name: `task-${name}`,
             });
 

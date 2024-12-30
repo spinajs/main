@@ -1,5 +1,5 @@
 import { _check_arg, _default, _non_empty, _trim } from '@spinajs/util';
-import { Mutex, MutextLockOptions, LockResult, MutexLock } from '@spinajs/threading';
+import { Mutex, MutexLockOptions, LockResult, MutexLock } from '@spinajs/threading';
 import { Config } from '@spinajs/configuration';
 import { __mutex__ } from './models/__mutex__.js';
 import { DateTime } from 'luxon';
@@ -25,7 +25,7 @@ export class OrmMutex extends Mutex {
   })
   protected MutexWaitInterval: number;
 
-  public async acquire(options: MutextLockOptions): Promise<LockResult> {
+  public async acquire(options: MutexLockOptions): Promise<LockResult> {
     const _tenant = _check_arg(_trim(), _default(this.AppName))(options.Tenant, '');
     const _name = _check_arg(_trim(), _non_empty())(options.Name, 'Empty mutex name');
 
@@ -56,7 +56,7 @@ export class OrmMutex extends Mutex {
     };
   }
 
-  public async release(options: MutextLockOptions, deleteOnClose?: boolean): Promise<boolean> {
+  public async release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean> {
     const _name = _check_arg(_trim(), _non_empty())(options.Name, 'Empty mutex name');
     const _tenant = _check_arg(_trim(), _default(this.AppName))(options.Tenant, '');
     let result: IUpdateResult = null;
@@ -79,7 +79,7 @@ export class OrmMutex extends Mutex {
     return result.RowsAffected === 1;
   }
 
-  public async create(options: MutextLockOptions): Promise<MutexLock> {
+  public async create(options: MutexLockOptions): Promise<MutexLock> {
     const _name = _check_arg(_trim(), _non_empty())(options.Name, 'Empty mutex name');
     const _tenant = _check_arg(_trim(), _default(this.AppName))(options.Tenant, '');
 
@@ -93,7 +93,7 @@ export class OrmMutex extends Mutex {
     };
   }
 
-  public async delete(options: MutextLockOptions): Promise<boolean> {
+  public async delete(options: MutexLockOptions): Promise<boolean> {
     const _name = _check_arg(_trim(), _non_empty())(options.Name, 'Empty mutex name');
     const _tenant = _check_arg(_trim(), _default(this.AppName))(options.Tenant, '');
 
