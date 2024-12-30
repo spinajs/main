@@ -52,7 +52,10 @@ export class OrmMutex extends Mutex {
 
     return {
       Locked: result.RowsAffected === 1,
-      Mutex: mutex,
+      Mutex: {
+        ...mutex,
+        Tenant: _tenant,
+      },
     };
   }
 
