@@ -21,6 +21,7 @@ import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
 import './middlewares/RealIp.js';
+import './middlewares/ReqStorage.js';
 
 @Injectable()
 @Inject(Templates)
@@ -72,6 +73,11 @@ export class HttpServer extends AsyncService {
 
   public async resolve(): Promise<void> {
     this.Express = Express();
+    this.Server = this._createServer();
+    this.Middlewares = this.Middlewares.sort((a, b) => {
+      return a.Order - b.Order;
+    });
+
     const f = DI.resolve<fsNative<IFsLocalOptions>>('__file_provider__', ['__fs_http_response_templates__']);
     if (!f) {
       this.Log.info(`No fs provider for __fs_http_response_templates__ registered, response templates will not be available.`);
@@ -108,16 +114,6 @@ export class HttpServer extends AsyncService {
       this.use(cors(corsOptions));
     }
 
-    // create storage prop in req
-    this.use((req: any, _res: any, next: Express.NextFunction) => {
-      req.storage = {};
-      next();
-    });
-
-    this.Middlewares = this.Middlewares.sort((a, b) => {
-      return a.Order - b.Order;
-    });
-
     // register other server middlewares
     this.Middlewares.forEach((m) => {
       const f = m.before();
@@ -127,9 +123,39 @@ export class HttpServer extends AsyncService {
       }
     });
 
-    /**
-     * Server static files
-     */
+    this._serverStaticFiles();
+  }
+
+  /**
+   * Create http or https server
+   */
+  private _createServer(): any {
+    if (this.HttpsEnabled) {
+      this.Log.info(`Using https key file ${this.HttpConfig.ssl.key}`);
+      this.Log.info(`Using https cert file ${this.HttpConfig.ssl.cert}`);
+
+      const key = fs.readFileSync(this.HttpConfig.ssl.key);
+      const cert = fs.readFileSync(this.HttpConfig.ssl.cert);
+
+      this.Log.info(`HTTPS enabled !`);
+
+      return HttpsCreateServer(
+        {
+          key: key,
+          cert: cert,
+        },
+        this.Express,
+      );
+    } else {
+      this.Log.info(`HTTP enabled !`);
+      return HttpCreateServer(this.Express);
+    }
+  }
+
+  /**
+   * Server static files
+   */
+  private _serverStaticFiles() {
     _.uniq(this.HttpConfig.Static).forEach((s) => {
       if (!existsSync(s.Path)) {
         this.Log.warn(`static file path ${s.Path} not exists`);
@@ -159,27 +185,6 @@ export class HttpServer extends AsyncService {
           this.use(f);
         }
       });
-
-      if (this.HttpsEnabled) {
-        this.Log.info(`Using https key file ${this.HttpConfig.ssl.key}`);
-        this.Log.info(`Using https cert file ${this.HttpConfig.ssl.cert}`);
-
-        const key = fs.readFileSync(this.HttpConfig.ssl.key);
-        const cert = fs.readFileSync(this.HttpConfig.ssl.cert);
-
-        this._httpsServer = HttpsCreateServer(
-          {
-            key: key,
-            cert: cert,
-          },
-          this.Express,
-        );
-
-        this.Log.info(`HTTPS enabled !`);
-      } else {
-        this._httpServer = HttpCreateServer(this.Express);
-        this.Log.info(`HTTP enabled !`);
-      }
 
       this.Server.listen(this.HttpConfig.port, () => {
         this.Log.info(`Server started at port ${this.HttpConfig.port}`);

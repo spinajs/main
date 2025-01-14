@@ -124,6 +124,7 @@
     "@spinajs/configuration-aws-secretmanager-protocol": "file:packages\\configuration-aws-secretmanager-protocol",
     "@spinajs/validation": "file:packages\\validation",
     "@spinajs/configuration-fs-protocol": "file:packages\\configuration-fs-protocol",
+    "@spinajs/http-socket": "file:packages\\http-socket",
     "@types/ajv-merge-patch": "^4.1.2",
     "@types/mjml": "^4.7.4"
   }
