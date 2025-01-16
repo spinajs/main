@@ -52,7 +52,7 @@ export function _use(value: () => Promise<unknown> | object | string | number | 
  * @param onError
  * @returns
  */
-export function _catch(promise: (...arg: unknown[]) => Promise<unknown>, onError: (err: Error, ...arg: unknown[]) => Promise<void>) {
+export function _catch(promise: (...arg: any[]) => Promise<any>, onError: (err: Error, ...arg: unknown[]) => Promise<void>) {
   return (...arg: unknown[]) => Promise.resolve(promise(...arg)).catch(async (err) => await onError(err, ...arg));
 }
 
@@ -64,9 +64,9 @@ export function _catch(promise: (...arg: unknown[]) => Promise<unknown>, onError
  * @param filter
  * @returns
  */
-export function _catchFilter(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => void, filter: (err: Error) => boolean) {
-  return (arg?: unknown) =>
-    Promise.resolve(promise(arg)).catch((err) => {
+export function _catchFilter(promise: (...arg: any[]) => Promise<any>, onError: (err: Error) => void, filter: (err: Error) => boolean) {
+  return (...arg: unknown[]) =>
+    Promise.resolve(promise(...arg)).catch((err) => {
       if (filter(err)) {
         return onError(err);
       } else {
@@ -75,8 +75,8 @@ export function _catchFilter(promise: (arg: unknown) => Promise<unknown>, onErro
     });
 }
 
-export function _catchValue(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => unknown, value: unknown) {
-  return (arg?: unknown) => Promise.resolve(promise(arg)).catch((err) => (err === value ? onError(err) : Promise.reject(err)));
+export function _catchValue(promise: (...arg: any[]) => Promise<any>, onError: (err: Error) => unknown, value: unknown) {
+  return (...arg: unknown[]) => Promise.resolve(promise(...arg)).catch((err) => (err === value ? onError(err) : Promise.reject(err)));
 }
 
 /**
@@ -87,9 +87,9 @@ export function _catchValue(promise: (arg: unknown) => Promise<unknown>, onError
  * @param exception
  * @returns
  */
-export function _catchException(promise: (arg: unknown) => Promise<unknown>, onError: (err: Error) => void, exception: Constructor<Error>) {
-  return (arg?: unknown) =>
-    Promise.resolve(promise(arg)).catch((err) => {
+export function _catchException(promise: (...arg: any[]) => Promise<any>, onError: (err: Error) => void, exception: Constructor<Error>) {
+  return (...arg: any[]) =>
+    Promise.resolve(promise(...arg)).catch((err) => {
       if (typeof err === 'object' && err instanceof exception) {
         return onError(err);
       } else {
@@ -98,8 +98,8 @@ export function _catchException(promise: (arg: unknown) => Promise<unknown>, onE
     });
 }
 
-export function _fallback(promise: (arg: unknown) => Promise<unknown>, fallback: (err: Error) => unknown) {
-  return (arg?: unknown) => promise(arg).catch(fallback);
+export function _fallback(promise: (...arg: any[]) => Promise<any>, fallback: (err: Error) => unknown) {
+  return (...arg: any[]) => promise(...arg).catch(fallback);
 }
 
 export function _tap(promise: ((arg: any) => Promise<unknown>) | Promise<unknown>) {
