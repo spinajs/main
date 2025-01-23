@@ -73,10 +73,11 @@ export class HttpServer extends AsyncService {
 
   public async resolve(): Promise<void> {
     this.Express = Express();
-    this.Server = this._createServer();
     this.Middlewares = this.Middlewares.sort((a, b) => {
       return a.Order - b.Order;
     });
+
+    this._createServer();
 
     const f = DI.resolve<fsNative<IFsLocalOptions>>('__file_provider__', ['__fs_http_response_templates__']);
     if (!f) {
@@ -129,7 +130,7 @@ export class HttpServer extends AsyncService {
   /**
    * Create http or https server
    */
-  private _createServer(): any {
+  private _createServer()  {
     if (this.HttpsEnabled) {
       this.Log.info(`Using https key file ${this.HttpConfig.ssl.key}`);
       this.Log.info(`Using https cert file ${this.HttpConfig.ssl.cert}`);
@@ -139,7 +140,7 @@ export class HttpServer extends AsyncService {
 
       this.Log.info(`HTTPS enabled !`);
 
-      return HttpsCreateServer(
+      this._httpsServer = HttpsCreateServer(
         {
           key: key,
           cert: cert,
@@ -148,7 +149,7 @@ export class HttpServer extends AsyncService {
       );
     } else {
       this.Log.info(`HTTP enabled !`);
-      return HttpCreateServer(this.Express);
+      this._httpServer = HttpCreateServer(this.Express);
     }
   }
 

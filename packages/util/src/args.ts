@@ -319,6 +319,20 @@ export function _lt(value: number, error?: Error) {
   };
 }
 
+export function _lte(value: number, error?: Error) {
+  return function (arg: unknown, name: string) {
+    if (typeof arg !== 'number') {
+      return arg;
+    }
+
+    if (arg > value) {
+      throw error ?? new InvalidArgument(`${name} should be less than or equal ${value}`);
+    }
+
+    return arg;
+  };
+}
+
 export function _gt(value: number, error?: Error) {
   return function (arg: unknown, name: string) {
     if (typeof arg !== 'number') {
@@ -327,6 +341,20 @@ export function _gt(value: number, error?: Error) {
 
     if (arg <= value) {
       throw error ?? new InvalidArgument(`${name} should be greater than ${value}`);
+    }
+
+    return arg;
+  };
+}
+
+export function _gte(value: number, error?: Error) {
+  return function (arg: unknown, name: string) {
+    if (typeof arg !== 'number') {
+      return arg;
+    }
+
+    if (arg < value) {
+      throw error ?? new InvalidArgument(`${name} should be greater than or equal ${value}`);
     }
 
     return arg;

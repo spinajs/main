@@ -1,6 +1,5 @@
-import { resolve } from 'path';
 import { HttpServer } from '@spinajs/http';
-import { AsyncService, Autoinject, DI } from '@spinajs/di';
+import { AsyncService, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 
 import { Server } from 'socket.io';

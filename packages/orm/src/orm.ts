@@ -161,6 +161,15 @@ export class Orm extends AsyncService {
               }
             }
 
+            // mark foreign key columns based on relation decorators ( if not foreign key is set in db explicit )
+            // without this update / insert operations with populated data would fail
+            descriptor.Relations.forEach((r) => {
+              const c = d.Columns.find((c) => c.Name === r.ForeignKey);
+              if (c) {
+                c.IsForeignKey = true;
+              }
+            });
+
             /**
              * Add any other converted that is not set by decorators, but is set in container
              * for given column type eg. default boolean converter
