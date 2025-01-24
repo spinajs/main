@@ -1,4 +1,4 @@
-import { isPromise } from 'util/types';
+import { isPromise } from './types.js';
 
 export type Constructor<T> = new (...args: any[]) => T;
 
