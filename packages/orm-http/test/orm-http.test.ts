@@ -152,18 +152,18 @@ describe('Http orm tests', function () {
           anyOf: [
             {
               type: 'object',
-              required: ['Field', 'Value', 'Operator'],
+              required: ['Column', 'Value', 'Operator'],
               properties: {
-                Field: { const: 'Text' },
+                Column: { const: 'Text' },
                 Value: { type: ['string', 'integer'] },
                 Operator: { type: 'string', enum: ['eq', 'like'] },
               },
             },
             {
               type: 'object',
-              required: ['Field', 'Value', 'Operator'],
+              required: ['Column', 'Value', 'Operator'],
               properties: {
-                Field: { const: 'Number' },
+                Column: { const: 'Number' },
                 Value: { type: ['string', 'integer'] },
                 Operator:  { type: 'string', enum:  ['eq', 'gt', 'lt'] },
               },

@@ -10,31 +10,31 @@ import { LoggedPolicy } from "@spinajs/rbac-http";
  */
 const USER_FILTER: CustomFilterSchema[] = [
   {
-    Field: 'Uuid',
+    Column: 'Uuid',
     Operators: ['eq'],
   },
   {
-    Field: 'Email',
+    Column: 'Email',
     Operators: ['eq', 'like'],
   },
   {
-    Field: 'Login',
+    Column: 'Login',
     Operators: ['eq', 'like'],
   },
   {
-    Field: 'CreatedAt',
+    Column: 'CreatedAt',
     Operators: ['eq', 'gte', 'lte', 'lt', 'gt'],
   },
   {
-    Field: 'LastLoginAt',
+    Column: 'LastLoginAt',
     Operators: ['eq', 'gte', 'lte', 'lt', 'gt'],
   },
   {
-    Field: 'DeletedAt',
+    Column: 'DeletedAt',
     Operators: ['eq', 'gte', 'lte', 'lt', 'gt', 'isnull', 'notnull'],
   },
   {
-    Field: 'IsActive',
+    Column: 'IsActive',
     Operators: ['eq'],
   },
 ];
@@ -60,7 +60,7 @@ export class UserAdminController extends BaseController {
     const result = await User.select()
       .populate(include)
       .take(pagination?.limit ?? 10)
-      .skip(pagination?.limit * pagination?.page ?? 0)
+      .skip(pagination?.limit * pagination?.page)
       .order(order?.column ?? 'CreatedAt', order?.order ?? 'DESC')
       .filter(filter);
 

@@ -47,9 +47,9 @@ export class FilterModelRouteArg extends RouteArgs {
           anyOf: (param.Options as CustomFilterSchema[]).map((x) => {
             return {
               type: 'object',
-              required: ['Field', 'Value', 'Operator'],
+              required: ['Column', 'Value', 'Operator'],
               properties: {
-                Field: { const: x.Field },
+                Column: { const: x.Column },
                 Value: { type: ['string', 'integer'] },
                 Operator: { type: 'string', enum: x.Operators },
               },

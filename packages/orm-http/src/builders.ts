@@ -14,6 +14,15 @@ import { IFilter, IColumnFilter } from './interfaces.js';
 
   const columns: IColumnFilter[] = (this._model as any).filterColumns();
   filters.forEach((filter) => {
+
+    if(!filter.Column){
+      throw new Error('Column is required');
+    }
+
+    if(!filter.Operator){
+      throw new Error('Operator is required');
+    }
+
     if (!columns.find((c) => c.column === filter.Column)) {
       throw new Error(`Column ${filter.Column} is not filterable`);
     }

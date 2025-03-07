@@ -15,7 +15,7 @@ export function Filterable(operators: FilterableOperators[]) {
   });
 }
 
-export type CustomFilterSchema  = { Field : string, Operators : FilterableOperators[]};
+export type CustomFilterSchema  = { Column : string, Operators : FilterableOperators[]};
 
 export function Filter(model: Constructor<ModelBase> | CustomFilterSchema[]) {
   return Route(Parameter("FilterModelRouteArg",null, model));
