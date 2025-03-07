@@ -49,8 +49,13 @@ import { IFilter, IColumnFilter } from './interfaces.js';
         this.andWhere(filter.Column, SqlOperator.LTE, filter.Value);
         break;
       case 'like':
-        this.andWhere(filter.Column, SqlOperator.LIKE, filter.Value);
+        this.andWhere(filter.Column, SqlOperator.LIKE, `%${filter.Value}%`);
         break;
+      case 'b-like':
+        this.andWhere(filter.Column, SqlOperator.LIKE, `%${filter.Value}`);
+        break;
+      case 'e-like':
+        this.andWhere(filter.Column, SqlOperator.LIKE, `${filter.Value}%`);
       case 'in':
         this.andWhere(filter.Column, SqlOperator.IN, filter.Value);
         break;
