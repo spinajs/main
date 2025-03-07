@@ -4,7 +4,7 @@ const QueryArgsSchema = {
     properties: {
         page: { type: 'number' },
         perPage: { type: 'number' },
-        orderDirection: { type: 'string', enum: ['ASC', 'DESC'] },
+        orderDirection: { type: 'string', enum: ['ASC', 'DESC', 'asc', 'desc'] },
         order: { type: 'string' },
     },
 };
