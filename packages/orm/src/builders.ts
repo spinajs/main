@@ -1058,8 +1058,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const c = column ?? '*';
     const a = as ?? 'count';
 
-    this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
+    this.clearColumns();
 
+    this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
     return this.asRaw<{ [key: string]: number }>().then((x) => x[as]);
   }
 
