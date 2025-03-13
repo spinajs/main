@@ -1015,7 +1015,8 @@ export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<
 export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IQueryBuilder, IBuilder<T> {
   min(column: string, as?: string): this;
   max(column: string, as?: string): this;
-  count(column: string, as?: string): this;
+  count() : Promise<number>
+  count(column: string, as?: string): Promise<number>;
   sum(column: string, as?: string): this;
   avg(column: string, as?: string): this;
   setAlias(alias: string): this;

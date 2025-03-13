@@ -1054,9 +1054,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
-  public count(column: string, as?: string): this {
-    this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.COUNT, as, this._tableAlias]));
-    return this;
+  public count(column?: string, as?: string) {
+    const c = column ?? '*';
+    const a = as ?? 'count';
+
+    this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
+
+    return this.this.asRaw<{ [key: string]: number }>().then((x) => x[as]);
   }
 
   public sum(column: string, as?: string): this {

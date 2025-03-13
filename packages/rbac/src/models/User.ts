@@ -134,6 +134,8 @@ export enum USER_COMMON_METADATA {
   USER_PWD_RESET_WAIT_TIME = 'user:pwd_reset:wait_time',
   // reset password token
   USER_PWD_RESET_TOKEN = 'user:pwd_reset:token',
+  // reset password last succesyfull  attempt
+  USER_PWD_RESET_LAST_ATTEMPT = 'user:pwd_reset:last_attempt',
 }
 
 /**

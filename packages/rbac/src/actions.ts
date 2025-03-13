@@ -318,7 +318,7 @@ export async function confirmPasswordReset(identifier: number | string | User, n
   );
 }
 
-export async function changePassword(password: string): Promise<(u: User) => Promise<User>> {
+export function changePassword(password: string): (u: User) => Promise<User> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
   return async (u: User) => {
@@ -334,7 +334,7 @@ export async function changePassword(password: string): Promise<(u: User) => Pro
 
       // update password
       ({ pwd }: { pwd: PasswordProvider }) => pwd.hash(password),
-      (hPassword: string) => _chain(u, _update<User>({ Password: hPassword }), _set_user_meta('/^user:pwd_reset/'), _set_user_meta('user:last_pwd_reset', DateTime.now().toISO()), _user_ev(UserPasswordChanged)),
+      (hPassword: string) => _chain(u, _update<User>({ Password: hPassword }), _set_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, DateTime.now().toISO()), _user_ev(UserPasswordChanged)),
     );
   };
 }
@@ -347,6 +347,21 @@ export async function changePassword(password: string): Promise<(u: User) => Pro
  */
 export async function expirePassword(identifier: number | string | User): Promise<void> {
   return await _chain(_user(identifier), (user: User) => deactivate(user), _user_ev(UserPasswordExpired));
+}
+
+/**
+ * Check if password match user password stored in db
+ *
+ * @param identifier
+ * @param password
+ * @returns
+ */
+export function passwordMatch(password: string) {
+  password = _check_arg(_trim(), _non_empty())(password, 'password');
+
+  return async (u: User): Promise<boolean> => {
+    return await _chain(u, _service('rbac.password', PasswordProvider), async (sPwd: PasswordProvider, u: User) => sPwd.verify(u.Password, password));
+  };
 }
 
 export async function auth(identifier: number | string | User, password: string): Promise<User> {
