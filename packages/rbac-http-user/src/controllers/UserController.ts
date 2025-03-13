@@ -1,7 +1,7 @@
 import { PasswordDto } from '../dto/password-dto.js';
 import { User as UserModel, PasswordProvider, SessionProvider, passwordMatch, changePassword } from '@spinajs/rbac';
 import { BaseController, BasePath, Get, Ok, Body, Patch, Cookie } from '@spinajs/http';
-import { InvalidArgument, Forbidden } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import * as cs from 'cookie-signature';

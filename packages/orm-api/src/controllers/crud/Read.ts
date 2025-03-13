@@ -88,12 +88,12 @@ export class CrudRead extends Crud {
       query.where(filter, f.op ? f.op : '=', f.val);
     }
 
-    const count = await query.clone().clearColumns().count('*', 'count').takeFirst().asRaw<{ count: number }>();
+    const count = await query.clone().clearColumns().count();
     const result = await query;
 
     return new Ok({
       Data: result.map((x) => x.dehydrateWithRelations()).map((x) => permission.filter(x)),
-      Total: count.count,
+      Total: count,
     });
   }
 
@@ -171,7 +171,7 @@ export class CrudRead extends Crud {
       .select('*')
       .populate(includes)
       .order(params.order, params.orderDirection ?? SortOrder.ASC)
-      .skip(params.page * params.perPage ?? 0)
+      .skip(params.page * params.perPage)
       .take(params.perPage ?? 10);
 
     // apply basic filters
@@ -182,7 +182,7 @@ export class CrudRead extends Crud {
       query.where(filter, f.op ? f.op : '=', f.val);
     }
 
-    const count = await query.clone().clearColumns().count('*', 'count').takeFirst().asRaw<{ count: number }>();
+    const count = await query.clone().clearColumns().count();
     const result = await query;
 
     return new Ok({

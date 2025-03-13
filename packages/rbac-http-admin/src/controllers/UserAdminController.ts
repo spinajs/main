@@ -64,7 +64,7 @@ export class UserAdminController extends BaseController {
       .order(order?.column ?? 'CreatedAt', order?.order ?? 'DESC')
       .filter(filter);
 
-    const { count } = await User.query().count('*', 'count').filter(filter).takeFirst().asRaw<{ count: number }>();
+    const count = await User.query().filter(filter).count();
 
     return new Ok(
       result.map((x) => x.dehydrateWithRelations()),
