@@ -17,8 +17,6 @@ export class UserQueryScopes implements QueryScope {
 
   public async checkIsBanned(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
     const banned = await this.clearColumns()
-      .count('*', 'BannedCount')
-      .setAlias('banned_count')
       .whereExist(
         UserMetadata.query().where(function () {
           this.where('Key', USER_COMMON_METADATA.USER_BAN_IS_BANNED);
@@ -26,15 +24,15 @@ export class UserQueryScopes implements QueryScope {
           this.where(new RawQuery('user_id = banned_count.Id'));
         }),
       )
-      .asRaw<{ BannedCount: number }[]>();
+      .count()
 
-    return banned[0].BannedCount > 0;
+
+    return banned > 0;
   }
 
   public async checkIsActive(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
-    const active = await this.clearColumns().count('*', 'ActiveCount').where('IsActive', true).asRaw<{ ActiveCount: number }[]>();
-
-    return active[0].ActiveCount > 0;
+    const active = await this.clearColumns().where('IsActive', true).count();
+    return active > 0;
   }
 
   public notDeleted(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
