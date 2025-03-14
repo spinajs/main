@@ -57,10 +57,10 @@ import { IFilter, IColumnFilter } from './interfaces.js';
       case 'e-like':
         this.andWhere(filter.Column, SqlOperator.LIKE, `${filter.Value}%`);
       case 'in':
-        this.andWhere(filter.Column, SqlOperator.IN, filter.Value);
+        this.whereIn(filter.Column, filter.Value);
         break;
       case 'nin':
-        this.andWhere(filter.Column, SqlOperator.NOT_IN, filter.Value);
+        this.whereNotIn(filter.Column,filter.Value);
         break;
       case 'between':
         this.andWhere(filter.Column, SqlOperator.BETWEEN, filter.Value);

@@ -50,7 +50,7 @@ export class FilterModelRouteArg extends RouteArgs {
               required: ['Column', 'Value', 'Operator'],
               properties: {
                 Column: { const: x.Column },
-                Value: { type: ['string', 'integer'] },
+                Value: { type: ['string', 'integer', 'array'] },
                 Operator: { type: 'string', enum: x.Operators },
               },
             };
