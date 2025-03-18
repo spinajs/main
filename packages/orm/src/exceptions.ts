@@ -1,12 +1,24 @@
 import { Exception } from '@spinajs/exceptions';
+import { IDriverOptions } from './interfaces.js';
 
 /**
  * Exception thrown when functionality is not supported
  */
-export class OrmException extends Exception {}
+export class OrmException extends Exception {
+  constructor(message?: string, public driver?: Partial<IDriverOptions>, public inner?: Error | unknown) {
+    super('', inner);
+
+    if (this.driver) {
+      this.message = `Error during execution statement on connection ${this.driver.Name} at ${this.driver.User}@${this.driver.Host}, inner exception: ${this.inner ?? 'none'}, message: ${this.message}`;
+    } else {
+      this.message = message;
+    }
+  }
+
+  public toString() {}
+}
 
 /**
  * Exception thrown when functionality is not supported
  */
 export class OrmNotFoundException extends OrmException {}
-

@@ -38,6 +38,7 @@ export class SqliteOrmDriver extends SqlDriver {
 
   public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
+    const self = this;
 
     if (!this.Db) {
       throw new Error('cannot execute sqlite statement, no db connection avaible');
@@ -52,7 +53,11 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Delete:
           this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
-              reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`, err));
+              reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,{
+                Host: self.Options.Host,
+                User : self.Options.User,
+                Name : self.Options.Name
+              }, err));
               return;
             }
 
@@ -66,7 +71,11 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Upsert:
           this.Db.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
             if (err) {
-              reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`, err));
+              reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,{
+                Host: self.Options.Host,
+                User : self.Options.User,
+                Name : self.Options.Name
+              }, err));
               return;
             }
 
@@ -81,7 +90,11 @@ export class SqliteOrmDriver extends SqlDriver {
                 reject(new ResourceDuplicated(err));
               } else {
                 if (err) {
-                  reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`, err));
+                  reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,{
+                    Host: self.Options.Host,
+                    User : self.Options.User,
+                    Name : self.Options.Name
+                  }, err));
                   return;
                 }
               }
