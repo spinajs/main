@@ -320,6 +320,10 @@ export const forwardRef = (fn: () => any): IForwardReference => ({
  */
 export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignKey?: string, primaryKey?: string) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+
+    const targetModelDesc = extractModelDescriptor(target);
+
+
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.One,
@@ -327,7 +331,7 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
       TargetModelType: targetModel,
       TargetModel: null,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
-      PrimaryKey: primaryKey ?? model.PrimaryKey,
+      PrimaryKey: primaryKey ?? targetModelDesc.PrimaryKey,
       Recursive: false,
     });
   });
