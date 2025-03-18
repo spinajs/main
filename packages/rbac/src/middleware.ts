@@ -3,7 +3,7 @@ import { extractModelDescriptor, QueryBuilder, QueryMiddleware, SelectQueryBuild
 import { AsyncLocalStorage } from 'async_hooks';
 import { IRbacAsyncStorage, IRbacModelDescriptor } from './interfaces.js';
 import { AccessControl } from 'accesscontrol';
-import { OrmException } from '../../orm/src/exceptions.js';
+import { OrmException } from '@spinajs/orm';
 
 @Injectable(QueryMiddleware)
 export class RbacModelPermissionMiddleware extends QueryMiddleware {
