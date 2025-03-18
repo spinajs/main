@@ -3,6 +3,7 @@ import { extractModelDescriptor, QueryBuilder, QueryMiddleware, SelectQueryBuild
 import { AsyncLocalStorage } from 'async_hooks';
 import { IRbacAsyncStorage, IRbacModelDescriptor } from './interfaces.js';
 import { AccessControl } from 'accesscontrol';
+import { OrmException } from '../../orm/src/exceptions.js';
 
 @Injectable(QueryMiddleware)
 export class RbacModelPermissionMiddleware extends QueryMiddleware {
@@ -22,10 +23,10 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
             const resource = descriptor.RbacResource;
 
             // no rbac is set do nothing
-            if(!resource){
+            if (!resource) {
               return;
             }
-            
+
             const canAny = (ac.can(storage.User.Role) as any)['readAny'](resource).granted;
             const canOwn = (ac.can(storage.User.Role) as any)['readOwn'](resource).granted;
 
@@ -37,6 +38,8 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
             if (canOwn) {
               builder.andWhere(descriptor.OwnerField, storage.User.PrimaryKeyValue);
             }
+
+            throw new OrmException(`User does not have permission to access ${resource}:read permission`);
           }
         }
       }
