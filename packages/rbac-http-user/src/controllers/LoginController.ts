@@ -31,9 +31,7 @@ export class LoginController extends BaseController {
     try {
       const user = await auth(credentials.Email, credentials.Password);
       const session = new UserSession();
-      const dUser = user.dehydrate();
-      session.Data.set('User', dUser);
-
+      session.Data.set('User', user.Uuid);
       // TEMP
       session.Data.set('Authorized', true);
 

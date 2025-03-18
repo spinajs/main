@@ -3,7 +3,7 @@ import { AccessControl } from 'accesscontrol';
 
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { ModelData } from '@spinajs/orm';
+import { ModelData, Uuid } from '@spinajs/orm';
 import { Log } from '@spinajs/log';
 
 import './auth.js';
@@ -19,9 +19,9 @@ export * from './models/User.js';
 export * from './models/UserMetadata.js';
 export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
 export * from './events/index.js';
-export * from "./actions.js";
-export * from "./middleware.js";
-export * from "./decorators.js";
+export * from './actions.js';
+export * from './middleware.js';
+export * from './decorators.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;
@@ -47,8 +47,12 @@ export class RbacBootstrapper extends Bootstrapper {
     /**
      * Register factory function for creating user from session data
      */
-    DI.register((_: IContainer, userData: ModelData<User>) => {
-      return new User(userData);
+    DI.register((_: IContainer, userUUID: string) => {
+      return User.where({
+        Uuid: userUUID,
+      })
+        .isActiveUser()
+        .firstOrFail();
     }).as('RbacUserFactory');
 
     DI.register((_) => {

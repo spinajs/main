@@ -36,7 +36,7 @@ export class RbacMiddleware extends ServerMiddleware {
            * If we have session, try to restore user with data from session
            * otherwise try to create guest
            */
-          req.storage.User = DI.resolve<User>('RbacUserFactory', [session.Data.get('User')]);
+          req.storage.User = await DI.resolve<User>('RbacUserFactory', [session.Data.get('User')]);
           req.storage.Session = session;
         } else {
           req.storage.User = DI.resolve<User>('RbacGuestUserFactory');
