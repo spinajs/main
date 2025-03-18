@@ -3,7 +3,6 @@ import { AccessControl } from 'accesscontrol';
 
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { ModelData, Uuid } from '@spinajs/orm';
 import { Log } from '@spinajs/log';
 
 import './auth.js';
