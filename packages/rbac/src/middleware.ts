@@ -26,8 +26,8 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
               return;
             }
             
-            const canAny = (ac.can(storage.User.Role) as any)['read:any'](resource).granted;
-            const canOwn = (ac.can(storage.User.Role) as any)['read:own'](resource).granted;
+            const canAny = (ac.can(storage.User.Role) as any)['readAny'](resource).granted;
+            const canOwn = (ac.can(storage.User.Role) as any)['readOwn'](resource).granted;
 
             // can get all resources
             if (canAny) {

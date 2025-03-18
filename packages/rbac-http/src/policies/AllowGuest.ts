@@ -11,11 +11,11 @@ export class AllowGuest extends BasePolicy {
   }
 
   public async execute(req: sRequest) {
-    if (!req.storage || !req.storage.user) {
+    if (!req.storage || !req.storage.User) {
       throw new Forbidden('user not logged or session expired');
     }
 
-    const user = req.storage.user;
+    const user = req.storage.User;
     if (user.IsGuest) {
       // if we disable guest account in config file, throw
       if (!user.IsActive) {

@@ -11,11 +11,11 @@ export class BlockGuest extends BasePolicy {
   }
 
   public async execute(req: sRequest) {
-    if (!req.storage || !req.storage.user) {
+    if (!req.storage || !req.storage.User) {
       throw new Forbidden('user not logged or session expired');
     }
 
-    if (req.storage.user) {
+    if (req.storage.User) {
       throw new Forbidden('user not logged or session expired');
     }
 

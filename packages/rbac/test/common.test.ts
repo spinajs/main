@@ -107,7 +107,18 @@ export class TestConfiguration extends FrameworkConfiguration {
             Name: 'guest',
             Description: 'Guest account',
           },
+          {
+            Name: 'normal',
+            Description: 'test',
+          },
         ],
+        grants: {
+          normal: {
+            Test: {
+              'read:own': ['*'],
+            },
+          },
+        },
         defaultRole: 'guest',
         session: {
           // 2h session expiration  time

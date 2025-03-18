@@ -9,7 +9,7 @@ export class UserArg extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall, _param: IRouteParameter, req: Request) {
-    return { CallData: callData, Args: req.storage.user };
+    return { CallData: callData, Args: req.storage.User };
   }
 }
 
@@ -19,7 +19,7 @@ export class SessionArg extends RouteArgs {
     return ParameterType.FromSession;
   }
   public async extract(callData: IRouteCall, param: IRouteParameter, req: Request) {
-    return { CallData: callData, Args: req.storage.session ? req.storage.session.Data.get(param.Name) : undefined };
+    return { CallData: callData, Args: req.storage.Session ? req.storage.Session.Data.get(param.Name) : undefined };
   }
 }
 
@@ -29,6 +29,6 @@ export class CurrentSessionArg extends RouteArgs {
     return ParameterType.Other;
   }
   public async extract(callData: IRouteCall, _param: IRouteParameter, req: Request) {
-    return { CallData: callData, Args: req.storage.session };
+    return { CallData: callData, Args: req.storage.Session };
   }
 }

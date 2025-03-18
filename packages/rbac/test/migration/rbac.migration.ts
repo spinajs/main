@@ -11,7 +11,13 @@ export const TEST_USER_UUID_3 = uuidv4();
 
 @Migration('default')
 export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
-  public async up(_connection: OrmDriver<IDriverOptions>): Promise<void> {}
+  public async up(connection: OrmDriver<IDriverOptions>): Promise<void> {
+
+    connection.schema().createTable('test', (table) =>{ 
+      table.int('Id').primaryKey().autoIncrement();
+      table.int('UserId');
+    });
+  }
 
   // tslint:disable-next-line: no-empty
   // eslint-disable-next-line @typescript-eslint/no-empty-function
