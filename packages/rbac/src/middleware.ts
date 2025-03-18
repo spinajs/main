@@ -3,7 +3,7 @@ import { extractModelDescriptor, QueryBuilder, QueryMiddleware, SelectQueryBuild
 import { AsyncLocalStorage } from 'async_hooks';
 import { IRbacAsyncStorage, IRbacModelDescriptor } from './interfaces.js';
 import { AccessControl } from 'accesscontrol';
-import { OrmException } from '@spinajs/orm';
+import { Forbidden } from '@spinajs/exceptions';
 
 @Injectable(QueryMiddleware)
 export class RbacModelPermissionMiddleware extends QueryMiddleware {
@@ -37,9 +37,10 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
 
             if (canOwn) {
               builder.andWhere(descriptor.OwnerField, storage.User.PrimaryKeyValue);
+              return;
             }
 
-            throw new OrmException(`User does not have permission to access ${resource}:read permission`);
+            throw new Forbidden(`User does not have permission to access ${resource}:read permission`);
           }
         }
       }
