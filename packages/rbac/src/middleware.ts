@@ -1,14 +1,45 @@
-import { Injectable } from '@spinajs/di';
-import { QueryBuilder, QueryMiddleware, SelectQueryBuilder } from '@spinajs/orm';
+import { DI, Injectable } from '@spinajs/di';
+import { extractModelDescriptor, QueryBuilder, QueryMiddleware, SelectQueryBuilder } from '@spinajs/orm';
+import { AsyncLocalStorage } from 'async_hooks';
+import { IRbacAsyncStorage, IRbacModelDescriptor } from './interfaces.js';
+import { AccessControl } from 'accesscontrol';
 
 @Injectable(QueryMiddleware)
 export class RbacModelPermissionMiddleware extends QueryMiddleware {
-  beforeQueryExecution(_query: QueryBuilder<any>): void {
-    
-  }
+  beforeQueryExecution(_query: QueryBuilder<any>): void {}
   afterQueryCreation(builder: QueryBuilder) {
     if (builder instanceof SelectQueryBuilder) {
-      //builder.Model.
+      if (typeof AsyncLocalStorage === 'function') {
+        const store = DI.get(AsyncLocalStorage);
+        if (store) {
+          const storage = store.getStore() as IRbacAsyncStorage;
+          if (storage && storage.User) {
+            // add where statement
+            const descriptor = extractModelDescriptor(builder.Model) as IRbacModelDescriptor;
+            const ac = DI.get<AccessControl>('AccessControl');
+
+            // if model does not have @Resource() decorator set, model name is used
+            const resource = descriptor.RbacResource;
+
+            // no rbac is set do nothing
+            if(!resource){
+              return;
+            }
+            
+            const canAny = (ac.can(storage.User.Role) as any)['read:any'](resource).granted;
+            const canOwn = (ac.can(storage.User.Role) as any)['read:own'](resource).granted;
+
+            // can get all resources
+            if (canAny) {
+              return;
+            }
+
+            if (canOwn) {
+              builder.andWhere(descriptor.OwnerField, storage.User.PrimaryKeyValue);
+            }
+          }
+        }
+      }
     }
   }
 }

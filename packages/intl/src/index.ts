@@ -359,7 +359,7 @@ export function guessLanguage(lang?: string) {
     if (typeof AsyncLocalStorage === 'function') {
       const store = DI.get(AsyncLocalStorage);
       if (store) {
-        const storage = DI.get(AsyncLocalStorage).getStore() as IIntlAsyncStorage;
+        const storage = store.getStore() as IIntlAsyncStorage;
         if (storage && storage.language) {
           return storage.language;
         }

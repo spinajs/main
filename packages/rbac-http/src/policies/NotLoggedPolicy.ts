@@ -11,7 +11,7 @@ export class NotLoggedPolicy extends BasePolicy {
   }
 
   public async execute(req: sRequest) {
-    if (!req.storage || !req.storage.user || !req.storage.session?.Data.get('Authorized')) {
+    if (!req.storage || !req.storage.User || !req.storage.Session?.Data.get('Authorized')) {
       return Promise.resolve();
     }
 

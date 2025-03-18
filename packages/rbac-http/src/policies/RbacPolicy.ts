@@ -36,12 +36,12 @@ export class RbacPolicy extends BasePolicy {
       throw new Forbidden(`no route permission or resources assigned`);
     }
 
-    if (!req.storage || !req.storage.user || !req.storage.session.Data.get('Authorized')) {
+    if (!req.storage || !req.storage.User || !req.storage.Session.Data.get('Authorized')) {
       throw new Forbidden('user not logged or session expired');
     }
 
     if (!checkRoutePermission(req, descriptor.Resource, permission).granted) {
-      throw new Forbidden(`role(s) ${req.storage.user.Role} does not have permission ${permission} for resource ${descriptor.Resource}`);
+      throw new Forbidden(`role(s) ${req.storage.User.Role} does not have permission ${permission} for resource ${descriptor.Resource}`);
     }
   }
 }
@@ -62,9 +62,9 @@ export function checkUserPermission(user: User, resource: string, permission: st
 }
 
 export function checkRoutePermission(req: sRequest, resource: string, permission: string): Permission {
-  if (!req.storage || !req.storage.user) {
+  if (!req.storage || !req.storage.User) {
     return null;
   }
 
-  return checkUserPermission(req.storage.user, resource, permission);
+  return checkUserPermission(req.storage.User, resource, permission);
 }

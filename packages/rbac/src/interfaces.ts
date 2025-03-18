@@ -259,6 +259,8 @@ export enum AthenticationErrorCodes {
 
 export interface IRbacModelDescriptor extends IModelDescriptor {
   RbacResource: string;
+
+  OwnerField: string;
 }
 
 /**
@@ -266,4 +268,10 @@ export interface IRbacModelDescriptor extends IModelDescriptor {
  */
 export abstract class PasswordValidationProvider {
   public abstract check(password: string): boolean;
+}
+
+export interface IRbacAsyncStorage<U = User> {
+  User?: U;
+
+  Session?: ISession;
 }

@@ -20,6 +20,8 @@ export * from './models/UserMetadata.js';
 export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
 export * from './events/index.js';
 export * from "./actions.js";
+export * from "./middleware.js";
+export * from "./decorators.js";
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;

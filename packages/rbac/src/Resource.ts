@@ -1,5 +1,5 @@
 import { extractDecoratorDescriptor } from '@spinajs/orm';
-import { IRbacModelDescriptor } from '../interfaces.js';
+import { IRbacModelDescriptor } from './interfaces.js';
 
 /**
  * Assign resource name for given model ( RBAC ).

@@ -4,8 +4,8 @@ export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' |
 
 declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
-    user: User | null;
-    session: ISession;
+    User: User | null;
+    Session: ISession;
   }
 }
 
