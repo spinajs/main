@@ -112,6 +112,24 @@ export function format(customVars: ConfVariables | null, layout: string): string
 const LayoutRegexp = /\$\{([^:\}]*)(:([^\}]*))?\}/gm;
 const Vars: Map<string, ConfigVariable> = new Map<string, ConfigVariable>();
 
+/**
+ * 
+ * Replace all occurences and escape random regexp patterns in target string
+ * Sometimes in passed string we had random patterns eg. $` and its stirng.replace special command that coused unwanted behaviour
+ * 
+ * @param pattern 
+ * @param str1 
+ * @param str2 
+ * @param ignore 
+ * @returns 
+ */
+function _replaceAll(pattern: string, str1: string, str2: string, ignore?: string) {
+  return pattern.replace(
+    new RegExp(str1.replace(/([\/\,\!\\\^\$\{\}\[\]\(\)\.\*\+\?\|\<\>\-\&])/g, '\\$&'), ignore ? 'gi' : 'g'),
+    typeof str2 == 'string' ? str2.replace(/\$/g, '$$$$') : str2,
+  );
+}
+
 function _format(vars: ConfVariables, txt: string) {
   if (Vars.size === 0) {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
@@ -133,7 +151,7 @@ function _format(vars: ConfVariables, txt: string) {
       if (fVar instanceof Function) {
         result = result.replace(v[0], fVar(v[3] ?? null));
       } else {
-        result = result.replace(v[0], fVar);
+        result = _replaceAll(result, v[0], fVar);
       }
     } else {
       const variable = Vars.get(v[1]);
