@@ -16,7 +16,7 @@ import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
 
-import os from "os";
+import os from 'os';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -64,7 +64,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           {
             service: 'fsNative',
             name: '__file_upload_default_provider__',
-            basePath: os.tmpdir()
+            basePath: os.tmpdir(),
           },
           {
             service: 'fsNative',
@@ -75,8 +75,12 @@ export class TestConfiguration extends FrameworkConfiguration {
             service: 'fsNative',
             name: '__fs_http_templates__',
             basePath: dir('./views'),
-
-          }
+          },
+          {
+            service: 'fsNative',
+            name: '__fs_controller_cache__',
+            basePath: dir('./fs/__cache__/__controllers__'),
+          },
         ],
       },
       intl: {

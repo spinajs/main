@@ -17,6 +17,7 @@ import { RouteArgs } from './route-args/index.js';
 import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { tryGetHash } from '@spinajs/util';
+import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
 
 export abstract class BaseController extends AsyncService implements IController {
   /**
@@ -151,7 +152,7 @@ export abstract class BaseController extends AsyncService implements IController
             }),
         )
           .then(next)
-          
+
           // thrown if all policy promises are rejected
           // for simplicity return first encountered error
           .catch((err) => next(err.errors[0]));
@@ -271,6 +272,15 @@ export class Controllers extends AsyncService {
   @Autoinject()
   protected Server: HttpServer;
 
+  /**
+   * File system for temporary files for storing controllers cache
+   */
+  @FileSystem('__fs_controller_cache__')
+  protected CacheFS: fFs;
+
+  @Autoinject(FileHasher)
+  protected Hasher: FileHasher;
+
   public async registerFromFile(file: string) {
     if (!fs.existsSync(file)) {
       throw new IOFail(`Controller file at path ${file} not found`);
@@ -293,20 +303,18 @@ export class Controllers extends AsyncService {
   public async register(controller: ClassInfo<BaseController>) {
     this.Log.trace(`Loading controller: ${controller.name}`);
 
-    const compiler = new TypescriptCompiler(controller.file.replace('.js', '.d.ts'));
-    const members = compiler.getClassMembers(controller.name);
-
+    const parameters = await this._getCachedControllerData(controller);
     if (!controller.instance.Descriptor) {
       this.Log.warn(`Controller ${controller.name} in file ${controller.file} dont have descriptor or routes defined`);
     } else {
       for (const [name, route] of controller.instance.Descriptor.Routes) {
-        if (members.has(name as string)) {
-          const member = members.get(name as string);
+        if (parameters[name as string]) {
+          const member = parameters[name as string];
 
           for (const [index, rParam] of route.Parameters) {
-            const parameterInfo = member.parameters[index];
-            if (parameterInfo) {
-              rParam.Name = (parameterInfo.name as any).text;
+            const pName = member[index];
+            if (pName) {
+              rParam.Name = pName;
             }
           }
         } else {
@@ -325,5 +333,50 @@ export class Controllers extends AsyncService {
     for (const controller of controllers) {
       this.register(controller);
     }
+  }
+
+  /**
+   *
+   * We store parameter info in cache files
+   * Parsing ts files is slow.
+   *
+   * We do this becouse ts is not providing parameter names from functions - data is lost during runtime
+   * And we need this for proper parameter assignment in controller routes
+   *
+   * @param controller
+   * @returns
+   */
+  private async _getCachedControllerData(controller: ClassInfo<BaseController>) {
+    const file = controller.file.replace('.js', '.d.ts');
+    const hash = await this.Hasher.hash(file);
+    let parameters: {
+      [key: string]: string[];
+    } = {};
+
+    const exists = await this.CacheFS.exists(hash);
+    if (!exists) {
+      this.Log.trace(`Controller cache not exists for ${controller.name}, generating cache...`);
+
+      const compiler = new TypescriptCompiler(file);
+      const members = compiler.getClassMembers(controller.name);
+      members.forEach((v, k) => {
+        v.parameters.forEach((p: any) => {
+          if (!parameters[k]) {
+            parameters[k] = [];
+          }
+
+          parameters[k][v.parameters.indexOf(p)] = p.name.text;
+        });
+      });
+
+      await this.CacheFS.write(hash, JSON.stringify(parameters));
+
+      this.Log.trace(`Ending generating controller cache for ${controller.name}`);
+    } else {
+      this.Log.trace(`Ceche exists for controller ${controller.name}, loading from file...`);
+      parameters = await this.CacheFS.read(hash).then((x: string) => JSON.parse(x));
+    }
+
+    return parameters;
   }
 }

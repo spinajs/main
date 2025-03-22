@@ -10,6 +10,11 @@ function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path)));
 }
 
+function dir_cwd(path: string) {
+  return resolve(normalize(join(process.cwd(), path)));
+}
+
+
 const http = {
   system: {
     dirs: {
@@ -37,6 +42,11 @@ const http = {
         service: 'fsNative',
         name: '__fs_http_response_templates__',
         basePath: resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', 'views', 'responses'))),
+      },
+      {
+        service: 'fsNative',
+        name: '__fs_controller_cache__',
+        basePath: dir_cwd('./../fs/__cache__/__controllers__'),
       },
     ],
   },

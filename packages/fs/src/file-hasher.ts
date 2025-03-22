@@ -15,13 +15,10 @@ export class DefaultFileHasher extends FileHasher {
 
   public Name: string;
 
-  protected HashAlgo: crypto.Hash;
-
-  constructor( public Alghoritm?: string, public HashOptions?: crypto.HashOptions) {
+  constructor(public Alghoritm?: string, public HashOptions?: crypto.HashOptions) {
     super();
 
     this.Alghoritm = this.Alghoritm || 'sha256';
-    this.HashAlgo = crypto.createHash(this.Alghoritm, this.HashOptions);
   }
 
   public async hash(pathToFile: string): Promise<string> {
@@ -29,10 +26,12 @@ export class DefaultFileHasher extends FileHasher {
       throw new IOFail(`File ${pathToFile} not exists`);
     }
 
+    const algo = crypto.createHash(this.Alghoritm, this.HashOptions);
+
     return new Promise((resolve, reject) => {
       fs.createReadStream(pathToFile)
-        .on('data', (data) => this.HashAlgo.update(data))
-        .on('end', () => resolve(this.HashAlgo.digest('hex')))
+        .on('data', (data) => algo.update(data))
+        .on('end', () => resolve(algo.digest('hex')))
         .on('error', (err) => reject(err));
     });
   }
