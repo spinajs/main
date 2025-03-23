@@ -328,11 +328,7 @@ export class Controllers extends AsyncService {
 
   public async resolve(): Promise<void> {
     const controllers = await this.Controllers;
-
-    // extract parameters info from controllers source code & register in http server
-    for (const controller of controllers) {
-      this.register(controller);
-    }
+    await Promise.all(controllers.map((x) => this.register(x)));
   }
 
   /**
