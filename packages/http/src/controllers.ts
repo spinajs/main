@@ -373,7 +373,7 @@ export class Controllers extends AsyncService {
 
       this.Log.trace(`Ending generating controller cache for ${controller.name}`);
     } else {
-      this.Log.trace(`Ceche exists for controller ${controller.name}, loading from file...`);
+      this.Log.trace(`Cache exists for controller ${controller.name}, loading from file...`);
       parameters = await this.CacheFS.read(hash).then((x: string) => JSON.parse(x));
     }
 
