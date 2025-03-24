@@ -945,6 +945,46 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return builder as any;
   }
 
+  protected _getRelationInstance(relation: string) {
+    let relInstance: IOrmRelation = this._relations.find((r) => r.Name === relation);
+
+    if (!relInstance) {
+      const descriptor = extractModelDescriptor(this._model);
+      let rDescriptor = null;
+      for (const [key, value] of descriptor.Relations) {
+        if (key.toLowerCase() === relation.toLowerCase().trim()) {
+          rDescriptor = value;
+          break;
+        }
+      }
+
+      if (!rDescriptor) {
+        throw new InvalidArgument(`Relation ${relation} not exists in model ${this._model?.constructor.name}`);
+      }
+
+      if (rDescriptor.Recursive) {
+        relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this, rDescriptor, this._owner]);
+      } else {
+        switch (rDescriptor.Type) {
+          case RelationType.One:
+            // if parent relation is one to many we dont set parent relation
+            // couse its new query to not mess with column aliases and hydrator
+            relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this, rDescriptor, this._owner instanceof OneToManyRelation ? null : this._owner]);
+            break;
+          case RelationType.Many:
+            relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this, rDescriptor, this._owner]);
+            break;
+          case RelationType.ManyToMany:
+            relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [this, rDescriptor, null]);
+            break;
+        }
+      }
+      this._relations.push(relInstance);
+    }
+
+    return relInstance;
+  }
+
   public populate<R = this>(relation: string[]): this;
   public populate<R = this>(relation: {}, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   public populate<R = this>(relation: string | string[], callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {
@@ -979,49 +1019,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       return this;
     }
 
-    // if relation was already populated, just call callback on it
-    const fRelation = this._relations.find((r) => r.Name === relation);
-    if (fRelation) {
-      fRelation.executeOnQuery(callback);
-      return this;
-    }
-
-    let relInstance: OrmRelation = null;
-    const descriptor = extractModelDescriptor(this._model);
-
-    let rDescriptor = null;
-
-    for (const [key, value] of descriptor.Relations) {
-      if (key.toLowerCase() === relation.toLowerCase().trim()) {
-        rDescriptor = value;
-        break;
-      }
-    }
-
-    if (!rDescriptor) {
-      throw new InvalidArgument(`Relation ${relation} not exists in model ${this._model?.constructor.name}`);
-    }
-
-    if (rDescriptor.Recursive) {
-      relInstance = this._container.resolve<BelongsToRecursiveRelation>(BelongsToRecursiveRelation, [this, rDescriptor, this._owner]);
-    } else {
-      switch (rDescriptor.Type) {
-        case RelationType.One:
-          // if parent relation is one to many we dont set parent relation
-          // couse its new query to not mess with column aliases and hydrator
-          relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this, rDescriptor, this._owner instanceof OneToManyRelation ? null : this._owner]);
-          break;
-        case RelationType.Many:
-          relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this, rDescriptor, this._owner]);
-          break;
-        case RelationType.ManyToMany:
-          relInstance = this._container.resolve<ManyToManyRelation>(ManyToManyRelation, [this, rDescriptor, null]);
-          break;
-      }
-    }
-
-    relInstance.execute(callback);
-    this._relations.push(relInstance);
+    this._getRelationInstance(relation).execute(callback);
 
     return this;
   }
@@ -1061,7 +1059,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this.clearColumns();
 
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
-    return this.takeFirst().asRaw<{ [key: string]: number }>().then((x) => x[a]);
+    return this.takeFirst()
+      .asRaw<{ [key: string]: number }>()
+      .then((x) => x[a]);
   }
 
   public sum(column: string, as?: string): this {
