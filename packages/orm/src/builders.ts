@@ -10,7 +10,7 @@ import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQuerySt
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import { OrmDriver } from './driver.js';
 import { ModelBase, extractModelDescriptor } from './model.js';
-import { OrmRelation, BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations.js';
+import {  BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations.js';
 import { DateTime } from 'luxon';
 
 /**
