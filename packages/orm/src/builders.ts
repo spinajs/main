@@ -1040,8 +1040,6 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const stms = callback ? builder._statements.filter(callback) : builder._statements;
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._statements = this._statements.concat(stms);
-    this._limit = builder._limit;
-    this._sort = builder._sort;
   }
 
   public min(column: string, as?: string): this {

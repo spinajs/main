@@ -32,12 +32,14 @@ export class MySqlOrmDriver extends SqlDriver {
         if (err) {
           return reject(
             new OrmException(
-              `Error executing orm command ${stmt}`,
+              `Error executing orm command `,
               {
                 Host: self.Options.Host,
                 User: self.Options.User,
                 Name: self.Options.Name,
               },
+              stmt,
+              params,
               err,
             ),
           );
@@ -170,7 +172,7 @@ export class MySqlOrmDriver extends SqlDriver {
         Uuid: false,
         Ignore: false,
         IsForeignKey: false,
-        ForeignKeyDescription: null,
+        ForeignKeyDescription: null as any,
         AutoIncrement: r.EXTRA.includes('auto_increment'),
         Name: r.COLUMN_NAME,
         Converter: null,

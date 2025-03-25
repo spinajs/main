@@ -56,7 +56,7 @@ export class IntlModelRelation extends OrmRelation {
     this._relationQuery.from('intl_resources', this.Alias);
   }
 
-  public execute(): void {
+  public compile(): void {
     this._query.middleware(new IntlModelMiddleware(this._lang, this._relationQuery, this._mDescriptor, this.parentRelation));
   }
 
@@ -66,9 +66,9 @@ export class IntlModelRelation extends OrmRelation {
 }
 
 export class IntlModelMiddleware implements IBuilderMiddleware {
-  constructor(protected _lang: string, protected _relationQuery: ISelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) { }
+  constructor(protected _lang: string, protected _relationQuery: ISelectQueryBuilder, protected _description: IModelDescriptor, protected _owner: IOrmRelation) {}
 
-  public afterQueryCreation(_query: QueryBuilder<any>): void { }
+  public afterQueryCreation(_query: QueryBuilder<any>): void {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -115,7 +115,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
       this._relationQuery.where('Resource', this._description.Name);
       this._relationQuery.where('Lang', this._lang);
       this._relationQuery.middleware(hydrateMiddleware);
-      return await this._relationQuery as SelectQueryBuilder;
+      return (await this._relationQuery) as SelectQueryBuilder;
     }
 
     return [];
@@ -167,7 +167,6 @@ export class IntlQueryMiddleware extends QueryMiddleware {
       return;
     }
 
-
     // if async storage is avaible ( node env)
     // on browser and electron skip this, as we dont have async storage
     if (typeof AsyncLocalStorage === 'function') {
@@ -178,7 +177,6 @@ export class IntlQueryMiddleware extends QueryMiddleware {
         return;
       }
     }
-
 
     // something has set to not translate manually for query
     if ((builder as any).AllowTranslate === false) {
@@ -202,7 +200,7 @@ export class IntlQueryMiddleware extends QueryMiddleware {
       }
     }
   }
-  afterQueryCreation(_builder: QueryBuilder) { }
+  afterQueryCreation(_builder: QueryBuilder) {}
 }
 
 @Injectable(TranslationSource)
