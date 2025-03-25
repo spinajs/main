@@ -177,7 +177,6 @@ describe('Sqlite - relations test', function () {
   });
 
   it('Static method populate on oneToMany', async () => {
-
     const network = await LocationModel.populate<typeof LocationNetwork>("Network", 1).first();
     expect(network).to.be.not.null;
     expect(network.Id).to.eq(1);

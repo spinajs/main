@@ -17,6 +17,8 @@ export interface IOrmRelation {
    */
   execute(callback?: (this: ISelectQueryBuilder, relation: OrmRelation) => void): void;
 
+  compile(): void;
+
   /**
    * Execute actions on relation query, does not initialize relation. Use it only AFTER execute was called.
    *
@@ -48,10 +50,7 @@ export abstract class OrmRelation implements IOrmRelation {
   protected _relationQuery: ISelectQueryBuilder;
   protected _separator: string;
   protected _driver: OrmDriver;
-
-  // flag that indicates if relation has been added to relation stack in query builder.
-  // sometimes we want to run relation callback more than once but dont execute it
-  protected _executed: boolean;
+  protected _compiled: boolean;
 
   public get Name() {
     return this._description.Name;
@@ -71,14 +70,19 @@ export abstract class OrmRelation implements IOrmRelation {
     this._driver = _paramCheck(() => DI.resolve<OrmDriver>('OrmConnection', [this._targetModelDescriptor.Connection]), `Connection ${this._targetModelDescriptor.Connection} is not set in configuration file`);
     this._relationQuery = this._container.resolve('SelectQueryBuilder', [this._driver, this._targetModel, this]);
     this._separator = this._driver.Options.AliasSeparator;
-    this._executed = false;
 
     if (this._driver.Options.Database) {
       this._relationQuery.database(this._driver.Options.Database);
     }
   }
 
-  public abstract execute(callback?: (this: ISelectQueryBuilder, relation: OrmRelation) => void): void;
+  public abstract compile(): void;
+
+  public execute(callback?: (this: ISelectQueryBuilder, relation: OrmRelation) => void) {
+    if (callback) {
+      callback.call(this._relationQuery, this);
+    }
+  }
 
   public executeOnQuery(callback: (this: ISelectQueryBuilder<any>, relation: OrmRelation) => void): void {
     if (callback) {
@@ -99,9 +103,8 @@ export class BelongsToRelation extends OrmRelation {
     });
   }
 
-  public execute(callback: (this: ISelectQueryBuilder, relation: OrmRelation) => void) {
-    if (this._executed) {
-      this.executeOnQuery(callback);
+  public compile() {
+    if (this._compiled) {
       return;
     }
 
@@ -111,7 +114,7 @@ export class BelongsToRelation extends OrmRelation {
 
     this._query.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.ForeignKey, `${this._description.PrimaryKey}`, this._targetModelDescriptor.Driver.Options.Database);
 
-    this.executeOnQuery(callback);
+    this._relationQuery.Relations.forEach((r) => r.compile());
 
     // todo: fix this cast
     (this._query as any).mergeBuilder(this._relationQuery);
@@ -125,7 +128,7 @@ export class BelongsToRelation extends OrmRelation {
       this._query.middleware(new BelongsToRelationResultTransformMiddleware());
     }
 
-    this._executed = true;
+    this._compiled = true;
   }
 }
 
@@ -141,16 +144,17 @@ export class BelongsToRecursiveRelation extends OrmRelation {
     });
   }
 
-  public execute(callback: (this: ISelectQueryBuilder, relation: OrmRelation) => void) {
-
-    this.executeOnQuery(callback);
-
-    if (this._executed) {
+  public compile() {
+    if (this._compiled) {
       return;
     }
 
+    this._relationQuery.Relations.forEach((r) => r.compile());
+    // todo: fix this cast
+    // (this._query as any).mergeBuilder(this._relationQuery);
     this._query.middleware(new BelongsToRelationRecursiveMiddleware(this._relationQuery, this._description, this._targetModelDescriptor));
-    this._executed = true;
+
+    this._compiled = true;
   }
 }
 
@@ -168,9 +172,8 @@ export class OneToManyRelation extends OrmRelation {
     );
   }
 
-  public execute(callback?: (this: ISelectQueryBuilder<any>, relation: OrmRelation) => void): void {
-    if (this._executed) {
-      this.executeOnQuery(callback);
+  public compile(): void {
+    if (this._compiled) {
       return;
     }
 
@@ -178,11 +181,12 @@ export class OneToManyRelation extends OrmRelation {
       this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
     }
 
-    this.executeOnQuery(callback);
+    this._relationQuery.Relations.forEach((r) => r.compile());
 
     this._query.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
     this._query.middleware(new HasManyRelationMiddleware(this._relationQuery, this._description, null));
-    this._executed = true;
+
+    this._compiled = true;
   }
 }
 
@@ -235,23 +239,14 @@ export class ManyToManyRelation extends OrmRelation {
     });
   }
 
-  public execute(callback?: (this: ISelectQueryBuilder<any>, relation: OrmRelation) => void): void {
-
-    if (this._executed) {
-      this.executeOnQuery(callback);
-      return;
-    }
-
-
+  public compile(): void {
     if (this._description.JoinMode === 'RightJoin') {
       this._joinQuery.rightJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
     } else {
       this._joinQuery.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
     }
 
-    // execute callbacks on join query that is executed
-    // for junction model, so we can execute any further queries on it after relation is populated
-    this.executeOnQuery(callback);
+    this._relationQuery.Relations.forEach((r) => r.compile());
 
     const joinRelationDescriptor = {
       Name: this._description.Name,
@@ -269,6 +264,5 @@ export class ManyToManyRelation extends OrmRelation {
     (this._joinQuery as any).mergeRelations(this._relationQuery);
 
     this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor));
-    this._executed = true;
   }
 }

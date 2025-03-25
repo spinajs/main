@@ -105,6 +105,12 @@ export class StandardModelToSqlConverter extends ModelToSqlConverter {
           (obj as any)[val.ForeignKey] = (model as any)[val.Name].Value.PrimaryKeyValue;
         }
       }
+
+      // HACK: This is a hack to fix the issue with the recursive relation
+      // recursive relations usually dont ahve set @belongsTo but @HasMany decorator and are not in list  of relaitons 
+      if (val.Recursive) {
+        (obj as any)[val.ForeignKey] = (model as any)[val.ForeignKey];
+      }
     }
 
     return obj;
@@ -118,7 +124,7 @@ export class StandardObjectToSqlConverter extends ObjectToSqlConverter {
 
     descriptor.Columns.forEach((c) => {
       const val = (model as any)[c.Name];
-      if ( val === undefined) return;
+      if (val === undefined) return;
       (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, null, c, descriptor.Converters.get(c.Name)?.Options) : val;
     });
 

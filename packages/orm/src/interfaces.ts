@@ -30,10 +30,9 @@ export enum ColumnAlterationType {
   Rename,
 }
 
-export interface ISupportedFeature{ 
-
+export interface ISupportedFeature {
   /**
-   * DB events support 
+   * DB events support
    * To execute tasks accoriding to schedule in DB.
    */
   events: boolean;
@@ -132,7 +131,7 @@ export interface DbServerResponse {
   LastInsertId: number;
 }
 export abstract class ServerResponseMapper {
-  public abstract read(response: any, pkName? : string): DbServerResponse;
+  public abstract read(response: any, pkName?: string): DbServerResponse;
 }
 
 export abstract class DefaultValueBuilder<T> {
@@ -1013,9 +1012,11 @@ export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T
 export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
 
 export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IQueryBuilder, IBuilder<T> {
+  get Relations(): IOrmRelation[];
+
   min(column: string, as?: string): this;
   max(column: string, as?: string): this;
-  count() : Promise<number>
+  count(): Promise<number>;
   count(column: string, as?: string): Promise<number>;
   sum(column: string, as?: string): this;
   avg(column: string, as?: string): this;
@@ -1296,5 +1297,5 @@ export abstract class ModelToSqlConverter {
 }
 
 export abstract class ObjectToSqlConverter {
-  public abstract toSql(model: unknown, descriptor : IModelDescriptor): unknown;
+  public abstract toSql(model: unknown, descriptor: IModelDescriptor): unknown;
 }

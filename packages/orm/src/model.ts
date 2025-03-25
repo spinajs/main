@@ -467,6 +467,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         switch (v.Type) {
           case RelationType.One:
             ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
+            this.__dirty_props__.push(v.ForeignKey);
             break;
           case RelationType.Many:
             // attach to related model too
@@ -877,7 +878,7 @@ export const MODEL_STATIC_MIXINS = {
         // UPDATE: newest sqlite engine does support right join
         // but nodejs drivers use older version of sqlite
         JoinQuery.leftJoin(relationDescriptor.TargetModel, function () {
-          this.select(new RawQuery(`${this.TableAlias}.*`));
+          this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
         });
         JoinQuery.where(relationDescriptor.SourceModel.getModelDescriptor().PrimaryKey, owner);
         JoinQuery.middleware(hydrateMiddleware);

@@ -53,11 +53,19 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Delete:
           this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
-              reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,{
-                Host: self.Options.Host,
-                User : self.Options.User,
-                Name : self.Options.Name
-              }, err));
+              reject(
+                new OrmException(
+                  `Failed to execute query`,
+                  {
+                    Host: self.Options.Host,
+                    User: self.Options.User,
+                    Name: self.Options.Name,
+                  },
+                  stmt,
+                  params ? params.join(',') : 'none',
+                  err,
+                ),
+              );
               return;
             }
 
@@ -71,11 +79,19 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Upsert:
           this.Db.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
             if (err) {
-              reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,{
-                Host: self.Options.Host,
-                User : self.Options.User,
-                Name : self.Options.Name
-              }, err));
+              reject(
+                new OrmException(
+                  `Failed to execute query`,
+                  {
+                    Host: self.Options.Host,
+                    User: self.Options.User,
+                    Name: self.Options.Name,
+                  },
+                  stmt,
+                  params ? params.join(',') : 'none',
+                  err,
+                ),
+              );
               return;
             }
 
@@ -90,11 +106,19 @@ export class SqliteOrmDriver extends SqlDriver {
                 reject(new ResourceDuplicated(err));
               } else {
                 if (err) {
-                  reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,{
-                    Host: self.Options.Host,
-                    User : self.Options.User,
-                    Name : self.Options.Name
-                  }, err));
+                  reject(
+                    new OrmException(
+                      `Failed to execute query`,
+                      {
+                        Host: self.Options.Host,
+                        User: self.Options.User,
+                        Name: self.Options.Name,
+                      },
+                      stmt,
+                      params ? params.join(',') : 'none',
+                      err,
+                    ),
+                  );
                   return;
                 }
               }
@@ -287,7 +311,7 @@ export class SqliteOrmDriver extends SqlDriver {
         // simply assumpt that integer pkeys are autoincement / auto fill  by default
         AutoIncrement: r.pk === 1 && r.type === 'INTEGER',
         Name: r.name,
-        Converter: null,
+        Converter: null as any,
         Schema: _schema ? _schema : this.Options.Database,
         Unique: uIndices.find((i) => i.includes(r.name)) !== undefined,
       };

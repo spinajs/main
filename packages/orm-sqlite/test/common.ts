@@ -24,7 +24,7 @@ export class ConnectionConf2 extends FrameworkConfiguration {
           targets: [
             {
               name: 'Empty',
-              type: 'BlackHoleTarget',
+              type: 'ConsoleTarget',
             },
           ],
 

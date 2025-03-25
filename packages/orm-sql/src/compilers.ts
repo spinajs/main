@@ -240,6 +240,9 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
   }
 
   public compile(): ICompilerOutput {
+
+    this._builder.Relations.forEach( r=> r.compile());
+
     if (this._builder.CteRecursive) {
       return this.recursive(this._builder as IWithRecursiveBuilder);
     }
@@ -591,7 +594,7 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
       _outputs = _outputs.concat(
         this.builder.DroppedColumns.map((c) => {
           return {
-            bindings: [],
+            bindings: [] as any[],
             expression: `${_table} DROP COLUMN ${c}`,
           };
         }),
@@ -708,7 +711,7 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
 
     const dropUnique = this.builder.Columns.filter((c) => c.Unique).map((c) => {
       return {
-        bindings: [],
+        bindings: [] as any[],
         expression: `ALTER TABLE ${hTtblName} DROP INDEX ${c.Name}`,
       };
     });

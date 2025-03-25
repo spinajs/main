@@ -192,6 +192,7 @@ describe('Sqlite driver migrate', () => {
       Password: 'test_password',
       CreatedAt: '2019-10-18',
       IsActive: true,
+      DateTime: 0,
     });
     const result = await db().Connections.get('sqlite').select().from('user').first();
 
@@ -199,6 +200,7 @@ describe('Sqlite driver migrate', () => {
     expect(result).to.eql({
       Id: 1,
       Name: 'test',
+      DateTime: 0,
       Password: 'test_password',
       CreatedAt: '2019-10-18',
       IsActive: 1,
@@ -404,8 +406,8 @@ describe('Sqlite model functions', function () {
     h1.attach(o1);
     o1.attach(o2);
 
-    await o1.insert();
     await o2.insert();
+    await o1.insert();
 
     const result = await has_many_1.where('Id', '>', 0).populate('Informations', function () {
       this.populate('File');
@@ -413,7 +415,7 @@ describe('Sqlite model functions', function () {
 
     expect(result.length).to.eq(1);
     expect(result[0].Informations.length).to.eq(1);
-    expect(result[0].Informations[0].File).to.be.not.null;
+    expect(result[0].Informations[0].File.Value).to.be.not.undefined;
   });
 
   it('model should populate nested belongsTo relation', async () => {
@@ -457,6 +459,9 @@ describe('Sqlite model functions', function () {
 
     await owned.insert();
     await owned2.insert();
+
+    const r = await TestMany.all();
+    console.log(r.length);
 
     const result = await TestOwned.where('Id', '>', 0).populate('Owner', function () {
       this.populate('Many');

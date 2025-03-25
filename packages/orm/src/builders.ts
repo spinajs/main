@@ -1025,8 +1025,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public mergeBuilder(builder: SelectQueryBuilder) {
-    this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._columns = this._columns.concat(builder._columns);
+    this._cteStatement = builder._cteStatement;
+    this._distinct = builder._distinct;
     this.mergeStatements(builder);
   }
 
@@ -1037,6 +1038,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   public mergeStatements(builder: SelectQueryBuilder, callback?: (statement: IQueryStatement) => boolean) {
     const stms = callback ? builder._statements.filter(callback) : builder._statements;
+    this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._statements = this._statements.concat(stms);
     this._limit = builder._limit;
     this._sort = builder._sort;

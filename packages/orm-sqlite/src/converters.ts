@@ -30,6 +30,12 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
           (obj as any)[val.ForeignKey] = (model as any)[val.Name].Value.PrimaryKeyValue;
         }
       }
+
+      // HACK: This is a hack to fix the issue with the recursive relation
+      // recursive relations usually dont ahve set @belongsTo but @HasMany decorator and are not in list  of relaitons
+      if (val.Recursive) {
+        (obj as any)[val.ForeignKey] = (model as any)[val.ForeignKey];
+      }
     }
 
     return obj;
