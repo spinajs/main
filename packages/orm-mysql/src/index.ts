@@ -175,7 +175,7 @@ export class MySqlOrmDriver extends SqlDriver {
         ForeignKeyDescription: null as any,
         AutoIncrement: r.EXTRA.includes('auto_increment'),
         Name: r.COLUMN_NAME,
-        Converter: null,
+        Converter: null as any,
         Schema: schema ? schema : this.Options.Database,
         Unique: sUnique,
       };

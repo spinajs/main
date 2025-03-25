@@ -22,7 +22,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c,  model.ModelDescriptor.Converters.get(c.Name)?.Options) : val;
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor.Converters.get(c.Name)?.Options) : val;
     });
 
     return obj;
@@ -38,6 +38,9 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
       if (val.Type === RelationType.One) {
         if ((model as any)[val.Name].Value) {
           (obj as any)[val.Name] = (model as any)[val.Name].Value.dehydrateWithRelations();
+        } else {
+          // if relation is not ( eg. not populated full relation data ) return at least foreign keys
+          (obj as any)[val.Name] = (model as any)[val.ForeignKey];
         }
       } else {
         if ((model as any)[val.Name]) {
