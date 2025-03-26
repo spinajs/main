@@ -67,6 +67,17 @@ export function _insert<T extends ModelBase>(): (model: T) => Promise<T> {
   };
 }
 
+export function _insertOrUpdate<T extends ModelBase>(): (model: T) => Promise<T> {
+  return (model: T) => {
+    return model.insertOrUpdate().then((res: IUpdateResult) => {
+      if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
+        return Promise.reject(new ErrorCode(E_ORM_CODES.E_NO_ROWS_AFFECTED));
+      }
+
+      return model;
+    });
+  }
+
 /**
  *
  * Delete model from database
