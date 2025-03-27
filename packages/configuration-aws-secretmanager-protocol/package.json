@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration-aws-secretmanager-protocol",
-  "version": "2.0.331",
+  "version": "2.0.332",
   "description": "> TODO: description",
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
@@ -50,9 +50,9 @@
     "@types/luxon": "^3.2.0"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "^2.0.331",
-    "@spinajs/di": "^2.0.331",
-    "@spinajs/internal-logger": "^2.0.331",
+    "@spinajs/configuration-common": "^2.0.332",
+    "@spinajs/di": "^2.0.332",
+    "@spinajs/internal-logger": "^2.0.332",
     "@aws-sdk/client-secrets-manager": "^3.709.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
