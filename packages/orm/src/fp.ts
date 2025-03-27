@@ -77,6 +77,7 @@ export function _insertOrUpdate<T extends ModelBase>(): (model: T) => Promise<T>
       return model;
     });
   }
+}
 
 /**
  *

@@ -8,7 +8,7 @@ import _ from 'lodash';
 
 import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container } from '@spinajs/di';
 import { UnexpectedServerError, IOFail } from '@spinajs/exceptions';
-import { TypescriptCompiler, ResolveFromFiles } from '@spinajs/reflection';
+import { ResolveFromFiles } from '@spinajs/reflection';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { Configuration } from '@spinajs/configuration';
@@ -17,7 +17,7 @@ import { RouteArgs } from './route-args/index.js';
 import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { tryGetHash } from '@spinajs/util';
-import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
+import { DefaultControllerCache } from './cache.js';
 
 export abstract class BaseController extends AsyncService implements IController {
   /**
@@ -272,14 +272,8 @@ export class Controllers extends AsyncService {
   @Autoinject()
   protected Server: HttpServer;
 
-  /**
-   * File system for temporary files for storing controllers cache
-   */
-  @FileSystem('__fs_controller_cache__')
-  protected CacheFS: fFs;
-
-  @Autoinject(FileHasher)
-  protected Hasher: FileHasher;
+  @Autoinject()
+  protected ControllersCache: DefaultControllerCache;
 
   public async registerFromFile(file: string) {
     if (!fs.existsSync(file)) {
@@ -303,7 +297,7 @@ export class Controllers extends AsyncService {
   public async register(controller: ClassInfo<BaseController>) {
     this.Log.trace(`Loading controller: ${controller.name}`);
 
-    const parameters = await this._getCachedControllerData(controller);
+    const parameters = await this.ControllersCache.getCache(controller);
     if (!controller.instance.Descriptor) {
       this.Log.warn(`Controller ${controller.name} in file ${controller.file} dont have descriptor or routes defined`);
     } else {
@@ -329,50 +323,5 @@ export class Controllers extends AsyncService {
   public async resolve(): Promise<void> {
     const controllers = await this.Controllers;
     await Promise.all(controllers.map((x) => this.register(x)));
-  }
-
-  /**
-   *
-   * We store parameter info in cache files
-   * Parsing ts files is slow.
-   *
-   * We do this becouse ts is not providing parameter names from functions - data is lost during runtime
-   * And we need this for proper parameter assignment in controller routes
-   *
-   * @param controller
-   * @returns
-   */
-  private async _getCachedControllerData(controller: ClassInfo<BaseController>) {
-    const file = controller.file.replace('.js', '.d.ts');
-    const hash = await this.Hasher.hash(file);
-    let parameters: {
-      [key: string]: string[];
-    } = {};
-
-    const exists = await this.CacheFS.exists(hash);
-    if (!exists) {
-      this.Log.trace(`Controller cache not exists for ${controller.name}, generating cache...`);
-
-      const compiler = new TypescriptCompiler(file);
-      const members = compiler.getClassMembers(controller.name);
-      members.forEach((v, k) => {
-        v.parameters.forEach((p: any) => {
-          if (!parameters[k]) {
-            parameters[k] = [];
-          }
-
-          parameters[k][v.parameters.indexOf(p)] = p.name.text;
-        });
-      });
-
-      await this.CacheFS.write(hash, JSON.stringify(parameters));
-
-      this.Log.trace(`Ending generating controller cache for ${controller.name}`);
-    } else {
-      this.Log.trace(`Cache exists for controller ${controller.name}, loading from file...`);
-      parameters = await this.CacheFS.read(hash).then((x: string) => JSON.parse(x));
-    }
-
-    return parameters;
   }
 }

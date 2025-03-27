@@ -46,7 +46,7 @@ const http = {
       {
         service: 'fsNative',
         name: '__fs_controller_cache__',
-        basePath: dir_cwd('./../fs/__cache__/__controllers__'),
+        basePath: dir_cwd('./__cache__/__controllers__'),
       },
     ],
   },

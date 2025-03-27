@@ -93,12 +93,17 @@ export class TypescriptCompiler {
  *
  */
 export function ResolveFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string) => string) {
-  return _listOrResolveFromFiles(filter, configPath, typeMatcher);
+  return _listOrResolveFromFiles(filter, configPath, false, typeMatcher);
+}
+
+export function ListFromFiles(filter: string, configPath: string, typeMatcher?: (fileName: string) => string) {
+  return _listOrResolveFromFiles(filter, configPath, true, typeMatcher);
 }
 
 function _listOrResolveFromFiles(
   filter: string,
   configPath: string,
+  noResolve: boolean,
   typeMatcher?: (fileName: string, type: string) => string,
 ) {
   return (target: any, propertyKey: string | symbol) => {
@@ -162,6 +167,16 @@ function _listOrResolveFromFiles(
             for (const key of _k) {
               const nameToResolve = typeMatcher ? typeMatcher(path.parse(f).name, key) : key;
               const type = fTypes[`${nameToResolve}`] as Class<any>;
+
+              if(noResolve){ 
+                return {
+                  file: f,
+                  name: nameToResolve,
+                  instance: undefined,
+                  type,
+                };
+              }
+              
               try {
                 if (type.prototype instanceof AsyncService) {
                   return (DI.resolve(type) as any).then((instance: any) => {
