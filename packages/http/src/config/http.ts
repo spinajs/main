@@ -7,19 +7,24 @@ import os from 'os';
 
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
-  return resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path)));
+  return [
+    resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+
+    // one up if we run from app or build folder
+    resolve(normalize(join(process.cwd(), '../', 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+  ];
 }
 
 function dir_cwd(path: string) {
   return resolve(normalize(join(process.cwd(), path)));
 }
 
-
 const http = {
   system: {
     dirs: {
-      locales: [dir('locales')],
-      controllers: [dir('controllers')],
+      locales: [...dir('locales')],
+      controllers: [...dir('controllers')],
+      cli: [...dir('cli')],
     },
   },
   cookie: {
@@ -50,7 +55,7 @@ const http = {
       },
     ],
   },
-  
+
   http: {
     ssl: {
       key: '',
