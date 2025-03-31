@@ -10,10 +10,9 @@ export * from './local-temp-provider.js';
 export * from './decorators.js';
 export * from './file-hasher.js';
 export * from './file-info.js';
-export * from "./fp.js";
+export * from './fp.js';
 
 export class fsService extends AsyncService {
-
   @Logger('fs')
   protected Logger: Log;
 
@@ -47,7 +46,7 @@ export class fsService extends AsyncService {
       }
 
       const fs = await DI.resolve<fs>(type, [cProvider.value]);
-      DI.register(fs).asValue('__file_provider_instance_' + cProvider.value.name);
+      DI.register(fs).asMapValue('__file_provider_instance__', cProvider.value.name);
 
       this.Logger.info(`File provider ${cProvider.value.name} registered, type: ${cProvider.value.service}`);
     }
@@ -58,8 +57,8 @@ export class fsService extends AsyncService {
 export class FsBootsrapper extends Bootstrapper {
   public bootstrap() {
     DI.register((_container: IContainer, name?: string) => {
-      const provider = DI.get<fs>('__file_provider_instance_' + name);
-      return provider;
+      const provider = DI.get<Map<string, fs>>('__file_provider_instance__');
+      return provider.get(name);
     }).as('__file_provider__');
   }
 }

@@ -240,6 +240,11 @@ export class ManyToManyRelation extends OrmRelation {
   }
 
   public compile(): void {
+
+    if (this._compiled) {
+      return;
+    }
+
     if (this._description.JoinMode === 'RightJoin') {
       this._joinQuery.rightJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
     } else {
@@ -264,5 +269,8 @@ export class ManyToManyRelation extends OrmRelation {
     (this._joinQuery as any).mergeRelations(this._relationQuery);
 
     this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor));
+
+    this._compiled = true;
+
   }
 }
