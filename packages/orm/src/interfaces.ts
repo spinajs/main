@@ -524,6 +524,7 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
 
   whereExists<R extends typeof ModelBase, T extends typeof ModelBase>(relation: string, func: WhereFunction<InstanceType<R>>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   whereExists<T extends typeof ModelBase>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
+  whereNotExists<R extends typeof ModelBase, T extends typeof ModelBase>(relation: string, func: WhereFunction<InstanceType<R>>): ISelectQueryBuilder<Array<InstanceType<T>>>;
   whereNotExists<T extends typeof ModelBase>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>>;
 
   /**
@@ -926,7 +927,7 @@ export interface IWhereBuilder<T> {
   whereIn(column: string, val: unknown[]): this;
   whereNotIn(column: string, val: unknown[]): this;
   whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
-  whereNotExists<M extends ModelBase | ModelBase[]>(query: ISelectQueryBuilder<M>): this;
+  whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
   whereBetween(column: string, val: unknown[]): this;
   whereNotBetween(column: string, val: unknown[]): this;
   whereInSet(column: string, val: unknown[]): this;

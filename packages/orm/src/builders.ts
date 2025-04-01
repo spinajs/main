@@ -805,8 +805,48 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNotExists(query: SelectQueryBuilder): this {
-    this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, true]));
+  public whereNotExists(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
+    // we must have alias or subquery could have conflicts on columns names
+    if (!this._tableAlias) {
+      this._tableAlias = '__exists__';
+    }
+
+    if (typeof query === 'string') {
+      const rel = (this._model as any).getRelationDescriptor(query);
+      if (!rel) {
+        throw new OrmException(`relation ${query} not found in model ${this.constructor.name}`);
+      }
+
+      switch (rel.Type) {
+        case RelationType.One:
+          this.whereNull(rel.ForeignKey);
+
+          // simply use right join for condition check
+          if (callback) {
+            // TODO: cast fix
+            (this as any).rightJoin(rel.TargetModel, callback.bind(query));
+          }
+
+          break;
+        case RelationType.Many:
+          const relQuery = rel.TargetModel.query();
+          const sourcePKey = `\`${this._tableAlias}\`.\`${(this._model as any).getModelDescriptor().PrimaryKey}\``;
+          relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
+
+          if (callback) {
+            callback.apply(relQuery);
+          }
+
+          this.whereNotExists(relQuery);
+
+          break;
+        case RelationType.ManyToMany:
+          throw new OrmException(`not implemented`);
+      }
+    } else {
+      this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, false]));
+    }
+
     return this;
   }
 
