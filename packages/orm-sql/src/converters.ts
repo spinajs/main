@@ -38,7 +38,13 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
       return '1970-01-01 00:00:00';
     }
 
-    let dt = DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value);
+    let dt: DateTime = null;
+    if (typeof value === 'string') {
+      dt = DateTime.fromISO(value);
+    } else {
+      dt = DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value);
+    }
+
     if (column) {
       if (DATE_NUMERICAL_TYPES.includes(column.Type)) {
         return dt.toUnixInteger() ?? 0;
@@ -53,7 +59,7 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
       return null;
     }
 
-    if(DateTime.isDateTime(value)){
+    if (DateTime.isDateTime(value)) {
       return value;
     }
 
