@@ -28,6 +28,7 @@ export class MySqlOrmDriver extends SqlDriver {
     this.Log.timeStart(`query-${tName}`);
 
     return new Promise((resolve, reject) => {
+
       this.Pool.query(stmt, params, function (err, results) {
         if (err) {
           return reject(

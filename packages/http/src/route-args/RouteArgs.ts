@@ -4,6 +4,7 @@ import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator.js';
 import _ from 'lodash';
 import { DataValidator } from '@spinajs/validation';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 export interface IRouteArgsResult {
   CallData: IRouteCall;
@@ -79,17 +80,26 @@ export abstract class RouteArgs implements IRouteArgs {
   }
 
   protected tryExtractObject(arg: any, param: IRouteParameter) {
-    if (isClass(param.RuntimeType)) {
-      return new (param.RuntimeType as any)(_.isString(arg) ? JSON.parse(arg) : arg);
-    } else if (param.RuntimeType instanceof TypedArray) {
-      const type = (param.RuntimeType as TypedArray<any>).Type as any;
-      const arrData = _.isString(arg) ? JSON.parse(arg) : arg;
-      return arrData ? arrData.map((x: any) => new type(x)) : [];
-    } else if (param.RuntimeType.name === 'Object' || param.RuntimeType.name === 'Array') {
-      return _.isString(arg) ? JSON.parse(arg) : arg;
-    }
+    try {
+      if (isClass(param.RuntimeType)) {
+        return new (param.RuntimeType as any)(_.isString(arg) ? JSON.parse(arg) : arg);
+      } else if (param.RuntimeType instanceof TypedArray) {
+        const type = (param.RuntimeType as TypedArray<any>).Type as any;
+        const arrData = _.isString(arg) ? JSON.parse(arg) : arg;
+        return arrData ? arrData.map((x: any) => new type(x)) : [];
+      } else if (param.RuntimeType.name === 'Object' || param.RuntimeType.name === 'Array') {
+        return _.isString(arg) ? JSON.parse(arg) : arg;
+      }
 
-    return arg;
+      return arg;
+    } catch (err) {
+      if (err.constructor.name === 'SyntaxError') {
+        throw new InvalidArgument(`Argument '${param.Name}' is invalid JSON. Reason: ${err.message}`, err);
+      }
+
+      // dont care others
+      throw err;
+    }
   }
 
   protected isRuntimeType(param: IRouteParameter) {
