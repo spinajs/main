@@ -106,7 +106,6 @@ export class OneToOneRelationHydrator extends ModelHydrator {
 
         const rel = new SingleRelation(target, val.TargetModel, val, tEntity);
         entity[key] = rel;
-        delete (target as any)[val.ForeignKey];
       }
     }
   }

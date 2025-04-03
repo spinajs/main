@@ -10,7 +10,7 @@ import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQuerySt
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import { OrmDriver } from './driver.js';
 import { ModelBase, extractModelDescriptor } from './model.js';
-import {  BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation } from './relations.js';
+import { BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, QueryRelation } from './relations.js';
 import { DateTime } from 'luxon';
 
 /**
@@ -1010,6 +1010,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
             // if parent relation is one to many we dont set parent relation
             // couse its new query to not mess with column aliases and hydrator
             relInstance = this._container.resolve<BelongsToRelation>(BelongsToRelation, [this, rDescriptor, this._owner instanceof OneToManyRelation ? null : this._owner]);
+            break;
+          case RelationType.Query:
+            relInstance = this._container.resolve<QueryRelation>(QueryRelation, [this, rDescriptor, this._owner]);
             break;
           case RelationType.Many:
             relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this, rDescriptor, this._owner]);

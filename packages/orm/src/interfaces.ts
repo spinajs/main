@@ -490,6 +490,13 @@ export interface IRelationDescriptor {
    */
   Callback ? : (data: ModelBase[]) => ISelectQueryBuilder
 
+  /**
+   * When using custom @Quuery relation, this function is used to map retrieved data to model
+   * @param data 
+   * @returns 
+   */
+  Mapper? : (owner : ModelBase, data : ModelBase[]) => ModelBase | ModelBase[];
+
   JoinMode?: 'LeftJoin' | 'RightJoin';
 
   /**

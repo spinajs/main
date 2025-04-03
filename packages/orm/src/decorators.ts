@@ -343,12 +343,13 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
  * @param callback 
  * @returns 
  */
-export function Query<T extends ModelBase>(callback: (data: T[]) => ISelectQueryBuilder) {
+export function Query<T extends ModelBase>(callback: (data: T[]) => ISelectQueryBuilder, mapper: (data: T) => T) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Query,
       Callback: callback,
+      Mapper: mapper,
       SourceModel: null,
       TargetModelType: null,
       TargetModel: null,

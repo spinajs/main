@@ -13,11 +13,16 @@ export class QueryRelationModel extends ModelBase {
 
   public Property2: string;
 
-  @Query<QueryRelationModel>((data: QueryRelationModel[]) => {
-    return RawModel.query().whereIn(
-      'Id',
-      data.map((x) => x.Id),
-    );
-  })
+  @Query<QueryRelationModel>(
+    (data: QueryRelationModel[]) => {
+      return RawModel.query().whereIn(
+        'Id',
+        data.map((x) => x.Id),
+      );
+    },
+    (x) => {
+      return x;
+    },
+  )
   public Many: Relation<Model1, RawModel>;
 }

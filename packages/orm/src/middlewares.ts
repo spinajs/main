@@ -2,7 +2,7 @@
 import { IRelationDescriptor, IModelDescriptor, RelationType, IBuilderMiddleware, ISelectQueryBuilder } from './interfaces.js';
 import { ModelBase } from './model.js';
 import _ from 'lodash';
-import { ManyToManyRelationList, OneToManyRelationList } from './relation-objects.js';
+import { ManyToManyRelationList, OneToManyRelationList, SingleRelation } from './relation-objects.js';
 import { BelongsToRelation } from './relations.js';
 import { DI } from '@spinajs/di';
 import { OrmException } from './exceptions.js';
@@ -139,7 +139,7 @@ export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware 
 }
 
 export class QueryRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected callback: (data: ModelBase[]) => ISelectQueryBuilder) {}
+  constructor(protected callback: (data: ModelBase[]) => ISelectQueryBuilder, protected mapper: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[], protected _description: IRelationDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -148,7 +148,16 @@ export class QueryRelationMiddleware implements IBuilderMiddleware {
     return null;
   }
   public async afterHydration(data: ModelBase[]): Promise<any[] | void> {
-    return (await this.callback(data)) as any;
+    const result = (await this.callback(data)) as ModelBase[];
+
+    data.forEach((d) => {
+      const mapped = this.mapper(d, result);
+      if (Array.isArray(mapped)) {
+        (d as any)[this._description.Name] = new ManyToManyRelationList(d, this._description, mapped);
+      } else {
+        (d as any)[this._description.Name] = new SingleRelation(d, this._description.TargetModel, this._description, mapped);
+      }
+    });
   }
 }
 

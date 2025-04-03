@@ -131,6 +131,8 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   protected _hidden: string[] = [];
 
+
+
   public static readonly _queryScopes: QueryScope;
 
   /**
@@ -887,6 +889,7 @@ export const MODEL_STATIC_MIXINS = {
         JoinQuery.middleware(hydrateMiddleware);
         return JoinQuery;
       case RelationType.ManyToMany:
+      case RelationType.Query:
         throw new OrmException(`many to many relation not supported in populate`);
       case RelationType.Many:
         const { query } = createQuery(relationDescriptor.TargetModel, SelectQueryBuilder);

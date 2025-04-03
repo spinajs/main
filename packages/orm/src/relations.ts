@@ -3,7 +3,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder } from './interfaces.js';
 import { NewInstance, DI, Constructor, Inject, Container } from '@spinajs/di';
 
-import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, BelongsToRelationResultTransformMiddleware, DiscriminationMapMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware } from './middlewares.js';
+import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, BelongsToRelationResultTransformMiddleware, DiscriminationMapMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware, QueryRelationMiddleware } from './middlewares.js';
 import { extractModelDescriptor, ModelBase } from './model.js';
 import { Orm } from './orm.js';
 import { OrmDriver } from './driver.js';
@@ -155,6 +155,14 @@ export class BelongsToRecursiveRelation extends OrmRelation {
     this._query.middleware(new BelongsToRelationRecursiveMiddleware(this._relationQuery, this._description, this._targetModelDescriptor));
 
     this._compiled = true;
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class QueryRelation extends OrmRelation { 
+  public compile(): void {
+    this._query.middleware(new QueryRelationMiddleware(this._description.Callback, this._description.Mapper));
   }
 }
 
