@@ -66,6 +66,10 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
       return a;
     }
 
+    if (_.isMap(a)) {
+      return new Map([...a, ...b]);
+    }
+
     return b;
   };
 
@@ -502,11 +506,10 @@ export class ModelBase<M = unknown> implements IModelBase {
     return this.Container.resolve(StandardModelWithRelationsDehydrator).dehydrate(this, [...(omit ?? []), ...this._hidden]) as ModelDataWithRelationData<this>;
   }
 
-  public toSql(onlyDirty? : boolean): Partial<this> {
-
+  public toSql(onlyDirty?: boolean): Partial<this> {
     const vals = this.Container.resolve(ModelToSqlConverter).toSql(this) as Partial<this>;
-    
-    if(onlyDirty){
+
+    if (onlyDirty) {
       return _.pick(vals, this.__dirty_props__);
     }
 

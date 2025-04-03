@@ -805,7 +805,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNotExists(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
+  public whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
     // we must have alias or subquery could have conflicts on columns names
     if (!this._tableAlias) {
       this._tableAlias = '__exists__';
