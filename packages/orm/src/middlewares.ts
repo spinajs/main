@@ -138,6 +138,20 @@ export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware 
   }
 }
 
+export class QueryRelationMiddleware implements IBuilderMiddleware {
+  constructor(protected callback: (data: ModelBase[]) => ISelectQueryBuilder) {}
+
+  public afterQuery(data: any[]): any[] {
+    return data;
+  }
+  public modelCreation(_: any): ModelBase {
+    return null;
+  }
+  public async afterHydration(data: ModelBase[]): Promise<any[] | void> {
+    return (await this.callback(data)) as any;
+  }
+}
+
 export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
   constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) {}
 
@@ -216,7 +230,7 @@ export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
     // HACK
     // TODO: this is only temporary solution to execute only unique middlewares.
     // Somewhere else in code is bug that causes multiple same middlewares to be added to the query
-    // 
+    //
     // Check hasmanytomany relation with multiple nested belongs to relation to see the bug
     return Promise.all(
       _.uniqBy(middlewares, (x: { _description: { Name: string } }) => x._description.Name).map((x: any) => {

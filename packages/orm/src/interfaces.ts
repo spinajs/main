@@ -425,6 +425,7 @@ export enum RelationType {
   One,
   Many,
   ManyToMany,
+  Query
 }
 
 export type ForwardRefFunction = () => Constructor<ModelBase>;
@@ -480,6 +481,14 @@ export interface IRelationDescriptor {
    */
   JunctionModelTargetModelFKey_Name?: string;
   JunctionModelSourceModelFKey_Name?: string;
+
+  /**
+   * Callback for returning query for relations. For use as custom relation queries
+   * 
+   * @param data fetched data to prepare relation eg. parent model to extract primary key
+   * @returns 
+   */
+  Callback ? : (data: ModelBase[]) => ISelectQueryBuilder
 
   JoinMode?: 'LeftJoin' | 'RightJoin';
 

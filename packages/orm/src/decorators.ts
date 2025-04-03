@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer } from '@spinajs/di';
-import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter } from './interfaces.js';
+import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
@@ -16,26 +16,26 @@ function _getMetadataFrom(target: any) {
 
   /**
    * NOTE:
-   * We hold metadata information as poperty of object stored by normal metadata. 
+   * We hold metadata information as poperty of object stored by normal metadata.
    * This way we can avoid overwritting metadata properties by inherited classes.
-   * 
+   *
    * Eg. given class hierarchy:
-   * 
+   *
    *  @Decorator({ a: 1})
    *  class A {}
-   *  
+   *
    *  @Decorator({ a: 2})
-   *  class B extends A {} 
-   *  
+   *  class B extends A {}
+   *
    *  @Decorator({ a: 3})
    *  class C extends A {}
-   * 
+   *
    *  Normally metadata is created for class A due import order. Reflect.metadata() searches in prototype chain, so
-   *  when class B gets decorator executed it will find already defined from class A. Then class C decorator will overwrite 
+   *  when class B gets decorator executed it will find already defined from class A. Then class C decorator will overwrite
    *  decorator for class A ( B decorator is lost ).
-   * 
+   *
    *  This is becouse decorator is saerched in protype chain of object.
-   *  
+   *
    *  When we need metadata value, we collapse this object with proper inheritance object
    */
 
@@ -320,9 +320,7 @@ export const forwardRef = (fn: () => any): IForwardReference => ({
  */
 export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignKey?: string, primaryKey?: string) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-
     const targetModelDesc = extractModelDescriptor(target);
-
 
     model.Relations.set(propertyKey, {
       Name: propertyKey,
@@ -332,6 +330,30 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
       TargetModel: null,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
       PrimaryKey: primaryKey ?? targetModelDesc.PrimaryKey,
+      Recursive: false,
+    });
+  });
+}
+
+/**
+ * 
+ * Custom relation for executing custom queries to populate data. Use it when relation data dont come from another table
+ * but rather from combinations of many tables
+ * 
+ * @param callback 
+ * @returns 
+ */
+export function Query<T extends ModelBase>(callback: (data: T[]) => ISelectQueryBuilder) {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
+    model.Relations.set(propertyKey, {
+      Name: propertyKey,
+      Type: RelationType.Query,
+      Callback: callback,
+      SourceModel: null,
+      TargetModelType: null,
+      TargetModel: null,
+      ForeignKey: '',
+      PrimaryKey: '',
       Recursive: false,
     });
   });

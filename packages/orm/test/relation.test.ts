@@ -22,6 +22,7 @@ import { Model4 } from './mocks/models/Model4.js';
 import { ModelNested2 } from './mocks/models/ModelNested2.js';
 import { Dataset, OneToManyRelationList, SingleRelation } from '../src/relation-objects.js';
 import './../src/bootstrap.js';
+import { QueryRelationModel } from './mocks/models/QueryRelationModel.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -831,6 +832,41 @@ describe('Orm relations tests', () => {
 
     expect(dehydrated).to.be.not.null;
     expect(dehydrated.Many.length).to.be.not.eq(0);
+  });
+
+  it('Populate query relation should work', async () => {
+    await db();
+
+    sinon
+      .stub(FakeSqliteDriver.prototype, 'execute')
+      .onCall(0)
+      .returns(
+        new Promise((res) => {
+          res([
+            {
+              Id: 1,
+              Property2: 'property2',
+            },
+          ]);
+        }),
+      )
+      .onCall(1)
+      .returns(
+        new Promise((res) => {
+          res([
+            {
+              Id: 666,
+              Bas: 'far',
+            },
+          ]);
+        }),
+      );
+
+    const result = await QueryRelationModel.all().populate('Many');
+    expect(result).to.be.not.null;
+    expect(result[0].Many.Populated).to.be.true;
+    expect(result[0].Many.length).to.be.greaterThan(0);
+    expect(result[0].Many[0]).to.be.not.null;
   });
 
   it('OneToOneRelation should be dehydrated', async () => {
