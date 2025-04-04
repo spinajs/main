@@ -162,7 +162,7 @@ export class BelongsToRecursiveRelation extends OrmRelation {
 @Inject(Container)
 export class QueryRelation extends OrmRelation { 
   public compile(): void {
-    this._query.middleware(new QueryRelationMiddleware(this._description.Callback, this._description.Mapper));
+    this._query.middleware(new QueryRelationMiddleware(this._description.Callback, this._description.Mapper, this._description));
   }
 }
 
