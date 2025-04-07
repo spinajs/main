@@ -1,11 +1,11 @@
 import { FilterableOperators, IColumnFilter, IFilter } from './interfaces.js';
 
 declare module '@spinajs/orm' {
-  export interface IColumnDescriptor {
+  export interface IModelDescriptor {
     /**
      * If set column is fitlerable by this operators
      */
-    Filterable?: FilterableOperators[];
+    FilterableColumns?: Map<string,FilterableOperators[]>;
   }
 
   export interface ISelectQueryBuilder {

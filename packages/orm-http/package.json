@@ -59,7 +59,7 @@
     "@spinajs/orm": "^2.0.344",
     "@spinajs/validation": "2.0.344",
     "lodash": "^4.17.21",
-    "luxon": "^3.2.1"
+     "luxon": "^3.6.1"
   },
   "devDependencies": {
     "@spinajs/orm-sqlite": "^2.0.344"

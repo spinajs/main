@@ -50,7 +50,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@types/luxon": "^3.2.0",
+    "@types/luxon": "^3.6.1",
     "@types/node": "^18.11.18",
     "@types/nodemailer": "^6.4.7"
   },
@@ -62,7 +62,7 @@
     "@spinajs/fs": "^2.0.344",
     "@spinajs/log": "^2.0.344",
     "@spinajs/templates": "^2.0.344",
-    "luxon": "^3.2.1",
+     "luxon": "^3.6.1",
     "nodemailer": "^6.9.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

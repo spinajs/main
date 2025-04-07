@@ -108,6 +108,7 @@ export abstract class WhereStatement extends QueryStatement {
   protected _value: any;
   protected _container: Container;
   protected _model: Constructor<ModelBase>;
+  protected _isAggregate: boolean = false;
 
   public get Column() {
     return this._column;
@@ -121,6 +122,10 @@ export abstract class WhereStatement extends QueryStatement {
     return this._value;
   }
 
+  public get IsAggregate() {
+    return this._isAggregate;
+  }
+
   constructor(column: string, operator: SqlOperator, value: any, tableAlias: string, container: Container, model: Constructor<ModelBase>) {
     super(tableAlias);
     this._column = column;
@@ -128,6 +133,11 @@ export abstract class WhereStatement extends QueryStatement {
     this._value = value;
     this._container = container;
     this._model = model;
+
+    if (this._model) {
+      const desc = extractModelDescriptor(model);
+      this._isAggregate = desc.Columns.find((x) => x.Name === column).Aggregate;
+    }
   }
 
   public abstract build(): IQueryStatementResult;

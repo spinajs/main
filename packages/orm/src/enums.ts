@@ -127,4 +127,5 @@ export enum ColumnType {
 export enum SortOrder {
   ASC = 'ASC',
   DESC = 'DESC',
+  NONE = ''
 }

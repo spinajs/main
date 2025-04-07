@@ -1,6 +1,6 @@
 import { IModelDescriptor, OrmException, SelectQueryBuilder, createQuery } from '@spinajs/orm';
 import './builders.js';
-import { IFilter } from './interfaces.js';
+import { FilterableOperators, IFilter } from './interfaces.js';
 
 export const MODEL_STATIC_MIXINS = {
   async filter(filters: IFilter[]) {
@@ -15,10 +15,10 @@ export const MODEL_STATIC_MIXINS = {
       throw new OrmException(`Model ${this.constructor.name} has no descriptor`);
     }
 
-    return modelDescriptor.Columns.filter((c) => c.Filterable !== null && c.Filterable !== undefined && c.Filterable.length > 0).map((c) => {
+    return [...modelDescriptor.FilterableColumns.entries()].map(([key, val] : [string, FilterableOperators[]]) => {
       return {
-        column: c.Name,
-        operators: c.Filterable,
+        column: key,
+        operators: val,
       };
     });
   },
@@ -34,14 +34,14 @@ export const MODEL_STATIC_MIXINS = {
       type: 'array',
       items: {
         type: 'object',
-        anyOf: modelDescriptor.Columns.filter((c) => c.Filterable !== null && c.Filterable !== undefined && c.Filterable.length > 0).map((c) => {
+        anyOf: [...modelDescriptor.FilterableColumns.entries()].map(([key, val]: [string, FilterableOperators[]]) => {
           return {
             type: 'object',
             required: ['Column', 'Value', 'Operator'],
             properties: {
-              Column: { const: c.Name },
+              Column: { const: key },
               Value: { type: ['string', 'integer', 'array'] },
-              Operator: { type: 'string', enum: c.Filterable },
+              Operator: { type: 'string', enum: val },
             },
           };
         }),

@@ -54,7 +54,7 @@
     "@types/cors": "^2.8.13",
     "@types/express": "^4.17.15",
     "@types/formidable": "^2.0.5",
-    "@types/luxon": "^3.2.0",
+    "@types/luxon": "^3.6.1",
     "@types/node": "^18.11.18",
     "@types/pug": "^2.0.6",
     "@types/uuid": "^9.0.0",
@@ -81,7 +81,7 @@
     "glob": "^8.1.0",
     "helmet": "^6.0.1",
     "lodash": "^4.17.21",
-    "luxon": "^3.2.1",
+     "luxon": "^3.6.1",
     "mime": "^3.0.0",
     "randomstring": "^1.2.3",
     "uuid": "^9.0.0"

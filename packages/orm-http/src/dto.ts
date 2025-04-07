@@ -1,3 +1,4 @@
+import { SortOrder } from '@spinajs/orm';
 import { Schema } from '@spinajs/validation';
 
 @Schema({
@@ -27,7 +28,7 @@ export class PaginationDTO {
   },
 })
 export class OrderDTO {
-  public order: 'ASC' | 'DESC';
+  public order: SortOrder;
   public column: string;
 
   constructor(data: Partial<OrderDTO>) {

@@ -13,7 +13,7 @@
     "packages/*"
   ],
   "overrides": {
-    "luxon": "^3.2.1"
+     "luxon": "^3.6.1"
   },
   "devDependencies": {
     "@types/bunyan": "^1.8.8",
@@ -30,7 +30,7 @@
     "@types/glob": "^8.0.1",
     "@types/glob-to-regexp": "^0.4.1",
     "@types/lodash": "^4.14.191",
-    "@types/luxon": "^3.2.0",
+    "@types/luxon": "^3.6.1",
     "@types/mime": "^3.0.1",
     "@types/mocha": "^10.0.1",
     "@types/node": "^18.11.18",

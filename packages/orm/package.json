@@ -50,7 +50,7 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "@types/lodash": "4.14.191",
-    "@types/luxon": "^3.2.0",
+    "@types/luxon": "^3.6.1",
     "@types/node": "^18.11.18",
     "@types/uuid": "9.0.0"
   },
@@ -62,7 +62,7 @@
     "glob": "^8.1.0",
     "glob-to-regexp": "^0.4.1",
     "lodash": "^4.17.21",
-    "luxon": "^3.2.1",
+    "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

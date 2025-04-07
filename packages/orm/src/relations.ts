@@ -25,7 +25,7 @@ export interface IOrmRelation {
    * @param callback - execute callback to perform actions on relations eg. populate more, filter relational data etc.
    */
   executeOnQuery(callback: (this: ISelectQueryBuilder, relation: OrmRelation) => void): void;
-
+ 
   /**
    * Relation name
    */
@@ -143,7 +143,7 @@ export class BelongsToRecursiveRelation extends OrmRelation {
       this._relationQuery.select(c.Name, `${this.Alias}.${c.Name}`);
     });
   }
-
+ 
   public compile() {
     if (this._compiled) {
       return;
@@ -160,7 +160,10 @@ export class BelongsToRecursiveRelation extends OrmRelation {
 
 @NewInstance()
 @Inject(Container)
-export class QueryRelation extends OrmRelation { 
+export class QueryRelation extends OrmRelation {
+
+ 
+
   public compile(): void {
     this._query.middleware(new QueryRelationMiddleware(this._description.Callback, this._description.Mapper, this._description));
   }
@@ -180,6 +183,7 @@ export class OneToManyRelation extends OrmRelation {
     );
   }
 
+ 
   public compile(): void {
     if (this._compiled) {
       return;
@@ -246,9 +250,9 @@ export class ManyToManyRelation extends OrmRelation {
       this._relationQuery.select(c.Name, `${this.Alias}.${c.Name}`);
     });
   }
+ 
 
   public compile(): void {
-
     if (this._compiled) {
       return;
     }
@@ -279,6 +283,5 @@ export class ManyToManyRelation extends OrmRelation {
     this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor));
 
     this._compiled = true;
-
   }
 }

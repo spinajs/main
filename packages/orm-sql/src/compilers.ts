@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
@@ -163,12 +163,11 @@ export class SqlLimitQueryCompiler extends LimitQueryCompiler {
 @NewInstance()
 export class SqlGroupByCompiler implements IGroupByCompiler {
   public group(builder: IGroupByBuilder): ICompilerOutput {
-    let bindings = [];
+    const bindings : any[] = [];
     let stmt = ' GROUP BY ';
     const builds = builder.GroupStatements.map((x) => x.build());
 
     stmt += builds.map((x) => x.Statements).join(',');
-    bindings = builds.map((x) => x.Bindings);
 
     return {
       bindings,
@@ -198,15 +197,42 @@ export class SqlWhereCompiler implements IWhereCompiler {
     const where: string[] = [];
     const bindings: any[] = [];
 
-    builder.Statements.map((x) => {
-      return x.build();
-    }).forEach((r) => {
-      where.push(...r.Statements);
+    builder.Statements.filter((x: WhereStatement) => !x.IsAggregate)
+      .map((x) => {
+        return x.build();
+      })
+      .forEach((r) => {
+        where.push(...r.Statements);
 
-      if (Array.isArray(r.Bindings)) {
-        bindings.push(...r.Bindings);
-      }
-    });
+        if (Array.isArray(r.Bindings)) {
+          bindings.push(...r.Bindings);
+        }
+      });
+
+    return {
+      bindings,
+      expression: where.join(` ${builder.Op.toUpperCase()} `),
+    };
+  }
+}
+
+@NewInstance()
+export class SqlHavingCompiler implements IHavingCompiler {
+  public having(builder: IWhereBuilder<unknown>) {
+    const where: string[] = [];
+    const bindings: any[] = [];
+
+    builder.Statements.filter((x: WhereStatement) => x.IsAggregate)
+      .map((x) => {
+        return x.build();
+      })
+      .forEach((r) => {
+        where.push(...r.Statements);
+
+        if (Array.isArray(r.Bindings)) {
+          bindings.push(...r.Bindings);
+        }
+      });
 
     return {
       bindings,
@@ -228,20 +254,19 @@ export class SqlJoinCompiler implements IJoinCompiler {
 }
 
 // tslint:disable-next-line
-export interface SqlSelectQueryCompiler extends IWhereCompiler, IColumnsCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler { }
+export interface SqlSelectQueryCompiler extends IWhereCompiler, IHavingCompiler, IColumnsCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler {}
 
 @NewInstance()
 @Inject(Container)
 export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder> {
-  @use(SqlWhereCompiler, SqlColumnsCompiler, TableAliasCompiler, SqlJoinCompiler, SqlWithRecursiveCompiler, SqlGroupByCompiler) this: this;
+  @use(SqlWhereCompiler, SqlHavingCompiler, SqlColumnsCompiler, TableAliasCompiler, SqlJoinCompiler, SqlWithRecursiveCompiler, SqlGroupByCompiler) this: this;
 
   constructor(_container: IContainer, builder: SelectQueryBuilder) {
     super(builder, _container);
   }
 
   public compile(): ICompilerOutput {
-
-    this._builder.Relations.forEach( r=> r.compile());
+    this._builder.Relations.forEach((r) => r.compile());
 
     if (this._builder.CteRecursive) {
       return this.recursive(this._builder as IWithRecursiveBuilder);
@@ -252,17 +277,19 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
     const limit = this.limit();
     const sort = this.sort();
     const where = this.where(this._builder as IWhereBuilder<unknown>);
+    const having = this.having(this._builder as IWhereBuilder<unknown>);
     const join = this.join(this._builder as IJoinBuilder);
     const group = this.group(this._builder as IGroupByBuilder);
 
-    const expression = columns + ' ' + from + (join.expression ? ` ${join.expression}` : '') + (where.expression ? ` WHERE ${where.expression}` : '') + group.expression + sort.expression + limit.expression;
+    const expression = columns + ' ' + from + (join.expression ? ` ${join.expression}` : '') + (where.expression ? ` WHERE ${where.expression}` : '') + group.expression + (having.expression ? ` HAVING ${having.expression}` : '') + sort.expression + limit.expression;
 
     const bindings = [];
     bindings.push(...join.bindings);
     bindings.push(...where.bindings);
+    bindings.push(...group.bindings);
+    bindings.push(...having.bindings);
     bindings.push(...sort.bindings);
     bindings.push(...limit.bindings);
-    bindings.push(...group.bindings);
 
     return {
       bindings,
@@ -300,7 +327,7 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
 }
 
 // tslint:disable-next-line
-export interface SqlUpdateQueryCompiler extends IWhereCompiler { }
+export interface SqlUpdateQueryCompiler extends IWhereCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -350,7 +377,7 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
 }
 
 // tslint:disable-next-line
-export interface SqlDeleteQueryCompiler extends IWhereCompiler { }
+export interface SqlDeleteQueryCompiler extends IWhereCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -533,7 +560,7 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
       .filter((c, i) => {
         const descriptor = (c as ColumnStatement).Descriptor;
         if (descriptor && descriptor.AutoIncrement && descriptor.PrimaryKey) {
-          if (this._builder.Update && this._builder.Values.every( x=> x[i] !== undefined && x[i] !== null)) {
+          if (this._builder.Update && this._builder.Values.every((x) => x[i] !== undefined && x[i] !== null)) {
             return true;
           }
           return false;
@@ -577,7 +604,7 @@ export class SqlDropTableQueryCompiler extends DropTableCompiler {
   }
 }
 
-export interface SqlAlterTableQueryCompiler { }
+export interface SqlAlterTableQueryCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -629,7 +656,7 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
   }
 }
 
-export interface SqlTableCloneQueryCompiler { }
+export interface SqlTableCloneQueryCompiler {}
 
 @NewInstance()
 @Inject(Container)
@@ -654,11 +681,11 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
         this.builder.Filter !== undefined
           ? this.builder.Filter.toDB()
           : {
-            bindings: [],
+              bindings: [],
 
-            // if no filter is provided, copy all the data
-            expression: `SELECT * FROM ${_tblName}`,
-          };
+              // if no filter is provided, copy all the data
+              expression: `SELECT * FROM ${_tblName}`,
+            };
 
       const fExprr = `INSERT INTO \`${this.builder.Table}\` ${fOut.expression}`;
 
@@ -679,7 +706,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
   }
 }
 
-export interface SqlTruncateTableQueryCompiler { }
+export interface SqlTruncateTableQueryCompiler {}
 
 @NewInstance()
 export class SqlTruncateTableQueryCompiler extends TableQueryCompiler {
@@ -803,7 +830,7 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
   }
 }
 
-export interface SqlTableQueryCompiler { }
+export interface SqlTableQueryCompiler {}
 
 @NewInstance()
 @Inject(Container)

@@ -58,7 +58,7 @@
     "@spinajs/internal-logger": "^2.0.344",
     "@spinajs/orm": "^2.0.344",
     "lodash": "^4.17.21",
-    "luxon": "^3.2.1"
+     "luxon": "^3.6.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

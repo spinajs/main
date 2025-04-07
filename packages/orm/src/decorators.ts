@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer } from '@spinajs/di';
-import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder } from './interfaces.js';
+import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase, extractModelDescriptor } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
@@ -10,6 +10,29 @@ import { Orm } from './orm.js';
 
 export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
+
+export function _prepareColumnDesc(initialize : Partial<IColumnDescriptor>): IColumnDescriptor {
+  return Object.assign({
+    Type: '',
+    MaxLength: 0,
+    Comment: '',
+    DefaultValue: null,
+    NativeType: '',
+    Unsigned: false,
+    Nullable: false,
+    PrimaryKey: false,
+    AutoIncrement: false,
+    Name: '',
+    Converter: null,
+    Schema: null,
+    Unique: false,
+    Uuid: false,
+    Ignore: false,
+    Aggregate: false,
+    IsForeignKey: false,
+    ForeignKeyDescription: null,
+  }, initialize);
+}
 
 function _getMetadataFrom(target: any) {
   let metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target) ?? {};
@@ -237,7 +260,7 @@ export function Ignore() {
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
-      model.Columns.push({ Name: propertyKey, Ignore: true } as any);
+      model.Columns.push(_prepareColumnDesc({ Name: propertyKey, Ignore: true }));
     } else {
       columnDesc.Ignore = true;
     }
@@ -252,7 +275,7 @@ export function Uuid() {
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
-      model.Columns.push({ Name: propertyKey, Uuid: true } as any);
+      model.Columns.push(_prepareColumnDesc({ Name: propertyKey, Uuid: true }));
     } else {
       columnDesc.Uuid = true;
     }
@@ -336,14 +359,14 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
 }
 
 /**
- * 
+ *
  * Custom relation for executing custom queries to populate data. Use it when relation data dont come from another table
  * but rather from combinations of many tables
- * 
- * @param callback 
- * @returns 
+ *
+ * @param callback
+ * @returns
  */
-export function Query<T extends ModelBase<unknown>, D extends ModelBase<unknown>>(callback: (data: T[]) => Promise<ISelectQueryBuilder>, mapper: (owner: T, data : D[]) => D| D[]) {
+export function Query<T extends ModelBase<unknown>, D extends ModelBase<unknown>>(callback: (data: T[]) => Promise<ISelectQueryBuilder>, mapper: (owner: T, data: D[]) => D | D[]) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,

@@ -56,7 +56,7 @@
     "@spinajs/rbac": "^2.0.344",
     "@spinajs/reflection": "^2.0.344",
     "accesscontrol": "^2.2.1",
-    "luxon": "^3.2.1",
+     "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

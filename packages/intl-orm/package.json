@@ -57,7 +57,7 @@
     "@spinajs/log-common": "^2.0.344",
     "@spinajs/orm": "^2.0.344",
     "@spinajs/reflection": "^2.0.344",
-    "luxon": "^3.2.1",
+     "luxon": "^3.6.1",
     "typescript-mix": "^3.1.3"
   },
   "devDependencies": {

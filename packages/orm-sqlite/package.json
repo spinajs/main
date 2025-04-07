@@ -59,7 +59,7 @@
     "@spinajs/orm": "^2.0.344",
     "@spinajs/orm-sql": "^2.0.344",
     "lodash": "^4.17.21",
-    "luxon": "^3.2.1",
+     "luxon": "^3.6.1",
     "sqlite3": "^5.1.7",
     "typescript-mix": "^3.1.3"
   },

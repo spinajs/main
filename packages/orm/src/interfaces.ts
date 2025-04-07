@@ -734,6 +734,11 @@ export interface IColumnDescriptor {
   // should be skipped when serializing to json
   Ignore: boolean;
 
+  /**
+   * Is column generated eg. sum,min,max & group by
+   */
+  Aggregate : boolean;
+
   // is this column a foreign key
   IsForeignKey: boolean;
 
@@ -857,7 +862,7 @@ export interface ILimitBuilder<T> {
 export interface IOrderByBuilder {
   orderBy(column: string): this;
   orderByDescending(column: string): this;
-  order(column: string, direction: 'ASC' | 'DESC'): this;
+  order(column: string, direction: SortOrder): this;
   getSort(): ISort;
 }
 
@@ -1054,6 +1059,7 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
    * Returns all records. Its for type castin when using with scopes mostly.
    */
   all(): Promise<T[]>;
+ 
 }
 
 export interface ICompilerOutput {
@@ -1083,6 +1089,10 @@ export interface IColumnsCompiler {
 
 export interface IWhereCompiler {
   where(builder: IWhereBuilder<any>): ICompilerOutput;
+}
+
+export interface IHavingCompiler {
+  having(builder: IWhereBuilder<any>): ICompilerOutput;
 }
 
 export interface IJoinCompiler {

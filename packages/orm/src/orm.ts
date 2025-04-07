@@ -141,10 +141,14 @@ export class Orm extends AsyncService {
         const columns = await connection.tableInfo(descriptor.TableName, connection.Options.Database);
         if (columns) {
           updateModelDescriptor(m.type, (d) => {
-            d.Columns = _.uniqBy(
-              columns.map((c) => {
-                return _.assign(c, _.find(descriptor.Columns, { Name: c.Name }));
-              }),
+            d.Columns = _.unionBy(
+              d.Columns,
+              _.uniqBy(
+                columns.map((c) => {
+                  return _.assign(c, _.find(descriptor.Columns, { Name: c.Name }));
+                }),
+                'Name',
+              ),
               'Name',
             );
 

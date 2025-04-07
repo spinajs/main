@@ -61,7 +61,7 @@
     "cron": "^2.2.0",
     "entropy-string": "^4.2.0",
     "lodash": "^4.17.21",
-    "luxon": "^3.2.1",
+     "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

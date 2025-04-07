@@ -5,7 +5,7 @@ import { OrmException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import { OrmDriver } from './driver.js';
@@ -333,6 +333,15 @@ export class OrderByBuilder implements IOrderByBuilder {
       return this;
     }
 
+    const self = this as any as SelectQueryBuilder;
+    if (column.indexOf('.') !== -1) {
+      self.populate(column.slice(0, column.lastIndexOf('.')), function () {
+        this.order(column.slice(column.lastIndexOf('.') + 1), direction);
+      });
+
+      return this;
+    }
+
     this._sort = {
       column,
       order: direction,
@@ -341,6 +350,14 @@ export class OrderByBuilder implements IOrderByBuilder {
   }
 
   public orderBy(column: string) {
+    const self = this as any as SelectQueryBuilder;
+    if (column.indexOf('.') !== -1) {
+      self.populate(column.slice(0, column.lastIndexOf('.')), function () {
+        this.orderBy(column.slice(column.lastIndexOf('.') + 1));
+      });
+      return this;
+    }
+
     this._sort = {
       column,
       order: SortOrder.ASC,
@@ -349,6 +366,14 @@ export class OrderByBuilder implements IOrderByBuilder {
   }
 
   public orderByDescending(column: string) {
+    const self = this as any as SelectQueryBuilder;
+    if (column.indexOf('.') !== -1) {
+      self.populate(column.slice(0, column.lastIndexOf('.')), function () {
+        this.orderByDescending(column.slice(column.lastIndexOf('.') + 1));
+      });
+      return this;
+    }
+
     this._sort = {
       column,
       order: SortOrder.DESC,
@@ -613,6 +638,32 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   public where(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | PickRelations<T>, operator?: SqlOperator | any, value?: any): this {
     const self = this;
 
+    if (_.isString(column)) {
+      /**
+       * Special case for nested relations search
+       * We use populate for relation, so if we search by relation it will be fetched
+       * and filled to model.
+       */
+      if (column.indexOf('.') !== -1) {
+        (self as any as SelectQueryBuilder).populate(column.slice(0, column.lastIndexOf('.')), function () {
+          this.where(column.slice(column.lastIndexOf('.') + 1), operator, value);
+        });
+        return this;
+      }
+
+      /**
+       * special case if we just search by relation
+       * then use foreign key
+       */
+      if (this._model) {
+        const desc = (this._model as any).getModelDescriptor();
+        const rel = desc.Relations.get(column);
+        if (rel) {
+          return this.where(rel.ForeignKey, operator, value);
+        }
+      }
+    }
+
     if (column === null || (column === undefined && arguments.length === 1)) {
       return;
     }
@@ -761,13 +812,15 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
+    let relQuery = null;
+    let sourcePKey = '';
     // we must have alias or subquery could have conflicts on columns names
     if (!this._tableAlias) {
       this._tableAlias = '__exists__';
     }
 
     if (typeof query === 'string') {
-      const rel = (this._model as any).getRelationDescriptor(query);
+      const rel = (this._model as any).getRelationDescriptor(query) as IRelationDescriptor;
       if (!rel) {
         throw new OrmException(`relation ${query} not found in model ${this.constructor.name}`);
       }
@@ -784,8 +837,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           break;
         case RelationType.Many:
-          const relQuery = rel.TargetModel.query();
-          const sourcePKey = `\`${this._tableAlias}\`.\`${(this._model as any).getModelDescriptor().PrimaryKey}\``;
+          relQuery = rel.TargetModel.query();
+          sourcePKey = `\`${this._tableAlias}\`.\`${(this._model as any).getModelDescriptor().PrimaryKey}\``;
           relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
 
           if (callback) {
@@ -796,7 +849,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           break;
         case RelationType.ManyToMany:
-          throw new OrmException(`not implemented`);
+          relQuery = (rel.JunctionModel as IModelStatic).query();
+          sourcePKey = `\`${this._tableAlias}\`.\`${(this._model as any).getModelDescriptor().PrimaryKey}\``;
+          relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
+          relQuery.rightJoin(rel.TargetModel, callback);
+          this.whereExist(relQuery);
+          break;
       }
     } else {
       this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, false]));
@@ -806,6 +864,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
+    let relQuery = null;
+    let sourcePKey = '';
     // we must have alias or subquery could have conflicts on columns names
     if (!this._tableAlias) {
       this._tableAlias = '__exists__';
@@ -829,8 +889,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           break;
         case RelationType.Many:
-          const relQuery = rel.TargetModel.query();
-          const sourcePKey = `\`${this._tableAlias}\`.\`${(this._model as any).getModelDescriptor().PrimaryKey}\``;
+          relQuery = rel.TargetModel.query();
+          sourcePKey = `\`${this._tableAlias}\`.\`${(this._model as any).getModelDescriptor().PrimaryKey}\``;
           relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
 
           if (callback) {
@@ -841,7 +901,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           break;
         case RelationType.ManyToMany:
-          throw new OrmException(`not implemented`);
+          relQuery = rel.JunctionModel.query();
+          sourcePKey = `\`${this._tableAlias}\`.\`${(this._model as any).getModelDescriptor().PrimaryKey}\``;
+          relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
+          relQuery.rightJoin(rel.TargetModel, callback);
+          this.whereNotExists(relQuery);
       }
     } else {
       this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, false]));
@@ -938,7 +1002,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     this._sort = {
       column: '',
-      order: SortOrder.ASC,
+      order: SortOrder.NONE,
     };
 
     this._first = false;
@@ -1056,7 +1120,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     if (typeof relation === 'string' && relation.includes('.')) {
       const r = relation.slice(0, relation.indexOf('.'));
       this.populate(r, function () {
-        this.populate(relation.slice(relation.indexOf('.') + 1));
+        this.populate(relation.slice(relation.indexOf('.') + 1), callback);
       });
 
       return this;
@@ -1071,6 +1135,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._columns = this._columns.concat(builder._columns);
     this._cteStatement = builder._cteStatement;
     this._distinct = builder._distinct;
+    this._sort = {
+      column: builder._sort.column !== '' ? builder._sort.column : this._sort.column,
+      order: builder._sort.order !== '' ? builder._sort.order : this._sort.order,
+    };
     this.mergeStatements(builder);
   }
 

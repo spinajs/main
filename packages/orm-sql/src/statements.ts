@@ -4,8 +4,8 @@ import { SqlWhereCompiler } from './compilers.js';
 import { NewInstance } from '@spinajs/di';
 import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor } from '@spinajs/orm';
 
-function _columnWrap(column: string, tableAlias: string): string {
-  if (tableAlias) {
+function _columnWrap(column: string, tableAlias: string, isAggregate?: boolean): string {
+  if (tableAlias && !isAggregate) {
     return `\`${tableAlias}\`.\`${column}\``;
   }
 
@@ -91,7 +91,7 @@ export class SqlWhereStatement extends WhereStatement {
       const wrapper = this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._tableAlias]);
       column = wrapper.wrap();
     } else {
-      column = _columnWrap(column, this._tableAlias);
+      column = _columnWrap(column, this._tableAlias, this.IsAggregate);
 
       if (val instanceof ModelBase) {
         val = val.PrimaryKeyValue;

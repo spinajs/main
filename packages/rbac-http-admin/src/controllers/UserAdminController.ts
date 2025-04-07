@@ -1,4 +1,5 @@
 import { BaseController, BasePath, Get, Ok, Policy, Query } from '@spinajs/http';
+import { SortOrder } from '@spinajs/orm';
 import { CustomFilterSchema, Filter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { User } from '@spinajs/rbac';
 import { LoggedPolicy } from "@spinajs/rbac-http";
@@ -61,7 +62,7 @@ export class UserAdminController extends BaseController {
       .populate(include)
       .take(pagination?.limit ?? 10)
       .skip(pagination?.limit * pagination?.page)
-      .order(order?.column ?? 'CreatedAt', order?.order ?? 'DESC')
+      .order(order?.column ?? 'CreatedAt', order?.order ?? SortOrder.DESC)
       .filter(filter);
 
     const count = await User.query().filter(filter).count();
