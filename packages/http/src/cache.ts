@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { Autoinject, ClassInfo } from '@spinajs/di';
+import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { TypescriptCompiler, ListFromFiles } from '@spinajs/reflection';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
 import { BaseController } from './controllers.js';
@@ -14,7 +14,8 @@ import { Logger, Log } from '@spinajs/log';
  * And we need this for proper parameter assignment in controller routes
  *
  */
-export class DefaultControllerCache {
+@Singleton()
+export class DefaultControllerCache extends AsyncService {
   @Logger('http')
   protected Log: Log;
 
@@ -33,32 +34,25 @@ export class DefaultControllerCache {
   @Autoinject(FileHasher)
   protected Hasher: FileHasher;
 
+  public async resolve() {
+    this.Log.info(`Controller cache dir is: ${this.CacheFS.resolvePath('')}`);
+  }
+
   public async getCache(controller: ClassInfo<BaseController>) {
     const file = controller.file.replace('.js', '.d.ts');
     const hash = await this.Hasher.hash(file);
 
     const exists = await this.CacheFS.exists(hash);
     if (!exists) {
-      this.Log.warn(`Controller cache not exists for ${controller.name}, regenerating cache ...`);
-      await this.generate();
-    }
-
-    return await this.CacheFS.read(hash).then((x: string) => JSON.parse(x));
-  }
-
-  public async generate() {
-    const controllers = await this.Controllers;
-
-    for (const controller of controllers) {
+      this.Log.warn(`Controller cache not exists for ${controller.name} at location file: ${this.CacheFS.resolvePath(hash)}, regenerating cache ...`);
       const file = controller.file.replace('.js', '.d.ts');
-      const hash = await this.Hasher.hash(file);
       let parameters: {
         [key: string]: string[];
       } = {};
 
       const exists = await this.CacheFS.exists(hash);
       if (!exists) {
-        this.Log.trace(`Controller cache not exists for ${controller.name}, generating cache...`);
+        this.Log.info(`Controller cache not exists for ${controller.name}, generating cache, file: ${this.CacheFS.resolvePath(hash)}`);
 
         const compiler = new TypescriptCompiler(file);
         const members = compiler.getClassMembers(controller.name);
@@ -73,9 +67,10 @@ export class DefaultControllerCache {
         });
 
         await this.CacheFS.write(hash, JSON.stringify(parameters));
-
-        this.Log.trace(`Ending generating controller cache for ${controller.name}`);
+        this.Log.info(`Ending generating controller cache for ${controller.name}`);
       }
     }
+
+    return await this.CacheFS.read(hash).then((x: string) => JSON.parse(x));
   }
 }

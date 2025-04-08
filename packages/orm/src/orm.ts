@@ -145,7 +145,7 @@ export class Orm extends AsyncService {
               d.Columns,
               _.uniqBy(
                 columns.map((c) => {
-                  return _.assign(c, _.find(descriptor.Columns, { Name: c.Name }));
+                  return _.assign(_.find(descriptor.Columns, { Name: c.Name }) ,c);
                 }),
                 'Name',
               ),
