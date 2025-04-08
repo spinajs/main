@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-xlsx",
-  "version": "2.0.346",
+  "version": "2.0.347",
   "description": "templates support eg. html file generation",
   
     "main": "lib/cjs/index.js",
@@ -56,11 +56,11 @@
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.346",
-    "@spinajs/di": "^2.0.346",
-    "@spinajs/exceptions": "^2.0.346",
-    "@spinajs/log": "^2.0.346",
-    "@spinajs/templates": "^2.0.346",
+    "@spinajs/configuration": "^2.0.347",
+    "@spinajs/di": "^2.0.347",
+    "@spinajs/exceptions": "^2.0.347",
+    "@spinajs/log": "^2.0.347",
+    "@spinajs/templates": "^2.0.347",
     "tempfile": "4.0.0",
     "xlsx-renderer": "^2.4.4"
   },

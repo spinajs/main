@@ -1,6 +1,6 @@
 import _ from 'lodash';
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
-import { TypescriptCompiler, ListFromFiles } from '@spinajs/reflection';
+import { TypescriptCompiler } from '@spinajs/reflection';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
 import { BaseController } from './controllers.js';
 import { Logger, Log } from '@spinajs/log';
@@ -18,12 +18,6 @@ import { Logger, Log } from '@spinajs/log';
 export class DefaultControllerCache extends AsyncService {
   @Logger('http')
   protected Log: Log;
-
-  /**
-   * Loaded controllers
-   */
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
-  public Controllers: Promise<Array<ClassInfo<BaseController>>>;
 
   /**
    * File system for temporary files for storing controllers cache

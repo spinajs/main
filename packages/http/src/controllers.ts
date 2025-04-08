@@ -322,6 +322,8 @@ export class Controllers extends AsyncService {
 
   public async resolve(): Promise<void> {
     const controllers = await this.Controllers;
-    await Promise.all(controllers.map((x) => this.register(x)));
+    for (const c of controllers) {
+      await this.register(c);
+    }
   }
 }

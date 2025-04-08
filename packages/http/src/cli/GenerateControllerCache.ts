@@ -1,23 +1,27 @@
 import { CliCommand, Command } from '@spinajs/cli';
 import { Logger, Log } from '@spinajs/log-common';
-//import { DefaultControllerCache } from '../cache.js';
-import { DI } from '@spinajs/di';
-import { fsService, fs } from '@spinajs/fs';
+import { ClassInfo, DI } from '@spinajs/di';
+import { fsService } from '@spinajs/fs';
+import { DefaultControllerCache } from '../cache.js';
+import { ListFromFiles } from '@spinajs/reflection';
+import { BaseController } from '../controllers.js';
 
 @Command('http:controllers:cache', 'generate controllers cache')
 export class ControllersCacheCommand extends CliCommand {
   @Logger('http')
   protected Log: Log;
 
+  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
+  protected Controllres: Array<ClassInfo<BaseController>>;
+
   public async execute(): Promise<void> {
     await DI.resolve(fsService);
 
     this.Log.info('Generating controllers cache ...');
+    const cache = await DI.resolve(DefaultControllerCache);
 
-    const fs = DI.resolve<fs>('__file_provider__', ['__fs_controller_cache__']);
-    // TODO: fix this
-  //  const cache = DI.resolve(DefaultControllerCache);
-//    await cache.generate();
-    this.Log.info('Controllers cache generated at path: ', fs.resolvePath(''));
+    for (const f of this.Controllres) {
+      await cache.getCache(f);
+    }
   }
 }
