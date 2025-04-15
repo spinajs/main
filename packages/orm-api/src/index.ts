@@ -51,7 +51,7 @@ export class FromDbModel extends RouteArgs {
         pkValue = req.query[field];
         break;
       case ParameterType.FromBody:
-        pkValue = req.body[field];
+        pkValue = req.body ? req.body[field] : null;
         break;
       case ParameterType.FromHeader:
         pkValue = req.headers[field.toLowerCase()];

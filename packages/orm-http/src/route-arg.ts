@@ -22,6 +22,10 @@ export class FilterModelRouteArg extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter<Constructor<ModelBase> | CustomFilterSchema[]>, req: express.Request, _res: express.Response, route: IRoute) {
+    if(!req.body) { 
+      return { CallData: callData, Args: undefined };
+    }
+
     const filter = req.query[param.Name] ?? req.body[param.Name];
 
     // we extract route param schema extract, not dectorator

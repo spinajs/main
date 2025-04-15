@@ -21,8 +21,11 @@ export class AsDbModel extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter, req: sRequest) {
-    const result = new param.RuntimeType() as ModelBase;
+    if(!req.body){ 
+      return { CallData: callData, Args: null };
+    }
 
+    const result = new param.RuntimeType() as ModelBase;
     const data = req.body[param.Options.field ?? param.Name];
 
     if (!data) {
@@ -70,7 +73,7 @@ export class FromDbModel extends RouteArgs {
         pkValue = req.query[field];
         break;
       case ParameterType.FromBody:
-        pkValue = req.body[field];
+        pkValue =  req.body ? req.body[field] : null;
         break;
       case ParameterType.FromHeader:
         pkValue = req.headers[field.toLowerCase()];
