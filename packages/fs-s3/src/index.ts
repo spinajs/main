@@ -101,7 +101,7 @@ export class fsS3 extends fs {
     return new Promise((resolve, reject) => {
       if (result.Body instanceof Readable) {
         result.Body.pipe(wStream)
-          .on('error', (err) => reject(err))
+          .on('error', (err : Error) => reject(err))
           .on('close', () => resolve(tmpName));
       } else {
         reject(new IOFail(`Cannot download file ${path}, empty response`));

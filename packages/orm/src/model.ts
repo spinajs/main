@@ -1143,7 +1143,6 @@ export const MODEL_STATIC_MIXINS = {
   whereExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, qOrRel: ISelectQueryBuilder<Z> | string, callback: WhereFunction<InstanceType<T>>) {
     const { query } = createQuery(this as any, SelectQueryBuilder);
 
-    query.setAlias('__exists__');
     query.whereExist(qOrRel, callback);
 
     return query;

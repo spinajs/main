@@ -6,6 +6,7 @@ import _ from 'lodash';
 import { IColumnDescriptor } from './interfaces.js';
 import { extractModelDescriptor, ModelBase } from './model.js';
 import { OrmException } from './exceptions.js';
+import { Lazy } from '@spinajs/util';
 
 export interface IQueryStatementResult {
   Statements: string[];
@@ -96,6 +97,16 @@ export abstract class WhereQueryStatement extends QueryStatement {
   constructor(builder: WhereBuilder<any>, tableAlias: string) {
     super(tableAlias);
     this._builder = builder;
+  }
+
+  public abstract build(): IQueryStatementResult;
+}
+
+@NewInstance()
+export abstract class LazyQueryStatement extends QueryStatement { 
+  
+  constructor(protected callback : Lazy<unknown>){
+    super();
   }
 
   public abstract build(): IQueryStatementResult;

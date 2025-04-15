@@ -1,4 +1,4 @@
-import { JoinMethod } from '@spinajs/orm';
+import { JoinMethod, LazyQueryStatement } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { NewInstance } from '@spinajs/di';
@@ -20,6 +20,19 @@ export class SqlRawStatement extends RawQueryStatement {
       Statements: [`${this._query}`],
     };
   }
+}
+
+@NewInstance()
+export class SqlLazyQueryStatement extends LazyQueryStatement {
+  build(): IQueryStatementResult {
+    this.callback?.call();
+
+    return {
+      Bindings: [],
+      Statements: [],
+    }
+  }
+
 }
 
 @NewInstance()
@@ -110,10 +123,10 @@ export class SqlWhereStatement extends WhereStatement {
 
         val = converter
           ? converter.toDB(
-              this._value,
-              null,
-              dsc.Columns.find((x) => x.Name === this._column),
-            )
+            this._value,
+            null,
+            dsc.Columns.find((x) => x.Name === this._column),
+          )
           : this._value;
       }
     }

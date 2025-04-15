@@ -41,7 +41,7 @@ export class LowDBHttpSynchronizer extends LowdbDataSynchronizer {
   @Logger('low-db-synchronizer')
   protected log: Log;
 
-  protected syncTimer: NodeJS.Timer;
+  protected syncTimer: NodeJS.Timeout;
 
   constructor(protected Options: ILowDbHttpSynchronizeOptions, protected Driver: OrmDriver) {
     super();

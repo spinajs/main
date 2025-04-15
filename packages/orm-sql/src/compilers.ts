@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler, LazyQueryStatement } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
@@ -163,7 +163,7 @@ export class SqlLimitQueryCompiler extends LimitQueryCompiler {
 @NewInstance()
 export class SqlGroupByCompiler implements IGroupByCompiler {
   public group(builder: IGroupByBuilder): ICompilerOutput {
-    const bindings : any[] = [];
+    const bindings: any[] = [];
     let stmt = ' GROUP BY ';
     const builds = builder.GroupStatements.map((x) => x.build());
 
@@ -197,7 +197,8 @@ export class SqlWhereCompiler implements IWhereCompiler {
     const where: string[] = [];
     const bindings: any[] = [];
 
-    builder.Statements.filter((x: WhereStatement) => !x.IsAggregate)
+    builder.Statements.filter((x: WhereStatement) => x instanceof LazyQueryStatement).forEach(x => x.build())
+    builder.Statements.filter((x: WhereStatement) => !x.IsAggregate).filter(x => !(x instanceof LazyQueryStatement))
       .map((x) => {
         return x.build();
       })
@@ -209,6 +210,7 @@ export class SqlWhereCompiler implements IWhereCompiler {
         }
       });
 
+  
     return {
       bindings,
       expression: where.join(` ${builder.Op.toUpperCase()} `),
@@ -254,7 +256,7 @@ export class SqlJoinCompiler implements IJoinCompiler {
 }
 
 // tslint:disable-next-line
-export interface SqlSelectQueryCompiler extends IWhereCompiler, IHavingCompiler, IColumnsCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler {}
+export interface SqlSelectQueryCompiler extends IWhereCompiler, IHavingCompiler, IColumnsCompiler, IJoinCompiler, IGroupByCompiler, IRecursiveCompiler { }
 
 @NewInstance()
 @Inject(Container)
@@ -327,7 +329,7 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
 }
 
 // tslint:disable-next-line
-export interface SqlUpdateQueryCompiler extends IWhereCompiler {}
+export interface SqlUpdateQueryCompiler extends IWhereCompiler { }
 
 @NewInstance()
 @Inject(Container)
@@ -377,7 +379,7 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
 }
 
 // tslint:disable-next-line
-export interface SqlDeleteQueryCompiler extends IWhereCompiler {}
+export interface SqlDeleteQueryCompiler extends IWhereCompiler { }
 
 @NewInstance()
 @Inject(Container)
@@ -604,7 +606,7 @@ export class SqlDropTableQueryCompiler extends DropTableCompiler {
   }
 }
 
-export interface SqlAlterTableQueryCompiler {}
+export interface SqlAlterTableQueryCompiler { }
 
 @NewInstance()
 @Inject(Container)
@@ -656,7 +658,7 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
   }
 }
 
-export interface SqlTableCloneQueryCompiler {}
+export interface SqlTableCloneQueryCompiler { }
 
 @NewInstance()
 @Inject(Container)
@@ -681,11 +683,11 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
         this.builder.Filter !== undefined
           ? this.builder.Filter.toDB()
           : {
-              bindings: [],
+            bindings: [],
 
-              // if no filter is provided, copy all the data
-              expression: `SELECT * FROM ${_tblName}`,
-            };
+            // if no filter is provided, copy all the data
+            expression: `SELECT * FROM ${_tblName}`,
+          };
 
       const fExprr = `INSERT INTO \`${this.builder.Table}\` ${fOut.expression}`;
 
@@ -706,7 +708,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
   }
 }
 
-export interface SqlTruncateTableQueryCompiler {}
+export interface SqlTruncateTableQueryCompiler { }
 
 @NewInstance()
 export class SqlTruncateTableQueryCompiler extends TableQueryCompiler {
@@ -830,7 +832,7 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
   }
 }
 
-export interface SqlTableQueryCompiler {}
+export interface SqlTableQueryCompiler { }
 
 @NewInstance()
 @Inject(Container)

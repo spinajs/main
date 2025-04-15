@@ -33,8 +33,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
   protected Buffer: string[] = [];
   protected WriteBuffer: string[] = [];
 
-  protected ArchiveTimer: NodeJS.Timer;
-  protected FlushTimer: NodeJS.Timer;
+  protected ArchiveTimer: NodeJS.Timeout;
+  protected FlushTimer: NodeJS.Timeout;
 
   protected Status: FileTargetStatus = FileTargetStatus.IDLE;
   protected ArchiveStatus: FileTargetStatus = FileTargetStatus.IDLE;

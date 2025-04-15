@@ -19,7 +19,7 @@ export class fsNativeTemp extends fsNative<IFsLocalTempOptions> {
   /**
    * timer instance used to cleanup old temp files
    */
-  protected cleanupTimer: NodeJS.Timer;
+  protected cleanupTimer: NodeJS.Timeout;
 
   constructor(options: IFsLocalTempOptions) {
     super(options);

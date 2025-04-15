@@ -7,19 +7,18 @@ import { IFilter, IColumnFilter } from './interfaces.js';
 (SelectQueryBuilder.prototype as any).filter = function (this: SelectQueryBuilder<any>, filters?: IFilter[]) {
 
 
-  if(!filters || filters.length === 0)
-  {
+  if (!filters || filters.length === 0) {
     return this;
   }
 
   const columns: IColumnFilter[] = (this._model as any).filterColumns();
   filters.forEach((filter) => {
 
-    if(!filter.Column){
+    if (!filter.Column) {
       throw new Error('Column is required');
     }
 
-    if(!filter.Operator){
+    if (!filter.Operator) {
       throw new Error('Operator is required');
     }
 
@@ -60,7 +59,7 @@ import { IFilter, IColumnFilter } from './interfaces.js';
         this.whereIn(filter.Column, filter.Value);
         break;
       case 'nin':
-        this.whereNotIn(filter.Column,filter.Value);
+        this.whereNotIn(filter.Column, filter.Value);
         break;
       case 'between':
         this.andWhere(filter.Column, SqlOperator.BETWEEN, filter.Value);
@@ -73,6 +72,12 @@ import { IFilter, IColumnFilter } from './interfaces.js';
         break;
       case 'notbetween':
         this.andWhere(filter.Column, SqlOperator.NOT_BETWEEN, filter.Value);
+        break;
+      case "exists":
+        this.whereExist(filter.Column);
+        break;
+      case "n-exists":
+        this.whereNotExists(filter.Column);
         break;
     }
   });

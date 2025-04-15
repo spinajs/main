@@ -11,6 +11,7 @@ import { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 import { Relation } from './relation-objects.js';
+import { Lazy } from '@spinajs/util';
 
 export enum QueryContext {
   Insert,
@@ -488,14 +489,14 @@ export interface IRelationDescriptor {
    * @param data fetched data to prepare relation eg. parent model to extract primary key
    * @returns 
    */
-  Callback ? : (data: ModelBase[]) => Promise<ISelectQueryBuilder>
+  Callback?: (data: ModelBase[]) => Promise<ISelectQueryBuilder>
 
   /**
    * When using custom @Quuery relation, this function is used to map retrieved data to model
    * @param data 
    * @returns 
    */
-  Mapper? : (owner : ModelBase, data : ModelBase[]) => ModelBase | ModelBase[];
+  Mapper?: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[];
 
   JoinMode?: 'LeftJoin' | 'RightJoin';
 
@@ -737,7 +738,7 @@ export interface IColumnDescriptor {
   /**
    * Is column generated eg. sum,min,max & group by
    */
-  Aggregate : boolean;
+  Aggregate: boolean;
 
   // is this column a foreign key
   IsForeignKey: boolean;
@@ -813,7 +814,7 @@ export abstract class OrmMigration {
    *
    * It means that all model & relations are avaible
    */
-  public async data(): Promise<void> {}
+  public async data(): Promise<void> { }
 }
 
 /**
@@ -920,14 +921,16 @@ export interface IWhereBuilder<T> {
   where(val: boolean): this;
   where(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   where(func: WhereFunction<T>): this;
+  where(func: Lazy<void>): this;
   where(column: string, operator: Op, value: any): this;
   where(column: string, value: any): this;
   where(statement: Wrap): this;
-  where(column: string | boolean | WhereFunction<T> | RawQuery | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | Wrap, operator?: Op | any, value?: any): this;
+  where(column: string | boolean | WhereFunction<T> | Lazy<void> | RawQuery | Partial<ModelDataWithRelationDataSearchable<Unbox<T>>> | Wrap, operator?: Op | any, value?: any): this;
 
   orWhere(val: boolean): this;
   orWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   orWhere(func: WhereFunction<T>): this;
+  orWhere(func: Lazy<void>): this;
   orWhere(column: string, operator: Op, value: any): this;
   orWhere(column: string, value: any): this;
   orWhere(statement: Wrap): this;
@@ -936,10 +939,11 @@ export interface IWhereBuilder<T> {
   andWhere(val: boolean): this;
   andWhere(val: Partial<ModelDataWithRelationDataSearchable<Unbox<T>>>): this;
   andWhere(func: WhereFunction<T>): this;
+  andWhere(func: Lazy<void>): this;
   andWhere(column: string, operator: Op, value: any): this;
   andWhere(column: string, value: any): this;
   andWhere(statement: Wrap): this;
-  andWhere(column: string | boolean | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: Op | any, value?: any): this;
+  andWhere(column: string | boolean | Lazy<void> | WhereFunction<T> | RawQuery | Wrap | Partial<ModelData<Unbox<T>>>, operator?: Op | any, value?: any): this;
 
   whereObject(obj: Partial<ModelData<Unbox<T>>>): this;
   whereNotNull(column: string): this;
@@ -973,7 +977,7 @@ export interface IGroupByBuilder {
  * Dummy abstract class for allowing to add extensions for builder via declaration merging & mixins
  */
 //@ts-ignore
-export interface ISelectBuilderExtensions<T> {}
+export interface ISelectBuilderExtensions<T> { }
 
 export interface IJoinBuilder {
   JoinStatements: IQueryStatement[];
@@ -1029,9 +1033,9 @@ export interface IBuilder<T> extends PromiseLike<T> {
   toDB(): ICompilerOutput | ICompilerOutput[];
 }
 
-export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> {}
+export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
 
-export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> {}
+export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
 
 export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrderByBuilder, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IGroupByBuilder, IQueryBuilder, IBuilder<T> {
   get Relations(): IOrmRelation[];
@@ -1059,7 +1063,7 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
    * Returns all records. Its for type castin when using with scopes mostly.
    */
   all(): Promise<T[]>;
- 
+
 }
 
 export interface ICompilerOutput {
@@ -1286,17 +1290,17 @@ export class ValueConverter implements IValueConverter {
 /**
  * Converter for DATETIME field (eg. mysql datetime)
  */
-export class DatetimeValueConverter extends ValueConverter {}
+export class DatetimeValueConverter extends ValueConverter { }
 
 /**
  * Convert 0/1 to boolean ( mysql, sqlite etc.  use 0/1 for boolean fields and tinyint/bit types )
  */
-export class BooleanValueConverter extends ValueConverter {}
+export class BooleanValueConverter extends ValueConverter { }
 
 /**
  * Converter for set field (eg. mysql SET)
  */
-export class SetValueConverter extends ValueConverter {}
+export class SetValueConverter extends ValueConverter { }
 
 @Singleton()
 export abstract class TableAliasCompiler {
@@ -1310,7 +1314,7 @@ export interface IUniversalConverterOptions {
 /**
  * base class for select & where builder for defining scopes
  */
-export abstract class QueryScope {}
+export abstract class QueryScope { }
 
 export interface IHistoricalModel {
   readonly __action__: 'insert' | 'update' | 'delete';

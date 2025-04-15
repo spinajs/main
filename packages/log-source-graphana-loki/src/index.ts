@@ -52,7 +52,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
 
   protected Status: TargetStatus = TargetStatus.IDLE;
 
-  protected FlushTimer: NodeJS.Timer;
+  protected FlushTimer: NodeJS.Timeout;
   protected AxiosInstance: Axios;
 
   constructor(options: IGraphanaOptions) {
