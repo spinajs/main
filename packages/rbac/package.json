@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac",
-  "version": "2.0.349",
+  "version": "2.0.350",
   "description": "Role and Attribute based Access Control for SpinaJS framework",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -47,15 +47,15 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.349",
-    "@spinajs/di": "^2.0.349",
-    "@spinajs/exceptions": "^2.0.349",
-    "@spinajs/log": "^2.0.349",
-    "@spinajs/orm": "^2.0.349",
-    "@spinajs/queue": "^2.0.349",
-    "@spinajs/reflection": "^2.0.349",
-    "@spinajs/util": "^2.0.349",
-    "@spinajs/validation": "^2.0.349",
+    "@spinajs/configuration": "^2.0.350",
+    "@spinajs/di": "^2.0.350",
+    "@spinajs/exceptions": "^2.0.350",
+    "@spinajs/log": "^2.0.350",
+    "@spinajs/orm": "^2.0.350",
+    "@spinajs/queue": "^2.0.350",
+    "@spinajs/reflection": "^2.0.350",
+    "@spinajs/util": "^2.0.350",
+    "@spinajs/validation": "^2.0.350",
     "accesscontrol": "^2.2.1",
     "argon2": "^0.30.3",
     "cron": "^2.2.0",
@@ -65,7 +65,7 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.349",
+    "@spinajs/orm-sqlite": "^2.0.350",
     "@types/cron": "^2.0.0",
     "@types/entropy-string": "^4.2.0"
   },
