@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http-socket",
-  "version": "2.0.350",
+  "version": "2.0.351",
   "description": "Http websocket module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -53,13 +53,13 @@
     "@types/node": "^18.11.18"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.350",
-    "@spinajs/di": "^2.0.350",
-    "@spinajs/exceptions": "^2.0.350",
-    "@spinajs/log-common": "^2.0.350",
-    "@spinajs/reflection": "^2.0.350",
-    "@spinajs/util": "^2.0.350",
-    "@spinajs/http": "^2.0.350",
+    "@spinajs/configuration": "^2.0.351",
+    "@spinajs/di": "^2.0.351",
+    "@spinajs/exceptions": "^2.0.351",
+    "@spinajs/log-common": "^2.0.351",
+    "@spinajs/reflection": "^2.0.351",
+    "@spinajs/util": "^2.0.351",
+    "@spinajs/http": "^2.0.351",
     "lodash": "^4.17.21",
      "luxon": "^3.6.1",
     "uuid": "^9.0.0",

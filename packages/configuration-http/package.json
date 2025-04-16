@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration-http",
-  "version": "2.0.350",
+  "version": "2.0.351",
   "description": "API for configuration module. Allows to set / get configuration values from db",
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
@@ -47,7 +47,7 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/di": "^2.0.350"
+    "@spinajs/di": "^2.0.351"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

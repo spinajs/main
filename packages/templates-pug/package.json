@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-pug",
-  "version": "2.0.350",
+  "version": "2.0.351",
   "description": "templates support for pug files eg. html file generation",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -55,12 +55,12 @@
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.350",
-    "@spinajs/di": "^2.0.350",
-    "@spinajs/exceptions": "^2.0.350",
-    "@spinajs/intl": "^2.0.350",
-    "@spinajs/log": "^2.0.350",
-    "@spinajs/templates": "^2.0.350",
+    "@spinajs/configuration": "^2.0.351",
+    "@spinajs/di": "^2.0.351",
+    "@spinajs/exceptions": "^2.0.351",
+    "@spinajs/intl": "^2.0.351",
+    "@spinajs/log": "^2.0.351",
+    "@spinajs/templates": "^2.0.351",
     "pug": "^3.0.2",
     "tempfile": "4.0.0"
   },
