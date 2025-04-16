@@ -61,6 +61,10 @@ export class HandlebarsRenderer extends TemplateRenderer {
       }
     });
 
+    Handlebars.registerHelper('isOdd', function (index) {
+      return index % 2 !== 0;
+    });
+
     await super.resolve();
   }
 
