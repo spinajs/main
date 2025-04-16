@@ -15,14 +15,14 @@ export class FilterModelRouteArg extends RouteArgs {
     this.Container = c;
   }
 
-  async resolve(): Promise<void> {}
+  async resolve(): Promise<void> { }
 
   public get SupportedType(): ParameterType | string {
     return 'FilterModelRouteArg';
   }
 
   public async extract(callData: IRouteCall, param: IRouteParameter<Constructor<ModelBase> | CustomFilterSchema[]>, req: express.Request, _res: express.Response, route: IRoute) {
-    const filter = req.query[param.Name] ?? req.body ? req.body[param.Name] : undefined;
+    const filter = req.query[param.Name] ?? req.body?.[param.Name];
 
     // we extract route param schema extract, not dectorator
     // becouse mixins are not applied to model before controller init
