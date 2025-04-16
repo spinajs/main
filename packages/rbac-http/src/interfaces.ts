@@ -20,7 +20,7 @@ export interface IRbacDescriptor {
    *
    * '*' means that to acces resource we only need role with assigned resource
    */
-  Permission: PermissionType;
+  Permission: PermissionType[];
 
   /**
    * Per routes permissions
@@ -32,7 +32,7 @@ export interface IRbacRoutePermissionDescriptor {
   /**
    * controller route permission. It overrides acl descriptor options
    */
-  Permission: PermissionType;
+  Permission: PermissionType[];
 }
 
 export abstract class TwoFactorAuthProvider {

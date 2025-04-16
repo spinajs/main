@@ -25,14 +25,14 @@ export class RbacPolicy extends BasePolicy {
 
   public async execute(req: sRequest, action: IRoute, instance: IController) {
     const descriptor: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance);
-    let permission = descriptor.Permission ?? '';
+    let permission = descriptor.Permission ?? [];
 
     // check if route has its own permission
     if (descriptor.Routes.has(action.Method)) {
-      permission = descriptor.Routes.get(action.Method).Permission ?? '';
+      permission = descriptor.Routes.get(action.Method).Permission ?? [];
     }
 
-    if (!descriptor || !descriptor.Permission) {
+    if (!descriptor || !descriptor.Permission || descriptor.Permission.length === 0) {
       throw new Forbidden(`no route permission or resources assigned`);
     }
 
@@ -40,7 +40,7 @@ export class RbacPolicy extends BasePolicy {
       throw new Forbidden('user not logged or session expired');
     }
 
-    if (!checkRoutePermission(req, descriptor.Resource, permission).granted) {
+    if (!permission.some(p => checkRoutePermission(req, descriptor.Resource, p).granted)) {
       throw new Forbidden(`role(s) ${req.storage.User.Role} does not have permission ${permission} for resource ${descriptor.Resource}`);
     }
   }

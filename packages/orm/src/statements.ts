@@ -7,6 +7,7 @@ import { IColumnDescriptor } from './interfaces.js';
 import { extractModelDescriptor, ModelBase } from './model.js';
 import { OrmException } from './exceptions.js';
 import { Lazy } from '@spinajs/util';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 export interface IQueryStatementResult {
   Statements: string[];
@@ -145,10 +146,17 @@ export abstract class WhereStatement extends QueryStatement {
     this._container = container;
     this._model = model;
 
-    if (this._model) {
+    if(model){
       const desc = extractModelDescriptor(model);
+      const columnDesc = desc.Columns.find((x) => x.Name === column)
+  
+      if(!columnDesc){ 
+        throw new InvalidArgument(`column ${column} not exists in model ${this._model.name}`);
+      }
+
       this._isAggregate = desc.Columns.find((x) => x.Name === column).Aggregate;
     }
+    
   }
 
   public abstract build(): IQueryStatementResult;

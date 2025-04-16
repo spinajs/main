@@ -3,7 +3,7 @@ import { _use, _zip, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _either, _
 import _ from 'lodash';
 import { _email_deferred } from '@spinajs/email';
 import { _ev } from '@spinajs/queue';
-import { USER_COMMON_METADATA, User } from './models/User.js';
+import { USER_COMMON_METADATA, User, UserBase } from './models/User.js';
 import { _cfg, _service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
 import { Constructor } from '@spinajs/di';
@@ -136,6 +136,23 @@ export function _user(identifier: number | string | User): () => Promise<User> {
   }
 
   return () => User.query().whereAnything(id).populate('Metadata').firstOrFail();
+}
+
+/**
+ * Unsafe user retrieval. It does not chack for rbac permission, to this
+ * function can read ANY user in system. USE IT CAREFULLY
+ * 
+ * @param identifier 
+ * @returns 
+ */
+export function _user_unsafe(identifier: number | string | User): () => Promise<User> {
+  const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
+
+  if (id instanceof UserBase) {
+    return () => Promise.resolve(id);
+  }
+
+  return () => UserBase.query().whereAnything(id).firstOrFail();
 }
 
 /**
@@ -368,7 +385,7 @@ export async function auth(identifier: number | string | User, password: string)
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
   return await _chain(
-    _user(identifier),
+    _user_unsafe(identifier),
     _catch(
       (u: User) => {
         return _chain(_service('rbac.auth', AuthProvider), async (sAuth: AuthProvider) => sAuth.authenticate(u.Email, password), _update<User>({ LastLoginAt: DateTime.now() }), _user_ev(UserLogged));

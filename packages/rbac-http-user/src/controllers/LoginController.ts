@@ -1,10 +1,10 @@
 import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, Unauthorized, Policy } from '@spinajs/http';
-import { AuthProvider, SessionProvider, auth, UserSession } from '@spinajs/rbac';
+import { AuthProvider, SessionProvider, auth, UserSession, AccessControl, _unwindGrants } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, NotLoggedPolicy, User as UserRouteArg  } from '@spinajs/rbac-http';
+import { LoggedPolicy, NotLoggedPolicy, User as UserRouteArg } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
 @BasePath('auth')
 export class LoginController extends BaseController {
@@ -25,6 +25,9 @@ export class LoginController extends BaseController {
   @Config('rbac.session.cookie', {})
   protected SessionCookieConfig: any;
 
+  @Autoinject(AccessControl)
+  protected AC: AccessControl;
+
   @Post()
   @Policy(NotLoggedPolicy)
   public async login(@Body() credentials: UserLoginDto) {
@@ -44,7 +47,14 @@ export class LoginController extends BaseController {
         Uuid: user.Uuid
       });
 
-      return new Ok(user, {
+      const grants = this.AC.getGrants();
+      const userGrants = user.Role.map(r => _unwindGrants(r,grants));
+      const combinedGrants = Object.assign({}, ...userGrants);
+
+      return new Ok({
+        ...user.dehydrate(),
+        Grants: combinedGrants
+      }, {
         Coockies: [
           {
             Name: 'ssid',
@@ -199,7 +209,7 @@ export class LoginController extends BaseController {
           Options: {
             httpOnly: true,
             maxAge: 0,
-            
+
             // any optopnal cookie options
             // or override default ones
             ...this.SessionCookieConfig
@@ -302,3 +312,5 @@ export class LoginController extends BaseController {
   //   return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime, true, dUser, { httpOnly: true });
   // }
 }
+ 
+

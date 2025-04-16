@@ -24,7 +24,7 @@ export class CrudUpdate extends Crud {
   protected Ac: AccessControl;
 
   @Put(':model/:id')
-  @Permission('updateAny')
+  @Permission(['updateAny'])
   public async update(@ModelType() model: IModelStatic, @Param() id: number, @BodyField() data: unknown) {
     const descriptor = this.getModelDescriptor(model);
     const entity = await model.where(descriptor.PrimaryKey, id).firstOrThrow(
@@ -43,7 +43,7 @@ export class CrudUpdate extends Crud {
   }
 
   @Put(':model/:id/:relation/:relationId')
-  @Permission('updateAny')
+  @Permission(['updateAny'])
   public async updateRelation(@ModelType() model: IModelStatic, @Param() id: number, @Param() relation: string, @Param() relationId: any, @BodyField() data: unknown) {
     const mDescriptor = this.getModelDescriptor(model);
     const rDescriptor = this.getRelationDescriptor(model, relation);

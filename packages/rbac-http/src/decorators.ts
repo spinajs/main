@@ -10,7 +10,7 @@ export function setRbacMetadata(target: any, callback: (meta: IRbacDescriptor) =
     metadata = {
       Resource: '',
       Routes: new Map<string, IRbacRoutePermissionDescriptor>(),
-      Permission: 'readOwn',
+      Permission: ['readOwn'],
     };
 
     Reflect.defineMetadata(ACL_CONTROLLER_DESCRIPTOR, metadata, target.prototype || target);
@@ -28,7 +28,7 @@ function descriptor(callback: (controller: IRbacDescriptor, target: any, propert
       metadata = {
         Resource: '',
         Routes: new Map<string, IRbacRoutePermissionDescriptor>(),
-        Permission: 'readOwn',
+        Permission: ['readOwn'],
       };
 
       Reflect.defineMetadata(ACL_CONTROLLER_DESCRIPTOR, metadata, target.prototype || target);
@@ -46,7 +46,7 @@ function descriptor(callback: (controller: IRbacDescriptor, target: any, propert
  * @param resource - name of resource
  * @param permission - default permission
  */
-export function Resource(resource: string, permission: PermissionType = 'readOwn') {
+export function Resource(resource: string, permission: PermissionType[] = ['readOwn']) {
   return descriptor((metadata: IRbacDescriptor, target: any) => {
     Policy(RbacPolicy)(target, null, null);
 
@@ -61,7 +61,7 @@ export function Resource(resource: string, permission: PermissionType = 'readOwn
  *
  * @param permission - permission to set
  */
-export function Permission(permission: PermissionType = 'readOwn') {
+export function Permission(permission: PermissionType[] = ['readOwn']) {
   return descriptor((metadata: IRbacDescriptor, target: any, propertyKey: string) => {
     if (propertyKey) {
       if (!metadata.Routes.has(propertyKey)) {

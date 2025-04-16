@@ -36,7 +36,7 @@ export class CrudDelete extends Crud {
   }
 
   @Del(':model/:id')
-  @Permission('deleteAny')
+  @Permission(['deleteAny'])
   public async del(@ModelType() model: IModelStatic, @Param() id: any) {
     const descriptor = this.getModelDescriptor(model);
     const result = await model.destroy(id);
@@ -49,7 +49,7 @@ export class CrudDelete extends Crud {
   }
 
   @Post(':model/:id/:relation/__batchDelete')
-  @Permission('deleteAny')
+  @Permission(['deleteAny'])
   public async deleteRelationBatch(@ModelType() model: IModelStatic, @Param() id: any, @Param() relation: string, @Body() relationIds: any[]) {
     const descriptor = this.getRelationDescriptor(model, relation);
 

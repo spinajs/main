@@ -11,4 +11,6 @@ export * from "./policies/LoggedPolicy.js";
 export * from "./policies/NotLoggedPolicy.js";
 export * from "./policies/RbacPolicy.js";
 
+export * from "./controllers/GrantsController.js";
+
 

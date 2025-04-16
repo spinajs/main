@@ -21,6 +21,7 @@ export * from './events/index.js';
 export * from './actions.js';
 export * from './middleware.js';
 export * from './decorators.js';
+export * from './util.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;

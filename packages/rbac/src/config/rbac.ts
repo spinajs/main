@@ -1,16 +1,16 @@
 import { join, normalize, resolve } from 'path';
- 
+
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
   return [
     resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'rbac', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
 
     // one up if we run from app or build folder
-    resolve(normalize(join(process.cwd(),'../','node_modules', '@spinajs', 'rbac', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(normalize(join(process.cwd(), '../', 'node_modules', '@spinajs', 'rbac', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
   ];
 }
 
- 
+
 
 const rbac = {
   system: {
@@ -122,18 +122,30 @@ const rbac = {
     ],
     grants: {
       'admin.users': {
-        users: {
+        user: {
           'create:any': ['*'],
           'read:any': ['*'],
           'update:any': ['*'],
           'delete:any': ['*'],
         },
+        'user.metadata': {
+          'create:any': ['*'],
+          'read:any': ['*'],
+          'update:any': ['*'],
+          'delete:any': ['*'],
+        }
       },
       user: {
-        users: {
+        'user': {
           'read:own': ['Email', 'Login'],
           'update:own': ['Email', 'Login', 'Password'],
         },
+        'user.metadata': {
+          'create:own': ['*'],
+          'read:own': ['*'],
+          'update:own': ['*'],
+          'delete:own': ['*'],
+        }
       },
       admin: {
         $extend: ['admin.users'],

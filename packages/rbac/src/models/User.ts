@@ -2,11 +2,12 @@ import { DateTime } from 'luxon';
 import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery } from '@spinajs/orm';
 import { AccessControl, Permission } from 'accesscontrol';
 import { DI } from '@spinajs/di';
-import { UserMetadata } from './UserMetadata.js';
+import { UserMetadata, UserMetadataBase } from './UserMetadata.js';
 import { v4 as uuidv4 } from 'uuid';
 import { _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _is_object } from '@spinajs/util';
 import _ from 'lodash';
 import { _cfg } from '@spinajs/configuration';
+import { OrmResource } from '../decorators.js';
 
 export class UserQueryScopes implements QueryScope {
   public whereUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes, userOrEmail: User | string) {
@@ -143,7 +144,7 @@ export enum USER_COMMON_METADATA {
  */
 @Connection('default')
 @Model('users')
-export class User extends ModelBase {
+export class UserBase extends ModelBase {
   /**
    * By default should not return password & id
    * Id - to not expose internal id and predict users id / count
@@ -216,9 +217,15 @@ export class User extends ModelBase {
 
   /**
    * User additional information. Can be anything
+   * 
+   * We use unsafe model couse its relation. It will only load meta related
+   * to owner user anyway
    */
-  @HasMany(UserMetadata)
-  public Metadata: MetadataRelation<UserMetadata, User>;
+  @HasMany(UserMetadataBase, { 
+    foreignKey: "user_id",
+    primaryKey: "id"
+  })
+  public Metadata: MetadataRelation<UserMetadataBase, User>;
 
   public get IsGuest(): boolean {
     return this.Role.indexOf('guest') !== -1 || this.Role.length === 0;
@@ -312,19 +319,19 @@ export class User extends ModelBase {
   public static getByLogin(login: string) {
     login = _check_arg(_trim(), _non_empty())(login, 'login');
 
-    return User.query().whereLogin(login).first();
+    return UserBase.query().whereLogin(login).first();
   }
 
   public static getByEmail(email: string) {
     email = _check_arg(_trim(), _non_empty(), _is_email())(email, 'email');
 
-    return User.query().whereEmail(email).first();
+    return UserBase.query().whereEmail(email).first();
   }
 
   public static getByUuid(uuid: string) {
     uuid = _check_arg(_trim(), _is_uuid())(uuid, 'uuid');
 
-    return User.query().whereUuid(uuid).first();
+    return UserBase.query().whereUuid(uuid).first();
   }
 
   /**
@@ -334,6 +341,18 @@ export class User extends ModelBase {
    * @returns
    */
   public static getByAnything(identifier: string | number) {
-    return User.query().whereAnything(identifier).first();
+    return UserBase.query().whereAnything(identifier).first();
   }
 }
+
+/**
+ * Class defined for ORM resource support
+ */
+@Connection('default')
+@Model('users')
+@OrmResource('user')
+export class User extends UserBase { 
+
+}
+
+ 
