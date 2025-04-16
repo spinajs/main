@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-mjml",
-  "version": "2.0.351",
+  "version": "2.0.352",
   "description": "templates support for mjlm - for generating responsive emails",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -56,13 +56,13 @@
     "@types/mjml": "^4.7.4"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.351",
-    "@spinajs/di": "^2.0.351",
-    "@spinajs/exceptions": "^2.0.351",
-    "@spinajs/intl": "^2.0.351",
-    "@spinajs/log": "^2.0.351",
-    "@spinajs/templates": "^2.0.351",
-    "@spinajs/templates-handlebars": "^2.0.351",
+    "@spinajs/configuration": "^2.0.352",
+    "@spinajs/di": "^2.0.352",
+    "@spinajs/exceptions": "^2.0.352",
+    "@spinajs/intl": "^2.0.352",
+    "@spinajs/log": "^2.0.352",
+    "@spinajs/templates": "^2.0.352",
+    "@spinajs/templates-handlebars": "^2.0.352",
     "mjml": "^4.15.3",
     "tempfile": "4.0.0"
   },
