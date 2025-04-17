@@ -302,6 +302,7 @@ export class SqliteOrmDriver extends SqlDriver {
         Ignore: false,
         IsForeignKey: fk !== undefined,
         Aggregate: false,
+        Virtual: false,
         ForeignKeyDescription: fk
           ? {
               From: fk.from,

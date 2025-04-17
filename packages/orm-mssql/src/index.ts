@@ -166,6 +166,7 @@ export class MsSqlOrmDriver extends SqlDriver {
         NativeType: r.DATA_TYPE,
         Unsigned: false,
         Nullable: r.IS_NULLABLE,
+        Virtual: false,
         PrimaryKey: isPrimary,
         Uuid: false,
         Ignore: false,
