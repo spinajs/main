@@ -740,6 +740,11 @@ export interface IColumnDescriptor {
    */
   Aggregate: boolean;
 
+  /**
+   * Is column virtual ( not exists in DB )
+   */
+  Virtual : boolean;
+
   // is this column a foreign key
   IsForeignKey: boolean;
 

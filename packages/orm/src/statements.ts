@@ -335,7 +335,7 @@ export abstract class ColumnStatement extends QueryStatement {
 
   constructor(column: string | RawQuery, alias: string, tableAlias: string, descriptor: IColumnDescriptor) {
     super(tableAlias);
-
+ 
     this._column = column || '';
     this._alias = alias || '';
     this._tableAlias = tableAlias;

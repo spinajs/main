@@ -414,9 +414,8 @@ export class ColumnsBuilder implements IColumnsBuilder {
 
   public columns(names: string[]) {
     const descriptor = extractModelDescriptor(this._model);
-
     this._columns = names.map((n) => {
-      return this._container.resolve<ColumnStatement>(ColumnStatement, [n, null, this._tableAlias, descriptor?.Columns.find((c) => c.Name === n)]);
+      return this._container.resolve<ColumnStatement>(ColumnStatement, [n, null, this._tableAlias, descriptor?.Columns.filter(c => !c.Virtual).find((c) => c.Name === n)]);
     });
 
     return this;
@@ -427,14 +426,20 @@ export class ColumnsBuilder implements IColumnsBuilder {
 
     if (column instanceof Map) {
       column.forEach((alias, colName) => {
-        this._columns.push(this._container.resolve<ColumnStatement>(ColumnStatement, [colName, alias, this._tableAlias, descriptor?.Columns.find((c) => c.Name === colName)]));
+        const colDesc = descriptor?.Columns.find((c) => c.Name === colName && !c.Virtual);
+        if (colDesc) {
+          this._columns.push(this._container.resolve<ColumnStatement>(ColumnStatement, [colName, alias, this._tableAlias, colDesc]));
+        }
       });
     }
 
     if (column instanceof RawQuery) {
       this._columns.push(this._container.resolve<ColumnRawStatement>(ColumnRawStatement, [column, null, this._tableAlias]));
     } else {
-      this._columns.push(this._container.resolve<ColumnStatement>(ColumnStatement, [column, alias, this._tableAlias, descriptor?.Columns.find((c) => c.Name === column)]));
+      const colDesc = descriptor?.Columns.find((c) => c.Name === column && !c.Virtual);
+      if (colDesc) {
+        this._columns.push(this._container.resolve<ColumnStatement>(ColumnStatement, [column, alias, this._tableAlias, colDesc]));
+      }
     }
 
     return this;
@@ -688,8 +693,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       return this;
     }
 
-    if( column instanceof Lazy){
-      this.Statements.push(this._container.resolve<LazyQueryStatement>(LazyQueryStatement,[column]));
+    if (column instanceof Lazy) {
+      this.Statements.push(this._container.resolve<LazyQueryStatement>(LazyQueryStatement, [column]));
       return this;
     }
 
@@ -818,7 +823,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
-    let relQuery : ISelectQueryBuilder = null;
+    let relQuery: ISelectQueryBuilder = null;
     let sourcePKey = '';
     const self = this;
     if (typeof query === 'string') {
@@ -877,7 +882,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
-    let relQuery : ISelectQueryBuilder = null;
+    let relQuery: ISelectQueryBuilder = null;
     let sourcePKey = '';
     const self = this;
     if (typeof query === 'string') {

@@ -31,6 +31,7 @@ export function _prepareColumnDesc(initialize : Partial<IColumnDescriptor>): ICo
     Aggregate: false,
     IsForeignKey: false,
     ForeignKeyDescription: null,
+    Virtual: false
   }, initialize);
 }
 

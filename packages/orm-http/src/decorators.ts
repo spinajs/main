@@ -31,7 +31,7 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
     const columnDesc = model.Columns.find((c) => c.Name === propertyKey);
     if (!columnDesc) {
       // we dont want to fill all props, they will be loaded from db and mergeg with this
-      model.Columns.push(_prepareColumnDesc({ Name: propertyKey, Aggregate: isAggregate ?? false }));
+      model.Columns.push(_prepareColumnDesc({ Name: propertyKey, Aggregate: isAggregate ?? false , Virtual : true}));
     } else {
       columnDesc.Aggregate = isAggregate ?? false;
     }

@@ -173,6 +173,7 @@ export class MySqlOrmDriver extends SqlDriver {
         Uuid: false,
         Ignore: false,
         IsForeignKey: false,
+        Virtual: false,
         ForeignKeyDescription: null as any,
         AutoIncrement: r.EXTRA.includes('auto_increment'),
         Name: r.COLUMN_NAME,
