@@ -1,7 +1,7 @@
 import { Post, BasePath, Ok, Del, Body, Get, Query, Param, Policy, BaseController, Patch } from '@spinajs/http';
 import { User as UserModel, UserMetadata } from '@spinajs/rbac';
 import { LoggedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
-import { FromModel, AsModel, PaginationDTO, OrderDTO, Filter, IFilter } from '@spinajs/orm-http';
+import { AsModel, PaginationDTO, OrderDTO, Filter, IFilter } from '@spinajs/orm-http';
 import { Forbidden } from '@spinajs/exceptions';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
 import { SortOrder } from '@spinajs/orm';
@@ -48,9 +48,11 @@ export class UserMetadataController extends BaseController {
         return new Ok(metadata);
     }
 
-    @Patch(':metadata')
+    @Patch(':meta')
     @Permission(['updateOwn', 'updateAny'])
-    public async updateMetadata(@User() user: UserModel, @FromModel() metadata: UserMetadata, @Body() data: UserMetadataDto) {
+    public async updateMetadata(@User() user: UserModel, @Param() meta: string, @Body() data: UserMetadataDto) {
+
+        const metadata = await UserMetadata.where("Key", meta).orWhere("Id", meta).firstOrFail();
 
         if (metadata.user_id !== user.Id) {
             throw new Forbidden(`cannot update metadata for given user`);

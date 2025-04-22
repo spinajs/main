@@ -58,7 +58,7 @@
     "@spinajs/exceptions": "^2.0.353",
     "@spinajs/log": "^2.0.353",
     "@spinajs/templates": "^2.0.353",
-    "puppeteer": "^20.4.0",
+    "puppeteer": "^24.6.1",
     "@types/express": "^5.0.1",
     "cors": "^2.8.5"
   },

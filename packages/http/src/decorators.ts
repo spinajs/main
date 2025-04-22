@@ -82,7 +82,7 @@ export function Type(type: any) {
 export function Parameter(type: ParameterType | string, schema?: any, options?: any) {
   return (_: IControllerDescriptor, route: IRoute, target: any, propertyKey: string, index: number) => {
     const rType = Reflect.getMetadata('design:paramtypes', target.prototype || target, propertyKey)[index];
-
+    
     let tSchema = null;
 
     switch (rType.name) {
