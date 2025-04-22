@@ -4,7 +4,7 @@ import { LoggedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
 import { AsModel, PaginationDTO, OrderDTO, Filter, IFilter } from '@spinajs/orm-http';
 import { Forbidden } from '@spinajs/exceptions';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
-import { SortOrder } from '@spinajs/orm';
+import { InsertBehaviour, SortOrder } from '@spinajs/orm';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
 
 @BasePath('user/metadata')
@@ -43,8 +43,7 @@ export class UserMetadataController extends BaseController {
     public async addMetadata(@User() user: UserModel, @AsModel() metadata: UserMetadata) {
 
         metadata.User.attach(user);
-        await metadata.insert();
-
+        await metadata.insert(InsertBehaviour.InsertOrUpdate);
         return new Ok(metadata);
     }
 
