@@ -433,9 +433,14 @@ export class ColumnsBuilder implements IColumnsBuilder {
       });
     }
 
-    if (column instanceof RawQuery) {
+    else if (column instanceof RawQuery) {
       this._columns.push(this._container.resolve<ColumnRawStatement>(ColumnRawStatement, [column, null, this._tableAlias]));
-    } else {
+    }
+    else if (column === '*') {
+      // special case for SELECT *
+      this._columns.push(this._container.resolve(ColumnStatement, [column, alias, this._tableAlias, null]));
+    }
+    else {
       const colDesc = descriptor?.Columns.find((c) => c.Name === column && !c.Virtual);
       if (colDesc) {
         this._columns.push(this._container.resolve<ColumnStatement>(ColumnStatement, [column, alias, this._tableAlias, colDesc]));
