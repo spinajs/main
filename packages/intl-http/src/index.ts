@@ -48,7 +48,7 @@ export class LangArgument extends RouteArgs {
     return 'LangArgument';
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: sRequest) {
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: sRequest) {
     const lang = extractLanguageFromRequest(req, this.LangQueryParameter);
 
     if (!lang) {

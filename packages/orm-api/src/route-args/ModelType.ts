@@ -16,7 +16,7 @@ export class ModelTypeRouteArgs extends RouteArgs {
         return 'ModelTypeRouteArgs';
     }
 
-    public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, _route?: IRoute) {
+    public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: express.Request, _res: express.Response, _route?: IRoute) {
         return Promise.resolve({
             CallData: callData,
             Args: this.Orm.Models.find((x) => x.name.toLowerCase() === req.params[param.Name].trim().toLowerCase()).type,
