@@ -9,7 +9,7 @@ export class AsDbModel extends RouteArgs {
     return 'AsDbModel';
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: sRequest) {
+  public async extract(callData: IRouteCall, _args : unknown[], param: IRouteParameter, req: sRequest) {
     const result = new param.RuntimeType() as ModelBase;
     result.hydrate(req.body[param.Options.field ?? param.Name]);
     return { CallData: callData, Args: result };
@@ -30,19 +30,19 @@ export class FromDbModel extends RouteArgs {
     return 'FromDB';
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
+  public async extract(callData: IRouteCall, args : unknown[], param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
     let result = null;
-
+  
     if (param.Options.query) {
       result = await param.Options.query.call(param.RuntimeType.query(), callData.Payload);
     } else {
-      result = await this.fromDbModelDefaultQueryFunction(callData, param, req);
+      result = await this.fromDbModelDefaultQueryFunction(callData, args, param, req);
     }
 
     return { CallData: callData, Args: result };
   }
 
-  protected fromDbModelDefaultQueryFunction(callData: IRouteCall, param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
+  protected fromDbModelDefaultQueryFunction(callData : IRouteCall, _args: unknown[], param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
     let pkValue: any = null;
     const field = param.Options.field ?? param.Name;
 
@@ -64,7 +64,6 @@ export class FromDbModel extends RouteArgs {
 
     const query = param.RuntimeType['query']() as SelectQueryBuilder;
     const descriptor = extractModelDescriptor(param.RuntimeType);
-
     query.where(descriptor.PrimaryKey, pkValue);
 
     /**

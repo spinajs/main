@@ -1,8 +1,7 @@
-import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject, DI, Constructor } from '@spinajs/di';
+import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject, DI } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { fsNative, IFsLocalOptions } from '@spinajs/fs';
-import { ResourceNotFound } from '@spinajs/exceptions';
 import { Templates } from '@spinajs/templates';
 import '@spinajs/templates-pug';
 
@@ -10,13 +9,11 @@ import { Server as Http, createServer as HttpCreateServer } from 'http';
 import { Server as Https, createServer as HttpsCreateServer } from 'https';
 import { existsSync } from 'fs';
 import cors from 'cors';
-import randomstring from 'randomstring';
 import Express, { RequestHandler } from 'express';
 import _ from 'lodash';
 import fs from 'fs';
 
-import { ServerMiddleware, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, IHttpServerConfiguration, Response as HttpResponse } from './interfaces.js';
-import { ServerError } from './response-methods/index.js';
+import { ServerMiddleware, IHttpServerConfiguration } from './interfaces.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
@@ -175,9 +172,6 @@ export class HttpServer extends AsyncService {
    */
   public start() {
     return new Promise<void>((res, rej) => {
-      this.handleResponse();
-      this.handleErrors();
-
       // add all middlewares to execute after
       this.Middlewares.reverse().forEach((m) => {
         const f = m.after();
@@ -213,104 +207,5 @@ export class HttpServer extends AsyncService {
    */
   public use(middleware: RequestHandler): void {
     this.Express.use(middleware);
-  }
-
-  /**
-   * Executes response
-   */
-  protected handleResponse() {
-    const wrapper = (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
-      if (!res.locals.response) {
-        next(new ResourceNotFound(`Resource not found ${req.method}:${req.originalUrl}`));
-        return;
-      }
-
-      res.locals.response
-        .execute(req, res)
-        .then((callback: ResponseFunction) => {
-          if (callback) {
-            return callback(req, res);
-          }
-        })
-        .catch((err: Error) => {
-          next(err);
-        });
-    };
-
-    Object.defineProperty(wrapper, 'name', {
-      value: 'handleResponse',
-      writable: true,
-    });
-
-    this.Express.use(wrapper);
-  }
-
-  /**
-   * Handles thrown exceptions in actions.
-   */
-  protected handleErrors() {
-    const wrapper = (err: any, req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
-      if (!err) {
-        return next();
-      }
-
-      this.Log.error(err, `Route error: ${err}, stack: ${err.stack}`);
-
-      const error = {
-        /**
-         * By default Error object dont copy values like message ( they are not enumerable )
-         * It only copies custom props added to Error ( via inheritance )
-         */
-        ...err,
-
-        // make sure error message is added
-        message: err.message,
-        stack: {},
-      };
-
-      // in dev mode add stack trace for debugging
-      if (this.AppEnv === 'development') {
-        error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
-      }
-
-      let response: HttpResponse = null;
-      const rMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__');
-      if (rMap.has(err.constructor.name)) {
-        const httpResponse = rMap.get(err.constructor.name);
-        response = new httpResponse(error);
-      } else {
-        this.Log.warn(`Error type ${error.constructor} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
-        response = new ServerError(error);
-      }
-
-      response
-        .execute(req, res)
-        .then((callback?: ResponseFunction | void) => {
-          if (callback) {
-            callback(req, res);
-          }
-        })
-        .catch((err: Error) => {
-          // last resort error handling
-
-          this.Log.fatal(err, `Cannot send error response`);
-          res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
-
-          if (req.accepts('html') && (this.HttpConfig.AcceptHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
-            // final fallback rendering error fails, we render embedded html error page
-            const ticketNo = randomstring.generate(7);
-            res.send(this.HttpConfig.FatalTemplate.replace('{ticket}', ticketNo));
-          } else {
-            res.json(error);
-          }
-        });
-    };
-
-    Object.defineProperty(wrapper, 'name', {
-      value: 'handleError',
-      writable: true,
-    });
-
-    this.Express.use(wrapper);
   }
 }

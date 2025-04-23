@@ -1,7 +1,7 @@
 import { BelongsTo, Connection, Model, MetadataModel, SingleRelation } from '@spinajs/orm';
 import _ from 'lodash';
 import type { User } from './User.js';
-import { OrmResource } from '../decorators.js';
+import { OrmResource, ResourceOwner } from '../decorators.js';
 
 /**
  * Unsafe metadata orm model
@@ -10,15 +10,19 @@ import { OrmResource } from '../decorators.js';
 @Connection('default')
 @Model('users_metadata')
 export class UserMetadataBase extends MetadataModel<UserMetadataBase> {
+
+  protected _hidden: string[] = ['user_id', 'User'];
+
   @BelongsTo('User')
   public User: SingleRelation<User>;
 
-  public user_id : number;
+  @ResourceOwner()
+  public user_id: number;
 }
 
 
 @Connection('default')
 @OrmResource('user.metadata')
-export class UserMetadata extends UserMetadataBase{ 
+export class UserMetadata extends UserMetadataBase {
 
 }

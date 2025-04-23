@@ -20,7 +20,7 @@ export class AsDbModel extends RouteArgs {
     return 'AsDbModel';
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: sRequest) {
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: sRequest) {
     if(!req.body){ 
       return { CallData: callData, Args: null };
     }
@@ -52,23 +52,22 @@ export class FromDbModel extends RouteArgs {
     return 'FromDB';
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: sRequest) {
+  public async extract(callData: IRouteCall, args: unknown[], param: IRouteParameter, req: sRequest) {
     let result = null;
-
-    if (param.Options.query) {
-      result = await param.Options.query.call(param.RuntimeType.query(), callData.Payload);
+    if (param?.Options?.query) {
+      result = await param.Options.query.call(param.RuntimeType.query(), args, this._extractValue(param, req)).firstOrThrow(new OrmNotFoundException("Resource not found"));;
     } else {
-      result = await this.fromDbModelDefaultQueryFunction(callData, param, req);
+      result = await this.fromDbModelDefaultQueryFunction(callData, args,param, req);
     }
 
     return { CallData: callData, Args: result };
   }
 
-  protected fromDbModelDefaultQueryFunction(callData: IRouteCall, param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
+  protected _extractValue(param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest){
     let pkValue: any = null;
-    const field = param.Options.field ?? param.Name;
+    const field = param?.Options?.paramField ?? param.Name;
 
-    switch (param.Options.paramType) {
+    switch (param?.Options?.paramType) {
       case ParameterType.FromQuery:
         pkValue = req.query[field];
         break;
@@ -84,11 +83,19 @@ export class FromDbModel extends RouteArgs {
         break;
     }
 
+    return pkValue;
+
+  }
+
+  protected fromDbModelDefaultQueryFunction(callData: IRouteCall,  _args: unknown[], param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
+    
+    const pkValue = this._extractValue(param, req);
     const query = param.RuntimeType['query']() as SelectQueryBuilder;
     const descriptor = extractModelDescriptor(param.RuntimeType);
+    const queryField = param?.Options?.queryField ?? descriptor.PrimaryKey;
 
     query.select('*');
-    query.where(descriptor.PrimaryKey, pkValue);
+    query.where(queryField, pkValue);
 
     /**
      * Checks BelongsToRelations
@@ -145,7 +152,7 @@ export function AsModel(field?: string, type?: ParameterType) {
 }
 
 export function FromModel(options?: FromModelOptions<ModelBase<any>>) {
-  return Route(Parameter('FromDbModel', null, { options }));
+  return Route(Parameter('FromDbModel', null, options));
 }
 
 @Injectable(Bootstrapper)

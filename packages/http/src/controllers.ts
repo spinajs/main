@@ -3,21 +3,26 @@ import { isPromise } from 'node:util/types';
 import { basename } from 'node:path';
 import * as fs from 'node:fs';
 
-import * as express from 'express';
+import Express from 'express';
+
 import _ from 'lodash';
 
-import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container } from '@spinajs/di';
-import { UnexpectedServerError, IOFail } from '@spinajs/exceptions';
+import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container, Constructor } from '@spinajs/di';
+import { UnexpectedServerError, IOFail, ResourceNotFound } from '@spinajs/exceptions';
 import { ResolveFromFiles } from '@spinajs/reflection';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { Configuration } from '@spinajs/configuration';
 import { HttpServer } from './server.js';
 import { RouteArgs } from './route-args/index.js';
-import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
+import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { tryGetHash } from '@spinajs/util';
 import { DefaultControllerCache } from './cache.js';
+import { ServerError } from './response-methods/serverError.js';
+import randomstring from 'randomstring';
+
+
 
 export abstract class BaseController extends AsyncService implements IController {
   /**
@@ -25,7 +30,7 @@ export abstract class BaseController extends AsyncService implements IController
    */
   [action: string]: any;
 
-  protected _router: express.Router;
+  protected _router: Express.Router;
 
   @Autoinject(Container)
   protected _container: IContainer;
@@ -45,7 +50,7 @@ export abstract class BaseController extends AsyncService implements IController
   /**
    * Express router with middleware stack
    */
-  public get Router(): express.Router {
+  public get Router(): Express.Router {
     return this._router;
   }
 
@@ -65,6 +70,85 @@ export abstract class BaseController extends AsyncService implements IController
     return this.Descriptor.BasePath ? this.Descriptor.BasePath : this.constructor.name.toLowerCase();
   }
 
+  protected __handle_response__() {
+    return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+      if (!res.locals.response) {
+        next(new ResourceNotFound(`Resource not found ${req.method}:${req.originalUrl}`));
+        return;
+      }
+
+      res.locals.response
+        .execute(req, res)
+        .then((callback: ResponseFunction) => {
+          if (callback) {
+            return callback(req, res);
+          }
+        })
+        .catch((err: Error) => {
+          next(err);
+        });
+    };
+  }
+
+  protected __handle_error__() {
+    return (err: any, req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
+      if (!err) {
+        return next();
+      }
+
+      this._log.error(err, `Route error: ${err}, stack: ${err.stack}`);
+
+      const error = {
+        /**
+         * By default Error object dont copy values like message ( they are not enumerable )
+         * It only copies custom props added to Error ( via inheritance )
+         */
+        ...err,
+
+        // make sure error message is added
+        message: err.message,
+        stack: {},
+      };
+
+      // in dev mode add stack trace for debugging
+      if (this.AppEnv === 'development') {
+        error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
+      }
+
+      let response: HttpResponse = null;
+      const rMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__');
+      if (rMap.has(err.constructor.name)) {
+        const httpResponse = rMap.get(err.constructor.name);
+        response = new httpResponse(error);
+      } else {
+        this._log.warn(`Error type ${error.constructor} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
+        response = new ServerError(error);
+      }
+
+      response
+        .execute(req, res)
+        .then((callback?: ResponseFunction | void) => {
+          if (callback) {
+            callback(req, res);
+          }
+        })
+        .catch((err: Error) => {
+          // last resort error handling
+
+          this._log.fatal(err, `Cannot send error response`);
+          res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
+
+          if (req.accepts('html') && (this.HttpConfig.AcceptHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
+            // final fallback rendering error fails, we render embedded html error page
+            const ticketNo = randomstring.generate(7);
+            res.send(this.HttpConfig.FatalTemplate.replace('{ticket}', ticketNo));
+          } else {
+            res.json(error);
+          }
+        });
+    }
+  };
+
   public async resolve() {
     const self = this;
 
@@ -73,11 +157,11 @@ export abstract class BaseController extends AsyncService implements IController
       return;
     }
 
-    this._router = express.Router();
+    this._router = Express.Router();
     this._actionLocalStorage = DI.get(AsyncLocalStorage<IActionLocalStoregeContext>);
 
     for (const [, route] of this.Descriptor.Routes) {
-      const handlers: express.RequestHandler[] = [];
+      const handlers: Express.RequestHandler[] = [];
 
       let path = '';
       if (route.Path) {
@@ -130,7 +214,7 @@ export abstract class BaseController extends AsyncService implements IController
       // Execute all policies for route
       // If at least ONE policy returns no error allow route to execute
       // It allows to use multiple access to resource eg. token access & session
-      handlers.push((req: express.Request, _res: express.Response, next: express.NextFunction) => {
+      handlers.push((req: Express.Request, _res: Express.Response, next: Express.NextFunction) => {
         if (policies.length === 0) {
           next();
           return;
@@ -159,7 +243,7 @@ export abstract class BaseController extends AsyncService implements IController
       });
       handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBefore.bind(m), route)));
 
-      const acionWrapper = async (req: sRequest, res: express.Response, next: express.NextFunction) => {
+      const acionWrapper = async (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
         try {
           await this._actionLocalStorage.run(req.storage, async () => {
             const args = (await _extractRouteArgs(route, req, res)).concat([req, res, next]);
@@ -208,11 +292,15 @@ export abstract class BaseController extends AsyncService implements IController
         this._log.warn(`Unknown route type for ${this.constructor.name}::${route.Method} at path ${path}`);
         return;
       }
+
+      handlers.push(this.__handle_response__());
+      handlers.push(this.__handle_error__() as any);
+      
       (this._router as any)[route.InternalType as string](path, handlers);
     }
 
     function _invokeAction(source: any, action: any, route: IRoute) {
-      const wrapper = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const wrapper = (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
         action(req, res, route, self)
           .then(() => {
             next();
@@ -229,7 +317,7 @@ export abstract class BaseController extends AsyncService implements IController
       return wrapper;
     }
 
-    async function _extractRouteArgs(route: IRoute, req: Request, res: express.Response) {
+    async function _extractRouteArgs(route: IRoute, req: Request, res: Express.Response) {
       const callArgs = new Array(route.Parameters.size);
       const argsCache = new Map<ParameterType | string, RouteArgs>();
 
@@ -245,7 +333,7 @@ export abstract class BaseController extends AsyncService implements IController
             controller: ${self.constructor.name}`);
         }
 
-        const { Args, CallData } = await routeArgsHandler.extract(callData, param, req, res, route);
+        const { Args, CallData } = await routeArgsHandler.extract(callData, callArgs, param, req, res, route);
 
         callData = CallData;
         callArgs[param.Index] = Args;

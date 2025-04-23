@@ -257,6 +257,8 @@ export enum AthenticationErrorCodes {
   E_LOGIN_ATTEMPTS_EXCEEDED = 4,
 }
 
+export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
+
 export interface IRbacModelDescriptor extends IModelDescriptor {
   RbacResource: string;
 
@@ -274,4 +276,14 @@ export interface IRbacAsyncStorage<U = User> {
   User?: U;
 
   Session?: ISession;
+
+  /**
+ * Controller route permission context 
+ * To check if we run from (read|update|insert|delete)Own or (read|update|insert|delete)Any scope
+ * 
+ * eg. we want to read only current user data but it has admin privlidges too....
+ */
+  PermissionScope?: PermissionType;
+
+
 }

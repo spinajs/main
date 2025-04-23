@@ -10,7 +10,7 @@ export class BodyFieldRouteArgs extends RouteArgs {
     return ParameterType.BodyField;
   }
 
-  public async extract(callData: IRouteCall, _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
+  public async extract(callData: IRouteCall,_args : unknown [],  _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
     return {
       CallData: callData,
       Args: req.body,
@@ -24,7 +24,7 @@ export class RequestTypeRouteArgs extends RouteArgs {
     return ParameterType.Other;
   }
 
-  public async extract(callData: IRouteCall, _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
+  public async extract(callData: IRouteCall,_args : unknown [],  _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
     let acceptHeader = HttpAcceptHeaders.ALL;
 
     switch (req.headers.accept.toLowerCase()) {
@@ -63,7 +63,7 @@ export class QueryFieldRouteArg extends RouteArgs {
     return ParameterType.QueryField;
   }
 
-  public async extract(callData: IRouteCall, _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
+  public async extract(callData: IRouteCall, _args : unknown [], _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
     return {
       CallData: callData,
       Args: req.query,
@@ -77,7 +77,7 @@ export class HeadersFieldRouteArg extends RouteArgs {
     return ParameterType.Headers;
   }
 
-  public async extract(callData: IRouteCall, _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
+  public async extract(callData: IRouteCall,_args : unknown [],  _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
     return {
       CallData: callData,
       Args: req.headers,
@@ -91,7 +91,7 @@ export class ParamFieldRouteArg extends RouteArgs {
     return ParameterType.ParamField;
   }
 
-  public async extract(callData: IRouteCall, _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
+  public async extract(callData: IRouteCall, _args : unknown [],  _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
     return {
       CallData: callData,
       Args: req.params,

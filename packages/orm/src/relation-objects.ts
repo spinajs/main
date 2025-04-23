@@ -334,8 +334,6 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
       result.forEach((r: ModelBase) => {
         this.Owner.attach(r);
       });
-
-      this.push(...result);
     }
 
     this.Populated = true;

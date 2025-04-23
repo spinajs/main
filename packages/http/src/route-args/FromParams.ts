@@ -9,7 +9,7 @@ export class FromParams extends RouteArgs {
     return ParameterType.FromParams;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
+  public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     ('');
 
     // some framework route-args functions use _ prefix to make linter happy

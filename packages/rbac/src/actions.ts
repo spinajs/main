@@ -191,6 +191,7 @@ export async function create(email: string, login: string, password: string, rol
           Password: hPassword,
           Role: roles,
           RegisteredAt: DateTime.now(),
+          CreatedAt: DateTime.now(),
           IsActive: false,
           Uuid: uuidv4(),
         }),

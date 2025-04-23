@@ -62,7 +62,7 @@ const parseForm = (req: express.Request, options: any) => {
 export abstract class FromFormBase extends RouteArgs {
   public FormData: FormData;
 
-  public async extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute, uploadFs?: fs): Promise<IRouteArgsResult> {
+  public async extract(callData: IRouteCall,_args : unknown [],  routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute, uploadFs?: fs): Promise<IRouteArgsResult> {
     if (!this.FormData) {
       const options = {
         ...routeParameter.Options,
@@ -104,7 +104,7 @@ export class FromFile extends FromFormBase {
     super();
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter<IUploadOptions>, req: Request, res: express.Response, route?: IRoute): Promise<any> {
+  public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter<IUploadOptions>, req: Request, res: express.Response, route?: IRoute): Promise<any> {
     // copy to provided fs or default temp fs
     // delete intermediate files ( from express ) regardless of copy result
 
@@ -113,7 +113,7 @@ export class FromFile extends FromFormBase {
 
     // extract form data if not processed already
     // and prepare result object
-    const result = await super.extract(callData, param, req, res, route, uploadFs);
+    const result = await super.extract(callData,_args, param, req, res, route, uploadFs);
 
     // get incoming files
     const { Files } = this.FormData;
@@ -184,8 +184,8 @@ export class FromJsonFile extends FromFile {
     return ParameterType.FromJSONFile;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
-    const data = await super.extract(callData, param, req, res, route);
+  public async extract(callData: IRouteCall,_args : unknown [], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData, _args, param, req, res, route);
     const sourceFile = (this.FormData.Files[param.Name] as File).filepath;
     const content = await promises.readFile(sourceFile, { encoding: param.Options.Encoding ?? 'utf-8', flag: 'r' });
 
@@ -207,8 +207,8 @@ export class FromCSV extends FromFormBase {
     return ParameterType.FromCSV;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
-    const data = await super.extract(callData, param, req, res, route);
+  public async extract(callData: IRouteCall,_args : unknown [], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData,_args, param, req, res, route);
 
     const files = this.FormData.Files[param.Name];
     const file = files ? (Array.isArray(files) ? files[0] : files) : null;
@@ -252,8 +252,8 @@ export class FromFormField extends FromFormBase {
     return ParameterType.FormField;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
-    const data = await super.extract(callData, param, req, res, route);
+  public async extract(callData: IRouteCall,_args : unknown [], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData,_args, param, req, res, route);
     const field = this.FormData.Fields[param.Name];
 
     return {
@@ -278,8 +278,8 @@ export class FromForm extends FromFormBase {
     this.FormData = data;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
-    const data = await super.extract(callData, param, req, res, route);
+  public async extract(callData: IRouteCall,_args : unknown [], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData,_args, param, req, res, route);
     let result = null;
 
     // todo

@@ -55,7 +55,7 @@ export function jsonResponse(model: any, options?: IResponseOptions) {
 
     _setCoockies(res, options);
     _setHeaders(res, options);
-
+ 
     if (model) {
       res.json(model);
     } else {

@@ -9,7 +9,7 @@ export class FromBody extends RouteArgs {
     return ParameterType.FromBody;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
+  public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     if(!req.body){ 
       return { CallData: callData, Args: null };
     }

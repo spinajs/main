@@ -14,7 +14,7 @@ export interface IRouteArgsResult {
 export interface IRouteArgs {
   SupportedType: ParameterType | string;
 
-  extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
+  extract(callData: IRouteCall, callArgs: unknown[], routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
 }
 
 export abstract class RouteArgs implements IRouteArgs {
@@ -23,7 +23,7 @@ export abstract class RouteArgs implements IRouteArgs {
 
   abstract get SupportedType(): ParameterType | string;
 
-  public abstract extract(callData: IRouteCall, routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
+  public abstract extract(callData: IRouteCall, callArgs: unknown[], routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
 
   protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter, route: IRoute) {
     let result = null;

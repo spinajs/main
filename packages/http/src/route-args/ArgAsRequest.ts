@@ -9,7 +9,7 @@ export class ArgAsRequest extends RouteArgs {
     return ParameterType.Req;
   }
 
-  public async extract(callData: IRouteCall, _param: IRouteParameter, req: express.Request) {
+  public async extract(callData: IRouteCall, _args: unknown[], _param: IRouteParameter, req: express.Request) {
     return { CallData: callData, Args: req };
   }
 }

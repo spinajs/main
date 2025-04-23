@@ -19,7 +19,7 @@ export class FromDi extends RouteArgs {
     return ParameterType.FromDi;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, _req: Request) {
+  public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, _req: Request) {
     const srv = await this.Container.resolve(param.RuntimeType, param.Options);
     return { CallData: callData, Args: srv };
   }

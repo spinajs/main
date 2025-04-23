@@ -48,12 +48,13 @@ export class LoginController extends BaseController {
       });
 
       const grants = this.AC.getGrants();
-      const userGrants = user.Role.map(r => _unwindGrants(r,grants));
+      const userGrants = user.Role.map(r => _unwindGrants(r, grants));
       const combinedGrants = Object.assign({}, ...userGrants);
 
       return new Ok({
         ...user.dehydrate(),
-        Grants: combinedGrants
+        Grants: combinedGrants,
+        Metadata: user.Metadata.map(m => m.dehydrate())
       }, {
         Coockies: [
           {
@@ -312,5 +313,5 @@ export class LoginController extends BaseController {
   //   return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime, true, dUser, { httpOnly: true });
   // }
 }
- 
+
 

@@ -51,6 +51,7 @@ export class RbacBootstrapper extends Bootstrapper {
       return User.where({
         Uuid: userUUID,
       })
+        .populate("Metadata")
         .isActiveUser()
         .firstOrFail();
     }).as('RbacUserFactory');

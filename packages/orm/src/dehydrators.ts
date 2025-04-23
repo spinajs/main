@@ -35,6 +35,10 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
     const relArr = [...model.ModelDescriptor.Relations.values()];
 
     for (const val of relArr) {
+      if (omit && omit.indexOf(val.Name) !== -1) {
+        continue;
+      }
+
       if (val.Type === RelationType.One) {
         if ((model as any)[val.Name].Value) {
           (obj as any)[val.Name] = (model as any)[val.Name].Value.dehydrateWithRelations();

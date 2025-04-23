@@ -20,7 +20,7 @@ export class FromCookie extends RouteArgs {
     return ParameterType.FromCookie;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
+  public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     const arg = req.cookies[param.Name];
 
     if (arg !== null) {

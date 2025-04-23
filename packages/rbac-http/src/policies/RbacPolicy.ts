@@ -4,7 +4,7 @@ import { Forbidden } from '@spinajs/exceptions';
 import { ACL_CONTROLLER_DESCRIPTOR } from '../decorators.js';
 import { IRbacDescriptor } from '../interfaces.js';
 import { DI } from '@spinajs/di';
-import { User } from '@spinajs/rbac';
+import { PermissionType, User } from '@spinajs/rbac';
 
 /**
  * Checks if user is logged, authorized & have proper permissions
@@ -27,10 +27,16 @@ export class RbacPolicy extends BasePolicy {
     const descriptor: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance);
     let permission = descriptor.Permission ?? [];
 
-    // check if route has its own permission
     if (descriptor.Routes.has(action.Method)) {
+      //req.storage.PermissionScope = descriptor.Routes.get(action.Method).Permission;
+      if (req.headers['x-permission-scope']) {
+        req.storage.PermissionScope = req.headers['x-permission-scope'] as PermissionType ?? null;
+      }
       permission = descriptor.Routes.get(action.Method).Permission ?? [];
     }
+
+    // check if route has its own permission
+
 
     if (!descriptor || !descriptor.Permission || descriptor.Permission.length === 0) {
       throw new Forbidden(`no route permission or resources assigned`);

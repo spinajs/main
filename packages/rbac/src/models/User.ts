@@ -7,13 +7,23 @@ import { v4 as uuidv4 } from 'uuid';
 import { _chain, _catch, _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _is_object } from '@spinajs/util';
 import _ from 'lodash';
 import { _cfg } from '@spinajs/configuration';
-import { OrmResource } from '../decorators.js';
 
 export class UserQueryScopes implements QueryScope {
-  public whereUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes, userOrEmail: User | string) {
-    _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(userOrEmail, 'userOrEmail');
 
-    return this.where('Email', userOrEmail instanceof User ? userOrEmail.Email : userOrEmail);
+  public whereMetadata(this: ISelectQueryBuilder<User[]> & UserQueryScopes, key: string, value: any) {
+    const k = _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(key, 'key');
+    const v = _check_arg(_non_nil())(value, 'value');
+
+    return this.whereExist("Metadata", function () {
+      this.where("Key", k);
+      this.where("Value", v);
+    });
+  }
+
+  public whereUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes, userOrEmail: User | string) {
+    const u = _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(userOrEmail, 'userOrEmail');
+
+    return this.where('Email', u instanceof User ? u.Email : userOrEmail);
   }
 
   public async checkIsBanned(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
@@ -221,9 +231,8 @@ export class UserBase extends ModelBase {
    * We use unsafe model couse its relation. It will only load meta related
    * to owner user anyway
    */
-  @HasMany(UserMetadataBase, { 
-    foreignKey: "user_id",
-    primaryKey: "id"
+  @HasMany(UserMetadataBase, {
+    foreignKey: "user_id"
   })
   public Metadata: MetadataRelation<UserMetadataBase, User>;
 
@@ -350,9 +359,8 @@ export class UserBase extends ModelBase {
  */
 @Connection('default')
 @Model('users')
-@OrmResource('user')
-export class User extends UserBase { 
+export class User extends UserBase {
 
 }
 
- 
+

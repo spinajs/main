@@ -40,9 +40,14 @@ export interface IFilter {
 export interface FromModelOptions<T extends ModelBase> {
   /**
    * Optiona route/param/body field for primary key
-   * If not set , model primary key is used
+   * If not set , route param is used
    */
-  field?: string;
+  paramField?: string;
+
+  /**
+   * Optional field for db quuery search
+   */
+  queryField?: string;
 
   /**
    * From where to get primary key value
@@ -63,7 +68,7 @@ export interface FromModelOptions<T extends ModelBase> {
    * @param routeParams passed route params to query
    * @returns 
    */
-  query?: (this: SelectQueryBuilder<T>, routeParams: any) => SelectQueryBuilder;
+  query?: (this: SelectQueryBuilder<T>, routeParams: any, value: any) => SelectQueryBuilder;
 }
 
 export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists';

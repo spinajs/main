@@ -10,7 +10,7 @@ export class FromQuery extends RouteArgs {
     return ParameterType.FromQuery;
   }
 
-  public async extract(callData: IRouteCall, param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
+  public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     // some framework route-args functions use _ prefix to make linter happy
     // eg. orm-http uses include param for automatic inlude relations with @FromModel() decorator
     const qArg = req.query[param.Name] ?? (param.Name.startsWith('_') ? req.query[param.Name.substring(1, param.Name.length)] : undefined);
