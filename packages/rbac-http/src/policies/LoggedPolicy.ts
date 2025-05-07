@@ -1,5 +1,4 @@
 import { BasePolicy, IController, IRoute, Request as sRequest, Unauthorized } from '@spinajs/http';
-import { Forbidden } from '@spinajs/exceptions';
 
 /**
  * Simple policy to only check if user is authorized ( do not check permissions for routes)
