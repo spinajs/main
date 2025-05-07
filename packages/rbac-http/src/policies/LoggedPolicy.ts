@@ -1,4 +1,4 @@
-import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/http';
+import { BasePolicy, IController, IRoute, Request as sRequest, Unauthorized } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
 
 /**
@@ -13,7 +13,7 @@ export class LoggedPolicy extends BasePolicy {
 
   public async execute(req: sRequest) {
     if (!req.storage || !req.storage.User || !req.storage.Session?.Data.get('Authorized')) {
-      throw new Forbidden('user not logged or session expired');
+      throw new Unauthorized('user not logged or session expired');
     }
 
     return Promise.resolve();

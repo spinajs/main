@@ -1,5 +1,5 @@
 import { AccessControl, Permission } from 'accesscontrol';
-import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/http';
+import { BasePolicy, IController, IRoute, ServerError, Request as sRequest, Unauthorized } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
 import { ACL_CONTROLLER_DESCRIPTOR } from '../decorators.js';
 import { IRbacDescriptor } from '../interfaces.js';
@@ -36,14 +36,12 @@ export class RbacPolicy extends BasePolicy {
     }
 
     // check if route has its own permission
-
-
     if (!descriptor || !descriptor.Permission || descriptor.Permission.length === 0) {
-      throw new Forbidden(`no route permission or resources assigned`);
+      throw new ServerError(`no route permission or resources assigned`);
     }
 
-    if (!req.storage || !req.storage.User || !req.storage.Session.Data.get('Authorized')) {
-      throw new Forbidden('user not logged or session expired');
+    if (!req.storage || !req.storage.Session || !req.storage.User || !req.storage.Session.Data.get('Authorized')) {
+      throw new Unauthorized('user not logged or session expired');
     }
 
     if (!permission.some(p => checkRoutePermission(req, descriptor.Resource, p).granted)) {

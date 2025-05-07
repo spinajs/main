@@ -561,7 +561,7 @@ export function DateTime() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
     const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
     if (type.name !== 'DateTime') {
-      throw Error(`Proprety  ${propertyKey} must be DateTime type`);
+      throw Error(`Proprety  ${propertyKey} must be DateTime type, but is ${type.name}`);
     }
 
     if (model.Converters.has(propertyKey)) {
