@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
-import { OrmException } from './exceptions.js';
+import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
@@ -292,7 +292,7 @@ export class LimitBuilder<T> implements ILimitBuilder<T> {
   }
 
   public async firstOrFail() {
-    return this.firstOrThrow(new OrmException('not found'));
+    return this.firstOrThrow(new OrmNotFoundException('not found'));
   }
 
   public async orThrow(error: Error) {
