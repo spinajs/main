@@ -209,7 +209,7 @@ export class SingleRelation<R extends ModelBase> {
     this._owner.IsDirty = true;
 
     // TODO hack for dirty props
-    (this as any).__dirty_props__.push(this.Relation.ForeignKey);
+    (this._owner as any).__dirty_props__.push(this.Relation.ForeignKey);
   }
 
   public detach() {
