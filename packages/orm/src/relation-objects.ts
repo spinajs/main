@@ -200,20 +200,24 @@ export class SingleRelation<R extends ModelBase> {
   }
 
   public async set(obj: R) {
-    this.Value = obj;
+    this.attach(obj);
     await this._owner.update();
   }
 
   public attach(obj: R) {
     this.Value = obj;
+    this._owner.IsDirty = true;
+
+    // TODO hack for dirty props
+    (this as any).__dirty_props__.push(this.Relation.ForeignKey);
   }
 
   public detach() {
-    this.Value = null;
+    this.attach(null);
   }
 
   public async remove() {
-    this.Value = null;
+    this.detach();
     await this.Value.destroy();
     await this._owner.update();
   }
