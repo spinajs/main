@@ -150,7 +150,12 @@ function _format(vars: ConfVariables, txt: string) {
       const fVar = vars[v[1]] as (format?: string) => string;
       if (fVar instanceof Function) {
         result = result.replace(v[0], fVar(v[3] ?? null));
-      } else {
+      }
+      else if (v[3]) {
+        // optional parameter eg. {object:property}
+        result = result.replace(v[0], fVar[v[3]] ?? null);
+      }
+      else {
         result = _replaceAll(result, v[0], fVar);
       }
     } else {
