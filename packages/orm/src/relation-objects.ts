@@ -261,8 +261,10 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     throw new Error('Method not implemented.');
   }
 
-  public set(_obj: T[], _callback?: (a: T, b: T) => boolean): void {
-    throw new Error('Method not implemented.');
+  public set(obj: T[], _callback?: (a: T, b: T) => boolean): void {
+    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor.PrimaryKey) : obj;
+    this.empty();
+    this.push(...toPush);
   }
 
   public remove(_obj: T | T[] | ((a: T) => boolean)): T[] {
@@ -454,5 +456,17 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     });
 
     return toRemove;
+  }
+
+  public flatMap<V>(callback: (val: T, index: number, array: T[]) => V) {
+    const r = this.map(callback);
+
+    return r.flatMap(x => x) as any;
+  }
+
+  public map<V>(callback: (val: T, index: number, array: T[]) => V) {
+    const r: V[] = [];
+    this.forEach((x, i, a) => r.push(callback(x, i, a)));
+    return r;
   }
 }
