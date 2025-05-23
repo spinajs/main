@@ -526,7 +526,7 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
             }
 
             if (descriptor.AutoIncrement && descriptor.PrimaryKey) {
-              if (this._builder.Update && v !== undefined && v !== null) {
+              if (v !== undefined && v !== null) {
                 return true;
               }
               return false;
@@ -562,7 +562,7 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
       .filter((c, i) => {
         const descriptor = (c as ColumnStatement).Descriptor;
         if (descriptor && descriptor.AutoIncrement && descriptor.PrimaryKey) {
-          if (this._builder.Update && this._builder.Values.every((x) => x[i] !== undefined && x[i] !== null)) {
+          if (this._builder.Values.every((x) => x[i] !== undefined && x[i] !== null)) {
             return true;
           }
           return false;

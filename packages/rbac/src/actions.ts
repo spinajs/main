@@ -169,7 +169,16 @@ export async function deactivate(identifier: number | string | User): Promise<vo
   return _chain(_user(identifier), _user_update({ IsActive: false }), _user_ev(UserDeactivated));
 }
 
-export async function create(email: string, login: string, password: string, roles: string[]): Promise<{ User: User; Password: string }> {
+/**
+ * 
+ * @param email 
+ * @param login 
+ * @param password 
+ * @param roles 
+ * @param id optional user id ( if we migrate from other system  we want to keep user id )
+ * @returns 
+ */
+export async function create(email: string, login: string, password: string, roles: string[], id? : number): Promise<{ User: User; Password: string }> {
   const sPassword = await _service('rbac.password', PasswordProvider)();
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
@@ -186,6 +195,7 @@ export async function create(email: string, login: string, password: string, rol
     () =>
       Promise.resolve(
         new User({
+          Id: id,
           Email: email,
           Login: login,
           Password: hPassword,
