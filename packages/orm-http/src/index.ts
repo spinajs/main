@@ -21,7 +21,7 @@ export class AsDbModel extends RouteArgs {
   }
 
   public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: sRequest) {
-    if(!req.body){ 
+    if (!req.body) {
       return { CallData: callData, Args: null };
     }
 
@@ -46,7 +46,7 @@ export class FromDbModel extends RouteArgs {
   @Autoinject(Orm)
   protected Orm: Orm;
 
-  async resolve(): Promise<void> {}
+  async resolve(): Promise<void> { }
 
   public get SupportedType(): string {
     return 'FromDB';
@@ -57,13 +57,13 @@ export class FromDbModel extends RouteArgs {
     if (param?.Options?.query) {
       result = await param.Options.query.call(param.RuntimeType.query(), args, this._extractValue(param, req)).firstOrThrow(new OrmNotFoundException("Resource not found"));;
     } else {
-      result = await this.fromDbModelDefaultQueryFunction(callData, args,param, req);
+      result = await this.fromDbModelDefaultQueryFunction(callData, args, param, req);
     }
 
     return { CallData: callData, Args: result };
   }
 
-  protected _extractValue(param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest){
+  protected _extractValue(param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
     let pkValue: any = null;
     const field = param?.Options?.paramField ?? param.Name;
 
@@ -72,7 +72,7 @@ export class FromDbModel extends RouteArgs {
         pkValue = req.query[field];
         break;
       case ParameterType.FromBody:
-        pkValue =  req.body ? req.body[field] : null;
+        pkValue = req.body ? req.body[field] : null;
         break;
       case ParameterType.FromHeader:
         pkValue = req.headers[field.toLowerCase()];
@@ -87,8 +87,8 @@ export class FromDbModel extends RouteArgs {
 
   }
 
-  protected fromDbModelDefaultQueryFunction(callData: IRouteCall,  _args: unknown[], param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
-    
+  protected fromDbModelDefaultQueryFunction(callData: IRouteCall, _args: unknown[], param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
+
     const pkValue = this._extractValue(param, req);
     const query = param.RuntimeType['query']() as SelectQueryBuilder;
     const descriptor = extractModelDescriptor(param.RuntimeType);
@@ -122,6 +122,14 @@ export class FromDbModel extends RouteArgs {
           }
         }
       }
+    }
+
+
+    /**
+  * Checks include field
+  */
+    if (param.Options.noInclude === true) {
+      return query.firstOrThrow(new OrmNotFoundException("Resource not found"));
     }
 
     /**

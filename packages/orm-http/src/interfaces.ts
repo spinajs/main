@@ -58,6 +58,12 @@ export interface FromModelOptions<T extends ModelBase> {
   paramType?: string;
 
   /**
+   * Sometimes we want to skip include relations eg. when we dont want to 
+   * load relations when getting another model in route
+   */
+  noInclude? : boolean;
+
+  /**
    * 
    * Callback on query builder before model is fetched from DB
    * 

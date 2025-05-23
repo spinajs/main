@@ -86,6 +86,10 @@ export class FromDbModel extends RouteArgs {
     /**
      * Checks include field
      */
+    if(param.Options.noInclude === true){
+      return query.firstOrFail();
+    }
+
     if (callData.Payload.include || callData.Payload._include) {
       query.populate(callData.Payload.include ?? callData.Payload._include);
     }
