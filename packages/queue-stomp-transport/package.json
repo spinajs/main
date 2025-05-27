@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue-stomp-transport",
-  "version": "2.0.368",
+  "version": "2.0.369",
   "description": "simple job transport based on sqlite. Reads & writes jobs to execute in local sqlite database. used for testing & simple projects",
   
     "main": "lib/cjs/index.js",
@@ -54,11 +54,11 @@
     "@types/node": "^18.11.18"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.368",
-    "@spinajs/di": "^2.0.368",
-    "@spinajs/exceptions": "^2.0.368",
-    "@spinajs/log": "^2.0.368",
-    "@spinajs/queue": "^2.0.368",
+    "@spinajs/configuration": "^2.0.369",
+    "@spinajs/di": "^2.0.369",
+    "@spinajs/exceptions": "^2.0.369",
+    "@spinajs/log": "^2.0.369",
+    "@spinajs/queue": "^2.0.369",
     "@stomp/stompjs": "^6.1.2",
     "websocket": "^1.0.34"
   },
