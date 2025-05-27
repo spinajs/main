@@ -128,7 +128,7 @@ export class FromDbModel extends RouteArgs {
     /**
   * Checks include field
   */
-    if (param.Options.noInclude === true) {
+    if (param.Options?.noInclude === true) {
       return query.firstOrThrow(new OrmNotFoundException("Resource not found"));
     }
 
