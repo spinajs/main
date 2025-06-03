@@ -1,20 +1,20 @@
 import { OrmException } from './exceptions.js';
-import { RelationType } from './interfaces.js';
+import { IDehydrateOptions, RelationType } from './interfaces.js';
 import { ModelBase } from './model.js';
 import { Relation } from './relation-objects.js';
 
 export abstract class ModelDehydrator {
-  public abstract dehydrate(model: ModelBase, omit?: string[]): any;
+  public abstract dehydrate(model: ModelBase, options?: IDehydrateOptions): any;
 }
 
 export class StandardModelDehydrator extends ModelDehydrator {
-  public dehydrate(model: ModelBase, omit?: string[]) {
+  public dehydrate(model: ModelBase, options? : IDehydrateOptions) {
     const obj = {};
     const relArr = [...model.ModelDescriptor.Relations.values()];
 
     model.ModelDescriptor.Columns?.forEach((c) => {
       // if in omit list OR it is foreign key for relation - skip
-      if ((omit && omit.indexOf(c.Name) !== -1) || (relArr.find((r) => r.ForeignKey === c.Name) && !c.PrimaryKey)) {
+      if ((options?.omit && options?.omit.indexOf(c.Name) !== -1) || (relArr.find((r) => r.ForeignKey === c.Name) && !c.PrimaryKey)) {
         return;
       }
 
@@ -22,7 +22,21 @@ export class StandardModelDehydrator extends ModelDehydrator {
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor.Converters.get(c.Name)?.Options) : val;
+
+      const v = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor.Converters.get(c.Name)?.Options, options) : val;
+      if(options?.skipNull && v === null) {
+        return;
+      }
+
+      if(options?.skipUndefined && v === undefined) {
+        return; 
+      }
+
+      if(options?.skipEmptyArray && (Array.isArray(v) && v.length === 0)) {
+        return; 
+      }
+     
+      (obj as any)[c.Name] =v; 
     });
 
     return obj;
@@ -30,12 +44,12 @@ export class StandardModelDehydrator extends ModelDehydrator {
 }
 
 export class StandardModelWithRelationsDehydrator extends StandardModelDehydrator {
-  public dehydrate(model: ModelBase<unknown>, omit?: string[]): any {
-    const obj = super.dehydrate(model, omit);
+  public dehydrate(model: ModelBase<unknown>,  options? : IDehydrateOptions): any {
+    const obj = super.dehydrate(model, options);
     const relArr = [...model.ModelDescriptor.Relations.values()];
 
     for (const val of relArr) {
-      if (omit && omit.indexOf(val.Name) !== -1) {
+      if (options?.omit && options?.omit.indexOf(val.Name) !== -1) {
         continue;
       }
 

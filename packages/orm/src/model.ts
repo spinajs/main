@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders.js';
 import { Op } from './enums.js';
@@ -494,8 +494,11 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Extracts all data from model. It takes only properties that exists in DB
    */
-  public dehydrate(omit?: string[]): ModelData<this> {
-    return this.Container.resolve(StandardModelDehydrator).dehydrate(this, [...(omit ?? []), ...this._hidden]) as ModelData<this>;
+  public dehydrate(options?: IDehydrateOptions): ModelData<this> {
+    return this.Container.resolve(StandardModelDehydrator).dehydrate(this, {
+      ...options,
+      omit: [...(options?.omit ?? []), ...(this._hidden ?? [])],
+    }) as ModelData<this>;
   }
 
   /**
@@ -504,8 +507,11 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    * @param omit - fields to omit
    */
-  dehydrateWithRelations(omit?: string[]): ModelDataWithRelationData<this> {
-    return this.Container.resolve(StandardModelWithRelationsDehydrator).dehydrate(this, [...(omit ?? []), ...this._hidden]) as ModelDataWithRelationData<this>;
+  dehydrateWithRelations(options?: IDehydrateOptions): ModelDataWithRelationData<this> {
+    return this.Container.resolve(StandardModelWithRelationsDehydrator).dehydrate(this, {
+      ...options,
+      omit: [...(options?.omit ?? []), ...(this._hidden ?? [])],
+    }) as ModelDataWithRelationData<this>;
   }
 
   public toSql(onlyDirty?: boolean): Partial<this> {
@@ -870,7 +876,7 @@ export const MODEL_STATIC_MIXINS = {
       modelCreation(_: any): ModelBase {
         return DI.resolve<ModelBase>('__orm_model_factory__', [relationDescriptor.TargetModel]);
       },
-      async afterHydration(_relationData: ModelBase[]) {},
+      async afterHydration(_relationData: ModelBase[]) { },
     };
 
     switch (relationDescriptor.Type) {

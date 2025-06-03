@@ -1,4 +1,4 @@
-import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IValueConverter, ModelBase } from '@spinajs/orm';
+import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, IValueConverter, ModelBase } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 const DATE_NUMERICAL_TYPES = ['int', 'integer', 'float', 'double', 'decimal', 'bigint', 'smallint', 'tinyint', 'mediumint'];
@@ -29,7 +29,7 @@ export class SqlBooleanValueConverter implements BooleanValueConverter {
 }
 
 export class SqlDatetimeValueConverter extends DatetimeValueConverter {
-  public toDB(value: Date | DateTime, _model: ModelBase<unknown>, column: IColumnDescriptor) {
+  public toDB(value: Date | DateTime, _model: ModelBase<unknown>, column: IColumnDescriptor, _options?: any, dehydrateOptions?: IDehydrateOptions): string | number | null {
     if (value === null) {
       return null;
     }
@@ -48,6 +48,17 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
     if (column) {
       if (DATE_NUMERICAL_TYPES.includes(column.Type)) {
         return dt.toUnixInteger() ?? 0;
+      }
+    }
+
+    if (dehydrateOptions && dehydrateOptions.dateTimeFormat) {
+      switch (dehydrateOptions.dateTimeFormat) {
+        case 'iso':
+          return dt.toISO();
+        case 'sql':
+          return dt.toSQL({ includeOffset: false });
+        case 'unix':
+          return dt.toUnixInteger() ?? 0;
       }
     }
 

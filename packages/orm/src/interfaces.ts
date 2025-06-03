@@ -591,7 +591,7 @@ export interface IModelBase {
    *
    * @param omit - fields to omit
    */
-  dehydrate(omit?: string[]): ModelData<this>;
+  dehydrate(options? : IDehydrateOptions): ModelData<this>;
 
   /**
    *
@@ -599,7 +599,7 @@ export interface IModelBase {
    *
    * @param omit - fields to omit
    */
-  dehydrateWithRelations(omit?: string[]): ModelDataWithRelationData<this>;
+  dehydrateWithRelations(options? : IDehydrateOptions): ModelDataWithRelationData<this>;
 
   /**
    * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
@@ -764,7 +764,7 @@ export interface IValueConverter {
    *
    * @param value - value to convert
    */
-  toDB(value: any, model: ModelBase, column: IColumnDescriptor, options: any): any;
+  toDB(value: any, model: ModelBase, column: IColumnDescriptor, options: any, dehydrateOptions? : IDehydrateOptions): any;
 
   /**
    * Converts value from database type eg. mysql timestamp to DateTime
@@ -1278,7 +1278,7 @@ export class ValueConverter implements IValueConverter {
    *
    * @param value - value to convert
    */
-  public toDB(_value: any, _model: ModelBase<any>, _column: IColumnDescriptor, _options?: any): any {
+  public toDB(_value: any, _model: ModelBase<any>, _column: IColumnDescriptor, _options?: any, _dehydrateOptions? : IDehydrateOptions): any {
     throw new MethodNotImplemented();
   }
 
@@ -1334,4 +1334,35 @@ export abstract class ModelToSqlConverter {
 
 export abstract class ObjectToSqlConverter {
   public abstract toSql(model: unknown, descriptor: IModelDescriptor): unknown;
+}
+
+
+export interface IDehydrateOptions {
+  /**
+   * Fields to not include in dehydrate
+   */
+  omit?: string[];
+
+  /**
+   * Should skip null values in dehydrate
+   */
+  skipNull?: boolean;
+
+  /**
+   * Should skip undefined values in dehydrate
+   */
+  skipUndefined?: boolean; 
+
+  /**
+   * Should skip empty arrays in dehydrate
+   */
+  skipEmptyArray?: boolean;
+
+  /**
+   * Datetime format to use when dehydrate DateTime fields
+   * - iso - ISO 8601 format
+   * - sql - SQL format (YYYY-MM-DD HH:MM:SS)
+   * - unix - Unix timestamp (seconds since epoch)
+   */
+  dateTimeFormat?: 'iso' | 'sql' | 'unix';
 }
