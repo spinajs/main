@@ -55,7 +55,7 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
 
       if (val.Type === RelationType.One) {
         if ((model as any)[val.Name].Value) {
-          (obj as any)[val.Name] = (model as any)[val.Name].Value.dehydrateWithRelations();
+          (obj as any)[val.Name] = (model as any)[val.Name].Value.dehydrateWithRelations(options);
         } else {
           // if relation is not ( eg. not populated full relation data ) return at least foreign keys
           (obj as any)[val.Name] = (model as any)[val.ForeignKey];
@@ -66,7 +66,7 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
           if (v.length === 0) {
             (obj as any)[val.Name] = [];
           } else {
-            (obj as any)[val.Name] = v.map((x) => x.dehydrateWithRelations());
+            (obj as any)[val.Name] = v.map((x) => x.dehydrateWithRelations(options));
           }
         }
       }

@@ -45,12 +45,7 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
       dt = DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value);
     }
 
-    if (column) {
-      if (DATE_NUMERICAL_TYPES.includes(column.Type)) {
-        return dt.toUnixInteger() ?? 0;
-      }
-    }
-
+    
     if (dehydrateOptions && dehydrateOptions.dateTimeFormat) {
       switch (dehydrateOptions.dateTimeFormat) {
         case 'iso':
@@ -59,6 +54,13 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
           return dt.toSQL({ includeOffset: false });
         case 'unix':
           return dt.toUnixInteger() ?? 0;
+      }
+    }
+
+
+    if (column) {
+      if (DATE_NUMERICAL_TYPES.includes(column.Type)) {
+        return dt.toUnixInteger() ?? 0;
       }
     }
 

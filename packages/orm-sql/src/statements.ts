@@ -14,6 +14,10 @@ function _columnWrap(column: string, tableAlias: string, isAggregate?: boolean):
 
 @NewInstance()
 export class SqlRawStatement extends RawQueryStatement {
+  public clone(): SqlRawStatement {
+    return new SqlRawStatement(this._query, this._bindings);
+  }
+
   public build(): IQueryStatementResult {
     return {
       Bindings: this._bindings,
@@ -24,6 +28,11 @@ export class SqlRawStatement extends RawQueryStatement {
 
 @NewInstance()
 export class SqlLazyQueryStatement extends LazyQueryStatement {
+
+  public clone(): SqlLazyQueryStatement {
+    return new SqlLazyQueryStatement(this.callback);
+  }
+
   build(): IQueryStatementResult {
     this.callback?.call();
 
@@ -37,6 +46,10 @@ export class SqlLazyQueryStatement extends LazyQueryStatement {
 
 @NewInstance()
 export class SqlWithRecursiveStatement extends WithRecursiveStatement {
+  public clone(): SqlWithRecursiveStatement {
+    return new SqlWithRecursiveStatement(this.container, this._name, this._query, this._rcKeyName, this._pkName);
+  }
+
   public build(): IQueryStatementResult {
     const initialQuery = this._query.clone().clearJoins().toDB();
 
@@ -57,6 +70,10 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
 
 @NewInstance()
 export class SqlBetweenStatement extends BetweenStatement {
+  public clone(): SqlBetweenStatement {
+    return new SqlBetweenStatement(this._column, this._val, this._not, this._tableAlias);
+  }
+
   public build(): IQueryStatementResult {
     const exprr = this._not ? 'NOT BETWEEN' : 'BETWEEN';
 
@@ -69,6 +86,10 @@ export class SqlBetweenStatement extends BetweenStatement {
 
 @NewInstance()
 export class SqlGroupByStatement extends GroupByStatement {
+  public clone(): SqlGroupByStatement {
+    return new SqlGroupByStatement(this._expr, this.TableAlias);
+  }
+
   build(): IQueryStatementResult {
     if (this._expr instanceof RawQuery) {
       return {
@@ -86,6 +107,18 @@ export class SqlGroupByStatement extends GroupByStatement {
 
 @NewInstance()
 export class SqlWhereStatement extends WhereStatement {
+
+  public clone(): SqlWhereStatement {
+    return new SqlWhereStatement(
+      this._column,
+      this._operator,
+      this._value,
+      this._tableAlias,
+      this._container,
+      this._model
+    );
+  }
+
   public build(): IQueryStatementResult {
     const isNullableQuery = this._operator === SqlOperator.NOT_NULL || this._operator === SqlOperator.NULL;
     const binding = isNullableQuery ? '' : ' ?';
@@ -140,6 +173,19 @@ export class SqlWhereStatement extends WhereStatement {
 
 @NewInstance()
 export class SqlJoinStatement extends JoinStatement {
+  public clone(): SqlJoinStatement {
+    return new SqlJoinStatement(
+      this._builder,
+      this._model,
+      this._alias,
+      this._method,
+      this._foreignKey,
+      this._primaryKey,
+      this._tableAlias,
+      this._database
+    );
+  }
+
   public build(): IQueryStatementResult {
     const method = this._method === JoinMethod.RECURSIVE ? JoinMethod.INNER : this._method;
 
@@ -172,6 +218,10 @@ export class SqlJoinStatement extends JoinStatement {
 
 @NewInstance()
 export class SqlInStatement extends InStatement {
+  public clone(): SqlInStatement {
+    return new SqlInStatement(this._column, this._val, this._not, this._tableAlias);
+  }
+
   public build(): IQueryStatementResult {
     const exprr = this._not ? 'NOT IN' : 'IN';
     let column = _columnWrap(this._column, this._tableAlias);
@@ -185,6 +235,10 @@ export class SqlInStatement extends InStatement {
 
 @NewInstance()
 export class SqlColumnStatement extends ColumnStatement {
+  public clone(): SqlColumnStatement {
+    return new SqlColumnStatement(this._column, this._alias, this._tableAlias, this.Descriptor);
+  }
+
   public build(): IQueryStatementResult {
     let exprr = '';
 
@@ -211,6 +265,10 @@ export class SqlColumnStatement extends ColumnStatement {
 
 @NewInstance()
 export class SqlColumnMethodStatement extends ColumnMethodStatement {
+  public clone(): SqlColumnMethodStatement {
+    return new SqlColumnMethodStatement(this._column, this._method, this._alias, this._tableAlias);
+  }
+
   public build(): IQueryStatementResult {
     let _exprr = '';
 
@@ -254,6 +312,10 @@ export abstract class SqlDateTimeWrapper extends DateTimeWrapper {
 
 @NewInstance()
 export class SqlColumnRawStatement extends ColumnRawStatement {
+  public clone(): SqlColumnRawStatement {
+    return new SqlColumnRawStatement(this.RawQuery);
+  }
+
   public build(): IQueryStatementResult {
     return {
       Bindings: this.RawQuery.Bindings,
@@ -264,6 +326,10 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
 
 @NewInstance()
 export class SqlWhereQueryStatement extends WhereQueryStatement {
+  public clone(): SqlWhereQueryStatement {
+    return new SqlWhereQueryStatement(this._builder, this.TableAlias);
+  }
+
   public build() {
     const _compiler = new SqlWhereCompiler();
     const _result = _compiler.where(this._builder);
@@ -277,6 +343,10 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
 
 @NewInstance()
 export class SqlExistsQueryStatement extends ExistsQueryStatement {
+  public clone(): SqlExistsQueryStatement {
+    return new SqlExistsQueryStatement(this._builder, this._not);
+  }
+
   public build(): IQueryStatementResult {
     let exprr = '';
     const compiled = this._builder.toDB();

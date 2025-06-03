@@ -1065,9 +1065,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public clone(): this {
     const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner);
 
-    builder._columns = this._columns.slice(0);
-    builder._joinStatements = this._joinStatements.slice(0);
-    builder._statements = this._statements.slice(0);
+    builder._columns = this._columns.map( c => c.clone());
+    builder._joinStatements = this._joinStatements.map( c => c.clone());
+    builder._statements = this._statements.map( c => c.clone());
     builder._limit = { ...this._limit };
     builder._sort = { ...this._sort };
     builder._boolean = this._boolean;

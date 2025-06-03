@@ -18,6 +18,8 @@ export interface IQueryStatement {
   TableAlias: string;
 
   build(): IQueryStatementResult;
+
+  clone(): IQueryStatement;
 }
 
 export abstract class QueryStatement implements IQueryStatement {
@@ -36,6 +38,8 @@ export abstract class QueryStatement implements IQueryStatement {
   }
 
   public abstract build(): IQueryStatementResult;
+
+  public abstract clone(): IQueryStatement;
 }
 
 @NewInstance()
@@ -137,8 +141,9 @@ export abstract class WhereStatement extends QueryStatement {
   public get IsAggregate() {
     return this._isAggregate;
   }
+ 
 
-  constructor(column: string, operator: SqlOperator, value: any, tableAlias: string, container: Container, model: Constructor<ModelBase>) {
+  constructor(column: string | Wrap, operator: SqlOperator, value: any, tableAlias: string, container: Container, model: Constructor<ModelBase>) {
     super(tableAlias);
     this._column = column;
     this._operator = operator;
@@ -385,7 +390,7 @@ export abstract class ColumnRawStatement extends QueryStatement {
 export abstract class ColumnMethodStatement extends ColumnStatement {
   protected _method: ColumnMethods;
 
-  constructor(column: string, method: ColumnMethods, alias: string, tableAlias: string) {
+  constructor(column: string | RawQuery, method: ColumnMethods, alias: string, tableAlias: string) {
     super(column, alias, tableAlias, null);
     this._method = method;
   }
