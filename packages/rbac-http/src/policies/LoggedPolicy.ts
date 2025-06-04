@@ -1,4 +1,5 @@
-import { BasePolicy, IController, IRoute, Request as sRequest, Unauthorized } from '@spinajs/http';
+import { AuthenticationFailed } from '@spinajs/exceptions';
+import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/http';
 
 /**
  * Simple policy to only check if user is authorized ( do not check permissions for routes)
@@ -12,7 +13,7 @@ export class LoggedPolicy extends BasePolicy {
 
   public async execute(req: sRequest) {
     if (!req.storage || !req.storage.User || !req.storage.Session?.Data.get('Authorized')) {
-      throw new Unauthorized('user not logged or session expired');
+      throw new AuthenticationFailed('user not logged or session expired');
     }
 
     return Promise.resolve();

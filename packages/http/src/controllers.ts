@@ -96,7 +96,6 @@ export abstract class BaseController extends AsyncService implements IController
         return next();
       }
 
-      this._log.error(err, `Route error: ${err}, stack: ${err.stack}`);
 
       const error = {
         /**
@@ -114,6 +113,9 @@ export abstract class BaseController extends AsyncService implements IController
       if (this.AppEnv === 'development') {
         error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
       }
+
+      this._log.error(err, `Error in controller ${req.method} ${this.constructor.name} at path ${req.originalUrl}`);
+
 
       let response: HttpResponse = null;
       const rMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__');
@@ -295,7 +297,7 @@ export abstract class BaseController extends AsyncService implements IController
 
       handlers.push(this.__handle_response__());
       handlers.push(this.__handle_error__() as any);
-      
+
       (this._router as any)[route.InternalType as string](path, handlers);
     }
 

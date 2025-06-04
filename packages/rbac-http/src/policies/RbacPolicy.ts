@@ -1,6 +1,6 @@
 import { AccessControl, Permission } from 'accesscontrol';
-import { BasePolicy, IController, IRoute, ServerError, Request as sRequest, Unauthorized } from '@spinajs/http';
-import { Forbidden } from '@spinajs/exceptions';
+import { BasePolicy, IController, IRoute, ServerError, Request as sRequest } from '@spinajs/http';
+import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { ACL_CONTROLLER_DESCRIPTOR } from '../decorators.js';
 import { IRbacDescriptor } from '../interfaces.js';
 import { DI } from '@spinajs/di';
@@ -41,7 +41,7 @@ export class RbacPolicy extends BasePolicy {
     }
 
     if (!req.storage || !req.storage.Session || !req.storage.User || !req.storage.Session.Data.get('Authorized')) {
-      throw new Unauthorized('user not logged or session expired');
+      throw new AuthenticationFailed('user not logged or session expired');
     }
 
     if (!permission.some(p => checkRoutePermission(req, descriptor.Resource, p).granted)) {

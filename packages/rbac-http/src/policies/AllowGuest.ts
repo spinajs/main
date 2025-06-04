@@ -1,5 +1,5 @@
-import { BasePolicy, IController, IRoute, Request as sRequest, Unauthorized } from '@spinajs/http';
-import { Forbidden } from '@spinajs/exceptions';
+import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/http';
+import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 
 /**
  * Policy to block guests
@@ -12,7 +12,7 @@ export class AllowGuest extends BasePolicy {
 
   public async execute(req: sRequest) {
     if (!req.storage || !req.storage.User) {
-      throw new Unauthorized('user not logged or session expired');
+      throw new AuthenticationFailed('user not logged or session expired');
     }
 
     const user = req.storage.User;
