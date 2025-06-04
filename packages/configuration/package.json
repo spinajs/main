@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration",
-  "version": "2.0.370",
+  "version": "2.0.371",
   "description": "framework configuration module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -52,11 +52,11 @@
     "@types/ajv-merge-patch": "^4.1.2"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "^2.0.370",
-    "@spinajs/di": "^2.0.370",
-    "@spinajs/exceptions": "^2.0.370",
-    "@spinajs/internal-logger": "^2.0.370",
-    "@spinajs/util": "2.0.370",
+    "@spinajs/configuration-common": "^2.0.371",
+    "@spinajs/di": "^2.0.371",
+    "@spinajs/exceptions": "^2.0.371",
+    "@spinajs/internal-logger": "^2.0.371",
+    "@spinajs/util": "2.0.371",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",
