@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
 /* eslint-disable prettier/prettier */
-import { Connection, Primary, Model, ModelBase } from '@spinajs/orm';
+import { Connection, Primary, Model, ModelBase, IDehydrateOptions } from '@spinajs/orm';
 import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { ConfigurationEntryType, IConfigurationEntryMeta } from '../types.js';
@@ -44,7 +44,7 @@ export class DbConfig<T = unknown> extends ModelBase {
     });
   }
 
-  public dehydrate(_omit?: string[]) {
+  public dehydrate(_options? : IDehydrateOptions) {
     return {
       ...this,
       Value: this.stringify(this.Value),
