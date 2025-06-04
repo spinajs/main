@@ -8,7 +8,7 @@ export abstract class ModelDehydrator {
 }
 
 export class StandardModelDehydrator extends ModelDehydrator {
-  public dehydrate(model: ModelBase, options? : IDehydrateOptions) {
+  public dehydrate(model: ModelBase, options?: IDehydrateOptions) {
     const obj = {};
     const relArr = [...model.ModelDescriptor.Relations.values()];
 
@@ -24,19 +24,19 @@ export class StandardModelDehydrator extends ModelDehydrator {
       }
 
       const v = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor.Converters.get(c.Name)?.Options, options) : val;
-      if(options?.skipNull && v === null) {
+      if (options?.skipNull && v === null) {
         return;
       }
 
-      if(options?.skipUndefined && v === undefined) {
-        return; 
+      if (options?.skipUndefined && v === undefined) {
+        return;
       }
 
-      if(options?.skipEmptyArray && (Array.isArray(v) && v.length === 0)) {
-        return; 
+      if (options?.skipEmptyArray && (Array.isArray(v) && v.length === 0)) {
+        return;
       }
-     
-      (obj as any)[c.Name] =v; 
+
+      (obj as any)[c.Name] = v;
     });
 
     return obj;
@@ -44,7 +44,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
 }
 
 export class StandardModelWithRelationsDehydrator extends StandardModelDehydrator {
-  public dehydrate(model: ModelBase<unknown>,  options? : IDehydrateOptions): any {
+  public dehydrate(model: ModelBase<unknown>, options?: IDehydrateOptions): any {
     const obj = super.dehydrate(model, options);
     const relArr = [...model.ModelDescriptor.Relations.values()];
 
@@ -55,7 +55,10 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
 
       if (val.Type === RelationType.One) {
         if ((model as any)[val.Name].Value) {
-          (obj as any)[val.Name] = (model as any)[val.Name].Value.dehydrateWithRelations(options);
+          (obj as any)[val.Name] = (model as any)[val.Name].Value.dehydrateWithRelations({
+            ...options,
+            omit: []
+          });
         } else {
           // if relation is not ( eg. not populated full relation data ) return at least foreign keys
           (obj as any)[val.Name] = (model as any)[val.ForeignKey];
@@ -66,7 +69,10 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
           if (v.length === 0) {
             (obj as any)[val.Name] = [];
           } else {
-            (obj as any)[val.Name] = v.map((x) => x.dehydrateWithRelations(options));
+            (obj as any)[val.Name] = v.map((x) => x.dehydrateWithRelations({
+              ...options,
+              omit: []
+            }));
           }
         }
       }
