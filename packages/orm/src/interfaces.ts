@@ -1359,6 +1359,11 @@ export interface IDehydrateOptions {
   skipEmptyArray?: boolean;
 
   /**
+   * Do not throw error if model has nullable fields and they are not set
+   */
+  ignoreNullable?: boolean;
+
+  /**
    * Datetime format to use when dehydrate DateTime fields
    * - iso - ISO 8601 format
    * - sql - SQL format (YYYY-MM-DD HH:MM:SS)

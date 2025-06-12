@@ -19,7 +19,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
       }
 
       const val = (model as any)[c.Name];
-      if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
+      if (!c.PrimaryKey && !c.Nullable && options.ignoreNullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
 
