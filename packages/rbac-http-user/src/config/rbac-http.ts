@@ -15,9 +15,23 @@ const rbacHttp = {
     },
   },
   rbac: {
+    otpauth: { 
+      /**
+       * change this to your app name, it will be used as issuer in otpauth token
+       */
+      issuer: 'Spinajs',
+
+      /**
+       * recommended defaults for rest
+       */
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      window: 1, 
+    },
     twoFactorAuth: {
       enabled: true,
-      service: 'SpeakEasy2FaToken',
+      service: 'Default2FaToken',
     },
     fingerprint: {
       enabled: false,

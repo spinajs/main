@@ -59,6 +59,7 @@
     "@spinajs/orm-http": "^2.0.373",
     "@spinajs/rbac": "^2.0.373",
     "@spinajs/rbac-http": "^2.0.373",
+    "otpauth": "9.4.0",
      "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },

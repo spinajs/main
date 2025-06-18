@@ -11,3 +11,4 @@ export * from './UserUnbanned.js';
 export * from './UserPasswordChangeRequest.js';
 export * from './UserLogged.js';
 export * from "./UserEvent.js";
+export * from "./UserLoginFailed.js";

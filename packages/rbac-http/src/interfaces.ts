@@ -69,6 +69,14 @@ export abstract class TwoFactorAuthProvider {
    * to user ( like google authenticator)
    */
   public abstract isInitialized(user: User): Promise<boolean>;
+
+  /**
+   * 
+   * Gets the OTP Auth URL for the user. It is used to generate QR code for 2fa apps like Google Authenticator.
+   * 
+   * @param user 
+   */
+  public abstract getOtpAuthUrl(user: User): Promise<string | null>;
 }
 
 export abstract class FingerprintProvider {}

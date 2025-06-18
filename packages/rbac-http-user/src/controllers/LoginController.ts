@@ -22,6 +22,13 @@ export class LoginController extends BaseController {
   })
   protected SessionExpirationTime: number;
 
+  @Config('rbac.twoFactorAuth.enabled', {
+    defaultValue: false,
+  })
+  protected TwoFactorAuthEnabled: boolean;
+
+
+
   @Config('rbac.session.cookie', {})
   protected SessionCookieConfig: any;
 
@@ -34,16 +41,46 @@ export class LoginController extends BaseController {
     try {
       const user = await auth(credentials.Email, credentials.Password);
       const session = new UserSession();
-      session.Data.set('User', user.Uuid);
-      // TEMP
-      session.Data.set('Authorized', true);
+      const coockies = [
+        {
+          Name: 'ssid',
+          Value: session.SessionId,
+          Options: {
+            signed: true,
+            httpOnly: true,
 
+            // set expiration time in ms
+            maxAge: this.SessionExpirationTime * 1000,
+
+            // any optopnal cookie options
+            // or override default ones
+            ...this.SessionCookieConfig
+          },
+        },
+      ];
+      session.Data.set('User', user.Uuid);
       // set expiration time ( default val in config )
       session.extend();
-
       await this.SessionProvider.save(session);
 
-      this._log.trace('User logged in', {
+      if (this.TwoFactorAuthEnabled) {
+
+        this._log.trace('User logged in, 2fa required', {
+          Uuid: user.Uuid
+        });
+
+        session.Data.set('Authorized', false);
+        session.Data.set('TwoFactorAuth', true);
+
+        return new Ok({
+          TwoFactorAuthRequired: true,
+          Authorized: false
+        }, {
+          Coockies: coockies,
+        })
+      }
+
+      this._log.trace('User logged in, no 2fa required', {
         Uuid: user.Uuid
       });
 
@@ -52,28 +89,14 @@ export class LoginController extends BaseController {
       const combinedGrants = Object.assign({}, ...userGrants);
 
       return new Ok({
-        ...user.dehydrate(),
+        ...user.dehydrateWithRelations({ 
+          dateTimeFormat: "iso"
+        }),
         Grants: combinedGrants,
-        Metadata: user.Metadata.map(m => m.dehydrate())
       }, {
-        Coockies: [
-          {
-            Name: 'ssid',
-            Value: session.SessionId,
-            Options: {
-              signed: true,
-              httpOnly: true,
-
-              // set expiration time in ms
-              maxAge: this.SessionExpirationTime * 1000,
-
-              // any optopnal cookie options
-              // or override default ones
-              ...this.SessionCookieConfig
-            },
-          },
-        ],
+        Coockies: coockies
       });
+
     } catch (err) {
       this._log.error(err);
 
@@ -85,112 +108,6 @@ export class LoginController extends BaseController {
       });
     }
   }
-
-  // @Post('new-password')
-  // @Policy(NotLoggedPolicy)
-  // public async setNewPassword(@Query() token: string, @Body() pwd: RestorePasswordDto) {
-  //   const user = await User.query()
-  //     .innerJoin(UserMetadata, function () {
-  //       this.where({
-  //         Key: 'password:reset:token',
-  //         Value: token,
-  //       });
-  //     })
-  //     .populate('Metadata')
-  //     .first();
-
-  //   if (!user) {
-  //     return new NotFound({
-  //       error: {
-  //         code: 'ERR_USER_NOT_FOUND',
-  //         message: 'No user found for this reset token',
-  //       },
-  //     });
-  //   }
-
-  //   const val = (await user.Metadata['password:reset:start']) as DateTime;
-  //   const now = DateTime.now().plus({ seconds: -this.PasswordResetTokenTTL });
-
-  //   if (val < now) {
-  //     return new BadRequest({
-  //       error: {
-  //         code: 'ERR_RESET_TOKEN_EXPIRED',
-  //         message: 'Password reset token expired',
-  //       },
-  //     });
-  //   }
-
-  //   if (!this.PasswordValidationService.check(pwd.Password)) {
-  //     return new BadRequest({
-  //       error: {
-  //         code: 'ERR_PASSWORD_RULE',
-  //         message: 'Invalid password, does not match password rules',
-  //       },
-  //     });
-  //   }
-
-  //   if (pwd.Password !== pwd.ConfirmPassword) {
-  //     return new BadRequest({
-  //       error: {
-  //         code: 'ERR_PASSWORD_NOT_MATCH',
-  //         message: 'Password and repeat password does not match',
-  //       },
-  //     });
-  //   }
-
-  //   const hashedPassword = await this.PasswordProvider.hash(pwd.Password);
-  //   user.Password = hashedPassword;
-
-  //   await user.update();
-
-  //   /**
-  //    * Delete all reset related meta for user
-  //    */
-  //   await user.Metadata.delete(/password:reset.*/);
-
-  //   // add to action list
-  //   await user.Actions.add(
-  //     new UserAction({
-  //       Persistent: true,
-  //       Action: 'password:reset',
-  //     }),
-  //   );
-
-  //   // inform others
-  //   await this.Queue.emit(new UserPasswordChanged(user.Uuid));
-  // }
-
-  // @Post('forgot-password')
-  // @Policy(NotLoggedPolicy)
-  // public async forgotPassword(@Body() login: UserLoginDto) {
-  //   const user = await this.AuthProvider.getByEmail(login.Email);
-
-  //   if (!user.IsActive || user.IsBanned || user.DeletedAt !== null) {
-  //     return new InvalidOperation('User is inactive, banned or deleted. Contact system administrator');
-  //   }
-
-  //   const token = uuidv4();
-
-  //   // assign meta to user
-  //   await (user.Metadata['password:reset'] = true);
-  //   await (user.Metadata['password:reset:token'] = token);
-  //   await (user.Metadata['password:reset:start'] = DateTime.now());
-
-  //   await user.Actions.add(
-  //     new UserAction({
-  //       Action: 'user:password:reset',
-  //       Data: DateTime.now().toISO(),
-  //       Persistent: true,
-  //     }),
-  //   );
-
-  //   await this.Queue.emit(new UserPasswordRestore(user.Uuid, token));
-
-  //   return new Ok({
-  //     reset_token: token,
-  //     ttl: this.PasswordResetTokenTTL,
-  //   });
-  // }
 
   @Get()
   @Policy(LoggedPolicy)
