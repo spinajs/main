@@ -9,6 +9,8 @@ import _ from 'lodash';
 import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
 import { _chain, _either } from '@spinajs/util';
 
+
+
 @BasePath('user')
 @Resource('user')
 @Policy(AuthorizedPolicy)
@@ -54,6 +56,7 @@ export class UserController extends BaseController {
 
     return new Ok(combinedGrants);
   }
+
 
   @Patch('password')
   @Permission(["updateOwn"])

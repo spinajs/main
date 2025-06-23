@@ -30,6 +30,7 @@ const rbacHttp = {
     },
     twoFactorAuth: {
       enabled: true,
+      forceUser: false,
       service: 'Default2FaToken',
     },
     fingerprint: {

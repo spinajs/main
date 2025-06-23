@@ -9,6 +9,7 @@ import { Exception } from '@spinajs/exceptions';
 export enum TWO_FA_METATADATA_KEYS {
     TOKEN = "2fa:token",
     ENABLED = "2fa:enabled",
+    OTP = "2fa:otp",
 }
 
 @Injectable(TwoFactorAuthProvider)
@@ -62,6 +63,9 @@ export class Default2FaToken extends TwoFactorAuthProvider {
         const totp = this._getOTP(user, secret.base32);
        
         user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN] = secret.base32;
+        user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED] = true;
+        user.Metadata[TWO_FA_METATADATA_KEYS.OTP] = totp.toString();
+        
         await user.Metadata.sync();
  
         this.Log.trace(`2fa token initialized for user ${user.Id}`, {

@@ -28,6 +28,10 @@ export class LoginController extends BaseController {
   protected TwoFactorAuthEnabled: boolean;
 
 
+  @Config('rbac.twoFactorAuth.forceUser', {
+    defaultValue: false,
+  })
+  protected TwoFactorAuthForceUser: boolean;
 
   @Config('rbac.session.cookie', {})
   protected SessionCookieConfig: any;
@@ -72,9 +76,9 @@ export class LoginController extends BaseController {
       // set expiration time ( default val in config )
       session.extend();
 
-      if (this.TwoFactorAuthEnabled) {
-
-        this._log.trace('User logged in, 2fa required', {
+      
+      if (this.TwoFactorAuthForceUser && !user.Metadata['2fa:enabled']) {
+        this._log.trace('User logged in, 2fa init required', {
           Uuid: user.Uuid
         });
 
@@ -82,23 +86,39 @@ export class LoginController extends BaseController {
         session.Data.set('TwoFactorAuth', true);
 
         result = {
-          TwoFactorAuthRequired: true,
+          TwoFactorInitRequired: true,
           Authorized: false
         };
-      } else {
+      }
+      else {
+        if (this.TwoFactorAuthEnabled && user.Metadata['2fa:enabled']) {
 
-        session.Data.set('Authorized', true);
+          this._log.trace('User logged in, 2fa required', {
+            Uuid: user.Uuid
+          });
 
-        const grants = this.AC.getGrants();
-        const userGrants = user.Role.map(r => _unwindGrants(r, grants));
-        const combinedGrants = Object.assign({}, ...userGrants);
+          session.Data.set('Authorized', false);
+          session.Data.set('TwoFactorAuth', true);
 
-        result = {
-          ...user.dehydrateWithRelations({
-            dateTimeFormat: "iso"
-          }),
-          Grants: combinedGrants,
-        };
+          result = {
+            TwoFactorAuthRequired: true,
+            Authorized: false
+          };
+        } else {
+
+          session.Data.set('Authorized', true);
+
+          const grants = this.AC.getGrants();
+          const userGrants = user.Role.map(r => _unwindGrants(r, grants));
+          const combinedGrants = Object.assign({}, ...userGrants);
+
+          result = {
+            ...user.dehydrateWithRelations({
+              dateTimeFormat: "iso"
+            }),
+            Grants: combinedGrants,
+          };
+        }
       }
 
       this._log.trace('User logged in, no 2fa required', {
