@@ -65,7 +65,7 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
 
     return new Proxy(this, {
       set: (target: MetadataRelation<MetadataModel<unknown>, ModelBase<unknown>>, prop: string, value: any) => {
-        if (prop in target || !isNaN(parseFloat(prop))) {
+        if (prop in target || !isNaN(Number(prop))) {
           target[prop] = value;
           return true;
         }
