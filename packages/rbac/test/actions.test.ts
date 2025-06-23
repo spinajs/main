@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, USER_COMMON_METADATA, auth, UserLogged, UserBanned } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, USER_COMMON_METADATA, login, UserLogged, UserBanned } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
@@ -171,7 +171,7 @@ describe('User model tests', function () {
   it('Should authenticate user', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
 
-    const user = await auth('test@spinajs.pl', 'bbbb');
+    const user = await login('test@spinajs.pl', 'bbbb');
 
     expect(user).to.be.not.null;
     expect(eStub.callCount).to.eq(1);
@@ -181,21 +181,21 @@ describe('User model tests', function () {
   it('Should not auth with invalid password', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
 
-    await expect(auth('test@spinajs.pl', 'bbbbssss')).to.be.rejected;
+    await expect(login('test@spinajs.pl', 'bbbbssss')).to.be.rejected;
     expect(eStub.callCount).to.eq(1);
     expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLoginFailed);
 
   });
 
   it('Should not auth with invalid login', async () => {
-    await expect(auth('testssssss@spinajs.pl', 'bbbb')).to.be.rejected;
+    await expect(login('testssssss@spinajs.pl', 'bbbb')).to.be.rejected;
   });
 
   it('Should reject auth with banned user', async () => {
 
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
 
-    await expect(auth('test-banned@spinajs.pl', 'bbbb')).to.be.rejected;
+    await expect(login('test-banned@spinajs.pl', 'bbbb')).to.be.rejected;
     expect(eStub.callCount).to.eq(1);
     expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLoginFailed);
   });
@@ -203,7 +203,7 @@ describe('User model tests', function () {
   it('Should reject auth with not active user', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
 
-    await expect(auth('test-notactive@spinajs.pl', 'bbbb')).to.be.rejected;
+    await expect(login('test-notactive@spinajs.pl', 'bbbb')).to.be.rejected;
     expect(eStub.callCount).to.eq(1);
     expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLoginFailed);
   });

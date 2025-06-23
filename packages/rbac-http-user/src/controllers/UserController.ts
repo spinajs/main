@@ -6,12 +6,12 @@ import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import * as cs from 'cookie-signature';
 import _ from 'lodash';
-import { LoggedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
 import { _chain, _either } from '@spinajs/util';
 
 @BasePath('user')
 @Resource('user')
-@Policy(LoggedPolicy)
+@Policy(AuthorizedPolicy)
 export class UserController extends BaseController {
   @Autoinject()
   protected PasswordProvider: PasswordProvider;

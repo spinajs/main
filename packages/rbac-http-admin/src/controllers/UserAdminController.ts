@@ -2,7 +2,7 @@ import { BaseController, BasePath, Get, Ok, Policy, Query } from '@spinajs/http'
 import { SortOrder } from '@spinajs/orm';
 import { CustomFilterSchema, Filter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { User } from '@spinajs/rbac';
-import { LoggedPolicy } from "@spinajs/rbac-http";
+import { AuthorizedPolicy } from "@spinajs/rbac-http";
 
 /**
  * User model filter
@@ -41,7 +41,7 @@ const USER_FILTER: CustomFilterSchema[] = [
 ];
 
 @BasePath('users')
-@Policy(LoggedPolicy)
+@Policy(AuthorizedPolicy)
 export class UserAdminController extends BaseController {
   @Get("/")
   public async list(

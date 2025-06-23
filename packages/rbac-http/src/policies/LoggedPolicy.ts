@@ -12,7 +12,7 @@ export class LoggedPolicy extends BasePolicy {
   }
 
   public async execute(req: sRequest) {
-    if (!req.storage || !req.storage.User || !req.storage.Session?.Data.get('Authorized')) {
+    if (!req.storage || !req.storage.User || !req.storage.Session?.Data.get('Logged')) {
       throw new AuthenticationFailed('user not logged or session expired');
     }
 

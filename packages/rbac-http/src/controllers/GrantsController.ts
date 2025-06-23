@@ -1,10 +1,10 @@
 import { BaseController, BasePath, Get, Ok, Policy } from '@spinajs/http';
 import { AccessControl } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
-import { LoggedPolicy } from '../policies/LoggedPolicy.js';
+import { AuthorizedPolicy } from '../policies/AuthorizedPolicy.js';
 
 @BasePath('grants')
-@Policy(LoggedPolicy)
+@Policy(AuthorizedPolicy)
 export class GrantsController extends BaseController {
 
     @Autoinject(AccessControl)

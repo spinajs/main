@@ -1,6 +1,6 @@
 import { Post, BasePath, Ok, Del, Body, Get, Query, Param, Policy, BaseController, Patch } from '@spinajs/http';
 import { User as UserModel, UserMetadata } from '@spinajs/rbac';
-import { LoggedPolicy, Permission, Resource } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
 import { AsModel, PaginationDTO, OrderDTO, Filter, IFilter, FromModel } from '@spinajs/orm-http';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
 import { InsertBehaviour, SortOrder } from '@spinajs/orm';
@@ -8,7 +8,7 @@ import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
 
 @BasePath('user')
 @Resource('user.metadata')
-@Policy(LoggedPolicy)
+@Policy(AuthorizedPolicy)
 export class UserMetadataController extends BaseController {
 
 

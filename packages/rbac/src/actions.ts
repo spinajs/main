@@ -152,7 +152,7 @@ export function _user_unsafe(identifier: number | string | User): () => Promise<
     return () => Promise.resolve(id);
   }
 
-  return () => UserBase.query().whereAnything(id).firstOrFail();
+  return () => UserBase.query().whereAnything(id).populate("Metadata").firstOrFail();
 }
 
 /**
@@ -392,7 +392,7 @@ export function passwordMatch(password: string) {
   };
 }
 
-export async function auth(identifier: number | string | User, password: string): Promise<User> {
+export async function login(identifier: number | string | User, password: string): Promise<User> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
   return await _chain(

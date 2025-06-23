@@ -10,8 +10,7 @@ const rbacHttp = {
   system: {
     dirs: {
       controllers: [dir('controllers')],
-      locales: [dir('locales')],
-      views: [dir('views')],
+      cli: [dir('cli')]
     },
   },
   rbac: {

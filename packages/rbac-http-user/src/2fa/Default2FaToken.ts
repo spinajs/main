@@ -4,6 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { TwoFactorAuthProvider } from "@spinajs/rbac-http";
 import * as OTPAuth from "otpauth";
+import { Exception } from '@spinajs/exceptions';
 
 export enum TWO_FA_METATADATA_KEYS {
     TOKEN = "2fa:token",
@@ -44,8 +45,7 @@ export class Default2FaToken extends TwoFactorAuthProvider {
         const twoFaToken = user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN];
 
         if (!twoFaToken) {
-            this.Log.trace(`Cannot verify 2fa token, no 2fa token for user ${user.Id}`);
-            return false;
+            throw new Exception(`Cannot verify 2fa token, no 2fa token for user ${user.Uuid}`);
         }
 
         const totp =  this._getOTP(user, twoFaToken);
@@ -54,7 +54,7 @@ export class Default2FaToken extends TwoFactorAuthProvider {
             window: this.Config.window,
         });
 
-        return verified! == null;
+        return verified!== null;
     }
 
     public async initialize(user: User): Promise<any> {
@@ -63,7 +63,7 @@ export class Default2FaToken extends TwoFactorAuthProvider {
        
         user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN] = secret.base32;
         await user.Metadata.sync();
-       
+ 
         this.Log.trace(`2fa token initialized for user ${user.Id}`, {
             userId: user.Id,
         });

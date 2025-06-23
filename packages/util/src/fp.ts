@@ -119,6 +119,7 @@ export function _either(cond: (arg: unknown) => Promise<unknown> | boolean, onFu
       return r.then((res: unknown) => (res ? onFulfilled(arg) : onRejected ? onRejected(arg) : null));
     }
 
+    
     return r ? onFulfilled(arg) : onRejected(arg);
   };
 }

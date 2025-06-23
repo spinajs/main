@@ -1,10 +1,10 @@
 import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, Unauthorized, Policy } from '@spinajs/http';
-import { AuthProvider, SessionProvider, auth, UserSession, AccessControl, _unwindGrants } from '@spinajs/rbac';
+import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, NotLoggedPolicy, User as UserRouteArg } from '@spinajs/rbac-http';
+import { LoggedPolicy, NotAuthorizedPolicy, User as UserRouteArg } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
 @BasePath('auth')
 export class LoginController extends BaseController {
@@ -36,11 +36,12 @@ export class LoginController extends BaseController {
   protected AC: AccessControl;
 
   @Post()
-  @Policy(NotLoggedPolicy)
+  @Policy(NotAuthorizedPolicy)
   public async login(@Body() credentials: UserLoginDto) {
     try {
-      const user = await auth(credentials.Email, credentials.Password);
+      const user = await login(credentials.Email, credentials.Password);
       const session = new UserSession();
+
       const coockies = [
         {
           Name: 'ssid',
@@ -58,10 +59,18 @@ export class LoginController extends BaseController {
           },
         },
       ];
+      let result: any = {};
+
       session.Data.set('User', user.Uuid);
+
+      // we have two states for user
+      // LOGGED - when user use proper login/password and session is created
+      // AUTHORIZED - when user is atuhenticated eg. by 2fa check. If 2fa is disabled
+      //              user is automatically authorized at login
+      session.Data.set('Logged', true);
+
       // set expiration time ( default val in config )
       session.extend();
-      await this.SessionProvider.save(session);
 
       if (this.TwoFactorAuthEnabled) {
 
@@ -72,28 +81,34 @@ export class LoginController extends BaseController {
         session.Data.set('Authorized', false);
         session.Data.set('TwoFactorAuth', true);
 
-        return new Ok({
+        result = {
           TwoFactorAuthRequired: true,
           Authorized: false
-        }, {
-          Coockies: coockies,
-        })
+        };
+      } else {
+
+        session.Data.set('Authorized', true);
+
+        const grants = this.AC.getGrants();
+        const userGrants = user.Role.map(r => _unwindGrants(r, grants));
+        const combinedGrants = Object.assign({}, ...userGrants);
+
+        result = {
+          ...user.dehydrateWithRelations({
+            dateTimeFormat: "iso"
+          }),
+          Grants: combinedGrants,
+        };
       }
 
       this._log.trace('User logged in, no 2fa required', {
         Uuid: user.Uuid
       });
 
-      const grants = this.AC.getGrants();
-      const userGrants = user.Role.map(r => _unwindGrants(r, grants));
-      const combinedGrants = Object.assign({}, ...userGrants);
 
-      return new Ok({
-        ...user.dehydrateWithRelations({ 
-          dateTimeFormat: "iso"
-        }),
-        Grants: combinedGrants,
-      }, {
+      await this.SessionProvider.save(session);
+
+      return new Ok(result, {
         Coockies: coockies
       });
 
@@ -144,91 +159,6 @@ export class LoginController extends BaseController {
     // user is taken from session data
     return new Ok(User);
   }
-
-  // protected async authenticate(user: UserModel, federated?: boolean) {
-  //   if (!user) {
-  //     return new Unauthorized({
-  //       error: {
-  //         message: 'login or password incorrect',
-  //       },
-  //     });
-  //   }
-
-  //   await user.Metadata.populate();
-
-  //   const session = new Session();
-  //   const dUser = user.dehydrate();
-  //   session.Data.set('User', dUser);
-
-  //   // we found user but we still dont know if is authorized
-  //   // eg. 2fa auth is not performed
-  //   // create session, but user is not yet authorized
-  //   session.Data.set('Authorized', false);
-
-  //   // if its federated login, skip 2fa - assume
-  //   // external login service provided it
-  //   if (this.TwoFactorConfig.enabled || !federated) {
-  //     await this.SessionProvider.save(session);
-
-  //     const enabledForUser = await this.TwoFactorAuthProvider.isEnabled(user);
-
-  //     /**
-  //      * if 2fa is enabled for user, proceed
-  //      */
-  //     if (enabledForUser) {
-  //       /**
-  //        * check if 2fa system is initialized for user eg. private key is generated.
-  //        */
-  //       const isInitialized = await this.TwoFactorAuthProvider.isInitialized(user);
-  //       if (!isInitialized) {
-  //         const twoFaResult = await this.TwoFactorAuthProvider.initialize(user);
-
-  //         return new CookieResponse(
-  //           'ssid',
-  //           session.SessionId,
-  //           this.SessionExpirationTime,
-  //           true,
-  //           {
-  //             toFactorAuth: true,
-  //             twoFactorAuthFirstTime: true,
-  //             method: this.TwoFactorConfig.service,
-  //             data: twoFaResult,
-  //           },
-  //           { httpOnly: true },
-  //         );
-  //       }
-
-  //       // give chance to execute 2fa eg. send sms or email
-  //       await this.TwoFactorAuthProvider.execute(user);
-
-  //       // return session to identify user
-  //       // and only info that twoFactor auth is requested
-  //       return new CookieResponse(
-  //         'ssid',
-  //         session.SessionId,
-  //         this.SessionExpirationTime,
-  //         true,
-  //         {
-  //           toFactorAuth: true,
-  //         },
-  //         { httpOnly: true },
-  //       );
-  //     }
-  //   }
-
-  //   // 2fa is not enabled, so we found user, it means it is logged
-  //   session.Data.set('Authorized', true);
-  //   await this.SessionProvider.save(session);
-
-  //   await this.Queue.emit(new UserLoginSuccess(user.Uuid));
-
-  //   user.LastLoginAt = DateTime.now();
-  //   await user.update();
-
-  //   // BEWARE: httpOnly coockie, only accesible via http method in browser
-  //   // return coockie session id with additional user data
-  //   return new CookieResponse('ssid', session.SessionId, this.SessionExpirationTime, true, dUser, { httpOnly: true });
-  // }
 }
 
 
