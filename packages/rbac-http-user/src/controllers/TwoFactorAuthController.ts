@@ -1,5 +1,5 @@
 import { TokenDto } from './../dto/token-dto.js';
-import { BaseController, BasePath, Ok, Post, Get, Unauthorized } from '@spinajs/http';
+import { BaseController, BasePath, Ok, Post, Get, ForbiddenResponse } from '@spinajs/http';
 import { ISession, SessionProvider, User as UserModel, _user_ev, _user_update, _unwindGrants, AccessControl } from '@spinajs/rbac';
 import { Session } from "@spinajs/rbac-http";
 import { Body, Policy } from '@spinajs/http';
@@ -73,7 +73,7 @@ export class TwoFactorAuthController extends BaseController {
         catch (err) {
             this._log.error(err);
 
-            return new Unauthorized({
+            return new ForbiddenResponse({
                 error: {
                     code: 'E_2FA_FAILED',
                     message: '2fa check failed',
