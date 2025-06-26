@@ -89,7 +89,7 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
                 }
 
                 throw new Forbidden(`User does not have permission to access ${resource}:own permission`);
-                
+
               } else if (canAny) {
                 this.Log.trace(`Resource ${resource}:any permission granted for ${storage.User.Role}, scope: ${storage.PermissionScope}`);
                 return;
@@ -101,8 +101,9 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
                   builder.andWhere(descriptor.OwnerField, storage.User.PrimaryKeyValue);
                 }
               }
-
-            throw new Forbidden(`User does not have permission to access ${resource}:read permission`);
+              else {
+                throw new Forbidden(`User does not have permission to access ${resource}:read permission`);
+              }
           } else if (builder instanceof InsertQueryBuilder) {
 
             const canAny = (ac.can(storage.User.Role) as any)['createAny'](resource).granted;
@@ -127,9 +128,10 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
                 [descriptor.OwnerField]: storage.User.PrimaryKeyValue
               })
               return;
+            } else {
+              throw new Forbidden(`User does not have permission to access ${resource}:insert permission`);
             }
 
-            throw new Forbidden(`User does not have permission to access ${resource}:insert permission`);
           }
         }
       }
