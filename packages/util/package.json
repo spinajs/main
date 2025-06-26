@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/util",
-  "version": "2.0.378",
+  "version": "2.0.379",
   "description": "utility functions shared across @spinajs framework",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -47,7 +47,7 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/exceptions": "^2.0.378",
+    "@spinajs/exceptions": "^2.0.379",
     "glob-to-regexp": "^0.4.1"
   },
   "homepage": "https://github.com/spinajs/main#readme",

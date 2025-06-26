@@ -1202,7 +1202,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
     return this.takeFirst()
       .asRaw<{ [key: string]: number }>()
-      .then((x) => x[a]);
+      .then((x) => x ? x[a] : 0);
   }
 
   public sum(column: string, as?: string): this {
