@@ -68,7 +68,9 @@ export class UserAdminController extends BaseController {
     const count = await User.query().filter(filter).count();
 
     return new Ok(
-      result.map((x) => x.dehydrateWithRelations()),
+      result.map((x) => x.dehydrateWithRelations({
+        dateTimeFormat: "iso"
+      })),
       {
         Headers: [
           {
