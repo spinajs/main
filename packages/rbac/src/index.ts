@@ -67,5 +67,10 @@ export class RbacBootstrapper extends Bootstrapper {
         IsActive: guestEnabled,
       });
     }).as('RbacGuestUserFactory');
+
+    DI.register(async (_) => {
+      const system = await User.select().where("Role",["system"]).where("Login", "__system__").firstOrFail();
+      return system;
+    }).as('RbacSystemUserFactory');
   }
 }
