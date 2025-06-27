@@ -72,7 +72,7 @@ export class UserAdminController extends BaseController {
       {
         Headers: [
           {
-            Name: 'X-Count',
+            Name: 'X-Total-Count',
             Value: count,
           },
         ],
