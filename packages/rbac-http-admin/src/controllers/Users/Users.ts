@@ -64,7 +64,6 @@ export class Users extends BaseController {
     @Filter(USER_FILTER)
     filter?: IFilter[],
   ) {
-    debugger;
     const result = await User.select()
       .populate(include)
       .take(pagination?.limit ?? 10)
