@@ -10,8 +10,9 @@ import { Autoinject } from '@spinajs/di';
 import { QueueService } from '@spinajs/queue';
 import { _chain, _check_arg, _non_empty, _non_null, _tap, _trim, _use } from '@spinajs/util';
 import { User, NotAuthorizedPolicy, } from "@spinajs/rbac-http";
-import { auth2Fa } from "./../actions/2fa.js";
+import { auth2Fa, disableUser2Fa } from "./../actions/2fa.js";
 import { enableUser2Fa } from "../actions/2fa.js";
+import { InvalidOperation } from '@spinajs/exceptions';
 
 @BasePath('auth')
 @Policy(TwoFacRouteEnabled)
@@ -30,15 +31,23 @@ export class TwoFactorAuthController extends BaseController {
     public async enable2fa(@User() user: UserModel) {
 
         if (user.Metadata['2fa:enabled']) {
-            return new Ok({
-                otp: user.Metadata['2fa:otp'],
-            });
+            throw new InvalidOperation(`User ${user.Uuid} already has 2fa enabled`);
         }
 
         const result = await enableUser2Fa(user);
         return new Ok({
             otp: result
         });
+    }
+
+    @Get('2fa/disable')
+    public async disable2Fa(@User() user: UserModel) {
+        if (!user.Metadata['2fa:enabled']) {
+            throw new InvalidOperation(`User ${user.Uuid} already has 2fa disabled`);
+        }
+
+        await disableUser2Fa(user);
+        return new Ok();
     }
 
     @Post('2fa/verify')

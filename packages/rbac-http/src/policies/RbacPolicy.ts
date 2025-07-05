@@ -24,6 +24,7 @@ export class RbacPolicy extends BasePolicy {
   }
 
   public async execute(req: sRequest, action: IRoute, instance: IController) {
+    debugger;
     const descriptor: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance);
     let permission = descriptor.Permission ?? [];
 

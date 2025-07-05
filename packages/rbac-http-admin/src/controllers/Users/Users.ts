@@ -1,8 +1,8 @@
 import { BaseController, BasePath, Get, Ok, Policy, Query } from '@spinajs/http';
 import { SortOrder } from '@spinajs/orm';
-import { CustomFilterSchema, Filter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
+import { CustomFilterSchema, Filter, FromModel, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { User } from '@spinajs/rbac';
-import { AuthorizedPolicy } from "@spinajs/rbac-http";
+import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
 
 /**
  * User model filter
@@ -38,12 +38,18 @@ const USER_FILTER: CustomFilterSchema[] = [
     Column: 'IsActive',
     Operators: ['eq'],
   },
+  {
+    Column: 'Role',
+    Operators: ['eq', 'neq']
+  }
 ];
 
 @BasePath('users')
 @Policy(AuthorizedPolicy)
-export class UserAdminController extends BaseController {
+@Resource('users')
+export class Users extends BaseController {
   @Get("/")
+  @Permission(['readAny'])
   public async list(
     @Query() pagination?: PaginationDTO,
     @Query() order?: OrderDTO,
@@ -58,6 +64,7 @@ export class UserAdminController extends BaseController {
     @Filter(USER_FILTER)
     filter?: IFilter[],
   ) {
+    debugger;
     const result = await User.select()
       .populate(include)
       .take(pagination?.limit ?? 10)
@@ -66,6 +73,7 @@ export class UserAdminController extends BaseController {
       .filter(filter);
 
     const count = await User.query().filter(filter).count();
+     
 
     return new Ok(
       result.map((x) => x.dehydrateWithRelations({
@@ -80,6 +88,11 @@ export class UserAdminController extends BaseController {
         ],
       },
     );
+  }
+
+  @Get(":user")
+  public async getSingleUser(@FromModel() user: string) {
+    return new Ok(user);
   }
 
   // @Post('/')
@@ -105,13 +118,5 @@ export class UserAdminController extends BaseController {
   //   await entity.insert();
   //   return new Ok({ Id: entity.Id });
   // }
-  // @Patch('role/add/:login/:role')
-  // @Permission('updateAny')
-  // public async addRole(@Param() login: string, @Param() role: string) {}
-  // @Patch('role/revoke/:login/:role')
-  // @Permission('updateAny')
-  // public async revokeRole(@Param() login: string, @Param() role: string) {}
-  // @Patch('update/:login')
-  // @Permission('updateAny')
-  // public async update(@Param() login: string, @Body() data: any) {}
+
 }

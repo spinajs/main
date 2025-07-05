@@ -222,26 +222,25 @@ export abstract class BaseController extends AsyncService implements IController
           return;
         }
 
-        Promise.any(
-          policies
-            .filter((p) => p.isEnabled(route, this))
-            .map((p) => {
-              return p
-                .execute(req, route, this)
-                .then(() => {
-                  this._log.trace(`Policy succeded for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method}, policy: ${p.constructor.name}`);
-                })
-                .catch((err) => {
-                  this._log.trace(`Policy failed for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method} error ${err}, policy: ${p.constructor.name}`);
-                  throw err;
-                });
-            }),
-        )
-          .then(next)
-
-          // thrown if all policy promises are rejected
-          // for simplicity return first encountered error
-          .catch((err) => next(err.errors[0]));
+        Promise.allSettled(policies
+          .filter((p) => p.isEnabled(route, this))
+          .map((p) => {
+            return p
+              .execute(req, route, this)
+              .then(() => {
+                this._log.trace(`Policy succeded for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method}, policy: ${p.constructor.name}`);
+              })
+              .catch((err) => {
+                this._log.trace(`Policy failed for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method} error ${err}, policy: ${p.constructor.name}`);
+                throw err;
+              });
+          })).then((results) => {
+            const failed = results.find(r => r.status === 'rejected');
+            if (failed) {
+              throw next(failed.reason);
+            }
+            next();
+          })
       });
       handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBefore.bind(m), route)));
 

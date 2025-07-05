@@ -1,1 +1,1 @@
-export * from "./controllers/UserAdminController.js";
+export * from "./controllers/Users/Users.js";

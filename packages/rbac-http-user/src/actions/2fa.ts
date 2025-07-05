@@ -18,6 +18,15 @@ export async function enableUser2Fa(identifier: number | string | User) {
     );
 }
 
+export async function disableUser2Fa(identifier : number | string | User) { 
+    return _chain(
+        _user_unsafe(identifier),
+        (u: User) => {
+            return _chain(_service('rbac.twoFactorAuth', TwoFactorAuthProvider), async (twoFa: TwoFactorAuthProvider) => twoFa.initialize(u), _tap(_user_ev(User2FaEnabled)));
+        },
+    );
+}
+
 /**
  * 
  * Verify 2fa token for user

@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery } from '@spinajs/orm';
+import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
 import { AccessControl, Permission } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata, UserMetadataBase } from './UserMetadata.js';
@@ -154,7 +154,7 @@ export enum USER_COMMON_METADATA {
  */
 @Connection('default')
 @Model('users')
-export class UserBase extends ModelBase {
+export class UserBase extends ModelBase<UserBase> {
   /**
    * By default should not return password & id
    * Id - to not expose internal id and predict users id / count
@@ -242,6 +242,20 @@ export class UserBase extends ModelBase {
 
   public get IsBanned(): boolean {
     return this.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] === true;
+  }
+
+  public dehydrateWithRelations(options?: IDehydrateOptions): ModelDataWithRelationData<this> {
+
+    const base = super.dehydrateWithRelations(options) as any as ModelDataWithRelationData<UserBase>
+
+    /**
+     * Hide meta keys we dont want to show publicly
+     */
+    if (base.Metadata) {
+      base.Metadata = base.Metadata.filter(m => !UserMetadataBase._hiddenKeys.includes(m.Key))
+    }
+
+    return base as any;
   }
 
   public can(resource: string, permission: string): Permission {

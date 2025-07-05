@@ -4,7 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { TwoFactorAuthProvider } from "@spinajs/rbac-http";
 import * as OTPAuth from "otpauth";
-import { Exception } from '@spinajs/exceptions';
+import { Exception, InvalidOperation } from '@spinajs/exceptions';
 
 export enum TWO_FA_METATADATA_KEYS {
     TOKEN = "2fa:token",
@@ -24,8 +24,8 @@ export class Default2FaToken extends TwoFactorAuthProvider {
         super();
     }
 
-    private _getOTP(user:  User, secret: string): OTPAuth.TOTP { 
-          return new OTPAuth.TOTP({
+    private _getOTP(user: User, secret: string): OTPAuth.TOTP {
+        return new OTPAuth.TOTP({
             issuer: this.Config.issuer,
             label: user.Email,
             algorithm: this.Config.algorithm,
@@ -49,27 +49,49 @@ export class Default2FaToken extends TwoFactorAuthProvider {
             throw new Exception(`Cannot verify 2fa token, no 2fa token for user ${user.Uuid}`);
         }
 
-        const totp =  this._getOTP(user, twoFaToken);
+        const totp = this._getOTP(user, twoFaToken);
         const verified = totp.validate({
             token: token,
             window: this.Config.window,
         });
 
-        return verified!== null;
+        return verified !== null;
+    }
+
+    public async disable(user: User): Promise<void> {
+
+        user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN] = undefined;
+        user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED] = undefined;
+        user.Metadata[TWO_FA_METATADATA_KEYS.OTP] = undefined;
+
+        await user.Metadata.sync();
+
+        this.Log.trace(`2fa token removed for user ${user.Uuid}`, {
+            user: {
+                Uuid: user.Uuid
+            },
+        });
     }
 
     public async initialize(user: User): Promise<any> {
+
+        if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
+            throw new InvalidOperation(`user ${user.Uuid} alread have enabled 2f, disable it first.`);
+        }
+
         const secret = new OTPAuth.Secret({ size: this.Config.secretSize });
         const totp = this._getOTP(user, secret.base32);
-       
+
         user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN] = secret.base32;
         user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED] = true;
         user.Metadata[TWO_FA_METATADATA_KEYS.OTP] = totp.toString();
-        
+
         await user.Metadata.sync();
- 
-        this.Log.trace(`2fa token initialized for user ${user.Id}`, {
-            userId: user.Id,
+
+        this.Log.trace(`2fa token initialized for user ${user.Uuid}`, {
+            user: {
+                Uuid: user.Uuid
+            },
         });
 
         /**
@@ -78,7 +100,7 @@ export class Default2FaToken extends TwoFactorAuthProvider {
         return totp.toString();
     }
 
-    public async getOtpAuthUrl (user: User): Promise<string | null> {
+    public async getOtpAuthUrl(user: User): Promise<string | null> {
         const token = user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN];
 
         if (!token) {

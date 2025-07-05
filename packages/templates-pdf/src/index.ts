@@ -86,7 +86,7 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
 
       browser = await puppeteer.launch(this.Options.args);
       const page = await browser.newPage();
-
+ 
       page
         .on('console', (message) => this.Log.trace(`${message.type().substr(0, 3).toUpperCase()} ${message.text()}`))
         .on('pageerror', ({ message }) => this.Log.error(message))

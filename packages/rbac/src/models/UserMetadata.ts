@@ -13,6 +13,12 @@ export class UserMetadataBase extends MetadataModel<UserMetadataBase> {
 
   protected _hidden: string[] = ['user_id', 'User'];
 
+  /**
+   * Metadata keys that should be not visible when dehydrating User model
+   * eg. security data, system data or any other internal variables that should not be exposed publicly
+   */
+  public static _hiddenKeys: string[] = [];
+
   @BelongsTo('User')
   public User: SingleRelation<User>;
 

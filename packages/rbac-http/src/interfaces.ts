@@ -16,6 +16,7 @@ declare module '@spinajs/http' {
   }
 }
 
+
 export interface IRbacDescriptor {
   /**
    * Resource name
@@ -47,6 +48,13 @@ export abstract class TwoFactorAuthProvider {
    * generate secret key if this provider use is needs it or null
    */
   public abstract initialize(user: User): Promise<any | null>;
+
+  /**
+   * Disable for user 2fa
+   * 
+   * @param user 
+   */
+  public abstract disable(user : User) : Promise<void>;
 
   /**
    * Perform action eg. send sms or email. Some 2fac implementations do nothing eg. google auth or hardware keys

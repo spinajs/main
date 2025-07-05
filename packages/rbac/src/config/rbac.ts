@@ -196,6 +196,9 @@ const rbac = {
        */
       passwordResetWaitTime: 60 * 60,
     },
+    user: { 
+      profile: "BasicProfileProvider"
+    },
     session: {
       service: 'MemorySessionStore',
 
