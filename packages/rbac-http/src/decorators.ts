@@ -48,9 +48,7 @@ function descriptor(callback: (controller: IRbacDescriptor, target: any, propert
  * @param permission - default permission
  */
 export function Resource(resource: string, permission: PermissionType[] = ['readOwn']) {
-  return descriptor((metadata: IRbacDescriptor, target: any) => {
-    Policy(RbacPolicy)(target, null, null);
-
+  return descriptor((metadata: IRbacDescriptor) => {
     metadata.Resource = resource;
     metadata.Permission = permission;
   });

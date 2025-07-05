@@ -122,7 +122,7 @@ const rbac = {
     ],
     grants: {
       'admin.users': {
-        user: {
+        users: {
           'create:any': ['*'],
           'read:any': ['*'],
           'update:any': ['*'],

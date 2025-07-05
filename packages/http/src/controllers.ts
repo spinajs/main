@@ -236,7 +236,7 @@ export abstract class BaseController extends AsyncService implements IController
               });
           })).then((results) => {
             const failed = results.find(r => r.status === 'rejected');
-            if (failed) {
+            if (failed && "reason" in failed) {
               throw next(failed.reason);
             }
             next();
