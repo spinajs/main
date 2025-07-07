@@ -19,7 +19,13 @@ const fs = {
         cleanupInterval: 3600 * 1000, // clean every hour
 
         // in seconds
-        maxFileAge: 24 * 3600, // 1 day for temp files
+        maxFileAge: 24 * 3600, // 1 day for temp files,
+        signer: {
+          service: "CloudFrontUrlSigner",
+          privateKey: "",
+          publicKeyId: "",
+          domain: "",
+        },
       },
     ],
   },

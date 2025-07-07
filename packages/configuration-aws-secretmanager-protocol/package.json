@@ -53,7 +53,8 @@
     "@spinajs/configuration-common": "^2.0.381",
     "@spinajs/di": "^2.0.381",
     "@spinajs/internal-logger": "^2.0.381",
-    "@aws-sdk/client-secrets-manager": "^3.709.0"
+    "@aws-sdk/client-secrets-manager": "^3.840.0",
+    "@aws-sdk/client-ssm": "^3.840.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

@@ -60,8 +60,9 @@
     "@spinajs/di": "^2.0.381",
     "@spinajs/fs": "^2.0.381",
     "@spinajs/log": "^2.0.381",
-    "@aws-sdk/client-s3":"^3.470.0",
-    "@aws-sdk/lib-storage": "^3.470.0",
+    "@aws-sdk/client-s3":"^3.821.0",
+    "@aws-sdk/cloudfront-signer": "^3.821.0",
+    "@aws-sdk/lib-storage": "^3.821.0",
     "iconv-lite": "^0.6.2",
     "lodash": "^4.17.21",
      "luxon": "^3.6.1"

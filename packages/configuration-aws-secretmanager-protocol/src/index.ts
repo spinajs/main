@@ -3,13 +3,16 @@ import { InternalLogger } from '@spinajs/internal-logger';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { Injectable, Singleton } from '@spinajs/di';
 
+export * from "./awsParameterStoreProtocol.js";
+
+
 @Singleton()
 @Injectable(ConfigVarProtocol)
 export class AwsSecretsManagerVarProtocol extends ConfigVarProtocol {
   protected Client: SecretsManagerClient;
 
   get Protocol(): string {
-    return 'aws://';
+    return 'aws-sercrets://';
   }
 
   public async getVar(path: string, configuration: any): Promise<unknown> {

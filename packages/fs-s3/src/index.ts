@@ -1,4 +1,4 @@
-import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Autoinject, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { fs, IStat, IZipResult, FileSystem, FileInfoService, IFileInfo } from '@spinajs/fs';
 import {
@@ -10,18 +10,29 @@ import {
   ListObjectsV2Command,
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
+
 import { Upload } from '@aws-sdk/lib-storage';
 import { Config } from '@spinajs/configuration';
 import path, { basename } from 'path';
-import { InvalidArgument, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
 import { createReadStream, existsSync } from 'fs';
 import { DateTime } from 'luxon';
 import { Readable } from 'stream';
 import iconv from 'iconv-lite';
+import { CloudUrlSigner } from './interfaces.js';
+
+export * from './cloudFronUrlSigner.js';
 
 export interface IS3Config {
   bucket: string;
   name: string;
+
+  signer?: {
+    service: string;
+    privateKey: string;
+    publicKeyId: string;
+    domain: string;
+  }
 }
 
 /**
@@ -53,6 +64,8 @@ export class fsS3 extends fs {
   @Autoinject()
   protected FileInfo: FileInfoService;
 
+  protected Signer?: CloudUrlSigner;
+
   /**
    * Name of provider. We can have multiple providers of the same type but with different options.
    * Also used in InjectService decorator for mapping
@@ -78,6 +91,10 @@ export class fsS3 extends fs {
         },
       }),
     );
+
+    if (this.Options.signer) {
+      this.Signer = await DI.resolve(this.Options.signer.service, [this.Options.signer]);
+    }
   }
 
   /**
@@ -101,7 +118,7 @@ export class fsS3 extends fs {
     return new Promise((resolve, reject) => {
       if (result.Body instanceof Readable) {
         result.Body.pipe(wStream)
-          .on('error', (err : Error) => reject(err))
+          .on('error', (err: Error) => reject(err))
           .on('close', () => resolve(tmpName));
       } else {
         reject(new IOFail(`Cannot download file ${path}, empty response`));
@@ -195,7 +212,7 @@ export class fsS3 extends fs {
     await this.upload(fLocal, path);
   }
 
-  public async metadata(path: string) : Promise<IFileInfo> {
+  public async metadata(path: string): Promise<IFileInfo> {
     const command = new HeadObjectCommand({
       Bucket: this.Options.bucket,
       Key: path,
@@ -423,14 +440,20 @@ export class fsS3 extends fs {
     };
   }
 
-  // protected async getSignedUrl(path: string) {
+  protected async getSignedUrl(path: string) {
 
-  //   return this.S3.getSignedUrlPromise('getObject', {
-  //     Bucket: this.Options.bucket,
-  //     Key: path,
-  //     Expires: 24 * 60 * 60,
-  //   });
-  // }
+    if (!this.Signer) {
+      throw new InvalidOperation(`Cannot sign url for this S3, no signer service configured`);
+    }
+
+    const exists = await this.exists(path);
+    if(!exists){
+      throw new IOFail(`File ${path} does not exists in bucket ${this.Options.bucket}, fs: ${this.Options.name}`);
+    }
+    
+
+    return this.Signer.sign(path);
+  }
 
   public tmppath(): string {
     throw new MethodNotImplemented('fs s3 does not support temporary paths');
