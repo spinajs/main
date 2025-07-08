@@ -15,7 +15,7 @@ declare module '@spinajs/orm' {
      *
      * @param filter
      */
-    filter(filter: IFilter[]): this;
+    filter(filter: IFilter[], filters? : IColumnFilter<unknown>[]): this;
   }
 
   namespace ModelBase {
@@ -25,7 +25,7 @@ declare module '@spinajs/orm' {
      */
     export function filterSchema(): any;
 
-    export function filterColumns(): IColumnFilter[];
+    export function filterColumns(): IColumnFilter<unknown>[];
 
     /**
      * 

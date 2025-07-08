@@ -27,7 +27,7 @@ export class AwsSecretsManagerVarProtocol extends ConfigVarProtocol {
         }
 
         const command = new GetParameterCommand({
-            Name: name,
+            Name: path,
             WithDecryption: true, // Set to false if it's not a SecureString
         });
 

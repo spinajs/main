@@ -440,7 +440,7 @@ export class fsS3 extends fs {
     };
   }
 
-  protected async getSignedUrl(path: string) {
+  public async getSignedUrl(path: string) {
 
     if (!this.Signer) {
       throw new InvalidOperation(`Cannot sign url for this S3, no signer service configured`);

@@ -1,5 +1,5 @@
 import { IModelDescriptor, ModelBase, _prepareColumnDesc, extractDecoratorPropertyDescriptor, extractModelDescriptor } from '@spinajs/orm';
-import { FilterableOperators } from './interfaces.js';
+import { FilterableOperators, IColumnFilter } from './interfaces.js';
 import { Constructor, isConstructor } from '@spinajs/di';
 import { Parameter, Route } from '@spinajs/http';
 
@@ -38,8 +38,7 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
   });
 }
 
-export type CustomFilterSchema = { Column: string; Operators: FilterableOperators[] };
-
-export function Filter(model: Constructor<ModelBase> | CustomFilterSchema[]) {
+ 
+export function Filter(model: Constructor<ModelBase> | IColumnFilter<unknown>[]) {
   return Route(Parameter('FilterModelRouteArg', null, model));
 }

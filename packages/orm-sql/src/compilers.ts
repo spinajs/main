@@ -274,11 +274,13 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
       return this.recursive(this._builder as IWithRecursiveBuilder);
     }
 
+    // WHERE is first
+    // it can change table alias eg. exists statement
+    const where = this.where(this._builder as IWhereBuilder<unknown>);
     const columns = this.select();
     const from = this.from();
     const limit = this.limit();
     const sort = this.sort();
-    const where = this.where(this._builder as IWhereBuilder<unknown>);
     const having = this.having(this._builder as IWhereBuilder<unknown>);
     const join = this.join(this._builder as IJoinBuilder);
     const group = this.group(this._builder as IGroupByBuilder);

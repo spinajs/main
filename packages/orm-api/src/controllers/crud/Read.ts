@@ -77,7 +77,7 @@ export class CrudRead extends Crud {
       .select('*')
       .populate(includes)
       .order(getParams.order, getParams.orderDirection ?? SortOrder.ASC)
-      .skip(getParams.page * getParams.perPage ?? 0)
+      .skip(getParams.page * getParams.perPage)
       .take(getParams.perPage ?? 10);
 
     // apply basic filters

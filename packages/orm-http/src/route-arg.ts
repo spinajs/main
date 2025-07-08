@@ -2,8 +2,8 @@ import { IContainer, Inject, Injectable, Container, Constructor } from '@spinajs
 import { IRoute, IRouteCall, IRouteParameter, ParameterType, RouteArgs } from '@spinajs/http';
 import { ModelBase } from '@spinajs/orm';
 import express from 'express';
-import { CustomFilterSchema } from './decorators.js';
-
+import { IColumnFilter } from './interfaces.js';
+ 
 @Injectable()
 @Inject(Container)
 export class FilterModelRouteArg extends RouteArgs {
@@ -21,7 +21,7 @@ export class FilterModelRouteArg extends RouteArgs {
     return 'FilterModelRouteArg';
   }
 
-  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<Constructor<ModelBase> | CustomFilterSchema[]>, req: express.Request, _res: express.Response, route: IRoute) {
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<Constructor<ModelBase> | IColumnFilter<unknown>[]>, req: express.Request, _res: express.Response, route: IRoute) {
     const filter = req.query[param.Name] ?? req.body?.[param.Name];
 
     // we extract route param schema extract, not dectorator
@@ -44,14 +44,14 @@ export class FilterModelRouteArg extends RouteArgs {
         type: 'array',
         items: {
           type: 'object',
-          anyOf: (param.Options as CustomFilterSchema[]).map((x) => {
+          anyOf: (param.Options as IColumnFilter<unknown>[]).map((x) => {
             return {
               type: 'object',
               required: ['Column', 'Value', 'Operator'],
               properties: {
-                Column: { const: x.Column },
+                Column: { const: x.column },
                 Value: { type: ['string', 'integer', 'array'] },
-                Operator: { type: 'string', enum: x.Operators },
+                Operator: { type: 'string', enum: x.operators },
               },
             };
           }),

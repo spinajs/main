@@ -1,6 +1,6 @@
 import { BaseController, BasePath, Get, Ok, Policy, Query } from '@spinajs/http';
 import { SortOrder } from '@spinajs/orm';
-import { CustomFilterSchema, Filter, FromModel, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
+import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { User } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
 
@@ -9,38 +9,65 @@ import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
  * We declare it here to not include orm-http in rbac module
  * and add unnessesery dependency
  */
-const USER_FILTER: CustomFilterSchema[] = [
+const USER_FILTER: IColumnFilter<User>[] = [
   {
-    Column: 'Uuid',
-    Operators: ['eq'],
+    column: 'Uuid',
+    operators: ['eq'],
   },
   {
-    Column: 'Email',
-    Operators: ['eq', 'like'],
+    column: 'Email',
+    operators: ['eq', 'like'],
   },
   {
-    Column: 'Login',
-    Operators: ['eq', 'like'],
+    column: 'Login',
+    operators: ['eq', 'like'],
   },
   {
-    Column: 'CreatedAt',
-    Operators: ['eq', 'gte', 'lte', 'lt', 'gt'],
+    column: 'CreatedAt',
+    operators: ['eq', 'gte', 'lte', 'lt', 'gt'],
   },
   {
-    Column: 'LastLoginAt',
-    Operators: ['eq', 'gte', 'lte', 'lt', 'gt'],
+    column: 'LastLoginAt',
+    operators: ['eq', 'gte', 'lte', 'lt', 'gt'],
   },
   {
-    Column: 'DeletedAt',
-    Operators: ['eq', 'gte', 'lte', 'lt', 'gt', 'isnull', 'notnull'],
+    column: 'DeletedAt',
+    operators: ['eq', 'gte', 'lte', 'lt', 'gt', 'isnull', 'notnull'],
   },
   {
-    Column: 'IsActive',
-    Operators: ['eq'],
+    column: 'IsActive',
+    operators: ['eq'],
   },
   {
-    Column: 'Role',
-    Operators: ['eq', 'neq']
+    column: 'Role',
+    operators: ['eq', 'neq']
+  },
+  {
+    column: 'user:niceName',
+    operators: ['eq', 'neq', 'like', 'b-like', 'e-like'],
+    query: (operator: FilterableOperators, value: any) => {
+      return function () {
+        this.whereExist("Metadata", function () {
+          this.where('Key', "user:niceName");
+          switch (operator) {
+            case 'eq':
+            case 'neq':
+              this.where('Value', operator, value)
+              break;
+            case 'like':
+              this.where('Value', operator, `%${value}%`)
+              break;
+            case 'b-like':
+              this.where('Value', operator, `%${value}`)
+              break;
+            case 'e-like':
+              this.where('Value', operator, `${value}%`)
+              break;
+
+          }
+        })
+      }
+    }
   }
 ];
 
@@ -64,15 +91,16 @@ export class Users extends BaseController {
     @Filter(USER_FILTER)
     filter?: IFilter[],
   ) {
+
     const result = await User.select()
       .populate(include)
       .take(pagination?.limit ?? 10)
       .skip(pagination?.limit * pagination?.page)
       .order(order?.column ?? 'CreatedAt', order?.order ?? SortOrder.DESC)
-      .filter(filter);
+      .filter(filter, USER_FILTER);
 
-    const count = await User.query().filter(filter).count();
-     
+    const count = await User.query().filter(filter, USER_FILTER).count();
+
 
     return new Ok(
       result.map((x) => x.dehydrateWithRelations({

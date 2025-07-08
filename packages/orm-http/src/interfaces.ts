@@ -1,5 +1,5 @@
 import { Class } from '@spinajs/di';
-import { ModelBase, SelectQueryBuilder, SortOrder } from '@spinajs/orm';
+import { ModelBase, SelectQueryBuilder, SortOrder, WhereFunction } from '@spinajs/orm';
 import { Schema } from '@spinajs/validation';
 
 @Schema('http://json-schema.org/draft-07/schema#')
@@ -25,9 +25,10 @@ export interface ITransformOptions {
   model: Class<ModelBase<unknown>>;
 }
 
-export interface IColumnFilter {
-  column: string;
+export interface IColumnFilter<T> {
+  column?: string;
   operators: FilterableOperators[];
+  query?: (operator : FilterableOperators, value: any) => WhereFunction<T>
 }
 
 export interface IFilter {

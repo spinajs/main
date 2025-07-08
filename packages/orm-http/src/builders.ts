@@ -4,14 +4,14 @@ import { IFilter, IColumnFilter } from './interfaces.js';
 /**
  * Extend where builder with  flter func old style ( by prototype )
  */
-(SelectQueryBuilder.prototype as any).filter = function (this: SelectQueryBuilder<any>, filters?: IFilter[]) {
+(SelectQueryBuilder.prototype as any).filter = function (this: SelectQueryBuilder<any>, filters?: IFilter[], filterColumns?: IColumnFilter<unknown>[]) {
 
 
   if (!filters || filters.length === 0) {
     return this;
   }
 
-  const columns: IColumnFilter[] = (this._model as any).filterColumns();
+  const columns: IColumnFilter<unknown>[] = filterColumns ?? (this._model as any).filterColumns();
   filters.forEach((filter) => {
 
     if (!filter.Column) {
@@ -22,12 +22,18 @@ import { IFilter, IColumnFilter } from './interfaces.js';
       throw new Error('Operator is required');
     }
 
-    if (!columns.find((c) => c.column === filter.Column)) {
+    const column = columns.find((c) => c.column === filter.Column);
+    if (!column) {
       throw new Error(`Column ${filter.Column} is not filterable`);
     }
 
-    // TODO: in futere add full expression tree support ( OR, AND, maybe nesting queries for relations, EXISTS maybe ?)
+    if (column.query) {
+      column.query(filter.Operator, filter.Value).call(this);
+      return this;
+    }
 
+
+    // TODO: in futere add full expression tree support ( OR, AND, maybe nesting queries for relations, EXISTS maybe ?)
     switch (filter.Operator) {
       case 'eq':
         this.andWhere(filter.Column, SqlOperator.EQ, filter.Value);
