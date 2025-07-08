@@ -13,7 +13,6 @@ export abstract class SqlDriver extends OrmDriver {
 
   public execute(builder: Builder<any>) {
     try {
-      debugger;
       const compiled = builder.toDB();
 
       if (Array.isArray(compiled)) {
