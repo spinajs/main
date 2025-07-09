@@ -127,7 +127,12 @@ export class Users extends BaseController {
 
     const result = await User.select()
       .leftJoin(UserMetadataBase, function () {
+
+        // TODO: allow to inject custom meta props that need to be selected
+        // eg. user:niceName, user:avatar etc.
+        // this is used for filtering / sorting by custom meta props
         this.where('Key', 'user:niceName');
+        this.select('Value', "user:niceName")
       })
       .populate(include)
       .take(pagination?.limit ?? 10)

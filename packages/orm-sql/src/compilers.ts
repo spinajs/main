@@ -71,7 +71,7 @@ export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
     const bindings: string[] = [];
 
     if (sort) {
-      stmt = ` ORDER BY ${sort.column} ${sort.order}`;
+      stmt = ` ORDER BY \`${sort.column}\` ${sort.order}`;
     }
 
     return {
