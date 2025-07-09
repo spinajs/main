@@ -201,12 +201,12 @@ export class SqlJoinStatement extends JoinStatement {
     let foreignKey = this._foreignKey;
 
     if (this._alias) {
-      primaryKey = `\`${this._alias}\`.${this._foreignKey}`;
+      primaryKey = `\`${this._alias}\`.${this._primaryKey}`;
     }
 
     if (this._tableAlias) {
       table = `${this._database ? `\`${this._database}\`.` : ''}\`${this._table}\` as \`${this._method === JoinMethod.RECURSIVE ? this._alias : this._tableAlias}\``;
-      foreignKey = `\`${this._tableAlias}\`.${this._primaryKey}`;
+      foreignKey = `\`${this._tableAlias}\`.${this._foreignKey}`;
     }
 
     return {

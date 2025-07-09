@@ -1,7 +1,7 @@
 import { BaseController, BasePath, Body, Get, Ok, Patch, Policy, Query } from '@spinajs/http';
 import { SortOrder } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { User } from '@spinajs/rbac';
+import { User, UserMetadataBase } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
 import { Schema } from '@spinajs/validation';
 
@@ -126,6 +126,9 @@ export class Users extends BaseController {
   ) {
 
     const result = await User.select()
+      .leftJoin(UserMetadataBase, function () {
+        this.where('Key', 'user:niceName');
+      })
       .populate(include)
       .take(pagination?.limit ?? 10)
       .skip(pagination?.limit * pagination?.page)
@@ -193,8 +196,8 @@ export class Users extends BaseController {
     user.Role = data.Role ? [data.Role] : user.Role;
 
     if (data.Metadata) {
-      for(const key in data.Metadata) {
-         user.Metadata[key] = data.Metadata[key];
+      for (const key in data.Metadata) {
+        user.Metadata[key] = data.Metadata[key];
       }
     }
 
