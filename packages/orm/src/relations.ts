@@ -112,7 +112,7 @@ export class BelongsToRelation extends OrmRelation {
       this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
     }
 
-    this._query.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.ForeignKey, `${this._description.PrimaryKey}`, this._targetModelDescriptor.Driver.Options.Database);
+    this._query.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.PrimaryKey, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
 
     this._relationQuery.Relations.forEach((r) => r.compile());
 
