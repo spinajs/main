@@ -10,6 +10,8 @@ export * from "./controllers/TwoFactorAuthController.js";
 export * from "./cli/EnableUser2Fa.js";
 export * from "./2fa/Default2FaToken.js";
 
+export * from './actions/2fa.js';
+
 
 @Injectable(Bootstrapper)
 export class RbacHttpUserBootstrapper extends Bootstrapper {
@@ -17,7 +19,6 @@ export class RbacHttpUserBootstrapper extends Bootstrapper {
         UserMetadataBase._hiddenKeys = [
             ...UserMetadataBase._hiddenKeys,
             TWO_FA_METATADATA_KEYS.TOKEN,
-            TWO_FA_METATADATA_KEYS.ENABLED,
             TWO_FA_METATADATA_KEYS.OTP
         ]
     }

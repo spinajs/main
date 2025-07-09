@@ -13,8 +13,16 @@ const rbacHttp = {
       cli: [dir('cli')]
     },
   },
+  queue: {
+    routing: {
+      User2FaDisabled: { connection: 'rbac-user-empty-queue' },
+      User2FaEnabled: { connection: 'rbac-user-empty-queue' },
+      User2FaPassed: { connection: 'rbac-user-empty-queue' },
+      User2FaReset: { connection: 'rbac-user-empty-queue' },
+    },
+  },
   rbac: {
-    otpauth: { 
+    otpauth: {
       /**
        * change this to your app name, it will be used as issuer in otpauth token
        */
@@ -26,7 +34,7 @@ const rbacHttp = {
       algorithm: 'SHA1',
       digits: 6,
       period: 30,
-      window: 1, 
+      window: 1,
     },
     twoFactorAuth: {
       enabled: true,
@@ -38,8 +46,8 @@ const rbacHttp = {
       maxDevices: 3,
       service: 'FingerprintJs',
     },
-    session:{ 
-      cookie: { 
+    session: {
+      cookie: {
         sameSite: 'lax'
       }
     },

@@ -1,4 +1,4 @@
-import { _check_arg, _non_nil } from '@spinajs/util';
+import { _check_arg, _non_empty, _non_nil } from '@spinajs/util';
 import { Primary, UniversalConverter } from './decorators.js';
 import { IRelationDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
@@ -60,8 +60,34 @@ export abstract class MetadataModel<T> extends ModelBase<MetadataModel<T>> {
 export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>> extends OneToManyRelationList<R, O> {
   [key: string]: any;
 
+  /**
+   * 
+   * Delete metadata by key in DB
+   * 
+   * @param key key of the metadata to get
+   * @returns 
+   */
+  public async delete(key: string) {
+    const k = _check_arg(_non_empty())(key, 'key');
+
+    const model = await this.Relation.TargetModel.where({
+      Key: k,
+      user_id: this.Owner.PrimaryKeyValue,
+    }).first();
+
+    if (_.isNil(model)) {
+      return;
+    }
+
+    await model.destroy();
+    this.remove((x) => x.Key === k);
+  }
+
+
   constructor(owner: O, relation: IRelationDescriptor, objects?: R[]) {
     super(owner, relation, objects);
+
+
 
     return new Proxy(this, {
       set: (target: MetadataRelation<MetadataModel<unknown>, ModelBase<unknown>>, prop: string, value: any) => {

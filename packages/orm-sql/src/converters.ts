@@ -4,18 +4,18 @@ import { DateTime } from 'luxon';
 const DATE_NUMERICAL_TYPES = ['int', 'integer', 'float', 'double', 'decimal', 'bigint', 'smallint', 'tinyint', 'mediumint'];
 
 export class SqlSetConverter implements IValueConverter {
-  public toDB(value: unknown[]) {
-    if (value) {
+  public toDB(value: unknown) {
+    if (value && Array.isArray(value)) {
       return value.join(',');
     }
-    return '';
+    return value;
   }
 
   public fromDB(value: string | string[]) {
     if (typeof value === 'string') {
       return value.split(',');
     }
-    return value ?? [];
+    return value ?? [value];
   }
 }
 
@@ -45,7 +45,7 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
       dt = DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value);
     }
 
-    
+
     if (dehydrateOptions && dehydrateOptions.dateTimeFormat) {
       switch (dehydrateOptions.dateTimeFormat) {
         case 'iso':

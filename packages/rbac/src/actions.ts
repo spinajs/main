@@ -58,7 +58,7 @@ export function _set_user_meta(meta: string | { key: string; value: any }[], val
 
     await _chain(
       u,
-      _tap(() => u.Metadata.sync()),
+      _tap(() => u.Metadata.update()),
       _user_ev(UserMetadataChange, () => {
         return mArgs.map((m: string | { key: string; value: any }) => {
           return _.isString(m) ? { key: m, value } : m;

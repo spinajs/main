@@ -3,10 +3,11 @@ import { Unauthorized } from "@spinajs/http";
 import _ from 'lodash';
 import { _service } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
-import { _chain, _check_arg, _non_empty, _non_null, _map, _trim, _use, _catch, _either, _tap} from '@spinajs/util';
+import { _chain, _check_arg, _non_empty, _non_null, _map, _trim, _use, _catch, _either, _tap } from '@spinajs/util';
 import { User2FaPassed } from '../events/User2FaPassed.js';
 import { User2FaEnabled } from '../events/User2FaEnabled.js';
 import { TwoFactorAuthProvider, } from '@spinajs/rbac-http';
+import { User2FaReset } from '../events/User2FaReset.js';
 
 
 export async function enableUser2Fa(identifier: number | string | User) {
@@ -18,11 +19,23 @@ export async function enableUser2Fa(identifier: number | string | User) {
     );
 }
 
-export async function disableUser2Fa(identifier : number | string | User) { 
+export async function disableUser2Fa(identifier: number | string | User) {
     return _chain(
         _user_unsafe(identifier),
         (u: User) => {
-            return _chain(_service('rbac.twoFactorAuth', TwoFactorAuthProvider), async (twoFa: TwoFactorAuthProvider) => twoFa.initialize(u), _tap(_user_ev(User2FaEnabled)));
+            return _chain(_service('rbac.twoFactorAuth', TwoFactorAuthProvider), async (twoFa: TwoFactorAuthProvider) => twoFa.disable(u), _tap(_user_ev(User2FaEnabled)));
+        },
+    );
+}
+
+export async function resetUser2Fa(identifier: number | string | User) {
+    return _chain(
+        _user_unsafe(identifier),
+        (u: User) => {
+            return _chain(_service('rbac.twoFactorAuth', TwoFactorAuthProvider),
+                _tap(async (twoFa: TwoFactorAuthProvider) => twoFa.disable(u)),
+            ),
+            _tap(_user_ev(User2FaReset));   
         },
     );
 }

@@ -1,8 +1,41 @@
-import { BaseController, BasePath, Get, Ok, Policy, Query } from '@spinajs/http';
+import { BaseController, BasePath, Body, Get, Ok, Patch, Policy, Query } from '@spinajs/http';
 import { SortOrder } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { User } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
+import { Schema } from '@spinajs/validation';
+
+@Schema({
+  type: 'object',
+  $id: 'arrow.common.userDto',
+  properties: {
+    Login: { type: 'string', minLength: 3, maxLength: 32 },
+    Email: { type: 'string', format: 'email' },
+    Role: { type: 'string', minLength: 1, maxLength: 32 },
+    Metadata: {
+      type: 'object',
+      $id: 'arrow.common.userMetadata',
+      properties: {
+        Key: { type: 'string', minLength: 1, maxLength: 64 },
+        Value: { type: 'string', minLength: 0, maxLength: 256 },
+      },
+      additionalProperties: true,
+      description: 'Additional metadata for the user, can be used to store custom data',
+    },
+  },
+  required: ['Login', 'Email', 'Role'],
+})
+class UserDto {
+  public Login: string;
+  public Email: string;
+  public Role: string;
+
+  public Metadata?: { [key: string]: any };
+
+  constructor(data: Partial<UserDto>) {
+    Object.assign(this, data);
+  }
+}
 
 /**
  * User model filter
@@ -118,32 +151,58 @@ export class Users extends BaseController {
   }
 
   @Get(":user")
-  public async getSingleUser(@FromModel() user: string) {
-    return new Ok(user);
+  public async getSingleUser(@FromModel({ queryField: "Uuid" }) user: User, @Query({
+    type: 'array',
+    items: {
+      type: 'string',
+      enum: ['Metadata'],
+    },
+  })
+  include?: string[]) {
+    // linter hack, to alow incldue param,it is used by FromModel qery arg
+    include;
+    return new Ok(user.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
-  // @Post('/')
-  // public async addUser(@Body() user: UserDto) {
-  //   const password = this._container.resolve<PasswordProvider>(PasswordProvider);
-  //   if (user.Password !== user.ConfirmPassword) {
-  //     throw new InvalidArgument('password does not match');
-  //   }
-  //   let hashedPassword = '';
-  //   let userPassword = user.Password;
-  //   if (!userPassword) {
-  //     userPassword = password.generate();
-  //   }
-  //   hashedPassword = await password.hash(userPassword);
-  //   const entity = new User({
-  //     Email: user.Email,
-  //     Login: user.Login,
-  //     NiceName: user.NiceName,
-  //     Password: hashedPassword,
-  //     CreatedAt: DateTime.now(),
-  //     Role: user.Role,
-  //   });
-  //   await entity.insert();
-  //   return new Ok({ Id: entity.Id });
-  // }
+  @Get("byLogin/:user")
+  public async getByLogin(@FromModel({ queryField: "Login" }) user: User, @Query({
+    type: 'array',
+    items: {
+      type: 'string',
+      enum: ['Metadata'],
+    },
+  })
+  include?: string[]) {
+    // linter hack, to alow incldue param,it is used by FromModel qery arg
+    include;
+    return new Ok(user.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
+  }
+
+  @Patch(":user")
+  @Permission(['updateAny'])
+  public async updateUser(
+    @FromModel({ queryField: "Uuid" }) user: User,
+    @Body() data: UserDto,
+  ) {
+
+    user.Login = data.Login ?? user.Login;
+    user.Email = data.Email ?? user.Email;
+
+    // TODO
+    // fix array assign 
+    user.Role = data.Role ? [data.Role] : user.Role;
+
+    if (data.Metadata) {
+      for(const key in data.Metadata) {
+         user.Metadata[key] = data.Metadata[key];
+      }
+    }
+
+    await user.update();
+    await user.Metadata.update();
+
+    return new Ok();
+  }
+
 
 }

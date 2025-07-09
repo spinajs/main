@@ -60,11 +60,10 @@ export class Default2FaToken extends TwoFactorAuthProvider {
 
     public async disable(user: User): Promise<void> {
 
-        user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN] = undefined;
-        user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED] = undefined;
-        user.Metadata[TWO_FA_METATADATA_KEYS.OTP] = undefined;
-
-        await user.Metadata.sync();
+        await user.Metadata.delete(TWO_FA_METATADATA_KEYS.TOKEN);
+        await user.Metadata.delete(TWO_FA_METATADATA_KEYS.ENABLED); 
+        await user.Metadata.delete(TWO_FA_METATADATA_KEYS.OTP);
+       
 
         this.Log.trace(`2fa token removed for user ${user.Uuid}`, {
             user: {
@@ -86,7 +85,7 @@ export class Default2FaToken extends TwoFactorAuthProvider {
         user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED] = true;
         user.Metadata[TWO_FA_METATADATA_KEYS.OTP] = totp.toString();
 
-        await user.Metadata.sync();
+        await user.Metadata.update();
 
         this.Log.trace(`2fa token initialized for user ${user.Uuid}`, {
             user: {
