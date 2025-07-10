@@ -16,7 +16,10 @@ export class TwoFacRouteEnabled extends BasePolicy {
     if (this.TwoFactorConfig.enabled === false) {
       throw new InvalidOperation('2 factor auth is not enabled');
     }
-    
+
+    if (!req.storage || !req.storage.Session) {
+      throw new InvalidOperation('Session is not set');
+    }
 
     /**
      * Check only if user passed login page and waiting for TwoFactorAuth

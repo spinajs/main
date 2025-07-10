@@ -60,12 +60,18 @@ export interface ISession {
   Data: Map<string, unknown>;
 
   /**
+   * User id that owns this session
+   */
+  UserId: number;
+
+  /**
    *
    * Extends session lifetime
    *
    * @param seconds  - how mutch to extend, if value not provided, default value from config is used
    */
   extend(seconds?: number): void;
+  
 }
 
 /**
@@ -248,6 +254,14 @@ export abstract class SessionProvider<T = ISession> extends AsyncService {
    *
    */
   public abstract truncate(): Promise<void>;
+
+  /**
+   * 
+   * Deletes all sessions for given user ( logs out user from all devices )
+   * 
+   * @param user 
+   */
+  public abstract logsOut(user: User): Promise<void>;
 }
 
 export enum AthenticationErrorCodes {

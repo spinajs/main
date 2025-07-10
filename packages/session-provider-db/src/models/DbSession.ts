@@ -13,4 +13,6 @@ export class DbSession extends ModelBase {
   public Expiration: DateTime;
 
   public Data: string;
+
+  public UserId: number;
 }

@@ -16,6 +16,5 @@ export class NotAuthorizedPolicy extends BasePolicy {
     }
 
     throw new Forbidden('User already authorized, please logout first');
-
   }
 }

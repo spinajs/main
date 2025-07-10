@@ -1,4 +1,4 @@
-import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
+import { Migration, OrmMigration, OrmDriver, ReferentialAction } from '@spinajs/orm';
 
 @Migration('session-provider-connection')
 export class UserSessionDBSqlMigration_2022_06_28_01_01_01 extends OrmMigration {
@@ -8,6 +8,9 @@ export class UserSessionDBSqlMigration_2022_06_28_01_01_01 extends OrmMigration 
       table.dateTime('CreatedAt').notNull();
       table.dateTime('Expiration');
       table.json('Data').notNull();
+      table.int('UserId').notNull();
+      
+      table.foreignKey("UserId").references('users', 'Id').onDelete(ReferentialAction.Cascade);
     });
 
     // create index explicit, otherwise sqlite driver cannot extract unique index from sqlite_master
@@ -15,5 +18,5 @@ export class UserSessionDBSqlMigration_2022_06_28_01_01_01 extends OrmMigration 
   }
 
   // tslint:disable-next-line: no-empty
-  public async down(_: OrmDriver): Promise<void> {}
+  public async down(_: OrmDriver): Promise<void> { }
 }

@@ -235,11 +235,17 @@ export abstract class BaseController extends AsyncService implements IController
                 throw err;
               });
           })).then((results) => {
+            const fullfilled = results.find(r => r.status === 'fulfilled');
+            if (fullfilled) {
+              this._log.trace(`Policy for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method} succeded, continue execution`);
+              next();
+              return;
+            }
+
             const failed = results.find(r => r.status === 'rejected');
             if (failed && "reason" in failed) {
               throw next(failed.reason);
             }
-            next();
           })
       });
       handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBefore.bind(m), route)));

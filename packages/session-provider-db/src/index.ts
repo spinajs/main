@@ -1,4 +1,4 @@
-import { SessionProvider, ISession, UserSession } from '@spinajs/rbac';
+import { SessionProvider, ISession, UserSession, User } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession.js';
@@ -59,30 +59,22 @@ export class DbSessionStore extends SessionProvider {
     await DbSession.destroy(sessionId);
   }
 
-  public async save(sessionOrId: string | ISession, data?: object): Promise<void> {
-    let sId = '';
-    let sData = null;
+  public async save(sessionOrId: string | ISession, data?: Map<string, unknown>): Promise<void> {
+
+    const sessionId = _.isString(sessionOrId) ? sessionOrId : sessionOrId.SessionId;
+    const userId = _.isString(sessionOrId) ? null : sessionOrId.UserId;
+    const sData = _.isString(sessionOrId) ? data : sessionOrId.Data;
     let sCreationTime = DateTime.now();
     let sExpirationTime = DateTime.now().plus({ minutes: this.DefaultExpirationTime });
 
-    if (_.isString(sessionOrId)) {
-      sId = sessionOrId;
-      sData = data;
-    } else {
-      sId = sessionOrId.SessionId;
-      sData = Object.fromEntries(sessionOrId.Data);
-      sCreationTime = sessionOrId.Creation;
-      sExpirationTime = sessionOrId.Expiration;
-    }
-
-    const session = new DbSession({
-      SessionId: sId,
+    const s = await DbSession.getOrNew({
+      SessionId: sessionId,
       CreatedAt: sCreationTime,
       Expiration: sExpirationTime,
-      Data: JSON.stringify(sData, replacer),
+      UserId: userId
     });
-
-    await session.insert(InsertBehaviour.InsertOrUpdate);
+    s.Data = JSON.stringify(Object.fromEntries(sData), replacer);
+    await s.insert(InsertBehaviour.InsertOrUpdate);
   }
 
   public async touch(session: ISession): Promise<void> {
@@ -90,6 +82,15 @@ export class DbSessionStore extends SessionProvider {
       Expiration: session.Expiration,
     }).where('SessionId', session.SessionId);
   }
+
+  public async logsOut(user: User): Promise<void> {
+    const sessionsToDelete = await DbSession.where('UserId', user.Id);
+
+    if (sessionsToDelete.length > 0) {
+      await DbSession.destroy(sessionsToDelete.map((x) => x.SessionId));
+    }
+  }
+
   public async truncate(): Promise<void> {
     await DbSession.truncate();
   }

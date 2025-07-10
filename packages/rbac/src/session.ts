@@ -4,6 +4,7 @@ import { Injectable, NewInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { v4 as uuidv4 } from 'uuid';
 import _ from 'lodash';
+import { User } from './models/User.js';
 
 /**
  * Session base class
@@ -23,6 +24,11 @@ export class UserSession implements ISession {
   public Data: Map<string, unknown> = new Map();
 
   public Creation: DateTime = DateTime.now();
+
+  /**
+   * User id that owns this session
+   */
+  public UserId: number;
 
   constructor(session?: Partial<ISession>) {
     if (session) {
@@ -45,6 +51,7 @@ export class UserSession implements ISession {
  */
 @Injectable(SessionProvider)
 export class MemorySessionStore extends SessionProvider<ISession> {
+
   protected Sessions: Map<string, ISession> = new Map<string, ISession>();
 
   public async truncate(): Promise<void> {
@@ -83,5 +90,22 @@ export class MemorySessionStore extends SessionProvider<ISession> {
     } else {
       this.Sessions.set(idOrSession.SessionId, idOrSession);
     }
+  }
+
+  public logsOut(user: User): Promise<void> {
+
+    const sessionsToDelete: string[] = [];
+
+    for (const [key, session] of this.Sessions.entries()) {
+      if (session.UserId === user.Id) {
+        sessionsToDelete.push(key);
+      }
+    }
+
+    for (const sessionId of sessionsToDelete) {
+      this.Sessions.delete(sessionId);
+    }
+
+    return Promise.resolve();
   }
 }

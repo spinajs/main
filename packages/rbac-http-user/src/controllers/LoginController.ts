@@ -4,8 +4,10 @@ import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwi
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, NotAuthorizedPolicy, User as UserRouteArg } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
+ 
+
 @BasePath('auth')
 export class LoginController extends BaseController {
   @Autoinject()
@@ -40,9 +42,15 @@ export class LoginController extends BaseController {
   protected AC: AccessControl;
 
   @Post()
-  @Policy(NotAuthorizedPolicy)
-  public async login(@Body() credentials: UserLoginDto) {
+  public async login(@UserRouteArg() logged: User, @Cookie() ssid: string, @Body() credentials: UserLoginDto) {
     try {
+
+      // if logged user is already logged in, delete his session
+      // then allow for new login
+      if (logged) {
+        await this.SessionProvider.delete(ssid);
+      }
+
       const user = await login(credentials.Email, credentials.Password);
       const session = new UserSession();
 
@@ -72,9 +80,11 @@ export class LoginController extends BaseController {
       // AUTHORIZED - when user is atuhenticated eg. by 2fa check. If 2fa is disabled
       //              user is automatically authorized at login
       session.Data.set('Logged', true);
+      session.UserId = user.Id;
 
       // set expiration time ( default val in config )
       session.extend();
+
 
 
       if (this.TwoFactorAuthForceUser && !user.Metadata['2fa:enabled']) {
@@ -123,6 +133,7 @@ export class LoginController extends BaseController {
       });
 
 
+      debugger;
       await this.SessionProvider.save(session);
 
       return new Ok(result, {

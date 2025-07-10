@@ -361,7 +361,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * Checks if model with pk key or unique fields exists and if not creates one AND NOT save in db
    * NOTE: it checks for unique fields constraint
    */
-  public static getOrNew<T extends typeof ModelBase>(this: T, _pk?: any, _data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
+  public static getOrNew<T extends typeof ModelBase>(this: T, _data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
     throw new Error('Not implemented');
   }
 
@@ -1106,17 +1106,12 @@ export const MODEL_STATIC_MIXINS = {
     return entity;
   },
 
-  async getOrNew<T extends typeof ModelBase>(this: T, pk: any, data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
+  async getOrNew<T extends typeof ModelBase>(this: T,  data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
-    // pk constrain
-    if (description.PrimaryKey) {
-      query.where(description.PrimaryKey, pk);
-    }
-
     // check for all unique columns ( unique constrain )
-    description.Columns.filter((c) => c.Unique).forEach((c) => {
-      query.andWhere(c, (data as any)[c.Name]);
+    description.Columns.filter((c) => c.Unique || c.PrimaryKey).forEach((c) => {
+      query.andWhere(c.Name, (data as any)[c.Name]);
     });
 
     _prepareOrderBy(description, query);

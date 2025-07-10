@@ -697,7 +697,7 @@ describe('General model tests', () => {
       }),
     );
 
-    const result = await Model1.getOrNew(666, { Bar: 'hello' });
+    const result = await Model1.getOrNew({ Id: 666, Bar: 'hello' });
     expect(result).to.be.not.null;
     expect(result).instanceOf(Model1);
     expect(result.Bar).to.eq('hello');
@@ -718,7 +718,9 @@ describe('General model tests', () => {
       }),
     );
 
-    const result = await Model1.getOrNew(1);
+    const result = await Model1.getOrNew({
+      Id: 666,
+    });
     expect(execute.calledOnce).to.be.true;
     expect(result).to.be.not.null;
     expect(result).instanceOf(Model1);
