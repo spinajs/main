@@ -1,7 +1,7 @@
 import AWS from 'aws-sdk';
 import { DateTime } from 'luxon';
 
-import { SessionProvider, UserSession, ISession } from '@spinajs/rbac';
+import { SessionProvider, UserSession, ISession, User } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
@@ -171,6 +171,26 @@ export class DynamoDbSessionProvider extends SessionProvider {
     await this.DynamoDb.deleteTable({
       TableName: this.Table,
     }).promise();
+  }
+
+  public async logsOut(user: User): Promise<void>{ 
+    // DynamoDB does not support batch delete
+    // so we need to load all sessions and delete them one by one
+    const params = {
+      TableName: this.Table,
+      FilterExpression: 'Data.User = :userId',
+      ExpressionAttributeValues: {
+        ':userId': { S: user.Uuid },
+      },
+    };
+
+    const sessions = await this.DynamoDb.scan(params).promise();
+
+    if (sessions.Items && sessions.Items.length > 0) {
+      for (const item of sessions.Items) {
+        await this.delete(item.SessionId.S);
+      }
+    }
   }
 
   public async save(sessionOrId: string | ISession, data?: object): Promise<void> {
