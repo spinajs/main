@@ -222,6 +222,7 @@ export class ManyToManyRelation extends OrmRelation {
 
     this._joinModel = this._orm.Models.find((m) => m.name === this._description.JunctionModel?.name)?.type ?? undefined;
 
+     
     if (this._joinModel === undefined) {
       throw new InvalidOperation(`model ${this._description.JunctionModel} not exists in orm module`);
     }
@@ -258,9 +259,9 @@ export class ManyToManyRelation extends OrmRelation {
     }
 
     if (this._description.JoinMode === 'RightJoin') {
-      this._joinQuery.rightJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
+      this._joinQuery.rightJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.ForeignKey, this._description.JunctionModelTargetModelFKey_Name, this._targetModelDescriptor.Driver.Options.Database);
     } else {
-      this._joinQuery.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.JunctionModelTargetModelFKey_Name, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
+      this._joinQuery.leftJoin(this._targetModelDescriptor.TableName, this.Alias,  this._description.ForeignKey, this._description.JunctionModelTargetModelFKey_Name, this._targetModelDescriptor.Driver.Options.Database);
     }
 
     this._relationQuery.Relations.forEach((r) => r.compile());
