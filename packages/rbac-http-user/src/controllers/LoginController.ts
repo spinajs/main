@@ -42,12 +42,12 @@ export class LoginController extends BaseController {
   protected AC: AccessControl;
 
   @Post()
-  public async login(@UserRouteArg() logged: User, @Cookie() ssid: string, @Body() credentials: UserLoginDto) {
+  public async login(@UserRouteArg() logged: User, @Cookie(true) ssid: string, @Body() credentials: UserLoginDto) {
     try {
 
       // if logged user is already logged in, delete his session
       // then allow for new login
-      if (logged) {
+      if (logged && ssid) {
         await this.SessionProvider.delete(ssid);
       }
 
@@ -132,8 +132,6 @@ export class LoginController extends BaseController {
         Uuid: user.Uuid
       });
 
-
-      debugger;
       await this.SessionProvider.save(session);
 
       return new Ok(result, {
@@ -154,7 +152,7 @@ export class LoginController extends BaseController {
 
   @Get()
   @Policy(LoggedPolicy)
-  public async logout(@Cookie() ssid: string) {
+  public async logout(@Cookie(true) ssid: string) {
     if (!ssid) {
       return new Ok();
     }

@@ -82,7 +82,7 @@ export function Type(type: any) {
 export function Parameter(type: ParameterType | string, schema?: any, options?: any) {
   return (_: IControllerDescriptor, route: IRoute, target: any, propertyKey: string, index: number) => {
     const rType = Reflect.getMetadata('design:paramtypes', target.prototype || target, propertyKey)[index];
-    
+
     let tSchema = null;
 
     switch (rType.name) {
@@ -380,8 +380,8 @@ export function Model(model: Constructor<any>) {
  *
  * @param options - upload options
  */
-export function Cookie() {
-  return Route(Parameter(ParameterType.FromCookie, { type: 'string' }));
+export function Cookie(secure = false) {
+  return Route(Parameter(ParameterType.FromCookie, { type: 'string' }, { secure }));
 }
 
 /**
