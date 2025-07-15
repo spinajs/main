@@ -1058,6 +1058,9 @@ export const MODEL_STATIC_MIXINS = {
     const description = _descriptor(this);
 
     const data = Array.isArray(pks) ? pks : [pks];
+    if( data.length === 0) {
+      throw new OrmException('Cannot delete empty array of primary keys');
+    }
 
     const { query } = description.SoftDelete?.DeletedAt ? createQuery(this, UpdateQueryBuilder) : createQuery(this, DeleteQueryBuilder);
 
