@@ -1,7 +1,8 @@
-import { BaseController, BasePath, Body, Get, Ok, Patch, Policy, Query } from '@spinajs/http';
+import { Autoinject } from '@spinajs/di';
+import { BaseController, BasePath, Body, Get, Ok, Patch, Policy, Post, Query } from '@spinajs/http';
 import { SortOrder } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { User, UserMetadataBase } from '@spinajs/rbac';
+import { create, PasswordProvider, User, UserMetadataBase } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
 import { Schema } from '@spinajs/validation';
 
@@ -108,6 +109,10 @@ const USER_FILTER: IColumnFilter<User>[] = [
 @Policy(AuthorizedPolicy)
 @Resource('users')
 export class Users extends BaseController {
+
+  @Autoinject()
+  protected PasswordProvider:  PasswordProvider
+
   @Get("/")
   @Permission(['readAny'])
   public async list(
@@ -185,6 +190,24 @@ export class Users extends BaseController {
     include;
     return new Ok(user.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
+
+
+  @Post("")
+  @Permission(['createAny'])
+  public async addUser(
+    @Body() data: UserDto,
+  ) {
+
+    const temporaryPassword = this.PasswordProvider.generate();
+    const u = await create(data.Email, data.Login, temporaryPassword, [data.Role]);
+
+    for(const key in data.Metadata) {
+      u.User.Metadata[key] = data.Metadata[key];
+    }
+    await u.User.Metadata.update();
+    return new Ok();
+  }
+
 
   @Patch(":user")
   @Permission(['updateAny'])
