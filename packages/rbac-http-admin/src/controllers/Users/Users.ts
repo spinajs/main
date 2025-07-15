@@ -192,7 +192,7 @@ export class Users extends BaseController {
   }
 
 
-  @Post("")
+  @Post("/")
   @Permission(['createAny'])
   public async addUser(
     @Body() data: UserDto,
