@@ -173,16 +173,18 @@ export class ContainerCache {
             existingInstances.push(resolvedInstance);
           }
         }
+        const cached = this.get(sourceTypeKey);
+        return sourceType instanceof TypedArray ? cached : cached[0];
       } else {
         // Cache the instance if not already cached
         if (!this.has(targetType)) {
-          this.add(sourceTypeKey, resolvedInstance);
+          this.add(targetType, resolvedInstance);
         }
       }
 
       // Return the cached version
-      const cached = this.get(sourceTypeKey);
-      return sourceType instanceof TypedArray ? cached : cached[0];
+      const cached = this.get(targetType);
+      return cached[0];
     }
 
     // If factory returns a Promise, handle async resolution
@@ -205,7 +207,7 @@ export class ContainerCache {
     } else {
       // Synchronous resolution
       this.creatingKeys.delete(keyName);
-     return _checkCache(instance);
+      return _checkCache(instance);
     }
   }
 
