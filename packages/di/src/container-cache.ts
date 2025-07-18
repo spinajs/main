@@ -1,8 +1,10 @@
 import _ from 'lodash';
 import { TypedArray } from './array.js';
 import { getTypeName } from './helpers.js';
-import { IContainer } from './interfaces.js';
+import { IContainer, IInjectDescriptor, IInstanceCheck } from './interfaces.js';
 import { Class } from './types.js';
+import { ResolveType } from './enums.js';
+import { ResolveException } from './exceptions.js';
 
 export class ContainerCache {
   private cache: Map<string, any[]>;
@@ -94,13 +96,34 @@ export class ContainerCache {
   public getOrCreate<T>(
     key: string | Class<any> | TypedArray<any>,
     factory: () => Promise<T> | T,
-    isSingleton: boolean = true
+    isSingleton: boolean = true,
+    descriptor: IInjectDescriptor<unknown>,
+    options?: unknown[]
   ): Promise<T> | T {
     const keyName = getTypeName(key);
 
     // Fast path: return cached instance if it exists
     if (this.has(key)) {
       const cached = this.get(key);
+
+      if (descriptor.resolver === ResolveType.PerInstanceCheck) {
+
+        if (cached) {
+          const found = cached.find((x : unknown) => {
+            if (!(x as IInstanceCheck).__checkInstance__) {
+              // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+              throw new ResolveException(`service ${x.constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
+            }
+            return (x as IInstanceCheck).__checkInstance__(options);
+          });
+          if (found) {
+            return found;
+          } else {
+             return factory();
+          }
+        }
+      }
+
       return Array.isArray(cached) ? cached[0] : cached;
     }
 
@@ -113,7 +136,7 @@ export class ContainerCache {
     if (this.resolutionPromises.has(keyName)) {
       return this.resolutionPromises.get(keyName);
     }
-    
+
     // Check if creation is already in progress (sync)
     if (this.creatingKeys.has(keyName)) {
       // This indicates a potential circular dependency or re-entrant call
@@ -140,12 +163,12 @@ export class ContainerCache {
       const creation = instance.then(resolvedInstance => {
         this.creatingKeys.delete(keyName);
         this.resolutionPromises.delete(keyName);
-        
+
         // Cache the instance if not already cached
         if (!this.has(key)) {
           this.add(key, resolvedInstance);
         }
-        
+
         // Return the cached version
         const cached = this.get(key);
         return Array.isArray(cached) ? cached[0] : cached;
@@ -154,19 +177,19 @@ export class ContainerCache {
         this.resolutionPromises.delete(keyName);
         throw error;
       });
-      
+
       // Store the promise to prevent concurrent resolutions
       this.resolutionPromises.set(keyName, creation);
       return creation;
     } else {
       // Synchronous resolution
       this.creatingKeys.delete(keyName);
-      
+
       // Cache the instance if not already cached
       if (!this.has(key)) {
         this.add(key, instance);
       }
-      
+
       // Return the cached version to ensure consistency
       const cached = this.get(key);
       return Array.isArray(cached) ? cached[0] : cached;

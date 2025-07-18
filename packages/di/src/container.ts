@@ -4,14 +4,14 @@ import { TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isFactory, isTypedArray, isPromise } from './helpers.js';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, IInstanceCheck, Service } from './interfaces.js';
+import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service } from './interfaces.js';
 import { Class, Factory } from './types.js';
 import { EventEmitter } from 'events';
 import { Binder } from './binder.js';
 import { Registry } from './registry.js';
 import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
-import { ResolveException, ServiceNotFound } from './exceptions.js';
+import { ServiceNotFound } from './exceptions.js';
 
 /**
  * Dependency injection container implementation
@@ -71,9 +71,9 @@ export class Container extends EventEmitter implements IContainer {
 
   public async dispose() {
     const disposalErrors: Error[] = [];
-    
+
     // Dispose all children first
-    await Promise.all([...this.children].map(child => 
+    await Promise.all([...this.children].map(child =>
       child.dispose().catch(err => {
         disposalErrors.push(err);
         // Continue with other children even if one fails
@@ -95,7 +95,7 @@ export class Container extends EventEmitter implements IContainer {
 
     this.clearCache();
     this.emit('di.dispose');
-    
+
     // Log disposal errors if any occurred
     if (disposalErrors.length > 0) {
       console.warn(`${disposalErrors.length} services failed to dispose properly:`, disposalErrors);
@@ -122,12 +122,12 @@ export class Container extends EventEmitter implements IContainer {
   public getCacheStats() {
     const entries: string[] = [];
     let size = 0;
-    
+
     for (const entry of this.cache) {
       entries.push(entry.key);
       size++;
     }
-    
+
     return {
       size,
       entries,
@@ -167,12 +167,12 @@ export class Container extends EventEmitter implements IContainer {
   public child(): IContainer {
     const child = new Container(this);
     this.children.add(child);
-    
+
     // Remove from parent when child is disposed
     child.once('di.dispose', () => {
       this.children.delete(child);
     });
-    
+
     return child;
   }
 
@@ -341,7 +341,7 @@ export class Container extends EventEmitter implements IContainer {
     // resolving strategy per container is treatead as singleton
     // in this particular container
     const isSingletonInChild = descriptor.resolver === ResolveType.PerChildContainer;
-    const isSingleton = descriptor.resolver === ResolveType.Singleton;
+    const isSingleton = descriptor.resolver === ResolveType.Singleton || descriptor.resolver === ResolveType.PerInstanceCheck || descriptor.resolver === ResolveType.PerInstance;
 
     const emit = (target: any) => {
       const sourceTypeName = getTypeName(sourceType);
@@ -354,15 +354,6 @@ export class Container extends EventEmitter implements IContainer {
       if (targetTypeName !== sourceTypeName) {
         this.emit(`di.resolved.${sourceTypeName}`, this, target);
       }
-    };
-
-    const getCachedInstances = (e: string | Class<any> | TypedArray<any>, parent: boolean) => {
-      if (this.isResolved(e, parent)) {
-        const rArray = this.get(e as any, parent);
-        return _.isArray(rArray) ? rArray : [rArray];
-      }
-
-      return null;
     };
 
     const createNewInstance = (t: Class<T>, i: IResolvedInjection[], options: any) => {
@@ -393,24 +384,6 @@ export class Container extends EventEmitter implements IContainer {
         }
       }
 
-      if (d.resolver === ResolveType.PerInstanceCheck) {
-        const cashed = getCachedInstances(tType, true);
-        if (cashed) {
-          const found = cashed.find((x) => {
-            if (!(x as IInstanceCheck).__checkInstance__) {
-              // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-              throw new ResolveException(`service ${x.constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
-            }
-            return (x as IInstanceCheck).__checkInstance__(options);
-          });
-          if (found) {
-            return found;
-          } else {
-            return createNewInstance(t, i, options);
-          }
-        }
-      }
-
       this.Registry.register(sName, t);
 
       // For singletons, don't check cache here - let getOrCreate handle it atomically
@@ -423,7 +396,7 @@ export class Container extends EventEmitter implements IContainer {
         sourceType,
         () => {
           const deps = this.resolveDependencies(descriptor.inject);
-          
+
           if (deps instanceof Promise) {
             return deps.then((resolvedDependencies) => {
               return resolve(descriptor, tType, resolvedDependencies) as T;
@@ -433,7 +406,9 @@ export class Container extends EventEmitter implements IContainer {
             return resInstance as T;
           }
         },
-        true // isSingleton
+        true, // isSingleton
+        descriptor,
+        options
       ) as T;
     }
 
