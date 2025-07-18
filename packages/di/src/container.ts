@@ -34,6 +34,11 @@ export class Container extends EventEmitter implements IContainer {
   private parent: IContainer;
 
   /**
+   * Child containers created from this container
+   */
+  private children: Set<IContainer> = new Set();
+
+  /**
    * Returns container cache - map object with resolved classes as singletons
    */
   public get Cache() {
@@ -65,14 +70,36 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   public async dispose() {
+    const disposalErrors: Error[] = [];
+    
+    // Dispose all children first
+    await Promise.all([...this.children].map(child => 
+      child.dispose().catch(err => {
+        disposalErrors.push(err);
+        // Continue with other children even if one fails
+      })
+    ));
+    this.children.clear();
+
+    // Dispose services in this container
     for (const entry of this.cache) {
       if (entry.value instanceof Service) {
-        await entry.value.dispose();
+        try {
+          await entry.value.dispose();
+        } catch (err) {
+          disposalErrors.push(err);
+          // Continue with other services even if one fails
+        }
       }
     }
 
     this.clearCache();
     this.emit('di.dispose');
+    
+    // Log disposal errors if any occurred
+    if (disposalErrors.length > 0) {
+      console.warn(`${disposalErrors.length} services failed to dispose properly:`, disposalErrors);
+    }
   }
 
   /**
@@ -87,6 +114,25 @@ export class Container extends EventEmitter implements IContainer {
    */
   public clearRegistry(): void {
     this.Registry.clear();
+  }
+
+  /**
+   * Get cache statistics for memory monitoring
+   */
+  public getCacheStats() {
+    const entries: string[] = [];
+    let size = 0;
+    
+    for (const entry of this.cache) {
+      entries.push(entry.key);
+      size++;
+    }
+    
+    return {
+      size,
+      entries,
+      childrenCount: this.children.size
+    };
   }
 
   /**
@@ -119,7 +165,15 @@ export class Container extends EventEmitter implements IContainer {
    *
    */
   public child(): IContainer {
-    return new Container(this);
+    const child = new Container(this);
+    this.children.add(child);
+    
+    // Remove from parent when child is disposed
+    child.once('di.dispose', () => {
+      this.children.delete(child);
+    });
+    
+    return child;
   }
 
   /**
@@ -289,10 +343,6 @@ export class Container extends EventEmitter implements IContainer {
     const isSingletonInChild = descriptor.resolver === ResolveType.PerChildContainer;
     const isSingleton = descriptor.resolver === ResolveType.Singleton;
 
-    const setCache = (target: T) => {
-      this.Cache.add(sourceType, target);
-      return target;
-    };
     const emit = (target: any) => {
       const sourceTypeName = getTypeName(sourceType);
       const targetTypeName = getTypeName(targetType);
@@ -304,15 +354,6 @@ export class Container extends EventEmitter implements IContainer {
       if (targetTypeName !== sourceTypeName) {
         this.emit(`di.resolved.${sourceTypeName}`, this, target);
       }
-    };
-
-    const getCachedInstance = (e: string | Class<any> | TypedArray<any>, parent: boolean) => {
-      if (this.isResolved(e, parent)) {
-        const rArray = this.get(e as any, parent);
-        return _.isArray(rArray) ? rArray.find((x) => getTypeName(x as any) === getTypeName(targetType)) : rArray;
-      }
-
-      return null;
     };
 
     const getCachedInstances = (e: string | Class<any> | TypedArray<any>, parent: boolean) => {
@@ -328,12 +369,10 @@ export class Container extends EventEmitter implements IContainer {
       const instance = this.getNewInstance(t, i, options);
       if (isPromise(instance)) {
         return instance.then((r) => {
-          setCache(r);
           emit(r);
           return r;
         });
       } else {
-        setCache(instance as T);
         emit(instance);
         return instance;
       }
@@ -374,31 +413,31 @@ export class Container extends EventEmitter implements IContainer {
 
       this.Registry.register(sName, t);
 
-      const cashed = getCachedInstance(tType, d.resolver === ResolveType.Singleton ? true : false);
-      if (!cashed) {
-        return createNewInstance(t, i, options);
-      } else {
-        return cashed;
-      }
+      // For singletons, don't check cache here - let getOrCreate handle it atomically
+      return createNewInstance(t, i, options);
     };
 
-    // check cache if needed
+    // For singletons, use atomic cache operations to prevent concurrent creation
     if (isSingletonInChild || isSingleton) {
-      // if its singleton ( not per child container )
-      // check also in parent containers
-
-      // ------- IMPORTANT ------------
-      // TODO: in future allow to check in runtime if target type is cashed,
-      // now, if for example we resolve array of some type,
-      // when we later register another type of base class used in typed array
-      // we will not resolve it, becaouse contaienr will not check
-      // if in cache this new type exists ( only check if type in array exists )
-      const cached = getCachedInstance(sourceType, isSingleton);
-      if (cached) {
-        return cached as any;
-      }
+      return this.Cache.getOrCreate(
+        sourceType,
+        () => {
+          const deps = this.resolveDependencies(descriptor.inject);
+          
+          if (deps instanceof Promise) {
+            return deps.then((resolvedDependencies) => {
+              return resolve(descriptor, tType, resolvedDependencies) as T;
+            });
+          } else {
+            const resInstance = resolve(descriptor, tType, deps as IResolvedInjection[]);
+            return resInstance as T;
+          }
+        },
+        true // isSingleton
+      ) as T;
     }
 
+    // Non-singleton path - resolve normally without caching
     const deps = this.resolveDependencies(descriptor.inject);
 
     if (deps instanceof Promise) {
@@ -407,10 +446,6 @@ export class Container extends EventEmitter implements IContainer {
       });
     } else {
       const resInstance = resolve(descriptor, tType, deps as IResolvedInjection[]);
-
-      if (resInstance instanceof Promise) {
-        return resInstance;
-      }
       return resInstance as T;
     }
   }
