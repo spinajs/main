@@ -64,6 +64,7 @@ export class ContainerCache {
   }
 
   public has(key: string | Class<any> | object | TypedArray<any>, parent?: boolean): boolean {
+
     if (this.cache.has(getTypeName(key))) {
       return true;
     }
@@ -94,17 +95,19 @@ export class ContainerCache {
    * Prevents concurrent creation of the same singleton instance
    */
   public getOrCreate<T>(
-    key: string | Class<any> | TypedArray<any>,
+    sourceType: string | Class<any> | TypedArray<any> | object,
+    targetType: string | Class<any> | TypedArray<any>,
     factory: () => Promise<T> | T,
     isSingleton: boolean = true,
     descriptor: IInjectDescriptor<unknown>,
     options?: unknown[]
   ): Promise<T> | T {
-    const keyName = getTypeName(key);
+    const keyName = getTypeName(targetType);
+    const sourceTypeKey = getTypeName(sourceType);
 
     // Fast path: return cached instance if it exists
-    if (this.has(key, descriptor.resolver === ResolveType.PerChildContainer ? false : true)) {
-      const cached = this.get(key, descriptor.resolver === ResolveType.PerChildContainer ? false : true);
+    if (this.has(targetType, descriptor.resolver === ResolveType.PerChildContainer ? false : true)) {
+      const cached = this.get(targetType, descriptor.resolver === ResolveType.PerChildContainer ? false : true);
 
       if (descriptor.resolver === ResolveType.PerInstanceCheck) {
 
@@ -140,8 +143,8 @@ export class ContainerCache {
     // Check if creation is already in progress (sync)
     if (this.creatingKeys.has(keyName)) {
       // This indicates a potential circular dependency or re-entrant call
-      if (this.has(key)) {
-        const cached = this.get(key);
+      if (this.has(targetType)) {
+        const cached = this.get(targetType);
         return Array.isArray(cached) ? cached[0] : cached;
       }
       throw new Error(`Circular dependency detected for ${keyName}`);
@@ -158,20 +161,38 @@ export class ContainerCache {
       throw error;
     }
 
+    const _checkCache = (resolvedInstance: T) => {
+      if (sourceType instanceof TypedArray) {
+        // If sourceType is a TypedArray, we need to ensure we cache it correctly
+        if (!this.has(sourceTypeKey)) {
+          this.add(sourceTypeKey, resolvedInstance);
+        } else {
+          // If it already exists, we should merge the new instance into the existing array
+          const existingInstances = this.get(sourceTypeKey);
+          if (!existingInstances.includes(resolvedInstance)) {
+            existingInstances.push(resolvedInstance);
+          }
+        }
+      } else {
+        // Cache the instance if not already cached
+        if (!this.has(targetType)) {
+          this.add(sourceTypeKey, resolvedInstance);
+        }
+      }
+
+      // Return the cached version
+      const cached = this.get(sourceTypeKey);
+      return sourceType instanceof TypedArray ? cached : cached[0];
+    }
+
     // If factory returns a Promise, handle async resolution
     if (instance instanceof Promise) {
       const creation = instance.then(resolvedInstance => {
         this.creatingKeys.delete(keyName);
         this.resolutionPromises.delete(keyName);
 
-        // Cache the instance if not already cached
-        if (!this.has(key)) {
-          this.add(key, resolvedInstance);
-        }
+        return _checkCache(resolvedInstance);
 
-        // Return the cached version
-        const cached = this.get(key);
-        return Array.isArray(cached) ? cached[0] : cached;
       }).catch(error => {
         this.creatingKeys.delete(keyName);
         this.resolutionPromises.delete(keyName);
@@ -184,15 +205,7 @@ export class ContainerCache {
     } else {
       // Synchronous resolution
       this.creatingKeys.delete(keyName);
-
-      // Cache the instance if not already cached
-      if (!this.has(key)) {
-        this.add(key, instance);
-      }
-
-      // Return the cached version to ensure consistency
-      const cached = this.get(key);
-      return Array.isArray(cached) ? cached[0] : cached;
+     return _checkCache(instance);
     }
   }
 

@@ -394,6 +394,7 @@ export class Container extends EventEmitter implements IContainer {
     if (isSingletonInChild || isSingleton) {
       return this.Cache.getOrCreate(
         sourceType,
+        tType,
         () => {
           const deps = this.resolveDependencies(descriptor.inject);
 
