@@ -251,7 +251,7 @@ export class Container extends EventEmitter implements IContainer {
    *
    * @param type - type to resolve
    * @param options - options passed to constructor / factory
-   * @param check - strict check if serivice is registered in container before resolving. Default behavior is to not check and resolve
+   * @param check - strict check if serivice is registered in container before resolving. Default behavior is not to check and resolve
    */
   public resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean, tType?: Class<unknown>): Promise<T | T[]> | T | T[] {
     if (!type) {
@@ -296,7 +296,7 @@ export class Container extends EventEmitter implements IContainer {
       // finaly resolve single type:
       // 1. last registered type OR
       // 2. if non is registered - type itself
-      let targetType = this.getRegisteredTypes(type);
+      let targetType = this.getRegisteredTypes(type, check ?? true);
 
       if (!targetType) {
         // if nothing is register under string identifier, then return null

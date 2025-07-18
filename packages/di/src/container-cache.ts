@@ -103,13 +103,13 @@ export class ContainerCache {
     const keyName = getTypeName(key);
 
     // Fast path: return cached instance if it exists
-    if (this.has(key)) {
-      const cached = this.get(key);
+    if (this.has(key, descriptor.resolver === ResolveType.PerChildContainer ? false : true)) {
+      const cached = this.get(key, descriptor.resolver === ResolveType.PerChildContainer ? false : true);
 
       if (descriptor.resolver === ResolveType.PerInstanceCheck) {
 
         if (cached) {
-          const found = cached.find((x : unknown) => {
+          const found = cached.find((x: unknown) => {
             if (!(x as IInstanceCheck).__checkInstance__) {
               // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
               throw new ResolveException(`service ${x.constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
@@ -119,7 +119,7 @@ export class ContainerCache {
           if (found) {
             return found;
           } else {
-             return factory();
+            return factory();
           }
         }
       }
