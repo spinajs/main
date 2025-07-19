@@ -73,7 +73,7 @@ export class HttpServer extends AsyncService {
     this.Middlewares = this.Middlewares.sort((a, b) => {
       return a.Order - b.Order;
     });
-
+  
     this._createServer();
 
     const f = DI.resolve<fsNative<IFsLocalOptions>>('__file_provider__', ['__fs_http_response_templates__']);

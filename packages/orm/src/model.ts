@@ -209,7 +209,7 @@ export class ModelBase<M = unknown> implements IModelBase {
           return (m as any)[r.Name];
         }
 
-        if (((m as any)[r.Name] as SingleRelation<any>).Value) {
+        if (((m as any)[r.Name] as SingleRelation<any, any>).Value) {
           return [(m as any)[r.Name].Value];
         }
       }).filter((x) => x !== undefined);
@@ -472,7 +472,7 @@ export class ModelBase<M = unknown> implements IModelBase {
 
         switch (v.Type) {
           case RelationType.One:
-            ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
+            ((this as any)[v.Name] as SingleRelation<ModelBase, ModelBase>).attach(data);
             this.__dirty_props__.push(v.ForeignKey);
             break;
           case RelationType.Many:

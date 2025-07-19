@@ -144,6 +144,28 @@ class LazyInjectResolve2 {
   public Foo = 11;
 }
 
+
+abstract class SampleBaseClassAsync extends AsyncService {
+  public ServiceName: string;
+}
+
+class SampleImplementation1Async extends SampleBaseClassAsync {
+  constructor() {
+    super();
+
+    this.ServiceName = 'Sample1';
+  }
+}
+
+class SampleImplementation2Async extends SampleBaseClassAsync {
+  constructor() {
+    super();
+
+    this.ServiceName = 'Sample2';
+  }
+}
+
+
 abstract class SampleBaseClass {
   public ServiceName: string;
 }
@@ -438,6 +460,23 @@ describe('Dependency injection', () => {
     expect(instance).to.be.not.null;
     expect(instance.Instances).to.be.an('array').of.length(2);
   });
+
+  
+  it('Autoinject resolve multiple implementations for async services', async () => {
+    DI.register(SampleImplementation1Async).as(SampleBaseClassAsync);
+    DI.register(SampleImplementation2Async).as(SampleBaseClassAsync);
+
+    class SampleMultipleAutoinject extends AsyncService {
+      @Autoinject(SampleBaseClassAsync)
+      public Instances: SampleBaseClassAsync[];
+    }
+
+    const instance = await DI.resolve(SampleMultipleAutoinject);
+
+    expect(instance).to.be.not.null;
+    expect(instance.Instances).to.be.an('array').of.length(2);
+  });
+
 
   it('Should autoinject with service func returned array', () => {
     @NewInstance()

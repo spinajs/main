@@ -290,13 +290,13 @@ export class Container extends EventEmitter implements IContainer {
         return [];
       }
 
-      targetType.forEach((r) => this.resolveType(type, r, opt));
-      const resolved = this.get(type, check ?? true);
+      const resolved = targetType.map((r) => this.resolveType(type, r, opt));
+       
       if (resolved.some((r) => r instanceof Promise)) {
-        return Promise.all(resolved) as any;
+        return Promise.all(resolved).then( () => this.get(type, check ?? true)) as any;
       }
 
-      return resolved as T[];
+      return this.get(type, check ?? true) as T[];
     } else {
 
       const fType = this.getCurrentType(type, tType, check ?? true);

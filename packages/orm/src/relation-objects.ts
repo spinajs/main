@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { IRelationDescriptor, IModelDescriptor, InsertBehaviour, ForwardRefFunction, IRelation, ISelectQueryBuilder } from './interfaces.js';
-import { DI, Constructor, isConstructor } from '@spinajs/di';
+import { DI, Constructor, isConstructor, NewInstance } from '@spinajs/di';
 import { SelectQueryBuilder } from './builders.js';
 import { createQuery, extractModelDescriptor, ModelBase } from './model.js';
 import { Orm } from './orm.js';
@@ -53,6 +53,7 @@ export class Dataset {
  *
  * It allows to add / remove objects to relation
  */
+@NewInstance()
 export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> implements IRelation<R, O> {
   public TargetModelDescriptor: IModelDescriptor;
 
@@ -183,7 +184,8 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
   public abstract populate(callback?: (this: ISelectQueryBuilder<this>) => void): Promise<void>;
 }
 
-export class SingleRelation<R extends ModelBase> {
+@NewInstance()
+export class SingleRelation<R extends ModelBase, O extends ModelBase> {
   public TargetModelDescriptor: IModelDescriptor;
 
   protected Orm: Orm;
@@ -192,7 +194,7 @@ export class SingleRelation<R extends ModelBase> {
 
   public Populated: boolean = false;
 
-  constructor(protected _owner: ModelBase, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
+  constructor(protected _owner: O, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
     this.TargetModelDescriptor = extractModelDescriptor(model);
     this.Orm = DI.get(Orm);
 
