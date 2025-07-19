@@ -90,6 +90,7 @@ export class FrameworkConfiguration extends Configuration {
   constructor(options?: ConfigurationOptions) {
     super();
 
+    debugger;
     this.CustomConfigPaths = options?.cfgCustomPaths ?? [];
     this.RunApp = options?.app ?? parseArgv('--app');
     this.AppBaseDir = options?.appBaseDir ?? parseArgv('--apppath') ?? join(process.cwd(), '../apps/');

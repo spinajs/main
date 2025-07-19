@@ -932,6 +932,31 @@ describe('Dependency injection', () => {
     }
   });
 
+  it('Should check if registered with parent', () => {
+
+    class Foo {}
+    @Injectable(Foo)
+    class FooBar extends Foo {
+      constructor() {
+        super();
+      }
+    }
+ 
+
+    {
+      const inst1 = DI.resolve(Foo);
+      const inst2 = DI.resolve(Foo);
+      const inst3 = DI.get(Foo);
+ 
+      expect(inst1).to.be.instanceOf(FooBar);
+      expect(inst2).to.be.instanceOf(FooBar);
+      expect(inst3).to.be.instanceOf(FooBar);
+      expect(inst1).to.eq(inst3);
+      expect(inst1).to.eq(inst2);
+ 
+    }
+  });
+
   it('Should throw if resolving with check', () => {
     class FooBar {}
     expect(() => {

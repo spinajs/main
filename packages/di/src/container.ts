@@ -191,11 +191,12 @@ export class Container extends EventEmitter implements IContainer {
   public get<T>(service: string | Class<T>, parent?: boolean): T;
   public get<T>(service: string | Class<T> | TypedArray<T>, parent = true): T | T[] {
     // get value registered as TypedArray ( mean to return all created instances )
-    if (service instanceof Array && service.constructor.name === 'TypedArray') {
-      return this.cache.get(getTypeName(service.Type)) as T[];
+    if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
+      const type = this.getCurrentType(getTypeName(service.Type), parent);
+      return this.cache.get(type) as T[];
     }
 
-    const r = this.cache.get(service, parent);
+    const r = this.cache.get(this.getCurrentType(service, parent), parent);
     return r[r.length - 1] as T;
   }
 
@@ -287,33 +288,15 @@ export class Container extends EventEmitter implements IContainer {
       }
 
       targetType.forEach((r) => this.resolveType(type, r, opt));
-       const resolved = this.get(type, check ?? true);
+      const resolved = this.get(type, check ?? true);
       if (resolved.some((r) => r instanceof Promise)) {
         return Promise.all(resolved) as any;
       }
 
       return resolved as T[];
     } else {
-      // finaly resolve single type:
-      // 1. last registered type OR
-      // 2. if non is registered - type itself
-      let targetType = this.getRegisteredTypes(type, check ?? true);
 
-      if (!targetType) {
-        // if nothing is register under string identifier, then return null
-        if (typeof type === 'string') {
-          return null;
-        } else {
-          targetType = [type];
-        }
-      }
-
-      // if we have target function callback
-      // we can select whitch of targetType to resolve
-      //
-      // if not, by default last registered type is resolved
-      // if we have override for target type in registry, resolve it ( last registered ) otherwise resolve target type type itself
-      const fType = targetType[targetType.length - 1] ?? tType;
+      const fType = this.getCurrentType(type, check ?? true);
       const rValue = this.resolveType(sourceType, fType, opt);
       return rValue as any;
     }
@@ -321,6 +304,30 @@ export class Container extends EventEmitter implements IContainer {
 
   public getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): (Class<unknown> | Factory<unknown>)[] {
     return this.Registry.getTypes(service, parent);
+  }
+
+  private getCurrentType<T>(type: Class<T> | string, check: boolean) {
+    // finaly resolve single type:
+    // 1. last registered type OR
+    // 2. if non is registered - type itself
+    let targetType = this.getRegisteredTypes(type, check ?? true);
+
+    if (!targetType) {
+      // if nothing is register under string identifier, then return null
+      if (typeof type === 'string') {
+        return null;
+      } else {
+        targetType = [type];
+      }
+    }
+
+    // if we have target function callback
+    // we can select whitch of targetType to resolve
+    //
+    // if not, by default last registered type is resolved
+    // if we have override for target type in registry, resolve it ( last registered ) otherwise resolve target type type itself
+    const fType = targetType[targetType.length - 1] ?? type as Class<T>;
+    return fType;
   }
 
   private resolveType<T>(sourceType: Class<T> | string | TypedArray<T>, targetType: Class<T> | Factory<T>, options?: unknown[]): Promise<T> | T | Promise<T> | T[] {
