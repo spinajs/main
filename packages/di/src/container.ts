@@ -192,11 +192,10 @@ export class Container extends EventEmitter implements IContainer {
   public get<T>(service: string | Class<T> | TypedArray<T>, parent = true): T | T[] {
     // get value registered as TypedArray ( mean to return all created instances )
     if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
-      const type = this.getCurrentType(getTypeName(service.Type), parent);
-      return this.cache.get(type) as T[];
+      return this.cache.get(getTypeName(service.Type)) as T[];
     }
 
-    const r = this.cache.get(this.getCurrentType(service, parent), parent);
+    const r = this.cache.get(this.getCurrentType(service, null, parent ?? true) ?? service, parent);
     return r[r.length - 1] as T;
   }
 
@@ -213,7 +212,11 @@ export class Container extends EventEmitter implements IContainer {
    * @throws {@link InvalidArgument} when service is null or empty
    */
   public isResolved<T>(service: string | Class<T> | TypedArray<T>, parent = true): boolean {
-    return this.Cache.has(service, parent);
+    if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
+      return this.Cache.has(this.getCurrentType(service.Type, null, parent ?? true) ?? service, parent);
+    }
+
+    return this.Cache.has(this.getCurrentType(service, null, parent ?? true) ?? service, parent);
   }
 
   /**
@@ -296,7 +299,11 @@ export class Container extends EventEmitter implements IContainer {
       return resolved as T[];
     } else {
 
-      const fType = this.getCurrentType(type, check ?? true);
+      const fType = this.getCurrentType(type, tType, check ?? true);
+      if (fType === null) {
+        return null;
+      }
+
       const rValue = this.resolveType(sourceType, fType, opt);
       return rValue as any;
     }
@@ -306,7 +313,7 @@ export class Container extends EventEmitter implements IContainer {
     return this.Registry.getTypes(service, parent);
   }
 
-  private getCurrentType<T>(type: Class<T> | string, check: boolean) {
+  private getCurrentType<T>(type: Class<T> | string, tType: Class<T>, check: boolean) {
     // finaly resolve single type:
     // 1. last registered type OR
     // 2. if non is registered - type itself
@@ -326,7 +333,7 @@ export class Container extends EventEmitter implements IContainer {
     //
     // if not, by default last registered type is resolved
     // if we have override for target type in registry, resolve it ( last registered ) otherwise resolve target type type itself
-    const fType = targetType[targetType.length - 1] ?? type as Class<T>;
+    const fType = targetType[targetType.length - 1] ?? tType;
     return fType;
   }
 

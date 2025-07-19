@@ -277,7 +277,7 @@ describe('DI Container Memory Management Tests', () => {
         if (typeof (container as any).getCacheStats === 'function') {
           const stats = (container as any).getCacheStats();
           expect(stats.size).to.equal(2); // Updated to match actual behavior
-          expect(stats.entries).to.include('monitored');
+          expect(stats.entries).to.include('MonitoredService');
           expect(stats.childrenCount).to.equal(0); // No children
         }
       });
