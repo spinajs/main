@@ -185,7 +185,7 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
 }
 
 @NewInstance()
-export class SingleRelation<R extends ModelBase, O extends ModelBase> {
+export class SingleRelation<R extends ModelBase> {
   public TargetModelDescriptor: IModelDescriptor;
 
   protected Orm: Orm;
@@ -194,7 +194,7 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase> {
 
   public Populated: boolean = false;
 
-  constructor(protected _owner: O, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
+  constructor(protected _owner: ModelBase, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
     this.TargetModelDescriptor = extractModelDescriptor(model);
     this.Orm = DI.get(Orm);
 
