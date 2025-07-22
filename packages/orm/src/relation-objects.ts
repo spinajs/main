@@ -185,7 +185,7 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
 }
 
 @NewInstance()
-export class SingleRelation<R extends ModelBase> {
+export class SingleRelation<R extends ModelBase, O extends ModelBase= ModelBase> {
   public TargetModelDescriptor: IModelDescriptor;
 
   protected Orm: Orm;
@@ -194,7 +194,7 @@ export class SingleRelation<R extends ModelBase> {
 
   public Populated: boolean = false;
 
-  constructor(protected _owner: ModelBase, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
+  constructor(protected _owner: O, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
     this.TargetModelDescriptor = extractModelDescriptor(model);
     this.Orm = DI.get(Orm);
 
@@ -250,6 +250,7 @@ export class SingleRelation<R extends ModelBase> {
   }
 }
 
+@NewInstance()
 export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
   public intersection(_obj: T[], _callback?: (a: T, b: T) => boolean): T[] {
     throw new Error('Method not implemented.');
@@ -303,6 +304,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   // }
 }
 
+@NewInstance()
 export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
   /**
    * Deletes from db data that are not in relation
