@@ -35,6 +35,20 @@ export class ConnectionConf extends FrameworkConfiguration {
           templates: [dir('./templates'), dir('templates_2')],
         },
       },
+      templates: {
+        pdf: {
+          static: {
+            portRange: [8080, 8090],
+          },
+          args: {
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+          },
+          options: {},
+          renderDurationWarning: 5000,
+          renderTimeout: 30000,
+        },
+      },
     };
   }
 }
@@ -55,7 +69,7 @@ describe('templates', function ()  {
     const t = await tp();
 
     const file = dir('templates/template_render.pdf')
-    t.renderToFile(dir('templates/template.pdf'), { hello: 'world' }, file);
+    await t.renderToFile(dir('templates/template.pdf'), { hello: 'world' }, file);
 
     const exist = fs.existsSync(file);
     expect(exist).to.eq(true);

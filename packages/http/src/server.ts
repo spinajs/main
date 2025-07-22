@@ -54,6 +54,11 @@ export class HttpServer extends AsyncService {
   protected _httpServer: Http;
   protected _httpsServer: Https;
 
+  /**
+   * Track active connections for cleanup
+   */
+  protected _connections = new Set<any>();
+
   public get Server(): Http | Https {
     return this.HttpsEnabled ? this._httpsServer : this._httpServer;
   }
@@ -144,9 +149,25 @@ export class HttpServer extends AsyncService {
         },
         this.Express,
       );
+      
+      // Track connections for cleanup
+      this._httpsServer.on('connection', (socket) => {
+        this._connections.add(socket);
+        socket.on('close', () => {
+          this._connections.delete(socket);
+        });
+      });
     } else {
       this.Log.info(`HTTP enabled !`);
       this._httpServer = HttpCreateServer(this.Express);
+      
+      // Track connections for cleanup
+      this._httpServer.on('connection', (socket) => {
+        this._connections.add(socket);
+        socket.on('close', () => {
+          this._connections.delete(socket);
+        });
+      });
     }
   }
 
@@ -198,6 +219,67 @@ export class HttpServer extends AsyncService {
     if (this.Server) {
       this.Server.close();
     }
+  }
+
+  /**
+   * Enhanced dispose method with proper connection cleanup and timeout handling
+   */
+  public async dispose(): Promise<void> {
+    if (!this.Server) {
+      return;
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      // Set a timeout for graceful shutdown
+      const timeout = setTimeout(() => {
+        this.Log.warn('Server shutdown timeout, forcing close');
+        
+        // Force close all tracked connections
+        this._forceCloseConnections();
+        
+        // Force close connections if available (Node.js 18.2+)
+        if (typeof this.Server.closeAllConnections === 'function') {
+          this.Server.closeAllConnections();
+        }
+        
+        // Still resolve as we've done our best to clean up
+        resolve();
+      }, 10000);
+
+      this.Server.close((err) => {
+        clearTimeout(timeout);
+        
+        if (err) {
+          this.Log.error('Error during server close:', err);
+          reject(err);
+        } else {
+          this.Log.info('Server closed successfully');
+          resolve();
+        }
+      });
+
+      // For tracked connections, manually close them after grace period
+      setTimeout(() => {
+        if (this._connections.size > 0) {
+          this.Log.warn(`Forcing closure of ${this._connections.size} remaining connections`);
+          this._forceCloseConnections();
+        }
+      }, 5000);
+    });
+  }
+
+  /**
+   * Force close all tracked connections
+   */
+  private _forceCloseConnections(): void {
+    for (const connection of this._connections) {
+      try {
+        connection.destroy();
+      } catch (err) {
+        this.Log.warn('Error destroying connection:', err.message);
+      }
+    }
+    this._connections.clear();
   }
 
   /**
