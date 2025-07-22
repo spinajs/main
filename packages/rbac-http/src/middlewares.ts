@@ -30,7 +30,7 @@ export class RbacMiddleware extends ServerMiddleware {
             session = await this.SessionProvider.restore(ssid);
           }
         }
-
+ 
         if (session) {
           /**
            * If we have session, try to restore user with data from session

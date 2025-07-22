@@ -21,8 +21,13 @@ export class MsSqlOrmDriver extends SqlDriver {
     super(Object.assign({ AliasSeparator: '#' }, options));
   }
 
+  private getNextExecutionId(): number {
+    this._executionId = (this._executionId + 1) % Number.MAX_SAFE_INTEGER;
+    return this._executionId;
+  }
+
   public async executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
-    const tName = `query-${this._executionId++}`;
+    const tName = `query-${this.getNextExecutionId()}`;
     let finalQuery = stmt.replaceAll('`', '');
 
     this.Log.timeStart(`query-${tName}`);
@@ -104,25 +109,39 @@ export class MsSqlOrmDriver extends SqlDriver {
   }
 
   public async connect(): Promise<OrmDriver> {
-    this._connectionPool = await mssql.connect({
-      user: this.Options.User,
-      password: this.Options.Password,
-      database: this.Options.Database,
-      server: this.Options.Host,
-      options: {
-        trustServerCertificate: (this.Options.Options?.TrustServerCertificate as boolean) ?? true,
-        cryptoCredentialsDetails: this.Options.Options?.CryptoCredentialsDetails ? this.Options.Options?.CryptoCredentialsDetails : {},
-      },
-      pool: {
-        max: this.Options.PoolLimit ?? 10,
-        min: 0,
-        idleTimeoutMillis: 3000,
-      },
-    });
+    try {
+      this._connectionPool = await mssql.connect({
+        user: this.Options.User,
+        password: this.Options.Password,
+        database: this.Options.Database,
+        server: this.Options.Host,
+        options: {
+          trustServerCertificate: (this.Options.Options?.TrustServerCertificate as boolean) ?? true,
+          cryptoCredentialsDetails: this.Options.Options?.CryptoCredentialsDetails ? this.Options.Options?.CryptoCredentialsDetails : {},
+        },
+        pool: {
+          max: this.Options.PoolLimit ?? 10,
+          min: 0,
+          idleTimeoutMillis: 3000,
+        },
+      });
 
-    await this.executeOnDb(`USE ${this.Options.Database}`, [], QueryContext.Schema);
+      await this.executeOnDb(`USE ${this.Options.Database}`, [], QueryContext.Schema);
 
-    return this;
+      return this;
+    } catch (err) {
+      // Clean up connection pool if connection fails
+      if (this._connectionPool) {
+        try {
+          await this._connectionPool.close();
+          this._connectionPool = null;
+        } catch (closeErr) {
+          // Log the cleanup error but still throw the original error
+          console.warn('Error cleaning up failed MSSQL connection:', closeErr.message);
+        }
+      }
+      throw err;
+    }
   }
 
   public resolve() {
@@ -142,7 +161,10 @@ export class MsSqlOrmDriver extends SqlDriver {
   }
 
   public async disconnect(): Promise<OrmDriver> {
-    await this._connectionPool.close();
+    if (this._connectionPool) {
+      await this._connectionPool.close();
+      this._connectionPool = null;
+    }
     return this;
   }
 

@@ -4,14 +4,14 @@ import { TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isFactory, isTypedArray, isPromise } from './helpers.js';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, IInstanceCheck, Service } from './interfaces.js';
+import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service } from './interfaces.js';
 import { Class, Factory } from './types.js';
 import { EventEmitter } from 'events';
 import { Binder } from './binder.js';
 import { Registry } from './registry.js';
 import { ContainerCache } from './container-cache.js';
 import _ from 'lodash';
-import { ResolveException, ServiceNotFound } from './exceptions.js';
+import { ServiceNotFound } from './exceptions.js';
 
 /**
  * Dependency injection container implementation
@@ -32,6 +32,11 @@ export class Container extends EventEmitter implements IContainer {
    * Parent container if avaible
    */
   private parent: IContainer;
+
+  /**
+   * Child containers created from this container
+   */
+  private children: Set<IContainer> = new Set();
 
   /**
    * Returns container cache - map object with resolved classes as singletons
@@ -65,14 +70,36 @@ export class Container extends EventEmitter implements IContainer {
   }
 
   public async dispose() {
+    const disposalErrors: Error[] = [];
+
+    // Dispose all children first
+    await Promise.all([...this.children].map(child =>
+      child.dispose().catch(err => {
+        disposalErrors.push(err);
+        // Continue with other children even if one fails
+      })
+    ));
+    this.children.clear();
+
+    // Dispose services in this container
     for (const entry of this.cache) {
       if (entry.value instanceof Service) {
-        await entry.value.dispose();
+        try {
+          await entry.value.dispose();
+        } catch (err) {
+          disposalErrors.push(err);
+          // Continue with other services even if one fails
+        }
       }
     }
 
     this.clearCache();
     this.emit('di.dispose');
+
+    // Log disposal errors if any occurred
+    if (disposalErrors.length > 0) {
+      console.warn(`${disposalErrors.length} services failed to dispose properly:`, disposalErrors);
+    }
   }
 
   /**
@@ -87,6 +114,25 @@ export class Container extends EventEmitter implements IContainer {
    */
   public clearRegistry(): void {
     this.Registry.clear();
+  }
+
+  /**
+   * Get cache statistics for memory monitoring
+   */
+  public getCacheStats() {
+    const entries: string[] = [];
+    let size = 0;
+
+    for (const entry of this.cache) {
+      entries.push(entry.key);
+      size++;
+    }
+
+    return {
+      size,
+      entries,
+      childrenCount: this.children.size
+    };
   }
 
   /**
@@ -119,7 +165,15 @@ export class Container extends EventEmitter implements IContainer {
    *
    */
   public child(): IContainer {
-    return new Container(this);
+    const child = new Container(this);
+    this.children.add(child);
+
+    // Remove from parent when child is disposed
+    child.once('di.dispose', () => {
+      this.children.delete(child);
+    });
+
+    return child;
   }
 
   /**
@@ -137,11 +191,11 @@ export class Container extends EventEmitter implements IContainer {
   public get<T>(service: string | Class<T>, parent?: boolean): T;
   public get<T>(service: string | Class<T> | TypedArray<T>, parent = true): T | T[] {
     // get value registered as TypedArray ( mean to return all created instances )
-    if (service instanceof Array && service.constructor.name === 'TypedArray') {
+    if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
       return this.cache.get(getTypeName(service.Type)) as T[];
     }
 
-    const r = this.cache.get(service, parent);
+    const r = this.cache.get(this.getCurrentType(service, null, parent ?? true) ?? service, parent);
     return r[r.length - 1] as T;
   }
 
@@ -158,7 +212,11 @@ export class Container extends EventEmitter implements IContainer {
    * @throws {@link InvalidArgument} when service is null or empty
    */
   public isResolved<T>(service: string | Class<T> | TypedArray<T>, parent = true): boolean {
-    return this.Cache.has(service, parent);
+    if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
+      return this.Cache.has(this.getCurrentType(service.Type, null, parent ?? true) ?? service, parent);
+    }
+
+    return this.Cache.has(this.getCurrentType(service, null, parent ?? true) ?? service, parent);
   }
 
   /**
@@ -197,7 +255,7 @@ export class Container extends EventEmitter implements IContainer {
    *
    * @param type - type to resolve
    * @param options - options passed to constructor / factory
-   * @param check - strict check if serivice is registered in container before resolving. Default behavior is to not check and resolve
+   * @param check - strict check if serivice is registered in container before resolving. Default behavior is not to check and resolve
    */
   public resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean, tType?: Class<unknown>): Promise<T | T[]> | T | T[] {
     if (!type) {
@@ -233,32 +291,19 @@ export class Container extends EventEmitter implements IContainer {
       }
 
       const resolved = targetType.map((r) => this.resolveType(type, r, opt));
+       
       if (resolved.some((r) => r instanceof Promise)) {
-        return Promise.all(resolved) as any;
+        return Promise.all(resolved).then( () => this.get(type, check ?? true)) as any;
       }
 
-      return resolved as T[];
+      return this.get(type, check ?? true) as T[];
     } else {
-      // finaly resolve single type:
-      // 1. last registered type OR
-      // 2. if non is registered - type itself
-      let targetType = this.getRegisteredTypes(type);
 
-      if (!targetType) {
-        // if nothing is register under string identifier, then return null
-        if (typeof type === 'string') {
-          return null;
-        } else {
-          targetType = [type];
-        }
+      const fType = this.getCurrentType(type, tType, check ?? true);
+      if (fType === null) {
+        return null;
       }
 
-      // if we have target function callback
-      // we can select whitch of targetType to resolve
-      //
-      // if not, by default last registered type is resolved
-      // if we have override for target type in registry, resolve it ( last registered ) otherwise resolve target type type itself
-      const fType = targetType[targetType.length - 1] ?? tType;
       const rValue = this.resolveType(sourceType, fType, opt);
       return rValue as any;
     }
@@ -266,6 +311,30 @@ export class Container extends EventEmitter implements IContainer {
 
   public getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): (Class<unknown> | Factory<unknown>)[] {
     return this.Registry.getTypes(service, parent);
+  }
+
+  private getCurrentType<T>(type: Class<T> | string, tType: Class<T>, check: boolean) {
+    // finaly resolve single type:
+    // 1. last registered type OR
+    // 2. if non is registered - type itself
+    let targetType = this.getRegisteredTypes(type, check ?? true);
+
+    if (!targetType) {
+      // if nothing is register under string identifier, then return null
+      if (typeof type === 'string') {
+        return null;
+      } else {
+        targetType = [type];
+      }
+    }
+
+    // if we have target function callback
+    // we can select whitch of targetType to resolve
+    //
+    // if not, by default last registered type is resolved
+    // if we have override for target type in registry, resolve it ( last registered ) otherwise resolve target type type itself
+    const fType = targetType[targetType.length - 1] ?? tType;
+    return fType;
   }
 
   private resolveType<T>(sourceType: Class<T> | string | TypedArray<T>, targetType: Class<T> | Factory<T>, options?: unknown[]): Promise<T> | T | Promise<T> | T[] {
@@ -287,12 +356,8 @@ export class Container extends EventEmitter implements IContainer {
     // resolving strategy per container is treatead as singleton
     // in this particular container
     const isSingletonInChild = descriptor.resolver === ResolveType.PerChildContainer;
-    const isSingleton = descriptor.resolver === ResolveType.Singleton;
+    const isSingleton = descriptor.resolver === ResolveType.Singleton || descriptor.resolver === ResolveType.PerInstanceCheck || descriptor.resolver === ResolveType.PerInstance;
 
-    const setCache = (target: T) => {
-      this.Cache.add(sourceType, target);
-      return target;
-    };
     const emit = (target: any) => {
       const sourceTypeName = getTypeName(sourceType);
       const targetTypeName = getTypeName(targetType);
@@ -306,34 +371,14 @@ export class Container extends EventEmitter implements IContainer {
       }
     };
 
-    const getCachedInstance = (e: string | Class<any> | TypedArray<any>, parent: boolean) => {
-      if (this.isResolved(e, parent)) {
-        const rArray = this.get(e as any, parent);
-        return _.isArray(rArray) ? rArray.find((x) => getTypeName(x as any) === getTypeName(targetType)) : rArray;
-      }
-
-      return null;
-    };
-
-    const getCachedInstances = (e: string | Class<any> | TypedArray<any>, parent: boolean) => {
-      if (this.isResolved(e, parent)) {
-        const rArray = this.get(e as any, parent);
-        return _.isArray(rArray) ? rArray : [rArray];
-      }
-
-      return null;
-    };
-
     const createNewInstance = (t: Class<T>, i: IResolvedInjection[], options: any) => {
       const instance = this.getNewInstance(t, i, options);
       if (isPromise(instance)) {
         return instance.then((r) => {
-          setCache(r);
           emit(r);
           return r;
         });
       } else {
-        setCache(instance as T);
         emit(instance);
         return instance;
       }
@@ -354,51 +399,36 @@ export class Container extends EventEmitter implements IContainer {
         }
       }
 
-      if (d.resolver === ResolveType.PerInstanceCheck) {
-        const cashed = getCachedInstances(tType, true);
-        if (cashed) {
-          const found = cashed.find((x) => {
-            if (!(x as IInstanceCheck).__checkInstance__) {
-              // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-              throw new ResolveException(`service ${x.constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
-            }
-            return (x as IInstanceCheck).__checkInstance__(options);
-          });
-          if (found) {
-            return found;
-          } else {
-            return createNewInstance(t, i, options);
-          }
-        }
-      }
-
       this.Registry.register(sName, t);
 
-      const cashed = getCachedInstance(tType, d.resolver === ResolveType.Singleton ? true : false);
-      if (!cashed) {
-        return createNewInstance(t, i, options);
-      } else {
-        return cashed;
-      }
+      // For singletons, don't check cache here - let getOrCreate handle it atomically
+      return createNewInstance(t, i, options);
     };
 
-    // check cache if needed
+    // For singletons, use atomic cache operations to prevent concurrent creation
     if (isSingletonInChild || isSingleton) {
-      // if its singleton ( not per child container )
-      // check also in parent containers
+      return this.Cache.getOrCreate(
+        sourceType,
+        tType,
+        () => {
+          const deps = this.resolveDependencies(descriptor.inject);
 
-      // ------- IMPORTANT ------------
-      // TODO: in future allow to check in runtime if target type is cashed,
-      // now, if for example we resolve array of some type,
-      // when we later register another type of base class used in typed array
-      // we will not resolve it, becaouse contaienr will not check
-      // if in cache this new type exists ( only check if type in array exists )
-      const cached = getCachedInstance(sourceType, isSingleton);
-      if (cached) {
-        return cached as any;
-      }
+          if (deps instanceof Promise) {
+            return deps.then((resolvedDependencies) => {
+              return resolve(descriptor, tType, resolvedDependencies) as T;
+            });
+          } else {
+            const resInstance = resolve(descriptor, tType, deps as IResolvedInjection[]);
+            return resInstance as T;
+          }
+        },
+        true, // isSingleton
+        descriptor,
+        options
+      ) as T;
     }
 
+    // Non-singleton path - resolve normally without caching
     const deps = this.resolveDependencies(descriptor.inject);
 
     if (deps instanceof Promise) {
@@ -407,10 +437,6 @@ export class Container extends EventEmitter implements IContainer {
       });
     } else {
       const resInstance = resolve(descriptor, tType, deps as IResolvedInjection[]);
-
-      if (resInstance instanceof Promise) {
-        return resInstance;
-      }
       return resInstance as T;
     }
   }
