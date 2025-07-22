@@ -36,6 +36,11 @@ export class SqliteOrmDriver extends SqlDriver {
 
   protected Db: sqlite3.Database;
 
+  private getNextExecutionId(): number {
+    this.executionId = (this.executionId + 1) % Number.MAX_SAFE_INTEGER;
+    return this.executionId;
+  }
+
   public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
     const self = this;
@@ -44,7 +49,7 @@ export class SqliteOrmDriver extends SqlDriver {
       throw new Error('cannot execute sqlite statement, no db connection avaible');
     }
 
-    const tName = `query-${this.executionId++}`;
+    const tName = `query-${this.getNextExecutionId()}`;
     this.Log.timeStart(`query-${tName}`);
 
     return new Promise((resolve, reject) => {
@@ -191,7 +196,15 @@ export class SqliteOrmDriver extends SqlDriver {
     return new Promise((resolve, reject) => {
       this.Db = new sqlite3.Database(format({}, this.Options.Filename), (err: unknown) => {
         if (err) {
-          reject(err);
+          // Clean up the database handle if connection fails
+          if (this.Db) {
+            this.Db.close(() => {
+              this.Db = null;
+              reject(err);
+            });
+          } else {
+            reject(err);
+          }
           return;
         }
 
@@ -202,7 +215,7 @@ export class SqliteOrmDriver extends SqlDriver {
 
   public async disconnect(): Promise<OrmDriver> {
     if (!this.Db) {
-      return;
+      return this;
     }
 
     return new Promise((resolve, reject) => {
