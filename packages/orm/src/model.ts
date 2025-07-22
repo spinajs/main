@@ -209,7 +209,7 @@ export class ModelBase<M = unknown> implements IModelBase {
           return (m as any)[r.Name];
         }
 
-        if (((m as any)[r.Name] as SingleRelation<any, any>).Value) {
+        if (((m as any)[r.Name] as SingleRelation<any>).Value) {
           return [(m as any)[r.Name].Value];
         }
       }).filter((x) => x !== undefined);
