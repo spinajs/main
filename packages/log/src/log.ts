@@ -168,7 +168,7 @@ const logFactoryFunction = (container: IContainer, logName: string) => {
     }
 
     const internalLogger = container.resolve(InternalLoggerProxy, [logName]);
-    Log.InternalLoggers.set(logName, this);
+    Log.InternalLoggers.set(logName, internalLogger);
     return internalLogger;
   }
 

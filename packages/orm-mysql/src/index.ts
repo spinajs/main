@@ -22,9 +22,14 @@ export class MySqlOrmDriver extends SqlDriver {
   protected Pool: mysql.Pool;
   protected _executionId = 0;
 
+  private getNextExecutionId(): number {
+    this._executionId = (this._executionId + 1) % Number.MAX_SAFE_INTEGER;
+    return this._executionId;
+  }
+
   public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const self = this;
-    const tName = `query-${this._executionId++}`;
+    const tName = `query-${this.getNextExecutionId()}`;
     this.Log.timeStart(`query-${tName}`);
 
     return new Promise((resolve, reject) => {
@@ -117,26 +122,58 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public connect(): Promise<OrmDriver> {
-    this.Pool = mysql.createPool({
-      host: this.Options.Host,
-      user: this.Options.User,
-      password: this.Options.Password,
-      port: this.Options.Port,
-      database: this.Options.Database,
-      waitForConnections: true,
-      connectionLimit: this.Options.PoolLimit,
-      queueLimit: 0,
-    });
+    return new Promise((resolve, reject) => {
+      try {
+        this.Pool = mysql.createPool({
+          host: this.Options.Host,
+          user: this.Options.User,
+          password: this.Options.Password,
+          port: this.Options.Port,
+          database: this.Options.Database,
+          waitForConnections: true,
+          connectionLimit: this.Options.PoolLimit,
+          queueLimit: 0,
+        });
 
-    return Promise.resolve(this);
+        // Test the pool connection
+        this.Pool.getConnection((err, connection) => {
+          if (err) {
+            // Clean up the pool if connection test fails
+            this.Pool.end(() => {
+              reject(err);
+            });
+            return;
+          }
+          
+          // Release the test connection
+          connection.release();
+          resolve(this);
+        });
+      } catch (err) {
+        // Clean up if pool creation fails
+        if (this.Pool) {
+          this.Pool.end(() => {
+            reject(err);
+          });
+        } else {
+          reject(err);
+        }
+      }
+    });
   }
 
   public disconnect(): Promise<OrmDriver> {
     return new Promise((resolve, reject) => {
+      if (!this.Pool) {
+        resolve(this);
+        return;
+      }
+      
       this.Pool.end((err) => {
         if (err) {
           reject(err);
         } else {
+          this.Pool = null;
           resolve(this);
         }
       });
