@@ -1,9 +1,9 @@
-import { IModelDescriptor, ModelBase, _prepareColumnDesc, extractDecoratorPropertyDescriptor, extractModelDescriptor } from '@spinajs/orm';
+import { IModelDescriptor, ModelBase, WhereFunction, _prepareColumnDesc, extractDecoratorPropertyDescriptor, extractModelDescriptor } from '@spinajs/orm';
 import { FilterableOperators, IColumnFilter } from './interfaces.js';
 import { Constructor, isConstructor } from '@spinajs/di';
 import { Parameter, Route } from '@spinajs/http';
 
-export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor<ModelBase> , isAggregate? : boolean) {
+export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor<ModelBase> | ((operator : FilterableOperators, value: any) => WhereFunction<unknown>) , isAggregate? : boolean) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     if (model.FilterableColumns === undefined) {
       model.FilterableColumns = new Map<string, FilterableOperators[]>();
@@ -21,7 +21,8 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
 
         model.FilterableColumns = new Map<string, FilterableOperators[]>([...model.FilterableColumns.entries(), ...ops as any]);
       }
-    } else {
+    }
+    else {
       if (!operatorsOrClass) {
         throw new Error(`Filterable decorator on ${model.Name} model, property ${propertyKey} must have operators defined`);
       }

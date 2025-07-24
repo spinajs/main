@@ -1,3 +1,4 @@
+import { WhereFunction } from '@spinajs/orm';
 import { FilterableOperators, IColumnFilter, IFilter } from './interfaces.js';
 
 declare module '@spinajs/orm' {
@@ -5,7 +6,7 @@ declare module '@spinajs/orm' {
     /**
      * If set column is fitlerable by this operators
      */
-    FilterableColumns?: Map<string,FilterableOperators[]>;
+    FilterableColumns?: Map<string,FilterableOperators[] | ((operator : FilterableOperators, value: any) => WhereFunction<unknown>)>;
   }
 
   export interface ISelectQueryBuilder {

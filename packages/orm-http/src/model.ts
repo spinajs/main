@@ -1,4 +1,4 @@
-import { IModelDescriptor, OrmException, SelectQueryBuilder, createQuery } from '@spinajs/orm';
+import { IModelDescriptor, OrmException, SelectQueryBuilder, WhereFunction, createQuery } from '@spinajs/orm';
 import './builders.js';
 import { FilterableOperators, IFilter } from './interfaces.js';
 
@@ -15,10 +15,11 @@ export const MODEL_STATIC_MIXINS = {
       throw new OrmException(`Model ${this.constructor.name} has no descriptor`);
     }
 
-    return [...modelDescriptor.FilterableColumns.entries()].map(([key, val] : [string, FilterableOperators[]]) => {
+    return [...modelDescriptor.FilterableColumns.entries()].map(([key, val] : [string, FilterableOperators[] | ((operator : FilterableOperators, value: any) => WhereFunction<unknown>)]) => {
       return {
         column: key,
-        operators: val,
+        operators: typeof val === 'function' ? [] : val,
+        query: typeof val === 'function' ? val : undefined,
       };
     });
   },
