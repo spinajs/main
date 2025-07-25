@@ -41,7 +41,7 @@ export const MODEL_STATIC_MIXINS = {
             required: ['Column', 'Operator'],
             properties: {
               Column: { const: key },
-              Value: { type: ['string', 'integer', 'array'] },
+              Value: { type: ['string', 'integer', 'array', 'boolean'] },
               Operator: { type: 'string', enum: val.operators },
             },
           };
