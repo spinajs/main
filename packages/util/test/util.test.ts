@@ -2,7 +2,7 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
 
-import { _check_arg, _default, _is_array, _is_object, _is_string, _catchFilter, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _zip, _catch, _use, _fallback, _tap, _catchException, _catchValue, _either, _map, _all } from '../src/index.js';
+import { _check_arg, _default, _is_array, _is_object, _is_string, _catchFilter, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _zip, _catch, _use, _fallback, _tap, _catchException, _catchValue, _either, _map, _all, _custom } from '../src/index.js';
 import _ from 'lodash';
 
 chai.use(chaiAsPromised);
@@ -529,6 +529,49 @@ describe('util', () => {
       expect(val).to.be.an('object');
       expect(val).to.have.property('a');
       expect(val.a).to.be.eq(1);
+    });
+
+    it('validate custom checks', async () => {
+      let val: any;
+
+      // Test with successful custom validation
+      const isEven = _custom<number>(n => n % 2 === 0);
+      val = _check_arg(_is_number(), isEven)(4, 'test');
+      expect(val).to.be.eq(4);
+
+      // Test with failed custom validation
+      expect(() => _check_arg(_is_number(), isEven)(3, 'test')).to.throw('test failed custom validation');
+
+      // Test with custom error message
+      const isPositive = _custom<number>(n => n > 0, new Error('Number must be positive'));
+      val = _check_arg(_is_number(), isPositive)(5, 'test');
+      expect(val).to.be.eq(5);
+
+      expect(() => _check_arg(_is_number(), isPositive)(-1, 'test')).to.throw('Number must be positive');
+
+      // Test with string validation
+      const hasValidExtension = _custom<string>(filename => ['.txt', '.pdf', '.doc'].some(ext => filename.endsWith(ext)));
+      val = _check_arg(_is_string(), hasValidExtension)('document.pdf', 'test');
+      expect(val).to.be.eq('document.pdf');
+
+      expect(() => _check_arg(_is_string(), hasValidExtension)('document.xyz', 'test')).to.throw('test failed custom validation');
+
+      // Test with array validation
+      const hasMinLength = _custom<any[]>(arr => arr.length >= 2);
+      val = _check_arg(_is_array(), hasMinLength)([1, 2, 3], 'test');
+      expect(val).to.be.an('array');
+      expect(val).to.have.lengthOf(3);
+
+      expect(() => _check_arg(_is_array(), hasMinLength)([1], 'test')).to.throw('test failed custom validation');
+
+      // Test with complex object validation
+      const hasRequiredProps = _custom<object>(obj => 'name' in obj && 'age' in obj);
+      val = _check_arg(_is_object(), hasRequiredProps)({ name: 'John', age: 30 }, 'test');
+      expect(val).to.be.an('object');
+      expect(val).to.have.property('name', 'John');
+      expect(val).to.have.property('age', 30);
+
+      expect(() => _check_arg(_is_object(), hasRequiredProps)({ name: 'John' }, 'test')).to.throw('test failed custom validation');
     });
   });
 });

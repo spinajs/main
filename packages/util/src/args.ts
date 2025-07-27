@@ -427,3 +427,20 @@ export function _to_float(error?: Error) {
 export function _one_of<T>(oneOf: T[], error?: Error) {
   return _contains(oneOf, error);
 }
+
+/**
+ * Custom validation check using a callback function
+ * 
+ * @param callback - Function that returns true if validation passes, false otherwise
+ * @param error - Optional custom error to throw if validation fails
+ * @returns 
+ */
+export function _custom<T>(callback: (arg: T) => boolean, error?: Error) {
+  return function (arg: T, name: string) {
+    if (!callback(arg)) {
+      throw error ?? new InvalidArgument(`${name} failed custom validation`);
+    }
+
+    return arg;
+  };
+}
