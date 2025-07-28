@@ -35,7 +35,11 @@ export class NotSupported extends Exception {}
 /**
  * Exception thrown when argument passed to function is invalid eg. out of range
  */
-export class InvalidArgument extends Exception {}
+export class InvalidArgument extends Exception {
+  constructor(message?: string, public fieldName?: string, public errorCode?: string, inner?: Error | unknown) {
+    super(message, inner);
+  }
+}
 
 /**
  * Exception thrown when config option is invalidl eg. missing or in invalid format
