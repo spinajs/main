@@ -25,7 +25,7 @@ export function _zip(...fns: ((arg?: any) => Promise<any>)[]) {
 }
 
 export function _map<T, R>(callback: (val: T) => Promise<R>) {
-  return (val: T[]) => val.map((v) => callback(v));
+  return (val: T[]) => Promise.all(val.map((v) => callback(v)));
 }
 
 export function _all() {
