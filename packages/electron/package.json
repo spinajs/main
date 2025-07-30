@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/electron",
-  "version": "2.0.388",
+  "version": "2.0.389",
   "description": "spinajs extensions for electron",
   "license": "ISC",
   "main": "lib/cjs/index.js",
@@ -59,11 +59,11 @@
     "electron": "^22.0.3"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "^2.0.388",
-    "@spinajs/orm": "^2.0.388",
-    "@spinajs/orm-sql": "^2.0.388",
-    "@spinajs/log-common": "2.0.388",
-    "@spinajs/di": "^2.0.388"
+    "@spinajs/configuration-common": "^2.0.389",
+    "@spinajs/orm": "^2.0.389",
+    "@spinajs/orm-sql": "^2.0.389",
+    "@spinajs/log-common": "2.0.389",
+    "@spinajs/di": "^2.0.389"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
