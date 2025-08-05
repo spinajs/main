@@ -2,7 +2,7 @@ import { IContainer, Inject, Injectable, Container, Constructor } from '@spinajs
 import { IRoute, IRouteCall, IRouteParameter, ParameterType, RouteArgs } from '@spinajs/http';
 import { ModelBase } from '@spinajs/orm';
 import express from 'express';
-import { IColumnFilter } from './interfaces.js';
+import { FilterableLogicalOperators, IColumnFilter } from './interfaces.js';
 
 @Injectable()
 @Inject(Container)
@@ -15,7 +15,7 @@ export class FilterModelRouteArg extends RouteArgs {
     this.Container = c;
   }
 
-  async resolve(): Promise<void> {}
+  async resolve(): Promise<void> { }
 
   public get SupportedType(): ParameterType | string {
     return 'FilterModelRouteArg';
@@ -39,20 +39,29 @@ export class FilterModelRouteArg extends RouteArgs {
     } else {
       // manually build custom schema
       rParam.Schema = {
-        type: 'array',
-        items: {
-          type: 'object',
-          anyOf: (param.Options as IColumnFilter<unknown>[]).map((x) => {
-            return {
+        type: 'object',
+        properties: {
+          op: {
+            type: 'string',
+            enum: [FilterableLogicalOperators.And, FilterableLogicalOperators.Or],
+          },
+          filters: {
+            type: 'array',
+            items: {
               type: 'object',
-              required: ['Column', 'Value', 'Operator'],
-              properties: {
-                Column: { const: x.column },
-                Value: { type: ['string', 'integer', 'array'] },
-                Operator: { type: 'string', enum: x.operators },
-              },
-            };
-          }),
+              anyOf: (param.Options as IColumnFilter<unknown>[]).map((x) => {
+                return {
+                  type: 'object',
+                  required: ['Column', 'Value', 'Operator'],
+                  properties: {
+                    Column: { const: x.column },
+                    Value: { type: ['string', 'integer', 'array'] },
+                    Operator: { type: 'string', enum: x.operators },
+                  },
+                };
+              }),
+            },
+          },
         },
       };
     }

@@ -5,7 +5,7 @@ import { IColumnFilter, IFilterRequest, FilterableLogicalOperators } from './int
 export const MODEL_STATIC_MIXINS = {
   async filter(filterRequest: IFilterRequest) {
     const { query } = createQuery(this, SelectQueryBuilder);
-    return (query as any).filter(filterRequest.Filters, filterRequest.LogicalOperator);
+    return (query as any).filter(filterRequest.filters, filterRequest.op);
   },
 
   filterColumns() {
@@ -33,13 +33,12 @@ export const MODEL_STATIC_MIXINS = {
 
     return {
       type: 'object',
-      required: ['LogicalOperator', 'Filters'],
       properties: {
-        LogicalOperator: {
+        op: {
           type: 'string',
           enum: [FilterableLogicalOperators.And, FilterableLogicalOperators.Or],
         },
-        Filters: {
+        filters: {
           type: 'array',
           items: {
             type: 'object',

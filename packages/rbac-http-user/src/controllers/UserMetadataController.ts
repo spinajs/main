@@ -27,7 +27,7 @@ export class UserMetadataController extends BaseController {
     ) {
         return new Ok(FilterableUserMetadata.select().where({
             user_id: user.Id
-        }).filter(filter?.Filters, filter?.LogicalOperator)
+        }).filter(filter?.filters, filter?.op)
             .take(pagination?.limit ?? undefined)
             .skip(pagination?.limit * pagination?.page || 0)
             .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC)
@@ -107,7 +107,7 @@ export class UserMetadataController extends BaseController {
         @Filter(FilterableUserMetadata)
         filter?: IFilterRequest,
     ) {
-        return new Ok(FilterableUserMetadata.select().filter(filter?.Filters, filter?.LogicalOperator)
+        return new Ok(FilterableUserMetadata.select().filter(filter?.filters, filter?.op)
             .take(pagination?.limit ?? undefined)
             .skip(pagination?.limit * pagination?.page || 0)
             .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC)

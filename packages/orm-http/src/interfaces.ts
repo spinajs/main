@@ -39,8 +39,8 @@ export interface IFilter {
 
 
 export interface IFilterRequest {
-  LogicalOperator: FilterableLogicalOperators;
-  Filters: IFilter[];
+  op: FilterableLogicalOperators;
+  filters: IFilter[];
 }
 
 export enum FilterableLogicalOperators {

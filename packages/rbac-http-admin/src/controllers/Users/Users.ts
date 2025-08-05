@@ -143,9 +143,9 @@ export class Users extends BaseController {
       .take(pagination?.limit ?? 10)
       .skip(pagination?.limit * pagination?.page)
       .order(order?.column ?? 'CreatedAt', order?.order ?? SortOrder.DESC)
-      .filter(filter?.Filters, filter?.LogicalOperator, USER_FILTER);
+      .filter(filter?.filters, filter?.op, USER_FILTER);
 
-    const count = await User.query().filter(filter?.Filters, filter?.LogicalOperator, USER_FILTER).count();
+    const count = await User.query().filter(filter?.filters, filter?.op, USER_FILTER).count();
 
 
     return new Ok(

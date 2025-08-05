@@ -22,7 +22,7 @@ const ValidationHelpers = {
       ))(filter.Value, filter.Column);
     }
   },
- 
+
   requireValue: (filter: IFilter) => {
     _check_arg(_non_undefined(
       new InvalidArgument(`Operator '${filter.Operator}' for column '${filter.Column}' requires a value, got: ${filter.Value}`, filter.Column, 'VALUE_REQUIRED')
@@ -158,52 +158,53 @@ const OPERATOR_MAP: Record<FilterableOperators, {
       throw new Error(`Invalid filter at index ${index}: must be an object`);
     }
   });
+  this.andWhere(function () {
+    filters.forEach((filter, index) => {
 
-  filters.forEach((filter, index) => {
+      if (!filter.Column) {
+        throw new Error(`Column is required for filter at index ${index}`);
+      }
 
-    if (!filter.Column) {
-      throw new Error(`Column is required for filter at index ${index}`);
-    }
+      if (!filter.Operator) {
+        throw new Error(`Operator is required for filter at index ${index}`);
+      }
 
-    if (!filter.Operator) {
-      throw new Error(`Operator is required for filter at index ${index}`);
-    }
+      // Validate that the operator is supported
+      if (!Object.keys(OPERATOR_MAP).includes(filter.Operator)) {
+        throw new Error(`Unsupported operator '${filter.Operator}' at index ${index}. Supported operators: ${Object.keys(OPERATOR_MAP).join(', ')}`);
+      }
 
-    // Validate that the operator is supported
-    if (!Object.keys(OPERATOR_MAP).includes(filter.Operator)) {
-      throw new Error(`Unsupported operator '${filter.Operator}' at index ${index}. Supported operators: ${Object.keys(OPERATOR_MAP).join(', ')}`);
-    }
+      const column = columns.find((c) => c.column === filter.Column);
+      if (!column) {
+        throw new Error(`Column '${filter.Column}' is not filterable at index ${index}`);
+      }
 
-    const column = columns.find((c) => c.column === filter.Column);
-    if (!column) {
-      throw new Error(`Column '${filter.Column}' is not filterable at index ${index}`);
-    }
+      // Validate that the operator is allowed for this column
+      if (column.operators && !column.operators.includes(filter.Operator)) {
+        throw new Error(`Operator '${filter.Operator}' is not allowed for column '${filter.Column}' at index ${index}. Allowed operators: ${column.operators.join(', ')}`);
+      }
 
-    // Validate that the operator is allowed for this column
-    if (column.operators && !column.operators.includes(filter.Operator)) {
-      throw new Error(`Operator '${filter.Operator}' is not allowed for column '${filter.Column}' at index ${index}. Allowed operators: ${column.operators.join(', ')}`);
-    }
+      if (column.query) {
+        column.query(filter.Operator, filter.Value).call(this);
+        return;
+      }
 
-    if (column.query) {
-      column.query(filter.Operator, filter.Value).call(this);
-      return;
-    }
+      // Apply the operator using the operator map
+      const operatorConfig = OPERATOR_MAP[filter.Operator];
+      if (!operatorConfig) {
+        throw new Error(`Unsupported operator: ${filter.Operator}`);
+      }
 
-    // Apply the operator using the operator map
-    const operatorConfig = OPERATOR_MAP[filter.Operator];
-    if (!operatorConfig) {
-      throw new Error(`Unsupported operator: ${filter.Operator}`);
-    }
+      // Validate filter value using operator-specific validation
+      operatorConfig.validate(filter);
 
-    // Validate filter value using operator-specific validation
-    operatorConfig.validate(filter);
 
-    // Use the appropriate function based on logical operator
-    if (useOrOperator) {
-      operatorConfig.applyOr(this, filter);
-    } else {
-      operatorConfig.applyAnd(this, filter);
-    }
+      if (useOrOperator) {
+        operatorConfig.applyOr(this, filter);
+      } else {
+        operatorConfig.applyAnd(this, filter);
+      }
+    });
   });
 
   return this;
