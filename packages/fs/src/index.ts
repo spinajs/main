@@ -56,9 +56,20 @@ export class fsService extends AsyncService {
 @Injectable(Bootstrapper)
 export class FsBootsrapper extends Bootstrapper {
   public bootstrap() {
-    DI.register((_container: IContainer, name?: string) => {
+    DI.register((_container: IContainer, name: string) => {
       const provider = DI.get<Map<string, fs>>('__file_provider_instance__');
-      return provider.get(name);
+
+      if(!provider) {
+        throw new ResolveException(`No __file_provider_instance__ registered, make sure fs package is imported in your application and fsService is resolved.`);
+      }
+
+      const instance = provider.get(name);
+
+      if (!instance) {
+        throw new ResolveException(`File provider ${name} not registered, make sure you have registered file provider with name ${name}`);
+      }
+      
+      return instance;
     }).as('__file_provider__');
   }
 }
