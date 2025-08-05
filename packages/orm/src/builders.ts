@@ -630,11 +630,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this._boolean;
   }
 
-  constructor(container: Container, tableAlias?: string) {
+  constructor(container: Container, tableAlias?: string, model?: Constructor<ModelBase>) {
     this._container = container;
     this._boolean = WhereBoolean.AND;
     this._statements = [];
     this._tableAlias = tableAlias;
+    this._model = model;
   }
 
   public when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this {
@@ -691,7 +692,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
     // handle nested where's
     if (_.isFunction(column)) {
-      const builder = new WhereBuilder(this._container, this._tableAlias);
+      const builder = new WhereBuilder(this._container, this._tableAlias, this._model);
       column.call(builder);
 
       self.Statements.push(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self._tableAlias]));
@@ -803,13 +804,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this._tableAlias, this._container]));
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this._tableAlias, this._container, this._model]));
 
     return this;
   }
 
   public whereNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this._tableAlias, this._container]));
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this._tableAlias, this._container, this._model]));
     return this;
   }
 
@@ -818,12 +819,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias, this._container]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias, this._container, this._model]));
     return this;
   }
 
   public whereNotIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias, this._container]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias, this._container, this._model]));
     return this;
   }
 
