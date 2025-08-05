@@ -1,7 +1,7 @@
 import { Post, BasePath, Ok, Del, Body, Get, Query, Param, Policy, BaseController, Patch } from '@spinajs/http';
 import { User as UserModel, UserMetadata } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
-import { AsModel, PaginationDTO, OrderDTO, Filter, IFilter, FromModel } from '@spinajs/orm-http';
+import { AsModel, PaginationDTO, OrderDTO, Filter, IFilterRequest, FromModel } from '@spinajs/orm-http';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
 import { InsertBehaviour, SortOrder } from '@spinajs/orm';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
@@ -23,11 +23,11 @@ export class UserMetadataController extends BaseController {
         @Query() pagination?: PaginationDTO,
         @Query() order?: OrderDTO,
         @Filter(FilterableUserMetadata)
-        filter?: IFilter[],
+        filter?: IFilterRequest,
     ) {
         return new Ok(FilterableUserMetadata.select().where({
             user_id: user.Id
-        }).filter(filter)
+        }).filter(filter?.Filters, filter?.LogicalOperator)
             .take(pagination?.limit ?? undefined)
             .skip(pagination?.limit * pagination?.page || 0)
             .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC)
@@ -105,9 +105,9 @@ export class UserMetadataController extends BaseController {
         @Query() pagination?: PaginationDTO,
         @Query() order?: OrderDTO,
         @Filter(FilterableUserMetadata)
-        filter?: IFilter[],
+        filter?: IFilterRequest,
     ) {
-        return new Ok(FilterableUserMetadata.select().filter(filter)
+        return new Ok(FilterableUserMetadata.select().filter(filter?.Filters, filter?.LogicalOperator)
             .take(pagination?.limit ?? undefined)
             .skip(pagination?.limit * pagination?.page || 0)
             .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC)

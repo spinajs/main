@@ -23,7 +23,7 @@ export class PaginationDTO {
   type: 'object',
   $id: 'arrow.common.OrderDTO',
   properties: {
-    order: { type: 'string', enum: ['ASC', 'DESC','asc','desc'] },
+    order: { type: 'string', enum: ['ASC', 'DESC', 'asc', 'desc'] },
     column: { type: 'string' },
   },
 })

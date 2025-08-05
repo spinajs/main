@@ -19,10 +19,9 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
           return [`${propertyKey}.${k}`, descriptor.FilterableColumns.get(k)];
         });
 
-        model.FilterableColumns = new Map<string, IColumnFilter<unknown>>([...model.FilterableColumns.entries(), ...ops as any]);
+        model.FilterableColumns = new Map<string, IColumnFilter<unknown>>([...model.FilterableColumns.entries(), ...(ops as any)]);
       }
-    }
-    else {
+    } else {
       if (!operatorsOrClass) {
         throw new Error(`Filterable decorator on ${model.Name} model, property ${propertyKey} must have operators defined`);
       }
@@ -41,7 +40,6 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
     }
   });
 }
-
 
 export function Filter(model: Constructor<ModelBase> | IColumnFilter<unknown>[]) {
   return Route(Parameter('FilterModelRouteArg', null, model));

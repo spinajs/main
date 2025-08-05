@@ -28,7 +28,7 @@ export interface ITransformOptions {
 export interface IColumnFilter<T> {
   column?: string;
   operators: FilterableOperators[];
-  query?: (operator : FilterableOperators, value: any) => WhereFunction<T>
+  query?: (operator: FilterableOperators, value: any) => WhereFunction<T>;
 }
 
 export interface IFilter {
@@ -37,6 +37,16 @@ export interface IFilter {
   Value: any;
 }
 
+
+export interface IFilterRequest {
+  LogicalOperator: FilterableLogicalOperators;
+  Filters: IFilter[];
+}
+
+export enum FilterableLogicalOperators {
+  And = 'and',
+  Or = 'or',
+}
 
 export interface FromModelOptions<T extends ModelBase> {
   /**
@@ -59,23 +69,23 @@ export interface FromModelOptions<T extends ModelBase> {
   paramType?: string;
 
   /**
-   * Sometimes we want to skip include relations eg. when we dont want to 
+   * Sometimes we want to skip include relations eg. when we dont want to
    * load relations when getting another model in route
    */
-  noInclude? : boolean;
+  noInclude?: boolean;
 
   /**
-   * 
+   *
    * Callback on query builder before model is fetched from DB
-   * 
-   * It allows to modify query with data passed to route. 
+   *
+   * It allows to modify query with data passed to route.
    * If not set it check for include, model owner ( if has @BelongsTo field marked) etc.
-   * 
-   * @param this 
+   *
+   * @param this
    * @param routeParams passed route params to query
-   * @returns 
+   * @returns
    */
   query?: (this: SelectQueryBuilder<T>, routeParams: any, value: any) => SelectQueryBuilder;
 }
 
-export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists';
+export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp';

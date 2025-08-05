@@ -46,7 +46,7 @@ export class FromDbModel extends RouteArgs {
   @Autoinject(Orm)
   protected Orm: Orm;
 
-  async resolve(): Promise<void> { }
+  async resolve(): Promise<void> {}
 
   public get SupportedType(): string {
     return 'FromDB';
@@ -55,7 +55,7 @@ export class FromDbModel extends RouteArgs {
   public async extract(callData: IRouteCall, args: unknown[], param: IRouteParameter, req: sRequest) {
     let result = null;
     if (param?.Options?.query) {
-      result = await param.Options.query.call(param.RuntimeType.query(), args, this._extractValue(param, req)).firstOrThrow(new OrmNotFoundException("Resource not found"));;
+      result = await param.Options.query.call(param.RuntimeType.query(), args, this._extractValue(param, req)).firstOrThrow(new OrmNotFoundException('Resource not found'));
     } else {
       result = await this.fromDbModelDefaultQueryFunction(callData, args, param, req);
     }
@@ -84,11 +84,9 @@ export class FromDbModel extends RouteArgs {
     }
 
     return pkValue;
-
   }
 
   protected fromDbModelDefaultQueryFunction(callData: IRouteCall, _args: unknown[], param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
-
     const pkValue = this._extractValue(param, req);
     const query = param.RuntimeType['query']() as SelectQueryBuilder;
     const descriptor = extractModelDescriptor(param.RuntimeType);
@@ -124,12 +122,11 @@ export class FromDbModel extends RouteArgs {
       }
     }
 
-
     /**
-  * Checks include field
-  */
+     * Checks include field
+     */
     if (param.Options?.noInclude === true) {
-      return query.firstOrThrow(new OrmNotFoundException("Resource not found"));
+      return query.firstOrThrow(new OrmNotFoundException('Resource not found'));
     }
 
     /**
@@ -139,7 +136,7 @@ export class FromDbModel extends RouteArgs {
       query.populate(callData.Payload.Query.Args.include ?? callData.Payload.Query.Args._include);
     }
 
-    return query.firstOrThrow(new OrmNotFoundException("Resource not found"));
+    return query.firstOrThrow(new OrmNotFoundException('Resource not found'));
   }
 }
 

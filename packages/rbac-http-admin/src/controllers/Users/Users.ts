@@ -1,7 +1,7 @@
 import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Get, Ok, Patch, Policy, Post, Query } from '@spinajs/http';
 import { SortOrder } from '@spinajs/orm';
-import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilter, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
+import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { create, PasswordProvider, User, UserMetadataBase } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
 import { Schema } from '@spinajs/validation';
@@ -127,7 +127,7 @@ export class Users extends BaseController {
     })
     include?: string[],
     @Filter(USER_FILTER)
-    filter?: IFilter[],
+    filter?: IFilterRequest,
   ) {
 
     const result = await User.select()
@@ -143,9 +143,9 @@ export class Users extends BaseController {
       .take(pagination?.limit ?? 10)
       .skip(pagination?.limit * pagination?.page)
       .order(order?.column ?? 'CreatedAt', order?.order ?? SortOrder.DESC)
-      .filter(filter, USER_FILTER);
+      .filter(filter?.Filters, filter?.LogicalOperator, USER_FILTER);
 
-    const count = await User.query().filter(filter, USER_FILTER).count();
+    const count = await User.query().filter(filter?.Filters, filter?.LogicalOperator, USER_FILTER).count();
 
 
     return new Ok(

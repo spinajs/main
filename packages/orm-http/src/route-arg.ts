@@ -3,7 +3,7 @@ import { IRoute, IRouteCall, IRouteParameter, ParameterType, RouteArgs } from '@
 import { ModelBase } from '@spinajs/orm';
 import express from 'express';
 import { IColumnFilter } from './interfaces.js';
- 
+
 @Injectable()
 @Inject(Container)
 export class FilterModelRouteArg extends RouteArgs {
@@ -15,7 +15,7 @@ export class FilterModelRouteArg extends RouteArgs {
     this.Container = c;
   }
 
-  async resolve(): Promise<void> { }
+  async resolve(): Promise<void> {}
 
   public get SupportedType(): ParameterType | string {
     return 'FilterModelRouteArg';
@@ -34,11 +34,9 @@ export class FilterModelRouteArg extends RouteArgs {
     // TODO: maybe cast fix ?
     // Check if constructor instead of array ?
     if (!Array.isArray(param.Options) && (param.Options as any).filterSchema) {
-
       // get orm model schema
       rParam.Schema = (param.Options as any).filterSchema();
     } else {
-
       // manually build custom schema
       rParam.Schema = {
         type: 'array',

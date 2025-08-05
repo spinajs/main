@@ -213,20 +213,35 @@ export function _between(min: number, max: number, error?: InvalidArgument) {
 }
 
 export function _min_length(length: number, error?: InvalidArgument) {
-  return function (arg: string, name: string) {
-    if (arg.length < length) {
-      throw error ?? new InvalidArgument(`${name} should be at least ${length} characters`, name, 'LENGTH_TOO_SHORT');
+  return function (arg: string | any[], name: string) {
+    if (Array.isArray(arg)) {
+      if (arg.length < length) {
+        throw error ?? new InvalidArgument(`${name} should be at least ${length} items`, name, 'LENGTH_TOO_SHORT');
+      }
+    } else if (typeof arg === 'string') {
+      if (arg.length < length) {
+        throw error ?? new InvalidArgument(`${name} should be at least ${length} characters`, name, 'LENGTH_TOO_SHORT');
+      }
     }
+    else throw new InvalidArgument(`${name} should be a string or an array`, name, 'TYPE_MISMATCH');
+
 
     return arg;
   };
 }
 
 export function _max_length(length: number, error?: InvalidArgument) {
-  return function (arg: string, name: string) {
-    if (arg.length > length) {
-      throw error ?? new InvalidArgument(`${name} should be at most ${length} characters`, name, 'LENGTH_TOO_LONG');
+  return function (arg: string | any[], name: string) {
+    if (Array.isArray(arg)) {
+      if (arg.length > length) {
+        throw error ?? new InvalidArgument(`${name} should be at most ${length} items`, name, 'LENGTH_TOO_LONG');
+      }
+    } else if (typeof arg === 'string') {
+      if (arg.length > length) {
+        throw error ?? new InvalidArgument(`${name} should be at most ${length} characters`, name, 'LENGTH_TOO_LONG');
+      }
     }
+    else throw new InvalidArgument(`${name} should be a string or an array`, name, 'TYPE_MISMATCH');
 
     return arg;
   };

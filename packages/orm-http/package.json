@@ -57,6 +57,7 @@
     "@spinajs/intl-orm": "^2.0.389",
     "@spinajs/log": "^2.0.389",
     "@spinajs/orm": "^2.0.389",
+    "@spinajs/util": "^2.0.389",
     "@spinajs/validation": "2.0.389",
     "lodash": "^4.17.21",
      "luxon": "^3.6.1"
