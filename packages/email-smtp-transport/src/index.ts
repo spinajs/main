@@ -1,12 +1,12 @@
 import { IOFail } from '@spinajs/exceptions';
-import { Autoinject, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Autoinject, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
 import * as nodemailer from 'nodemailer';
 import { fs } from '@spinajs/fs';
 import _ from 'lodash';
-import { AutoinjectService, Config } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 
 @Injectable(EmailSender)
 @PerInstanceCheck()
@@ -17,8 +17,6 @@ export class EmailSenderSmtp extends EmailSender {
   @Autoinject(Templates)
   protected Tempates: Templates;
 
-  @AutoinjectService('fs.providers', fs)
-  protected FileSystems: Map<string, fs>;
 
   @Config('fs.defaultProvider')
   protected DefaultFileProvider: string;
@@ -82,7 +80,8 @@ export class EmailSenderSmtp extends EmailSender {
       options.attachments = await Promise.all(
         email.attachements.map(async (a: IEmailAttachement) => {
           // we allow to use multiple file sources, default is local
-          const provider = this.FileSystems.get(a.provider ?? this.DefaultFileProvider);
+
+          const provider = await DI.resolve<fs>('__file_provider__', [a.provider || this.DefaultFileProvider]);
           if (!provider) {
             throw new IOFail(`Filesystem provider for ${a.provider} not registered. Make sure you importer all required fs providers`);
           }

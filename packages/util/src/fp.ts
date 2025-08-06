@@ -52,8 +52,8 @@ export function _use(value: () => Promise<unknown> | object | string | number | 
  * @param onError
  * @returns
  */
-export function _catch(promise: (...arg: any[]) => Promise<any>, onError: (err: Error, ...arg: unknown[]) => Promise<void>) {
-  return (...arg: unknown[]) => Promise.resolve(promise(...arg)).catch(async (err) => await onError(err, ...arg));
+export function _catch(promise: (...arg: any[]) => Promise<any>, onError: (err: Error, ...arg: any[]) => Promise<void>) {
+  return (...arg: any[]) => Promise.resolve(promise(...arg)).catch(async (err) => await onError(err, ...arg));
 }
 
 /**
