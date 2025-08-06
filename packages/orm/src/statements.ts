@@ -99,8 +99,8 @@ export abstract class BetweenStatement extends QueryStatement {
 export abstract class WhereQueryStatement extends QueryStatement {
   protected _builder: WhereBuilder<any>;
 
-  constructor(builder: WhereBuilder<any>, tableAlias: string) {
-    super(tableAlias);
+  constructor(builder: WhereBuilder<any>) {
+    super();
     this._builder = builder;
   }
 
@@ -125,6 +125,7 @@ export abstract class WhereStatement extends QueryStatement {
   protected _container: Container;
   protected _model: Constructor<ModelBase>;
   protected _isAggregate: boolean = false;
+  protected _builder  : WhereBuilder<unknown>;
 
   public get Column() {
     return this._column;
@@ -143,16 +144,17 @@ export abstract class WhereStatement extends QueryStatement {
   }
  
 
-  constructor(column: string | Wrap, operator: SqlOperator, value: any, tableAlias: string, container: Container, model: Constructor<ModelBase>) {
-    super(tableAlias);
+  constructor(column: string | Wrap, operator: SqlOperator, value: any,  builder : WhereBuilder<unknown>) {
+    super();
     this._column = column;
     this._operator = operator;
     this._value = value;
-    this._container = container;
-    this._model = model;
+    this._container = builder.Container;
+    this._model = builder.Model;
+    this._builder = builder;
 
-    if(model){
-      const desc = extractModelDescriptor(model);
+    if(this._model){
+      const desc = extractModelDescriptor(this._model);
       const columnDesc = desc.Columns.find((x) => x.Name === column)
   
       if(!columnDesc){ 
@@ -280,13 +282,15 @@ export abstract class InStatement extends QueryStatement {
   protected _val: any[];
   protected _not: boolean;
   protected _column: string;
+  protected _builder: SelectQueryBuilder<any>;
 
-  constructor(column: string, val: any[], not: boolean, tableAlias: string) {
-    super(tableAlias);
+  constructor(column: string, val: any[], not: boolean, builder: SelectQueryBuilder<any>) {
+    super();
 
     this._val = val || [];
     this._not = not || false;
     this._column = column || '';
+    this._builder = builder;
   }
 
   public abstract build(): IQueryStatementResult;

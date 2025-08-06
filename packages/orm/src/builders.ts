@@ -618,25 +618,43 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   protected _boolean: WhereBoolean = WhereBoolean.AND;
 
   protected _container: Container;
-  protected _tableAlias: string;
 
   protected _model: Constructor<ModelBase>;
+
+  protected _parent: WhereBuilder<T>;
+
+  protected _tableAlias: string;
+
+  public get TableAlias() : string{
+    return this._tableAlias ?? (this._parent ? this._parent.TableAlias : '');
+  }
+
+  public get Model() {
+    return this._model;
+  }
+
+  public get Container() {
+    return this._container;
+  }
 
   get Statements() {
     return this._statements;
   }
 
+
+
   get Op() {
     return this._boolean;
   }
 
-  constructor(container: Container, tableAlias?: string, model?: Constructor<ModelBase>) {
-    this._container = container;
+  constructor(parent: WhereBuilder<T>) {
+    this._container = parent.Container;
     this._boolean = WhereBoolean.AND;
     this._statements = [];
-    this._tableAlias = tableAlias;
-    this._model = model;
+    this._model = parent.Model;
+    this._parent = parent;
   }
+
 
   public when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this {
     if (condition) {
@@ -686,16 +704,16 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     if (column instanceof RawQuery) {
-      this.Statements.push(this._container.resolve<RawQueryStatement>(RawQueryStatement, [column.Query, column.Bindings, self._tableAlias]));
+      this.Statements.push(this._container.resolve<RawQueryStatement>(RawQueryStatement, [column.Query, column.Bindings, self.TableAlias]));
       return this;
     }
 
     // handle nested where's
     if (_.isFunction(column)) {
-      const builder = new WhereBuilder(this._container, this._tableAlias, this._model);
+      const builder = new WhereBuilder(this);
       column.call(builder);
 
-      self.Statements.push(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self._tableAlias]));
+      self.Statements.push(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self.TableAlias]));
       return this;
     }
 
@@ -738,7 +756,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         return this.whereNull(c);
       }
 
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, self._tableAlias, this._container, self._model]));
+      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, this]));
 
       return self;
     }
@@ -770,7 +788,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         return o === SqlOperator.NOT_NULL ? this.whereNotNull(c) : this.whereNull(c);
       }
 
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self._tableAlias, this._container, self._model]));
+      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
 
       return this;
     }
@@ -804,13 +822,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this._tableAlias, this._container, this._model]));
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this]));
 
     return this;
   }
 
   public whereNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this._tableAlias, this._container, this._model]));
+    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this]));
     return this;
   }
 
@@ -819,12 +837,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this._tableAlias, this._container, this._model]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this]));
     return this;
   }
 
   public whereNotIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this._tableAlias, this._container, this._model]));
+    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this]));
     return this;
   }
 
@@ -912,10 +930,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           relQuery = rel.TargetModel.query();
           relQuery.where(Lazy.oF(function () {
-            if (!self._tableAlias) {
+            if (!self.TableAlias) {
               self._tableAlias = "__exists__";
             }
-            sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+            sourcePKey = `\`${self.TableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
 
@@ -928,10 +946,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         case RelationType.ManyToMany:
           relQuery = (rel.JunctionModel as IModelStatic).query();
           relQuery.where(Lazy.oF(function () {
-            if (!self._tableAlias) {
+            if (!self.TableAlias) {
               self._tableAlias = "__exists__";
             }
-            sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+            sourcePKey = `\`${self.TableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
           }));
           relQuery.rightJoin(rel.TargetModel, callback);
@@ -946,22 +964,22 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereBetween(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, false, this._tableAlias]));
+    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, false, this.TableAlias]));
     return this;
   }
 
   public whereNotBetween(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, true, this._tableAlias]));
+    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, true, this.TableAlias]));
     return this;
   }
 
   public whereInSet(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this._tableAlias]));
+    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this.TableAlias]));
     return this;
   }
 
   public whereNotInSet(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this._tableAlias]));
+    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this.TableAlias]));
     return this;
   }
 
@@ -1066,9 +1084,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public clone(): this {
     const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner);
 
-    builder._columns = this._columns.map( c => c.clone());
-    builder._joinStatements = this._joinStatements.map( c => c.clone());
-    builder._statements = this._statements.map( c => c.clone());
+    builder._columns = this._columns.map(c => c.clone());
+    builder._joinStatements = this._joinStatements.map(c => c.clone());
+    builder._statements = this._statements.map(c => c.clone());
     builder._limit = { ...this._limit };
     builder._sort = { ...this._sort };
     builder._boolean = this._boolean;

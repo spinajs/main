@@ -113,9 +113,7 @@ export class SqlWhereStatement extends WhereStatement {
       this._column,
       this._operator,
       this._value,
-      this._tableAlias,
-      this._container,
-      this._model
+      this._builder
     );
   }
 
@@ -124,7 +122,6 @@ export class SqlWhereStatement extends WhereStatement {
     const binding = isNullableQuery ? '' : ' ?';
     let column = this._column;
     let val = this._value;
-
     if (this._model) {
       const desc = extractModelDescriptor(this._model);
       const rel = desc.Relations.get(column as string);
@@ -134,10 +131,10 @@ export class SqlWhereStatement extends WhereStatement {
     }
 
     if (column instanceof Wrap) {
-      const wrapper = this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._tableAlias]);
+      const wrapper = this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._builder.TableAlias]);
       column = wrapper.wrap();
     } else {
-      column = _columnWrap(column, this._tableAlias, this.IsAggregate);
+      column = _columnWrap(column, this._builder.TableAlias, this.IsAggregate);
 
       if (val instanceof ModelBase) {
         val = val.PrimaryKeyValue;
@@ -219,12 +216,12 @@ export class SqlJoinStatement extends JoinStatement {
 @NewInstance()
 export class SqlInStatement extends InStatement {
   public clone(): SqlInStatement {
-    return new SqlInStatement(this._column, this._val, this._not, this._tableAlias);
+    return new SqlInStatement(this._column, this._val, this._not, this._builder);
   }
 
   public build(): IQueryStatementResult {
     const exprr = this._not ? 'NOT IN' : 'IN';
-    let column = _columnWrap(this._column, this._tableAlias);
+    let column = _columnWrap(this._column, this._builder.TableAlias);
 
     return {
       Bindings: this._val,
@@ -327,7 +324,7 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
 @NewInstance()
 export class SqlWhereQueryStatement extends WhereQueryStatement {
   public clone(): SqlWhereQueryStatement {
-    return new SqlWhereQueryStatement(this._builder, this.TableAlias);
+    return new SqlWhereQueryStatement(this._builder);
   }
 
   public build() {
