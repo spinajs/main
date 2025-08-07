@@ -1,4 +1,4 @@
-import { JoinMethod, LazyQueryStatement } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { NewInstance } from '@spinajs/di';
@@ -108,12 +108,12 @@ export class SqlGroupByStatement extends GroupByStatement {
 @NewInstance()
 export class SqlWhereStatement extends WhereStatement {
 
-  public clone(): SqlWhereStatement {
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(builder: T): SqlWhereStatement {
     return new SqlWhereStatement(
       this._column,
       this._operator,
       this._value,
-      this._builder
+      builder as WhereBuilder<any>,
     );
   }
 
@@ -170,9 +170,9 @@ export class SqlWhereStatement extends WhereStatement {
 
 @NewInstance()
 export class SqlJoinStatement extends JoinStatement {
-  public clone(): SqlJoinStatement {
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement {
     return new SqlJoinStatement(
-      this._builder,
+      parent as SelectQueryBuilder,
       this._model,
       this._alias,
       this._method,
@@ -215,8 +215,8 @@ export class SqlJoinStatement extends JoinStatement {
 
 @NewInstance()
 export class SqlInStatement extends InStatement {
-  public clone(): SqlInStatement {
-    return new SqlInStatement(this._column, this._val, this._not, this._builder);
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement {
+    return new SqlInStatement(this._column, this._val, this._not, parent as SelectQueryBuilder);
   }
 
   public build(): IQueryStatementResult {
@@ -323,8 +323,8 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
 
 @NewInstance()
 export class SqlWhereQueryStatement extends WhereQueryStatement {
-  public clone(): SqlWhereQueryStatement {
-    return new SqlWhereQueryStatement(this._builder);
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent: T): IQueryStatement {
+    return new SqlWhereQueryStatement(this._builder.clone());
   }
 
   public build() {
@@ -340,8 +340,8 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
 
 @NewInstance()
 export class SqlExistsQueryStatement extends ExistsQueryStatement {
-  public clone(): SqlExistsQueryStatement {
-    return new SqlExistsQueryStatement(this._builder, this._not);
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement {
+    return new SqlExistsQueryStatement(parent as SelectQueryBuilder, this._not);
   }
 
   public build(): IQueryStatementResult {

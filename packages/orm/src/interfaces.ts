@@ -921,6 +921,8 @@ export interface IWhereBuilder<T> {
 
   Op: WhereBoolean;
 
+  clone(): IWhereBuilder<T>;
+
   when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this;
 
   where(val: boolean): this;

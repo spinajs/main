@@ -1,5 +1,5 @@
 import { ISelectQueryBuilder } from './interfaces.js';
-import type { SelectQueryBuilder, WhereBuilder, RawQuery } from './builders.js';
+import type { SelectQueryBuilder, WhereBuilder, RawQuery, QueryBuilder } from './builders.js';
 import { ColumnMethods, SqlOperator, JoinMethod } from './enums.js';
 import { NewInstance, Container, Class, Constructor, Inject, IContainer } from '@spinajs/di';
 import _ from 'lodash';
@@ -19,7 +19,7 @@ export interface IQueryStatement {
 
   build(): IQueryStatementResult;
 
-  clone(): IQueryStatement;
+  clone(parent: QueryBuilder | SelectQueryBuilder | WhereBuilder<any>): IQueryStatement;
 }
 
 export abstract class QueryStatement implements IQueryStatement {
@@ -39,7 +39,7 @@ export abstract class QueryStatement implements IQueryStatement {
 
   public abstract build(): IQueryStatementResult;
 
-  public abstract clone(): IQueryStatement;
+  public abstract clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement;
 }
 
 @NewInstance()

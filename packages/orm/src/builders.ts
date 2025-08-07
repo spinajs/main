@@ -655,6 +655,16 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._parent = parent;
   }
 
+  public clone(): WhereBuilder<T> {
+    const builder = new WhereBuilder<T>(this._parent);
+    builder._statements = this._statements.map((s) => s.clone(builder));
+    builder._boolean = this._boolean;
+    builder._model = this._model;
+    builder._tableAlias = this.TableAlias;
+
+    return builder;
+  }
+
 
   public when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this {
     if (condition) {
@@ -1084,9 +1094,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public clone(): this {
     const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner);
 
-    builder._columns = this._columns.map(c => c.clone());
-    builder._joinStatements = this._joinStatements.map(c => c.clone());
-    builder._statements = this._statements.map(c => c.clone());
+    builder._columns = this._columns.map(c => c.clone(builder));
+    builder._joinStatements = this._joinStatements.map(c => c.clone(builder));
+    builder._statements = this._statements.map(c => c.clone(builder));
     builder._limit = { ...this._limit };
     builder._sort = { ...this._sort };
     builder._boolean = this._boolean;
