@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/reflection",
-  "version": "2.0.391",
+  "version": "2.0.392",
   "description": "SpinaJS reflection helpers",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -43,10 +43,10 @@
   },
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.391",
-    "@spinajs/di": "^2.0.391",
-    "@spinajs/exceptions": "^2.0.391",
-    "@spinajs/log": "^2.0.391",
+    "@spinajs/configuration": "^2.0.392",
+    "@spinajs/di": "^2.0.392",
+    "@spinajs/exceptions": "^2.0.392",
+    "@spinajs/log": "^2.0.392",
     "glob": "^8.1.0",
     "lodash": "^4.17.21",
     "typescript": "^5.2.2",
