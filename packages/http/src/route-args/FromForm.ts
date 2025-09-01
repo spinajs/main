@@ -256,6 +256,10 @@ export class FromFormField extends FromFormBase {
     const data = await super.extract(callData,_args, param, req, res, route);
     const field = this.FormData.Fields[param.Name];
 
+    if(!field){
+      throw new BadRequest(`Form field ${param.Name} is required`);
+    }
+
     return {
       ...data,
 
