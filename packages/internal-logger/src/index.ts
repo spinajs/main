@@ -58,12 +58,10 @@ export class InternalLogger extends Bootstrapper {
 
   public bootstrap(): void {
     const write = () => {
-      InternalLogger.LogBuffer.forEach((value, lName) => {
-        value.forEach((entry) => {
-          writeLogEntry(entry, lName);
-        });
+      InternalLogger.LogBuffer.forEach((entry) => {
+        writeLogEntry(entry, entry.Variables.logger);
       });
-      InternalLogger.LogBuffer.clear();
+      InternalLogger.LogBuffer = [];
     };
 
     // We must wait for configuration to load
@@ -93,16 +91,14 @@ export class InternalLogger extends Bootstrapper {
       // when application is about to exit, write all messages to console
       // if buffer is not empty it mean, that we cannot write to normal logger
 
-      InternalLogger.LogBuffer.forEach((value, lName) => {
-        value.forEach((entry) => {
-          this.StdConsoleCallbackMap[entry.Level]((this.theme as any)[entry.Level](format(entry.Variables, "${datetime} ${level} ${message} ${error} (" + lName + ")")));
-        });
+      InternalLogger.LogBuffer.forEach((entry) => {
+        this.StdConsoleCallbackMap[entry.Level]((this.theme as any)[entry.Level](format(entry.Variables, "${datetime} ${level} ${message} ${error} (" + entry.Variables.logger + ")")));
       });
-      InternalLogger.LogBuffer.clear();
+      InternalLogger.LogBuffer = [];
     });
   }
 
-  protected static LogBuffer: Map<string, ILogEntry[]> = new Map();
+  protected static LogBuffer: ILogEntry[] =[];
 
   private static _write(err: Error | string, message: string, name: string, level: LogLevel, ...args: any[]) {
     if (err instanceof Error) {
@@ -167,7 +163,6 @@ export class InternalLogger extends Bootstrapper {
 
   public static writeLogEntry(entry: ILogEntry) {
     const logName = entry.Variables.logger;
-
     // when we have log system working, write directly to it
     // first we must check if Configuration module is resolved
     // to obtain information about log targets etc.
@@ -175,19 +170,15 @@ export class InternalLogger extends Bootstrapper {
       if (DI.resolve("__log__", [logName])) {
         writeLogEntry(entry, logName);
       } else {
-        InternalLogger.writeInternal(entry, logName);
+        InternalLogger.writeInternal(entry);
       }
     } else {
-      InternalLogger.writeInternal(entry, logName);
+      InternalLogger.writeInternal(entry);
     }
   }
 
-  protected static writeInternal(msg: any, logName: string) {
-    if (InternalLogger.LogBuffer.has(logName)) {
-      InternalLogger.LogBuffer.get(logName).push(msg);
-    } else {
-      InternalLogger.LogBuffer.set(logName, [msg]);
-    }
+  protected static writeInternal(msg: any) {
+    InternalLogger.LogBuffer.push(msg);
   }
 }
 

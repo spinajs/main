@@ -291,9 +291,9 @@ export class Container extends EventEmitter implements IContainer {
       }
 
       const resolved = targetType.map((r) => this.resolveType(type, r, opt));
-       
+
       if (resolved.some((r) => r instanceof Promise)) {
-        return Promise.all(resolved).then( () => this.get(type, check ?? true)) as any;
+        return Promise.all(resolved).then(() => this.get(type, check ?? true)) as any;
       }
 
       return this.get(type, check ?? true) as T[];
@@ -358,51 +358,16 @@ export class Container extends EventEmitter implements IContainer {
     const isSingletonInChild = descriptor.resolver === ResolveType.PerChildContainer;
     const isSingleton = descriptor.resolver === ResolveType.Singleton || descriptor.resolver === ResolveType.PerInstanceCheck || descriptor.resolver === ResolveType.PerInstance;
 
-    const emit = (target: any) => {
-      const sourceTypeName = getTypeName(sourceType);
-      const targetTypeName = getTypeName(targetType);
-
-      // firs event to emit that particular type was resolved
-      this.emit(`di.resolved.${targetTypeName}`, this, target);
-
-      // emit that source type was resolved
-      if (targetTypeName !== sourceTypeName) {
-        this.emit(`di.resolved.${sourceTypeName}`, this, target);
-      }
-    };
-
-    const createNewInstance = (t: Class<T>, i: IResolvedInjection[], options: any) => {
-      const instance = this.getNewInstance(t, i, options);
-      if (isPromise(instance)) {
-        return instance.then((r) => {
-          emit(r);
-          return r;
-        });
-      } else {
-        emit(instance);
-        return instance;
-      }
-    };
-
     const resolve = (d: IInjectDescriptor<unknown>, t: Class<T>, i: IResolvedInjection[]) => {
       if (d.resolver === ResolveType.NewInstance) {
-        const instance = this.getNewInstance(t, i, options);
-
-        if (isPromise(instance)) {
-          return instance.then((r) => {
-            emit(r);
-            return r;
-          });
-        } else {
-          emit(instance);
-          return instance;
-        }
+        return this.getNewInstance(t, i, options);
       }
 
       this.Registry.register(sName, t);
 
       // For singletons, don't check cache here - let getOrCreate handle it atomically
-      return createNewInstance(t, i, options);
+      return this.getNewInstance(t, i, options);
+
     };
 
     // For singletons, use atomic cache operations to prevent concurrent creation
@@ -416,10 +381,10 @@ export class Container extends EventEmitter implements IContainer {
           if (deps instanceof Promise) {
             return deps.then((resolvedDependencies) => {
               return resolve(descriptor, tType, resolvedDependencies) as T;
+
             });
           } else {
-            const resInstance = resolve(descriptor, tType, deps as IResolvedInjection[]);
-            return resInstance as T;
+            return resolve(descriptor, tType, deps as IResolvedInjection[]) as T;
           }
         },
         true, // isSingleton

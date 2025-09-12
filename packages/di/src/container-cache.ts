@@ -5,6 +5,7 @@ import { IContainer, IInjectDescriptor, IInstanceCheck } from './interfaces.js';
 import { Class } from './types.js';
 import { ResolveType } from './enums.js';
 import { ResolveException } from './exceptions.js';
+ 
 
 export class ContainerCache {
   private cache: Map<string, any[]>;
@@ -105,6 +106,19 @@ export class ContainerCache {
     const keyName = getTypeName(targetType);
     const sourceTypeKey = getTypeName(sourceType);
 
+    const emit = (target: any) => {
+      const sourceTypeName = getTypeName(sourceType);
+      const targetTypeName = getTypeName(targetType);
+
+      // firs event to emit that particular type was resolved
+      this.container.emit(`di.resolved.${targetTypeName}`, this, target);
+
+      // emit that source type was resolved
+      if (targetTypeName !== sourceTypeName) {
+        this.container.emit(`di.resolved.${sourceTypeName}`, this, target);
+      }
+    };
+
     // Fast path: return cached instance if it exists
     if (this.has(targetType, descriptor.resolver === ResolveType.PerChildContainer ? false : true)) {
       const cached = this.get(targetType, descriptor.resolver === ResolveType.PerChildContainer ? false : true);
@@ -166,11 +180,14 @@ export class ContainerCache {
         // If sourceType is a TypedArray, we need to ensure we cache it correctly
         if (!this.has(sourceTypeKey)) {
           this.add(sourceTypeKey, resolvedInstance);
+          emit(resolvedInstance);
+
         } else {
           // If it already exists, we should merge the new instance into the existing array
           const existingInstances = this.get(sourceTypeKey);
           if (!existingInstances.includes(resolvedInstance)) {
             existingInstances.push(resolvedInstance);
+            emit(resolvedInstance);
           }
         }
         const cached = this.get(sourceTypeKey);
@@ -179,6 +196,7 @@ export class ContainerCache {
         // Cache the instance if not already cached
         if (!this.has(targetType)) {
           this.add(targetType, resolvedInstance);
+          emit(resolvedInstance); 
         }
       }
 
