@@ -11,4 +11,5 @@ export * from './unauthorized.js';
 export * from './conflict.js';
 export * from './notAllowed.js';
 export * from './validationError.js';
+export * from './entityTooLarge.js';
 

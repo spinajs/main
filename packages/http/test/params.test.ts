@@ -745,8 +745,9 @@ describe('controller action test params', function () {
       const spy2 = CvsSampleObjectWithHydratorHydrator.prototype.hydrate as sinon.SinonSpy;
       await req()
         .post('params/cvs/modelsFromCvsWithHydrator')
+        .set('Accept', 'application/json')
         .attach('objects', fs.readFileSync(dir('./test-files') + '/username.csv'), { filename: 'test.cvs' });
-
+ 
       expect(spy.args[0][0]).to.be.an('array');
       expect(spy.args[0][0][0]).to.be.instanceOf(CvsSampleObjectWithHydrator);
       expect(spy.args[0][0][0].Username).to.eq('booker12');

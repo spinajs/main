@@ -1,15 +1,22 @@
 import { DI } from '@spinajs/di';
-import { FrameworkConfiguration, Configuration } from '@spinajs/configuration';
+import {  Configuration } from '@spinajs/configuration';
 import { HttpServer } from '../src/server.js';
 import { join, normalize, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import * as chai from 'chai';
+import chai from 'chai';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
+import { TestConfiguration } from './common.js';
+import chaiSubset from 'chai-subset';
+import chaiLike from 'chai-like';
+import chaiThings from 'chai-things';
 
 const expect = chai.expect;
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
+chai.use(chaiSubset);
+chai.use(chaiLike);
+chai.use(chaiThings);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = normalize(join(__filename, '..'));
@@ -18,52 +25,13 @@ export function dir(path: string) {
   return resolve(normalize(join(__dirname, path)));
 }
 
-export class HttpMemoryTestConfiguration extends FrameworkConfiguration {
-  protected onLoad() {
-    return {
-      logger: {
-        targets: [
-          {
-            name: 'Empty',
-            type: 'BlackHoleTarget',
-            layout: '{datetime} {level} {message} {error} duration: {duration} ({logger})',
-          },
-        ],
-        rules: [{ name: '*', level: 'error', target: 'Empty' }],
-      },
-      http: {
-        host: 'localhost',
-        port: 8889, // Different port to avoid conflicts
-        cors: {
-          origins: ['http://localhost:8889'],
-          allowedHeaders: ['*'],
-          exposedHeaders: ['*'],
-        },
-        middlewares: [] as any[],
-        ssl: {
-          enabled: false,
-        },
-        timeout: 5000,
-      },
-      system: {
-        dirs: {
-          controllers: [dir('./controllers')],
-          policies: [dir('./policies')],
-          static: [dir('./public')],
-          views: [dir('./views')],
-        },
-      },
-    };
-  }
-}
 
 describe('HTTP Server Memory Management Tests', () => {
   let server: HttpServer;
   let startedServers: HttpServer[] = [];
 
   beforeEach(async () => {
-    DI.clearCache();
-    DI.register(HttpMemoryTestConfiguration).as(Configuration);
+    DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
   });
 
@@ -77,7 +45,8 @@ describe('HTTP Server Memory Management Tests', () => {
       }
     }
     startedServers = [];
-    DI.clearCache();
+
+    
   });
 
   describe('Server Shutdown Memory Management', () => {

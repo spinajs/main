@@ -40,7 +40,7 @@ export class TemplateResponse extends Response {
 
     return await htmlResponse(this.file, response, {
       ...this.options,
-      StatusCode: this.options.StatusCode ? this.options.StatusCode : HTTP_STATUS_CODE.OK
+      StatusCode: this.options?.StatusCode ? this.options.StatusCode : HTTP_STATUS_CODE.OK
     });
   }
 }

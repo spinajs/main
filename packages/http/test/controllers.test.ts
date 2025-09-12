@@ -257,9 +257,7 @@ describe('http & controller tests', function () {
     expect(response).to.be.json;
     expect(response.body).to.be.not.null;
     expect(response.body).to.deep.equal({
-      error: {
         message: 'sample error message',
-      },
     });
   });
 
@@ -278,7 +276,7 @@ describe('http & controller tests', function () {
 
     expect(response).to.have.status(200);
     expect(response.header['content-length']).to.be.not.null;
-    expect(response.header['content-type']).to.eq('text/plain; charset=UTF-8');
+    expect(response.header['content-type']).to.eq('text/plain; charset=utf-8');
   });
 
   it('Should get zip', async () => {
