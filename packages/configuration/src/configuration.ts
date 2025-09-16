@@ -93,6 +93,7 @@ export class FrameworkConfiguration extends Configuration {
     this.RunApp = options?.app ?? parseArgv('--app');
     this.AppBaseDir = options?.appBaseDir ?? parseArgv('--apppath') ?? join(process.cwd(), '../apps/');
     this.Env = parseArgv('--env') ?? process.env.APP_ENV;
+    debugger;
   }
 
   /**
@@ -127,6 +128,7 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   public async resolve(): Promise<void> {
+    debugger;
     if (!this.Container.hasRegistered(ConfigurationSource)) {
       throw new InvalidOperation(
         'No configuration sources configured. Please ensure that config module have any source to read from !',

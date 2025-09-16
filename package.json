@@ -78,7 +78,6 @@
     "@spinajs/configuration-common": "file:packages\\configuration-common",
     "@spinajs/configuration-db-source": "file:packages\\configuration-db-source",
     "@spinajs/di": "file:packages\\di",
-    "@spinajs/docs": "file:packages\\docs",
     "@spinajs/electron": "file:packages\\electron",
     "@spinajs/email": "file:packages\\email",
     "@spinajs/email-smtp-transport": "file:packages\\email-smtp-transport",
