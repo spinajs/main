@@ -13,7 +13,7 @@
     "packages/*"
   ],
   "overrides": {
-     "luxon": "^3.6.1"
+    "luxon": "^3.6.1"
   },
   "devDependencies": {
     "@types/bunyan": "^1.8.8",
@@ -69,8 +69,8 @@
     "ts-mocha": "^10.0.0",
     "ts-node": "^10.9.1",
     "tsx": "^4.19.2",
-    "typedoc": "^0.25.4",
-    "typescript": "^5.2.2"
+    "typedoc": "^0.28.13",
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "@spinajs/cli": "file:packages\\cli",
