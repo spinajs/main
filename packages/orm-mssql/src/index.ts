@@ -202,7 +202,7 @@ export class MsSqlOrmDriver extends SqlDriver {
         Converter: null,
         Schema: schema ? schema : this.Options.Database,
         Unique: sUnique,
-      };
+      } as IColumnDescriptor;
     });
   }
 
