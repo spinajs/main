@@ -12,7 +12,7 @@ import { UnexpectedServerError, IOFail, ResourceNotFound } from '@spinajs/except
 import { ResolveFromFiles } from '@spinajs/reflection';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import { HttpServer } from './server.js';
 import { RouteArgs } from './route-args/index.js';
 import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
@@ -46,6 +46,9 @@ export abstract class BaseController extends AsyncService implements IController
 
   @Autoinject(Configuration)
   protected _cfg: Configuration;
+
+  @Config('configuration.isProduction', { defaultValue: 'true' })
+  protected isProductionEnv: string;
 
   /**
    * Express router with middleware stack
@@ -110,7 +113,7 @@ export abstract class BaseController extends AsyncService implements IController
       };
 
       // in dev mode add stack trace for debugging
-      if (this.AppEnv === 'development') {
+      if (!this.isProductionEnv) {
         error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
       }
 

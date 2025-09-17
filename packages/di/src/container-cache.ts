@@ -111,11 +111,11 @@ export class ContainerCache {
       const targetTypeName = getTypeName(targetType);
 
       // firs event to emit that particular type was resolved
-      this.container.emit(`di.resolved.${targetTypeName}`, this, target);
+      this.container.emit(`di.resolved.${targetTypeName}`, this.container, target);
 
       // emit that source type was resolved
       if (targetTypeName !== sourceTypeName) {
-        this.container.emit(`di.resolved.${sourceTypeName}`, this, target);
+        this.container.emit(`di.resolved.${sourceTypeName}`, this.container, target);
       }
     };
 
