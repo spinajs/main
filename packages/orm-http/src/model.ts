@@ -15,6 +15,10 @@ export const MODEL_STATIC_MIXINS = {
       throw new OrmException(`Model ${this.constructor.name} has no descriptor`);
     }
 
+    if(modelDescriptor.FilterableColumns === undefined){
+      return [];
+    }
+
     return [...modelDescriptor.FilterableColumns.entries()].map(([key, val]: [string, IColumnFilter<unknown>]) => {
       return {
         column: key,
@@ -29,6 +33,10 @@ export const MODEL_STATIC_MIXINS = {
 
     if (!modelDescriptor) {
       throw new OrmException(`Model ${this.constructor.name} has no descriptor`);
+    }
+
+    if (modelDescriptor.FilterableColumns === undefined){
+      return {};
     }
 
     return {
