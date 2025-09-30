@@ -1,9 +1,9 @@
 import { Orm, ModelBase, OrmException, extractModelDescriptor, SelectQueryBuilder, RelationType, OrmNotFoundException } from '@spinajs/orm';
-import { IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest, RouteArgs } from '@spinajs/http';
+import { IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest, RouteArgs, IRoute } from '@spinajs/http';
 import { IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
 import { MODEL_STATIC_MIXINS } from './model.js';
 import { FromModelOptions } from './interfaces.js';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { BadRequest, InvalidArgument } from '@spinajs/exceptions';
 
 export * from './interfaces.js';
 export * from './model.js';
@@ -13,27 +13,27 @@ export * from './route-arg.js';
 export * from './builders.js';
 export * from './dto.js';
 export * from './response-methods/OrmNotFound.js';
+import * as express from 'express';
 
+/**
+ * Route arg to hydrate model from request body
+ * 
+ * For now its basically alias for FromBody, for convinience to separate model hydration from other body params
+ */
 @Injectable()
 export class AsDbModel extends RouteArgs {
   public get SupportedType(): string {
     return 'AsDbModel';
   }
 
-  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: sRequest) {
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: sRequest, _res: express.Response, route: IRoute) {
+
     if (!req.body) {
-      return { CallData: callData, Args: null };
+      throw new BadRequest('Request body empty, cannot hydrate model for parameter ' + (param.Options?.field ?? param.Name));
     }
-
-    const result = new param.RuntimeType() as ModelBase;
-    const data = req.body[param.Options.field ?? param.Name];
-
-    if (!data) {
-      throw new OrmException(`Cannot hydrate model, field ${param.Options.field ?? param.Name} is required`);
-    }
-
-    result.hydrate(data);
-
+    
+    const arg = req.body[param.Name] ? req.body[param.Name] : [...route.Parameters.values()].filter((p) => p.Type === "AsDbModel").length === 1 ? req.body : null;
+    let result = await this.tryHydrateParam(arg, param, route);
     return { CallData: callData, Args: result };
   }
 }
@@ -46,7 +46,7 @@ export class FromDbModel extends RouteArgs {
   @Autoinject(Orm)
   protected Orm: Orm;
 
-  async resolve(): Promise<void> {}
+  async resolve(): Promise<void> { }
 
   public get SupportedType(): string {
     return 'FromDB';
@@ -142,6 +142,7 @@ export class FromDbModel extends RouteArgs {
 
 export class DbModelHydrator extends ArgHydrator {
   public async hydrate(input: any, parameter: IRouteParameter): Promise<any> {
+    debugger;
     if (input === null) {
       throw new OrmException('primary key cannot be null');
     }
