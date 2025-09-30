@@ -153,10 +153,26 @@ export class DbModelHydrator extends ArgHydrator {
   }
 }
 
+/**
+ * Route arg to hydrate model from request body.
+ * It only creates new instance and hydrates it with data from request. DOES NOT FETCH IT FROM DB or SAVE IT TO DB.
+ * 
+ * NOTE: its basically alias for FromBody, for convinience to separate model hydration from other body params
+ * 
+ * @param field optional field to taken from request
+ * @param type from where to take field value, default is request BODY, but can be also query, param, header etc.
+ * @returns 
+ */
 export function AsModel(field?: string, type?: ParameterType) {
   return Route(Parameter('AsDbModel', null, { field, type }));
 }
 
+/**
+ * Automatically loads model from DB based on primary key passed in route, param, body or header
+ * 
+ * @param options options for model fetching
+ * @returns 
+ */
 export function FromModel(options?: FromModelOptions<ModelBase<any>>) {
   return Route(Parameter('FromDbModel', null, options));
 }
