@@ -1,5 +1,5 @@
 import { IOFail } from '@spinajs/exceptions';
-import { Autoinject, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Autoinject, DI, Injectable, NewInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
@@ -9,14 +9,13 @@ import _ from 'lodash';
 import { Config } from '@spinajs/configuration';
 
 @Injectable(EmailSender)
-@PerInstanceCheck()
+@NewInstance()
 export class EmailSenderSmtp extends EmailSender {
   @Logger('email')
   protected Log: Log;
 
   @Autoinject(Templates)
   protected Tempates: Templates;
-
 
   @Config('fs.defaultProvider')
   protected DefaultFileProvider: string;

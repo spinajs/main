@@ -1,9 +1,9 @@
-import { AsyncService, Autoinject, IInstanceCheck, IMappableService, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { AsyncService, Autoinject, IMappableService, Injectable, NewInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { QueueService } from '@spinajs/queue';
 import { EmailSend } from './jobs/EmailSend.js';
-export abstract class EmailSender extends AsyncService implements IInstanceCheck, IMappableService {
+export abstract class EmailSender extends AsyncService implements IMappableService {
   public Options: EmailConnectionOptions;
 
   public get ServiceName() {
@@ -11,14 +11,10 @@ export abstract class EmailSender extends AsyncService implements IInstanceCheck
   }
 
   abstract send(email: IEmail): Promise<void>;
-
-  public __checkInstance__(creationOptions: any): boolean {
-    return this.Options.name === creationOptions[0].name;
-  }
 }
 
 @Injectable(EmailSender)
-@PerInstanceCheck()
+@NewInstance()
 export class BlackHoleEmailSender extends EmailSender {
   @Logger('email')
   protected Log: Log;
