@@ -152,6 +152,11 @@ function _format(vars: ConfVariables, txt: string) {
         result = result.replace(v[0], fVar(v[3] ?? null));
       }
       else if (v[3]) {
+        if (typeof fVar[v[3]] === 'function') {
+          result = result.replace(v[0], (fVar[v[3]] as any)());
+          return;
+        }
+
         // optional parameter eg. {object:property}
         result = result.replace(v[0], fVar[v[3]] ?? null);
       }
