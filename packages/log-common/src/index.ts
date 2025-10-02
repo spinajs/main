@@ -192,6 +192,11 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncServ
         }),
         options
       );
+    } else {
+      this.Options = {
+        enabled: true,
+        layout: "${datetime} ${level} ${message} Exception: ${error:message} (${logger})",
+      }  as T;
     }
   }
 
