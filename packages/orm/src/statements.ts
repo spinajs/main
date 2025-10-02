@@ -108,9 +108,9 @@ export abstract class WhereQueryStatement extends QueryStatement {
 }
 
 @NewInstance()
-export abstract class LazyQueryStatement extends QueryStatement { 
-  
-  constructor(protected callback : Lazy<unknown>){
+export abstract class LazyQueryStatement extends QueryStatement {
+
+  constructor(protected callback: Lazy<unknown>) {
     super();
   }
 
@@ -125,7 +125,7 @@ export abstract class WhereStatement extends QueryStatement {
   protected _container: Container;
   protected _model: Constructor<ModelBase>;
   protected _isAggregate: boolean = false;
-  protected _builder  : WhereBuilder<unknown>;
+  protected _builder: WhereBuilder<unknown>;
 
   public get Column() {
     return this._column;
@@ -142,9 +142,9 @@ export abstract class WhereStatement extends QueryStatement {
   public get IsAggregate() {
     return this._isAggregate;
   }
- 
 
-  constructor(column: string | Wrap, operator: SqlOperator, value: any,  builder : WhereBuilder<unknown>) {
+
+  constructor(column: string | Wrap, operator: SqlOperator, value: any, builder: WhereBuilder<unknown>) {
     super();
     this._column = column;
     this._operator = operator;
@@ -153,17 +153,17 @@ export abstract class WhereStatement extends QueryStatement {
     this._model = builder.Model;
     this._builder = builder;
 
-    if(this._model){
+    if (this._model) {
       const desc = extractModelDescriptor(this._model);
       const columnDesc = desc.Columns.find((x) => x.Name === column)
-  
-      if(!columnDesc){ 
+
+      if (!columnDesc) {
         throw new InvalidArgument(`column ${column} not exists in model ${this._model.name}`);
       }
 
       this._isAggregate = desc.Columns.find((x) => x.Name === column).Aggregate;
     }
-    
+
   }
 
   public abstract build(): IQueryStatementResult;
@@ -194,10 +194,10 @@ export abstract class WrapStatement {
 }
 
 @NewInstance()
-export abstract class DateWrapper extends WrapStatement {}
+export abstract class DateWrapper extends WrapStatement { }
 
 @NewInstance()
-export abstract class DateTimeWrapper extends WrapStatement {}
+export abstract class DateTimeWrapper extends WrapStatement { }
 
 @NewInstance()
 export abstract class JoinStatement extends QueryStatement {
@@ -239,7 +239,9 @@ export abstract class JoinStatement extends QueryStatement {
       const sDesc = extractModelDescriptor(this._sourceModel);
       const tDesc = extractModelDescriptor(this._model);
       const sAlias = `${sDesc.Driver.Options.AliasSeparator}${sDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
-      this._tableAlias = `${sDesc.Driver.Options.AliasSeparator}${tDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
+      const tAlias = `${sDesc.Driver.Options.AliasSeparator}${tDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
+
+      this._tableAlias = sAlias;
       this._database = tDesc.Driver.Options.Database;
 
       if (!this._builder.TableAlias) {
@@ -252,7 +254,7 @@ export abstract class JoinStatement extends QueryStatement {
         const driver = this._builder.Driver;
         const cnt = driver.Container;
         this._whereBuilder = cnt.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, this._model, this]);
-        this._whereBuilder.setAlias(this._tableAlias);
+        this._whereBuilder.setAlias(tAlias);
         this._whereBuilder.database(driver.Options.Database);
 
         this._whereCallback.call(this._whereBuilder, [this]);
@@ -268,8 +270,7 @@ export abstract class JoinStatement extends QueryStatement {
 
       this._table = tDesc.TableName;
       this._primaryKey = tDesc.PrimaryKey;
-      this._alias = sAlias;
-
+      this._alias = tAlias;
       this._foreignKey = relation.value.ForeignKey;
     }
   }
@@ -344,7 +345,7 @@ export abstract class ColumnStatement extends QueryStatement {
 
   constructor(column: string | RawQuery, alias: string, tableAlias: string, descriptor: IColumnDescriptor) {
     super(tableAlias);
- 
+
     this._column = column || '';
     this._alias = alias || '';
     this._tableAlias = tableAlias;

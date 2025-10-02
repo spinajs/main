@@ -139,7 +139,7 @@ export class FrameworkLogger extends Log {
 
       return found.map((f) => {
         return {
-          instance: DI.resolve<LogTarget<ICommonTargetOptions>>(f.type, [f]),
+          instance: DI.resolve<LogTarget<ICommonTargetOptions>>(f.type, [f.options]),
           options: f,
           rule: r,
         };

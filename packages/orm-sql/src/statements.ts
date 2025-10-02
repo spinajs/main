@@ -202,7 +202,7 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     if (this._tableAlias) {
-      table = `${this._database ? `\`${this._database}\`.` : ''}\`${this._table}\` as \`${this._method === JoinMethod.RECURSIVE ? this._alias : this._tableAlias}\``;
+      table = `${this._database ? `\`${this._database}\`.` : ''}\`${this._table}\` as \`${this._tableAlias}\``;
       foreignKey = `\`${this._tableAlias}\`.${this._foreignKey}`;
     }
 

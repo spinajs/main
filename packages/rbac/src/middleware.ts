@@ -1,5 +1,5 @@
 import { DI, Injectable } from '@spinajs/di';
-import { DeleteQueryBuilder, extractModelDescriptor, InsertQueryBuilder, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
+import { DeleteQueryBuilder, extractModelDescriptor, InsertQueryBuilder, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import { AsyncLocalStorage } from 'async_hooks';
 import { IRbacAsyncStorage, IRbacModelDescriptor } from './interfaces.js';
 import { AccessControl } from 'accesscontrol';
@@ -79,9 +79,14 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
                   if (canOwn) {
                     this.Log.trace(`Resource ${resource}:own permission granted for ${storage.User.Role}, scope: ${storage.PermissionScope}`);
                     if (rbacFunc) {
+                      this.Log.trace(`Applying custom rbac func for ${resource}`);
                       rbacFunc.call(builder, storage.User);
-                    } else {
+                    } else if (descriptor.OwnerField) {
+
+                      this.Log.trace(`Applying owner field restriction for ${resource}`);
                       builder.andWhere(descriptor.OwnerField, storage.User.PrimaryKeyValue);
+                    } else {
+                      this.Log.error(`Model ${descriptor.Name} does not have OwnerField set or static rbac function, cannot apply :own permission`); throw new OrmException(`Model ${descriptor.Name} does not have OwnerField set, cannot apply :own permission`);
                     }
 
                     return;
@@ -96,9 +101,16 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
               } else if (canOwn) {
                 this.Log.trace(`Resource ${resource}:own permission granted for ${storage.User.Role}, scope: ${storage.PermissionScope}`);
                 if (rbacFunc) {
+
+                  this.Log.trace(`Applying custom rbac func for ${resource}`);
+
                   rbacFunc.call(builder, storage.User);
-                } else {
+                } else if (descriptor.OwnerField) {
+
+                  this.Log.trace(`Applying owner field restriction for ${resource}`);
                   builder.andWhere(descriptor.OwnerField, storage.User.PrimaryKeyValue);
+                } else {
+                  this.Log.error(`Model ${descriptor.Name} does not have OwnerField set or static rbac function, cannot apply :own permission`); throw new OrmException(`Model ${descriptor.Name} does not have OwnerField set, cannot apply :own permission`);
                 }
               }
               else {
