@@ -9,18 +9,17 @@ import axios, { Axios } from "axios";
 import _ from "lodash";
 
 export interface IGraphanaOptions extends ICommonTargetOptions {
-  options: {
-    interval: number;
-    bufferSize: number;
-    timeout: number;
-    host: string;
-    auth: {
-      username: string;
-      password: string;
-    };
-    labels: {
-      app: string;
-    };
+
+  interval: number;
+  bufferSize: number;
+  timeout: number;
+  host: string;
+  auth: {
+    username: string;
+    password: string;
+  };
+  labels: {
+    app: string;
   };
 }
 
@@ -58,13 +57,13 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
   constructor(options: IGraphanaOptions) {
     super(options);
 
-    this.Options.options = Object.assign(
+    this.Options = Object.assign(
       {
         interval: 3000,
         bufferSize: 10,
         timeout: 1000,
       },
-      this.Options.options
+      this.Options
     );
   }
 
@@ -74,12 +73,12 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
 
   public resolve(): void {
     this.AxiosInstance = axios.create({
-      baseURL: this.Options.options.host,
+      baseURL: this.Options.host,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Basic ${Buffer.from(`${this.Options.options.auth.username}:${this.Options.options.auth.password}`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${this.Options.auth.username}:${this.Options.auth.password}`).toString("base64")}`,
       },
-      timeout: this.Options.options.timeout,
+      timeout: this.Options.timeout,
     });
 
     this.FlushTimer = setInterval(() => {
@@ -94,7 +93,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       setImmediate(() => {
         this.flush();
       });
-    }, this.Options.options.interval ?? 3000);
+    }, this.Options.interval ?? 3000);
   }
 
   public write(data: ILogEntry): void {
@@ -111,7 +110,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       return;
     }
 
-    if (this.Entries.length >= this.Options.options.bufferSize) {
+    if (this.Entries.length >= this.Options.bufferSize) {
       this.Status = TargetStatus.PENDING;
 
       this.WriteEntries = [...this.WriteEntries, ...this.Entries];
@@ -143,7 +142,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
 
     const streams: Map<string, Stream> = new Map<string, Stream>();
     const keyFor = (x: ILogEntry) => {
-      return [this.Options.options.labels.app, x.Variables.logger, x.Variables.level, ...Object.values(this.Options.options.labels)].join("-");
+      return [this.Options.labels.app, x.Variables.logger, x.Variables.level, ...Object.values(this.Options.labels)].join("-");
     };
     const valFor = (x: ILogEntry) => [x.Variables["n_timestamp"].toString(), format(x.Variables, this.Options.layout)];
 
@@ -158,8 +157,8 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
           stream: {
             logger: x.Variables.logger,
             level: x.Variables.level,
-            app: this.Options.options.labels.app,
-            ...this.Options.options.labels,
+            app: this.Options.labels.app,
+            ...this.Options.labels,
           },
           values: [valFor(x)],
         });
@@ -173,7 +172,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
     this.AxiosInstance.post("/loki/api/v1/push", { streams: [...streams.values()] })
       .then(() => {
         this.Status = TargetStatus.IDLE;
-        this.Log.trace(`Wrote buffered messages to graphana target at url ${this.Options.options.host}, ${this.WriteEntries.length} messages.`);
+        this.Log.trace(`Wrote buffered messages to graphana target at url ${this.Options.host}, ${this.WriteEntries.length} messages.`);
         this.WriteEntries = [];
       })
       .catch((err) => {
