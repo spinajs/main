@@ -239,7 +239,7 @@ export abstract class JoinStatement extends QueryStatement {
       const sDesc = extractModelDescriptor(this._sourceModel);
       const tDesc = extractModelDescriptor(this._model);
       const sAlias = `${sDesc.Driver.Options.AliasSeparator}${sDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
-      const tAlias = `${sDesc.Driver.Options.AliasSeparator}${tDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
+      const tAlias = `${tDesc.Driver.Options.AliasSeparator}${tDesc.Name}${tDesc.Driver.Options.AliasSeparator}`;
 
       this._tableAlias = sAlias;
       this._database = tDesc.Driver.Options.Database;
@@ -251,7 +251,7 @@ export abstract class JoinStatement extends QueryStatement {
       if (_.isFunction(foreignKey)) {
         this._whereCallback = foreignKey;
 
-        const driver = this._builder.Driver;
+        const driver = tDesc.Driver;
         const cnt = driver.Container;
         this._whereBuilder = cnt.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, this._model, this]);
         this._whereBuilder.setAlias(tAlias);
