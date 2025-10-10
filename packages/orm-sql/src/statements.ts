@@ -173,12 +173,13 @@ export class SqlJoinStatement extends JoinStatement {
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement {
     return new SqlJoinStatement(
       parent as SelectQueryBuilder,
-      this._model,
-      this._alias,
+      this._joinModel,
+      this._table,
       this._method,
       this._foreignKey,
       this._primaryKey,
       this._tableAlias,
+      this._joinTableAlias,
       this._database
     );
   }
@@ -197,13 +198,15 @@ export class SqlJoinStatement extends JoinStatement {
     let primaryKey = this._primaryKey;
     let foreignKey = this._foreignKey;
 
-    if (this._alias) {
-      primaryKey = `\`${this._alias}\`.${this._primaryKey}`;
-    }
+    debugger;
 
     if (this._tableAlias) {
-      table = `${this._database ? `\`${this._database}\`.` : ''}\`${this._table}\` as \`${this._tableAlias}\``;
-      foreignKey = `\`${this._tableAlias}\`.${this._foreignKey}`;
+      primaryKey = `\`${this._tableAlias}\`.${this._primaryKey}`;
+    }
+
+    if (this._joinTableAlias) {
+      table = `${this._database ? `\`${this._database}\`.` : ''}\`${this._table}\` as \`${this._joinTableAlias}\``;
+      foreignKey = `\`${this._joinTableAlias}\`.${this._foreignKey}`;
     }
 
     return {

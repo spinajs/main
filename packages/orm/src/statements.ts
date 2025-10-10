@@ -206,16 +206,16 @@ export abstract class JoinStatement extends QueryStatement {
   protected _foreignKey: string;
   protected _primaryKey: string;
   protected _query: RawQuery;
-  protected _alias: string;
-  protected _model: Constructor<ModelBase>;
+  protected _joinTableAlias: string;
+  protected _joinModel: Constructor<ModelBase>;
   protected _sourceModel: Constructor<ModelBase>;
   protected _whereCallback: (this: ISelectQueryBuilder<any>) => void;
   protected _builder: SelectQueryBuilder<any>;
   protected _whereBuilder: SelectQueryBuilder<any>;
   protected _database: string;
 
-  constructor(builder: SelectQueryBuilder<any>, sourceModel: Constructor<ModelBase>, table: string | RawQuery | Constructor<ModelBase>, method: JoinMethod, foreignKey: string | ((this: SelectQueryBuilder) => void), primaryKey: string, alias: string, tableAlias: string, database?: string) {
-    super(tableAlias);
+  constructor(builder: SelectQueryBuilder<any>, sourceModel: Constructor<ModelBase>, table: string | RawQuery | Constructor<ModelBase>, method: JoinMethod, foreignKey: string | ((this: SelectQueryBuilder) => void), primaryKey: string, sourceTableAlias: string, joinTableAlias: string, database?: string) {
+    super(joinTableAlias);
 
     this._method = method;
     this._builder = builder;
@@ -227,22 +227,22 @@ export abstract class JoinStatement extends QueryStatement {
     if (_.isString(table)) {
       this._table = table;
       this._primaryKey = primaryKey;
-      this._alias = tableAlias;
-      this._tableAlias = alias;
+      this._joinTableAlias = joinTableAlias;
+      this._tableAlias = sourceTableAlias;
       this._database = database;
     } else if (table.constructor.name === 'RawQuery') {
       this._query = table as any;
     } else {
-      this._model = table as any;
+      this._joinModel = table as any;
       this._sourceModel = sourceModel;
 
       const sDesc = extractModelDescriptor(this._sourceModel);
-      const tDesc = extractModelDescriptor(this._model);
+      const jDesc = extractModelDescriptor(this._joinModel);
       const sAlias = `${sDesc.Driver.Options.AliasSeparator}${sDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
-      const tAlias = `${tDesc.Driver.Options.AliasSeparator}${tDesc.Name}${tDesc.Driver.Options.AliasSeparator}`;
+      const jAlias = `${jDesc.Driver.Options.AliasSeparator}${jDesc.Name}${jDesc.Driver.Options.AliasSeparator}`;
 
       this._tableAlias = sAlias;
-      this._database = tDesc.Driver.Options.Database;
+      this._database = jDesc.Driver.Options.Database;
 
       if (!this._builder.TableAlias) {
         this._builder.setAlias(sAlias);
@@ -251,10 +251,10 @@ export abstract class JoinStatement extends QueryStatement {
       if (_.isFunction(foreignKey)) {
         this._whereCallback = foreignKey;
 
-        const driver = tDesc.Driver;
+        const driver = jDesc.Driver;
         const cnt = driver.Container;
-        this._whereBuilder = cnt.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, this._model, this]);
-        this._whereBuilder.setAlias(tAlias);
+        this._whereBuilder = cnt.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, this._joinModel, this]);
+        this._whereBuilder.setAlias(jAlias);
         this._whereBuilder.database(driver.Options.Database);
 
         this._whereCallback.call(this._whereBuilder, [this]);
@@ -262,15 +262,15 @@ export abstract class JoinStatement extends QueryStatement {
         this._builder.mergeBuilder(this._whereBuilder);
       }
 
-      const relation = Array.from(sDesc.Relations, ([key, value]) => ({ key, value })).find((x) => x.value.TargetModel.name === this._model.name);
+      const relation = Array.from(sDesc.Relations, ([key, value]) => ({ key, value })).find((x) => x.value.TargetModel.name === this._joinModel.name);
 
       if (!relation) {
-        throw new OrmException(`Cannot find relation between ${this._model.name} and ${this._sourceModel.name}, thus cannot perform join statement`);
+        throw new OrmException(`Cannot find relation between ${this._joinModel.name} and ${this._sourceModel.name}, thus cannot perform join statement`);
       }
 
-      this._table = tDesc.TableName;
-      this._primaryKey = tDesc.PrimaryKey;
-      this._alias = tAlias;
+      this._table = jDesc.TableName;
+      this._primaryKey = jDesc.PrimaryKey;
+      this._joinTableAlias = jAlias;
       this._foreignKey = relation.value.ForeignKey;
     }
   }
