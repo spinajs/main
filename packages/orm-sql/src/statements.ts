@@ -197,8 +197,7 @@ export class SqlJoinStatement extends JoinStatement {
     let table = `${this._database ? `\`${this._database}\`.` : ''}\`${this._table}\``;
     let primaryKey = this._primaryKey;
     let foreignKey = this._foreignKey;
-
-    debugger;
+ 
 
     if (this._tableAlias) {
       primaryKey = `\`${this._tableAlias}\`.${this._primaryKey}`;
