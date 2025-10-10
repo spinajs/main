@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/fs-onedrive",
-  "version": "2.0.401",
+  "version": "2.0.402",
   "description": "wrapper for file operations in onedrive",
   
     "main": "lib/cjs/index.js",
@@ -52,11 +52,11 @@
   "homepage": "https://github.com/spinajs/exceptions#readme",
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "dependencies": {
-    "@spinajs/exceptions": "2.0.401",
-    "@spinajs/log": "2.0.401",
-    "@spinajs/configuration": "2.0.401",
-    "@spinajs/fs": "2.0.401",
-    "@spinajs/di": "2.0.401",
+    "@spinajs/exceptions": "2.0.402",
+    "@spinajs/log": "2.0.402",
+    "@spinajs/configuration": "2.0.402",
+    "@spinajs/fs": "2.0.402",
+    "@spinajs/di": "2.0.402",
     "@azure/identity": "^3.1.3",
     "@azure/msal-node": "^1.9.1",
     "@microsoft/microsoft-graph-client": "^3.0.5",
