@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/email-smtp-transport",
-  "version": "2.0.400",
+  "version": "2.0.401",
   "description": "sending emails easy & reliable way",
   
     "main": "lib/cjs/index.js",
@@ -55,13 +55,13 @@
     "@types/nodemailer": "^6.4.7"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.400",
-    "@spinajs/di": "^2.0.400",
-    "@spinajs/email": "^2.0.400",
-    "@spinajs/exceptions": "^2.0.400",
-    "@spinajs/fs": "^2.0.400",
-    "@spinajs/log": "^2.0.400",
-    "@spinajs/templates": "^2.0.400",
+    "@spinajs/configuration": "^2.0.401",
+    "@spinajs/di": "^2.0.401",
+    "@spinajs/email": "^2.0.401",
+    "@spinajs/exceptions": "^2.0.401",
+    "@spinajs/fs": "^2.0.401",
+    "@spinajs/log": "^2.0.401",
+    "@spinajs/templates": "^2.0.401",
      "luxon": "^3.6.1",
     "nodemailer": "^6.9.0"
   },
