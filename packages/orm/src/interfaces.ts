@@ -992,44 +992,44 @@ export interface IJoinBuilder {
   clearJoins(): this;
 
   innerJoin(query : RawQuery): this;
-  innerJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
-  innerJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  innerJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
+  innerJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>, queryCallback?: (this: ISelectQueryBuilder<R>) => void) => void): this;
   innerJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
 
   leftJoin(expression: RawQuery): this;
   leftJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
-  leftJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
-  leftJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  leftJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
+  leftJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
 
   leftOuterJoin(query : RawQuery): this;
   leftOuterJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
-  leftOuterJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
-  leftOuterJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  leftOuterJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
+  leftOuterJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
 
   rightJoin(expression: RawQuery): this;
   rightJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
-  rightJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
-  rightJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  rightJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
+  rightJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
 
 
   rightOuterJoin(expression: RawQuery): this;
   rightOuterJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
-  rightOuterJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
-  rightOuterJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  rightOuterJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
+  rightOuterJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
 
   fullOuterJoin(expression: RawQuery): this;
   fullOuterJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
-  fullOuterJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
-  fullOuterJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  fullOuterJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
+  fullOuterJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
 
   crossJoin(expression: RawQuery): this;
   crossJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
-  crossJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
-  crossJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  crossJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
+  crossJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>, queryCallback?: (this: ISelectQueryBuilder<R>) => void) => void): this;
 
   join<R = ModelBase>(method: JoinMethod, expression: RawQuery): this;
-  join<R = ModelBase>(method: JoinMethod, relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
-  join<R = ModelBase>(method: JoinMethod, model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  join<R = ModelBase>(method: JoinMethod, relation: string, callback?: (this: IWhereBuilder<R>, queryCallback?: (this: ISelectQueryBuilder<R>) => void) => void): this;
+  join<R = ModelBase>(method: JoinMethod, model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>, queryCallback?: (this: ISelectQueryBuilder<R>) => void) => void): this;
   join<R = ModelBase>(method: JoinMethod, options: IJoinStatementOptions<R>): this;
 }
 
@@ -1434,7 +1434,18 @@ export interface IJoinStatementOptions<R = ModelBase> {
   query?: RawQuery;
 
   /**
-   * Optional callback to further modify join query
+   * Optional callback to further modify join query ( wheres )
+   * 
+   * @param this callback context is where builder for this join. It will preseve aliases etc.
    */
-  callback?: ((this: ISelectQueryBuilder<R>) => void) | Lazy<(this: ISelectQueryBuilder<R>) => void>;
+  callback?: ((this: IWhereBuilder<R>) => void) | Lazy<(this: ISelectQueryBuilder<R>) => void>;
+
+  /**
+   * 
+   * Optional callback to modify whole join query builder
+   * 
+   * @param this callback context is select query builder for this join
+   * @returns 
+   */
+  queryCallback?: (this: ISelectQueryBuilder<R>) => void;
 }

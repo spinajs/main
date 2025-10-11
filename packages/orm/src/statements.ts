@@ -220,6 +220,10 @@ export abstract class JoinStatement extends QueryStatement {
       this._whereBuilder.database(driver.Options.Database);
       this._whereBuilder.where(_options.callback);
 
+      if(_options.queryCallback){
+        _options.queryCallback.call(this._whereBuilder);
+      }
+
       this._options.builder.mergeBuilder(this._whereBuilder);
     }
   }

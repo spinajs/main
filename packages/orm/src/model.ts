@@ -891,7 +891,7 @@ export const MODEL_STATIC_MIXINS = {
 
         JoinQuery.leftJoin({
           joinModel: relationDescriptor.TargetModel,
-          callback: function () {
+          queryCallback: function () {
             this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
           }
         });

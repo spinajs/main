@@ -111,7 +111,7 @@ const USER_FILTER: IColumnFilter<User>[] = [
 export class Users extends BaseController {
 
   @Autoinject()
-  protected PasswordProvider:  PasswordProvider
+  protected PasswordProvider: PasswordProvider
 
   @Get("/")
   @Permission(['readAny'])
@@ -137,6 +137,8 @@ export class Users extends BaseController {
         // eg. user:niceName, user:avatar etc.
         // this is used for filtering / sorting by custom meta props
         this.where('Key', 'user:niceName');
+
+      }, function () {
         this.select('Value', "user:niceName")
       })
       .populate(include)
@@ -201,7 +203,7 @@ export class Users extends BaseController {
     const temporaryPassword = this.PasswordProvider.generate();
     const u = await create(data.Email, data.Login, temporaryPassword, [data.Role]);
 
-    for(const key in data.Metadata) {
+    for (const key in data.Metadata) {
       u.User.Metadata[key] = data.Metadata[key];
     }
     await u.User.Metadata.update();

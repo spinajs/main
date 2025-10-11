@@ -521,37 +521,37 @@ export class JoinBuilder implements IJoinBuilder {
   }
 
 
-  public innerJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
-    this.join<R>(JoinMethod.INNER, arg1, arg2);
+  public innerJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: IWhereBuilder<R>) => void, arg3?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.INNER, arg1, arg2, arg3);
     return this;
   }
 
-  public leftJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
-    this.join<R>(JoinMethod.LEFT, arg1, arg2);
+  public leftJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: IWhereBuilder<R>) => void, arg3?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.LEFT, arg1, arg2, arg3);
     return this;
   }
-  public leftOuterJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
-    this.join<R>(JoinMethod.LEFT_OUTER, arg1, arg2);
+  public leftOuterJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: IWhereBuilder<R>) => void, arg3?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.LEFT_OUTER, arg1, arg2, arg3);
     return this;
   }
-  public rightJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
-    this.join<R>(JoinMethod.RIGHT, arg1, arg2);
+  public rightJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: IWhereBuilder<R>) => void, arg3?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.RIGHT, arg1, arg2, arg3);
     return this;
   }
-  public rightOuterJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
-    this.join<R>(JoinMethod.RIGHT_OUTER, arg1, arg2);
+  public rightOuterJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: IWhereBuilder<R>) => void, arg3?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.RIGHT_OUTER, arg1, arg2, arg3);
     return this;
   }
-  public fullOuterJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
-    this.join<R>(JoinMethod.FULL_OUTER, arg1, arg2);
+  public fullOuterJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: IWhereBuilder<R>) => void, arg3?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.FULL_OUTER, arg1, arg2, arg3);
     return this;
   }
-  public crossJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
-    this.join<R>(JoinMethod.CROSS, arg1, arg2);
+  public crossJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: IWhereBuilder<R>) => void, arg3?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.CROSS, arg1, arg2, arg3);
     return this;
   }
 
-  public join<R = ModelBase>(method: JoinMethod, arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
+  public join<R = ModelBase>(method: JoinMethod, arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: IWhereBuilder<R>) => void, arg3?: (this: ISelectQueryBuilder<R>) => void): this {
 
     let options: IJoinStatementOptions<R> = null;
 
@@ -572,6 +572,7 @@ export class JoinBuilder implements IJoinBuilder {
         joinTableForeignKey: relation.ForeignKey,
         sourceTablePrimaryKey: relation.PrimaryKey,
         callback: arg2,
+        queryCallback: arg3,
       };
     }
     else if (_.isObject(arg1)) {
