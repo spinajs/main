@@ -111,7 +111,6 @@ export abstract class LazyQueryStatement extends QueryStatement {
 
   constructor(protected callback: Lazy<unknown>, protected context : unknown) {
     super();
-    debugger;
   }
 
   public abstract build(): IQueryStatementResult;
@@ -217,7 +216,6 @@ export abstract class JoinStatement extends QueryStatement {
       const driver = joinModelDescriptor.Driver;
       const container = joinModelDescriptor.Driver.Container;
 
-      debugger;
       this._whereBuilder = container.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, _options.joinModel, this]);
       this._whereBuilder.database(driver.Options.Database);
       this._whereBuilder.where(_options.callback);

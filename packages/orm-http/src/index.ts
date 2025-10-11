@@ -142,7 +142,6 @@ export class FromDbModel extends RouteArgs {
 
 export class DbModelHydrator extends ArgHydrator {
   public async hydrate(input: any, parameter: IRouteParameter): Promise<any> {
-    debugger;
     if (input === null) {
       throw new OrmException('primary key cannot be null');
     }

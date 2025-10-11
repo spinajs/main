@@ -883,7 +883,6 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
             if (!self._tableAlias) {
               self._tableAlias = "__exists__";
             }
-            debugger;
             sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
@@ -952,7 +951,6 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
             if (!self._tableAlias) {
               self._tableAlias = "__exists__";
             }
-            debugger;
             sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
