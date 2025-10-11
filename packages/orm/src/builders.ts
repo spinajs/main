@@ -1,11 +1,11 @@
 /* eslint-disable prettier/prettier */
-import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable } from '@spinajs/di';
+import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable, isConstructor } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
 import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import { OrmDriver } from './driver.js';
@@ -520,79 +520,78 @@ export class JoinBuilder implements IJoinBuilder {
     return this;
   }
 
-  public innerJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
-  public innerJoin(query: RawQuery): this;
-  public innerJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  public innerJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string): this {
-    this.addJoinStatement.call(this, JoinMethod.INNER, ...arguments);
+
+  public innerJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.INNER, arg1, arg2);
     return this;
   }
 
-  public leftJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
-  public leftJoin(query: RawQuery): this;
-  public leftJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  public leftJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string, _database?: string): this {
-    this.addJoinStatement.call(this, JoinMethod.LEFT, ...arguments);
+  public leftJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.LEFT, arg1, arg2);
+    return this;
+  }
+  public leftOuterJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.LEFT_OUTER, arg1, arg2);
+    return this;
+  }
+  public rightJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.RIGHT, arg1, arg2);
+    return this;
+  }
+  public rightOuterJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.RIGHT_OUTER, arg1, arg2);
+    return this;
+  }
+  public fullOuterJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.FULL_OUTER, arg1, arg2);
+    return this;
+  }
+  public crossJoin<R = ModelBase>(arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
+    this.join<R>(JoinMethod.CROSS, arg1, arg2);
     return this;
   }
 
-  public leftOuterJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
-  public leftOuterJoin(query: RawQuery): this;
-  public leftOuterJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  public leftOuterJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string, _database?: string): this {
-    this.addJoinStatement.call(this, JoinMethod.LEFT_OUTER, ...arguments);
-    return this;
-  }
+  public join<R = ModelBase>(method: JoinMethod, arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: ISelectQueryBuilder<R>) => void): this {
 
-  public rightJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
-  public rightJoin(query: RawQuery): this;
-  public rightJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  public rightJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string, _database?: string): this {
-    this.addJoinStatement.call(this, JoinMethod.RIGHT, ...arguments);
-    return this;
-  }
+    let options: IJoinStatementOptions<R> = null;
 
-  public rightOuterJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
-  public rightOuterJoin(query: RawQuery): this;
-  public rightOuterJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  public rightOuterJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string, _database?: string): this {
-    this.addJoinStatement.call(this, JoinMethod.RIGHT_OUTER, ...arguments);
-    return this;
-  }
+    if (arg1 instanceof RawQuery) {
+      options = {
+        query: arg1
+      }
+    }
+    else if (_.isString(arg1) || isConstructor(arg1)) {
 
-  public fullOuterJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
-  public fullOuterJoin(query: RawQuery): this;
-  public fullOuterJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  public fullOuterJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string, _database?: string): this {
-    this.addJoinStatement.call(this, JoinMethod.FULL_OUTER, ...arguments);
-    return this;
-  }
+      const relation = this._model ? _.isString(arg1) ? extractModelDescriptor(this._model).Relations.get(arg1) : extractModelDescriptor(this._model).Relations.values().find((r) => r.TargetModel === (arg1 as Constructor<ModelBase>)) : null;
+      if (!relation) {
+        throw new InvalidArgument(`Cannot find relation ${arg1} in model ${this._model ? this._model.name : 'undefined'}`);
+      }
 
-  public crossJoin<R extends ModelBase>(model: R, where?: (this: SelectQueryBuilder<R>) => void): this;
-  public crossJoin(query: RawQuery): this;
-  public crossJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  public crossJoin<R extends ModelBase>(_table: string | RawQuery | R, _AliasOrForeignKey?: string | ((this: SelectQueryBuilder<R>) => void), _fkOrPkKey?: string, _primaryKey?: string, _database?: string): this {
-    this.addJoinStatement.call(this, JoinMethod.CROSS, ...arguments);
-    return this;
-  }
-
-  private addJoinStatement(method: JoinMethod, table: string | RawQuery | ModelBase, AliasOrForeignKey?: string | ((this: SelectQueryBuilder<this>) => void), fkOrPkKey?: string, primaryKey?: string, _database?: string) {
-    let stmt: JoinStatement = null;
-
-    if (arguments.length === 3) {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [this, this._model, table, method, AliasOrForeignKey]);
-    } else if (arguments.length === 4) {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [this, this._model, table, method, AliasOrForeignKey, fkOrPkKey, null, this._tableAlias]);
-    } else if (arguments.length === 5) {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [this, this._model, table, method, fkOrPkKey, primaryKey, AliasOrForeignKey, this._tableAlias]);
-    } else if (arguments.length === 6) {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [this, this._model, table, method, fkOrPkKey, primaryKey, AliasOrForeignKey, this._tableAlias, _database]);
+      options = {
+        joinModel: relation.TargetModel,
+        joinTableForeignKey: relation.ForeignKey,
+        sourceTablePrimaryKey: relation.PrimaryKey,
+        callback: arg2,
+      };
+    }
+    else if (_.isObject(arg1)) {
+      options = arg1 as IJoinStatementOptions<R>;
     } else {
-      stmt = this._container.resolve<JoinStatement>(JoinStatement, [this, this._model, table, method]);
+      throw new InvalidArgument(`Invalid argument passed to innerJoin: ${arg1}`);
     }
 
-    this.JoinStatements.push(stmt);
+    const statement = this._container.resolve<JoinStatement>(JoinStatement, [{
+      ...options,
+      method,
+      builder: this,
+    }]);
+
+    this.JoinStatements.push(
+      statement
+    )
+    return this;
   }
+
 }
 
 @NewInstance()
@@ -625,8 +624,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
   protected _tableAlias: string;
 
-  public get TableAlias() : string{
-    return this._tableAlias ?? (this._parent ? this._parent.TableAlias : '');
+  public get TableAlias(): string {
+    return this._tableAlias ?? (this._parent ? this._parent.TableAlias : undefined);
   }
 
   public get Model() {
@@ -728,7 +727,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     if (column instanceof Lazy) {
-      this.Statements.push(this._container.resolve<LazyQueryStatement>(LazyQueryStatement, [column]));
+      this.Statements.push(this._container.resolve<LazyQueryStatement>(LazyQueryStatement, [column, this]));
       return this;
     }
 
@@ -884,6 +883,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
             if (!self._tableAlias) {
               self._tableAlias = "__exists__";
             }
+            debugger;
             sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
@@ -898,13 +898,22 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         case RelationType.ManyToMany:
           relQuery = (rel.JunctionModel as IModelStatic).query();
           relQuery.where(Lazy.oF(function () {
+
             if (!self._tableAlias) {
               self._tableAlias = "__exists__";
             }
             sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
+
           }));
-          relQuery.rightJoin(rel.TargetModel, callback);
+
+          relQuery.rightJoin({
+            joinModel: rel.TargetModel,
+            joinTableForeignKey: rel.PrimaryKey,
+            sourceTablePrimaryKey: rel.ForeignKey,
+            callback: callback,
+          });
+
           this.whereExist(relQuery);
           break;
       }
@@ -940,29 +949,40 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           relQuery = rel.TargetModel.query();
           relQuery.where(Lazy.oF(function () {
-            if (!self.TableAlias) {
+            if (!self._tableAlias) {
               self._tableAlias = "__exists__";
             }
-            sourcePKey = `\`${self.TableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+            debugger;
+            sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
 
           if (callback) {
             callback.apply(relQuery);
           }
-          this.whereNotExists(relQuery);
+
+          this.whereExist(relQuery);
 
           break;
         case RelationType.ManyToMany:
           relQuery = (rel.JunctionModel as IModelStatic).query();
           relQuery.where(Lazy.oF(function () {
-            if (!self.TableAlias) {
+
+            if (!self._tableAlias) {
               self._tableAlias = "__exists__";
             }
-            sourcePKey = `\`${self.TableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+            sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
+
           }));
-          relQuery.rightJoin(rel.TargetModel, callback);
+
+          relQuery.rightJoin({
+            joinModel: rel.TargetModel,
+            joinTableForeignKey: rel.PrimaryKey,
+            sourceTablePrimaryKey: rel.ForeignKey,
+            callback: callback,
+          });
+
           this.whereNotExists(relQuery);
           break;
       }

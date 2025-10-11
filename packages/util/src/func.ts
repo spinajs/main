@@ -11,7 +11,7 @@ export class Lazy<T> {
         return new Lazy(callback);
     }
 
-    public call(): T {
-        return this.callback?.();
+    public call(context : unknown): T {
+        return this.callback?.call(context);
     }
 }

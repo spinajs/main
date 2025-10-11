@@ -1,11 +1,10 @@
-import { ISelectQueryBuilder } from './interfaces.js';
+import { IJoinStatementOptions } from './interfaces.js';
 import type { SelectQueryBuilder, WhereBuilder, RawQuery, QueryBuilder } from './builders.js';
-import { ColumnMethods, SqlOperator, JoinMethod } from './enums.js';
+import { ColumnMethods, SqlOperator } from './enums.js';
 import { NewInstance, Container, Class, Constructor, Inject, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 import { IColumnDescriptor } from './interfaces.js';
 import { extractModelDescriptor, ModelBase } from './model.js';
-import { OrmException } from './exceptions.js';
 import { Lazy } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
 
@@ -110,8 +109,9 @@ export abstract class WhereQueryStatement extends QueryStatement {
 @NewInstance()
 export abstract class LazyQueryStatement extends QueryStatement {
 
-  constructor(protected callback: Lazy<unknown>) {
+  constructor(protected callback: Lazy<unknown>, protected context : unknown) {
     super();
+    debugger;
   }
 
   public abstract build(): IQueryStatementResult;
@@ -201,77 +201,28 @@ export abstract class DateTimeWrapper extends WrapStatement { }
 
 @NewInstance()
 export abstract class JoinStatement extends QueryStatement {
-  protected _table: string;
-  protected _method: JoinMethod;
-  protected _foreignKey: string;
-  protected _primaryKey: string;
-  protected _query: RawQuery;
-  protected _joinTableAlias: string;
-  protected _joinModel: Constructor<ModelBase>;
-  protected _sourceModel: Constructor<ModelBase>;
-  protected _whereCallback: (this: ISelectQueryBuilder<any>) => void;
-  protected _builder: SelectQueryBuilder<any>;
+
   protected _whereBuilder: SelectQueryBuilder<any>;
-  protected _database: string;
 
-  constructor(builder: SelectQueryBuilder<any>, sourceModel: Constructor<ModelBase>, table: string | RawQuery | Constructor<ModelBase>, method: JoinMethod, foreignKey: string | ((this: SelectQueryBuilder) => void), primaryKey: string, sourceTableAlias: string, joinTableAlias: string, database?: string) {
-    super(joinTableAlias);
+  protected _container: IContainer;
 
-    this._method = method;
-    this._builder = builder;
 
-    if (_.isString(foreignKey)) {
-      this._foreignKey = foreignKey;
-    }
+  constructor(protected _options: IJoinStatementOptions) {
+    super(_options.sourceTableAlias);
 
-    if (_.isString(table)) {
-      this._table = table;
-      this._primaryKey = primaryKey;
-      this._joinTableAlias = joinTableAlias;
-      this._tableAlias = sourceTableAlias;
-      this._database = database;
-    } else if (table.constructor.name === 'RawQuery') {
-      this._query = table as any;
-    } else {
-      this._joinModel = table as any;
-      this._sourceModel = sourceModel;
 
-      const sDesc = extractModelDescriptor(this._sourceModel);
-      const jDesc = extractModelDescriptor(this._joinModel);
-      const sAlias = `${sDesc.Driver.Options.AliasSeparator}${sDesc.Name}${sDesc.Driver.Options.AliasSeparator}`;
-      const jAlias = `${jDesc.Driver.Options.AliasSeparator}${jDesc.Name}${jDesc.Driver.Options.AliasSeparator}`;
+    if ((_.isFunction(_options.callback) || _options.callback instanceof Lazy) && _options.joinModel) {
 
-      this._tableAlias = sAlias;
-      this._database = jDesc.Driver.Options.Database;
+      const joinModelDescriptor = extractModelDescriptor(_options.joinModel);
+      const driver = joinModelDescriptor.Driver;
+      const container = joinModelDescriptor.Driver.Container;
 
-      if (!this._builder.TableAlias) {
-        this._builder.setAlias(sAlias);
-      }
+      debugger;
+      this._whereBuilder = container.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, _options.joinModel, this]);
+      this._whereBuilder.database(driver.Options.Database);
+      this._whereBuilder.where(_options.callback);
 
-      if (_.isFunction(foreignKey)) {
-        this._whereCallback = foreignKey;
-
-        const driver = jDesc.Driver;
-        const cnt = driver.Container;
-        this._whereBuilder = cnt.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, this._joinModel, this]);
-        this._whereBuilder.setAlias(jAlias);
-        this._whereBuilder.database(driver.Options.Database);
-
-        this._whereCallback.call(this._whereBuilder, [this]);
-
-        this._builder.mergeBuilder(this._whereBuilder);
-      }
-
-      const relation = Array.from(sDesc.Relations, ([key, value]) => ({ key, value })).find((x) => x.value.TargetModel.name === this._joinModel.name);
-
-      if (!relation) {
-        throw new OrmException(`Cannot find relation between ${this._joinModel.name} and ${this._sourceModel.name}, thus cannot perform join statement`);
-      }
-
-      this._table = jDesc.TableName;
-      this._primaryKey = jDesc.PrimaryKey;
-      this._joinTableAlias = jAlias;
-      this._foreignKey = relation.value.ForeignKey;
+      this._options.builder.mergeBuilder(this._whereBuilder);
     }
   }
 

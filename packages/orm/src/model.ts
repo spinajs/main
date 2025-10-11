@@ -888,9 +888,14 @@ export const MODEL_STATIC_MIXINS = {
 
         // UPDATE: newest sqlite engine does support right join
         // but nodejs drivers use older version of sqlite
-        JoinQuery.leftJoin(relationDescriptor.TargetModel, function () {
-          this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+
+        JoinQuery.leftJoin({
+          joinModel: relationDescriptor.TargetModel,
+          callback: function () {
+            this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+          }
         });
+
         JoinQuery.where(relationDescriptor.SourceModel.getModelDescriptor().PrimaryKey, owner);
         JoinQuery.middleware(hydrateMiddleware);
         return JoinQuery;
@@ -1058,7 +1063,7 @@ export const MODEL_STATIC_MIXINS = {
     const description = _descriptor(this);
 
     const data = Array.isArray(pks) ? pks : [pks];
-    if( data.length === 0) {
+    if (data.length === 0) {
       throw new OrmException('Cannot delete empty array of primary keys');
     }
 
@@ -1109,7 +1114,7 @@ export const MODEL_STATIC_MIXINS = {
     return entity;
   },
 
-  async getOrNew<T extends typeof ModelBase>(this: T,  data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
+  async getOrNew<T extends typeof ModelBase>(this: T, data?: Partial<InstanceType<T>>): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     // check for all unique columns ( unique constrain )

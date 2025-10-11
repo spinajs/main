@@ -8,6 +8,7 @@ import { extractModelDescriptor, ModelBase } from './model.js';
 import { Orm } from './orm.js';
 import { OrmDriver } from './driver.js';
 import _ from 'lodash';
+import { JoinMethod } from './index.js';
 
 export interface IOrmRelation {
   /**
@@ -25,7 +26,7 @@ export interface IOrmRelation {
    * @param callback - execute callback to perform actions on relations eg. populate more, filter relational data etc.
    */
   executeOnQuery(callback: (this: ISelectQueryBuilder, relation: OrmRelation) => void): void;
- 
+
   /**
    * Relation name
    */
@@ -112,7 +113,14 @@ export class BelongsToRelation extends OrmRelation {
       this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
     }
 
-    this._query.leftJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.PrimaryKey, this._description.ForeignKey, this._targetModelDescriptor.Driver.Options.Database);
+    this._query.leftJoin({
+      joinTable: this._targetModelDescriptor.TableName,
+      joinTableAlias: this.Alias,
+      joinTableForeignKey: this._description.ForeignKey,
+      joinTableDatabase: this._targetModelDescriptor.Driver.Options.Database,
+
+      sourceTablePrimaryKey: this._description.PrimaryKey,
+    })
 
     this._relationQuery.Relations.forEach((r) => r.compile());
 
@@ -143,7 +151,7 @@ export class BelongsToRecursiveRelation extends OrmRelation {
       this._relationQuery.select(c.Name, `${this.Alias}.${c.Name}`);
     });
   }
- 
+
   public compile() {
     if (this._compiled) {
       return;
@@ -162,7 +170,7 @@ export class BelongsToRecursiveRelation extends OrmRelation {
 @Inject(Container)
 export class QueryRelation extends OrmRelation {
 
- 
+
 
   public compile(): void {
     this._query.middleware(new QueryRelationMiddleware(this._description.Callback, this._description.Mapper, this._description));
@@ -183,12 +191,12 @@ export class OneToManyRelation extends OrmRelation {
     );
   }
 
- 
+
   public compile(): void {
     if (this._compiled) {
       return;
     }
-  
+
     if (!this.parentRelation && !this._query.TableAlias) {
       this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
     }
@@ -222,7 +230,7 @@ export class ManyToManyRelation extends OrmRelation {
 
     this._joinModel = this._orm.Models.find((m) => m.name === this._description.JunctionModel?.name)?.type ?? undefined;
 
-     
+
     if (this._joinModel === undefined) {
       throw new InvalidOperation(`model ${this._description.JunctionModel} not exists in orm module`);
     }
@@ -251,18 +259,23 @@ export class ManyToManyRelation extends OrmRelation {
       this._relationQuery.select(c.Name, `${this.Alias}.${c.Name}`);
     });
   }
- 
+
 
   public compile(): void {
     if (this._compiled) {
       return;
     }
 
-    if (this._description.JoinMode === 'RightJoin') {
-      this._joinQuery.rightJoin(this._targetModelDescriptor.TableName, this.Alias, this._description.ForeignKey, this._description.JunctionModelTargetModelFKey_Name, this._targetModelDescriptor.Driver.Options.Database);
-    } else {
-      this._joinQuery.leftJoin(this._targetModelDescriptor.TableName, this.Alias,  this._description.ForeignKey, this._description.JunctionModelTargetModelFKey_Name, this._targetModelDescriptor.Driver.Options.Database);
-    }
+    this._joinQuery.join(this._description.JoinMode === 'RightJoin' ? JoinMethod.RIGHT : JoinMethod.LEFT,
+      {
+        joinTable: this._targetModelDescriptor.TableName,
+        joinTableAlias: this.Alias,
+        joinTableForeignKey: this._description.JunctionModelTargetModelFKey_Name,
+        joinTableDatabase: this._targetModelDescriptor.Driver.Options.Database,
+        sourceTablePrimaryKey: this._description.PrimaryKey,
+      }
+    )
+
 
     this._relationQuery.Relations.forEach((r) => r.compile());
 

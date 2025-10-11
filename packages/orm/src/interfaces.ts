@@ -1,4 +1,4 @@
-import { Op } from './enums.js';
+import { JoinMethod, Op } from './enums.js';
 /* eslint-disable prettier/prettier */
 import { QueryBuilder, RawQuery } from './builders.js';
 import { SortOrder, WhereBoolean } from './enums.js';
@@ -591,7 +591,7 @@ export interface IModelBase {
    *
    * @param omit - fields to omit
    */
-  dehydrate(options? : IDehydrateOptions): ModelData<this>;
+  dehydrate(options?: IDehydrateOptions): ModelData<this>;
 
   /**
    *
@@ -599,7 +599,7 @@ export interface IModelBase {
    *
    * @param omit - fields to omit
    */
-  dehydrateWithRelations(options? : IDehydrateOptions): ModelDataWithRelationData<this>;
+  dehydrateWithRelations(options?: IDehydrateOptions): ModelDataWithRelationData<this>;
 
   /**
    * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
@@ -743,7 +743,7 @@ export interface IColumnDescriptor {
   /**
    * Is column virtual ( not exists in DB )
    */
-  Virtual : boolean;
+  Virtual: boolean;
 
   // is this column a foreign key
   IsForeignKey: boolean;
@@ -764,7 +764,7 @@ export interface IValueConverter {
    *
    * @param value - value to convert
    */
-  toDB(value: any, model: ModelBase, column: IColumnDescriptor, options: any, dehydrateOptions? : IDehydrateOptions): any;
+  toDB(value: any, model: ModelBase, column: IColumnDescriptor, options: any, dehydrateOptions?: IDehydrateOptions): any;
 
   /**
    * Converts value from database type eg. mysql timestamp to DateTime
@@ -991,48 +991,46 @@ export interface IJoinBuilder {
 
   clearJoins(): this;
 
-  innerJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
-  innerJoin(query: RawQuery): this;
-  innerJoin(table: string, foreignKey: string, primaryKey: string): this;
-  // tslint:disable-next-line: unified-signatures
-  innerJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string): this;
+  innerJoin(query : RawQuery): this;
+  innerJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  innerJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  innerJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
 
-  leftJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
-  leftJoin(query: RawQuery): this;
-  leftJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
+  leftJoin(expression: RawQuery): this;
+  leftJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
+  leftJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  leftJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
 
-  // tslint:disable-next-line: unified-signatures
-  leftJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
+  leftOuterJoin(query : RawQuery): this;
+  leftOuterJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
+  leftOuterJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  leftOuterJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
 
-  leftOuterJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
-  leftOuterJoin(query: RawQuery): this;
-  leftOuterJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  // tslint:disable-next-line: unified-signatures
-  leftOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
+  rightJoin(expression: RawQuery): this;
+  rightJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
+  rightJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  rightJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
 
-  rightJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
-  rightJoin(query: RawQuery): this;
-  rightJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  // tslint:disable-next-line: unified-signatures
-  rightJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
 
-  rightOuterJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
-  rightOuterJoin(query: RawQuery): this;
-  rightOuterJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  // tslint:disable-next-line: unified-signatures
-  rightOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
+  rightOuterJoin(expression: RawQuery): this;
+  rightOuterJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
+  rightOuterJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  rightOuterJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
 
-  fullOuterJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
-  fullOuterJoin(query: RawQuery): this;
-  fullOuterJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  // tslint:disable-next-line: unified-signatures
-  fullOuterJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
+  fullOuterJoin(expression: RawQuery): this;
+  fullOuterJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
+  fullOuterJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  fullOuterJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
 
-  crossJoin<M extends ModelBase>(model: Constructor<M>, where?: (this: ISelectQueryBuilder<M>) => void): this;
-  crossJoin(query: RawQuery): this;
-  crossJoin(table: string, foreignKey: string, primaryKey: string, database?: string): this;
-  // tslint:disable-next-line: unified-signatures
-  crossJoin(table: string, tableAlias: string, foreignKey: string, primaryKey: string, database?: string): this;
+  crossJoin(expression: RawQuery): this;
+  crossJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
+  crossJoin<R = ModelBase>(relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  crossJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+
+  join<R = ModelBase>(method: JoinMethod, expression: RawQuery): this;
+  join<R = ModelBase>(method: JoinMethod, relation: string, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  join<R = ModelBase>(method: JoinMethod, model: Constructor<ModelBase>, callback?: (this: ISelectQueryBuilder<R>) => void): this;
+  join<R = ModelBase>(method: JoinMethod, options: IJoinStatementOptions<R>): this;
 }
 
 export interface IBuilder<T> extends PromiseLike<T> {
@@ -1071,6 +1069,7 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
    */
   all(): Promise<T[]>;
 
+  mergeBuilder(builder: ISelectQueryBuilder): void;
 }
 
 export interface ICompilerOutput {
@@ -1280,7 +1279,7 @@ export class ValueConverter implements IValueConverter {
    *
    * @param value - value to convert
    */
-  public toDB(_value: any, _model: ModelBase<any>, _column: IColumnDescriptor, _options?: any, _dehydrateOptions? : IDehydrateOptions): any {
+  public toDB(_value: any, _model: ModelBase<any>, _column: IColumnDescriptor, _options?: any, _dehydrateOptions?: IDehydrateOptions): any {
     throw new MethodNotImplemented();
   }
 
@@ -1353,7 +1352,7 @@ export interface IDehydrateOptions {
   /**
    * Should skip undefined values in dehydrate
    */
-  skipUndefined?: boolean; 
+  skipUndefined?: boolean;
 
   /**
    * Should skip empty arrays in dehydrate
@@ -1372,4 +1371,70 @@ export interface IDehydrateOptions {
    * - unix - Unix timestamp (seconds since epoch)
    */
   dateTimeFormat?: 'iso' | 'sql' | 'unix';
+}
+
+export interface IJoinStatementOptions<R = ModelBase> {
+
+  /**
+   * Query builder that is creating this join
+   */
+  builder?: ISelectQueryBuilder;
+
+  /**
+   * Join method eg. inner, left, right
+   */
+  method?: JoinMethod;
+
+  /**
+   * Joined table name if not using model
+   */
+  joinTable?: string;
+
+  /**
+   * Join table alias if not using model
+   */
+  joinTableAlias?: string;
+
+  /**
+   * Join table foreign key ( eg. users.id = posts.user_id -> user_id is foreign key )
+   */
+  joinTableForeignKey?: string;
+
+  /**
+   * Joined model. Is used - it searches for relation between source model & joined model
+   * and extract all needed data
+   */
+  joinModel?: Constructor<ModelBase>;
+
+  /**
+   * 
+   */
+  sourceModel?: Constructor<ModelBase>;
+
+  /**
+   * Source model - model that is creating this join
+   * If not using builder or raw query
+   */
+  sourceTableAlias?: string;
+  /**
+   * Source table primary key ( eg. users.id = posts.user_id -> id is primary key )
+   * If not using model, its needed to set this property
+   */
+  sourceTablePrimaryKey?: string;
+
+  /** Source table database if not using builder */
+  sourceTableDatabase?: string;
+
+  /** Join table database if not using model */
+  joinTableDatabase?: string;
+
+  /**
+   * Raw query join
+   */
+  query?: RawQuery;
+
+  /**
+   * Optional callback to further modify join query
+   */
+  callback?: ((this: ISelectQueryBuilder<R>) => void) | Lazy<(this: ISelectQueryBuilder<R>) => void>;
 }

@@ -3,6 +3,7 @@ import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQu
 import { SqlWhereCompiler } from './compilers.js';
 import { NewInstance } from '@spinajs/di';
 import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor } from '@spinajs/orm';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 function _columnWrap(column: string, tableAlias: string, isAggregate?: boolean): string {
   if (tableAlias && !isAggregate) {
@@ -30,15 +31,22 @@ export class SqlRawStatement extends RawQueryStatement {
 export class SqlLazyQueryStatement extends LazyQueryStatement {
 
   public clone(): SqlLazyQueryStatement {
-    return new SqlLazyQueryStatement(this.callback);
+    return new SqlLazyQueryStatement(this.callback, this.context);
   }
 
   build(): IQueryStatementResult {
-    this.callback?.call();
+
+    const context = (this.context as SelectQueryBuilder).clone();
+    context.setAlias((this.context as SelectQueryBuilder).TableAlias);
+
+    context.clearColumns().clearGroupBy().clearJoins().clearWhere();
+
+    this.callback?.call(context);
+    const result = context.Statements.map((s) => s.build());
 
     return {
-      Bindings: [],
-      Statements: [],
+      Bindings: result.flatMap((x) => x.Bindings),
+      Statements: result.flatMap((x) => x.Statements),
     }
   }
 
@@ -171,46 +179,73 @@ export class SqlWhereStatement extends WhereStatement {
 @NewInstance()
 export class SqlJoinStatement extends JoinStatement {
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement {
-    return new SqlJoinStatement(
-      parent as SelectQueryBuilder,
-      this._joinModel,
-      this._table,
-      this._method,
-      this._foreignKey,
-      this._primaryKey,
-      this._tableAlias,
-      this._joinTableAlias,
-      this._database
-    );
+    return new SqlJoinStatement({
+      ...this._options,
+      builder: parent as SelectQueryBuilder,
+    })
   }
 
   public build(): IQueryStatementResult {
-    const method = this._method === JoinMethod.RECURSIVE ? JoinMethod.INNER : this._method;
+    const method = this._options.method === JoinMethod.RECURSIVE ? JoinMethod.INNER : this._options.method ?? JoinMethod.LEFT;
 
-    if (this._query) {
+    if (this._options.query) {
       return {
-        Bindings: this._query.Bindings ?? [],
-        Statements: [`${method} ${this._query.Query}`],
+        Bindings: this._options.query.Bindings ?? [],
+        Statements: [`${method} ${this._options.query.Query}`],
       };
     }
 
-    let table = `${this._database ? `\`${this._database}\`.` : ''}\`${this._table}\``;
-    let primaryKey = this._primaryKey;
-    let foreignKey = this._foreignKey;
- 
+    const sourceModel = this._options.sourceModel ? extractModelDescriptor(this._options.sourceModel) : null;
+    const joinModel = this._options.joinModel ? extractModelDescriptor(this._options.joinModel) : null;
 
-    if (this._tableAlias) {
-      primaryKey = `\`${this._tableAlias}\`.${this._primaryKey}`;
+    const sourceModelDriver = sourceModel ? sourceModel.Driver : this._options.builder ? this._options.builder.Driver : null;
+    const joinModelDriver = joinModel.Driver;
+
+    if (sourceModelDriver.constructor.name !== joinModelDriver.constructor.name) {
+      throw new InvalidArgument(`Cannot join models with different drivers. Source model ${sourceModel.Name} uses ${sourceModelDriver.constructor.name} driver, while join model ${joinModel.Name} uses ${joinModelDriver.constructor.name} driver.`);
     }
 
-    if (this._joinTableAlias) {
-      table = `${this._database ? `\`${this._database}\`.` : ''}\`${this._table}\` as \`${this._joinTableAlias}\``;
-      foreignKey = `\`${this._joinTableAlias}\`.${this._foreignKey}`;
+    /**
+     * Set owner table alias if not set
+     * To avoid errors of NON_UNIQUE columns in joins
+     */
+    if (!this._options.builder.TableAlias) {
+      this._options.builder.setAlias(`${sourceModelDriver.Options.AliasSeparator}${this._options.builder.Table}${sourceModelDriver.Options.AliasSeparator}`);
     }
+
+    const sourceTableAlias = this._options.builder.TableAlias;
+    const joinTableAlias = this._options.joinTableAlias ? this._options.joinTableAlias : `${joinModelDriver.Options.AliasSeparator}${joinModel.Name}${joinModelDriver.Options.AliasSeparator}`;
+
+    let sourceTable = sourceModel ? sourceModel.TableName : this._options.builder ? this._options.builder.Table : null;
+    let joinTable = joinModel ? joinModel.TableName : this._options.joinTable;
+
+
+    this._whereBuilder.setAlias(joinTableAlias);
+
+    if (!sourceTable) {
+      throw new InvalidArgument(`Cannot determine source table for join. Please provide sourceModel or use builder with defined model/table, args: ${JSON.stringify(this._options)}`);
+    }
+
+    if (!joinTable) {
+      throw new InvalidArgument(`Cannot determine join table for join. Please provide joinModel or use joinTable option, args: ${JSON.stringify(this._options)}`);
+    }
+
+    if (sourceTableAlias) {
+      sourceTable = `\`${sourceTable}\` as \`${sourceTableAlias}\``;
+    }
+
+    if (joinTableAlias) {
+      joinTable = `\`${joinTable}\` as \`${joinTableAlias}\``;
+    }
+
+
+
+    const primaryKey = sourceTableAlias ? `\`${sourceTableAlias}\`.${this._options.sourceTablePrimaryKey}` : `\`${sourceTable}\`.${this._options.sourceTablePrimaryKey}`;
+    const foreignKey = joinTableAlias ? `\`${joinTableAlias}\`.${this._options.joinTableForeignKey}` : `\`${joinTable}\`.${this._options.joinTableForeignKey}`;
 
     return {
       Bindings: [],
-      Statements: [`${method} ${table} ON ${primaryKey} = ${foreignKey}`],
+      Statements: [`${method} ${joinTable} ON ${primaryKey} = ${foreignKey}`],
     };
   }
 }

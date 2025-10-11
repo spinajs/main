@@ -197,11 +197,12 @@ export class SqlWhereCompiler implements IWhereCompiler {
     const where: string[] = [];
     const bindings: any[] = [];
 
-    builder.Statements.filter((x: WhereStatement) => x instanceof LazyQueryStatement).forEach(x => x.build())
+    const lazyBindings = builder.Statements.filter((x: WhereStatement) => x instanceof LazyQueryStatement).map((x : LazyQueryStatement) => x.build());
     builder.Statements.filter((x: WhereStatement) => !x.IsAggregate).filter(x => !(x instanceof LazyQueryStatement))
       .map((x) => {
         return x.build();
       })
+      .concat(lazyBindings)
       .forEach((r) => {
         where.push(...r.Statements);
 
@@ -274,15 +275,16 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
       return this.recursive(this._builder as IWithRecursiveBuilder);
     }
 
-    // WHERE is first
+    // JOIN is first
     // it can change table alias eg. exists statement
+    // WHERE is second becouse it can also change table alias eg. exists statement
+    const join = this.join(this._builder as IJoinBuilder);
     const where = this.where(this._builder as IWhereBuilder<unknown>);
     const columns = this.select();
     const from = this.from();
     const limit = this.limit();
     const sort = this.sort();
     const having = this.having(this._builder as IWhereBuilder<unknown>);
-    const join = this.join(this._builder as IJoinBuilder);
     const group = this.group(this._builder as IGroupByBuilder);
 
     const expression = columns + ' ' + from + (join.expression ? ` ${join.expression}` : '') + (where.expression ? ` WHERE ${where.expression}` : '') + group.expression + (having.expression ? ` HAVING ${having.expression}` : '') + sort.expression + limit.expression;
