@@ -1428,6 +1428,8 @@ export interface IJoinStatementOptions<R = ModelBase> {
   /** Join table database if not using model */
   joinTableDatabase?: string;
 
+  joinTableDriver? : OrmDriver;
+
   /**
    * Raw query join
    */

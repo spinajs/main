@@ -116,10 +116,10 @@ export class BelongsToRelation extends OrmRelation {
     this._query.leftJoin({
       joinTable: this._targetModelDescriptor.TableName,
       joinTableAlias: this.Alias,
-      joinTableForeignKey: this._description.ForeignKey,
+      sourceTablePrimaryKey: this._description.ForeignKey,
       joinTableDatabase: this._targetModelDescriptor.Driver.Options.Database,
-
-      sourceTablePrimaryKey: this._description.PrimaryKey,
+      joinTableForeignKey: this._description.PrimaryKey,
+      joinTableDriver: this._targetModelDescriptor.Driver,
     })
 
     this._relationQuery.Relations.forEach((r) => r.compile());
@@ -270,9 +270,10 @@ export class ManyToManyRelation extends OrmRelation {
       {
         joinTable: this._targetModelDescriptor.TableName,
         joinTableAlias: this.Alias,
-        joinTableForeignKey: this._description.JunctionModelTargetModelFKey_Name,
+        sourceTablePrimaryKey: this._description.JunctionModelTargetModelFKey_Name,
         joinTableDatabase: this._targetModelDescriptor.Driver.Options.Database,
-        sourceTablePrimaryKey: this._description.PrimaryKey,
+        joinTableForeignKey: this._description.PrimaryKey,
+        joinTableDriver: this._targetModelDescriptor.Driver,
       }
     )
 

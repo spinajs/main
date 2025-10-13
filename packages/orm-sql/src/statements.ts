@@ -197,26 +197,16 @@ export class SqlJoinStatement extends JoinStatement {
 
     const sourceModel = this._options.sourceModel ? extractModelDescriptor(this._options.sourceModel) : null;
     const joinModel = this._options.joinModel ? extractModelDescriptor(this._options.joinModel) : null;
-
-    if (!joinModel) {
-      throw new InvalidArgument(`Cannot determine join model for join. Please provide joinModel option, args: ${{
-        method: this._options.method,
-        sourceModel: this._options.sourceModel ? this._options.sourceModel.name : this._options.builder,
-        table: this._options.joinTable,
-        foreignKey: this._options.joinTableForeignKey,
-        primaryKey: this._options.sourceTablePrimaryKey,
-        tableAlias: this._options.joinTableAlias,
-        joinModel: this._options.joinModel ? this._options.joinModel.name : null,
-        
-      }}`);
-    }
-
-    if (!joinModel.Driver) {
-      throw new InvalidArgument(`Join model ${joinModel.Name} does not have driver assigned. Please check if model is properly decorated.`);
-    }
-
     const sourceModelDriver = sourceModel ? sourceModel.Driver : this._options.builder ? this._options.builder.Driver : null;
-    const joinModelDriver = joinModel.Driver;
+    const joinModelDriver = !joinModel ? this._options.joinTableDriver : joinModel.Driver;
+
+    if (!sourceModelDriver) {
+      throw new InvalidArgument(`Cannot determine source model driver. Please provide sourceModel or use builder with defined model/table`);
+    }
+
+    if (!joinModelDriver) {
+      throw new InvalidArgument(`Cannot determine join model driver. Please provide joinModel or use joinTableDriver option`);
+    }
 
     if (sourceModelDriver.constructor.name !== joinModelDriver.constructor.name) {
       throw new InvalidArgument(`Cannot join models with different drivers. Source model ${sourceModel.Name} uses ${sourceModelDriver.constructor.name} driver, while join model ${joinModel.Name} uses ${joinModelDriver.constructor.name} driver.`);
@@ -237,22 +227,24 @@ export class SqlJoinStatement extends JoinStatement {
     let joinTable = joinModel ? joinModel.TableName : this._options.joinTable;
 
 
-    this._whereBuilder.setAlias(joinTableAlias);
+    if (this._whereBuilder) {
+      this._whereBuilder.setAlias(joinTableAlias);
+    }
 
     if (!sourceTable) {
-      throw new InvalidArgument(`Cannot determine source table for join. Please provide sourceModel or use builder with defined model/table, args: ${JSON.stringify(this._options)}`);
+      throw new InvalidArgument(`Cannot determine source table for join. Please provide sourceModel or use builder with defined model/table`);
     }
 
     if (!joinTable) {
-      throw new InvalidArgument(`Cannot determine join table for join. Please provide joinModel or use joinTable option, args: ${JSON.stringify(this._options)}`);
+      throw new InvalidArgument(`Cannot determine join table for join. Please provide joinModel or use joinTable option`);
     }
 
     if (sourceTableAlias) {
-      sourceTable = `\`${sourceTable}\` as \`${sourceTableAlias}\``;
+      sourceTable = `\`${sourceModelDriver.Options.Database}\`.\`${sourceTable}\` as \`${sourceTableAlias}\``;
     }
 
     if (joinTableAlias) {
-      joinTable = `\`${joinTable}\` as \`${joinTableAlias}\``;
+      joinTable = `\`${joinModelDriver.Options.Database}\`.\`${joinTable}\` as \`${joinTableAlias}\``;
     }
 
 
