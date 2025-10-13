@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-cvs",
-  "version": "2.0.404",
+  "version": "2.0.405",
   "description": "templates support for pug files eg. html file generation",
   
     "main": "lib/cjs/index.js",
@@ -56,11 +56,11 @@
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.404",
-    "@spinajs/di": "^2.0.404",
-    "@spinajs/exceptions": "^2.0.404",
-    "@spinajs/log": "^2.0.404",
-    "@spinajs/templates": "^2.0.404",
+    "@spinajs/configuration": "^2.0.405",
+    "@spinajs/di": "^2.0.405",
+    "@spinajs/exceptions": "^2.0.405",
+    "@spinajs/log": "^2.0.405",
+    "@spinajs/templates": "^2.0.405",
     "@json2csv/node": "^6.1.2"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
