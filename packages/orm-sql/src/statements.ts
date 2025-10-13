@@ -198,6 +198,14 @@ export class SqlJoinStatement extends JoinStatement {
     const sourceModel = this._options.sourceModel ? extractModelDescriptor(this._options.sourceModel) : null;
     const joinModel = this._options.joinModel ? extractModelDescriptor(this._options.joinModel) : null;
 
+    if (!joinModel) {
+      throw new InvalidArgument(`Cannot determine join model for join. Please provide joinModel option, args: ${JSON.stringify(this._options)}`);
+    }
+
+    if(!joinModel.Driver) {
+      throw new InvalidArgument(`Join model ${joinModel.Name} does not have driver assigned. Please check if model is properly decorated.`);
+    }
+
     const sourceModelDriver = sourceModel ? sourceModel.Driver : this._options.builder ? this._options.builder.Driver : null;
     const joinModelDriver = joinModel.Driver;
 

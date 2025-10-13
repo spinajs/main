@@ -555,6 +555,8 @@ export class JoinBuilder implements IJoinBuilder {
 
     let options: IJoinStatementOptions<R> = null;
 
+
+
     if (arg1 instanceof RawQuery) {
       options = {
         query: arg1
@@ -562,7 +564,18 @@ export class JoinBuilder implements IJoinBuilder {
     }
     else if (_.isString(arg1) || isConstructor(arg1)) {
 
-      const relation = this._model ? _.isString(arg1) ? extractModelDescriptor(this._model).Relations.get(arg1) : extractModelDescriptor(this._model).Relations.values().find((r) => r.TargetModel === (arg1 as Constructor<ModelBase>)) : null;
+      if (this._model === undefined) {
+        throw new InvalidOperation(`Cannot use relation join without model defined in builder`);
+      }
+
+      const descriptor = extractModelDescriptor(this._model);
+      const relations = descriptor.Relations;
+
+      if(!relations || relations.size === 0) {
+        throw new InvalidOperation(`Model ${this._model.name} does not have any relations defined. Cannot use relation join.`);
+      }
+
+      const relation = this._model ? _.isString(arg1) ? relations.get(arg1) : relations.values().find((r) => r.TargetModel === (arg1 as Constructor<ModelBase>)) : null;
       if (!relation) {
         throw new InvalidArgument(`Cannot find relation ${arg1} in model ${this._model ? this._model.name : 'undefined'}`);
       }
