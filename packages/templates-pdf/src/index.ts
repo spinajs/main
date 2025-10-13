@@ -20,6 +20,7 @@ interface IPdfRendererOptions {
   args: any;
   options: any;
   renderDurationWarning: number;
+  navigationTimeout?: number;
   renderTimeout?: number;
 }
 
@@ -88,13 +89,17 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
       browser = await puppeteer.launch(this.Options.args);
       const page = await browser.newPage();
 
+      page.setDefaultNavigationTimeout(this.Options.navigationTimeout || 30000); // Default 30s
+      page.setDefaultTimeout(this.Options.renderTimeout || 30000); // Default 30s
+
+
       // Set up render timeout
       let renderTimeout: NodeJS.Timeout | undefined;
       const timeoutMs = this.Options.renderTimeout || 30000;
       renderTimeout = setTimeout(async () => {
         this.Log.warn(`PDF render timeout (${timeoutMs}ms) - forcing cleanup`);
         try {
-          if (page) await page.close().catch(() => {});
+          if (page) await page.close().catch(() => { });
           if (browser) await this.forceCloseBrowser(browser);
         } catch (err) {
           this.Log.error('Error during timeout cleanup:', err);
@@ -103,7 +108,7 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
 
       // Add event listeners with explicit cleanup tracking
       const eventCleanup = this.addPageEventListeners(page);
-      
+
       try {
         await page.setBypassCSP(true);
         await page.setContent(compiledTemplate);
@@ -111,7 +116,7 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
           path: filePath,
           ...this.pdfOptions,
         });
-        
+
         // Clear timeout on successful completion
         if (renderTimeout) {
           clearTimeout(renderTimeout);
@@ -120,7 +125,7 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
 
         // Clean up event listeners
         eventCleanup();
-        
+
       } catch (renderError) {
         // Clear timeout on error
         if (renderTimeout) {
@@ -156,7 +161,7 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
   }
 
   // no compilation at start
-  protected async compile(_path: string) {}
+  protected async compile(_path: string) { }
 
   protected async runLocalServer(basePath: string): Promise<http.Server> {
     const self = this;
@@ -169,8 +174,8 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
         // if no port is provided express will choose random port to start (available)
         // if not, we will get random from range in config
         .listen(
-          this.Options.static.portRange.length === 0 
-            ? 0 
+          this.Options.static.portRange.length === 0
+            ? 0
             : _.random(this.Options.static.portRange[0], this.Options.static.portRange[1])
         )
         .on('listening', function () {
@@ -180,7 +185,7 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
         })
         .on('error', (err: any) => {
           self.Log.error(err, `PDF image server cannot start`);
-          
+
           // Clean up the failed server
           if (server) {
             server.close(() => {
@@ -209,12 +214,12 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
       // First try to close all pages
       const pages = await browser.pages();
       await Promise.allSettled(pages.map(page => page.close()));
-      
+
       // Then close the browser normally
       await browser.close();
     } catch (err) {
       this.Log.warn(`Error during normal browser cleanup: ${err.message}`);
-      
+
       // Force kill if normal close fails
       try {
         await this.forceCloseBrowser(browser);
@@ -248,7 +253,7 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
         const timeout = setTimeout(() => {
           reject(new Error('Server close timeout'));
         }, 5000);
-        
+
         server.close((err) => {
           clearTimeout(timeout);
           if (err) reject(err);
@@ -257,7 +262,7 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
       });
     } catch (err) {
       this.Log.warn(`Error closing server: ${err.message}`);
-      
+
       // Force close connections if available
       try {
         if ('closeAllConnections' in server) {
