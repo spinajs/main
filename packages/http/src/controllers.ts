@@ -7,20 +7,20 @@ import Express from 'express';
 
 import _ from 'lodash';
 
-import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container, Constructor } from '@spinajs/di';
+import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container } from '@spinajs/di';
 import { UnexpectedServerError, IOFail, ResourceNotFound } from '@spinajs/exceptions';
 import { ResolveFromFiles } from '@spinajs/reflection';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
-import { Config, Configuration } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration';
 import { HttpServer } from './server.js';
 import { RouteArgs } from './route-args/index.js';
-import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request, ResponseFunction, HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
+import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
 import { tryGetHash } from '@spinajs/util';
 import { DefaultControllerCache } from './cache.js';
-import { ServerError } from './response-methods/serverError.js';
-import randomstring from 'randomstring';
+import { __handle_response__ } from './response.js';
+import { __handle_error__ } from './error.js';
 
 
 
@@ -47,8 +47,7 @@ export abstract class BaseController extends AsyncService implements IController
   @Autoinject(Configuration)
   protected _cfg: Configuration;
 
-  @Config('configuration.isProduction', { defaultValue: 'true' })
-  protected isProductionEnv: string;
+  
 
   /**
    * Express router with middleware stack
@@ -73,87 +72,6 @@ export abstract class BaseController extends AsyncService implements IController
     return this.Descriptor.BasePath ? this.Descriptor.BasePath : this.constructor.name.toLowerCase();
   }
 
-  protected __handle_response__() {
-    return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
-      if (!res.locals.response) {
-        next(new ResourceNotFound(`Resource not found ${req.method}:${req.originalUrl}`));
-        return;
-      }
-
-      res.locals.response
-        .execute(req, res)
-        .then((callback: ResponseFunction) => {
-          if (callback) {
-            return callback(req, res);
-          }
-        })
-        .catch((err: Error) => {
-          next(err);
-        });
-    };
-  }
-
-  protected __handle_error__() {
-    return (err: any, req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
-      if (!err) {
-        return next();
-      }
-
-
-      const error = {
-        /**
-         * By default Error object dont copy values like message ( they are not enumerable )
-         * It only copies custom props added to Error ( via inheritance )
-         */
-        ...err,
-
-        // make sure error message is added
-        message: err.message,
-        stack: {},
-      };
-
-      // in dev mode add stack trace for debugging
-      if (!this.isProductionEnv) {
-        error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
-      }
-
-      this._log.error(err, `Error in controller ${req.method} ${this.constructor.name} at path ${req.originalUrl}`);
-
-
-      let response: HttpResponse = null;
-      const rMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__');
-      if (rMap.has(err.constructor.name)) {
-        const httpResponse = rMap.get(err.constructor.name);
-        response = new httpResponse(error);
-      } else {
-        this._log.warn(`Error type ${error.constructor} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
-        response = new ServerError(error);
-      }
-
-      response
-        .execute(req, res)
-        .then((callback?: ResponseFunction | void) => {
-          if (callback) {
-            callback(req, res);
-          }
-        })
-        .catch((err: Error) => {
-          // last resort error handling
-
-          this._log.fatal(err, `Cannot send error response`);
-          res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
-
-          if (req.accepts('html') && (this.HttpConfig.AcceptHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
-            // final fallback rendering error fails, we render embedded html error page
-            const ticketNo = randomstring.generate(7);
-            res.send(this.HttpConfig.FatalTemplate.replace('{ticket}', ticketNo));
-          } else {
-            res.json(error);
-          }
-        });
-    }
-  };
-
   public async resolve() {
     const self = this;
 
@@ -166,7 +84,7 @@ export abstract class BaseController extends AsyncService implements IController
     this._actionLocalStorage = DI.get(AsyncLocalStorage<IActionLocalStoregeContext>);
 
     for (const [, route] of this.Descriptor.Routes) {
-      const handlers: Express.RequestHandler[] = [];
+      const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [];
 
       let path = '';
       if (route.Path) {
@@ -303,8 +221,8 @@ export abstract class BaseController extends AsyncService implements IController
         return;
       }
 
-      handlers.push(this.__handle_response__());
-      handlers.push(this.__handle_error__() as any);
+      handlers.push(__handle_response__());
+      handlers.push(__handle_error__());
 
       (this._router as any)[route.InternalType as string](path, handlers);
     }
@@ -423,5 +341,10 @@ export class Controllers extends AsyncService {
     for (const c of controllers) {
       await this.register(c);
     }
+
+    this.Server.use((req: Express.Request, _res: Express.Response, next: Express.NextFunction) => {
+      next(new ResourceNotFound(`Route not found: ${req.method} ${req.originalUrl}`));
+    });
+    this.Server.use(__handle_error__()); // Global error handler
   }
 }

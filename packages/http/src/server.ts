@@ -9,7 +9,7 @@ import { Server as Http, createServer as HttpCreateServer } from 'http';
 import { Server as Https, createServer as HttpsCreateServer } from 'https';
 import { existsSync } from 'fs';
 import cors from 'cors';
-import Express, { RequestHandler } from 'express';
+import Express, { ErrorRequestHandler, RequestHandler } from 'express';
 import _ from 'lodash';
 import fs from 'fs';
 
@@ -287,7 +287,7 @@ export class HttpServer extends AsyncService {
    *
    * @param middleware - middleware function
    */
-  public use(middleware: RequestHandler): void {
+  public use(middleware: RequestHandler | ErrorRequestHandler): void {
     this.Express.use(middleware);
   }
 }
