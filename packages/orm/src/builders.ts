@@ -1183,11 +1183,26 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return relInstance;
   }
 
+  public populate<R = this>(relation : Constructor<ModelBase>): this;
   public populate<R = this>(relation: string[]): this;
+  public populate<R = this>(relation: string): this;
   public populate<R = this>(relation: {}, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
-  public populate<R = this>(relation: string | string[], callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {
+  public populate<R = this>(relation: string | string[] | Constructor<ModelBase>, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {
+    
     if (!relation) {
       return this;
+    }
+
+    if( isConstructor(relation)) {
+      const descriptor = extractModelDescriptor(this._model);
+      const relations = descriptor.Relations;
+      const rel = relations.values().find((r) => r.TargetModel === (relation as Constructor<ModelBase>));
+
+      if (!rel) {
+        throw new InvalidArgument(`Cannot find relation for model ${(relation as Constructor<ModelBase>).name} in model ${this._model ? this._model.name : 'undefined'}`);
+      }
+      
+      return this.populate(rel.Name, callback);
     }
 
     if (Array.isArray(relation)) {

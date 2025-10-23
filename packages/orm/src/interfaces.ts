@@ -1060,7 +1060,10 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
    * Returns true/false if query result exists in db
    */
   resultExists(): Promise<boolean>;
+
+  populate<R = this>(relation : Constructor<ModelBase>): this;
   populate<R = this>(relation: string[]): this;
+  populate<R = this>(relation : string) : this;
   populate<R = this>(relation: {}, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   populate<R = this>(relation: string, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   asRaw<T>(): Promise<T>;

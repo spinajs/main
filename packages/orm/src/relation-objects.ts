@@ -185,7 +185,7 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
 }
 
 @NewInstance()
-export class SingleRelation<R extends ModelBase, O extends ModelBase= ModelBase> {
+export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase> {
   public TargetModelDescriptor: IModelDescriptor;
 
   protected Orm: Orm;
@@ -252,6 +252,17 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase= ModelBase>
 
 @NewInstance()
 export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
+
+  protected junctionModelDescriptor: IModelDescriptor;
+
+  constructor(owner: O, relation: IRelationDescriptor, objects?: T[]) {
+    super(owner, relation, objects);
+
+    if (relation.JunctionModel) {
+      this.junctionModelDescriptor = extractModelDescriptor(this.Relation.JunctionModel);
+    }
+  }
+
   public intersection(_obj: T[], _callback?: (a: T, b: T) => boolean): T[] {
     throw new Error('Method not implemented.');
   }
@@ -274,16 +285,75 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     throw new Error('Method not implemented.');
   }
 
+  /**
+  * Deletes from db data that are not in relation
+  *
+  * @param data relation data
+  * @returns
+  */
+  protected async _dbDiff(data: T[]) {
+    const query = this.Driver.del().from(this.junctionModelDescriptor.TableName).where(this.Relation.JunctionModelSourceModelFKey_Name, this.Owner.PrimaryKeyValue);
+
+    if (this.Driver.Options.Database) {
+      query.database(this.Driver.Options.Database);
+    }
+
+    // if we have data in relation, we need to exclude them from delete query
+    const toDelete = [...data].filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
+    if (toDelete.length !== 0) {
+      query.whereNotIn(this.junctionModelDescriptor.PrimaryKey, toDelete);
+    }
+
+    await query;
+  }
+
+  /**
+    *  Synchronizes relation data to db
+    *  Deletes from db entries that are not in relation and adds entries that are not in db
+    *  Sets foreign key to relational data
+    *
+    *  Inserts or updates models that are dirty only.
+    */
   public async sync() {
-    throw new Error('Method not implemented.');
+    await this.update();
+    await this._dbDiff(this);
   }
 
+  /**
+   * Updates or ads data to relation
+   * It will not delete data from db that are not in relation. It will only update or insert new data.
+   * Only dirty models are updated.
+   */
   public async update() {
-    throw new Error('Method not implemented.');
+    for (const f of this) {
+      const junctionEntry = new (this.Relation.JunctionModel as any)();
+      (junctionEntry as any)[this.Relation.JunctionModelSourceModelFKey_Name] = this.Owner.PrimaryKeyValue;
+      (junctionEntry as any)[this.Relation.JunctionModelTargetModelFKey_Name] = f.PrimaryKeyValue;
+      await junctionEntry.insert(InsertBehaviour.InsertOrUpdate);
+    }
   }
 
-  public async populate() {
-    throw new Error('Method not implemented.');
+
+  public async populate(callback?: (this: ISelectQueryBuilder<this>) => void) {
+    debugger;
+    const query = (this.Relation.JunctionModel as any).where((this as any).Relation.JunctionModelSourceModelFKey_Name, this.Owner.PrimaryKeyValue).populate(
+      this.Relation.TargetModel
+    )
+
+    if (callback) {
+      callback.apply(query);
+    }
+    const result = await query;
+
+    if (result) {
+      this.length = 0;
+
+      this.push(...result.map((r : any) => {
+        return r[this.Relation.TargetModel.name].Value;
+      }));
+    }
+
+    this.Populated = true;
   }
 
   // public async add(obj: T | T[], mode?: InsertBehaviour): Promise<void> {
@@ -377,7 +447,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
       await f.insert(InsertBehaviour.InsertOrUpdate);
     }
   }
- 
+
   /**
    * Calculates difference between this relation and dataset ( items from this relation that are not in dataset and items from dataset that are not in this relation)
    *
