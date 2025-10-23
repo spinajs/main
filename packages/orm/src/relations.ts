@@ -4,11 +4,12 @@ import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction
 import { NewInstance, DI, Constructor, Inject, Container } from '@spinajs/di';
 
 import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, BelongsToRelationResultTransformMiddleware, DiscriminationMapMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware, QueryRelationMiddleware } from './middlewares.js';
-import { extractModelDescriptor, ModelBase } from './model.js';
+import { ModelBase } from './model.js';
 import { Orm } from './orm.js';
 import { OrmDriver } from './driver.js';
 import _ from 'lodash';
 import { JoinMethod } from './index.js';
+import { extractModelDescriptor } from './descriptor.js';
 
 export interface IOrmRelation {
   /**

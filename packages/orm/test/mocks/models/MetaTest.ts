@@ -1,6 +1,6 @@
 import { Connection, Primary, Model, HasMany } from '../../../src/decorators.js';
-import { MetadataRelation } from '../../../src/metadata.js';
 import { ModelBase } from '../../../src/model.js';
+import { MetadataRelation } from '../../../src/metadata.js';
 import { Meta } from "./Meta.js";
 import _ from 'lodash';
 

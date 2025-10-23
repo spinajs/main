@@ -1,11 +1,12 @@
 /* eslint-disable prettier/prettier */
 import { IRelationDescriptor, IModelDescriptor, InsertBehaviour, ForwardRefFunction, IRelation, ISelectQueryBuilder } from './interfaces.js';
 import { DI, Constructor, isConstructor, NewInstance } from '@spinajs/di';
-import { SelectQueryBuilder } from './builders.js';
-import { createQuery, extractModelDescriptor, ModelBase } from './model.js';
+import { createQuery, SelectQueryBuilder } from './builders.js';
+import type { ModelBase } from './model.js';
 import { Orm } from './orm.js';
 import _ from 'lodash';
 import { OrmDriver } from './driver.js';
+import { extractModelDescriptor } from './descriptor.js';
 
 export class Dataset {
   /**
@@ -335,7 +336,6 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
 
 
   public async populate(callback?: (this: ISelectQueryBuilder<this>) => void) {
-    debugger;
     const query = (this.Relation.JunctionModel as any).where((this as any).Relation.JunctionModelSourceModelFKey_Name, this.Owner.PrimaryKeyValue).populate(
       this.Relation.TargetModel
     )

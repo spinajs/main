@@ -1,5 +1,7 @@
 export * from './interfaces.js';
 export * from './enums.js';
+export * from './symbols.js';
+export * from './descriptor.js';
 export * from './statements.js';
 export * from './builders.js';
 export * from './model.js';
@@ -15,6 +17,6 @@ export * from './driver.js';
 export * from './converters.js';
 export * from './wrappers.js';
 export * from './exceptions.js';
-export * from "./metadata.js";
+export * from './metadata.js';
 export * from './fp.js';
 export * from './bootstrap.js';

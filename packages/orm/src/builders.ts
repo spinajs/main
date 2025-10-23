@@ -1,18 +1,20 @@
 /* eslint-disable prettier/prettier */
-import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable, isConstructor } from '@spinajs/di';
+import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable, isConstructor, Class } from '@spinajs/di';
 import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
 import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions, QueryScope } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import { OrmDriver } from './driver.js';
-import { ModelBase, extractModelDescriptor } from './model.js';
+import { ModelBase } from './model.js';
 import { BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, QueryRelation } from './relations.js';
 import { DateTime } from 'luxon';
 import { Lazy } from '@spinajs/util';
+import { DiscriminationMapMiddleware } from './middlewares.js';
+import { extractModelDescriptor } from './descriptor.js';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -2372,3 +2374,62 @@ Object.values(ColumnType).forEach((type) => {
     return _builder;
   };
 });
+
+
+export function _descriptor(model: Class<any>) {
+  return extractModelDescriptor(model);
+}
+
+/**
+ * Helper function to create query based on model
+ *
+ * @param model - source model for query
+ * @param query - query class
+ * @param injectModel - should inject model information into query, if not, query will return raw data
+ *
+ * @returns
+ */
+export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Class<T>, injectModel = true) {
+  const dsc = _descriptor(model);
+
+  if (!dsc) {
+    throw new Error(`model ${model.name} does not have model descriptor. Use @model decorator on class`);
+  }
+
+  const driver = DI.resolve<OrmDriver>('OrmConnection', [dsc.Connection]);
+
+  if (!driver) {
+    throw new Error(`model ${model.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`);
+  }
+
+  const cnt = driver.Container;
+  const models = DI.getRegisteredTypes<ModelBase>('__models__');
+  const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : null]);
+
+  if (qr instanceof SelectQueryBuilder) {
+    const scope = (model as any)._queryScopes as QueryScope;
+    if (scope) {
+      Object.getOwnPropertyNames((scope as any).__proto__)
+        .filter((x) => x !== 'constructor')
+        .forEach(function (property) {
+          if (typeof (scope as any)[property] === 'function') {
+            (qr as any)[property] = (scope as any)[property].bind(qr);
+          }
+        });
+    }
+  }
+
+  qr.middleware(new DiscriminationMapMiddleware(dsc));
+  qr.setTable(dsc.TableName);
+
+  if (driver.Options.Database) {
+    qr.database(driver.Options.Database);
+  }
+
+  return {
+    query: qr,
+    description: dsc,
+    model,
+    container: driver.Container,
+  };
+}

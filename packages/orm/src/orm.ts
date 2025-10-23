@@ -4,12 +4,13 @@ import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer }
 import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
 import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode } from './interfaces.js';
-import { ModelBase, MODEL_STATIC_MIXINS, extractModelDescriptor, updateModelDescriptor } from './model.js';
+import { ModelBase, MODEL_STATIC_MIXINS, updateModelDescriptor } from './model.js';
 import { MIGRATION_DESCRIPTION_SYMBOL } from './decorators.js';
 import { OrmDriver } from './driver.js';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
 import { DateTime } from 'luxon';
+import { extractModelDescriptor } from './descriptor.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg

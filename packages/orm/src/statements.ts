@@ -4,9 +4,10 @@ import { ColumnMethods, SqlOperator } from './enums.js';
 import { NewInstance, Container, Class, Constructor, Inject, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 import { IColumnDescriptor } from './interfaces.js';
-import { extractModelDescriptor, ModelBase } from './model.js';
+import { ModelBase } from './model.js';
 import { Lazy } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { extractModelDescriptor } from './descriptor.js';
 
 export interface IQueryStatementResult {
   Statements: string[];

@@ -3,13 +3,14 @@ import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './co
 import { Constructor, DI, IContainer } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
 import 'reflect-metadata';
-import { ModelBase, extractModelDescriptor } from './model.js';
+import { ModelBase } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { Relation } from './relation-objects.js';
 import { Orm } from './orm.js';
+import { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
+import { extractModelDescriptor } from './descriptor.js';
 
-export const MODEL_DESCTRIPTION_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
-export const MIGRATION_DESCRIPTION_SYMBOL = Symbol.for('MIGRATION_DESCRIPTOR');
+export { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 
 export function _prepareColumnDesc(initialize : Partial<IColumnDescriptor>): IColumnDescriptor {
   return Object.assign({

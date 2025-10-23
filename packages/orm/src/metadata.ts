@@ -1,7 +1,7 @@
 import { _check_arg, _non_empty, _non_nil } from '@spinajs/util';
-import { Primary, UniversalConverter } from './decorators.js';
 import { IRelationDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
+import { Primary, UniversalConverter } from './decorators.js';
 import { OneToManyRelationList } from './relation-objects.js';
 import GlobToRegExp from 'glob-to-regexp';
 import _ from "lodash";

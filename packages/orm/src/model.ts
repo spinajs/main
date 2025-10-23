@@ -1,9 +1,9 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
-import { MODEL_DESCTRIPTION_SYMBOL } from './decorators.js';
+import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
 import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions } from './interfaces.js';
 import { WhereFunction } from './types.js';
-import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, QueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder } from './builders.js';
+import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
 import { Orm } from './orm.js';
 import { ModelHydrator } from './hydrators.js';
@@ -12,13 +12,13 @@ import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from '.
 import { Wrap } from './statements.js';
 import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
-import { DiscriminationMapMiddleware } from './middlewares.js';
 
 import { DI, isConstructor, Class, IContainer, Constructor } from '@spinajs/di';
 
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
+import { extractModelDescriptor } from './descriptor.js';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
@@ -36,50 +36,6 @@ const MODEL_PROXY_HANDLER = {
     return true;
   },
 };
-
-function getConstructorChain(obj: any) {
-  var cs = [obj.name],
-    pt = obj;
-  do {
-    if ((pt = Object.getPrototypeOf(pt))) cs.push(pt.name || null);
-  } while (pt != null);
-  return cs.filter((x) => x !== 'Function' && x !== 'Object' && x !== null);
-}
-
-export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
-  const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
-
-  if (!target) {
-    return null;
-  }
-
-  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
-
-  // we want collapse metadata vals in reverse order ( base class first )
-  const inheritanceChain = getConstructorChain(target).reverse();
-  const merger = (a: any, b: any) => {
-    if (_.isArray(a)) {
-      return a.concat(b);
-    }
-
-    if (!(_.isNil(a) || _.isEmpty(a)) && (_.isNil(b) || _.isEmpty(b))) {
-      return a;
-    }
-
-    if (_.isMap(a)) {
-      return new Map([...a, ...b]);
-    }
-
-    return b;
-  };
-
-  return inheritanceChain.reduce((prev, c) => {
-    return {
-      ..._.assignWith(prev, metadata[c], merger),
-      Converters: new Map([...(prev.Converters ?? []), ...(metadata[c] ? metadata[c].Converters : [])]),
-    };
-  }, {});
-}
 
 /**
  *
@@ -715,9 +671,6 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 }
 
-function _descriptor(model: Class<any>) {
-  return extractModelDescriptor(model);
-}
 
 function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
   if (description.PrimaryKey) {
@@ -756,59 +709,6 @@ export abstract class HistoricalModel implements IHistoricalModel {
   public readonly __end__: DateTime;
 }
 
-/**
- * Helper function to create query based on model
- *
- * @param model - source model for query
- * @param query - query class
- * @param injectModel - should inject model information into query, if not, query will return raw data
- *
- * @returns
- */
-export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Class<T>, injectModel = true) {
-  const dsc = _descriptor(model);
-
-  if (!dsc) {
-    throw new Error(`model ${model.name} does not have model descriptor. Use @model decorator on class`);
-  }
-
-  const driver = DI.resolve<OrmDriver>('OrmConnection', [dsc.Connection]);
-
-  if (!driver) {
-    throw new Error(`model ${model.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`);
-  }
-
-  const cnt = driver.Container;
-  const models = DI.getRegisteredTypes<ModelBase>('__models__');
-  const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : null]);
-
-  if (qr instanceof SelectQueryBuilder) {
-    const scope = (model as any)._queryScopes as QueryScope;
-    if (scope) {
-      Object.getOwnPropertyNames((scope as any).__proto__)
-        .filter((x) => x !== 'constructor')
-        .forEach(function (property) {
-          if (typeof (scope as any)[property] === 'function') {
-            (qr as any)[property] = (scope as any)[property].bind(qr);
-          }
-        });
-    }
-  }
-
-  qr.middleware(new DiscriminationMapMiddleware(dsc));
-  qr.setTable(dsc.TableName);
-
-  if (driver.Options.Database) {
-    qr.database(driver.Options.Database);
-  }
-
-  return {
-    query: qr,
-    description: dsc,
-    model,
-    container: driver.Container,
-  };
-}
 
 export const MODEL_STATIC_MIXINS = {
   getModelDescriptor(): IModelDescriptor {
