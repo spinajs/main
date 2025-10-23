@@ -13,7 +13,7 @@ import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, Fak
 import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, RelationType, TableQueryCompiler } from '../src/interfaces.js';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
-import { extractModelDescriptor } from './../src/model.js';
+import { extractModelDescriptor } from './../src/descriptor.js';
 import { RelationModel1 } from './mocks/models/RelationModel1.js';
 import { BelongsToRelation, OneToManyRelation } from '../src/relations.js';
 import { Orm } from '../src/orm.js';
@@ -83,6 +83,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'INT',
@@ -102,6 +104,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -121,6 +125,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -147,6 +153,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'INT',
@@ -166,6 +174,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -185,6 +195,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -210,6 +222,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -229,6 +243,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -254,6 +270,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'INT',
@@ -273,6 +291,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'INT',
@@ -292,6 +312,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -317,6 +339,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -336,6 +360,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -361,6 +387,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -380,6 +408,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -405,6 +435,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -424,6 +456,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -449,6 +483,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -468,6 +504,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -494,6 +532,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -513,6 +553,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'INT',
@@ -532,6 +574,8 @@ describe('Orm relations tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+          Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),

@@ -60,6 +60,18 @@ export class ConnectionConf extends FrameworkConfiguration {
 }
 
 export class FakeSqliteDriver extends OrmDriver {
+  public supportedFeatures() {
+    return {
+      transactions: true,
+      migrations: true,
+      tableAlterColumn: true,
+      columnComments: true,
+      jsonColumn: true,
+      upsert: true,
+      events: false,
+    };
+  }
+
   public async execute(_builder : Builder<any>) : Promise<any[] | any> {
     return false;
   }
@@ -90,6 +102,18 @@ export class FakeSqliteDriver extends OrmDriver {
 }
 
 export class FakeMysqlDriver extends OrmDriver {
+  public supportedFeatures() {
+    return {
+      transactions: true,
+      migrations: true,
+      tableAlterColumn: true,
+      columnComments: true,
+      jsonColumn: true,
+      upsert: true,
+      events: false,
+    };
+  }
+
   public async execute(_stmt: string | object, _params?: any[]): Promise<any[] | any> {
     return true;
   }

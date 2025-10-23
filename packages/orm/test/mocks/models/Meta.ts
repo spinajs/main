@@ -1,4 +1,5 @@
-import { Connection, Model, BelongsTo, MetadataModel, SingleRelation } from './../../../src/index.js';
+import { Connection, Model, BelongsTo, SingleRelation } from './../../../src/index.js';
+import { MetadataModel } from '../../../src/metadata.js';
 import _ from 'lodash';
 import type { MetaTest } from './MetaTest.js';
 

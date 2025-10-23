@@ -193,6 +193,8 @@ describe('General model tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'INT',
@@ -212,6 +214,8 @@ describe('General model tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -256,6 +260,8 @@ describe('General model tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'INT',
@@ -275,6 +281,8 @@ describe('General model tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -320,6 +328,8 @@ describe('General model tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -366,6 +376,8 @@ describe('General model tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -773,6 +785,8 @@ describe('General model tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -792,6 +806,8 @@ describe('General model tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -830,6 +846,8 @@ describe('General model tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -849,6 +867,8 @@ describe('General model tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -1076,6 +1096,8 @@ describe('Model discrimination tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -1095,6 +1117,8 @@ describe('Model discrimination tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
           {
             Type: 'VARCHAR',
@@ -1114,6 +1138,8 @@ describe('Model discrimination tests', () => {
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
           },
         ]);
       }),
@@ -1155,3 +1181,4 @@ describe('Model discrimination tests', () => {
     expect(result[2]).instanceOf(ModelDisc1);
   });
 });
+

@@ -13,7 +13,7 @@ import { Wrap } from './statements.js';
 import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
 
-import { DI, isConstructor, Class, IContainer, Constructor } from '@spinajs/di';
+import { DI, isConstructor, IContainer, Constructor } from '@spinajs/di';
 
 import { DateTime } from 'luxon';
 import _ from 'lodash';
