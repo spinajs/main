@@ -5,7 +5,7 @@ import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
 import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode } from './interfaces.js';
 import { ModelBase, MODEL_STATIC_MIXINS, updateModelDescriptor } from './model.js';
-import { MIGRATION_DESCRIPTION_SYMBOL } from './decorators.js';
+import { MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 import { OrmDriver } from './driver.js';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';

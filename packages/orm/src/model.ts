@@ -5,7 +5,7 @@ import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderB
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
-import { Orm } from './orm.js';
+import type { Orm } from './orm.js';
 import { ModelHydrator } from './hydrators.js';
 import { OrmException } from './exceptions.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './dehydrators.js';
@@ -149,7 +149,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   public driver(): OrmDriver {
-    const orm = DI.get<Orm>(Orm);
+    const orm = DI.get<Orm>('Orm');
     const driver = orm.Connections.get(this.ModelDescriptor.Connection);
     return driver;
   }
@@ -745,7 +745,7 @@ export const MODEL_STATIC_MIXINS = {
 
   driver(): OrmDriver {
     const dsc = this.getModelDescriptor();
-    const orm = DI.get<Orm>(Orm);
+    const orm = DI.get<Orm>('Orm');
     const driver = orm.Connections.get(dsc.Connection);
 
     if (!driver) {

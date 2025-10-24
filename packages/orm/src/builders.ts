@@ -8,12 +8,12 @@ import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOpe
 import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions, QueryScope } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
-import { OrmDriver } from './driver.js';
+import type { OrmDriver } from './driver.js';
 import { ModelBase } from './model.js';
 import { BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, QueryRelation } from './relations.js';
 import { DateTime } from 'luxon';
 import { Lazy } from '@spinajs/util';
-import { DiscriminationMapMiddleware } from './middlewares.js';
+import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
 import { extractModelDescriptor } from './descriptor.js';
 
 /**

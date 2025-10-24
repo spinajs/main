@@ -5,10 +5,11 @@ import { NewInstance, DI, Constructor, Inject, Container } from '@spinajs/di';
 
 import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, BelongsToRelationResultTransformMiddleware, DiscriminationMapMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware, QueryRelationMiddleware } from './middlewares.js';
 import { ModelBase } from './model.js';
-import { Orm } from './orm.js';
+import type { Orm } from './orm.js';
+import { Orm as OrmClass } from './orm.js';
 import { OrmDriver } from './driver.js';
 import _ from 'lodash';
-import { JoinMethod } from './index.js';
+import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';
 
 export interface IOrmRelation {
@@ -212,7 +213,7 @@ export class OneToManyRelation extends OrmRelation {
 }
 
 @NewInstance()
-@Inject(Container, Orm)
+@Inject(Container, OrmClass)
 export class ManyToManyRelation extends OrmRelation {
   protected _joinModel: Constructor<ModelBase>;
   protected _joinModelDescriptor: IModelDescriptor;
@@ -238,7 +239,7 @@ export class ManyToManyRelation extends OrmRelation {
 
     this._joinModelDescriptor = extractModelDescriptor(this._joinModel);
 
-    const orm = DI.get<Orm>(Orm);
+    const orm = DI.get<Orm>('Orm');
     const driver = orm.Connections.get(this._joinModelDescriptor.Connection);
 
     const cnt = driver.Container;
