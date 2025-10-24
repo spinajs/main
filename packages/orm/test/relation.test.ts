@@ -3,7 +3,6 @@ import { ModelNested1 } from './mocks/models/ModelNested1.js';
 import { ManyToManyRelation } from './../src/relations.js';
 import { NonDbPropertyHydrator, DbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from './../src/hydrators.js';
 import { Model1 } from './mocks/models/Model1.js';
-import { MODEL_DESCTRIPTION_SYMBOL } from './../src/decorators.js';
 import { Configuration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
 import * as chai from 'chai';
@@ -584,9 +583,7 @@ describe('Orm relations tests', () => {
 
   afterEach(async () => {
     DI.clearCache();
-
     sinon.restore();
-    (Model1 as any)[MODEL_DESCTRIPTION_SYMBOL].Columns = [] as any;
   });
 
   it('Belongs to relation decorator', async () => {

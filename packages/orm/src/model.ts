@@ -1027,7 +1027,17 @@ export const MODEL_STATIC_MIXINS = {
     let entity = (await query.first()) as any;
 
     if (!entity) {
-      entity = new (Function.prototype.bind.apply(this))(data);
+
+      const toHydrate = data ?? {};
+      const primaryKey = description.Columns.find((c) => c.PrimaryKey);
+      // remove primary key from data to hydrate
+      // we dont want to set primary key on new model if not exists
+      // and autoincrement is set
+      if (primaryKey.AutoIncrement) {
+        delete (toHydrate as any)[description.PrimaryKey];
+      } 
+
+      entity = new (Function.prototype.bind.apply(this))(toHydrate);
       return entity;
     }
 

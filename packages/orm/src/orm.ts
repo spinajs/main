@@ -239,6 +239,11 @@ export class Orm extends AsyncService {
       if (!desc) return;
 
       desc.Relations.forEach((rel) => {
+        // Skip relations without TargetModelType (e.g., Query relations)
+        if (!rel.TargetModelType) {
+          return;
+        }
+
         const found = this.Models.find((y) => {
           const type = _.isString(rel.TargetModelType) ? rel.TargetModelType : rel.TargetModelType.name;
           return y.name === type;

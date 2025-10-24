@@ -5,15 +5,14 @@ import { ModelNoConnection } from './mocks/models/ModelNoConnection.js';
 import { ModelNoDescription } from './mocks/models/ModelNoDescription.js';
 import { SelectQueryBuilder } from './../src/builders.js';
 import { Model1 } from './mocks/models/Model1.js';
-import { MODEL_DESCTRIPTION_SYMBOL } from './../src/decorators.js';
 import { Configuration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/index.js';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler } from './misc.js';
-import { IModelDescriptor, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, InsertBehaviour, DatetimeValueConverter, TableQueryCompiler } from '../src/interfaces.js';
+import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeInsertQueryCompiler, FakeUpdateQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeConverter, FakeTableQueryCompiler, FakeServerResponseMapper } from './misc.js';
+import { IModelDescriptor, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, InsertBehaviour, DatetimeValueConverter, TableQueryCompiler, ServerResponseMapper } from '../src/interfaces.js';
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import chaiSubset from 'chai-subset';
@@ -48,6 +47,7 @@ describe('General model tests', () => {
     DI.register(DbPropertyHydrator).as(ModelHydrator);
     DI.register(NonDbPropertyHydrator).as(ModelHydrator);
     DI.register(FakeConverter).as(DatetimeValueConverter);
+    DI.register(FakeServerResponseMapper).as(ServerResponseMapper);
   });
 
   beforeEach(async () => {
@@ -59,16 +59,14 @@ describe('General model tests', () => {
 
   afterEach(async () => {
     DI.clearCache();
-
     sinon.restore();
-    (Model1 as any)[MODEL_DESCTRIPTION_SYMBOL].Columns = [] as any;
   });
 
   it('Load models from dirs', async () => {
     const orm = await db();
     const models = await orm.Models;
 
-    expect(models.length).to.eq(21);
+    expect(models.length).to.eq(22);
   });
 
   it('Should set different connections to model', async () => {
@@ -122,28 +120,28 @@ describe('General model tests', () => {
     // @ts-ignore
     const orm = await db();
 
-    let query = Model1.where('id', 1);
+    let query = Model1.where('Id', 1);
     expect(query instanceof SelectQueryBuilder).to.be.true;
     expect(query.Statements)
       .to.be.an('array')
       .with.length(1)
       .to.containSubset([
         {
-          _column: 'id',
+          _column: 'Id',
           _operator: '=',
           _value: 1,
           _tableAlias: undefined,
         },
       ]);
 
-    query = Model1.where('id', '>', 1);
+    query = Model1.where('Id', '>', 1);
     expect(query instanceof SelectQueryBuilder).to.be.true;
     expect(query.Statements)
       .to.be.an('array')
       .with.length(1)
       .to.containSubset([
         {
-          _column: 'id',
+          _column: 'Id',
           _operator: '>',
           _value: 1,
           _tableAlias: undefined,
@@ -318,8 +316,8 @@ describe('General model tests', () => {
             NativeType: 'INT(10)',
             Unsigned: false,
             Nullable: true,
-            PrimaryKey: true,
-            AutoIncrement: true,
+            PrimaryKey: false,
+            AutoIncrement: false,
             Name: 'ArchivedAt',
             Converter: null,
             Schema: 'sqlite',
@@ -366,8 +364,8 @@ describe('General model tests', () => {
             NativeType: 'INT',
             Unsigned: false,
             Nullable: true,
-            PrimaryKey: true,
-            AutoIncrement: true,
+            PrimaryKey: false,
+            AutoIncrement: false,
             Name: 'ArchivedAt',
             Converter: null,
             Schema: 'sqlite',
@@ -500,7 +498,7 @@ describe('General model tests', () => {
       }),
     );
 
-    const result = await Model1.where({ id: 1 }).firstOrThrow(new Error('Not found'));
+    const result = await Model1.where({ Id: 1 }).firstOrThrow(new Error('Not found'));
 
     expect(execute.calledOnce).to.be.true;
     expect(result).instanceof(Model1);
@@ -520,7 +518,7 @@ describe('General model tests', () => {
         res([]);
       }),
     );
-    return expect(Model1.where({ id: 1 }).firstOrThrow(new Error('Not found'))).to.be.rejectedWith(Error, 'Not found');
+    return expect(Model1.where({ Id: 1 }).firstOrThrow(new Error('Not found'))).to.be.rejectedWith(Error, 'Not found');
   });
 
   it('Should compare two models by primary key', async () => {
@@ -736,7 +734,7 @@ describe('General model tests', () => {
     expect(execute.calledOnce).to.be.true;
     expect(result).to.be.not.null;
     expect(result).instanceOf(Model1);
-    expect(result.PrimaryKeyValue).to.be.undefined;
+    expect(result.PrimaryKeyValue).to.be.null;
   });
 
   it('Model update should set updated_at', async () => {
