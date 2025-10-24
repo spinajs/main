@@ -23,6 +23,18 @@ export function dir(path: string) {
 }
 
 export class FakeSqliteDriver extends SqlDriver {
+  public supportedFeatures() {
+    return {
+      transactions: true,
+      migrations: true,
+      tableAlterColumn: true,
+      columnComments: true,
+      jsonColumn: true,
+      upsert: true,
+      events: false,
+    };
+  }
+
   public transaction(_queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<void> {
     return Promise.resolve();
   }

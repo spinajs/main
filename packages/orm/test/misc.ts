@@ -817,6 +817,14 @@ export class ConnectionConf extends FrameworkConfiguration {
             },
           },
           {
+            Driver: 'sqlite',
+            Filename: 'sample.sqlite',
+            Name: 'SampleConnection1',
+            Migration: {
+              OnStartup: false,
+            },
+          },
+          {
             Driver: 'mysql',
             Database: 'foo',
             User: 'root',

@@ -948,44 +948,58 @@ describe('General model tests', () => {
     let toCheck = models.find((x) => x.name === 'Model1');
     let descriptor = toCheck.type.getModelDescriptor() as IModelDescriptor;
 
-    expect(descriptor).to.deep.include({
+    expect(descriptor).to.include({
       Connection: 'sqlite',
       TableName: 'TestTable1',
-      SoftDelete: {
-        DeletedAt: 'DeletedAt',
-      },
-      Archived: {
-        ArchivedAt: 'ArchivedAt',
-      },
-      Columns: [],
-      Timestamps: {
-        CreatedAt: 'CreatedAt',
-        UpdatedAt: 'UpdatedAt',
-      },
       PrimaryKey: 'Id',
       Name: 'Model1',
     });
+    
+    expect(descriptor.SoftDelete).to.deep.equal({
+      DeletedAt: 'DeletedAt',
+    });
+    
+    expect(descriptor.Archived).to.deep.equal({
+      ArchivedAt: 'ArchivedAt',
+    });
+    
+    expect(descriptor.Timestamps).to.deep.equal({
+      CreatedAt: 'CreatedAt',
+      UpdatedAt: 'UpdatedAt',
+    });
+    
+    // Verify columns are loaded (should have Id, Bar, OwnerId from tableInfo)
+    expect(descriptor.Columns).to.be.an('array');
+    expect(descriptor.Columns.length).to.be.greaterThan(0);
+    expect(descriptor.Columns.find((c) => c.Name === 'Id')).to.exist;
 
     toCheck = models.find((x) => x.name === 'Model2');
     descriptor = toCheck.type.getModelDescriptor() as IModelDescriptor;
 
-    expect(descriptor).to.deep.include({
+    expect(descriptor).to.include({
       Connection: 'SampleConnection1',
       TableName: 'TestTable2',
-      SoftDelete: {
-        DeletedAt: 'DeletedAt',
-      },
-      Archived: {
-        ArchivedAt: 'ArchivedAt',
-      },
-      Columns: [],
-      Timestamps: {
-        CreatedAt: 'CreatedAt',
-        UpdatedAt: 'UpdatedAt',
-      },
       PrimaryKey: 'Id',
       Name: 'Model2',
     });
+    
+    expect(descriptor.SoftDelete).to.deep.equal({
+      DeletedAt: 'DeletedAt',
+    });
+    
+    expect(descriptor.Archived).to.deep.equal({
+      ArchivedAt: 'ArchivedAt',
+    });
+    
+    expect(descriptor.Timestamps).to.deep.equal({
+      CreatedAt: 'CreatedAt',
+      UpdatedAt: 'UpdatedAt',
+    });
+    
+    // Verify columns are loaded (should have Id, Bar from tableInfo)
+    expect(descriptor.Columns).to.be.an('array');
+    expect(descriptor.Columns.length).to.be.greaterThan(0);
+    expect(descriptor.Columns.find((c) => c.Name === 'Id')).to.exist;
   });
 
   it('Should register model programatically', async () => {
@@ -1003,6 +1017,8 @@ describe('General model tests', () => {
     }
 
     const container = DI.child();
+    container.register(ConnectionConf).as(Configuration);
+    container.register(FakeSqliteDriver).as('sqlite');
     container.register(FakeOrm).as(Orm);
 
     const orm = await container.resolve(Orm);

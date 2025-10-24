@@ -61,7 +61,7 @@ describe('model generated queries', () => {
       .innerJoin(Model4, function () {
         this.where({
           Bar: 1,
-        });
+        } as any);
       })
       .toDB() as ICompilerOutput;
 
@@ -69,7 +69,7 @@ describe('model generated queries', () => {
       .leftJoin(Model4, function () {
         this.where({
           Bar: 1,
-        });
+        } as any);
       })
       .toDB() as ICompilerOutput;
 
@@ -119,7 +119,9 @@ describe('model generated queries', () => {
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null
+            ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false
           },
           {
             Type: 'VARCHAR',
@@ -136,8 +138,11 @@ describe('model generated queries', () => {
             Schema: 'sqlite',
             Unique: false,
             Uuid: false,
-            Ignore: false, IsForeignKey: false,
-            ForeignKeyDescription: null
+            Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false
           },
           {
             Type: 'VARCHAR',
@@ -154,8 +159,11 @@ describe('model generated queries', () => {
             Schema: 'sqlite',
             Unique: false,
             Uuid: false,
-            Ignore: false, IsForeignKey: false,
-            ForeignKeyDescription: null
+            Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false
           },
         ]);
       }),
