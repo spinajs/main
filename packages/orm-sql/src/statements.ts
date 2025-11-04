@@ -240,11 +240,21 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     if (sourceTableAlias) {
-      sourceTable = `\`${sourceModelDriver.Options.Database}\`.\`${sourceTable}\` as \`${sourceTableAlias}\``;
+      const sourceDb = sourceModelDriver.Options.Database;
+      if (sourceDb) {
+        sourceTable = `\`${sourceDb}\`.\`${sourceTable}\` as \`${sourceTableAlias}\``;
+      } else {
+        sourceTable = `\`${sourceTable}\` as \`${sourceTableAlias}\``;
+      }
     }
 
     if (joinTableAlias) {
-      joinTable = `\`${joinModelDriver.Options.Database}\`.\`${joinTable}\` as \`${joinTableAlias}\``;
+      const joinDb = joinModelDriver.Options.Database;
+      if (joinDb) {
+        joinTable = `\`${joinDb}\`.\`${joinTable}\` as \`${joinTableAlias}\``;
+      } else {
+        joinTable = `\`${joinTable}\` as \`${joinTableAlias}\``;
+      }
     }
 
 

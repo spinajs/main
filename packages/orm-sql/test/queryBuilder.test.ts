@@ -121,49 +121,49 @@ describe('Where query builder', () => {
   it('left join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT JOIN `undefined`.`adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
   });
 
   it('right join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.rightJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` RIGHT JOIN `undefined`.`adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` RIGHT JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
   });
 
   it('left outer join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.leftOuterJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT OUTER JOIN `undefined`.`adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT OUTER JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
   });
 
   it('inner join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.innerJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` INNER JOIN `undefined`.`adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` INNER JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
   });
 
   it('right outer join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.rightOuterJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` RIGHT OUTER JOIN `undefined`.`adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` RIGHT OUTER JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
   });
 
   it('full outer join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.fullOuterJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` FULL OUTER JOIN `undefined`.`adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` FULL OUTER JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
   });
 
   it('cross join', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.crossJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` CROSS JOIN `undefined`.`adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` CROSS JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId');
   });
 
   it('multiple joins', () => {
     const qb = sqb().select('*').from('users');
     const result = qb.leftJoin({ joinTable: 'adresses', joinTableAlias: 'adresses', joinTableForeignKey: 'addressId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).leftJoin({ joinTable: 'account', joinTableAlias: 'account', joinTableForeignKey: 'accountId', sourceTablePrimaryKey: 'id', joinTableDriver: qb.Driver }).toDB();
-    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT JOIN `undefined`.`adresses` as `adresses` ON `$users$`.id = `adresses`.addressId LEFT JOIN `undefined`.`account` as `account` ON `$users$`.id = `account`.accountId');
+    expect(result.expression).to.equal('SELECT `$users$`.* FROM `users` as `$users$` LEFT JOIN `adresses` as `adresses` ON `$users$`.id = `adresses`.addressId LEFT JOIN `account` as `account` ON `$users$`.id = `account`.accountId');
   });
 
   it('raw query joins', () => {
