@@ -46,41 +46,18 @@ describe('Orm general', () => {
   });
 
   it('ORM should create connections', async () => {
-    const connect1 = sinon.stub(FakeSqliteDriver.prototype, 'connect').returns(
-      new Promise((resolve) => {
-        resolve(
-          new FakeSqliteDriver({
-            Name: 'test',
-            Driver: 'test',
-            Options: {},
-            PoolLimit: 0,
-            DefaultConnection: false,
-          }),
-        );
-      }),
-    );
-    const connect2 = sinon.stub(FakeMysqlDriver.prototype, 'connect').returns(
-      new Promise((resolve) => {
-        resolve(
-          new FakeMysqlDriver({
-            Name: 'test2',
-            Driver: 'test',
-            Options: {},
-            PoolLimit: 0,
-            DefaultConnection: false,
-          }),
-        );
-      }),
-    );
+    const connect1 = sinon.spy(FakeSqliteDriver.prototype, 'connect');
+    const connect2 = sinon.spy(FakeMysqlDriver.prototype, 'connect');
 
     // @ts-ignore
     const orm = await db();
 
-    expect(connect1.calledOnce).to.be.true;
+    expect(connect1.calledTwice).to.be.true;
     expect(connect2.calledOnce).to.be.true;
 
-    expect(orm.Connections).to.be.an('Map').that.have.length(2);
+    expect(orm.Connections).to.be.an('Map').that.have.length(3);
     expect(orm.Connections.get('main_connection')).to.be.not.null;
     expect(orm.Connections.get('sqlite')).to.be.not.null;
+    expect(orm.Connections.get('SampleConnection1')).to.be.not.null;  
   });
 });
