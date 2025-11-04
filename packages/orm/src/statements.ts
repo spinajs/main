@@ -155,13 +155,16 @@ export abstract class WhereStatement extends QueryStatement {
 
     if (this._model) {
       const desc = extractModelDescriptor(this._model);
-      const columnDesc = desc.Columns.find((x) => x.Name === column)
+      const columnName = typeof column === 'string' ? column : null;
+      const columnDesc = columnName ? desc.Columns.find((x) => x.Name === columnName) : null;
 
-      if (!columnDesc) {
-        throw new InvalidArgument(`column ${column} not exists in model ${this._model.name}`);
+      // Allow primary key columns and any model property even if not explicitly in Columns array
+      // Some properties may be defined without decorators or only with @Primary
+      if (columnName && !columnDesc && columnName !== desc.PrimaryKey && !(columnName in this._model.prototype)) {
+        throw new InvalidArgument(`column ${columnName} not exists in model ${this._model.name}`);
       }
 
-      this._isAggregate = desc.Columns.find((x) => x.Name === column).Aggregate;
+      this._isAggregate = columnDesc?.Aggregate ?? false;
     }
 
   }

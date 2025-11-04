@@ -166,6 +166,26 @@ export class DataValidator extends AsyncService {
     return [true, null];
   }
 
+  /**
+   * Internal method to get the schema being used for validation
+   */
+  private getValidationSchema(schemaOrData: object | string, data?: object): ISchemaObject | null {
+    let schema: ISchemaObject = null;
+
+    if (data === null || data === undefined) {
+      schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject;
+    } else {
+      if (typeof schemaOrData === 'string') {
+        /* eslint-disable */
+        schema = (this.Validator.getSchema(schemaOrData) as any)?.schema ?? null;
+      } else {
+        schema = schemaOrData as ISchemaObject;
+      }
+    }
+
+    return schema;
+  }
+
   public extractSchema(object: any) {
     return Reflect.getMetadata(SCHEMA_SYMBOL, object) as ISchemaObject ?? Reflect.getMetadata(SCHEMA_SYMBOL, object.prototype) as ISchemaObject;
   }
@@ -189,13 +209,16 @@ export class DataValidator extends AsyncService {
   public validate(schemaOrData: object | string, data?: object): void {
     const [isValid, errors] = this.tryValidate(schemaOrData, data);
     if (!isValid) {
+      const validatedData = data !== null && data !== undefined ? data : schemaOrData;
+      const usedSchema = this.getValidationSchema(schemaOrData, data);
+      
       switch (errors[0].keyword) {
         case 'invalid_argument':
           throw new InvalidArgument('data is null or undefined');
         case 'empty_schema':
           throw new InvalidArgument('objects schema is not set');
         default:
-          throw new ValidationFailed('validation error', errors);
+          throw new ValidationFailed('validation error', errors, validatedData, usedSchema);
       }
     }
   }

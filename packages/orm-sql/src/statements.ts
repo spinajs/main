@@ -380,7 +380,9 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
 @NewInstance()
 export class SqlWhereQueryStatement extends WhereQueryStatement {
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent: T): IQueryStatement {
-    return new SqlWhereQueryStatement(this._builder.clone());
+
+    // TODO: fix this any cast !
+    return new SqlWhereQueryStatement(this._builder.clone(_parent as any));
   }
 
   public build() {

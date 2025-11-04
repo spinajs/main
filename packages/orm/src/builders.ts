@@ -670,8 +670,9 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._parent = parent;
   }
 
-  public clone(): WhereBuilder<T> {
-    const builder = new WhereBuilder<T>(this._parent);
+  public clone<P extends  IWhereBuilder<any>>(_parent: P): WhereBuilder<T> {
+    // TODO: fix this cast
+    const builder = new WhereBuilder<T>(_parent as any);
     builder._statements = this._statements.map((s) => s.clone(builder));
     builder._boolean = this._boolean;
     builder._model = this._model;
