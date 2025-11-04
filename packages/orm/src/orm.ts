@@ -146,7 +146,19 @@ export class Orm extends AsyncService {
               d.Columns,
               _.uniqBy(
                 columns.map((c) => {
-                  return _.assign(_.find(descriptor.Columns, { Name: c.Name }), c);
+                  // Only assign properties from table column that are not undefined
+                  const existingColumn = _.find(descriptor.Columns, { Name: c.Name });
+                  if (existingColumn) {
+                    // Merge only defined properties from table info
+                    Object.keys(c).forEach(key => {
+                      const columnKey = key as keyof typeof c;
+                      if (c[columnKey] !== undefined) {
+                        (existingColumn as any)[columnKey] = c[columnKey];
+                      }
+                    });
+                    return existingColumn;
+                  }
+                  return c;
                 }),
                 'Name',
               ),

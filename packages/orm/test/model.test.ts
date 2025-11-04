@@ -766,11 +766,11 @@ describe('General model tests', () => {
       new Promise((res) => {
         res([
           {
-            Type: 'INT',
+            Type: 'VARCHAR',
             MaxLength: 0,
             Comment: '',
             DefaultValue: null,
-            NativeType: 'INT',
+            NativeType: 'VARCHAR',
             Unsigned: false,
             Nullable: true,
             PrimaryKey: true,
@@ -779,7 +779,7 @@ describe('General model tests', () => {
             Converter: null,
             Schema: 'sqlite',
             Unique: false,
-            Uuid: false,
+            Uuid: true,
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
@@ -800,7 +800,7 @@ describe('General model tests', () => {
             Converter: null,
             Schema: 'sqlite',
             Unique: true,
-            Uuid: false,
+            Uuid: undefined,
             Ignore: false,
             IsForeignKey: false,
             ForeignKeyDescription: null,
@@ -818,6 +818,8 @@ describe('General model tests', () => {
     });
 
     expect(model.Id).to.be.not.null;
+    expect(model.Id).to.be.a('string');
+
   });
 
   it('Model should refresh', async () => {

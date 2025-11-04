@@ -253,7 +253,7 @@ const TEST_TABLE_INFO: Record<string, IColumnDescriptor[]> = {
       Converter: null,
       Schema: 'sqlite',
       Unique: false,
-      Uuid: false,
+      Uuid: undefined,
       Ignore: false,
       IsForeignKey: false,
       ForeignKeyDescription: null,
