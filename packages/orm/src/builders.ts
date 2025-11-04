@@ -573,7 +573,7 @@ export class JoinBuilder implements IJoinBuilder {
       const descriptor = extractModelDescriptor(this._model);
       const relations = descriptor.Relations;
 
-      if(!relations || relations.size === 0) {
+      if (!relations || relations.size === 0) {
         throw new InvalidOperation(`Model ${this._model.name} does not have any relations defined. Cannot use relation join.`);
       }
 
@@ -670,7 +670,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._parent = parent;
   }
 
-  public clone<P extends  IWhereBuilder<any>>(_parent: P): WhereBuilder<T> {
+  public clone<P extends IWhereBuilder<any>>(_parent: P): WhereBuilder<T> {
     // TODO: fix this cast
     const builder = new WhereBuilder<T>(_parent as any);
     builder._statements = this._statements.map((s) => s.clone(builder));
@@ -873,6 +873,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
+
+    // TODO: refactor and remove code duplication with whereNotExists
+    // TODO: move relation handling to separate DI service for every exists relation type
+
     let relQuery: ISelectQueryBuilder = null;
     let sourcePKey = '';
     const self = this;
@@ -897,10 +901,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           relQuery = rel.TargetModel.query();
           relQuery.where(Lazy.oF(function () {
-            if (!self._tableAlias) {
-              self._tableAlias = "__exists__";
+            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
+            if (sourceAlias === undefined) {
+              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+            } else {
+              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             }
-            sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
 
@@ -914,13 +920,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         case RelationType.ManyToMany:
           relQuery = (rel.JunctionModel as IModelStatic).query();
           relQuery.where(Lazy.oF(function () {
-
-            if (!self._tableAlias) {
-              self._tableAlias = "__exists__";
+            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
+            if (sourceAlias === undefined) {
+              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+            } else {
+              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             }
-            sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
-
           }));
 
           relQuery.rightJoin({
@@ -965,10 +971,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           relQuery = rel.TargetModel.query();
           relQuery.where(Lazy.oF(function () {
-            if (!self._tableAlias) {
-              self._tableAlias = "__exists__";
+            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
+            if( sourceAlias === undefined) {
+              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+            } else {
+              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             }
-            sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
 
@@ -983,12 +991,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           relQuery = (rel.JunctionModel as IModelStatic).query();
           relQuery.where(Lazy.oF(function () {
 
-            if (!self._tableAlias) {
-              self._tableAlias = "__exists__";
-            }
-            sourcePKey = `\`${self._tableAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
+            if (sourceAlias === undefined) {
+              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+            } else {
+              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+            } 
             relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
-
           }));
 
           relQuery.rightJoin({
@@ -1186,17 +1195,17 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return relInstance;
   }
 
-  public populate<R = this>(relation : Constructor<ModelBase>): this;
+  public populate<R = this>(relation: Constructor<ModelBase>): this;
   public populate<R = this>(relation: string[]): this;
   public populate<R = this>(relation: string): this;
   public populate<R = this>(relation: {}, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   public populate<R = this>(relation: string | string[] | Constructor<ModelBase>, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {
-    
+
     if (!relation) {
       return this;
     }
 
-    if( isConstructor(relation)) {
+    if (isConstructor(relation)) {
       const descriptor = extractModelDescriptor(this._model);
       const relations = descriptor.Relations;
       const rel = relations.values().find((r) => r.TargetModel === (relation as Constructor<ModelBase>));
@@ -1204,7 +1213,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       if (!rel) {
         throw new InvalidArgument(`Cannot find relation for model ${(relation as Constructor<ModelBase>).name} in model ${this._model ? this._model.name : 'undefined'}`);
       }
-      
+
       return this.populate(rel.Name, callback);
     }
 
