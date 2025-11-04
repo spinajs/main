@@ -163,7 +163,7 @@ export class SqlWhereStatement extends WhereStatement {
           ? converter.toDB(
             this._value,
             null,
-            dsc.Columns.find((x) => x.Name === this._column),
+            dsc ? dsc.Columns.find((x) => x.Name === this._column) : null,
           )
           : this._value;
       }
