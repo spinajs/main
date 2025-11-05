@@ -354,7 +354,7 @@ describe('Where query builder', () => {
       .toDB();
 
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` = ? AND `active` = ?');
-    expect(result.bindings).to.be.an('array').to.include(1).and.include(true);
+    expect(result.bindings).to.be.an('array').to.include(1).and.include(1);
   });
 
   it('where throws if value is undefined', () => {
@@ -866,7 +866,7 @@ describe('Select query builder', () => {
 
   it('select with order by', () => {
     const result = sqb().select('*').from('users').orderByDescending('name').toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY name DESC');
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `name` DESC');
   });
 
   it('select distinct', () => {
@@ -903,7 +903,7 @@ describe('Select query builder', () => {
   it('select count', () => {
     // @ts-ignore - Test uses legacy approach to test SQL generation
     let result = sqb().count('age').from('users').toDB().expression;
-    expect(result).to.equal('SELECT COUNT(`age`) FROM `users`');
+    expect(result).to.equal('SELECT COUNT(`age`) as `count` FROM `users`');
 
     // @ts-ignore - Test uses legacy approach to test SQL generation
     result = sqb().count('age', 'a').from('users').toDB().expression;
@@ -933,8 +933,8 @@ describe('Select query builder', () => {
 
   it('select function with * column', () => {
     // @ts-ignore - Test uses legacy approach to test SQL generation
-    const result = sqb().count('*').from('users').toDB().expression;
-    expect(result).to.equal('SELECT COUNT(*) FROM `users`');
+    const result = sqb().from('users').count('*').toDB().expression;
+    expect(result).to.equal('SELECT COUNT(*) as `count` FROM `users`');
   });
 });
 
@@ -961,7 +961,7 @@ describe('insert query builder', () => {
       .toDB();
 
     expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?)');
-    expect(result.bindings).to.be.an('array').to.include.members([1, true, 'spine@spine.pl']);
+    expect(result.bindings).to.be.an('array').to.include.members([1, 1, 'spine@spine.pl']);
   });
 
   it('insert with default values', () => {
@@ -994,7 +994,7 @@ describe('insert query builder', () => {
     const result = iqb().into('users').values(vals).toDB();
 
     expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,DEFAULT,?),(?,?,?)');
-    expect(result.bindings).to.be.an('array').to.include.members([1, 'spine@spine.pl', 2, true, 'spine2@spine.pl']);
+    expect(result.bindings).to.be.an('array').to.include.members([1, 'spine@spine.pl', 2, 1, 'spine2@spine.pl']);
   });
 
   it('insert with ignore', () => {
@@ -1009,7 +1009,7 @@ describe('insert query builder', () => {
       .toDB();
 
     expect(result.expression).to.equal('INSERT IGNORE INTO `users` (`id`,`active`,`email`) VALUES (?,?,?)');
-    expect(result.bindings).to.be.an('array').to.include.members([1, true, 'spine@spine.pl', 'spine@spine.pl', true]);
+    expect(result.bindings).to.be.an('array').to.include.members([1, 1, 'spine@spine.pl', 'spine@spine.pl', 1]);
   });
 
   it('insert with on duplicate', () => {

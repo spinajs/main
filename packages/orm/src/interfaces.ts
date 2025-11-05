@@ -1047,8 +1047,10 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
 
   min(column: string, as?: string): this;
   max(column: string, as?: string): this;
-  count(): Promise<number>;
-  count(column: string, as?: string): Promise<number>;
+  count(): this;
+  count(column: string, as?: string): this;
+  selectCount(): Promise<number>;
+  selectCount(column: string, as?: string): Promise<number>;
   sum(column: string, as?: string): this;
   avg(column: string, as?: string): this;
   setAlias(alias: string): this;

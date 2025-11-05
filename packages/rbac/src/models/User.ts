@@ -35,14 +35,14 @@ export class UserQueryScopes implements QueryScope {
           this.where(new RawQuery('user_id = banned_count.Id'));
         }),
       )
-      .count()
+      .selectCount()
 
 
     return banned > 0;
   }
 
   public async checkIsActive(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
-    const active = await this.clearColumns().where('IsActive', true).count();
+    const active = await this.clearColumns().where('IsActive', true).selectCount();
     return active > 0;
   }
 

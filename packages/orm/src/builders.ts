@@ -442,11 +442,18 @@ export class ColumnsBuilder implements IColumnsBuilder {
       // special case for SELECT *
       this._columns.push(this._container.resolve(ColumnStatement, [column, alias, this._tableAlias, null]));
     }
-    else {
+    // if query has model associated try to extract column info from descriptor
+    else if (descriptor) {
       const colDesc = descriptor?.Columns.find((c) => c.Name === column && !c.Virtual);
       if (colDesc) {
         this._columns.push(this._container.resolve<ColumnStatement>(ColumnStatement, [column, alias, this._tableAlias, colDesc]));
+      } else {
+        throw new InvalidArgument(`Column ${column} does not exist on model ${this._model?.name}`);
       }
+    }
+    // if no model associated just add column as is
+    else {
+      this._columns.push(this._container.resolve<ColumnStatement>(ColumnStatement, [column, alias, this._tableAlias, null]));
     }
 
     return this;
@@ -972,7 +979,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           relQuery = rel.TargetModel.query();
           relQuery.where(Lazy.oF(function () {
             const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
-            if( sourceAlias === undefined) {
+            if (sourceAlias === undefined) {
               sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             } else {
               sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
@@ -996,7 +1003,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
               sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             } else {
               sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            } 
+            }
             relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
           }));
 
@@ -1288,7 +1295,14 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this.clearColumns();
 
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [c, ColumnMethods.COUNT, a, this._tableAlias]));
-    return this.takeFirst()
+
+    return this;
+  }
+
+  public selectCount(column?: string, as?: string) {
+    const a = as ?? 'count';
+
+    return this.count(column, as).takeFirst()
       .asRaw<{ [key: string]: number }>()
       .then((x) => x ? x[a] : 0);
   }

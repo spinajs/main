@@ -147,7 +147,7 @@ export class Users extends BaseController {
       .order(order?.column ?? 'CreatedAt', order?.order ?? SortOrder.DESC)
       .filter(filter?.filters, filter?.op, USER_FILTER);
 
-    const count = await User.query().filter(filter?.filters, filter?.op, USER_FILTER).count();
+    const count = await User.query().filter(filter?.filters, filter?.op, USER_FILTER).selectCount();
 
 
     return new Ok(
