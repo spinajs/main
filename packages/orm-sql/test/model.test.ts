@@ -57,6 +57,40 @@ describe('model generated queries', () => {
   });
 
   it('Should model query join work', async () => {
+
+    const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
+    tableInfoStub
+      .withArgs('TestTable4', undefined)
+      .returns(
+        new Promise((resolve) => {
+          resolve([
+            {
+              Type: 'INT',
+              MaxLength: 0,
+              Comment: '',
+              DefaultValue: null,
+              NativeType: 'INT',
+              Unsigned: false,
+              Nullable: true,
+              PrimaryKey: true,
+              AutoIncrement: true,
+              Name: 'Bar',
+              Converter: null,
+              Schema: 'sqlite',
+              Unique: false,
+              Uuid: false,
+              Ignore: false,
+              IsForeignKey: false,
+              ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
+            },
+
+
+          ]);
+        }),
+      )
+
     await DI.resolve(Orm);
 
     const result = Model3.query()
@@ -69,14 +103,16 @@ describe('model generated queries', () => {
 
     const result2 = Model3.query()
       .leftJoin(Model4, function () {
+
+        // TODO: fix this cast in nested where
         this.where({
           Bar: 1,
         } as any);
       })
       .toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT * FROM `TestTable3` as `$Model3$` INNER JOIN `TestTable4` as `$Model4$` ON `$Model3$`.Id = `$Model4$`.model3_id WHERE `$Model4$`.`Bar` = ?');
-    expect(result2.expression).to.equal('SELECT * FROM `TestTable3` as `$Model3$` LEFT JOIN `TestTable4` as `$Model4$` ON `$Model3$`.Id = `$Model4$`.model3_id WHERE `$Model4$`.`Bar` = ?');
+    expect(result.expression).to.equal('SELECT * FROM `TestTable3` as `$TestTable3$` INNER JOIN `TestTable4` as `$Model4$` ON `$TestTable3$`.Id = `$Model4$`.model3_id WHERE ( `$Model4$`.`Bar` = ? )');
+    expect(result2.expression).to.equal('SELECT * FROM `TestTable3` as `$TestTable3$` LEFT JOIN `TestTable4` as `$Model4$` ON `$TestTable3$`.Id = `$Model4$`.model3_id WHERE ( `$Model4$`.`Bar` = ? )');
   });
 
   it('model should execute scope function', async () => {
