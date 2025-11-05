@@ -100,38 +100,139 @@ describe('model generated queries', () => {
   });
 
   it('model join with select and column alias', async () => {
+
+    const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
+    tableInfoStub.withArgs('users_metadata', undefined).returns(
+      new Promise((res) => {
+        res([
+          {
+            Type: 'VARCHAR',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'VARCHAR',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'Key',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: true,
+            Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
+          },
+          {
+            Type: 'VARCHAR',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'VARCHAR',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'Value',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: true,
+            Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
+          },
+        ]);
+      }),
+    );
+
     await DI.resolve(Orm);
 
     const result = User.select().leftJoin(UserMetadata, function () {
       this.where('Key', 'user:niceName');
-    }, function() { 
+    }, function () {
       this.select('Value', 'user:niceName');
     }).toDB() as ICompilerOutput;
 
 
-    expect(result.expression).to.equal('SELECT `users`.*, `users_metadata`.`Value` as `user:niceName` FROM `users` LEFT JOIN `users_metadata` ON `users`.Id = `users_metadata`.user_id AND `Key` = ?');
+    expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id WHERE ( `$UserMetadata$`.`Key` = ? )');
     expect(result.bindings[0]).to.eq('user:niceName');
   });
 
   it('model join with exists', async () => {
     await DI.resolve(Orm);
-  
-     const result = User.select().leftJoin(UserMetadata, function () {
+
+    const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
+    tableInfoStub.withArgs('users_metadata', undefined).returns(
+      new Promise((res) => {
+        res([
+          {
+            Type: 'VARCHAR',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'VARCHAR',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'Key',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: true,
+            Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
+          },
+          {
+            Type: 'VARCHAR',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'VARCHAR',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'Value',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: true,
+            Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
+          },
+        ]);
+      }),
+    );
+
+    const result = User.select().leftJoin(UserMetadata, function () {
       this.where('Key', 'user:niceName');
-    }, function() { 
+    }, function () {
       this.select('Value', 'user:niceName');
     }).whereExist("Metadata", function () {
       this.where('Key', "user:niceName");
       this.where('Value', 'testValue');
     }).toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT `users`.*, `users_metadata`.`Value` as `user:niceName` FROM `users` LEFT JOIN `users_metadata` ON `users`.Id = `users_metadata`.user_id AND `Key` = ? WHERE EXISTS (SELECT 1 FROM `users_metadata` WHERE `users`.Id = `users_metadata`.user_id AND `Key` = ? AND `Value` = ?)');
+    expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id WHERE ( `$UserMetadata$`.`Key` = ? ) AND EXISTS ( SELECT * FROM `users_metadata` WHERE `Key` = ? AND `Value` = ? AND user_id = `$users$`.`Id` )');
     expect(result.bindings[0]).to.eq('user:niceName');
     expect(result.bindings[1]).to.eq('user:niceName');
     expect(result.bindings[2]).to.eq('testValue');
-    
+
   });
-  
+
   it('insert should throw when fields are null', async () => {
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
     tableInfoStub.withArgs('TestTable2', undefined).returns(
