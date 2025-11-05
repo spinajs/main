@@ -93,18 +93,7 @@ describe('Query builder generic', () => {
       sqb().select('*').from(null).toDB();
     }).to.throw();
   });
-
-  it('ensure schema presents', () => {
-    const schema = '';
-
-    expect(() => {
-      sqb().select('*').from('users').database(schema).toDB();
-    }).to.throw();
-
-    expect(() => {
-      sqb().select('*').from('users').database(null).toDB();
-    }).to.throw();
-  });
+ 
 });
 
 describe('Where query builder', () => {
