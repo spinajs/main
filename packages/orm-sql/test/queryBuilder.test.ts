@@ -398,7 +398,8 @@ describe('Relations query builder', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(FakeSqliteDriver).as('sqlite');
 
-    // @ts-ignore - Column descriptors missing Aggregate/Virtual properties`nconst tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
+     
+    const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
     tableInfoStub
       .withArgs('RelationTable', undefined)
       .returns(
@@ -422,6 +423,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
             {
               Type: 'INT',
@@ -441,6 +444,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
             {
               Type: 'INT',
@@ -460,6 +465,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
           ]);
         }),
@@ -486,6 +493,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
             {
               Type: 'VARCHAR',
@@ -505,6 +514,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
           ]);
         }),
@@ -531,6 +542,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
             {
               Type: 'VARCHAR',
@@ -550,6 +563,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
           ]);
         }),
@@ -576,6 +591,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
             {
               Type: 'INT',
@@ -595,6 +612,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
             {
               Type: 'INT',
@@ -614,6 +633,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
           ]);
         }),
@@ -640,6 +661,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
             {
               Type: 'VARCHAR',
@@ -659,6 +682,8 @@ describe('Relations query builder', () => {
               Ignore: false,
               IsForeignKey: false,
               ForeignKeyDescription: null,
+              Aggregate: false,
+              Virtual: false,
             },
           ]);
         }),
