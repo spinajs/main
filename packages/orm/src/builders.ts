@@ -1331,8 +1331,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return compiler.compile();
   }
 
-  public async all(): Promise<T[]> {
-    return (await this) as any;
+  public async all(): Promise<T> {
+    return await this;
   }
 
   public async resultExists(): Promise<boolean> {

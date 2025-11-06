@@ -1072,7 +1072,7 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   /**
    * Returns all records. Its for type castin when using with scopes mostly.
    */
-  all(): Promise<T[]>;
+  all(): Promise<T>;
 
   mergeBuilder(builder: ISelectQueryBuilder): void;
 }
