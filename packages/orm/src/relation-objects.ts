@@ -302,7 +302,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     // if we have data in relation, we need to exclude them from delete query
     const toDelete = [...data].filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
     if (toDelete.length !== 0) {
-      query.whereNotIn(this.junctionModelDescriptor.PrimaryKey, toDelete);
+      query.whereNotIn(this.Relation.JunctionModelTargetModelFKey_Name, toDelete);
     }
 
     await query;
@@ -327,9 +327,22 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
    */
   public async update() {
     for (const f of this) {
-      const junctionEntry = new (this.Relation.JunctionModel as any)();
-      (junctionEntry as any)[this.Relation.JunctionModelSourceModelFKey_Name] = this.Owner.PrimaryKeyValue;
-      (junctionEntry as any)[this.Relation.JunctionModelTargetModelFKey_Name] = f.PrimaryKeyValue;
+      const junctionEntry = new this.Relation.JunctionModel();
+      const desc = junctionEntry.ModelDescriptor;
+      const relationsArray = Array.from(desc.Relations.values());
+      const sourceModelRelation = relationsArray.find((r) => r.TargetModel === this.Owner.constructor);
+      const targetModelRelation = relationsArray.find((r) => r.TargetModel === f.constructor);
+
+      if(!sourceModelRelation){ 
+        throw new Error(`Junction model relation for source model ${this.Owner.constructor.name} not found.`);
+      }
+
+      if (!targetModelRelation) {
+        throw new Error(`Junction model relation for target model ${f.constructor.name} not found.`);
+      }
+
+      (junctionEntry as any)[sourceModelRelation.Name].Value = this.Owner;
+      (junctionEntry as any)[targetModelRelation.Name].Value = f;
       await junctionEntry.insert(InsertBehaviour.InsertOrUpdate);
     }
   }

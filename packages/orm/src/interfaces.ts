@@ -1304,6 +1304,11 @@ export class ValueConverter implements IValueConverter {
 export class DatetimeValueConverter extends ValueConverter { }
 
 /**
+ * Converter for TIME field ( eq. mysql datetime into timespan HH:MM:SS )
+ */
+export class TimeValueConverter extends ValueConverter { }
+
+/**
  * Convert 0/1 to boolean ( mysql, sqlite etc.  use 0/1 for boolean fields and tinyint/bit types )
  */
 export class BooleanValueConverter extends ValueConverter { }

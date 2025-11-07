@@ -5,3 +5,4 @@ export * from "./args.js";
 export * from "./fp.js";
 export * from "./string.js";
 export * from "./func.js";
+export * from "./timespan.js";

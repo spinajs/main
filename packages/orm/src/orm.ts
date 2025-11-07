@@ -1,4 +1,4 @@
-import { BooleanValueConverter, DatetimeValueConverter } from './interfaces.js';
+import { BooleanValueConverter, DatetimeValueConverter, TimeValueConverter } from './interfaces.js';
 import { Configuration } from '@spinajs/configuration-common';
 import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
@@ -11,6 +11,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
 import { DateTime } from 'luxon';
 import { extractModelDescriptor } from './descriptor.js';
+import { TimeSpan } from '@spinajs/util';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -243,6 +244,10 @@ export class Orm extends AsyncService {
     this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', 'Bool');
     this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', Boolean.name.toLowerCase());
     this.Container.register(BooleanValueConverter).asMapValue('__orm_db_value_converters__', 'bool');
+    this.Container.register(TimeValueConverter).asMapValue('__orm_db_value_converters__', 'Time');
+    this.Container.register(TimeValueConverter).asMapValue('__orm_db_value_converters__', 'time');
+    this.Container.register(TimeValueConverter).asMapValue('__orm_db_value_converters__', TimeSpan.name.toLowerCase());
+    this.Container.register(TimeValueConverter).asMapValue('__orm_db_value_converters__', TimeSpan.name);
   }
 
   protected wireRelations() {
