@@ -19,7 +19,7 @@ export interface IQueryStatement {
 
   build(): IQueryStatementResult;
 
-  clone(parent: QueryBuilder | SelectQueryBuilder | WhereBuilder<any>): IQueryStatement;
+  clone(parent?: QueryBuilder | SelectQueryBuilder | WhereBuilder<any>): IQueryStatement;
 }
 
 export abstract class QueryStatement implements IQueryStatement {
@@ -39,7 +39,7 @@ export abstract class QueryStatement implements IQueryStatement {
 
   public abstract build(): IQueryStatementResult;
 
-  public abstract clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement;
+  public abstract clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement;
 }
 
 @NewInstance()

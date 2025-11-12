@@ -938,8 +938,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           relQuery.rightJoin({
             joinModel: rel.TargetModel,
-            joinTableForeignKey: rel.PrimaryKey,
-            sourceTablePrimaryKey: rel.ForeignKey,
+            joinTableForeignKey: rel.ForeignKey,
+            sourceTablePrimaryKey: rel.JunctionModelTargetModelFKey_Name,
             callback: callback,
           });
 
@@ -1145,15 +1145,30 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public clone(): this {
     const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner);
 
+
+
+    // Clone columns
     builder._columns = this._columns.map(c => c.clone(builder));
-    builder._joinStatements = this._joinStatements.map(c => c.clone(builder));
+
+    // Clone joinStatements with mapped WhereBuilder references
+    builder._joinStatements = this._joinStatements.map(c => c.clone());
+
+    // Clone statements with mapped WhereBuilder references
     builder._statements = this._statements.map(c => c.clone(builder));
+
+    /**
+     * ------------------------------------------------------------------
+     */
+
     builder._limit = { ...this._limit };
     builder._sort = { ...this._sort };
     builder._boolean = this._boolean;
     builder._distinct = this._distinct;
     builder._table = this._table;
     builder._tableAlias = this._tableAlias;
+    builder._cteStatement = this._cteStatement ? this._cteStatement.clone(builder) : null;
+    builder._first = this._first;
+    builder._nonSelect = this._nonSelect;
     builder._queryMiddlewares = [...this._queryMiddlewares];
 
     return builder as any;

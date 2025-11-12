@@ -116,12 +116,12 @@ export class SqlGroupByStatement extends GroupByStatement {
 @NewInstance()
 export class SqlWhereStatement extends WhereStatement {
 
-  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(builder: T): SqlWhereStatement {
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_builder: T): SqlWhereStatement {
     return new SqlWhereStatement(
       this._column,
       this._operator,
       this._value,
-      builder as WhereBuilder<any>,
+      this._builder,
     );
   }
 
@@ -181,7 +181,7 @@ export class SqlJoinStatement extends JoinStatement {
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement {
     return new SqlJoinStatement({
       ...this._options,
-      builder: parent as SelectQueryBuilder,
+      builder: parent as SelectQueryBuilder ?? this._options.builder,
     })
   }
 
