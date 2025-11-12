@@ -1151,7 +1151,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._columns = this._columns.map(c => c.clone(builder));
 
     // Clone joinStatements with mapped WhereBuilder references
-    builder._joinStatements = this._joinStatements.map(c => c.clone());
+    builder._joinStatements = this._joinStatements.map(c => c.clone(builder));
 
     // Clone statements with mapped WhereBuilder references
     builder._statements = this._statements.map(c => c.clone(builder));
