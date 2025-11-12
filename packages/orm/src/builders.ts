@@ -1175,12 +1175,18 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   protected _getRelationInstance(relation: string) {
-    let relInstance: IOrmRelation = this._relations.find((r) => r.Name === relation);
+
+    // TODO: do not use toLocaleLowerCase for comparison, relations should be case sensitive
+    // leave it now for backward compatibility
+    let relInstance: IOrmRelation = this._relations.find((r) => r.Name.toLocaleLowerCase() === relation.toLocaleLowerCase());
 
     if (!relInstance) {
       const descriptor = extractModelDescriptor(this._model);
       let rDescriptor = null;
       for (const [key, value] of descriptor.Relations) {
+
+        // TODO: do not use toLocaleLowerCase for comparison, relations should be case sensitive
+        // leave it now for backward compatibility
         if (key.toLowerCase() === relation.toLowerCase().trim()) {
           rDescriptor = value;
           break;
