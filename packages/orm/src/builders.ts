@@ -591,8 +591,11 @@ export class JoinBuilder implements IJoinBuilder {
 
       options = {
         joinModel: relation.TargetModel,
-        joinTableForeignKey: relation.ForeignKey,
-        sourceTablePrimaryKey: relation.PrimaryKey,
+
+        // FIX: naming convention for joinTableForeignKey and sourceTablePrimaryKey
+        // now its confucsing
+        joinTableForeignKey: relation.PrimaryKey,
+        sourceTablePrimaryKey: relation.ForeignKey,
         callback: arg2,
         queryCallback: arg3,
       };
