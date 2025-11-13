@@ -911,8 +911,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           relQuery = rel.TargetModel.query();
           relQuery.where(Lazy.oF(function () {
-            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
-            if (sourceAlias === undefined) {
+            const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : false);
+            if (!sourceAlias) {
               sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             } else {
               sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
@@ -930,12 +930,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         case RelationType.ManyToMany:
           relQuery = (rel.JunctionModel as IModelStatic).query();
           relQuery.where(Lazy.oF(function () {
-            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
-            if (sourceAlias === undefined) {
+            const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : false);
+            if (!sourceAlias) {
               sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             } else {
               sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             }
+
             relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
           }));
 

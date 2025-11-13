@@ -92,6 +92,7 @@ export class FromDbModel extends RouteArgs {
     const descriptor = extractModelDescriptor(param.RuntimeType);
     const queryField = param?.Options?.queryField ?? descriptor.PrimaryKey;
 
+    query.setTable(descriptor.TableName, `$${descriptor.TableName}`);
     query.select('*');
     query.where(queryField, pkValue);
 
