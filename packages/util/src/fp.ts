@@ -120,22 +120,11 @@ export function _either(cond: (arg: unknown) => Promise<unknown> | boolean, onFu
       return r.then((res: unknown) => (res ? onFulfilled(arg) : onRejected ? onRejected(arg) : null));
     }
 
-    
+
     return r ? onFulfilled(arg) : onRejected(arg);
   };
 }
 
-export function _is_array_of(elementValidator: (value: any, name: string) => any) {
-  return (value: any, name: string) => {
-    _is_array()(value, name);
-    return _chain(
-      value,
-      (arr: any[]) => {
-        arr.forEach((item, index) => {
-          elementValidator(item, `${name}[${index}]`);
-        });
-        return arr;
-      }
-    );
-  };
+export function _to_array<T>(): (args: T | T[]) => T[] {
+  return (args: T | T[]) => Array.isArray(args) ? args : [args];
 }
