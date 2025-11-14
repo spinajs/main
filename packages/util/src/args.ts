@@ -196,16 +196,6 @@ export function _to_upper() {
   };
 }
 
-export function _to_array() {
-  return function (arg: unknown) {
-    if (Array.isArray(arg)) {
-      return arg;
-    }
-
-    return [arg];
-  };
-}
-
 export function _to_lower() {
   return function (arg: unknown, _name: string) {
     if (typeof arg !== 'string') {
