@@ -2,7 +2,7 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
 
-import { _check_arg, _default, _is_array, _is_object, _is_string, _catchFilter, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _zip, _catch, _use, _fallback, _tap, _catchException, _catchValue, _either, _map, _all, _custom } from '../src/index.js';
+import { _check_arg, _default, _is_array, _is_array_of, _is_object, _is_string, _catchFilter, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _zip, _catch, _use, _fallback, _tap, _catchException, _catchValue, _either, _map, _all, _custom } from '../src/index.js';
 import _ from 'lodash';
 
 chai.use(chaiAsPromised);
@@ -450,6 +450,56 @@ describe('util', () => {
       expect(val).to.have.lengthOf(3);
       expect(val).to.include(1);
       expect(() => _check_arg(_is_array())({}, 'test')).to.throw();
+    });
+
+    it('validate array of elements', async () => {
+      let val: any[] = [];
+
+      // Validate array of strings
+      val = _check_arg(_is_array_of(_is_string()))(['hello', 'world'], 'test');
+      expect(val).to.be.an('array');
+      expect(val).to.have.lengthOf(2);
+      expect(val[0]).to.be.eq('hello');
+      expect(val[1]).to.be.eq('world');
+
+      // Should throw when array contains non-string
+      expect(() => _check_arg(_is_array_of(_is_string()))(['hello', 123], 'test')).to.throw();
+
+      // Validate array of numbers
+      val = _check_arg(_is_array_of(_is_number()))([1, 2, 3], 'test');
+      expect(val).to.be.an('array');
+      expect(val).to.have.lengthOf(3);
+      expect(val[0]).to.be.eq(1);
+      expect(val[1]).to.be.eq(2);
+      expect(val[2]).to.be.eq(3);
+
+      // Should throw when array contains non-number
+      expect(() => _check_arg(_is_array_of(_is_number()))([1, 'two', 3], 'test')).to.throw();
+
+      // Validate array with multiple checks
+      val = _check_arg(_is_array_of(_is_string(), _min_length(3)))(['hello', 'world'], 'test');
+      expect(val).to.be.an('array');
+      expect(val).to.have.lengthOf(2);
+
+      // Should throw when element doesn't meet criteria
+      expect(() => _check_arg(_is_array_of(_is_string(), _min_length(3)))(['hello', 'hi'], 'test')).to.throw();
+
+      // Validate array of numbers with range
+      val = _check_arg(_is_array_of(_is_number(), _between(1, 10)))([1, 5, 10], 'test');
+      expect(val).to.be.an('array');
+      expect(val).to.have.lengthOf(3);
+
+      // Should throw when element is out of range
+      expect(() => _check_arg(_is_array_of(_is_number(), _between(1, 10)))([1, 5, 15], 'test')).to.throw();
+
+      // Should throw when not an array
+      expect(() => _check_arg(_is_array_of(_is_string()))({}, 'test')).to.throw();
+      expect(() => _check_arg(_is_array_of(_is_string()))('hello', 'test')).to.throw();
+
+      // Empty array should pass
+      val = _check_arg(_is_array_of(_is_string()))([], 'test');
+      expect(val).to.be.an('array');
+      expect(val).to.have.lengthOf(0);
     });
 
     it('validate object', async () => {
