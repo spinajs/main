@@ -110,7 +110,6 @@ export class FromFile extends FromFormBase {
     // copy to provided fs or default temp fs
     // delete intermediate files ( from express ) regardless of copy result
 
-    debugger
     const fsName = param.Options?.fs ? param.Options.fs : '__file_upload_default_provider__';
     const uploadFs = DI.resolve<fs>('__file_provider__', [fsName]);
 

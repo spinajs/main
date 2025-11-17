@@ -931,6 +931,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           relQuery = (rel.JunctionModel as IModelStatic).query();
           relQuery.where(Lazy.oF(function () {
             const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : false);
+            debugger;
             if (!sourceAlias) {
               sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             } else {
@@ -940,6 +941,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
             relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
           }));
 
+          (this as unknown as SelectQueryBuilder).setAlias();
           relQuery.rightJoin({
             joinModel: rel.TargetModel,
             joinTableForeignKey: rel.ForeignKey,
@@ -1136,7 +1138,12 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return (await this) as any;
   }
 
-  public setAlias(alias: string) {
+  public setAlias(alias?: string) {
+
+    if (!alias || alias.trim() === '') {
+      alias = `${this._driver.Options.AliasSeparator}${this._table}${this._driver.Options.AliasSeparator}`;
+    }
+
     this._tableAlias = alias;
 
     this._columns.forEach((c) => (c.TableAlias = alias));
