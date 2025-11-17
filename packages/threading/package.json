@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/threading",
-  "version": "2.0.410",
+  "version": "2.0.411",
   "description": "utility functions shared across @spinajs framework",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -47,9 +47,9 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/exceptions": "^2.0.410",
-    "@spinajs/di": "^2.0.410",
-    "@spinajs/log-common": "^2.0.410",
+    "@spinajs/exceptions": "^2.0.411",
+    "@spinajs/di": "^2.0.411",
+    "@spinajs/log-common": "^2.0.411",
     "luxon": "3.5.0"
   },
   "homepage": "https://github.com/spinajs/main#readme",
