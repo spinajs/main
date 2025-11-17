@@ -48,7 +48,7 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "@types/express": "^5.0.1",
-    "@types/formidable": "^2.0.5",
+    "@types/formidable": "^3.4.6",
     "@types/luxon": "^3.6.1",
     "@types/node": "^18.11.18"
   },
@@ -62,7 +62,7 @@
     "@spinajs/util": "^2.0.411",
     "@spinajs/queue": "2.0.411",
     "@types/express": "^5.0.1",
-    "formidable": "^3.2.5",
+    "formidable": "^3.5.4",
     "lodash": "^4.17.21",
      "luxon": "^3.6.1",
     "uuid": "^9.0.0"

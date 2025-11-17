@@ -14,12 +14,16 @@ export interface IRouteArgsResult {
 export interface IRouteArgs {
   SupportedType: ParameterType | string;
 
+  Priority?: number;
+
   extract(callData: IRouteCall, callArgs: unknown[], routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
 }
 
 export abstract class RouteArgs implements IRouteArgs {
   @Autoinject()
   protected Validator: DataValidator;
+
+  public Priority?: number;
 
   abstract get SupportedType(): ParameterType | string;
 
