@@ -861,8 +861,8 @@ export interface ILimitBuilder<T> {
   first(): Promise<Unbox<T>>;
   takeFirst(): this;
   firstOrFail(): Promise<Unbox<T>>;
-  firstOrThrow(error: Error): Promise<Unbox<T>>;
-  orThrow(error: Error): Promise<Unbox<T>>;
+  firstOrThrow(error: Error | ((output: ICompilerOutput) => Error)): Promise<Unbox<T>>;
+  orThrow(error: Error | ((output: ICompilerOutput) => Error)): Promise<Unbox<T>>;
   getLimits(): IQueryLimit;
 }
 

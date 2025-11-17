@@ -294,22 +294,33 @@ export class LimitBuilder<T> implements ILimitBuilder<T> {
   }
 
   public async firstOrFail() {
-    return this.firstOrThrow(new OrmNotFoundException('not found'));
+    return this.firstOrThrow((output: ICompilerOutput) => new OrmNotFoundException(`Database entry not found for the given query.`, null, output.expression, output.bindings));
   }
 
-  public async orThrow(error: Error) {
+  public async orThrow(error: Error | ((output: ICompilerOutput) => Error)) {
     const result = (await this) as any;
     if (result === undefined || (Array.isArray(result) && result.length === 0)) {
-      throw error;
+      if (typeof error === 'function') {
+        error = error(
+          (this as unknown as SelectQueryBuilder).toDB()
+        );
+      } else
+        throw error;
     }
 
     return result;
   }
 
-  public async firstOrThrow(error: Error) {
+  public async firstOrThrow(error: Error | ((output: ICompilerOutput) => Error)) {
     const result = await this.first();
     if (result === undefined) {
-      throw error;
+
+      if (typeof error === 'function') {
+        throw error(
+          (this as unknown as SelectQueryBuilder).toDB()
+        );
+      } else
+        throw error;
     }
 
     return result;
@@ -931,7 +942,6 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           relQuery = (rel.JunctionModel as IModelStatic).query();
           relQuery.where(Lazy.oF(function () {
             const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : false);
-            debugger;
             if (!sourceAlias) {
               sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             } else {
@@ -1091,6 +1101,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   protected _relations: IOrmRelation[] = [];
 
   protected _owner: IOrmRelation;
+
+  public get Statements() {
+    return this._statements;
+  }
 
   public get Owner(): IOrmRelation {
     return this._owner;
