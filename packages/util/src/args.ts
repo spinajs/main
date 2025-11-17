@@ -124,6 +124,35 @@ export function _is_array(...checks: ((arg: any[], name: string) => any[])[]) {
   };
 }
 
+
+/**
+ * Check if argument is an array and validate all elements
+ *
+ * @param checks - validation checks to apply to each element
+ * @returns validated array
+ */
+export function _is_array_of(...checks: ((arg: any, name: string) => any)[]) {
+  return _is_array(function (arg: any[], name: string) {
+    const validator = _check_arg(...checks);
+    
+    return arg.map((item, index) => {
+      try {
+        return validator(item, `${name}[${index}]`);
+      } catch (e) {
+        if (e instanceof InvalidArgument) {
+          throw new InvalidArgument(
+            `${name}[${index}] validation failed: ${e.message}`,
+            name,
+            'ARRAY_ELEMENT_VALIDATION_FAILED',
+            e
+          );
+        }
+        throw e;
+      }
+    });
+  });
+}
+
 export function _is_object(...checks: ((arg: object, name: string) => object)[]) {
   return function (arg: object, name: string) {
     if (typeof arg !== 'object' || arg === null || arg === undefined || Array.isArray(arg)) {
@@ -164,16 +193,6 @@ export function _to_upper() {
       return arg;
     }
     return arg.toUpperCase();
-  };
-}
-
-export function _to_array() {
-  return function (arg: unknown) {
-    if (Array.isArray(arg)) {
-      return arg;
-    }
-
-    return [arg];
   };
 }
 

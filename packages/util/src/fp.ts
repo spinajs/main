@@ -1,4 +1,5 @@
 import { isPromise } from './types.js';
+import { _is_array } from './args.js';
 
 export type Constructor<T> = new (...args: any[]) => T;
 
@@ -119,7 +120,11 @@ export function _either(cond: (arg: unknown) => Promise<unknown> | boolean, onFu
       return r.then((res: unknown) => (res ? onFulfilled(arg) : onRejected ? onRejected(arg) : null));
     }
 
-    
+
     return r ? onFulfilled(arg) : onRejected(arg);
   };
+}
+
+export function _to_array<T>(): (args: T | T[]) => T[] {
+  return (args: T | T[]) => Array.isArray(args) ? args : [args];
 }
