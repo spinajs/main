@@ -18,7 +18,7 @@ export interface IOrmRelation {
    *
    * @param callback - optional callback to perform actions on relations eg. populate more, filter relational data etc.
    */
-  execute(callback?: (this: ISelectQueryBuilder, relation: OrmRelation) => void): void;
+  execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void): void;
 
   compile(): void;
 
@@ -27,7 +27,7 @@ export interface IOrmRelation {
    *
    * @param callback - execute callback to perform actions on relations eg. populate more, filter relational data etc.
    */
-  executeOnQuery(callback: (this: ISelectQueryBuilder, relation: OrmRelation) => void): void;
+  executeOnQuery(callback: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void): void;
 
   /**
    * Relation name
@@ -46,8 +46,32 @@ function _paramCheck<T>(callback: () => T, err: string) {
   return val;
 }
 
-@Inject(Container)
+
 export abstract class OrmRelation implements IOrmRelation {
+ 
+  public get Name() {
+    return this._description.Name;
+  }
+
+  public get Descriptor() {
+    return this._description;
+  }
+
+  get Alias(): string {
+    return "";
+  }
+
+  constructor(protected _container: Container, protected _query: ISelectQueryBuilder, protected _description: IRelationDescriptor, public parentRelation?: NativeOrmRelation) {
+  }
+
+  public abstract compile(): void;
+
+  public abstract execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void) : void;
+  public abstract executeOnQuery(callback: (this: ISelectQueryBuilder<any>, relation: NativeOrmRelation) => void): void;
+}
+
+@Inject(Container)
+export abstract class NativeOrmRelation extends OrmRelation {
   protected _targetModel: Constructor<ModelBase> | ForwardRefFunction;
   protected _targetModelDescriptor: IModelDescriptor;
   protected _relationQuery: ISelectQueryBuilder;
@@ -67,7 +91,8 @@ export abstract class OrmRelation implements IOrmRelation {
     return this.parentRelation ? `${this.parentRelation.Alias}.${this._separator}${this._description.Name}${this._separator}` : `${this._separator}${this._description.Name}${this._separator}`;
   }
 
-  constructor(protected _container: Container, protected _query: ISelectQueryBuilder, protected _description: IRelationDescriptor, public parentRelation?: OrmRelation) {
+  constructor(protected _container: Container, protected _query: ISelectQueryBuilder, protected _description: IRelationDescriptor, public parentRelation?: NativeOrmRelation) {
+    super(_container, _query, _description, parentRelation);
     this._targetModel = this._description.TargetModel;
     this._targetModelDescriptor = _paramCheck(() => extractModelDescriptor(this._targetModel), `Model ${this._targetModel?.name} does not have model descriptor set`);
     this._driver = _paramCheck(() => DI.resolve<OrmDriver>('OrmConnection', [this._targetModelDescriptor.Connection]), `Connection ${this._targetModelDescriptor.Connection} is not set in configuration file`);
@@ -81,23 +106,23 @@ export abstract class OrmRelation implements IOrmRelation {
 
   public abstract compile(): void;
 
-  public execute(callback?: (this: ISelectQueryBuilder, relation: OrmRelation) => void) {
+  public execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void) {
     if (callback) {
       callback.call(this._relationQuery, this);
     }
   }
 
-  public executeOnQuery(callback: (this: ISelectQueryBuilder<any>, relation: OrmRelation) => void): void {
+  public executeOnQuery(callback: (this: ISelectQueryBuilder<any>, relation: NativeOrmRelation) => void): void {
     if (callback) {
-      callback.call(this._relationQuery, this);
+      callback.call(this._query, this);
     }
   }
 }
 
 @NewInstance()
 @Inject(Container)
-export class BelongsToRelation extends OrmRelation {
-  constructor(_container: Container, _query: ISelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: OrmRelation) {
+export class BelongsToRelation extends NativeOrmRelation {
+  constructor(_container: Container, _query: ISelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: NativeOrmRelation) {
     super(_container, _query, _description, _parentRelation);
 
     this._relationQuery.from(this._targetModelDescriptor.TableName, this.Alias);
@@ -144,8 +169,8 @@ export class BelongsToRelation extends OrmRelation {
 
 @NewInstance()
 @Inject(Container)
-export class BelongsToRecursiveRelation extends OrmRelation {
-  constructor(_container: Container, _query: ISelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: OrmRelation) {
+export class BelongsToRecursiveRelation extends NativeOrmRelation {
+  constructor(_container: Container, _query: ISelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: NativeOrmRelation) {
     super(_container, _query, _description, _parentRelation);
 
     this._relationQuery.withRecursive(this._description.ForeignKey, this._description.PrimaryKey).from(this._targetModelDescriptor.TableName, this.Alias);
@@ -170,7 +195,7 @@ export class BelongsToRecursiveRelation extends OrmRelation {
 
 @NewInstance()
 @Inject(Container)
-export class QueryRelation extends OrmRelation {
+export class QueryRelation extends NativeOrmRelation {
 
 
 
@@ -181,7 +206,13 @@ export class QueryRelation extends OrmRelation {
 
 @NewInstance()
 @Inject(Container)
-export class VirtualRelation extends OrmRelation {  
+export class VirtualRelation extends OrmRelation {
+  public execute(_callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void): void {
+  }
+    
+  public executeOnQuery(_callback: (this: ISelectQueryBuilder<any>, relation: NativeOrmRelation) => void): void {
+     
+  }
 
   public compile(): void {
     this._query.middleware(new VirtualRelationMiddleware(this._description.Callback, this._description.Mapper, this._description));
@@ -190,8 +221,8 @@ export class VirtualRelation extends OrmRelation {
 
 @NewInstance()
 @Inject(Container)
-export class OneToManyRelation extends OrmRelation {
-  constructor(_container: Container, _query: ISelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: OrmRelation) {
+export class OneToManyRelation extends NativeOrmRelation {
+  constructor(_container: Container, _query: ISelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: NativeOrmRelation) {
     super(_container, _query, _description, _parentRelation);
 
     this._relationQuery.from(this._targetModelDescriptor.TableName, this.Alias);
@@ -223,7 +254,7 @@ export class OneToManyRelation extends OrmRelation {
 
 @NewInstance()
 @Inject(Container, OrmClass)
-export class ManyToManyRelation extends OrmRelation {
+export class ManyToManyRelation extends NativeOrmRelation {
   protected _joinModel: Constructor<ModelBase>;
   protected _joinModelDescriptor: IModelDescriptor;
   protected _joinQuery: ISelectQueryBuilder;
@@ -236,7 +267,7 @@ export class ManyToManyRelation extends OrmRelation {
     return this._relationQuery;
   }
 
-  constructor(_container: Container, protected _orm: Orm, _query: ISelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: OrmRelation) {
+  constructor(_container: Container, protected _orm: Orm, _query: ISelectQueryBuilder<any>, _description: IRelationDescriptor, _parentRelation?: NativeOrmRelation) {
     super(_container, _query, _description, _parentRelation);
 
     this._joinModel = this._orm.Models.find((m) => m.name === this._description.JunctionModel?.name)?.type ?? undefined;

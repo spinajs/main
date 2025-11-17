@@ -375,7 +375,7 @@ export function Virtual(virtualRelation?: Constructor<Relation<ModelBase<unknown
       ForeignKey: '',
       PrimaryKey: '',
       Recursive: false,
-      RelationClass: virtualRelation ? virtualRelation : () => DI.resolve('__orm_relation_has_many_factory__', [type]),
+      RelationClass: virtualRelation ?? type,
 
     });
   });

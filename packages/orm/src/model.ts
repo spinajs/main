@@ -13,7 +13,7 @@ import { Wrap } from './statements.js';
 import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
 
-import { DI, isConstructor, IContainer, Constructor } from '@spinajs/di';
+import { DI, isConstructor, IContainer, Constructor, isClass } from '@spinajs/di';
 
 import { DateTime } from 'luxon';
 import _ from 'lodash';
@@ -647,10 +647,14 @@ export class ModelBase<M = unknown> implements IModelBase {
       if (rel.Factory) {
         (this as any)[rel.Name] = rel.Factory(this, rel, this.Container, []);
       } else if (rel.RelationClass) {
-        if (_.isFunction(rel.RelationClass)) {
-          (this as any)[rel.Name] = this.Container.resolve(rel.RelationClass(), [this, rel, []]);
-        } else {
+        if (isClass(rel.RelationClass)) {
           (this as any)[rel.Name] = this.Container.resolve(rel.RelationClass, [this, rel, []]);
+
+        } else if (_.isFunction(rel.RelationClass)) {
+          (this as any)[rel.Name] = this.Container.resolve(rel.RelationClass(), [this, rel, []]);
+        }
+        else {
+          throw new OrmException(`RelationClass for relation ${rel.Name} is not a class or a function returning class`);
         }
       } else {
         (this as any)[rel.Name] = new SingleRelation(this, rel.TargetModel, rel, null);
@@ -801,7 +805,7 @@ export const MODEL_STATIC_MIXINS = {
         return JoinQuery;
       case RelationType.ManyToMany:
 
-      break
+        break
       case RelationType.Query:
         throw new OrmException(`Query population for relation type ${RelationType[relationDescriptor.Type]} is not supported yet`);
       case RelationType.Many:
@@ -1037,7 +1041,7 @@ export const MODEL_STATIC_MIXINS = {
       // and autoincrement is set
       if (primaryKey.AutoIncrement) {
         delete (toHydrate as any)[description.PrimaryKey];
-      } 
+      }
 
       entity = new (Function.prototype.bind.apply(this))(toHydrate);
       return entity;
