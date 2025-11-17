@@ -12,7 +12,7 @@ import { extractModelDescriptor } from './descriptor.js';
 
 export { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 
-export function _prepareColumnDesc(initialize : Partial<IColumnDescriptor>): IColumnDescriptor {
+export function _prepareColumnDesc(initialize: Partial<IColumnDescriptor>): IColumnDescriptor {
   return Object.assign({
     Type: '',
     MaxLength: 0,
@@ -359,6 +359,28 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
     });
   });
 }
+
+export function Virtual(virtualRelation?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>>) {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
+
+    model.Relations.set(propertyKey, {
+      Name: propertyKey,
+      Type: RelationType.Virtual,
+      Callback: null,
+      Mapper: null,
+      SourceModel: null,
+      TargetModelType: null,
+      TargetModel: null,
+      ForeignKey: '',
+      PrimaryKey: '',
+      Recursive: false,
+      RelationClass: virtualRelation ? virtualRelation : () => DI.resolve('__orm_relation_has_many_factory__', [type]),
+
+    });
+  });
+}
+
 
 /**
  *

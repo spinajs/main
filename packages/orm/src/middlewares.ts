@@ -11,7 +11,7 @@ import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
 export { DiscriminationMapMiddleware } from './discrimination-middleware.js';
 
 export class HasManyRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _path: string) {}
+  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _path: string) { }
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -69,7 +69,7 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
 }
 
 export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware {
-  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) {}
+  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) { }
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -142,7 +142,7 @@ export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware 
 }
 
 export class QueryRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected callback: (data: ModelBase[]) => Promise<ISelectQueryBuilder>, protected mapper: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[], protected _description: IRelationDescriptor) {}
+  constructor(protected callback: (data: ModelBase[]) => Promise<ISelectQueryBuilder>, protected mapper: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[], protected _description: IRelationDescriptor) { }
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -165,8 +165,28 @@ export class QueryRelationMiddleware implements IBuilderMiddleware {
   }
 }
 
+export class VirtualRelationMiddleware implements IBuilderMiddleware {
+  constructor(protected callback: (data: ModelBase[]) => Promise<ISelectQueryBuilder>, protected mapper: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[], protected _description: IRelationDescriptor) { }
+  public afterQuery(data: any[]): any[] {
+    return data;
+  }
+  public modelCreation(_: any): ModelBase {
+    return null;
+  }
+
+  public async afterHydration(data: ModelBase[]): Promise<any[] | void> {
+    data.forEach(async d => {
+      debugger;
+      const relationInstance = DI.resolve(this._description.RelationClass, [d, this._description]);
+      await relationInstance.populate();
+
+      (d as any)[this._description.Name] = relationInstance;
+    });
+  }
+}
+
 export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) {}
+  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) { }
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -222,7 +242,7 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 }
 
 export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
-  constructor(protected _description: IRelationDescriptor, protected relation: BelongsToRelation) {}
+  constructor(protected _description: IRelationDescriptor, protected relation: BelongsToRelation) { }
 
   afterQuery(data: any[]): any[] {
     return data;
@@ -273,7 +293,7 @@ export class BelongsToRelationResultTransformMiddleware implements IBuilderMiddl
   }
 
   // tslint:disable-next-line: no-empty
-  public async afterHydration(_data: Array<ModelBase>) {}
+  public async afterHydration(_data: Array<ModelBase>) { }
 
   /**
    * Dynamically sets a deeply nested value in an object.

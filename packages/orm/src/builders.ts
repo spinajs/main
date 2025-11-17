@@ -10,7 +10,7 @@ import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQuerySt
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
 import { ModelBase } from './model.js';
-import { BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, QueryRelation } from './relations.js';
+import { BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, QueryRelation, VirtualRelation } from './relations.js';
 import { DateTime } from 'luxon';
 import { Lazy } from '@spinajs/util';
 import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
@@ -1212,6 +1212,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
             break;
           case RelationType.Query:
             relInstance = this._container.resolve<QueryRelation>(QueryRelation, [this, rDescriptor, this._owner]);
+            break;
+          case RelationType.Virtual:
+            relInstance = this._container.resolve<VirtualRelation>(VirtualRelation, [this, rDescriptor, this._owner]);
             break;
           case RelationType.Many:
             relInstance = this._container.resolve<OneToManyRelation>(OneToManyRelation, [this, rDescriptor, this._owner]);

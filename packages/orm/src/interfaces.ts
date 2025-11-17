@@ -426,7 +426,8 @@ export enum RelationType {
   One,
   Many,
   ManyToMany,
-  Query
+  Query,
+  Virtual
 }
 
 export type ForwardRefFunction = () => Constructor<ModelBase>;

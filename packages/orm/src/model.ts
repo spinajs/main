@@ -800,8 +800,10 @@ export const MODEL_STATIC_MIXINS = {
         JoinQuery.middleware(hydrateMiddleware);
         return JoinQuery;
       case RelationType.ManyToMany:
+
+      break
       case RelationType.Query:
-        throw new OrmException(`many to many relation not supported in populate`);
+        throw new OrmException(`Query population for relation type ${RelationType[relationDescriptor.Type]} is not supported yet`);
       case RelationType.Many:
         const { query } = createQuery(relationDescriptor.TargetModel, SelectQueryBuilder);
         query.where(relationDescriptor.ForeignKey, owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
