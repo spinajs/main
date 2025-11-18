@@ -175,12 +175,12 @@ export class VirtualRelationMiddleware implements IBuilderMiddleware {
   }
 
   public async afterHydration(data: ModelBase[]): Promise<any[] | void> {
-    data.forEach(async d => {
+    return Promise.all(data.map(async d => {
       const relationInstance = DI.resolve(this._description.RelationClass, [d, this._description]);
       await relationInstance.populate();
 
       (d as any)[this._description.Name] = relationInstance;
-    });
+    }));
   }
 }
 

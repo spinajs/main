@@ -283,7 +283,16 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   }
 
   public remove(_obj: T | T[] | ((a: T) => boolean)): T[] {
-    throw new Error('Method not implemented.');
+      const query = this.Driver.del().from(this.junctionModelDescriptor.TableName).where(this.Relation.JunctionModelSourceModelFKey_Name, this.Owner.PrimaryKeyValue);
+      const toRemove = _.isFunction(_obj) ? this.filter(_obj) : Array.isArray(_obj) ? _obj : [_obj];
+      const ids = toRemove.map((x) => x.PrimaryKeyValue);
+
+      if(ids.length === 0){
+        return [];
+      }
+
+      await query.whereIn(this.Relation.PrimaryKey, ids);
+
   }
 
   /**

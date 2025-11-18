@@ -54,7 +54,7 @@
   "devDependencies": {
     "chai": "^4.3.7",
     "chai-as-promised": "^7.1.1",
-    "@types/ssh2": "^1.5.0"
+    "@types/ssh2": "^1.5.5"
   },
   "dependencies": {
     "@spinajs/configuration": "^2.0.411",
@@ -62,7 +62,9 @@
     "@spinajs/orm": "^2.0.411",
     "@spinajs/orm-sql": "^2.0.411",
     "mysql2": "^3.0.1",
-    "ssh2": "^1.5.0"
+    "ssh2": "^1.17.0",
+    "asn1": "^0.2.6",
+    "bcrypt-pbkdf": "^1.0.2"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

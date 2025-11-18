@@ -2,7 +2,7 @@ import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Get, Ok, Patch, Policy, Post, Query } from '@spinajs/http';
 import { SortOrder } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { create, PasswordProvider, User, UserMetadataBase } from '@spinajs/rbac';
+import { create, PasswordProvider, User } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
 import { Schema } from '@spinajs/validation';
 
@@ -129,9 +129,8 @@ export class Users extends BaseController {
     @Filter(USER_FILTER)
     filter?: IFilterRequest,
   ) {
-
     const result = await User.select()
-      .leftJoin(UserMetadataBase, function () {
+      .leftJoin("Metadata", function () {
 
         // TODO: allow to inject custom meta props that need to be selected
         // eg. user:niceName, user:avatar etc.

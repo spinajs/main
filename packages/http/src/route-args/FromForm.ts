@@ -1,7 +1,7 @@
 import { IRouteArgsResult, RouteArgs } from './RouteArgs.js';
 import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOptions, FormFileUploader, IUploadedFile, FileTransformer } from '../interfaces.js';
 import * as express from 'express';
-import formidable, { Fields, Files, File, IncomingForm } from 'formidable';
+import formidable, { Fields, Files, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
@@ -89,6 +89,8 @@ export abstract class FromFormBase extends RouteArgs {
 @NewInstance()
 export class FromFile extends FromFormBase {
   protected FileService: fs;
+
+  public Priority?: number = 9999;
 
   @Logger('http')
   protected Log: Log;
@@ -186,7 +188,14 @@ export class FromJsonFile extends FromFile {
 
   public async extract(callData: IRouteCall,_args : unknown [], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
     const data = await super.extract(callData, _args, param, req, res, route);
-    const sourceFile = (this.FormData.Files[param.Name] as File).filepath;
+    const files = this.FormData.Files[param.Name];
+    const file = files ? (Array.isArray(files) ? files[0] : files) : null;
+    
+    if (!file) {
+      throw new BadRequest('Missing JSON file');
+    }
+    
+    const sourceFile = file.filepath;
     const content = await promises.readFile(sourceFile, { encoding: param.Options.Encoding ?? 'utf-8', flag: 'r' });
 
     if (param.Options.DeleteFile) {

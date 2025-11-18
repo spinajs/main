@@ -253,8 +253,19 @@ export abstract class BaseController extends AsyncService implements IController
         Payload: {},
       };
 
-      for (const [, param] of route.Parameters) {
-        const routeArgsHandler = await tryGetHash(argsCache, param.Type, () => DI.resolve(param.Type));
+      // Sort parameters by priority (higher priority first)
+      // Get all parameters as array, resolve their handlers to check priority, then sort
+      const paramsWithPriority = await Promise.all(
+        Array.from(route.Parameters.values()).map(async (param) => {
+          const handler = await tryGetHash(argsCache, param.Type, () => DI.resolve(param.Type));
+          return { param, handler, priority: handler?.Priority ?? 0 };
+        })
+      );
+
+      // Sort by priority descending (higher priority first)
+      const sortedParams = paramsWithPriority.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+
+      for (const { param, handler: routeArgsHandler } of sortedParams) {
         if (!routeArgsHandler) {
           throw new UnexpectedServerError(`invalid route parameter type for param: ${param.Name},
             method: ${route.Method},

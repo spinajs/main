@@ -294,22 +294,33 @@ export class LimitBuilder<T> implements ILimitBuilder<T> {
   }
 
   public async firstOrFail() {
-    return this.firstOrThrow(new OrmNotFoundException('not found'));
+    return this.firstOrThrow((output: ICompilerOutput) => new OrmNotFoundException(`Database entry not found for the given query.`, null, output.expression, output.bindings));
   }
 
-  public async orThrow(error: Error) {
+  public async orThrow(error: Error | ((output: ICompilerOutput) => Error)) {
     const result = (await this) as any;
     if (result === undefined || (Array.isArray(result) && result.length === 0)) {
-      throw error;
+      if (typeof error === 'function') {
+        error = error(
+          (this as unknown as SelectQueryBuilder).toDB()
+        );
+      } else
+        throw error;
     }
 
     return result;
   }
 
-  public async firstOrThrow(error: Error) {
+  public async firstOrThrow(error: Error | ((output: ICompilerOutput) => Error)) {
     const result = await this.first();
     if (result === undefined) {
-      throw error;
+
+      if (typeof error === 'function') {
+        throw error(
+          (this as unknown as SelectQueryBuilder).toDB()
+        );
+      } else
+        throw error;
     }
 
     return result;
@@ -592,10 +603,10 @@ export class JoinBuilder implements IJoinBuilder {
       options = {
         joinModel: relation.TargetModel,
 
-        // FIX: naming convention for joinTableForeignKey and sourceTablePrimaryKey
-        // now its confucsing
-        joinTableForeignKey: relation.PrimaryKey,
-        sourceTablePrimaryKey: relation.ForeignKey,
+        // if we joining 1:1 relation join table foreign key is primary key of related model
+        // else for 1:N and M:N join table foreign key is foreign key on related model
+        joinTableForeignKey: relation.Type === RelationType.One ? relation.PrimaryKey : relation.ForeignKey,
+        sourceTablePrimaryKey: relation.Type === RelationType.One ? relation.ForeignKey : relation.PrimaryKey,
         callback: arg2,
         queryCallback: arg3,
       };
@@ -940,6 +951,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
             relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
           }));
 
+          (this as unknown as SelectQueryBuilder).setAlias();
           relQuery.rightJoin({
             joinModel: rel.TargetModel,
             joinTableForeignKey: rel.ForeignKey,
@@ -1090,6 +1102,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   protected _owner: IOrmRelation;
 
+  public get Statements() {
+    return this._statements;
+  }
+
   public get Owner(): IOrmRelation {
     return this._owner;
   }
@@ -1136,7 +1152,12 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return (await this) as any;
   }
 
-  public setAlias(alias: string) {
+  public setAlias(alias?: string) {
+
+    if (!alias || alias.trim() === '') {
+      alias = `${this._driver.Options.AliasSeparator}${this._table}${this._driver.Options.AliasSeparator}`;
+    }
+
     this._tableAlias = alias;
 
     this._columns.forEach((c) => (c.TableAlias = alias));
@@ -1158,7 +1179,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._joinStatements = this._joinStatements.map(c => c.clone(builder));
 
     // Clone statements with mapped WhereBuilder references
-    builder._statements = this._statements.map(c => c.clone(builder));
+    builder._statements = this._statements.map(c => c.clone());
 
     /**
      * ------------------------------------------------------------------
