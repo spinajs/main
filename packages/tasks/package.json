@@ -33,7 +33,7 @@
     "lib/**/*"
   ],
   "bin": {
-    "spinajs": "./lib/mjs/cli.js"
+    "spinajs": "./lib/mjs/index.js"
   },
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
   "license": "ISC",
