@@ -562,39 +562,46 @@ export class TimeSpan {
       );
     }
 
-    // Parse string format: "[d.]hh:mm:ss[.fff]"
-    // Examples: "12:30:45", "1.12:30:45", "12:30:45.123"
+    // Parse string format: "[d.]hh:mm[:ss[.fff]]"
+    // Examples: "12:30", "12:30:45", "1.12:30", "1.12:30:45", "12:30:45.123"
     const tokens = span.split(':');
     
-    if (tokens.length < 3) {
-      throw new Error('Invalid TimeSpan format. Expected format: "[d.]hh:mm:ss[.fff]"');
+    if (tokens.length < 2) {
+      throw new Error('Invalid TimeSpan format. Expected format: "[d.]hh:mm[:ss[.fff]]"');
     }
 
-    const secondsParts = tokens[2].split('.');
+    let seconds = 0;
     let milliseconds = 0;
-    if (secondsParts.length === 2) {
-      // Pad or truncate to 3 digits
-      const msString = secondsParts[1].padEnd(3, '0').slice(0, 3);
-      milliseconds = +msString;
+    
+    // Parse seconds and milliseconds if present
+    if (tokens.length >= 3) {
+      const secondsParts = tokens[2].split('.');
+      seconds = +secondsParts[0];
+      
+      if (secondsParts.length === 2) {
+        // Pad or truncate to 3 digits
+        const msString = secondsParts[1].padEnd(3, '0').slice(0, 3);
+        milliseconds = +msString;
+      }
     }
 
     const daysParts = tokens[0].split('.');
     if (daysParts.length === 2) {
-      // Format: "d.hh:mm:ss[.fff]"
+      // Format: "d.hh:mm[:ss[.fff]]"
       return TimeSpan.fromTimeStartingFromDays(
         +daysParts[0],
         +daysParts[1],
         +tokens[1],
-        +secondsParts[0],
+        seconds,
         milliseconds,
       );
     }
 
-    // Format: "hh:mm:ss[.fff]"
+    // Format: "hh:mm[:ss[.fff]]"
     return TimeSpan.fromTimeStartingFromHours(
       +tokens[0],
       +tokens[1],
-      +secondsParts[0],
+      seconds,
       milliseconds,
     );
   }
