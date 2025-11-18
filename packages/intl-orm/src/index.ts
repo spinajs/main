@@ -1,5 +1,5 @@
 import { Container, DI, Inject, Injectable, NewInstance } from '@spinajs/di';
-import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, Orm, OrmRelation, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation, ISelectQueryBuilder } from '@spinajs/orm';
+import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, Orm, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation, ISelectQueryBuilder, NativeOrmRelation } from '@spinajs/orm';
 import { TranslationSource, guessLanguage, defaultLanguage, IIntlAsyncStorage } from '@spinajs/intl';
 import _ from 'lodash';
 import { IntlTranslation } from './models/IntlTranslation.js';
@@ -35,8 +35,8 @@ declare module '@spinajs/orm' {
 
 @NewInstance()
 @Inject(Container)
-export class IntlModelRelation extends OrmRelation {
-  constructor(_container: Container, protected _lang: string, _query: ISelectQueryBuilder, protected _mDescriptor: IModelDescriptor, _parentRelation?: OrmRelation) {
+export class IntlModelRelation extends NativeOrmRelation {
+  constructor(_container: Container, protected _lang: string, _query: ISelectQueryBuilder, protected _mDescriptor: IModelDescriptor, _parentRelation?: NativeOrmRelation) {
     super(
       _container,
       _query,
