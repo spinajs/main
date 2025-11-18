@@ -603,10 +603,10 @@ export class JoinBuilder implements IJoinBuilder {
       options = {
         joinModel: relation.TargetModel,
 
-        // FIX: naming convention for joinTableForeignKey and sourceTablePrimaryKey
-        // now its confucsing
-        joinTableForeignKey: relation.PrimaryKey,
-        sourceTablePrimaryKey: relation.ForeignKey,
+        // if we joining 1:1 relation join table foreign key is primary key of related model
+        // else for 1:N and M:N join table foreign key is foreign key on related model
+        joinTableForeignKey: relation.Type === RelationType.One ? relation.PrimaryKey : relation.ForeignKey,
+        sourceTablePrimaryKey: relation.Type === RelationType.One ? relation.ForeignKey : relation.PrimaryKey,
         callback: arg2,
         queryCallback: arg3,
       };
@@ -1179,7 +1179,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._joinStatements = this._joinStatements.map(c => c.clone(builder));
 
     // Clone statements with mapped WhereBuilder references
-    builder._statements = this._statements.map(c => c.clone(builder));
+    builder._statements = this._statements.map(c => c.clone());
 
     /**
      * ------------------------------------------------------------------

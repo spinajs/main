@@ -398,8 +398,14 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
 
 @NewInstance()
 export class SqlExistsQueryStatement extends ExistsQueryStatement {
-  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement {
-    return new SqlExistsQueryStatement(parent as SelectQueryBuilder, this._not);
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent: T): IQueryStatement {
+
+
+    // TODO: this look wrong to clone _builder, 
+    // it could be shared between statements
+    // and cloning it every time could lead to unexpected results
+    // eg. modifying cloned builder will not behave as expected
+    return new SqlExistsQueryStatement(this._builder.clone(), this._not);
   }
 
   public build(): IQueryStatementResult {
