@@ -159,4 +159,77 @@ describe('fs s3 basic tests', function () {
 
     expect(m.height).to.eq('1080');
   });
+
+  it('should copy file within S3', async () => {
+    const f3 = await f();
+    
+    await f3.copy('Big_Buck_Bunny_1080_10s_30MB.mp4', 'Big_Buck_Bunny_copy.mp4');
+    
+    const exists = await f3.exists('Big_Buck_Bunny_copy.mp4');
+    expect(exists).to.be.true;
+    
+    const originalStat = await f3.stat('Big_Buck_Bunny_1080_10s_30MB.mp4');
+    const copyStat = await f3.stat('Big_Buck_Bunny_copy.mp4');
+    expect(copyStat.Size).to.eq(originalStat.Size);
+  });
+
+  it('should move/rename file', async () => {
+    const f3 = await f();
+    
+    await f3.rename('Big_Buck_Bunny_copy.mp4', 'Big_Buck_Bunny_renamed.mp4');
+    
+    const oldExists = await f3.exists('Big_Buck_Bunny_copy.mp4');
+    expect(oldExists).to.be.false;
+    
+    const newExists = await f3.exists('Big_Buck_Bunny_renamed.mp4');
+    expect(newExists).to.be.true;
+  });
+
+  it('should list files', async () => {
+    const f3 = await f();
+    
+    const files = await f3.list('');
+    
+    expect(files).to.be.an('array');
+    expect(files.length).to.be.greaterThan(0);
+    expect(files).to.include('Big_Buck_Bunny_1080_10s_30MB.mp4');
+  });
+
+  it('should get file hash from metadata', async () => {
+    const f3 = await f();
+    
+    const hash = await f3.hash('Big_Buck_Bunny_1080_10s_30MB.mp4');
+    
+    expect(hash).to.be.a('string');
+    expect(hash.length).to.be.greaterThan(0);
+  });
+
+  it('should handle dirExists (always true for S3)', async () => {
+    const f3 = await f();
+    
+    const exists = await f3.dirExists('any/path');
+    expect(exists).to.be.true;
+  });
+
+  it('should handle isDir (always false for S3)', async () => {
+    const f3 = await f();
+    
+    const isDir = await f3.isDir('Big_Buck_Bunny_1080_10s_30MB.mp4');
+    expect(isDir).to.be.false;
+  });
+
+  it('should throw error for non-existent file exists check with errors', async () => {
+    const f3 = await f();
+    
+    const exists = await f3.exists('definitely-does-not-exist-12345.txt');
+    expect(exists).to.be.false;
+  });
+
+  it('should return empty array when listing empty prefix', async () => {
+    const f3 = await f();
+    
+    const files = await f3.list('non-existent-prefix/');
+    expect(files).to.be.an('array');
+    expect(files.length).to.eq(0);
+  });
 });

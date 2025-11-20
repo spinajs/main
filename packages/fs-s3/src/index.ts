@@ -519,7 +519,7 @@ export class fsS3 extends fs {
     });
 
     const result = await this.S3.send(command);
-    return result.Contents.map((x) => x.Key);
+    return result.Contents?.map((x) => x.Key) ?? [];
   }
 
   public async unzip(_path: string, _destPath?: string, _dstFs?: fs): Promise<string> {
