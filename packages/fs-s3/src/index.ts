@@ -294,17 +294,24 @@ export class fsS3 extends fs {
     }
 
     const dPath = destPath ?? basename(srcPath);
-    const rStream = createReadStream(srcPath);
-
+    
     // calculate from physycal file hash
     // s3 hash gets from metadata
     const hash = await super.hash(srcPath, 'md5');
     const shaHash = await super.hash(srcPath, 'sha256');
 
-    const fInfo = await this.FileInfo.getInfo(this.resolvePath(srcPath));
+    let fInfo: Partial<IFileInfo> = {};
+    
+    try {
+      fInfo = await this.FileInfo.getInfo(this.resolvePath(srcPath));
+      // delete raw information from exif
+      delete fInfo.Raw;
+    } catch (err) {
+      this.Logger.warn(`Could not extract file info for ${srcPath}: ${err.message}`);
+    }
 
-    // delete raw information from exif
-    delete fInfo.Raw;
+    // Create stream after file info extraction to ensure it hasn't been consumed
+    const rStream = createReadStream(srcPath);
 
     const upload = new Upload({
       client: this.S3,
@@ -313,14 +320,12 @@ export class fsS3 extends fs {
         Key: dPath,
         Body: rStream,
 
-        // content md5 header is always base64 encoded
-        ContentMD5: Buffer.from(hash, 'hex').toString('base64'),
-
         // convert all metadata values to string, and back to object with key-value pair of strings
         Metadata: Object.fromEntries(
           Object.entries({
             ...fInfo,
             hash: shaHash,
+            md5: hash,
           }).map(([key, value]) => [key, String(value)]),
         ),
       },
