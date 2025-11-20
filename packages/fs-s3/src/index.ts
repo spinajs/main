@@ -9,6 +9,8 @@ import {
   DeleteObjectCommand,
   ListObjectsV2Command,
   GetObjectCommand,
+  HeadBucketCommand,
+  CreateBucketCommand,
 } from '@aws-sdk/client-s3';
 
 import { Upload } from '@aws-sdk/lib-storage';
@@ -78,7 +80,35 @@ export class fsS3 extends fs {
     super();
   }
 
+  /**
+   * Ensures the S3 bucket exists, creating it if necessary
+   * @private
+   */
+  private async ensureBucketExists(): Promise<void> {
+    try {
+      this.Logger.trace(`Checking if bucket '${this.Options.bucket}' exists`);
+      await this.S3.send(new HeadBucketCommand({ Bucket: this.Options.bucket }));
+      this.Logger.info(`Bucket '${this.Options.bucket}' exists and is accessible`);
+    } catch (error) {
+      if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+        this.Logger.warn(`Bucket '${this.Options.bucket}' does not exist, attempting to create it`);
+        try {
+          await this.S3.send(new CreateBucketCommand({ Bucket: this.Options.bucket }));
+          this.Logger.info(`Successfully created bucket '${this.Options.bucket}'`);
+        } catch (createError) {
+          this.Logger.error(`Failed to create bucket '${this.Options.bucket}': ${createError.message}`);
+          throw createError;
+        }
+      } else {
+        this.Logger.error(`Error checking bucket '${this.Options.bucket}': ${error.message}`);
+        throw error;
+      }
+    }
+  }
+
   public async resolve() {
+    this.Logger.info(`Initializing S3 file provider '${this.Options.name}' for bucket '${this.Options.bucket}'`);
+    
     this.S3 = new S3Client(
       Object.assign({}, this.AwsConfig, {
         endpoint: this.AwsConfig.endpoint ?? undefined,
@@ -92,9 +122,37 @@ export class fsS3 extends fs {
       }),
     );
 
+    // Check if bucket exists, create if it doesn't
+    await this.ensureBucketExists();
+
     if (this.Options.signer) {
+      this.Logger.info(`Initializing URL signer for service '${this.Options.signer.service}'`);
       this.Signer = await DI.resolve(this.Options.signer.service, [this.Options.signer]);
+      this.Logger.trace(`URL signer initialized successfully`);
     }
+
+    this.Logger.info(`S3 file provider '${this.Options.name}' initialized successfully`);
+  }
+
+  /**
+   * Cleanup method to properly close S3 client connections
+   * This ensures the event loop can exit and the process can terminate
+   */
+  public async dispose(): Promise<void> {
+    this.Logger.trace(`Disposing S3 provider '${this.Options.name}'`);
+    
+    if (this.TempFs) {
+      this.Logger.trace(`Disposing TempFs for provider '${this.Options.name}'`);
+      await this.TempFs.dispose();
+    }
+    
+    if (this.S3) {
+      this.Logger.trace(`Destroying S3 client for provider '${this.Options.name}'`);
+      this.S3.destroy();
+      this.Logger.info(`S3 client destroyed for provider '${this.Options.name}'`);
+    }
+    
+    this.Logger.info(`S3 provider '${this.Options.name}' disposed successfully`);
   }
 
   /**
@@ -164,14 +222,6 @@ export class fsS3 extends fs {
    * Write to file string or buffer
    */
   public async write(path: string, data: string | Uint8Array, encoding?: BufferEncoding) {
-    const fInfo = await this.FileInfo.getInfo(this.resolvePath(path));
-
-    // calculate from physycal file hash
-    // s3 hash gets from metadata
-    const shaHash = await super.hash(path, 'sha256');
-
-    delete fInfo.Raw;
-
     const upload = new Upload({
       client: this.S3,
       params: {
@@ -179,14 +229,6 @@ export class fsS3 extends fs {
         Key: path,
         Body: data,
         ContentEncoding: encoding,
-
-        // add metadata to file
-        Metadata: Object.fromEntries(
-          Object.entries({
-            ...fInfo,
-            hash: shaHash,
-          }).map(([key, value]) => [key, String(value)]),
-        ),
       },
     });
 

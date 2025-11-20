@@ -4,13 +4,13 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { fs, FsBootsrapper } from '@spinajs/fs';
+import { fs, FsBootsrapper, fsService } from '@spinajs/fs';
 import './../src/index.js';
 import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
-import { expect } from 'chai';
 import { fsS3 } from './../src/index.js';
 import { existsSync, statSync } from 'fs';
+import { expect } from 'chai';
 
 async function f() {
   return await DI.resolve<fs>('__file_provider__', ['aws']);
@@ -33,9 +33,25 @@ describe('fs s3 basic tests', function () {
 
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
+    await DI.resolve(fsService);
+  
   });
 
-  after(async () => {});
+  after(async () => {
+    // Cleanup all providers to allow process to exit
+    try {
+      const f3 = await f();
+      await f3.dispose();
+      
+      const fLocal = await fl();
+      await fLocal.dispose();
+      
+      const fTemp = await ft();
+      await fTemp.dispose();
+    } catch (err) {
+      console.error('Error during cleanup:', err);
+    }
+  });
 
   afterEach(() => {
     sinon.restore();
@@ -64,7 +80,7 @@ describe('fs s3 basic tests', function () {
     const content = await f3.read('test.txt');
 
     expect(content).to.eq('hello world');
-  });
+  }); 
 
   it('Should readable stream work', async () => {
     const f3 = await f();

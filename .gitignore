@@ -74,3 +74,4 @@ npm-debug.log
 /packages/fs/test/temp
 /packages/http/test/test2-files
 /packages/http/test/fs
+/packages/fs-s3/test/temp
