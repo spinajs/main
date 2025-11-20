@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-pdf",
-  "version": "2.0.414",
+  "version": "2.0.415",
   "description": "Templates support for pdf files. It uses  as template engine and pdfkit as pdf generator.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -54,11 +54,11 @@
     "@types/express": "^5.0.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.414",
-    "@spinajs/di": "^2.0.414",
-    "@spinajs/exceptions": "^2.0.414",
-    "@spinajs/log": "^2.0.414",
-    "@spinajs/templates": "^2.0.414",
+    "@spinajs/configuration": "^2.0.415",
+    "@spinajs/di": "^2.0.415",
+    "@spinajs/exceptions": "^2.0.415",
+    "@spinajs/log": "^2.0.415",
+    "@spinajs/templates": "^2.0.415",
     "puppeteer": "^24.21.0",
     "unbzip2-stream": "^1.4.3",
     "cors": "^2.8.5",
