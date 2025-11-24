@@ -65,7 +65,7 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
         }
       } else {
         if ((model as any)[val.Name]) {
-          const v = [...((model as any)[val.Name] as Relation<ModelBase, any>)];
+          const v = [...((model as any)[val.Name] as Relation<ModelBase, any, typeof ModelBase>)];
           if (v.length === 0) {
             (obj as any)[val.Name] = [];
           } else {

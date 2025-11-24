@@ -438,7 +438,7 @@ export class ModelBase<M = unknown> implements IModelBase {
               (data as any)[rel[0]].Value = this;
             }
           case RelationType.ManyToMany:
-            ((this as any)[v.Name] as Relation<ModelBase, ModelBase>).push(data);
+            ((this as any)[v.Name] as Relation<ModelBase, ModelBase, typeof ModelBase>).push(data);
             break;
         }
       }

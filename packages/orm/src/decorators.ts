@@ -360,9 +360,9 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
   });
 }
 
-export function Virtual(virtualRelation?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>>) {
+export function Virtual(virtualRelation?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>>) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
+    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
 
     model.Relations.set(propertyKey, {
       Name: propertyKey,
@@ -433,13 +433,13 @@ export interface IRelationDecoratorOptions {
    * Relation factory, sometimes we dont want to create standard relation object.
    * When creating object and specific relation is created via this factory
    */
-  factory?: (owner: ModelBase, relation: IRelationDescriptor, container: IContainer) => Relation<ModelBase<unknown>, ModelBase<unknown>>;
+  factory?: (owner: ModelBase, relation: IRelationDescriptor, container: IContainer) => Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>;
 
   /**
    *  sometimes we dont want to create standard relation object, so we create type
    *  that is passed in this property
    */
-  type?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>>;
+  type?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>>;
 }
 
 export interface IHasManyToManyDecoratorOptions extends IRelationDecoratorOptions {
@@ -485,7 +485,7 @@ export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
  */
 export function HasMany(targetModel: Constructor<ModelBase> | string, options?: IHasManyDecoratorOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
+    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
 
     model.Relations.set(propertyKey, {
       Name: propertyKey,
@@ -570,7 +570,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       descriptor.JunctionModelTargetModelFKey_Name = options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`;
     }
 
-    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
+    let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);
 
     model.Relations.set(propertyKey, descriptor);
   });

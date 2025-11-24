@@ -125,7 +125,7 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
   /**
    * Populates this relation ( loads all data related to owner of this relation)
    */
-  populate(callback?: (this: ISelectQueryBuilder<this>) => void): Promise<void>;
+  populate(callback?: (this: ISelectQueryBuilder<R[]>) => void): Promise<void>;
 }
 
 export interface DbServerResponse {
@@ -509,13 +509,13 @@ export interface IRelationDescriptor {
   /**
    * Relation factory, sometimes we dont want to create standard relation object
    */
-  Factory?: (model: ModelBase<unknown>, relation: IRelationDescriptor, container: IContainer, data: any[]) => Relation<ModelBase<unknown>, ModelBase<unknown>>;
+  Factory?: (model: ModelBase<unknown>, relation: IRelationDescriptor, container: IContainer, data: any[]) => Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>;
 
   /**
    *  sometimes we dont want to create standard relation object, so we create type
    *  that is passed in this property
    */
-  RelationClass?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>> | (() => Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>>>);
+  RelationClass?: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>> | (() => Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>>);
 }
 
 export interface IModelStatic extends Constructor<ModelBase<unknown>> {

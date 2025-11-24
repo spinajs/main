@@ -55,7 +55,7 @@ export class Dataset {
  * It allows to add / remove objects to relation
  */
 @NewInstance()
-export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> implements IRelation<R, O> {
+export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q extends typeof ModelBase<R> = typeof ModelBase<R>> extends Array<R> implements IRelation<R, O> {
   public TargetModelDescriptor: IModelDescriptor;
 
   public Populated: boolean = false;
@@ -182,7 +182,7 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>> e
   /**
    * Populates this relation ( loads all data related to owner of this relation)
    */
-  public abstract populate(callback?: (this: ISelectQueryBuilder<this>) => void): Promise<void>;
+  public abstract populate(callback?: (this: ISelectQueryBuilder<R[]> & Q['_queryScopes']) => void): Promise<void>;
 }
 
 @NewInstance()
@@ -252,7 +252,7 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
 }
 
 @NewInstance()
-export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
+export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O, typeof ModelBase<T>> {
 
   protected junctionModelDescriptor: IModelDescriptor;
 
@@ -349,14 +349,11 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   }
 
 
-  public async populate(callback?: (this: ISelectQueryBuilder<this>) => void) {
+  public async populate<Q extends typeof ModelBase>(callback?: (this: ISelectQueryBuilder<T[]> & Q['_queryScopes']) => void) {
     const query = (this.Relation.JunctionModel as any).where((this as any).Relation.JunctionModelSourceModelFKey_Name, this.Owner.PrimaryKeyValue).populate(
-      this.Relation.TargetModel
+      this.Relation.TargetModel, callback
     )
-
-    if (callback) {
-      callback.apply(query);
-    }
+ 
     const result = await query;
 
     if (result) {
@@ -389,7 +386,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
 }
 
 @NewInstance()
-export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O> {
+export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O, typeof ModelBase<T>> {
   /**
    * Deletes from db data that are not in relation
    *
@@ -415,7 +412,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
   /**
    * Populates this relation ( loads all data related to owner of this relation)
    */
-  public async populate(callback?: (this: ISelectQueryBuilder<this>) => void): Promise<void> {
+  public async populate<Q extends typeof ModelBase>(callback?: (this: ISelectQueryBuilder<T[]> & Q['_queryScopes']) => void): Promise<void> {
     const query = (this.Relation.TargetModel as any).where(this.Relation.ForeignKey, this.Owner.PrimaryKeyValue);
     if (callback) {
       callback.apply(query);
