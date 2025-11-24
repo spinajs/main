@@ -276,15 +276,49 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     throw new Error('Method not implemented.');
   }
 
-  public set(obj: T[], _callback?: (a: T, b: T) => boolean): void {
+  /**
+ * Sets data in relation ( clear data and replace with new dataset )
+ *
+ * @param obj
+ */
+  public set(obj: T[] | ((data: T[], pKeyName: string) => T[])) {
     const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor.PrimaryKey) : obj;
     this.empty();
     this.push(...toPush);
   }
 
-  public remove(_obj: T | T[] | ((a: T) => boolean)): T[] {
-    throw new Error('Method not implemented.');
+  /**
+   * Removes from relation & deletes from db
+   *
+   * @param obj - data to remove
+   */
+  public remove(func: (a: T) => boolean): T[];
 
+  /**
+   * Removes all objects that met condition
+   * @param obj - predicate
+   */
+  public remove(obj: (a: T) => boolean): T[];
+
+  /**
+   * Removes all objects by primary key
+   * @param obj data array to remove
+   */
+  public remove(obj: T[]): T[];
+
+  /**
+   * Removes object by primary key
+   * @param obj data to remove
+   * */
+  public remove(obj: T): T[];
+  public remove(obj: T | T[] | ((a: T) => boolean)): T[] {
+    const toRemove = _.isFunction(obj) ? this.filter(obj) : Array.isArray(obj) ? obj : [obj];
+
+    this.set((data) => {
+      return data.filter((d) => !toRemove.includes(d));
+    });
+
+    return toRemove;
   }
 
   /**
@@ -334,7 +368,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
       const sourceModelRelation = relationsArray.find((r) => r.TargetModel === this.Owner.constructor);
       const targetModelRelation = relationsArray.find((r) => r.TargetModel === f.constructor);
 
-      if(!sourceModelRelation){ 
+      if (!sourceModelRelation) {
         throw new Error(`Junction model relation for source model ${this.Owner.constructor.name} not found.`);
       }
 
@@ -353,13 +387,13 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     const query = (this.Relation.JunctionModel as any).where((this as any).Relation.JunctionModelSourceModelFKey_Name, this.Owner.PrimaryKeyValue).populate(
       this.Relation.TargetModel, callback
     )
- 
+
     const result = await query;
 
     if (result) {
       this.length = 0;
 
-      this.push(...result.map((r : any) => {
+      this.push(...result.map((r: any) => {
         return r[this.Relation.TargetModel.name].Value;
       }));
     }
