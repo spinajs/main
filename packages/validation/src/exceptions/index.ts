@@ -126,6 +126,10 @@ export class ValidationFailed extends Exception {
     const field = error.instancePath || 'root';
     const params = error.params;
 
+    if(error.message){ 
+      return error.message;
+    }
+
     switch (error.keyword) {
       case 'required':
         return `Field '${params.missingProperty}' is required`;
