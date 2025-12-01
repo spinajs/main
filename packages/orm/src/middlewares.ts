@@ -3,7 +3,7 @@ import { IRelationDescriptor, IModelDescriptor, RelationType, IBuilderMiddleware
 import { ModelBase } from './model.js';
 import _ from 'lodash';
 import { ManyToManyRelationList, OneToManyRelationList, SingleRelation } from './relation-objects.js';
-import { BelongsToRelation } from './relations.js';
+import { BelongsToRelation, NativeOrmRelation } from './relations.js';
 import { DI } from '@spinajs/di';
 import { OrmException } from './exceptions.js';
 import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
@@ -166,7 +166,7 @@ export class QueryRelationMiddleware implements IBuilderMiddleware {
 }
 
 export class VirtualRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected callback: (data: ModelBase[]) => Promise<ISelectQueryBuilder>, protected mapper: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[], protected _description: IRelationDescriptor) { }
+  constructor(protected relationCallback:  (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void, protected callback: (data: ModelBase[]) => Promise<ISelectQueryBuilder>, protected mapper: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[], protected _description: IRelationDescriptor) { }
   public afterQuery(data: any[]): any[] {
     return data;
   }
@@ -177,7 +177,7 @@ export class VirtualRelationMiddleware implements IBuilderMiddleware {
   public async afterHydration(data: ModelBase[]): Promise<any[] | void> {
     return Promise.all(data.map(async d => {
       const relationInstance = DI.resolve(this._description.RelationClass, [d, this._description]);
-      await relationInstance.populate();
+      await relationInstance.populate(this.relationCallback);
 
       (d as any)[this._description.Name] = relationInstance;
     }));

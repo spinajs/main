@@ -48,7 +48,7 @@ function _paramCheck<T>(callback: () => T, err: string) {
 
 
 export abstract class OrmRelation implements IOrmRelation {
- 
+
   public get Name() {
     return this._description.Name;
   }
@@ -66,7 +66,7 @@ export abstract class OrmRelation implements IOrmRelation {
 
   public abstract compile(): void;
 
-  public abstract execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void) : void;
+  public abstract execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void): void;
   public abstract executeOnQuery(callback: (this: ISelectQueryBuilder<any>, relation: NativeOrmRelation) => void): void;
 }
 
@@ -207,15 +207,19 @@ export class QueryRelation extends NativeOrmRelation {
 @NewInstance()
 @Inject(Container)
 export class VirtualRelation extends OrmRelation {
-  public execute(_callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void): void {
+
+  protected _relationCallback:  (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void;
+
+  public execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void): void {
+    this._relationCallback = callback;
   }
-    
+
   public executeOnQuery(_callback: (this: ISelectQueryBuilder<any>, relation: NativeOrmRelation) => void): void {
-     
+
   }
 
   public compile(): void {
-    this._query.middleware(new VirtualRelationMiddleware(this._description.Callback, this._description.Mapper, this._description));
+    this._query.middleware(new VirtualRelationMiddleware(this._relationCallback, this._description.Callback, this._description.Mapper, this._description));
   }
 }
 
