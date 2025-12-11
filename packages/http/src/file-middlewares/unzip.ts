@@ -9,7 +9,7 @@ export class UnzipFileTransformer extends FileUploadMiddleware {
     @Logger('http')
     protected Log: Log;
 
-    public async transform(file: IUploadedFile<any>): Promise<any> {
+    public async beforeUpload(file: IUploadedFile<any>): Promise<any> {
 
         const originalName = file.BaseName;
         const originalSize = file.Size;

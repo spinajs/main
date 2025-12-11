@@ -94,6 +94,47 @@ export interface IHttpStaticFileConfiguration {
   Path: string;
 }
 
+export enum FileTypeEnum {
+  jpeg = 'jpeg',
+  jpg = 'jpg',
+  png = 'png',
+  gif = 'gif',
+  mp4 = 'mp4',
+  mov = 'mov',
+  mp3 = 'mp3',
+  wav = 'wav',
+  pdf = 'pdf',
+  doc = 'doc',
+  docx = 'docx',
+  xls = 'xls',
+  xlsx = 'xlsx',
+  ppt = 'ppt',
+  pptx = 'pptx',
+  txt = 'txt',
+  zip = 'zip',
+  any = 'any',
+}
+
+export enum FileProportions {
+  '16:9' = '16:9',
+  '4:3' = '4:3',
+  '1:1' = '1:1',
+  '3:4' = '3:4',
+  '9:16' = '9:16',
+  'Free' = 'Free',
+}
+
+export interface FileValidationRules {
+  resolution? : {
+    minWidth?: number;
+    maxWidth?: number;
+    minHeight?: number;
+    maxHeight?: number;
+  }
+  proportions?: FileProportions[];
+  types?: FileTypeEnum[];
+}
+
 export type UploadFileMiddlewareDescriptor = string | Class<FileUploadMiddleware> | { options: any; service: string | Class<FileUploadMiddleware> };
 
 /**
@@ -135,7 +176,7 @@ export interface IUploadedFile<T = any> {
   /**
    *  File info obtained during upload when fileInfo option is set
    */
-  Info?: IFileInfo; 
+  Info?: IFileInfo;
 
   /**
    * Formidable original file data
@@ -156,7 +197,7 @@ export abstract class FormFileUploader {
 }
 
 export abstract class FileUploadMiddleware {
-  public abstract transform(file: IUploadedFile, options?: IUploadOptions): Promise<IUploadedFile>;
+  public abstract beforeUpload(file: IUploadedFile, options?: IUploadOptions): Promise<IUploadedFile>;
 }
 
 export interface IActionLocalStoregeContext {
@@ -679,7 +720,7 @@ export abstract class Response {
   protected _errorCode: number;
   protected _template: string;
 
-  constructor(protected responseData?: string | object | Promise<unknown>, protected options?: IResponseOptions) {}
+  constructor(protected responseData?: string | object | Promise<unknown>, protected options?: IResponseOptions) { }
 
   public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {
     const response = await this.prepareResponse();

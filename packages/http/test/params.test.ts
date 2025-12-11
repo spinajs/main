@@ -632,7 +632,7 @@ describe('controller action test params', function () {
 
     it('fileWithCustomTransformer', async () => {
       const spy = FormParams.prototype.fileWithCustomTransformers as sinon.SinonSpy;
-      const trSpy = TestFileTransformer.prototype.transform as sinon.SinonSpy;
+      const trSpy = TestFileTransformer.prototype.beforeUpload as sinon.SinonSpy;
 
       await req()
         .post('params/forms/fileWithCustomTransformers')

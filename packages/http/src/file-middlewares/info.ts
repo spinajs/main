@@ -12,7 +12,7 @@ export class FileInfoMiddleware extends FileUploadMiddleware {
     @Logger('http')
     protected Log: Log;
 
-    public async transform(file: IUploadedFile<any>, paramOptions: IUploadOptions): Promise<any> {
+    public async beforeUpload(file: IUploadedFile<any>, paramOptions: IUploadOptions): Promise<any> {
 
         /**
          * Only if option is set

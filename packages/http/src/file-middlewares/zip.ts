@@ -9,7 +9,7 @@ export class ZipFileTransformer extends FileUploadMiddleware {
     @Logger('http')
     protected Log: Log;
 
-    public async transform(file: IUploadedFile<any>): Promise<IUploadedFile<any>> {
+    public async beforeUpload(file: IUploadedFile<any>): Promise<IUploadedFile<any>> {
         const originalName = file.BaseName;
         const originalSize = file.Size;
 

@@ -156,7 +156,7 @@ export class FromFile extends FromFormBase {
 
     let uFiles: IUploadedFile<any>[] = uplFiles;
 
-    const middlewares = [...param.Options?.middlewares, ... this.DefaultFileMiddlewares].map((m) => {
+    const middlewares = [... this.DefaultFileMiddlewares, ...param.Options?.middlewares].map((m) => {
       return DI.resolve<FileUploadMiddleware>(typeof m.hasOwnProperty('service') ? m : (m as any).service, [(m as any).options]);
     });
 
@@ -166,7 +166,7 @@ export class FromFile extends FromFormBase {
         this.Log.trace(`Executing file middleware ${m.constructor.name} for file ${f.Name}`);
 
         try {
-          const result = await m.transform(f, param.Options);
+          const result = await m.beforeUpload(f, param.Options);
           // merge transform result
           Object.assign(f, result);
         } catch (err) {
