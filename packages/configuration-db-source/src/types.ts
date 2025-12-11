@@ -44,7 +44,6 @@ declare module '@spinajs/configuration-common' {
      * DB expose options
      */
     exposeOptions?: {
-      slug?: string;
       group?: string;
       type: ConfigurationEntryType;
       meta?: IConfigurationEntryMeta;
