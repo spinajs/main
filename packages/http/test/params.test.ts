@@ -659,6 +659,70 @@ describe('controller action test params', function () {
 
       expect(spy.args[0][0]).to.be.not.undefined;
     });
+
+    const tinyPng = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Yt6Wq4AAAAASUVORK5CYII=',
+      'base64',
+    );
+
+    it('fileWithInfo adds metadata', async () => {
+      const spy = FormParams.prototype.fileWithInfo as sinon.SinonSpy;
+      const response = await req()
+        .post('params/forms/fileWithInfo')
+        .attach('file', tinyPng, { filename: 'tiny.png', contentType: 'image/png' });
+
+      expect(response).to.have.status(200);
+      expect(spy.args[0][0].Info).to.be.not.undefined;
+      expect(spy.args[0][0].Info?.MimeType).to.eq('image/png');
+      expect(spy.args[0][0].Info?.Width).to.be.greaterThan(0);
+      expect(spy.args[0][0].Info?.Height).to.be.greaterThan(0);
+    });
+
+    it('fileWithValidation accepts valid png', async () => {
+      const spy = FormParams.prototype.fileWithValidation as sinon.SinonSpy;
+      const response = await req()
+        .post('params/forms/fileWithValidation')
+        .attach('file', tinyPng, { filename: 'tiny.png', contentType: 'image/png' });
+
+      expect(response).to.have.status(200);
+      expect(spy.args[0][0].Name).to.eq('tiny.png');
+    });
+
+    it('fileWithValidation rejects invalid type', async () => {
+      const response = await req()
+        .post('params/forms/fileWithValidation')
+        .set('Accept', 'application/json')
+        .attach('file', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
+
+      expect(response).to.have.status(400);
+      expect(response.body).to.deep.include({
+        message: 'validation error',
+        parameter: [
+          {
+            instancePath: '/file/type',
+            schemaPath: '#/properties/file/type',
+            keyword: 'type',
+            params: {
+              allowedTypes: ['image/png'],
+              actual: 'text/plain',
+            },
+            message: 'File type must be one of: image/png. Got: text/plain',
+          },
+        ],
+        details: [
+          {
+            field: '/file/type',
+            rule: 'type',
+            message: 'File type must be one of: image/png. Got: text/plain',
+            params: {
+              allowedTypes: ['image/png'],
+              actual: 'text/plain',
+            },
+          },
+        ],
+      });
+      expect(response.body.stack).to.be.undefined;
+    });
   });
 
   describe('coockie params', function () {

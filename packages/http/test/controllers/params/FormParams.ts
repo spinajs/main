@@ -1,4 +1,4 @@
-import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFile, ZipFileTransformer, UnzipFileTransformer } from '../../../src/index.js';
+import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFile, ZipFileTransformer, UnzipFileTransformer, FileInfoMiddleware, FileValidationMiddleware, FileProportions } from '../../../src/index.js';
 import { SampleModelWithHydrator3, SampleObject } from '../../dto/index.js';
 import { SampleModel } from '../../dto/index.js';
 import { TestTransformer } from '../../file-transformers/custom-file-transformer.js';
@@ -81,6 +81,30 @@ export class FormParams extends BaseController {
 
   @Post()
   public fileWithUnzipTransformer(@File({ middlewares: [UnzipFileTransformer] }) file: IUploadedFile) {
+    return new Ok(file);
+  }
+
+  @Post()
+  public fileWithInfo(@File({ middlewares: [FileInfoMiddleware] }) file: IUploadedFile) {
+    return new Ok(file);
+  }
+
+  @Post()
+  public fileWithValidation(
+    @File({
+      middlewares: [
+        {
+          service: FileValidationMiddleware,
+          options: {
+            types: ['image/png'],
+            proportions: [FileProportions['1:1']],
+            resolution: { minWidth: 1, minHeight: 1, maxWidth: 100, maxHeight: 100 },
+          },
+        },
+      ],
+    })
+    file: IUploadedFile,
+  ) {
     return new Ok(file);
   }
 }

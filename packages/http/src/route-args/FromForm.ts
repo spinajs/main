@@ -3,7 +3,7 @@ import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOpt
 import * as express from 'express';
 import formidable, { Fields, Files, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
-import { Class, DI, Injectable, NewInstance } from '@spinajs/di';
+import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs, fsNative } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
@@ -156,22 +156,26 @@ export class FromFile extends FromFormBase {
 
     let uFiles: IUploadedFile<any>[] = uplFiles;
 
-    const middlewares = [... this.DefaultFileMiddlewares, ...param.Options?.middlewares].map((m) => {
-      return DI.resolve<FileUploadMiddleware>(typeof m.hasOwnProperty('service') ? m : (m as any).service, [(m as any).options]);
+    const middlewareDescriptors = [
+      ...(this.DefaultFileMiddlewares ?? []),
+      ...(param.Options?.middlewares ?? []),
+    ];
+
+    const middlewares = middlewareDescriptors.map((m) => {
+      if (typeof m === 'string' || typeof m === 'function') {
+        return DI.resolve<FileUploadMiddleware>(m as any);
+      }
+
+      const { service, options } = m as UploadFileMiddlewareDescriptor & { service: any; options?: any };
+      return DI.resolve<FileUploadMiddleware>(service, [options]);
     });
 
     for (const m of middlewares) {
       for (const f of uplFiles) {
-
         this.Log.trace(`Executing file middleware ${m.constructor.name} for file ${f.Name}`);
-
-        try {
-          const result = await m.beforeUpload(f, param.Options);
-          // merge transform result
-          Object.assign(f, result);
-        } catch (err) {
-          this.Log.error(err, `Error during file middleware  ${m.constructor.name} on file ${f.Name}`);
-        }
+        const result = await m.beforeUpload(f, param.Options);
+        // merge transform result
+        Object.assign(f, result);
       }
     }
 

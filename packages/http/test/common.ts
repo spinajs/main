@@ -102,9 +102,18 @@ export class TestConfiguration extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       http: {
+
+        /**
+        * File upload default middlewares
+        */
+        upload: {
+          middlewares: ['FileInfoMiddleware']
+
+        },
+
         port: 8888,
         middlewares: [
-          helmet(),
+          (helmet as any)(),
           express.json({
             limit: '5mb',
           }),
