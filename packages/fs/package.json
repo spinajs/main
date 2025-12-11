@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/fs",
-  "version": "2.0.417",
+  "version": "2.0.418",
   "description": "wrapper for file operations",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,9 +51,9 @@
   "homepage": "https://github.com/spinajs/exceptions#readme",
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee",
   "dependencies": {
-    "@spinajs/exceptions": "2.0.417",
-    "@spinajs/log-common": "2.0.417",
-    "@spinajs/util": "2.0.417",
+    "@spinajs/exceptions": "2.0.418",
+    "@spinajs/log-common": "2.0.418",
+    "@spinajs/util": "2.0.418",
     "archiver": "^5.3.1",
     "exiftool": "0.0.3",
     "file-type": "^20.5.0",
