@@ -41,34 +41,26 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       return null;
     }
 
-    const final = await this.LoadConfigurationFromDB();
-
-    InternalLogger.success(`Configuration merged`, 'Configuration-db-source');
-
-    return final;
-  }
-
-  protected async LoadConfigurationFromDB() {
     const dbOptions = await this.Connection.select<IConfigurationEntry[]>().from(this.Options.table);
 
     dbOptions.forEach((entry) => {
       entry.Value = parse(entry.Value as unknown as string, entry.Type);
     });
 
-    const grouped = _.groupBy(dbOptions, 'Group');
     const final: IConfigLike = {
       onConfigLoad: null,
     };
-    for (const k in grouped) {
-      final[k] = {};
-      for (const v of grouped[k]) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        (final[k] as IConfigLike)[v.Slug] = v.Value;
-      }
-    }
+    dbOptions.forEach((entry) => {
+      InternalLogger.trace(`Loaded config ${entry.Slug} from db source`, 'Configuration-db-source');
+      _.set(final, entry.Slug, entry.Value);
+    });
+
+    InternalLogger.success(`DB configuration loaded`, 'Configuration-db-source');
 
     return final;
   }
+
+
 
   protected async CheckTable() {
     return await this.Connection.schema().tableExists(this.Options.table);

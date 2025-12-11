@@ -21,7 +21,7 @@ function __saveConfigOptions(v: __dbCOnfigOptions) {
     void DbConfig.insert(
       {
         Slug: v.path,
-        Value: v.options.defaultValue,
+        Value: v.options.exposeOptions.type === 'json' ? JSON.stringify(v.options.defaultValue) : v.options.defaultValue,
         Group: v.options.exposeOptions?.group,
         Label: v.options.exposeOptions?.label,
         Description: v.options.exposeOptions?.description,
@@ -29,7 +29,7 @@ function __saveConfigOptions(v: __dbCOnfigOptions) {
         Required: v.options.required,
         Type: v.options.exposeOptions?.type,
         Watch: v.options.exposeOptions?.watch ?? false,
-        Default: v.options.defaultValue ?? undefined,
+        Default: v.options.exposeOptions.type === 'json' ? JSON.stringify(v.options.defaultValue) : v.options.defaultValue ?? undefined,
         Exposed: true,
       },
       InsertBehaviour.InsertOrIgnore,
