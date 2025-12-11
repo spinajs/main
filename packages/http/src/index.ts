@@ -6,5 +6,5 @@ export * from './route-args/index.js';
 export * from './controllers.js';
 export * from './server.js';
 export * from './transformers/index.js';
-export * from './file-transformers/index.js';
+export * from './file-middlewares/index.js';
 export * from './bootstrap.js';

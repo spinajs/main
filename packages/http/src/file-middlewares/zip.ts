@@ -1,10 +1,11 @@
-import { Injectable } from "@spinajs/di";
-import { FileTransformer, IUploadedFile } from "../interfaces.js";
+import { Injectable, Singleton } from "@spinajs/di";
+import { FileUploadMiddleware, IUploadedFile } from "../interfaces.js";
 import { Log, Logger } from "@spinajs/log-common";
 import Path from 'path';
 
 @Injectable()
-export class ZipFileTransformer extends FileTransformer {
+@Singleton()
+export class ZipFileTransformer extends FileUploadMiddleware {
     @Logger('http')
     protected Log: Log;
 

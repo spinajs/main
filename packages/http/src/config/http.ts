@@ -57,6 +57,14 @@ const http = {
   },
 
   http: {
+    /**
+     * File upload default middlewares
+     */
+    upload: {
+      middlewares: ['FileInfoMiddleware']
+
+    },
+    
     ssl: {
       key: '',
       cert: '',

@@ -1,6 +1,6 @@
 import * as express from 'express';
 import { Constructor, AsyncService, Class, isPromise } from '@spinajs/di';
-import { fs } from '@spinajs/fs';
+import { fs, IFileInfo } from '@spinajs/fs';
 import formidable from 'formidable';
 import { CookieOptions } from 'express';
 import { httpResponse } from './responses.js';
@@ -94,6 +94,8 @@ export interface IHttpStaticFileConfiguration {
   Path: string;
 }
 
+export type UploadFileMiddlewareDescriptor = string | Class<FileUploadMiddleware> | { options: any; service: string | Class<FileUploadMiddleware> };
+
 /**
  * Uploaded file fields
  */
@@ -131,6 +133,11 @@ export interface IUploadedFile<T = any> {
   Data?: T;
 
   /**
+   *  File info obtained during upload when fileInfo option is set
+   */
+  Info?: IFileInfo; 
+
+  /**
    * Formidable original file data
    */
   OriginalFile: formidable.File;
@@ -148,8 +155,8 @@ export abstract class FormFileUploader {
   public abstract upload(file: IUploadedFile): Promise<IUploadedFile>;
 }
 
-export abstract class FileTransformer {
-  public abstract transform(file: IUploadedFile): Promise<IUploadedFile>;
+export abstract class FileUploadMiddleware {
+  public abstract transform(file: IUploadedFile, options?: IUploadOptions): Promise<IUploadedFile>;
 }
 
 export interface IActionLocalStoregeContext {
@@ -453,10 +460,10 @@ export interface IUploadOptions {
   uploader?: string | Class<FormFileUploader> | { options: any; service: string | Class<FormFileUploader> };
 
   /**
-   * File transofmers, eg. after upload file can be transformed to other format or zipped.
-   * Transformes are executed before file is uploaded to final destination by uploader
+   * File middlewares, eg. after upload file can be transformed to other format or zipped.
+   * Middlewares are executed before file is uploaded to final destination by uploader
    */
-  transformers?: string[] | Class<FileTransformer>[];
+  middlewares?: UploadFileMiddlewareDescriptor[];
 
   /**
    * File system provider used to upload files. Default is taken from configuration - __file_upload_default_provider__

@@ -1,9 +1,9 @@
 import { IRouteArgsResult, RouteArgs } from './RouteArgs.js';
-import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOptions, FormFileUploader, IUploadedFile, FileTransformer } from '../interfaces.js';
+import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOptions, FormFileUploader, IUploadedFile, FileUploadMiddleware, UploadFileMiddlewareDescriptor } from '../interfaces.js';
 import * as express from 'express';
 import formidable, { Fields, Files, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
-import { DI, Injectable, NewInstance } from '@spinajs/di';
+import { Class, DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs, fsNative } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
@@ -62,7 +62,7 @@ const parseForm = (req: express.Request, options: any) => {
 export abstract class FromFormBase extends RouteArgs {
   public FormData: FormData;
 
-  public async extract(callData: IRouteCall,_args : unknown [],  routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute, uploadFs?: fs): Promise<IRouteArgsResult> {
+  public async extract(callData: IRouteCall, _args: unknown[], routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute, uploadFs?: fs): Promise<IRouteArgsResult> {
     if (!this.FormData) {
       const options = {
         ...routeParameter.Options,
@@ -98,6 +98,11 @@ export class FromFile extends FromFormBase {
   @Config('fs.defaultProvider')
   protected DefaultFsProviderName: string;
 
+  @Config('http.upload.middlewares', {
+    defaultValue: [{ service: 'FileInfoMiddleware' }]
+  })
+  protected DefaultFileMiddlewares: UploadFileMiddlewareDescriptor[];
+
   public get SupportedType(): ParameterType {
     return ParameterType.FromFile;
   }
@@ -106,7 +111,7 @@ export class FromFile extends FromFormBase {
     super();
   }
 
-  public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter<IUploadOptions>, req: Request, res: express.Response, route?: IRoute): Promise<any> {
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<IUploadOptions>, req: Request, res: express.Response, route?: IRoute): Promise<any> {
     // copy to provided fs or default temp fs
     // delete intermediate files ( from express ) regardless of copy result
 
@@ -115,7 +120,7 @@ export class FromFile extends FromFormBase {
 
     // extract form data if not processed already
     // and prepare result object
-    const result = await super.extract(callData,_args, param, req, res, route, uploadFs);
+    const result = await super.extract(callData, _args, param, req, res, route, uploadFs);
 
     // get incoming files
     const { Files } = this.FormData;
@@ -151,16 +156,22 @@ export class FromFile extends FromFormBase {
 
     let uFiles: IUploadedFile<any>[] = uplFiles;
 
-    for (const t of param.Options?.transformers ?? []) {
-      const c = Array.isArray(t) ? t[0] : t;
-      const o = Array.isArray(t) ? [t[1]] : [];
-      const transformer = DI.resolve<FileTransformer>(c, o);
+    const middlewares = [...param.Options?.middlewares, ... this.DefaultFileMiddlewares].map((m) => {
+      return DI.resolve<FileUploadMiddleware>(typeof m.hasOwnProperty('service') ? m : (m as any).service, [(m as any).options]);
+    });
 
+    for (const m of middlewares) {
       for (const f of uplFiles) {
-        const result = await transformer.transform(f);
 
-        // merge transform result
-        Object.assign(f, result);
+        this.Log.trace(`Executing file middleware ${m.constructor.name} for file ${f.Name}`);
+
+        try {
+          const result = await m.transform(f, param.Options);
+          // merge transform result
+          Object.assign(f, result);
+        } catch (err) {
+          this.Log.error(err, `Error during file middleware  ${m.constructor.name} on file ${f.Name}`);
+        }
       }
     }
 
@@ -186,15 +197,15 @@ export class FromJsonFile extends FromFile {
     return ParameterType.FromJSONFile;
   }
 
-  public async extract(callData: IRouteCall,_args : unknown [], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
     const data = await super.extract(callData, _args, param, req, res, route);
     const files = this.FormData.Files[param.Name];
     const file = files ? (Array.isArray(files) ? files[0] : files) : null;
-    
+
     if (!file) {
       throw new BadRequest('Missing JSON file');
     }
-    
+
     const sourceFile = file.filepath;
     const content = await promises.readFile(sourceFile, { encoding: param.Options.Encoding ?? 'utf-8', flag: 'r' });
 
@@ -216,8 +227,8 @@ export class FromCSV extends FromFormBase {
     return ParameterType.FromCSV;
   }
 
-  public async extract(callData: IRouteCall,_args : unknown [], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
-    const data = await super.extract(callData,_args, param, req, res, route);
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData, _args, param, req, res, route);
 
     const files = this.FormData.Files[param.Name];
     const file = files ? (Array.isArray(files) ? files[0] : files) : null;
@@ -261,11 +272,11 @@ export class FromFormField extends FromFormBase {
     return ParameterType.FormField;
   }
 
-  public async extract(callData: IRouteCall,_args : unknown [], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
-    const data = await super.extract(callData,_args, param, req, res, route);
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData, _args, param, req, res, route);
     const field = this.FormData.Fields[param.Name];
 
-    if(!field){
+    if (!field) {
       throw new BadRequest(`Form field ${param.Name} is required`);
     }
 
@@ -291,8 +302,8 @@ export class FromForm extends FromFormBase {
     this.FormData = data;
   }
 
-  public async extract(callData: IRouteCall,_args : unknown [], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
-    const data = await super.extract(callData,_args, param, req, res, route);
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+    const data = await super.extract(callData, _args, param, req, res, route);
     let result = null;
 
     // todo

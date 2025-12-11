@@ -70,17 +70,17 @@ export class FormParams extends BaseController {
   }
 
   @Post()
-  public fileWithCustomTransformers(@File({ transformers: [TestTransformer] }) file: IUploadedFile) {
+  public fileWithCustomTransformers(@File({ middlewares: [TestTransformer] }) file: IUploadedFile) {
     return new Ok(file);
   }
 
   @Post()
-  public fileWithZipTransformer(@File({ transformers: [ZipFileTransformer] }) file: IUploadedFile) {
+  public fileWithZipTransformer(@File({ middlewares: [ZipFileTransformer] }) file: IUploadedFile) {
     return new Ok(file);
   }
 
   @Post()
-  public fileWithUnzipTransformer(@File({ transformers: [UnzipFileTransformer] }) file: IUploadedFile) {
+  public fileWithUnzipTransformer(@File({ middlewares: [UnzipFileTransformer] }) file: IUploadedFile) {
     return new Ok(file);
   }
 }
