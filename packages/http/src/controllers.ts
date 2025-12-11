@@ -318,7 +318,27 @@ export class Controllers extends AsyncService {
     ci.name = typeName;
     ci.type = type;
 
-    return await this.register(ci);
+    // ensure dynamically added controllers are registered before 404/error middleware
+    const expressRouter = (this.Server as any).Express?._router;
+    const tail: any[] = [];
+
+    if (expressRouter?.stack?.length) {
+      const last = expressRouter.stack[expressRouter.stack.length - 1];
+      if (last?.handle?.length === 4) {
+        tail.unshift(expressRouter.stack.pop());
+      }
+
+      const last2 = expressRouter.stack[expressRouter.stack.length - 1];
+      if (last2?.handle?.length === 3) {
+        tail.unshift(expressRouter.stack.pop());
+      }
+    }
+
+    await this.register(ci);
+
+    if (tail.length && expressRouter?.stack) {
+      expressRouter.stack.push(...tail);
+    }
   }
 
   public async register(controller: ClassInfo<BaseController>) {

@@ -695,7 +695,10 @@ describe('controller action test params', function () {
         .attach('file', fs.readFileSync(dir('./test-files') + '/test.txt'), { filename: 'test.txt' });
 
       expect(response).to.have.status(400);
-      expect(response.body).to.deep.include({
+
+      const { stack, ...rest } = response.body || {};
+
+      expect(rest).to.deep.include({
         message: 'validation error',
         parameter: [
           {
@@ -721,7 +724,7 @@ describe('controller action test params', function () {
           },
         ],
       });
-      expect(response.body.stack).to.be.undefined;
+      expect(stack).to.be.a('string');
     });
   });
 

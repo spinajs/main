@@ -115,7 +115,8 @@ export class FromFile extends FromFormBase {
     // copy to provided fs or default temp fs
     // delete intermediate files ( from express ) regardless of copy result
 
-    const fsName = param.Options?.fs ? param.Options.fs : '__file_upload_default_provider__';
+    const uploadOptions = param.Options ?? {};
+    const fsName = uploadOptions.fs ? uploadOptions.fs : '__file_upload_default_provider__';
     const uploadFs = DI.resolve<fs>('__file_provider__', [fsName]);
 
     // extract form data if not processed already
@@ -126,7 +127,7 @@ export class FromFile extends FromFormBase {
     const { Files } = this.FormData;
     const files = toArray(Files[param.Name]);
 
-    if (param.Options?.required && files.length === 0) {
+    if (uploadOptions.required && files.length === 0) {
       throw new ValidationFailed(`File ${param.Name} is required`, [
         {
           propertyName: param.Name,
@@ -158,7 +159,7 @@ export class FromFile extends FromFormBase {
 
     const middlewareDescriptors = [
       ...(this.DefaultFileMiddlewares ?? []),
-      ...(param.Options?.middlewares ?? []),
+      ...(uploadOptions.middlewares ?? []),
     ];
 
     const middlewares = middlewareDescriptors.map((m) => {
@@ -173,15 +174,15 @@ export class FromFile extends FromFormBase {
     for (const m of middlewares) {
       for (const f of uplFiles) {
         this.Log.trace(`Executing file middleware ${m.constructor.name} for file ${f.Name}`);
-        const result = await m.beforeUpload(f, param.Options);
+        const result = await m.beforeUpload(f, uploadOptions);
         // merge transform result
         Object.assign(f, result);
       }
     }
 
-    if (param.Options?.uploader) {
-      const type = (param.Options.uploader as any).service ?? param.Options.uploader;
-      const options = (param.Options.uploader as any).options ?? {};
+    if (uploadOptions.uploader) {
+      const type = (uploadOptions.uploader as any).service ?? uploadOptions.uploader;
+      const options = (uploadOptions.uploader as any).options ?? {};
 
       const fu = DI.resolve<FormFileUploader>(type, [options]);
       const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
