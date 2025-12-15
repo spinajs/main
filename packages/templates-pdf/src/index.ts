@@ -21,6 +21,18 @@ interface IPdfRendererOptions {
   renderDurationWarning: number;
   navigationTimeout?: number;
   renderTimeout?: number;
+
+  /**
+   * Debug options
+   */
+  debug?: { 
+
+    /**
+     * If true, browser will remain open after rendering for inspection
+     * Use it with headless: false in args to see the browser window ( puppetter.launch args )
+     */
+    close? : boolean;
+  }
 }
 
 @Injectable(TemplateRenderer)
@@ -88,22 +100,26 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
       browser = await puppeteer.launch(this.Options.args);
       const page = await browser.newPage();
 
-      page.setDefaultNavigationTimeout(this.Options.navigationTimeout || 30000); // Default 30s
-      page.setDefaultTimeout(this.Options.renderTimeout || 30000); // Default 30s
+      // Skip timeouts in debug mode
+      if (!this.Options.debug?.close) {
+        page.setDefaultNavigationTimeout(this.Options.navigationTimeout || 30000); // Default 30s
+        page.setDefaultTimeout(this.Options.renderTimeout || 30000); // Default 30s
+      }
 
-
-      // Set up render timeout
+      // Set up render timeout (skip in debug mode)
       let renderTimeout: NodeJS.Timeout | undefined;
-      const timeoutMs = this.Options.renderTimeout || 30000;
-      renderTimeout = setTimeout(async () => {
-        this.Log.warn(`PDF render timeout (${timeoutMs}ms) - forcing cleanup`);
-        try {
-          if (page) await page.close().catch(() => { });
-          if (browser) await this.forceCloseBrowser(browser);
-        } catch (err) {
-          this.Log.error('Error during timeout cleanup:', err);
-        }
-      }, timeoutMs);
+      if (!this.Options.debug?.close) {
+        const timeoutMs = this.Options.renderTimeout || 30000;
+        renderTimeout = setTimeout(async () => {
+          this.Log.warn(`PDF render timeout (${timeoutMs}ms) - forcing cleanup`);
+          try {
+            if (page) await page.close().catch(() => { });
+            if (browser) await this.forceCloseBrowser(browser);
+          } catch (err) {
+            this.Log.error('Error during timeout cleanup:', err);
+          }
+        }, timeoutMs);
+      }
 
       // Add event listeners with explicit cleanup tracking
       const eventCleanup = this.addPageEventListeners(page);
@@ -145,8 +161,11 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
         this.Log.warn(`Rendering pdf template ${template} to file ${filePath} took too long.`);
       }
 
-      if (browser) {
+      // Skip browser cleanup if debug.close is false (keep browser open for inspection)
+      if (browser && this.Options.debug?.close !== false) {
         await this.safeBrowserCleanup(browser);
+      } else if (browser) {
+        this.Log.info('Browser kept open for debugging (debug.close=false)');
       }
 
       if (server) {
