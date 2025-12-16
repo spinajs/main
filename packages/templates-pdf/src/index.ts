@@ -1,4 +1,4 @@
-import { Browser, PDFOptions, default as puppeteer, PuppeteerLaunchOptions } from 'puppeteer';
+import { Browser, PDFOptions, default as puppeteer, LaunchOptions } from 'puppeteer';
 import { NotSupported } from '@spinajs/exceptions';
 import { TemplateRenderer, Templates } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
@@ -17,7 +17,7 @@ interface IPdfRendererOptions {
   static: {
     portRange: number[];
   };
-  args: PuppeteerLaunchOptions;
+  args: LaunchOptions;
   renderDurationWarning: number;
   navigationTimeout?: number;
   renderTimeout?: number;
