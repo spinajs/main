@@ -18,6 +18,13 @@ interface IPdfRendererOptions {
     portRange: number[];
   };
   args: LaunchOptions;
+
+  /**
+   * Optional path to Chrome/Chromium executable.
+   * Useful when running in environments where Puppeteer cannot download Chromium.
+   * If provided, overrides args.executablePath.
+   */
+  executablePath?: string;
   renderDurationWarning: number;
   navigationTimeout?: number;
   renderTimeout?: number;
@@ -25,13 +32,13 @@ interface IPdfRendererOptions {
   /**
    * Debug options
    */
-  debug?: { 
+  debug?: {
 
     /**
      * If true, browser will remain open after rendering for inspection
      * Use it with headless: false in args to see the browser window ( puppetter.launch args )
      */
-    close? : boolean;
+    close?: boolean;
   }
 }
 
@@ -97,7 +104,14 @@ export class PdfRenderer extends TemplateRenderer implements IInstanceCheck {
         language,
       );
 
-      browser = await puppeteer.launch(this.Options.args);
+      const launchOptions: LaunchOptions = {
+        ...this.Options.args,
+        ...(this.Options.executablePath && {
+          executablePath: this.Options.executablePath,
+        }),
+      };
+
+      browser = await puppeteer.launch(launchOptions);
       const page = await browser.newPage();
 
       // Skip timeouts in debug mode
