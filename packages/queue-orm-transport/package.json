@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue-orm-transport",
-  "version": "2.0.419",
+  "version": "2.0.420",
   "description": "simple job transport based on sqlite. Reads & writes jobs to execute in local sqlite database. used for testing & simple projects",
   
     "main": "lib/cjs/index.js",
@@ -54,11 +54,11 @@
     "@types/node": "^16.11.11"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.419",
-    "@spinajs/di": "^2.0.419",
-    "@spinajs/exceptions": "^2.0.419",
-    "@spinajs/log": "^2.0.419",
-    "@spinajs/orm": "^2.0.419"
+    "@spinajs/configuration": "^2.0.420",
+    "@spinajs/di": "^2.0.420",
+    "@spinajs/exceptions": "^2.0.420",
+    "@spinajs/log": "^2.0.420",
+    "@spinajs/orm": "^2.0.420"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
