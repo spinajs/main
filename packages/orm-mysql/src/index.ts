@@ -144,7 +144,7 @@ export class MySqlOrmDriver extends SqlDriver {
             });
             return;
           }
-          
+
           // Release the test connection
           connection.release();
           resolve(this);
@@ -168,7 +168,7 @@ export class MySqlOrmDriver extends SqlDriver {
         resolve(this);
         return;
       }
-      
+
       this.Pool.end((err) => {
         if (err) {
           reject(err);
@@ -185,15 +185,21 @@ export class MySqlOrmDriver extends SqlDriver {
     const isView = (await this.executeOnDb(`SHOW FULL TABLES where \`Tables_in_${schema}\`='${name}'`, [], QueryContext.Select)) as ITableTypeInfo[];
     let indexInfo: IIndexInfo[] = [];
 
+    if (!isView || isView.length === 0) {
+      throw new OrmException(`Table ${schema}.${name} does not exist`);
+    }
+
+    if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
+      return null;
+    }
+
     if (isView && isView[0].Table_type === 'VIEW') {
       this.Log.trace(`Table ${schema}.${name} is a VIEW and dont have indexes set.`);
     } else {
       indexInfo = (await this.executeOnDb(`SHOW INDEXES FROM ${name}`, [], QueryContext.Select)) as IIndexInfo[];
     }
 
-    if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
-      return null;
-    }
+
 
     return tblInfo.map((r: ITableColumnInfo) => {
       const isPrimary = indexInfo.find((c) => c.Key_name === 'PRIMARY' && c.Column_name === r.COLUMN_NAME) !== undefined;
