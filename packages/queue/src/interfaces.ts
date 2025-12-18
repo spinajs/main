@@ -327,7 +327,6 @@ export interface IQueueConnectionOptions {
   queue?: string;
   options?: any;
   type: 'event' | 'job';
-  debug?: boolean;
 
   /**
    * Default topic ( events ) channel in broker

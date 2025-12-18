@@ -25,6 +25,9 @@ export class StompQueueClient extends QueueClient {
   }
 
   public async resolve() {
+
+    this.Log.info(`Connecting to STOMP queue at ${this.Options.host} with client-id: ${this.ClientId} ...`);
+
     this.Client = new Stomp.Client({
       brokerURL: this.Options.host,
       connectHeaders: {
@@ -40,11 +43,10 @@ export class StompQueueClient extends QueueClient {
       ...this.Options.options,
     });
 
-    if (this.Options.debug) {
-      this.Client.debug = (str: string) => {
-        this.Log.trace(str);
-      };
-    }
+    this.Client.debug = (str: string) => {
+      this.Log.trace(`${str}, Client-id: ${this.ClientId}, name: ${this.Options.name}`);
+    };
+
 
     return new Promise<void>((resolve, reject) => {
       this.Client.onStompError = (frame) => {
