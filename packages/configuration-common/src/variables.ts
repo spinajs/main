@@ -110,6 +110,8 @@ export function format(customVars: ConfVariables | null, layout: string): string
  */
 // eslint-disable-next-line security/detect-unsafe-regex
 const LayoutRegexp = /\$\{([^:\}]*)(:([^\}]*))?\}/gm;
+// eslint-disable-next-line security/detect-unsafe-regex
+const ConditionalRegexp = /\$\{\?([a-zA-Z0-9_]+)\}(.*?)\$\{\/\1\}/gs;
 const Vars: Map<string, ConfigVariable> = new Map<string, ConfigVariable>();
 
 /**
@@ -136,14 +138,28 @@ function _format(vars: ConfVariables, txt: string) {
     DI.resolve(Array.ofType(ConfigVariable)).forEach((v: ConfigVariable) => Vars.set(v.Name, v));
   }
 
+  // Reset regex state before use (important for global regexes)
+  ConditionalRegexp.lastIndex = 0;
+ 
+  // First, process conditional blocks ${?variable}...${/variable}
+  // We need to evaluate the condition BEFORE replacing variables in the content
+  let result = txt.replace(ConditionalRegexp, (_, varName, content) => {
+    const value = vars?.[varName];
+    // Only render the content if the variable exists and is truthy
+    if (value !== undefined && value !== null && value !== '') {
+      // Return the content to be processed for variable substitution
+      return content;
+    }
+    return '';
+  });
+  
+
   LayoutRegexp.lastIndex = 0;
 
-  const varMatch = [...txt.matchAll(LayoutRegexp)];
+  const varMatch = [...result.matchAll(LayoutRegexp)];
   if (!varMatch) {
-    return '';
+    return result;
   }
-
-  let result = txt;
 
   varMatch.forEach((v) => {
     if (vars && vars[v[1]]) {
@@ -158,7 +174,7 @@ function _format(vars: ConfVariables, txt: string) {
         }
 
         // optional parameter eg. {object:property}
-        result = result.replace(v[0], fVar[v[3]] ?? null);
+        result = result.replace(v[0], fVar[v[3]] ?? '');
       }
       else {
         result = _replaceAll(result, v[0], fVar);

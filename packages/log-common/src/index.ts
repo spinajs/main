@@ -188,14 +188,14 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncServ
       this.Options = _.merge(
         _.merge(this.Options, {
           enabled: true,
-          layout: "${datetime} ${level} ${message} Exception: ${error:message} (${logger})",
+          layout: "${datetime} ${level} ${message}${?error} Exception: ${error:message}${/error} (${logger})",
         }),
         options
       );
     } else {
       this.Options = {
         enabled: true,
-        layout: "${datetime} ${level} ${message} Exception: ${error:message} (${logger})",
+        layout: "${datetime} ${level} ${message}${?error} Exception: ${error:message}${/error} (${logger})",
       }  as T;
     }
   }
