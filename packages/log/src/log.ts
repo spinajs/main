@@ -116,6 +116,7 @@ export class FrameworkLogger extends Log {
   public write(entry: ILogEntry) {
     if (entry.Variables.logger === this.Name) {
       return Promise.allSettled(
+
         this.Targets.filter((t) => entry.Level >= StrToLogLevel[t.rule.level]).map((t) => {
           if (!t.instance) {
             throw new InvalidOperation(`Target ${t.rule.target} for rule ${t.rule.name} not exists`);
@@ -148,12 +149,20 @@ export class FrameworkLogger extends Log {
   }
 
   protected matchRulesToLogger() {
-    this.Rules = this.Options.rules.filter((r) => {
+    const matchingRules = this.Options.rules.filter((r) => {
       const g = GlobToRegExp(r.name);
 
       // BUG: g.test throws vscode err ?
       return g.test(this.Name);
     });
+
+    // Check if there are any specific (non-wildcard) rules
+    const hasSpecificRule = matchingRules.some((r) => r.name !== '*');
+
+    // If specific rules exist, exclude wildcard rules
+    this.Rules = hasSpecificRule 
+      ? matchingRules.filter((r) => r.name !== '*')
+      : matchingRules;
   }
 }
 
