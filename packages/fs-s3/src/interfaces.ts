@@ -6,6 +6,21 @@ export interface ICloudUrlSignerOptions {
     domain: string;
 }
 
+
+export interface IS3Config {
+    bucket: string;
+    name: string;
+
+    createBucketIfNotExists?: boolean;
+
+    signer?: {
+        service: string;
+        privateKey: string;
+        publicKeyId: string;
+        domain: string;
+    }
+}
+
 export abstract class CloudUrlSigner {
     constructor(protected options: ICloudUrlSignerOptions) {
 

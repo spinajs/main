@@ -21,21 +21,11 @@ import { createReadStream, existsSync } from 'fs';
 import { DateTime } from 'luxon';
 import { Readable } from 'stream';
 import iconv from 'iconv-lite';
-import { CloudUrlSigner } from './interfaces.js';
+import { CloudUrlSigner, IS3Config} from './interfaces.js';
 
 export * from './cloudFronUrlSigner.js';
 
-export interface IS3Config {
-  bucket: string;
-  name: string;
 
-  signer?: {
-    service: string;
-    privateKey: string;
-    publicKeyId: string;
-    domain: string;
-  }
-}
 
 /**
  * Abstract layer for file operations.
@@ -81,7 +71,7 @@ export class fsS3 extends fs {
   }
 
   /**
-   * Ensures the S3 bucket exists, creating it if necessary
+   * Ensures the S3 bucket exists, creating it if necessary based on configuration
    * @private
    */
   private async ensureBucketExists(): Promise<void> {
@@ -91,6 +81,11 @@ export class fsS3 extends fs {
       this.Logger.info(`Bucket '${this.Options.bucket}' exists and is accessible`);
     } catch (error) {
       if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+        if (this.Options.createBucketIfNotExists === false) {
+          this.Logger.error(`Bucket '${this.Options.bucket}' does not exist and createBucketIfNotExists is disabled`);
+          throw new IOFail(`Bucket '${this.Options.bucket}' does not exist`);
+        }
+
         this.Logger.warn(`Bucket '${this.Options.bucket}' does not exist, attempting to create it`);
         try {
           await this.S3.send(new CreateBucketCommand({ Bucket: this.Options.bucket }));
@@ -108,6 +103,7 @@ export class fsS3 extends fs {
 
   public async resolve() {
     this.Logger.info(`Initializing S3 file provider '${this.Options.name}' for bucket '${this.Options.bucket}'`);
+    this.Logger.trace(`S3 Configuration: ${JSON.stringify(this.AwsConfig)}`);
     
     this.S3 = new S3Client(
       Object.assign({}, this.AwsConfig, {
