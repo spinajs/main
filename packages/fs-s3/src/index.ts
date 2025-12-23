@@ -21,7 +21,7 @@ import { createReadStream, existsSync } from 'fs';
 import { DateTime } from 'luxon';
 import { Readable } from 'stream';
 import iconv from 'iconv-lite';
-import { CloudUrlSigner, IS3Config} from './interfaces.js';
+import { CloudUrlSigner, IS3Config } from './interfaces.js';
 
 export * from './cloudFronUrlSigner.js';
 
@@ -95,7 +95,7 @@ export class fsS3 extends fs {
           throw createError;
         }
       } else {
-        this.Logger.error(`Error checking bucket '${this.Options.bucket}': ${error.message}`);
+        this.Logger.error(`Error checking bucket '${this.Options.bucket}': ${error.name} - ${error.message}, code: ${error.$metadata?.httpStatusCode}`);
         throw error;
       }
     }
@@ -103,11 +103,16 @@ export class fsS3 extends fs {
 
   public async resolve() {
     this.Logger.info(`Initializing S3 file provider '${this.Options.name}' for bucket '${this.Options.bucket}'`);
-    this.Logger.trace(`S3 Configuration: ${JSON.stringify(this.AwsConfig)}`);
-    
+    this.Logger.info(`S3 Configuration: ${JSON.stringify({
+      endpoint: this.AwsConfig.endpoint,
+
+      region: this.AwsConfig.region,
+      secretAccessKey: this.AwsConfig.credentials?.secretAccessKey ? '****' : undefined,
+      accessKeyId: this.AwsConfig.credentials?.accessKeyId ? '****' : undefined,
+    })}`);
+
     this.S3 = new S3Client(
       Object.assign({}, this.AwsConfig, {
-        endpoint: this.AwsConfig.endpoint ?? undefined,
         logger: {
           trace: (msg: any) => this.Logger.trace(msg),
           debug: (msg: any) => this.Logger.debug(msg),
@@ -136,18 +141,18 @@ export class fsS3 extends fs {
    */
   public async dispose(): Promise<void> {
     this.Logger.trace(`Disposing S3 provider '${this.Options.name}'`);
-    
+
     if (this.TempFs) {
       this.Logger.trace(`Disposing TempFs for provider '${this.Options.name}'`);
       await this.TempFs.dispose();
     }
-    
+
     if (this.S3) {
       this.Logger.trace(`Destroying S3 client for provider '${this.Options.name}'`);
       this.S3.destroy();
       this.Logger.info(`S3 client destroyed for provider '${this.Options.name}'`);
     }
-    
+
     this.Logger.info(`S3 provider '${this.Options.name}' disposed successfully`);
   }
 
@@ -290,14 +295,14 @@ export class fsS3 extends fs {
     }
 
     const dPath = destPath ?? basename(srcPath);
-    
+
     // calculate from physycal file hash
     // s3 hash gets from metadata
     const hash = await super.hash(srcPath, 'md5');
     const shaHash = await super.hash(srcPath, 'sha256');
 
     let fInfo: Partial<IFileInfo> = {};
-    
+
     try {
       fInfo = await this.FileInfo.getInfo(this.resolvePath(srcPath));
       // delete raw information from exif
@@ -490,10 +495,10 @@ export class fsS3 extends fs {
     }
 
     const exists = await this.exists(path);
-    if(!exists){
+    if (!exists) {
       throw new IOFail(`File ${path} does not exists in bucket ${this.Options.bucket}, fs: ${this.Options.name}`);
     }
-    
+
 
     return this.Signer.sign(path);
   }
