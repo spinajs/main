@@ -1,5 +1,5 @@
 import { IOFail } from '@spinajs/exceptions';
-import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
+import { guessLanguage, defaultLanguage } from '@spinajs/intl';
 import { InvalidArgument } from '@spinajs/exceptions';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -9,6 +9,7 @@ import { Config } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 import Handlebars from 'handlebars';
 import { normalize } from 'path';
+import * as helpers from './helpers/index.js';
 
 @Singleton()
 @Injectable(TemplateRenderer)
@@ -27,42 +28,12 @@ export class HandlebarsRenderer extends TemplateRenderer {
   }
 
   public async resolve(): Promise<void> {
-    Handlebars.registerHelper('__', (context, options) => {
-      return __translate(options.data.root.lang)(context);
-    });
-
-    Handlebars.registerHelper('__n', (context, count, options) => {
-      return __translateNumber(options.data.root.lang)(context, count);
-    });
-
-    Handlebars.registerHelper('__l', (context) => {
-      return __translateL(context);
-    });
-
-    Handlebars.registerHelper('__h', (context) => {
-      return __translateH(context);
-    });
-
-    Handlebars.registerHelper('__textRight', (context: string, length) => {
-      if (context.length > length) {
-        return context.substring(0, length);
+    // Register all helpers dynamically
+    Object.keys(helpers).forEach((helperName) => {
+      const helper = (helpers as any)[helperName];
+      if (typeof helper === 'function') {
+        Handlebars.registerHelper(helperName, helper);
       }
-      return context.padStart(length, ' ');
-    });
-
-    Handlebars.registerHelper('__textCenter', (context: string, length) => {
-      if (context.length > length) {
-        return context.substring(0, length);
-      } else if (context.length == length) {
-        return context;
-      } else {
-        const leftPadding = (length - context.length) / 2;
-        return context.padStart(leftPadding + context.length, ' ').padEnd(length, ' ');
-      }
-    });
-
-    Handlebars.registerHelper('isOdd', function (index) {
-      return index % 2 !== 0;
     });
 
     await super.resolve();
