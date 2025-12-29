@@ -32,6 +32,7 @@ import { default as ajvFormats } from 'ajv-formats';
 import { default as ajvKeywords } from 'ajv-keywords';
 
 const PROTOCOL_REGEXP = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
+const COMMON_WEB_PROTOCOLS = ['http://', 'https://', 'ws://', 'wss://', 'ftp://', 'ftps://', 'file://', 'data://', 'blob://', 'mailto:'];
 
 /**
  * HACK:
@@ -255,7 +256,19 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected async loadProtocolVars() {
+
+    debugger;
+
     const configProtocols = await DI.resolve(Array.ofType(ConfigVarProtocol));
+ 
+    if(!configProtocols || configProtocols.length === 0){
+      InternalLogger.warn(`No configuration protocols registered`, 'Configuration');
+      return;
+    }
+
+    configProtocols.forEach((p) => {
+      InternalLogger.info(`Registered configuration protocol: ${p.Protocol}`, 'Configuration');
+    });
 
     const iterate = async (obj: { [key: string]: unknown }) => {
       if (!obj) {
@@ -274,12 +287,17 @@ export class FrameworkConfiguration extends Configuration {
             return;
           }
 
+          // Skip common web protocols (http, https, ws, ftp, etc.)
+          if (COMMON_WEB_PROTOCOLS.some(protocol => val.toLowerCase().startsWith(protocol))) {
+            return;
+          }
+
           PROTOCOL_REGEXP.lastIndex = 0;
           const match = PROTOCOL_REGEXP.exec(val);
           const protocol = configProtocols.find((p) => p.Protocol === match[1]);
 
           if (!protocol) {
-            InternalLogger.warn(`Protocol ${match[2]} used in configuration is not registered.`, 'Configuration');
+            InternalLogger.warn(`Protocol ${match[1]} used in configuration is not registered.`, 'Configuration');
             return;
           }
 
