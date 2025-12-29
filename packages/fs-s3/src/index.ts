@@ -103,12 +103,13 @@ export class fsS3 extends fs {
 
   public async resolve() {
     this.Logger.info(`Initializing S3 file provider '${this.Options.name}' for bucket '${this.Options.bucket}'`);
+    const credentials = typeof this.AwsConfig.credentials === 'function' ? undefined : this.AwsConfig.credentials;
     this.Logger.info(`S3 Configuration: ${JSON.stringify({
       endpoint: this.AwsConfig.endpoint,
 
       region: this.AwsConfig.region,
-      secretAccessKey: this.AwsConfig.credentials?.secretAccessKey ? '****' : undefined,
-      accessKeyId: this.AwsConfig.credentials?.accessKeyId ? '****' : undefined,
+      secretAccessKey: credentials?.secretAccessKey ? '****' : undefined,
+      accessKeyId: credentials?.accessKeyId ? '****' : undefined,
     })}`);
 
     this.S3 = new S3Client(
