@@ -20,12 +20,6 @@ const fs = {
 
         // in seconds
         maxFileAge: 24 * 3600, // 1 day for temp files,
-        signer: {
-          service: "CloudFrontUrlSigner",
-          privateKey: "",
-          publicKeyId: "",
-          domain: "",
-        },
       },
     ],
   },

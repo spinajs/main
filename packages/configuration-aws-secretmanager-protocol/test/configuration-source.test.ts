@@ -34,7 +34,7 @@ export class ConnectionConf extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       aws: {
-        test: 'aws://prod/testsecret',
+        test: 'aws-parameters://prod/testsecret',
         secretsManager: {
           region: 'eu-central-1',
         },
