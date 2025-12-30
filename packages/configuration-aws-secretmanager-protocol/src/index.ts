@@ -12,7 +12,7 @@ export class AwsSecretsManagerVarProtocol extends ConfigVarProtocol {
   protected Client: SecretsManagerClient;
 
   get Protocol(): string {
-    return 'aws-sercrets://';
+    return 'aws-secrets://';
   }
 
   public async getVar(path: string, configuration: any): Promise<unknown> {
