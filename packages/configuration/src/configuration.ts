@@ -256,9 +256,6 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected async loadProtocolVars() {
-
-    debugger;
-
     const configProtocols = await DI.resolve(Array.ofType(ConfigVarProtocol));
  
     if(!configProtocols || configProtocols.length === 0){
@@ -266,50 +263,72 @@ export class FrameworkConfiguration extends Configuration {
       return;
     }
 
+    // Build protocol map for O(1) lookup
+    const protocolMap = new Map<string, ConfigVarProtocol>();
     configProtocols.forEach((p) => {
       InternalLogger.info(`Registered configuration protocol: ${p.Protocol}`, 'Configuration');
+      protocolMap.set(p.Protocol, p);
     });
 
-    const iterate = async (obj: { [key: string]: unknown }) => {
+    // Build common web protocol prefix set for fast checking
+    const webProtocolSet = new Set(COMMON_WEB_PROTOCOLS.map(p => p.toLowerCase()));
+
+    const iterate = async (obj: { [key: string]: unknown }, currentPath: string[] = []) => {
       if (!obj) {
         return;
       }
 
       if (Array.isArray(obj)) {
-        obj.forEach((c) => iterate(c));
+        await Promise.all(obj.map((c, index) => iterate(c, [...currentPath, `[${index}]`])));
         return;
       }
 
+      const stringEntries = pickString(obj);
+      const objectEntries = pickObjects(obj);
+
+      // Process strings in parallel
       await Promise.all(
-        pickString(obj).map(async ([key, val]) => {
-          PROTOCOL_REGEXP.lastIndex = 0;
-          if (!PROTOCOL_REGEXP.test(val)) {
+        stringEntries.map(async ([key, val]) => {
+          // Quick check: does it contain ://? 
+          const protocolIndex = val.indexOf('://');
+          if (protocolIndex === -1) {
             return;
           }
 
-          // Skip common web protocols (http, https, ws, ftp, etc.)
-          if (COMMON_WEB_PROTOCOLS.some(protocol => val.toLowerCase().startsWith(protocol))) {
+          // Extract potential protocol (everything before ://)
+          const potentialProtocol = val.substring(0, protocolIndex + 3).toLowerCase();
+
+          // Skip common web protocols using Set lookup (O(1))
+          if (webProtocolSet.has(potentialProtocol)) {
             return;
           }
 
+          // Use regex only if we passed initial checks
           PROTOCOL_REGEXP.lastIndex = 0;
           const match = PROTOCOL_REGEXP.exec(val);
-          const protocol = configProtocols.find((p) => p.Protocol === match[1]);
+          if (!match) {
+            return;
+          }
+
+          // O(1) protocol lookup using Map
+          const protocol = protocolMap.get(match[1]);
 
           if (!protocol) {
             InternalLogger.warn(`Protocol ${match[1]} used in configuration is not registered.`, 'Configuration');
             return;
           }
 
+          const fullPath = [...currentPath, key].join('.');
+          try{
           obj[key] = await protocol.getVar(match[2], this.Config);
+          } catch (err){
+            InternalLogger.error(err as Error, `Error loading configuration var for key ${fullPath} using protocol ${protocol.Protocol}, value: ${val}`, 'Configuration');
+          }
         }),
       );
 
-      await Promise.all(
-        pickObjects(obj).map(async ([, val]) => {
-          await iterate(val);
-        }),
-      );
+      // Process nested objects in parallel
+      await Promise.all(objectEntries.map(([key, val]) => iterate(val, [...currentPath, key])));
     };
 
     await iterate(this.Config);

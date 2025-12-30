@@ -5,7 +5,7 @@ import { Injectable, Singleton } from '@spinajs/di';
 
 @Singleton()
 @Injectable(ConfigVarProtocol)
-export class AwsSecretsManagerVarProtocol extends ConfigVarProtocol {
+export class AwsParameterStoreVarProtocol extends ConfigVarProtocol {
     protected Client: SSMClient;
 
     get Protocol(): string {
