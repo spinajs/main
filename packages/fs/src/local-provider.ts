@@ -40,7 +40,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async resolve() {
-    const basePath = this.Options.basePath ?? process.cwd();
+    const basePath = this.Options.basePath ?? process.env.WORKSPACE_ROOT_PATH ?? process.cwd();
 
     this.Logger.info(`Initializing file provider ${this.Options.name} with base path ${basePath}`);
 
