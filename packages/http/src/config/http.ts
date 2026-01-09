@@ -55,7 +55,9 @@ const http = {
       {
         service: 'fsNative',
         name: '__fs_controller_cache__',
-        basePath: cwd('__cache__', '__controllers__'),
+
+        // controllers cache alwas in running process cwd
+        basePath: join(process.cwd(), '__cache__', '__controllers__'),
       },
     ],
   },
