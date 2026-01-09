@@ -57,6 +57,11 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
       },
       serviceFunc: (path: string, container: IContainer) => {
         const cfg = container.get(Configuration);
+
+        if(!cfg){
+          throw new Error(`Configuration service is not registered in DI container. Cannot autoinject service for property ${propertyKey.toString()}, path: ${path}`);
+        }
+
         const cfgVal = cfg.get<any>(path);
 
         if (!cfgVal) {

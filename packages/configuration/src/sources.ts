@@ -64,6 +64,20 @@ export abstract class BaseFileSource extends ConfigurationSource {
       normalize(join(resolve(process.cwd()), 'config')),
     ];
 
+    
+    if (process.env.WORKSPACE_ROOT_PATH) {
+      this.CommonDirs = this.CommonDirs.concat([
+        
+        // for monorepo setups
+        normalize(
+          join(
+            resolve(process.env.WORKSPACE_ROOT_PATH),
+            isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config',
+          ),
+        ),
+      ]);
+    }
+
     // try to find root folder with node_modules
     // on server environment
     const bPath = findBasePath(process.cwd());

@@ -1,1 +1,4 @@
-module.exports = {};
+const queueOrmTransport = {
+};
+
+export default queueOrmTransport;

@@ -8,15 +8,15 @@ import os from 'os';
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
   return [
-    resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
 
     // one up if we run from app or build folder
-    resolve(normalize(join(process.cwd(), '../', 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), '../', 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
   ];
 }
 
 function dir_cwd(path: string) {
-  return resolve(normalize(join(process.cwd(), path)));
+  return resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), path)));
 }
 
 const http = {
@@ -46,7 +46,7 @@ const http = {
       {
         service: 'fsNative',
         name: '__fs_http_response_templates__',
-        basePath: resolve(normalize(join(process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', 'views', 'responses'))),
+        basePath: resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', 'views', 'responses'))),
       },
       {
         service: 'fsNative',
