@@ -5,25 +5,29 @@ import compression from 'compression';
 import { join, normalize, resolve } from 'path';
 import os from 'os';
 
+function cwd(...path : string[]) { 
+  return join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), ...path);
+}
+
+function lib(...path: string[]) { 
+  return join(cwd(), 'node_modules', '@spinajs', 'http', 'lib', ...path);
+}
+
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
   return [
-    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(normalize(join(lib(), inCommonJs ? 'cjs' : 'mjs', path))),
 
     // one up if we run from app or build folder
-    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), '../', 'node_modules', '@spinajs', 'http', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+    resolve(normalize(join(lib(), inCommonJs ? 'cjs' : 'mjs', path))),
   ];
 }
 
-function dir_cwd(path: string) {
-  return resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), path)));
-}
 
 const http = {
   system: {
     dirs: {
       locales: [...dir('locales')],
-      controllers: [...dir('controllers')],
       cli: [...dir('cli')],
     },
   },
@@ -46,12 +50,14 @@ const http = {
       {
         service: 'fsNative',
         name: '__fs_http_response_templates__',
-        basePath: resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'http', 'lib', 'views', 'responses'))),
+        basePath: lib('views', 'responses'),
       },
       {
         service: 'fsNative',
         name: '__fs_controller_cache__',
-        basePath: dir_cwd('./__cache__/__controllers__'),
+
+        // controllers cache alwas in running process cwd
+        basePath: join(process.cwd(), '__cache__', '__controllers__'),
       },
     ],
   },
@@ -101,7 +107,7 @@ const http = {
         /**
          * full path to folder with static content
          */
-        Path: dir('static'),
+        Path: lib('static'),
       },
     ],
 
