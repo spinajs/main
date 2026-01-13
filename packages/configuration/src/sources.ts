@@ -57,11 +57,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
         ),
       ),
 
-      // project paths - last to allow overwrite @spinajs conf
-      normalize(join(resolve(process.cwd()), 'lib/config')),
-      normalize(join(resolve(process.cwd()), 'dist/config')),
-      normalize(join(resolve(process.cwd()), 'build/config')),
-      normalize(join(resolve(process.cwd()), 'config')),
+   
     ];
 
     
@@ -77,6 +73,12 @@ export abstract class BaseFileSource extends ConfigurationSource {
         ),
       ]);
     }
+
+       // project paths - last to allow overwrite @spinajs conf
+     this.CommonDirs.push(normalize(join(resolve(process.cwd()), 'lib/config')));
+     this.CommonDirs.push(normalize(join(resolve(process.cwd()), 'dist/config')));
+     this.CommonDirs.push(normalize(join(resolve(process.cwd()), 'build/config')));
+     this.CommonDirs.push(normalize(join(resolve(process.cwd()), 'config')));
 
     // try to find root folder with node_modules
     // on server environment
