@@ -10,8 +10,9 @@
   "references": [
     { "path": "../configuration/tsconfig.json" },
     { "path": "../di/tsconfig.json" },
-    { "path": "../templates/tsconfig.json"},
-    { "path": "../templates-puppeteer/tsconfig.json"}
+    { "path": "../exceptions/tsconfig.json" },
+    { "path": "../log/tsconfig.json" },
+    { "path": "../templates/tsconfig.json"}
   ]
 }
 

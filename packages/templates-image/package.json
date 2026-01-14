@@ -1,7 +1,7 @@
 {
-  "name": "@spinajs/tasks",
+  "name": "@spinajs/templates-image",
   "version": "2.0.434",
-  "description": "SpinaJS tasks module",
+  "description": "Templates support for image files. It uses puppeteer to render screenshots.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
@@ -18,6 +18,7 @@
   "scripts": {
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.mjs.json",
+    "watch": "tsc -p tsconfig.json --watch",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
@@ -32,22 +33,32 @@
   "files": [
     "lib/**/*"
   ],
-  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
-  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "templates",
+    "image",
+    "puppeteer"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/spinajs/reflection/issues"
+    "url": "https://github.com/spinajs/main/issues"
   },
-  "homepage": "https://github.com/spinajs/reflection#readme",
-  "dependencies": {
-    "@spinajs/di": "^2.0.434",
-    "@spinajs/log": "^2.0.434",
-    "@spinajs/orm": "^2.0.434",
-    "@spinajs/queue": "^2.0.434",
-    "@spinajs/threading": "^2.0.434"
-
-  },
+  "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@types/node": "^18.11.18"
+    "@types/mocha": "10.0.1",
+    "@types/node": "^22.14.1"
+  },
+  "dependencies": {
+    "@spinajs/configuration": "^2.0.434",
+    "@spinajs/di": "^2.0.434",
+    "@spinajs/templates": "^2.0.434",
+    "@spinajs/templates-puppeteer": "^2.0.434",
+    "puppeteer": "^24.33.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

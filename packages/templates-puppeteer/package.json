@@ -1,7 +1,7 @@
 {
-  "name": "@spinajs/tasks",
+  "name": "@spinajs/templates-puppeteer",
   "version": "2.0.434",
-  "description": "SpinaJS tasks module",
+  "description": "Base Puppeteer renderer for templates. Shared logic for PDF and image rendering.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
@@ -32,22 +32,36 @@
   "files": [
     "lib/**/*"
   ],
-  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/core)",
-  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "templates",
+    "puppeteer"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/spinajs/reflection/issues"
+    "url": "https://github.com/spinajs/main/issues"
   },
-  "homepage": "https://github.com/spinajs/reflection#readme",
-  "dependencies": {
-    "@spinajs/di": "^2.0.434",
-    "@spinajs/log": "^2.0.434",
-    "@spinajs/orm": "^2.0.434",
-    "@spinajs/queue": "^2.0.434",
-    "@spinajs/threading": "^2.0.434"
-
-  },
+  "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@types/node": "^18.11.18"
+    "@types/mocha": "10.0.1",
+    "@types/node": "^22.14.1",
+    "@types/express": "^5.0.1"
+  },
+  "dependencies": {
+    "@spinajs/configuration": "^2.0.434",
+    "@spinajs/di": "^2.0.434",
+    "@spinajs/exceptions": "^2.0.434",
+    "@spinajs/log": "^2.0.434",
+    "@spinajs/templates": "^2.0.434",
+    "puppeteer": "^24.33.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "lodash": "^4.17.21"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

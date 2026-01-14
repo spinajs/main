@@ -41,6 +41,7 @@
     { "path": "./packages/templates/tsconfig.cjs.json" },
     { "path": "./packages/templates-handlebars/tsconfig.cjs.json" },
     { "path": "./packages/templates-pug/tsconfig.cjs.json" },
+    { "path": "./packages/templates-puppeteer/tsconfig.cjs.json" },
     { "path": "./packages/templates-xlsx/tsconfig.cjs.json" },
     { "path": "./packages/util/tsconfig.cjs.json" },
     { "path": "./packages/validation/tsconfig.cjs.json" },
