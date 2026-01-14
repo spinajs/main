@@ -1,6 +1,7 @@
-import { Injectable, Singleton } from "@spinajs/di";
+import { Autoinject, Injectable, Singleton } from "@spinajs/di";
 import { FileUploadMiddleware, IUploadedFile, IUploadOptions } from "../interfaces.js";
 import { Log, Logger } from "@spinajs/log-common";
+import { FileInfoService } from "@spinajs/fs";
 
 
 /**
@@ -12,22 +13,25 @@ export class FileInfoMiddleware extends FileUploadMiddleware {
     @Logger('http')
     protected Log: Log;
 
+    @Autoinject()
+    protected FileInfo : FileInfoService;
+
     public async beforeUpload(file: IUploadedFile<any>, paramOptions: IUploadOptions): Promise<any> {
 
         /**
          * Only if option is set
          */
-        if (!paramOptions.fileInfo) {
+        if (paramOptions.fileInfo) {
 
-            if(!file.Provider){
-                this.Log.warn(`File provider not set on uploaded file ${file.Name}, cannot retrieve file info.`);
+            if(!this.FileInfo){
+                this.Log.warn(`FileInfo service not available, cannot retrieve file info for uploaded file ${file.Name}.`);
                 return file;
             }
 
             return {
                 ...file,
-                Info: await file.Provider.metadata(file.BaseName)
-            };
+                Info: await this.FileInfo.getInfo(file.OriginalFile.filepath)
+            }
         }
 
         return file;
