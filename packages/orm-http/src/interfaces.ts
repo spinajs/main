@@ -75,6 +75,11 @@ export interface FromModelOptions<T extends ModelBase> {
   noInclude?: boolean;
 
   /**
+   * Optional list of relations to include always when loading model
+   */
+  include? : string[];
+
+  /**
    *
    * Callback on query builder before model is fetched from DB
    *
