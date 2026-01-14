@@ -124,6 +124,15 @@ export class FromDbModel extends RouteArgs {
     }
 
     /**
+     * Includes relations passed in options
+     * NOTE: from options, not request that should be always included
+     */
+    if(param.Options?.include){
+      query.populate(param.Options.include);
+    }
+
+
+    /**
      * Checks include field
      */
     if (param.Options?.noInclude === true) {
