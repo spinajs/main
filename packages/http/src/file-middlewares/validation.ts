@@ -1,4 +1,4 @@
-import { Injectable, Singleton } from "@spinajs/di";
+import { Injectable, NewInstance } from "@spinajs/di";
 import { FileProportions, FileUploadMiddleware, FileValidationRules, IUploadedFile, IUploadOptions } from "../interfaces.js";
 import { Log, Logger } from "@spinajs/log-common";
 import { ValidationFailed } from "@spinajs/validation";
@@ -8,7 +8,7 @@ import { ValidationFailed } from "@spinajs/validation";
  * Middleware that validates file before upload eg. check file type, withth, height, size, etc.
  */
 @Injectable()
-@Singleton()
+@NewInstance()
 export class FileValidationMiddleware extends FileUploadMiddleware {
     @Logger('http')
     protected Log: Log;

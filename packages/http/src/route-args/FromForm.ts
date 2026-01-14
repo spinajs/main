@@ -13,7 +13,9 @@ import { basename } from 'node:path';
 import { toArray } from '@spinajs/util';
 import { ValidationFailed } from '@spinajs/validation';
 import { EntityTooLargeException } from '../exceptions.js';
-import { BadRequest, Exception } from '@spinajs/exceptions';
+import { BadRequest, Exception, IOFail } from '@spinajs/exceptions';
+import { FileSystem } from "@spinajs/fs";
+import { ImmediateFileUploader } from '../uploaders/ImmediateFileUploader.js';
 interface FormData {
   Fields: Fields;
   Files: Files;
@@ -62,11 +64,28 @@ const parseForm = (req: express.Request, options: any) => {
 export abstract class FromFormBase extends RouteArgs {
   public FormData: FormData;
 
-  public async extract(callData: IRouteCall, _args: unknown[], routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute, uploadFs?: fs): Promise<IRouteArgsResult> {
+
+  @FileSystem('__file_upload_default_provider__')
+  protected DefaultUploadFs: fs;
+
+  public async extract(callData: IRouteCall, _args: unknown[], routeParameter: IRouteParameter, req: Request, _res: express.Response, _route?: IRoute): Promise<IRouteArgsResult> {
     if (!this.FormData) {
+
+      if (this.DefaultUploadFs === null) {
+        throw new IOFail('Default upload fs provider not available. Please check fs.providers for __file_upload_default_provider__ provider.');
+      }
+
+      if (!(this.DefaultUploadFs instanceof fsNative)) {
+        throw new IOFail('Default upload fs provider is not native fs. Form upload requires local file system provider becouse it needs to store files locally before processing.');
+      }
+
+      if (!this.DefaultUploadFs.Options || !this.DefaultUploadFs.Options.basePath) {
+        throw new IOFail('Default upload fs provider base path not set. Please check fs.providers for __file_upload_default_provider__ provider.');
+      }
+
       const options = {
         ...routeParameter.Options,
-        uploadDir: uploadFs && uploadFs instanceof fsNative ? uploadFs.Options.basePath : undefined,
+        uploadDir: this.DefaultUploadFs.Options.basePath,
       };
       this.FormData = callData?.Payload?.Form ?? (await parseForm(req, options));
     }
@@ -88,15 +107,12 @@ export abstract class FromFormBase extends RouteArgs {
 @Injectable()
 @NewInstance()
 export class FromFile extends FromFormBase {
-  protected FileService: fs;
+
 
   public Priority?: number = 9999;
 
   @Logger('http')
   protected Log: Log;
-
-  @Config('fs.defaultProvider')
-  protected DefaultFsProviderName: string;
 
   @Config('http.upload.middlewares', {
     defaultValue: [{ service: 'FileInfoMiddleware' }]
@@ -121,7 +137,7 @@ export class FromFile extends FromFormBase {
 
     // extract form data if not processed already
     // and prepare result object
-    const result = await super.extract(callData, _args, param, req, res, route, uploadFs);
+    const result = await super.extract(callData, _args, param, req, res, route);
 
     // get incoming files
     const { Files } = this.FormData;
@@ -180,6 +196,15 @@ export class FromFile extends FromFormBase {
       }
     }
 
+    // copy to target fs if different than default temp fs
+    if (uploadFs && this.DefaultUploadFs.Name !== uploadFs.Name) {
+      const fu = DI.resolve<FormFileUploader>(ImmediateFileUploader, [{ sourceFs: this.DefaultUploadFs, deleteSource: true }]);
+      const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
+      uFiles = pResults.filter((r) => r.status === 'fulfilled').map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
+    }
+
+    // if any uploader is set in options, use it to upload files 
+    // additionaly
     if (uploadOptions.uploader) {
       const type = (uploadOptions.uploader as any).service ?? uploadOptions.uploader;
       const options = (uploadOptions.uploader as any).options ?? {};

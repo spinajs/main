@@ -1,4 +1,4 @@
-import { DI, Injectable, NewInstance } from '@spinajs/di';
+import { Injectable, NewInstance } from '@spinajs/di';
 import { FormFileUploader, IUploadedFile } from '../interfaces.js';
 import { fs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log-common';
@@ -10,30 +10,29 @@ export class ImmediateFileUploader extends FormFileUploader {
   @Logger('http')
   protected Log: Log;
 
-  constructor(public Options: { fs: string }) {
+  constructor(public Options: { deleteSource?: boolean, sourceFs?: fs }) {
     super();
   }
   async upload(file: IUploadedFile<unknown>) {
-    const fs = DI.resolve<fs>('__file_provider__', [this.Options.fs]);
-
-    if (!fs) {
-      throw new IOFail(`Filesystem ${this.Options.fs} not exists, pleas check your configuration`);
-    }
 
     // if its the same - do nothing
-    if (fs.Name === file.Provider.Name) {
+    if (this.Options.sourceFs?.Name === file.Provider.Name) {
       return;
     }
 
     try {
-      await file.Provider.copy(file.BaseName, file.BaseName, fs);
-      this.Log.trace(`Uploaded incoming file ${file.OriginalFile.filepath} to ${file.BaseName} using ${this.Options.fs} filesystem`);
+      await this.Options.sourceFs.copy(file.BaseName, file.BaseName, file.Provider);
+      this.Log.trace(`Uploaded incoming file ${file.OriginalFile.filepath} to ${file.BaseName} using ${file.Provider.Name} filesystem`);
+
+      if (this.Options.deleteSource) {
+        await this.Options.sourceFs.rm(file.BaseName);
+        this.Log.trace(`Deleted source incoming file ${file.OriginalFile.filepath} from ${this.Options.sourceFs.Name} filesystem after upload to ${file.Provider.Name} filesystem`);
+      }
+
     } catch (err) {
-      throw new IOFail(`Error copying incoming file ${file.OriginalFile.filepath} to ${file.BaseName} using ${this.Options.fs} filesystem`, err);
+      throw new IOFail(`Error copying incoming file ${file.OriginalFile.filepath} to ${file.BaseName} using ${file.Provider.Name} filesystem`, err);
     }
-
-    file.Provider = fs;
-
+ 
     return file;
   }
 }
