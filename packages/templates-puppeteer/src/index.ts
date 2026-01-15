@@ -115,10 +115,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
 
       try {
         await page.setBypassCSP(true);
-        await page.setContent(compiledTemplate, { waitUntil: 'networkidle0' });
-        
-        // Wait a bit more for any dynamic content
-        await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 100)));
+        await page.setContent(compiledTemplate);
         
         // Call abstract method to perform specific rendering (PDF or image)
         await this.performRender(page, filePath);
