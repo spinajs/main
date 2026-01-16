@@ -1325,4 +1325,19 @@ describe('Dependency injection', () => {
     expect(c).to.be.not.null;
     expect(A.Counter).equal(1);
   });
+
+  it("should resolve chained types", () =>{ 
+
+    class ServiceA {}
+
+    @Injectable(ServiceA)
+    class ServiceB  extends ServiceA {}
+
+    @Injectable(ServiceB)
+    class ServiceC extends ServiceB {}
+
+    const instance = DI.resolve(ServiceA);
+    expect(instance).to.be.instanceOf(ServiceC);
+
+  })
 });

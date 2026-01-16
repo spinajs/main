@@ -7,7 +7,7 @@ import { Class, Factory } from './types.js';
 export class Registry {
   protected registry: Map<string, any[]> = new Map<string, any[]>();
 
-  constructor(protected container: IContainer) {}
+  constructor(protected container: IContainer) { }
 
   public clear() {
     this.registry.clear();
@@ -61,10 +61,27 @@ export class Registry {
       throw new InvalidArgument('argument "service" cannot be null or empty');
     }
 
-    const name = getTypeName(service);
+    const serviceName = getTypeName(service);
+    let name = getTypeName(service);
+    let types: Array<Class<unknown> | Factory<unknown>> | null = null;
 
-    if (this.registry.has(name)) {
-      return this.registry.get(name);
+    while (this.registry.has(name)) {
+      types = this.registry.get(name);
+      if (types && types.length > 0) {
+        
+        name = getTypeName(types[types.length - 1]);
+        
+        if (name === serviceName) {
+          break;
+        }
+
+      } else {
+        break;
+      }
+    }
+
+    if (types) {
+      return types;
     }
 
     if (this.container.Parent && parent) {
