@@ -120,6 +120,7 @@
     "@spinajs/templates-mjml": "file:packages\\templates-mjml",
     "@spinajs/templates-pdf": "files:packages/templates-pdf",
     "@spinajs/templates-pug": "file:packages\\templates-pug",
+    "@spinajs/templates-puppeteer": "files:packages/templates-puppeteer",
     "@spinajs/templates-xlsx": "file:packages\\templates-xlsx",
     "@spinajs/threading": "file:packages\\threading",
     "@spinajs/util": "file:packages\\util",

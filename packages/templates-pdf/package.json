@@ -56,13 +56,9 @@
   "dependencies": {
     "@spinajs/configuration": "^2.0.434",
     "@spinajs/di": "^2.0.434",
-    "@spinajs/exceptions": "^2.0.434",
-    "@spinajs/log": "^2.0.434",
     "@spinajs/templates": "^2.0.434",
-    "puppeteer": "^24.33.0",
-    "unbzip2-stream": "^1.4.3",
-    "cors": "^2.8.5",
-    "express": "^5.1.0"
+    "@spinajs/templates-puppeteer": "^2.0.434",
+    "puppeteer": "^24.33.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

@@ -1,4 +1,4 @@
-import { Page, PDFOptions } from 'puppeteer';
+import { Page, ScreenshotOptions } from 'puppeteer';
 import { PuppeteerRenderer, IPuppeteerRendererOptions } from '@spinajs/templates-puppeteer';
 import { TemplateRenderer } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
@@ -6,33 +6,33 @@ import { IInstanceCheck, Injectable, PerInstanceCheck } from '@spinajs/di';
 
 @Injectable(TemplateRenderer)
 @PerInstanceCheck()
-export class PdfRenderer extends PuppeteerRenderer implements IInstanceCheck {
+export class ImageRenderer extends PuppeteerRenderer implements IInstanceCheck {
   /**
    * General options from configuration
    */
-  @Config('templates.pdf')
+  @Config('templates.image')
   protected Options: IPuppeteerRendererOptions;
 
   public get Type() {
-    return 'pdf';
+    return 'image';
   }
 
   public get Extension() {
-    return '.pdf';
+    return '.png';
   }
 
-  constructor(protected pdfOptions: PDFOptions) {
+  constructor(protected screenshotOptions: ScreenshotOptions) {
     super();
   }
 
   __checkInstance__(creationOptions: any): boolean {
-    return JSON.stringify(this.pdfOptions) === JSON.stringify(creationOptions);
+    return JSON.stringify(this.screenshotOptions) === JSON.stringify(creationOptions);
   }
 
   protected async performRender(page: Page, filePath: string): Promise<void> {
-    await page.pdf({
+    await page.screenshot({
       path: filePath,
-      ...this.pdfOptions,
+      ...this.screenshotOptions,
     });
   }
 }
