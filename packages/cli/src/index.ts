@@ -16,6 +16,9 @@ export class Cli extends AsyncService {
   public Commands: Promise<Array<ClassInfo<CliCommand>>>;
 
   public async resolve(): Promise<void> {
+
+    await super.resolve();
+
     const commands = await this.Commands;
     if (!commands || commands.length === 0) {
       this.Log.warn('No registered commands found !');

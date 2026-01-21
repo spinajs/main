@@ -74,6 +74,9 @@ export class HttpServer extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
+
+    await super.resolve();
+
     this.Express = Express();
     this.Middlewares = this.Middlewares.sort((a, b) => {
       return a.Order - b.Order;

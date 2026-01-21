@@ -61,6 +61,8 @@ export class fsS3 extends fs {
 
   public async resolve() {
 
+    await super.resolve();
+
     this.OneDriveCredentials = new ClientSecretCredential(this.Options.tenantId, this.Options.clientId, this.Options.clientSecret);
     this.AuthProvider = new TokenCredentialAuthenticationProvider(this.OneDriveCredentials, { scopes: [".default"] });
 

@@ -110,6 +110,9 @@ export class SpineJsInternationalizationFromJson extends Intl {
 
   // tslint:disable-next-line: variable-name
   public async resolve() {
+
+    await super.resolve();
+
     this.CurrentLocale = this.Configuration.get('intl.defaultLocale', 'en');
 
     const sources = await DI.resolve(Array.ofType(TranslationSource));

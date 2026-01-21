@@ -20,6 +20,9 @@ export class fsService extends AsyncService {
   protected Config: IFsConfiguration;
 
   public async resolve() {
+
+    await super.resolve();
+
     if (this.Config.defaultProvider === undefined) {
       throw new InvalidConfiguration('fs default provider is not set. Please set default file provider ');
     }

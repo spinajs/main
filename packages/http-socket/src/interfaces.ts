@@ -68,7 +68,7 @@ export interface ISocketMiddlewareDescriptor {
 /**
  * Describes parameters passed to socket event
  */
-export interface ISocketEventParameter extends IRouteParameter {}
+export interface ISocketEventParameter extends IRouteParameter { }
 
 export interface ISocketEvent {
   /**
@@ -251,6 +251,9 @@ export abstract class SocketController extends AsyncService {
   protected _middlewares: SocketMiddleware[];
 
   public async resolve() {
+
+    await super.resolve();
+
     if (!this.Descriptor) {
       this._log.warn(`Socket controller ${this.constructor.name} does not have descriptor. If its abstract or base class ignore this message.`);
       return;

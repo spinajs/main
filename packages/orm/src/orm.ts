@@ -206,6 +206,9 @@ export class Orm extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
+
+    await super.resolve();
+
     await this.createConnections();
 
     // add all registered migrations via DI

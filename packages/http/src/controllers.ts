@@ -73,7 +73,12 @@ export abstract class BaseController extends AsyncService implements IController
   }
 
   public async resolve() {
+
+    await super.resolve();
+
     const self = this;
+
+    
 
     if (!this.Descriptor) {
       this._log.warn(`Controller ${this.constructor.name} does not have descriptor. It its abstract or base class ignore this message.`);
@@ -368,6 +373,9 @@ export class Controllers extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
+
+    await super.resolve();
+
     const controllers = await this.Controllers;
     for (const c of controllers) {
       await this.register(c);

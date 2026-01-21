@@ -77,6 +77,9 @@ export class fsFTP extends fs {
   }
 
   public async resolve() {
+    
+    await super.resolve();
+
     this.FtpClient = new Client();
     this.FtpClient.ftp.verbose = this.Options.logVerbose;
 

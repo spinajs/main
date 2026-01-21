@@ -29,6 +29,9 @@ export class DefaultControllerCache extends AsyncService {
   protected Hasher: FileHasher;
 
   public async resolve() {
+
+    await super.resolve();
+
     this.Log.info(`Controller cache dir is: ${this.CacheFS.resolvePath('')}`);
   }
 
