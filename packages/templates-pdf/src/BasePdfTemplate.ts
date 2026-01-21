@@ -307,10 +307,10 @@ export abstract class BasePdfTemplate extends TemplateRenderer {
 
     return () => {
       try {
-        page.removeListener('console', listeners.console);
-        page.removeListener('pageerror', listeners.pageerror);
-        page.removeListener('response', listeners.response);
-        page.removeListener('requestfailed', listeners.requestfailed);
+        page.removeAllListeners('console');
+        page.removeAllListeners('pageerror');
+        page.removeAllListeners('response');
+        page.removeAllListeners('requestfailed');
       } catch (err) {
         this.Log.warn(`Error removing page listeners: ${err.message}`);
       }
