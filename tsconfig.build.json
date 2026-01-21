@@ -43,7 +43,7 @@
     { "path": "packages/templates-pug/tsconfig.mjs.json" },
     { "path": "packages/templates-puppeteer/tsconfig.mjs.json" },
     { "path": "packages/templates-xlsx/tsconfig.mjs.json" },
-    { "path": "packages/templates-images/tsconfig.mjs.json" },
+    { "path": "packages/templates-image/tsconfig.mjs.json" },
     { "path": "packages/util/tsconfig.mjs.json" },
     { "path": "packages/validation/tsconfig.mjs.json" },
     { "path": "packages/templates-pdf/tsconfig.mjs.json" },

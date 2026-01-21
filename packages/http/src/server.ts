@@ -88,7 +88,7 @@ export class HttpServer extends AsyncService {
       this.Log.info(`Response templates path at ${f.Options.basePath}`);
     }
 
-    this.HttpConfig.middlewares.forEach((m) => {
+    this.HttpConfig.middlewares?.forEach((m) => {
       this.Log.info(`Using server middleware::before() - ${m.constructor.name}`);
       this.use(m);
     });
