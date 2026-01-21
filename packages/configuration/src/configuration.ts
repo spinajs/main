@@ -200,8 +200,6 @@ export class FrameworkConfiguration extends Configuration {
 
     InternalLogger.info(`APP_ENV set to ${this.get<string>('process.env.APP_ENV')}`, 'Configuration');
 
-    _.mergeWith(this.Config, this.onLoad(), mergeArrays);
-
     for (const source of this.Sources) {
       const rCfg = await source.Load(this);
 
@@ -209,6 +207,9 @@ export class FrameworkConfiguration extends Configuration {
         _.mergeWith(this.Config, rCfg, mergeArrays);
       }
     }
+
+    _.mergeWith(this.Config, this.onLoad(), mergeArrays);
+
 
     /**
      * Merge from DI container
@@ -260,8 +261,8 @@ export class FrameworkConfiguration extends Configuration {
 
   protected async loadProtocolVars() {
     const configProtocols = await DI.resolve(Array.ofType(ConfigVarProtocol));
- 
-    if(!configProtocols || configProtocols.length === 0){
+
+    if (!configProtocols || configProtocols.length === 0) {
       InternalLogger.warn(`No configuration protocols registered`, 'Configuration');
       return;
     }
@@ -322,9 +323,9 @@ export class FrameworkConfiguration extends Configuration {
           }
 
           const fullPath = [...currentPath, key].join('.');
-          try{
-          obj[key] = await protocol.getVar(match[2], this.Config);
-          } catch (err){
+          try {
+            obj[key] = await protocol.getVar(match[2], this.Config);
+          } catch (err) {
             InternalLogger.error(err as Error, `Error loading configuration var for key ${fullPath} using protocol ${protocol.Protocol}, value: ${val}`, 'Configuration');
           }
         }),
