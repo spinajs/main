@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-image",
-  "version": "2.0.435",
+  "version": "2.0.436",
   "description": "Templates support for image files. It uses puppeteer to render screenshots.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -33,6 +33,9 @@
   "files": [
     "lib/**/*"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -54,10 +57,10 @@
     "@types/node": "^22.14.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.435",
-    "@spinajs/di": "^2.0.435",
-    "@spinajs/templates": "^2.0.435",
-    "@spinajs/templates-puppeteer": "^2.0.435",
+    "@spinajs/configuration": "^2.0.436",
+    "@spinajs/di": "^2.0.436",
+    "@spinajs/templates": "^2.0.436",
+    "@spinajs/templates-puppeteer": "^2.0.436",
     "puppeteer": "^24.33.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
