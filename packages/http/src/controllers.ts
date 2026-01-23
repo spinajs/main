@@ -272,9 +272,9 @@ export abstract class BaseController extends AsyncService implements IController
 
       for (const { param, handler: routeArgsHandler } of sortedParams) {
         if (!routeArgsHandler) {
-          throw new UnexpectedServerError(`invalid route parameter type for param: ${param.Name},
-            method: ${route.Method},
-            controller: ${self.constructor.name}`);
+          throw new UnexpectedServerError(`Route parameter not registered for parameter: ${param.Name},
+            in method: ${route.Method},
+            in controller: ${self.constructor.name}. Check if you have registered it in DI container.`);
         }
 
         const { Args, CallData } = await routeArgsHandler.extract(callData, callArgs, param, req, res, route);

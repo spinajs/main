@@ -34,6 +34,8 @@ export class ZipResponse extends Response {
       _setCoockies(res, this.responseOptions);
       _setHeaders(res, this.responseOptions);
 
+      res.setHeader('Content-Type', this.Options.mimeType || 'application/octet-stream');
+
       res.download(zippedFile.fs.resolvePath(fPath), this.Options.filename, (err: Error) => {
         zippedFile.fs.rm(fPath).finally(() => {
           if (!_.isNil(err)) {
@@ -77,6 +79,8 @@ export class FileResponse extends Response {
       _setCoockies(res, this.responseOptions);
       _setHeaders(res, this.responseOptions);
 
+      res.setHeader('Content-Type', this.Options.mimeType || 'application/octet-stream');
+
       res.download(file, this.Options.filename, (err: Error) => {
         const r = () => {
           if (!_.isNil(err)) {
@@ -109,6 +113,8 @@ export class JsonFileResponse extends Response {
     return new Promise((resolve, reject) => {
       _setCoockies(res, this.responseOptions);
       _setHeaders(res, this.responseOptions);
+
+      res.setHeader('Content-Type', 'application/json');
 
       res.download(tmpPath, this.filename, (err: Error) => {
         provider.rm(tmpPath).finally(() => {
