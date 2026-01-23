@@ -348,7 +348,24 @@ export class Container extends EventEmitter implements IContainer {
     // we now know its not factory func
     // but typescript complains about this
     // becouse isFactory is custom type check
-    const tType = targetType;
+
+
+    /**
+     * Chain to the last registered type
+     */
+    let cType: Class<T>[] = this.Registry.getTypes(targetType);
+    while (cType && cType.length > 0) {
+      const t = this.Registry.getTypes(cType[cType.length - 1]);
+      if (t && t.length > 0) {
+        cType = t as Class<T>[];
+      }
+
+      if(cType[cType.length -1] === targetType  || !t || t.length === 0) {
+        break;
+      }
+    }
+
+    const tType = cType ? cType[0] as Class<T> : targetType;
     const sName = getTypeName(sourceType);
     const descriptor = this.extractDescriptor(tType);
 
