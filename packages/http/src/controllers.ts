@@ -73,7 +73,12 @@ export abstract class BaseController extends AsyncService implements IController
   }
 
   public async resolve() {
+
+    await super.resolve();
+
     const self = this;
+
+    
 
     if (!this.Descriptor) {
       this._log.warn(`Controller ${this.constructor.name} does not have descriptor. It its abstract or base class ignore this message.`);
@@ -267,9 +272,9 @@ export abstract class BaseController extends AsyncService implements IController
 
       for (const { param, handler: routeArgsHandler } of sortedParams) {
         if (!routeArgsHandler) {
-          throw new UnexpectedServerError(`invalid route parameter type for param: ${param.Name},
-            method: ${route.Method},
-            controller: ${self.constructor.name}`);
+          throw new UnexpectedServerError(`Route parameter not registered for parameter: ${param.Name},
+            in method: ${route.Method},
+            in controller: ${self.constructor.name}. Check if you have registered it in DI container.`);
         }
 
         const { Args, CallData } = await routeArgsHandler.extract(callData, callArgs, param, req, res, route);
@@ -368,6 +373,9 @@ export class Controllers extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
+
+    await super.resolve();
+
     const controllers = await this.Controllers;
     for (const c of controllers) {
       await this.register(c);

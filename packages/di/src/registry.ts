@@ -56,32 +56,15 @@ export class Registry {
     return false;
   }
 
-  public getTypes<T>(service: string | Class<T> | TypedArray<T>, parent = true): Array<Class<unknown> | Factory<unknown>> {
+ public getTypes<T>(service: string | Class<T> | TypedArray<T>, parent = true): Array<Class<unknown> | Factory<unknown>> {
     if (!service) {
       throw new InvalidArgument('argument "service" cannot be null or empty');
     }
 
-    const serviceName = getTypeName(service);
-    let name = getTypeName(service);
-    let types: Array<Class<unknown> | Factory<unknown>> | null = null;
+    const name = getTypeName(service);
 
-    while (this.registry.has(name)) {
-      types = this.registry.get(name);
-      if (types && types.length > 0) {
-        
-        name = getTypeName(types[types.length - 1]);
-        
-        if (name === serviceName) {
-          break;
-        }
-
-      } else {
-        break;
-      }
-    }
-
-    if (types) {
-      return types;
+    if (this.registry.has(name)) {
+      return this.registry.get(name);
     }
 
     if (this.container.Parent && parent) {

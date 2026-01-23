@@ -74,6 +74,9 @@ export class HttpServer extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
+
+    await super.resolve();
+
     this.Express = Express();
     this.Middlewares = this.Middlewares.sort((a, b) => {
       return a.Order - b.Order;
@@ -88,7 +91,7 @@ export class HttpServer extends AsyncService {
       this.Log.info(`Response templates path at ${f.Options.basePath}`);
     }
 
-    this.HttpConfig.middlewares.forEach((m) => {
+    this.HttpConfig.middlewares?.forEach((m) => {
       this.Log.info(`Using server middleware::before() - ${m.constructor.name}`);
       this.use(m);
     });

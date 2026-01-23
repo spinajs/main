@@ -26,6 +26,9 @@ export class WebsocketServer extends AsyncService {
   protected Controllers: SocketController[];
 
   public async resolve(): Promise<void> {
+
+    await super.resolve();
+
     this.Server = new Server(this.HttpServer.Server);
 
     this.Middlewares.sort((a, b) => {

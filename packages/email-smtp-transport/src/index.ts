@@ -27,6 +27,9 @@ export class EmailSenderSmtp extends EmailSender {
   }
 
   public async resolve(): Promise<void> {
+
+    await super.resolve();
+
     const options = Object.assign(
       {
         host: this.Options.host,

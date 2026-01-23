@@ -31,10 +31,15 @@ export class ZipResponse extends Response {
     const fPath = zippedFile.asFilePath();
 
     return new Promise((resolve, reject) => {
+      const encodedFilename = encodeURIComponent(this.Options.filename);
+
       _setCoockies(res, this.responseOptions);
       _setHeaders(res, this.responseOptions);
 
-      res.download(zippedFile.fs.resolvePath(fPath), this.Options.filename, (err: Error) => {
+      res.setHeader('Content-Type', this.Options.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
+
+      res.sendFile(zippedFile.fs.resolvePath(fPath), (err: Error) => {
         zippedFile.fs.rm(fPath).finally(() => {
           if (!_.isNil(err)) {
             reject(err);
@@ -74,10 +79,16 @@ export class FileResponse extends Response {
     const file = await provider.download(this.Options.path);
 
     return new Promise((resolve, reject) => {
+
+      const encodedFilename = encodeURIComponent(this.Options.filename);
+
       _setCoockies(res, this.responseOptions);
       _setHeaders(res, this.responseOptions);
 
-      res.download(file, this.Options.filename, (err: Error) => {
+      res.setHeader('Content-Type', this.Options.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
+
+      res.sendFile(file, (err: Error) => {
         const r = () => {
           if (!_.isNil(err)) {
             reject(err);
@@ -107,10 +118,15 @@ export class JsonFileResponse extends Response {
     provider.write(tmpPath, JSON.stringify(this.data));
 
     return new Promise((resolve, reject) => {
+      const encodedFilename = encodeURIComponent(this.filename);
+
       _setCoockies(res, this.responseOptions);
       _setHeaders(res, this.responseOptions);
 
-      res.download(tmpPath, this.filename, (err: Error) => {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
+
+      res.sendFile(tmpPath, (err: Error) => {
         provider.rm(tmpPath).finally(() => {
           if (err) {
             reject(err);

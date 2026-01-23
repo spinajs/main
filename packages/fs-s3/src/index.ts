@@ -102,6 +102,9 @@ export class fsS3 extends fs {
   }
 
   public async resolve() {
+
+    await super.resolve();
+
     this.Logger.info(`Initializing S3 file provider '${this.Options.name}' for bucket '${this.Options.bucket}'`);
     const credentials = typeof this.AwsConfig.credentials === 'function' ? undefined : this.AwsConfig.credentials;
     this.Logger.info(`S3 Configuration: ${JSON.stringify({

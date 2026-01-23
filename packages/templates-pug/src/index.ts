@@ -9,9 +9,23 @@ import { TemplateRenderer } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import { normalize } from 'path';
+import { Readable, Writable } from 'stream';
+
+class Pug extends Readable { 
+  
+}
+
+class Browser extends Writable
+{
+
+}
+
+const t = new Pug();
+t.pipe(new Browser());
+
 
 @Injectable(TemplateRenderer)
-export class PugRenderer extends TemplateRenderer {
+export class PugRenderer extends TemplateRenderer {  
   @Config('templates.pug')
   protected Options: pugTemplate.Options;
 
