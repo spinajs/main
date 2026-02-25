@@ -48,6 +48,53 @@ export enum E_CODES {
  * ===============================================
  */
 
+/**
+ *
+ * Gets system user account
+ *
+ * @returns system user
+ */
+export function _get_system_user() {
+  return _chain(
+    _zip(
+      _cfg<string>('rbac.systemRole'),
+      _cfg<string>('rbac.roleColumn'),
+    ),
+    ([systemRole, roleColumn]: [string, string]) => {
+      const s = _check_arg(_trim(), _non_empty())(systemRole, 'rbac.systemRole');
+      const c = _check_arg(_trim(), _non_empty())(roleColumn, 'rbac.roleColumn');
+
+      return [s, c]
+    },
+    ([systemRole, roleColumn]: [string, string]) =>
+      User.query()
+        .where(roleColumn, systemRole)
+        .firstOrFail(),
+  );
+}
+
+/**
+ * 
+ * Gets rbac user model
+ * 
+ * @param user 
+ * @returns 
+ */
+export function _get_user(user: User | number | string) {
+
+  if (_.isString(user)) {
+    return async () => User.where('Uuid', user).firstOrFail();
+  }
+
+  if (_.isNumber(user)) {
+    return async () => User.getOrFail(user);
+  }
+
+  return () => Promise.resolve(user);
+}
+
+
+
 export function _set_user_meta(meta: string | { key: string; value: any }[], value: any = null) {
   return async (u: User) => {
     const mArgs = _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u })), _to_array())(meta, 'Metadata');
@@ -178,7 +225,7 @@ export async function deactivate(identifier: number | string | User): Promise<vo
  * @param id optional user id ( if we migrate from other system  we want to keep user id )
  * @returns 
  */
-export async function create(email: string, login: string, password: string, roles: string[], id? : number): Promise<{ User: User; Password: string }> {
+export async function create(email: string, login: string, password: string, roles: string[], id?: number): Promise<{ User: User; Password: string }> {
   const sPassword = await _service('rbac.password', PasswordProvider)();
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');

@@ -73,9 +73,8 @@ export function Injectable(as?: Class<unknown> | string) {
   return (target: Class<unknown>) => {
     if (as) {
       DI.register(target).as(as);
-    } else {
-      DI.register(target).asSelf();
     }
+    DI.register(target).asSelf();
   };
 }
 
