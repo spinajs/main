@@ -121,6 +121,11 @@ const rbac = {
       },
     ],
     grants: {
+      // system user can do anything that admin can and more
+      system: {
+        $extend: ['admin'],
+      },
+      
       'admin.users': {
         users: {
           'create:any': ['*'],
@@ -196,7 +201,7 @@ const rbac = {
        */
       passwordResetWaitTime: 60 * 60,
     },
-    user: { 
+    user: {
       profile: "BasicProfileProvider"
     },
     session: {
@@ -206,6 +211,16 @@ const rbac = {
       // time in minutes
       expiration: 120,
     },
+
+    /**
+     * System role is used to perform internal operations on users, like password reset, email change etc.
+     */
+    systemRole: 'system',
+
+    /**
+     * Column name in database where role is stored, by default is "Role", but if your user table has different column name, you can change it here
+     */
+    roleColumn: 'Role',
   },
 };
 
