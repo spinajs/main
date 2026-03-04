@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/log",
-  "version": "2.0.440",
+  "version": "2.0.441",
   "description": "Log lib for all spinejs related libs",
   
     "main": "lib/cjs/index.js",
@@ -42,11 +42,11 @@
   "homepage": "https://github.com/spinajs/log#readme",
   "dependencies": {
     "@colors/colors": "^1.5.0",
-    "@spinajs/configuration": "^2.0.440",
-    "@spinajs/di": "^2.0.440",
-    "@spinajs/exceptions": "^2.0.440",
-    "@spinajs/internal-logger": "^2.0.440",
-    "@spinajs/log-common": "^2.0.440",
+    "@spinajs/configuration": "^2.0.441",
+    "@spinajs/di": "^2.0.441",
+    "@spinajs/exceptions": "^2.0.441",
+    "@spinajs/internal-logger": "^2.0.441",
+    "@spinajs/log-common": "^2.0.441",
     "ajv": "^8.12.0",
     "chalk": "5.2.0",
     "glob": "^8.1.0",
