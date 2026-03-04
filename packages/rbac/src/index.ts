@@ -73,5 +73,17 @@ export class RbacBootstrapper extends Bootstrapper {
       const system = await User.select().where("Role",["system"]).where("Login", "__system__").firstOrFail();
       return system;
     }).as('RbacSystemUserFactory');
+
+    DI.register( async (_, role: string ) =>{ 
+
+      return new User({
+        Login: `__user_from_role_${role}__`,
+        Email: `__user_from_role_${role}__@system`,
+        Role: [role],
+        IsActive: true,
+      });
+
+
+    }).as('RbacUserFromRoleFactory');
   }
 }
