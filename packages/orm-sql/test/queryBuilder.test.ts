@@ -192,6 +192,18 @@ describe('Where query builder', () => {
     expect(result.bindings).to.be.an('array').to.include.members([1, 2, 3]);
   });
 
+  it('where in set', () => {
+    const result = sqb().select('*').from('users').whereInSet('tags', ['admin', 'user']).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE (FIND_IN_SET(?, `tags`) > 0 OR FIND_IN_SET(?, `tags`) > 0)');
+    expect(result.bindings).to.be.an('array').to.include.members(['admin', 'user']);
+  });
+
+  it('where not in set', () => {
+    const result = sqb().select('*').from('users').whereNotInSet('tags', ['admin', 'user']).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE (FIND_IN_SET(?, `tags`) = 0 AND FIND_IN_SET(?, `tags`) = 0)');
+    expect(result.bindings).to.be.an('array').to.include.members(['admin', 'user']);
+  });
+
   it('where between', () => {
     const result = sqb().select('*').from('users').whereBetween('id', [1, 2]).toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` BETWEEN ? AND ?');

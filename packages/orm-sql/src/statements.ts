@@ -2,7 +2,7 @@ import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQu
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { NewInstance } from '@spinajs/di';
-import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor } from '@spinajs/orm';
+import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor } from '@spinajs/orm';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 function _columnWrap(column: string, tableAlias: string, isAggregate?: boolean): string {
@@ -283,6 +283,26 @@ export class SqlInStatement extends InStatement {
       Bindings: this._val,
       Statements: [`${column} ${exprr} (${this._val.map(() => '?').join(',')})`],
     };
+  }
+}
+
+@NewInstance()
+export class SqlInSetStatement extends InSetStatement {
+  build(): IQueryStatementResult {
+    const column = _columnWrap(this._column, this._tableAlias);
+    const operator = this._not ? '= 0' : '> 0';
+    const connector = this._not ? ' AND ' : ' OR ';
+
+    const conditions = this._val.map(() => `FIND_IN_SET(?, ${column}) ${operator}`).join(connector);
+
+    return {
+      Bindings: this._val,
+      Statements: [`(${conditions})`],
+    };
+  }
+
+  public clone(): IQueryStatement {
+    return new SqlInSetStatement(this._column, this._val, this._not, this._tableAlias);
   }
 }
 
