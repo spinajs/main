@@ -75,6 +75,19 @@ export function _get_system_user() {
 
 /**
  * 
+ * Gets users by role helper func.
+ * 
+ * @param role user role 
+ * @returns 
+ */
+export function _get_users_by_role(role: string) {
+  return () => User.select().withRole(role);
+}
+
+
+
+/**
+ * 
  * Gets rbac user model
  * 
  * @param user 

@@ -10,6 +10,26 @@ import { _cfg } from '@spinajs/configuration';
 
 export class UserQueryScopes implements QueryScope {
 
+  /**
+   * 
+   * Fetch users with specified role. If user has more roles and one of them is matching it will be included as well
+   * 
+   * @param role  one of user roles. If user has this role it will be included in result. If user has more roles and one of them is matching it will be included as well
+   * @returns 
+   */
+  public withRole(this: ISelectQueryBuilder<User[]> & UserQueryScopes, role: string) {
+    const r = _check_arg(_trim(), _non_empty())(role, 'role');
+    return this.whereInSet('Role', [r]);
+  }
+
+  /**
+   * 
+   * Finds users with specified metadata key and value. If user has more metadata and one of them is matching it will be included as well
+   * 
+   * @param key metada key
+   * @param value metadata value
+   * @returns 
+   */
   public whereMetadata(this: ISelectQueryBuilder<User[]> & UserQueryScopes, key: string, value: any) {
     const k = _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(key, 'key');
     const v = _check_arg(_non_nil())(value, 'value');
