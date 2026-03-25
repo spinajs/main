@@ -17,9 +17,9 @@ export class UserQueryScopes implements QueryScope {
    * @param role  one of user roles. If user has this role it will be included in result. If user has more roles and one of them is matching it will be included as well
    * @returns 
    */
-  public withRole(this: ISelectQueryBuilder<User[]> & UserQueryScopes, role: string) {
-    const r = _check_arg(_trim(), _non_empty())(role, 'role');
-    return this.whereInSet('Role', [r]);
+  public withRole(this: ISelectQueryBuilder<User[]> & UserQueryScopes, roles: string[]) {
+    const r = _check_arg(_trim(), _non_empty())(roles, 'roles');
+    return this.whereInSet('Role', r);
   }
 
   /**
