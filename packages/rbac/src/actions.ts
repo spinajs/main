@@ -80,7 +80,7 @@ export function _get_system_user() {
  * @param role user role 
  * @returns 
  */
-export function _get_users_by_role(role: string) {
+export function _get_users_by_role(role: string[]) {
   return () => User.select().withRole(role);
 }
 
