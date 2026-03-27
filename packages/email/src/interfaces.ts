@@ -1,16 +1,32 @@
-import { AsyncService, Autoinject, IMappableService, Injectable, NewInstance } from '@spinajs/di';
+import { AsyncService, Autoinject, DI, IMappableService, Injectable, NewInstance, ResolveException } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { QueueService } from '@spinajs/queue';
 import { EmailSend } from './jobs/EmailSend.js';
+import { fs } from '@spinajs/fs';
 export abstract class EmailSender extends AsyncService implements IMappableService {
   public Options: EmailConnectionOptions;
+
+  @Config('email.templateFs')
+  protected defaultTemplateFsName: string;
+
+  protected defaultTemplateFs: fs;
 
   public get ServiceName() {
     return this.Options.name;
   }
 
   abstract send(email: IEmail): Promise<void>;
+
+  public async resolve() {
+    if (this.defaultTemplateFsName) {
+      this.defaultTemplateFs = DI.resolve("__file_provider__", [this.defaultTemplateFsName]);
+
+      if (!this.defaultTemplateFs) {
+        throw new ResolveException('Default email template filesystem ' + this.defaultTemplateFsName + ' not found. Please check your configuration for email.templateFs and make sure that fs provider with name ' + this.defaultTemplateFsName + ' is registered');
+      }
+    }
+  }
 }
 
 @Injectable(EmailSender)
@@ -18,6 +34,7 @@ export abstract class EmailSender extends AsyncService implements IMappableServi
 export class BlackHoleEmailSender extends EmailSender {
   @Logger('email')
   protected Log: Log;
+
 
   constructor(public Options: EmailConnectionOptions) {
     super();
@@ -48,7 +65,23 @@ export interface IEmailAttachement {
   /**
    * Content-id if provided to embedd image in message
    */
-  cid? : string;
+  cid?: string;
+}
+
+/**
+ * Email template def if template is in different fs than default templateFs
+ */
+export interface IEmailTemplate {
+
+  /**
+   * Template name
+   */
+  file: string;
+
+  /**
+   * Template filesystem to use
+   */
+  fs: string;
 }
 
 export interface IEmail {
@@ -70,7 +103,7 @@ export interface IEmail {
   /**
    * Local template name. Must be avaible in one of dirs set in template config
    */
-  template?: string;
+  template?: string | IEmailTemplate;
 
   /**
    * Some implementations have predefined templates. It can be accessed by this Id
@@ -110,12 +143,12 @@ export interface IEmail {
   /**
    * Email delivery schedule. If we want to repeat email, schedule to send at specific time, send delayed etc..
    */
-  schedule?: { 
+  schedule?: {
 
     /**
      * Use a Cron entry to set the schedule
      */
-    cron?: string, 
+    cron?: string,
 
     /**
      * The time in milliseconds that a message will wait before being scheduled to be delivered
@@ -130,7 +163,7 @@ export interface IEmail {
     /**
      * The number of times to repeat scheduling a message for delivery
      */
-    repeat? : number
+    repeat?: number
 
   }
 }
@@ -183,6 +216,7 @@ export abstract class EmailService extends AsyncService {
 
   @Autoinject(QueueService)
   protected Queue: QueueService;
+
 
   /**
    *

@@ -66,6 +66,20 @@ export class EmailSenderSmtp extends EmailSender {
       throw new IOFail(`Email from address is required. Please provide it in email or in configuration`);
     }
 
+    let fs : fs = this.defaultTemplateFs;
+  
+
+    if(!_.isString(email.template)){
+      fs = await DI.resolve<fs>('__file_provider__', [email.template.fs]);
+      if (!fs) {
+        throw new IOFail(`Filesystem provider for ${email.template.fs} not registered. Make sure you importer all required fs providers`);
+      }
+    } 
+
+    this.Log.trace(`Using filesystem ${fs.Name} to resolve email template`);
+    const tfile = await  (_.isString(email.template) ? fs.download(email.template) : fs.download(email.template.file));
+    this.Log.trace(`Resolved email template ${tfile}`);
+ 
     const options = {
       from: email.from ?? this.Options.defaults?.mailFrom, // sender address
       to: email.to.join(','), // list of receivers
@@ -74,7 +88,7 @@ export class EmailSenderSmtp extends EmailSender {
       replyTo: email.replyTo,
       subject: email.subject, // Subject line
       text: email.text, // plain text body
-      html: email.template ? await this.Tempates.render(email.template, { ...email.model, ...this.Options.templates?.defaults }, email.lang) : null,
+      html: email.template ? await this.Tempates.render(tfile, { ...email.model, ...this.Options.templates?.defaults }, email.lang) : null,
       attachments: [] as any[],
     };
 

@@ -1,6 +1,6 @@
 import { QueueEvent, Event } from '@spinajs/queue';
 import { DateTime } from 'luxon';
-import { IEmail } from '../interfaces.js';
+import { IEmail, IEmailTemplate } from '../interfaces.js';
 
 @Event()
 export class EmailSent extends QueueEvent {
@@ -13,7 +13,7 @@ export class EmailSent extends QueueEvent {
   /**
    * Email template eg. pug file or mustashe
    */
-  public Template?: string;
+  public Template?: string | IEmailTemplate;
 
   /**
    * Data model used in template

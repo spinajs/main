@@ -20,6 +20,12 @@ const email = {
   email: {
     // default email queue / transport
     queue: 'email-queue-black-hole',
+
+    /**
+     * Default email template filesystem
+     * FS must be set in configuration on server/app that sends emails
+     */
+    templateFs: "email-templates",
   },
   queue: {
     routing: {
