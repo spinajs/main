@@ -1,5 +1,5 @@
 import { Constructor } from '@spinajs/di';
-import { IUpdateResult } from './interfaces.js';
+import { InsertBehaviour, IUpdateResult } from './interfaces.js';
 import { ModelBase } from './model.js';
 import _ from 'lodash';
 import { ErrorCode } from '@spinajs/exceptions';
@@ -55,10 +55,10 @@ export function _update<T extends ModelBase>(data?: Partial<T>): (data: T) => Pr
  *
  * @returns
  */
-export function _insert<T extends ModelBase>(): (model: T | T[]) => Promise<T | T[]> {
+export function _insert<T extends ModelBase>(behaviour?: InsertBehaviour): (model: T | T[]) => Promise<T | T[]> {
   return (model: T | T[]) => {
     if (_.isArray(model)) {
-     return (model[0].constructor as typeof ModelBase).insert(model).then((res: IUpdateResult) => {
+     return (model[0].constructor as typeof ModelBase).insert(model, behaviour).then((res: IUpdateResult) => {
         if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
           return Promise.reject(new ErrorCode(E_ORM_CODES.E_NO_ROWS_AFFECTED));
         }
@@ -67,7 +67,7 @@ export function _insert<T extends ModelBase>(): (model: T | T[]) => Promise<T | 
       }) as Promise<T[]>;
     }
 
-    return model.insert().then((res: IUpdateResult) => {
+    return model.insert(behaviour).then((res: IUpdateResult) => {
       if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
         return Promise.reject(new ErrorCode(E_ORM_CODES.E_NO_ROWS_AFFECTED));
       }
