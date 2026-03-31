@@ -58,7 +58,7 @@ export function _update<T extends ModelBase>(data?: Partial<T>): (data: T) => Pr
 export function _insert<T extends ModelBase>(behaviour?: InsertBehaviour): (model: T | T[]) => Promise<T | T[]> {
   return (model: T | T[]) => {
     if (_.isArray(model)) {
-     return (model[0].constructor as typeof ModelBase).insert(model, behaviour).then((res: IUpdateResult) => {
+      return model.length > 0 && (model[0].constructor as typeof ModelBase).insert(model, behaviour).then((res: IUpdateResult) => {
         if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
           return Promise.reject(new ErrorCode(E_ORM_CODES.E_NO_ROWS_AFFECTED));
         }
