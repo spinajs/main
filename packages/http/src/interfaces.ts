@@ -502,7 +502,7 @@ export interface IUploadOptions {
   /**
    * default false; include checksums calculated for incoming files, set this to some hash algorithm, see crypto.createHash for available algorithms
    */
-  hashAlghoritm?: false | 'sha1' | 'md5' | 'sha256';
+  hashAlgorithm?: false | 'sha1' | 'md5' | 'sha256';
 
   encoding?: string;
 
