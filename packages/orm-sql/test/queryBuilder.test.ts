@@ -1416,5 +1416,31 @@ describe('schema building', () => {
     expect(result[0].expression).to.contain('`foo` JSON');
     expect(result[0].expression).to.contain("`foo` SET('bar','baz')");
   });
+
+  it('Should execute raw SQL statement', () => {
+    const result = schqb().raw('CREATE INDEX idx_name ON users (name)').toDB();
+    expect(result.expression).to.equal('CREATE INDEX idx_name ON users (name)');
+    expect(result.bindings).to.be.an('array').that.is.empty;
+  });
+
+  it('Should execute raw SQL statement with bindings', () => {
+    const result = schqb().raw('ALTER TABLE users ADD COLUMN email VARCHAR(?)', [255]).toDB();
+    expect(result.expression).to.equal('ALTER TABLE users ADD COLUMN email VARCHAR(?)');
+    expect(result.bindings).to.be.an('array').to.include.members([255]);
+  });
+
+  it('Should execute raw SQL statement with RawQuery instance', () => {
+    const rawQuery = RawQuery.create('DROP INDEX idx_name ON users');
+    const result = schqb().raw(rawQuery).toDB();
+    expect(result.expression).to.equal('DROP INDEX idx_name ON users');
+    expect(result.bindings).to.be.an('array').that.is.empty;
+  });
+
+  it('Should execute raw SQL statement with RawQuery instance and bindings', () => {
+    const rawQuery = RawQuery.create('CREATE INDEX ? ON users (?)', ['idx_email', 'email']);
+    const result = schqb().raw(rawQuery).toDB();
+    expect(result.expression).to.equal('CREATE INDEX ? ON users (?)');
+    expect(result.bindings).to.be.an('array').to.include.members(['idx_email', 'email']);
+  });
 });
 
