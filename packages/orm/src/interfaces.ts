@@ -1233,6 +1233,11 @@ export abstract class GroupByQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
 
+@NewInstance()
+export abstract class RawSchemaQueryCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
 /**
  * ==========================================================
  */

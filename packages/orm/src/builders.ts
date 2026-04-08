@@ -5,7 +5,7 @@ import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions, QueryScope } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
@@ -2427,6 +2427,42 @@ export class SchemaQueryBuilder {
 
   public dropEvent(name: string) {
     return new DropEventQueryBuilder(this.container, this.driver, name);
+  }
+
+  /**
+   * Executes raw SQL statement on the database.
+   * Use this for custom DDL operations or database-specific commands.
+   *
+   * @param query - raw query string or RawQuery instance
+   * @param bindings - optional binding parameters
+   */
+  public raw(query: string | RawQuery, bindings?: any[]) {
+    if (query instanceof RawQuery) {
+      return new RawSchemaQueryBuilder(this.container, this.driver, query.Query, query.Bindings);
+    }
+    return new RawSchemaQueryBuilder(this.container, this.driver, query, bindings);
+  }
+}
+
+/**
+ * Query builder for executing raw SQL statements within schema context.
+ * Useful for custom DDL operations, database-specific commands, or
+ * any SQL that doesn't fit into the standard schema methods.
+ */
+@NewInstance()
+@Inject(Container)
+export class RawSchemaQueryBuilder extends QueryBuilder {
+  public Query: string;
+  public Bindings: any[];
+
+  constructor(protected container: Container, protected driver: OrmDriver, query: string, bindings?: any[]) {
+    super(container, driver);
+    this.Query = query;
+    this.Bindings = bindings || [];
+  }
+
+  public toDB(): ICompilerOutput {
+    return this._container.resolve<RawSchemaQueryCompiler>(RawSchemaQueryCompiler, [this]).compile();
   }
 }
 
