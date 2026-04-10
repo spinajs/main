@@ -1,7 +1,8 @@
 import { BasePath, BaseController, Ok, CsvFile, Post, Type } from '../../../src/index.js';
-import { CvsSampleObject, CvsSampleObjectWithHydrator, CvsSampleObjectWithSchema, SampleCvsModel } from '../../dto/index.js';
+import { CvsSampleObject, CvsSampleObjectWithHydrator, CvsSampleObjectWithSchema, CvsSampleObjectWithSchemaSchema, SampleCvsModel } from '../../dto/index.js';
 
 const CVS_PARSE_OPTIONS = { from: 2, delimiter: ';',cast: true, auto_parse: true, columns: ['Username', 'Identifier', 'FirstName', 'LastName'] };
+const CVS_PARSE_OPTIONS_WITH_SCHEMA = { ...CVS_PARSE_OPTIONS, Schema: CvsSampleObjectWithSchemaSchema };
 
 @BasePath('params/cvs')
 export class CvsFileParams extends BaseController {
@@ -22,6 +23,11 @@ export class CvsFileParams extends BaseController {
 
   @Post()
   public modelsFromCvsWithHydrator(@CsvFile(CVS_PARSE_OPTIONS) objects: CvsSampleObjectWithHydrator) {
+    return new Ok({ objects });
+  }
+
+  @Post()
+  public objectsFromCvsWithSchemaOption(@CsvFile(CVS_PARSE_OPTIONS_WITH_SCHEMA) objects: CvsSampleObject[]) {
     return new Ok({ objects });
   }
 }

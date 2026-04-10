@@ -3,7 +3,7 @@ import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOpt
 import * as express from 'express';
 import formidable, { Fields, Files, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
-import { DI, Injectable, NewInstance } from '@spinajs/di';
+import { Autoinject, DI, Injectable, NewInstance } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs, fsNative } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
@@ -11,7 +11,7 @@ import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
 import { basename } from 'node:path';
 import { toArray } from '@spinajs/util';
-import { ValidationFailed } from '@spinajs/validation';
+import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { EntityTooLargeException } from '../exceptions.js';
 import { BadRequest, Exception, IOFail } from '@spinajs/exceptions';
 import { FileSystem } from "@spinajs/fs";
@@ -250,16 +250,41 @@ export class FromJsonFile extends FromFile {
   }
 }
 
+/**
+ * Options for CSV file parsing and validation
+ */
+export interface ICsvOptions {
+  /**
+   * JSON schema for validating each row of CSV data.
+   * If provided, each parsed row will be validated against this schema.
+   */
+  Schema?: object | string;
+
+  /**
+   * Whether to delete the source file after processing
+   */
+  DeleteFile?: boolean;
+
+  /**
+   * csv-parse options (delimiter, columns, etc.)
+   * See: https://csv.js.org/parse/options/
+   */
+  [key: string]: any;
+}
+
 @Injectable()
 @NewInstance()
 export class FromCSV extends FromFormBase {
+  @Autoinject()
+  protected Validator: DataValidator;
+
   public get SupportedType(): ParameterType {
     return ParameterType.FromCSV;
   }
 
-  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<ICsvOptions>, req: Request, res: express.Response, route?: IRoute) {
     const data = await super.extract(callData, _args, param, req, res, route);
-
+   
     const files = this.FormData.Files[param.Name];
     const file = files ? (Array.isArray(files) ? files[0] : files) : null;
 
@@ -268,13 +293,19 @@ export class FromCSV extends FromFormBase {
     }
 
     const sourceFile = file.filepath;
-    const cvsData = (await this.parseCvs(param, sourceFile)) as [];
+    const csvData = (await this.parseCsv(param, sourceFile)) as any[];
 
-    if (param.Options.DeleteFile) {
+    if (param.Options?.DeleteFile) {
       await promises.unlink(sourceFile);
     }
 
-    const args = await Promise.all(cvsData.map((x) => this.tryHydrateParam(x, param, route)));
+    // Validate CSV data if schema is provided
+    const schema = param.Schema ?? param.Options?.Schema;
+    if (schema) {
+      this.validateCsvData(csvData, schema);
+    }
+
+    const args = await Promise.all(csvData.map((x) => this.tryHydrateParam(x, param, route)));
 
     return {
       ...data,
@@ -282,13 +313,45 @@ export class FromCSV extends FromFormBase {
     };
   }
 
-  protected async parseCvs(param: IRouteParameter, path: string) {
+  /**
+   * Validates CSV data against a JSON schema.
+   * Validates each row individually and collects all validation errors.
+   * 
+   * @param data - Array of parsed CSV rows
+   * @param schema - JSON schema object or schema reference string
+   * @throws ValidationFailed if any row fails validation
+   */
+  protected validateCsvData(data: any[], schema: object | string): void {
+    const allErrors: Array<{ row: number; errors: any[] }> = [];
+
+    data.forEach((row, index) => {
+      const [isValid, errors] = this.Validator.tryValidate(schema, row);
+      if (!isValid && errors) {
+        allErrors.push({ row: index, errors });
+      }
+    });
+
+    if (allErrors.length > 0) {
+      const flatErrors = allErrors.flatMap(({ row, errors }) =>
+        errors.map((e) => ({
+          ...e,
+          instancePath: `[${row}]${e.instancePath ?? ''}`,
+          message: `Row ${row}: ${e.message}`,
+        }))
+      );
+
+      throw new ValidationFailed('CSV data validation failed', flatErrors);
+    }
+  }
+
+  protected async parseCsv(param: IRouteParameter<ICsvOptions>, path: string) {
     const data: any[] = [];
+    const { Schema, DeleteFile, ...csvOptions } = param.Options ?? {};
 
     return new Promise((res, rej) => {
       createReadStream(path)
-        .pipe(parse(param.Options ?? {}))
-        .on('error', (err: any) => rej(new BadRequest('Cannot read data from cvs', err)))
+        .pipe(parse(csvOptions))
+        .on('error', (err: any) => rej(new BadRequest('Cannot read data from csv', err)))
         .on('data', (row: any) => data.push(row))
         .on('end', () => res(data));
     });

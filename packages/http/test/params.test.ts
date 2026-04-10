@@ -821,6 +821,33 @@ describe('controller action test params', function () {
 
       expect(spy2.called).to.be.true;
     });
+
+    it('should validate csv data with schema option and succeed', async () => {
+      const spy = CvsFileParams.prototype.objectsFromCvsWithSchemaOption as sinon.SinonSpy;
+      const res = await req()
+        .post('params/cvs/objectsFromCvsWithSchemaOption')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username.csv'), { filename: 'test.csv' });
+
+      expect(res.status).to.eq(200);
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0]).containSubset([
+        {
+          FirstName: 'Rachel',
+          Identifier: 9012,
+          LastName: 'Booker',
+          Username: 'booker12',
+        },
+      ]);
+    });
+
+    it('should validate csv data with schema option and fail for invalid data', async () => {
+      const res = await req()
+        .post('params/cvs/objectsFromCvsWithSchemaOption')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username_invalid.csv'), { filename: 'test.csv' });
+
+      expect(res.status).to.eq(400);
+      expect(res.body.error.message).to.eq('CSV data validation failed');
+    });
   });
 
   describe('from json files', function () {
