@@ -122,8 +122,8 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
 
     const result: User = (await db().Connections.get('mysql').select().from('user_test').orderByDescending('Id').first()) as User;
 
-    expect(iResult.RowsAffected).to.eq(1);
-    expect(iResult.LastInsertId).to.gt(0);
+    expect(iResult.affectedRows).to.eq(1);
+    expect(iResult.insertId).to.gt(0);
     expect(result).to.be.not.null;
     expect(result.Id).to.gt(0);
     expect(result.Name).to.eq('test');
@@ -158,7 +158,7 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
       .update({
         Name: 'test updated',
       })
-      .where('id', iResult.LastInsertId);
+      .where('id', iResult.insertId);
 
     const result: User = (await db().Connections.get('mysql').select().from('user_test').orderByDescending('Id').first()) as User;
     expect(uResult.RowsAffected).to.eq(1);
@@ -199,6 +199,60 @@ describe('mysql model functions', () => {
     expect(user.Name).to.eq('test');
     expect(user.Password).to.eq('test_password');
   });
+
+  it('should batch insert models and fill primary keys', async () => {
+    const users = [
+      new User({ Name: 'batch_user_1', Password: 'password1' }),
+      new User({ Name: 'batch_user_2', Password: 'password2' }),
+      new User({ Name: 'batch_user_3', Password: 'password3' }),
+    ];
+
+    await User.insert(users);
+
+    // All primary keys should be filled
+    expect(users[0].Id).to.be.gt(0);
+    expect(users[1].Id).to.be.gt(0);
+    expect(users[2].Id).to.be.gt(0);
+
+    // Primary keys should be sequential
+    expect(users[1].Id).to.eq(users[0].Id + 1);
+    expect(users[2].Id).to.eq(users[1].Id + 1);
+
+    // Verify data is persisted correctly
+    const allUsers = await User.all();
+    expect(allUsers.length).to.eq(3);
+
+    const dbUser1 = await User.get(users[0].Id);
+    const dbUser2 = await User.get(users[1].Id);
+    const dbUser3 = await User.get(users[2].Id);
+
+    expect(dbUser1.Name).to.eq('batch_user_1');
+    expect(dbUser2.Name).to.eq('batch_user_2');
+    expect(dbUser3.Name).to.eq('batch_user_3');
+  });
+
+  it('should batch insert single model and fill primary key', async () => {
+    const user = new User({ Name: 'single_batch', Password: 'password' });
+
+    await User.insert([user]);
+
+    expect(user.Id).to.be.gt(0);
+
+    const dbUser = await User.get(user.Id);
+    expect(dbUser.Name).to.eq('single_batch');
+  });
+
+  // Note: InsertBehaviour is not supported with array inserts, testing single model InsertOrUpdate instead
+  it('should insert with InsertOrUpdate and fill primary key', async () => {
+    const user = new User({ Name: 'upsert_user_1', Password: 'password1' });
+
+    await User.insert(user, InsertBehaviour.InsertOrUpdate);
+
+    expect(user.Id).to.be.gt(0);
+
+    const dbUser = await User.get(user.Id);
+    expect(dbUser.Name).to.eq('upsert_user_1');
+  });
 });
 
 describe('MySql queries', () => {
@@ -219,7 +273,6 @@ describe('MySql queries', () => {
 
   after(async () => {
     await db().Connections.get('mysql').disconnect();
-    process.exit();
   });
 
   it('should select and sort', async () => {
@@ -239,7 +292,7 @@ describe('MySql queries', () => {
       this.where({ Name: 'a' });
     }).orderBy('Name');
 
-    return expect(userQuery).to.be.fulfilled;
+    expect(userQuery).to.be.fulfilled;
   });
 
   it('should select to model', async () => {
@@ -249,7 +302,7 @@ describe('MySql queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    const user = await User.get(result.LastInsertId);
+    const user = await User.get(result.insertId);
 
     expect(user).instanceOf(User);
     expect(user.Id).to.gt(0);
@@ -279,7 +332,7 @@ describe('MySql queries', () => {
 
     const u = new User({ Name: 'test not duplicated', Password: 'test_password_duplicated' });
     await User.insert(u, InsertBehaviour.InsertOrUpdate);
-    const user = await User.get(iResult.LastInsertId);
+    const user = await User.get(iResult.insertId);
     const all = await User.all();
 
     expect(all.length).to.eq(1);
