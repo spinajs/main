@@ -12,7 +12,7 @@ import fs from 'fs';
 
 export class MysqlServerResponseMapper extends ServerResponseMapper {
   public read(data: any) {
-    return { LastInsertId: data.insertId, RowsAffected: data.affectedRows };
+    return { LastInsertId: data.LastInsertId, RowsAffected: data.RowsAffected };
   }
 }
 
@@ -59,7 +59,11 @@ export class MySqlOrmDriver extends SqlDriver {
             });
             break;
           case QueryContext.Insert:
-            resolve(results);
+          case QueryContext.Upsert:
+            resolve({
+              RowsAffected: (results as any as OkPacket).affectedRows,
+              LastInsertId: (results as any as OkPacket).insertId,
+            });
             break;
           default:
             resolve(results);

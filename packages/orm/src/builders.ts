@@ -1548,7 +1548,7 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
 }
 
 @NewInstance()
-export class InsertQueryBuilder extends QueryBuilder<IUpdateResult | any> {
+export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
   public DuplicateQueryBuilder: OnDuplicateQueryBuilder;
 
   protected _values: any[][];

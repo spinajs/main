@@ -556,7 +556,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     query.middleware({
-      afterQuery: (data: any) => {
+      afterQuery: (data: IUpdateResult) => {
         const response = sResponseMapper.read(data, this.PrimaryKeyName);
         // if already exists do not overwrite
         // sometimes we have models with primary key as string etc
@@ -564,6 +564,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         if (!this.PrimaryKeyValue) {
           this.PrimaryKeyValue = response.LastInsertId;
         }
+        return data;
       },
       modelCreation: (): any => null,
       afterHydration: (): any => null,

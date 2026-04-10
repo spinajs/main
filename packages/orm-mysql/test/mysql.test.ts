@@ -122,8 +122,8 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
 
     const result: User = (await db().Connections.get('mysql').select().from('user_test').orderByDescending('Id').first()) as User;
 
-    expect(iResult.affectedRows).to.eq(1);
-    expect(iResult.insertId).to.gt(0);
+    expect(iResult.RowsAffected).to.eq(1);
+    expect(iResult.LastInsertId).to.gt(0);
     expect(result).to.be.not.null;
     expect(result.Id).to.gt(0);
     expect(result.Name).to.eq('test');
@@ -158,7 +158,7 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
       .update({
         Name: 'test updated',
       })
-      .where('id', iResult.insertId);
+      .where('id', iResult.LastInsertId);
 
     const result: User = (await db().Connections.get('mysql').select().from('user_test').orderByDescending('Id').first()) as User;
     expect(uResult.RowsAffected).to.eq(1);
@@ -302,7 +302,7 @@ describe('MySql queries', () => {
       CreatedAt: '2019-10-18',
     });
 
-    const user = await User.get(result.insertId);
+    const user = await User.get(result.LastInsertId);
 
     expect(user).instanceOf(User);
     expect(user.Id).to.gt(0);
@@ -332,7 +332,7 @@ describe('MySql queries', () => {
 
     const u = new User({ Name: 'test not duplicated', Password: 'test_password_duplicated' });
     await User.insert(u, InsertBehaviour.InsertOrUpdate);
-    const user = await User.get(iResult.insertId);
+    const user = await User.get(iResult.LastInsertId);
     const all = await User.all();
 
     expect(all.length).to.eq(1);
