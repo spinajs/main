@@ -6,6 +6,30 @@ import _ from 'lodash';
 import { DataValidator } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
 
+/**
+ * Extracts schema from runtime type. Handles TypedArray by extracting
+ * schema from underlying type and wrapping it in array schema.
+ * This is needed because TypeScript loses array element type information at runtime.
+ * 
+ * @param runtimeType - The runtime type to extract schema from
+ * @param validator - DataValidator instance to use for schema extraction
+ * @returns The extracted schema or null if not found
+ */
+export function extractSchemaFromRuntimeType(runtimeType: any, validator: DataValidator): any {
+  if (runtimeType instanceof TypedArray) {
+    const underlyingType = (runtimeType as TypedArray<any>).Type;
+    const itemSchema = validator.extractSchema(underlyingType);
+    if (itemSchema) {
+      return {
+        type: 'array',
+        items: itemSchema,
+      };
+    }
+    return null;
+  }
+  return validator.extractSchema(runtimeType);
+}
+
 export interface IRouteArgsResult {
   CallData: IRouteCall;
   Args: any;
@@ -42,7 +66,7 @@ export abstract class RouteArgs implements IRouteArgs {
     } else if (routeParameter.RouteParamSchema) {
       schema = routeParameter.RouteParamSchema;
     } else {
-      schema = this.Validator.extractSchema(routeParameter.RuntimeType);
+      schema = extractSchemaFromRuntimeType(routeParameter.RuntimeType, this.Validator);
     }
 
     if (this.isRuntimeType(routeParameter)) {

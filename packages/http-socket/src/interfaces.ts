@@ -2,7 +2,7 @@ import { Socket } from 'socket.io';
 import { tryGetHash } from '@spinajs/util';
 import { Configuration } from '@spinajs/configuration';
 import { AsyncService, Autoinject, Constructor, Container, DI, IContainer, isClass, TypedArray } from '@spinajs/di';
-import { ArgHydrator, CONTROLLED_DESCRIPTOR_SYMBOL, IRouteParameter, ParameterType } from '@spinajs/http';
+import { ArgHydrator, CONTROLLED_DESCRIPTOR_SYMBOL, IRouteParameter, ParameterType, extractSchemaFromRuntimeType } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log-common';
 import { DataValidator } from '@spinajs/validation';
 import _ from 'lodash';
@@ -144,7 +144,7 @@ export abstract class SocketRouteArgs implements ISocketRouteArgs {
     } else if (routeParameter.RouteParamSchema) {
       schema = routeParameter.RouteParamSchema;
     } else {
-      schema = this.Validator.extractSchema(routeParameter.RuntimeType);
+      schema = extractSchemaFromRuntimeType(routeParameter.RuntimeType, this.Validator);
     }
 
     if (this.isRuntimeType(routeParameter)) {
