@@ -180,7 +180,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     return reduceRelations(this);
   }
 
-  public static getModelDescriptor() {
+  public static getModelDescriptor() : IModelDescriptor {
     throw new Error('Not implemented');
   }
 

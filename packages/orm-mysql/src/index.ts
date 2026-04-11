@@ -4,11 +4,16 @@ import { LogLevel } from '@spinajs/log';
 import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
-import { OkPacket, PoolOptions } from 'mysql2';
+import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
 import { MySqlTableExistsCompiler } from './compilers.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
 import { Client as SSHClient } from 'ssh2';
 import fs from 'fs';
+import { AsyncLocalStorage } from 'async_hooks';
+
+export interface IMySqlTransactionContext {
+  connection: PoolConnection;
+}
 
 export class MysqlServerResponseMapper extends ServerResponseMapper {
   public read(data: any) {
@@ -21,6 +26,7 @@ export class MysqlServerResponseMapper extends ServerResponseMapper {
 export class MySqlOrmDriver extends SqlDriver {
   protected Pool: mysql.Pool;
   protected _executionId = 0;
+  protected TransactionStorage = new AsyncLocalStorage<IMySqlTransactionContext>();
 
   private getNextExecutionId(): number {
     this._executionId = (this._executionId + 1) % Number.MAX_SAFE_INTEGER;
@@ -32,9 +38,13 @@ export class MySqlOrmDriver extends SqlDriver {
     const tName = `query-${this.getNextExecutionId()}`;
     this.Log.timeStart(`query-${tName}`);
 
+    // Check if we're inside a transaction context and use that connection
+    const txContext = this.TransactionStorage.getStore();
+    const queryable = txContext?.connection ?? this.Pool;
+
     return new Promise((resolve, reject) => {
 
-      this.Pool.query(stmt, params, function (err, results) {
+      queryable.query(stmt, params, function (err, results) {
         if (err) {
           return reject(
             new OrmException(
@@ -232,39 +242,56 @@ export class MySqlOrmDriver extends SqlDriver {
     });
   }
 
-  // todo fix transactions
   public transaction(queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (!queryOrCallback) {
+        resolve();
+        return;
+      }
+
       this.Pool.getConnection((err, connection) => {
         if (err) {
           reject(err);
-        } else {
-          connection.beginTransaction((err) => {
-            if (err) {
-              reject(err);
-            } else {
-              if (Array.isArray(queryOrCallback)) {
-                Promise.all(queryOrCallback)
-                  .then(() => {
-                    resolve();
-                    return;
-                  })
-                  .catch((err) => {
-                    reject(err);
-                  });
-              } else {
-                queryOrCallback(this)
-                  .then(() => {
-                    resolve();
-                    return;
-                  })
-                  .catch((err) => {
-                    reject(err);
-                  });
-              }
-            }
-          });
+          return;
         }
+
+        connection.beginTransaction(async (err) => {
+          if (err) {
+            connection.release();
+            reject(err);
+            return;
+          }
+
+          try {
+            // Run the callback/queries within async context so executeOnDb uses this connection
+            await this.TransactionStorage.run({ connection }, async () => {
+              if (Array.isArray(queryOrCallback)) {
+                for (const q of queryOrCallback) {
+                  await q;
+                }
+              } else {
+                await queryOrCallback(this);
+              }
+            });
+
+            connection.commit((err) => {
+              if (err) {
+                connection.rollback(() => {
+                  connection.release();
+                  reject(err);
+                });
+                return;
+              }
+              connection.release();
+              resolve();
+            });
+          } catch (ex) {
+            connection.rollback(() => {
+              connection.release();
+              reject(ex);
+            });
+          }
+        });
       });
     });
   }
