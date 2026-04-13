@@ -10,7 +10,7 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 import { LogLevel } from '@spinajs/log-common';
 export * from './compilers.js';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, ITransaction } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -247,9 +247,14 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteServerResponseMapper).as(ServerResponseMapper);
   }
 
-  public async transaction(qrOrCallback: QueryBuilder[] | TransactionCallback) {
+  public async transaction(qrOrCallback: QueryBuilder[] | TransactionCallback): Promise<ITransaction> {
+    const trx: ITransaction = {
+      commit: () => Promise.resolve(),
+      rollback: () => Promise.resolve(),
+    };
+
     if (!qrOrCallback) {
-      return;
+      return trx;
     }
 
     await this.executeOnDb('BEGIN TRANSACTION', null, QueryContext.Transaction);
@@ -263,7 +268,14 @@ export class SqliteOrmDriver extends SqlDriver {
         await qrOrCallback(this);
       }
 
-      await this.executeOnDb('COMMIT', null, QueryContext.Transaction);
+      return {
+        commit: async () => {
+          await this.executeOnDb('COMMIT', null, QueryContext.Transaction);
+        },
+        rollback: async () => {
+          await this.executeOnDb('ROLLBACK', null, QueryContext.Transaction);
+        },
+      };
     } catch (ex) {
       await this.executeOnDb('ROLLBACK', null, QueryContext.Transaction);
       throw ex;

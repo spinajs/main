@@ -1,4 +1,4 @@
-import { Builder, IColumnDescriptor, ISupportedFeature, Orm, OrmDriver, QueryBuilder, QueryContext, TransactionCallback } from '@spinajs/orm';
+import { Builder, IColumnDescriptor, ISupportedFeature, ITransaction, Orm, OrmDriver, QueryBuilder, QueryContext, TransactionCallback } from '@spinajs/orm';
 import { Injectable } from '@spinajs/di';
 
 export class RendererOrmDriverBridge extends OrmDriver {
@@ -26,10 +26,14 @@ export class RendererOrmDriverBridge extends OrmDriver {
   tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
     return window.ipc.__spinaJsIpcBridge.callOnOrmConnection(this.Options.Name, 'tableInfo', name, schema);
   }
-  transaction(_queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<void> {
-    return Promise.resolve();
+  
+  async transaction(_queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<ITransaction> {
+    return {
+      commit: async () => { },
+      rollback: async () => { }
+    }
   }
 }
 
 @Injectable(Orm)
-export class ElectronRendererOrm extends Orm {}
+export class ElectronRendererOrm extends Orm { }
