@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/email",
-  "version": "2.0.454",
+  "version": "2.0.455",
   "description": "sending emails easy & reliable way",
   
     "main": "lib/cjs/index.js",
@@ -55,14 +55,14 @@
     "@types/nodemailer": "^6.4.7"
   },
   "dependencies": {
-    "@spinajs/cli": "^2.0.454",
-    "@spinajs/configuration": "^2.0.454",
-    "@spinajs/di": "^2.0.454",
-    "@spinajs/exceptions": "^2.0.454",
-    "@spinajs/fs": "^2.0.454",
-    "@spinajs/intl": "^2.0.454",
-    "@spinajs/log": "^2.0.454",
-    "@spinajs/queue": "^2.0.454",
+    "@spinajs/cli": "^2.0.455",
+    "@spinajs/configuration": "^2.0.455",
+    "@spinajs/di": "^2.0.455",
+    "@spinajs/exceptions": "^2.0.455",
+    "@spinajs/fs": "^2.0.455",
+    "@spinajs/intl": "^2.0.455",
+    "@spinajs/log": "^2.0.455",
+    "@spinajs/queue": "^2.0.455",
      "luxon": "^3.6.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
