@@ -1,7 +1,7 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable, NewInstance } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log';
-import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, ITransaction } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
@@ -242,10 +242,19 @@ export class MySqlOrmDriver extends SqlDriver {
     });
   }
 
-  public transaction(queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<void> {
+  public transaction(queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<ITransaction> {
+
+
+
     return new Promise((resolve, reject) => {
+
+      const trx: ITransaction = {
+        commit: () => Promise.resolve(),
+        rollback: () => Promise.resolve(),
+      };
+
       if (!queryOrCallback) {
-        resolve();
+        resolve(trx);
         return;
       }
 
@@ -274,17 +283,29 @@ export class MySqlOrmDriver extends SqlDriver {
               }
             });
 
-            connection.commit((err) => {
-              if (err) {
+
+            resolve({
+              commit: async () => {
+                connection.commit((err) => {
+                  if (err) {
+                    connection.rollback(() => {
+                      connection.release();
+                      reject(err);
+                    });
+                    return;
+                  }
+                  connection.release();
+
+                });
+              },
+              rollback: async () => {
                 connection.rollback(() => {
                   connection.release();
-                  reject(err);
                 });
-                return;
-              }
-              connection.release();
-              resolve();
+              },
             });
+
+
           } catch (ex) {
             connection.rollback(() => {
               connection.release();

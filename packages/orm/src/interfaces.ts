@@ -922,7 +922,7 @@ export interface IWhereBuilder<T> {
 
   Op: WhereBoolean;
 
-  clone<P extends  IWhereBuilder<any>>(parent : P): IWhereBuilder<T>;
+  clone<P extends IWhereBuilder<any>>(parent: P): IWhereBuilder<T>;
 
   when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this;
 
@@ -992,7 +992,7 @@ export interface IJoinBuilder {
 
   clearJoins(): this;
 
-  innerJoin(query : RawQuery): this;
+  innerJoin(query: RawQuery): this;
   innerJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
   innerJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>, queryCallback?: (this: ISelectQueryBuilder<R>) => void) => void): this;
   innerJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
@@ -1002,7 +1002,7 @@ export interface IJoinBuilder {
   leftJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
   leftJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
 
-  leftOuterJoin(query : RawQuery): this;
+  leftOuterJoin(query: RawQuery): this;
   leftOuterJoin<R = ModelBase>(options: IJoinStatementOptions<R>): this;
   leftOuterJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
   leftOuterJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
@@ -1064,9 +1064,9 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
    */
   resultExists(): Promise<boolean>;
 
-  populate<R = this>(relation : Constructor<ModelBase>): this;
+  populate<R = this>(relation: Constructor<ModelBase>): this;
   populate<R = this>(relation: string[]): this;
-  populate<R = this>(relation : string) : this;
+  populate<R = this>(relation: string): this;
   populate<R = this>(relation: {}, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   populate<R = this>(relation: string, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   asRaw<T>(): Promise<T>;
@@ -1444,7 +1444,7 @@ export interface IJoinStatementOptions<R = ModelBase> {
   /** Join table database if not using model */
   joinTableDatabase?: string;
 
-  joinTableDriver? : OrmDriver;
+  joinTableDriver?: OrmDriver;
 
   /**
    * Raw query join
@@ -1466,4 +1466,9 @@ export interface IJoinStatementOptions<R = ModelBase> {
    * @returns 
    */
   queryCallback?: (this: ISelectQueryBuilder<R>) => void;
+}
+
+export interface ITransaction {
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
 }
