@@ -243,9 +243,6 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public transaction(queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<ITransaction> {
-
-
-
     return new Promise((resolve, reject) => {
 
       const trx: ITransaction = {
