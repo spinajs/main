@@ -858,6 +858,19 @@ export class FakeSqliteDriver extends OrmDriver {
   public async execute(_builder : Builder<any>) : Promise<any[] | any> {
     // Call toDB() to trigger relation compilation (sets up middlewares)
     _builder.toDB();
+    return this._execute_for_test(_builder);
+  }
+
+  /**
+   * 
+   * This method is used to stub query execution in tests, allowing to trigger relation compilation without executing actual queries. It is called by the overridden execute() method, which calls toDB() to set up relation middlewares before delegating to this method for test-specific behavior.
+   * 
+   * @param _builder 
+   * @returns 
+   */
+  public async _execute_for_test(_builder : Builder<any>) : Promise<any[] | any> {
+    
+    _builder.toDB();
     return false;
   }
 
