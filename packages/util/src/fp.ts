@@ -38,9 +38,9 @@ export function _all() {
 
 export function _use(value: () => Promise<unknown> | object | string | number | {}, name: string) {
   return async (arg?: unknown) => {
-    const val = value();
-    const resolved = isPromise(val) ? await val : val;
-    return Object.assign({}, arg, { [name]: resolved });
+
+    const res = await _chain(value());
+    return Object.assign({}, arg, { [name]: res });;
   };
 }
 
