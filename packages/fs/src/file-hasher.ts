@@ -10,6 +10,7 @@ export class DefaultFileHasher extends FileHasher {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public __checkInstance__(creationOptions: any): boolean {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    if (!creationOptions?.[0]) return true;
     return this.Alghoritm === creationOptions[0].alghoritm;
   }
 
