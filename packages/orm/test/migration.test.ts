@@ -8,7 +8,7 @@ import 'mocha';
 import { Orm } from '../src/orm.js';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler, FakeColumnQueryCompiler, mergeArrays, FakeTableExistsCompiler } from './misc.js';
 import * as sinon from 'sinon';
-import { ModelToSqlConverter, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableExistsCompiler, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter } from '../src/index.js';
+import { ModelToSqlConverter, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableExistsCompiler, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter, ITransaction } from '../src/index.js';
 import { Migration1_2021_12_01_12_00_00, Migration2_2021_12_02_12_00_00 } from './mocks/migrations/index.js';
 import { OrmDriver } from '../src/driver.js';
 import "./../src/bootstrap.js";
@@ -115,7 +115,10 @@ describe('Orm migrations', () => {
 
     const orm = await container.resolve(Orm);
 
-    const tr = sinon.stub(FakeSqliteDriver.prototype, 'transaction');
+    const tr = sinon.stub(FakeSqliteDriver.prototype, 'transaction').resolves({
+      commit: () => Promise.resolve(),
+      rollback: () => Promise.resolve(),
+    } as ITransaction);
     await orm.migrateUp();
 
     expect(tr.called).to.be.true;

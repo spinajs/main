@@ -1031,8 +1031,12 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     // check for all unique columns ( unique constrain )
+    // skip columns that don't have a value in the provided data
     description.Columns.filter((c) => c.Unique || c.PrimaryKey).forEach((c) => {
-      query.andWhere(c.Name, (data as any)[c.Name]);
+      const value = (data as any)?.[c.Name];
+      if (value !== undefined) {
+        query.andWhere(c.Name, value);
+      }
     });
 
     _prepareOrderBy(description, query);

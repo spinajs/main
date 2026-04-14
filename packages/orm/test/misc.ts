@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
-import { ValueConverter } from './../src/interfaces.js';
+import { ITransaction, ValueConverter } from './../src/interfaces.js';
 import { join, normalize, resolve } from 'path';
-import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder } from '../src/index.js';
+import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder } from '../src/index.js';
 import { OrmDriver, TransactionCallback } from './../src/driver.js';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -856,6 +856,8 @@ export class FakeSqliteDriver extends OrmDriver {
   }
 
   public async execute(_builder : Builder<any>) : Promise<any[] | any> {
+    // Call toDB() to trigger relation compilation (sets up middlewares)
+    _builder.toDB();
     return false;
   }
 
@@ -875,12 +877,15 @@ export class FakeSqliteDriver extends OrmDriver {
     return TEST_TABLE_INFO[table] || [];
   }
 
-  public transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<void> {
+  public async transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<ITransaction> {
     if (queryOrCallback instanceof Function) {
-      queryOrCallback(this);
+      await queryOrCallback(this);
     }
 
-    return;
+    return {
+      commit: () => Promise.resolve(),
+      rollback: () => Promise.resolve(),
+    };
   }
 }
 
@@ -917,12 +922,15 @@ export class FakeMysqlDriver extends OrmDriver {
     return [];
   }
 
-  public transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<void> {
+  public async transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<ITransaction> {
     if (queryOrCallback instanceof Function) {
-      queryOrCallback(this);
+      await queryOrCallback(this);
     }
 
-    return;
+    return {
+      commit: () => Promise.resolve(),
+      rollback: () => Promise.resolve(),
+    };
   }
 }
 
@@ -937,7 +945,14 @@ export class FakeConverter extends ValueConverter {
 }
 
 export class FakeSelectQueryCompiler extends SelectQueryCompiler {
+  constructor(protected _builder: SelectQueryBuilder) {
+    super();
+  }
+
   public compile(): ICompilerOutput {
+    // Compile relations to set up middleware for relation hydration
+    this._builder.Relations.forEach((r) => r.compile());
+    
     return {
       expression: null,
       bindings: null,

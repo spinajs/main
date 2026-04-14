@@ -367,7 +367,7 @@ describe('General model tests', () => {
             PrimaryKey: false,
             AutoIncrement: false,
             Name: 'ArchivedAt',
-            Converter: null,
+            Converter: undefined,
             Schema: 'sqlite',
             Unique: false,
             Uuid: false,
