@@ -13,7 +13,36 @@ function getConstructorChain(obj: any) {
   return cs.filter((x) => x !== 'Function' && x !== 'Object' && x !== null);
 }
 
-export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
+function createDefaultModelDescriptor(): IModelDescriptor {
+  return {
+    Driver: null,
+    Converters: new Map(),
+    Columns: [],
+    Connection: null,
+    PrimaryKey: '',
+    SoftDelete: {
+      DeletedAt: '',
+    },
+    Archived: {
+      ArchivedAt: '',
+    },
+    TableName: '',
+    Timestamps: {
+      CreatedAt: '',
+      UpdatedAt: '',
+    },
+    Name: "",
+    Relations: new Map(),
+    JunctionModelProperties: [],
+    DiscriminationMap: {
+      Field: '',
+      Models: null,
+    },
+    Schema: {},
+  };
+}
+
+export function extractModelDescriptorInherited(targetOrForward: any): IModelDescriptor {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
 
   if (!target) {
@@ -40,10 +69,27 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
     return b;
   };
 
-  return inheritanceChain.reduce((prev, c) => {
-    return {
-      ..._.assignWith(prev, metadata[c], merger),
-      Converters: new Map([...(prev.Converters ?? []), ...(metadata[c] ? metadata[c].Converters : [])]),
-    };
-  }, {});
+  return {
+    ...createDefaultModelDescriptor(),
+    ...(metadata ? inheritanceChain.reduce((prev, c) => {
+      return {
+        ..._.assignWith(prev, metadata[c], merger),
+        Converters: new Map([...(prev.Converters ?? []), ...(metadata[c] ? metadata[c].Converters : [])]),
+      };
+    }, {}) : {}),
+    ...{
+      Name: target.name
+    }
+  }
+}
+
+export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
+  const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
+  if (!target) {
+    return null;
+  }
+
+  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
+
+  return metadata[target.name];
 }

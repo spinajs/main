@@ -91,7 +91,7 @@ export class StandardModelToSqlConverter extends ModelToSqlConverter {
     const obj = {};
     const relArr = [...model.ModelDescriptor.Relations.values()];
 
-    model.ModelDescriptor.Columns?.filter((x) => !x.IsForeignKey).forEach((c) => {
+    model.ModelDescriptor.Columns?.filter((x) => !x.IsForeignKey && !x.Virtual).forEach((c) => {
       const val = (model as any)[c.Name];
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
