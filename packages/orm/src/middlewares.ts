@@ -2,7 +2,7 @@
 import { IRelationDescriptor, IModelDescriptor, RelationType, IBuilderMiddleware, ISelectQueryBuilder } from './interfaces.js';
 import { ModelBase } from './model.js';
 import _ from 'lodash';
-import { ManyToManyRelationList, OneToManyRelationList, SingleRelation } from './relation-objects.js';
+import { ManyQueryRelationList, ManyToManyRelationList, OneToManyRelationList, SingleQueryRelation } from './relation-objects.js';
 import { BelongsToRelation, NativeOrmRelation } from './relations.js';
 import { DI } from '@spinajs/di';
 import { OrmException } from './exceptions.js';
@@ -157,9 +157,9 @@ export class QueryRelationMiddleware implements IBuilderMiddleware {
     data.forEach((d) => {
       const mapped = this.mapper(d, result);
       if (Array.isArray(mapped)) {
-        (d as any)[this._description.Name] = new ManyToManyRelationList(d, this._description, mapped);
+        (d as any)[this._description.Name] = new ManyQueryRelationList(d, this._description, mapped);
       } else {
-        (d as any)[this._description.Name] = new SingleRelation(d, this._description.TargetModel, this._description, mapped);
+        (d as any)[this._description.Name] = new SingleQueryRelation(d, mapped);
       }
     });
   }

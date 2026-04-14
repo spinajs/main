@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { IRelationDescriptor, IModelDescriptor, InsertBehaviour, ForwardRefFunction, IRelation, ISelectQueryBuilder } from './interfaces.js';
+import { IRelationDescriptor, IModelDescriptor, InsertBehaviour, ForwardRefFunction, IRelation, ISelectQueryBuilder, QueryScope } from './interfaces.js';
 import { DI, Constructor, isConstructor, NewInstance } from '@spinajs/di';
 import { createQuery, SelectQueryBuilder } from './builders.js';
 import type { ModelBase } from './model.js';
@@ -247,6 +247,50 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
     } else {
       this.Value = await query.firstOrFail();
     }
+    this.Populated = true;
+  }
+}
+
+export class ManyQueryRelationList<R extends ModelBase, O extends ModelBase> extends Relation<R, O, typeof ModelBase<R>> {
+  public remove(_compare: (a: R) => boolean): R[];
+  /* eslint-disable prettier/prettier */
+  public remove(_obj: R | R[]): R[];
+  /* eslint-disable prettier/prettier */
+  public remove(_obj: R | R[] | ((a: R, b: R) => boolean)): R[];
+  /* eslint-disable prettier/prettier */
+  public remove(_obj: unknown): R[] {
+    throw new Error('Query relations cannot be removed. This relation is used only for query purposes and it is always populated.');
+  }
+  public sync(): Promise<void> {
+    throw new Error('Query relations cannot be synced. This relation is used only for query purposes and it is always populated.');
+  }
+  public update(): Promise<void> {
+    throw new Error('Query relations cannot be updated. This relation is used only for query purposes and it is always populated.');
+  }
+  public intersection(_dataset: R[], _callback?: (a: R, b: R) => boolean): R[] {
+    throw new Error('Query relations cannot be intersected. This relation is used only for query purposes and it is always populated.');
+  }
+  public union(_dataset: R[], _mode?: InsertBehaviour): void {
+    throw new Error('Query relations cannot be unioned. This relation is used only for query purposes and it is always populated.');
+  }
+  public diff(_dataset: R[], _callback?: (a: R, b: R) => boolean): R[] {
+    throw new Error('Query relations cannot be diffed. This relation is used only for query purposes and it is always populated.');
+  }
+  public set(_obj: R[] | ((data: R[], pKey: string) => R[])): void {
+    throw new Error('Query relations cannot be set. This relation is used only for query purposes and it is always populated.');
+  }
+  public populate(_callback?: (this: ISelectQueryBuilder<R[]> & QueryScope) => void): Promise<void> {
+    throw new Error('Query relations cannot be populated. This relation is used only for query purposes and it is always populated.');
+  }
+  constructor(owner: O, relation: IRelationDescriptor, objects?: R[]) {
+    super(owner, relation, objects);
+    this.Populated = true;
+  }
+}
+
+export class SingleQueryRelation<R extends ModelBase, O extends ModelBase = ModelBase> extends SingleRelation<R, O> {
+  constructor(owner: O, object: R) {
+    super(owner, null, null, object);
     this.Populated = true;
   }
 }
