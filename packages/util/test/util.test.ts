@@ -624,4 +624,52 @@ describe('util', () => {
       expect(() => _check_arg(_is_object(), hasRequiredProps)({ name: 'John' }, 'test')).to.throw('test failed custom validation');
     });
   });
+
+  /**
+   * Reproduction of bugs in the OLD `_use` implementation:
+   *
+   *   const val = value();   (1) EAGER: value() is called immediately when the step is built
+   *   return async (arg?) => Object.assign({}, arg, { [name]: isPromise(val) ? await value() : val });
+   *   (2) DOUBLE CALL: if value() returned a Promise, value() was called again during execution
+   *
+   * The new implementation moves both calls into a single lazy call inside async:
+   *
+   *   return async (arg?) => {
+   *     const val = value(); // lazy call, executed only when the chain runs
+   *     const resolved = isPromise(val) ? await val : val; // uses the same val, no second call
+   *   }
+   */
+  describe('_use - old implementation: eager call + double execution', () => {
+    // Old buggy version of _use
+    function buggy_use(value: () => any, name: string) {
+      const val = value();
+      return async (arg?: unknown) => Object.assign({}, arg, { [name]: val instanceof Promise ? await value() : val });
+    }
+
+    it('BUG - double execution: when value() returns a Promise it is called twice', async () => {
+      let callCount = 0;
+      const factory = () => {
+        callCount++;
+        return Promise.resolve('result');
+      };
+
+      const step = buggy_use(factory, 'x'); // first call (eager)
+      await _chain<any>(step);              // second call (during chain execution)
+
+      expect(callCount).to.equal(2, 'old implementation called value() twice');
+    });
+
+    it('NEW implementation: value() is called exactly once', async () => {
+      let callCount = 0;
+      const factory = () => {
+        callCount++;
+        return Promise.resolve('result');
+      };
+
+      const step = _use(factory, 'x'); // callCount still 0
+      await _chain<any>(step);
+
+      expect(callCount).to.equal(1, 'new implementation called value() exactly once');
+    });
+  });
 });
