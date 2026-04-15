@@ -20,7 +20,7 @@ interface LowDBData {
   [key: string]: any[];
 }
 
-export interface LowdbDataSynchronizer extends EventEmitter {}
+export interface LowdbDataSynchronizer extends EventEmitter { }
 
 /**
  *  Lowdb can synchronzie db file from external source
@@ -262,6 +262,13 @@ export class LowDBDriver extends OrmDriver {
      *
      *
      */
+
+    return {
+      commit: async () => {
+      },
+      rollback: async () => {
+      }
+    }
   }
 
   /**

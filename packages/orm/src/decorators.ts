@@ -8,7 +8,7 @@ import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { Relation } from './relation-objects.js';
 import { Orm } from './orm.js';
 import { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
-import { extractModelDescriptor } from './descriptor.js';
+import { extractModelDescriptor, extractModelDescriptorInherited } from './descriptor.js';
 
 export { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 
@@ -65,32 +65,7 @@ function _getMetadataFrom(target: any) {
    */
 
   if (!metadata.hasOwnProperty(target.name)) {
-    metadata[target.name] = {
-      Driver: null,
-      Converters: new Map(),
-      Columns: [],
-      Connection: null,
-      PrimaryKey: '',
-      SoftDelete: {
-        DeletedAt: '',
-      },
-      Archived: {
-        ArchivedAt: '',
-      },
-      TableName: '',
-      Timestamps: {
-        CreatedAt: '',
-        UpdatedAt: '',
-      },
-      Relations: new Map(),
-      Name: target.name,
-      JunctionModelProperties: [],
-      DiscriminationMap: {
-        Field: '',
-        Models: null,
-      },
-      Schema: {},
-    };
+    metadata[target.name] = extractModelDescriptorInherited(target);
   }
   Reflect.defineMetadata(MODEL_DESCTRIPTION_SYMBOL, metadata, target);
 

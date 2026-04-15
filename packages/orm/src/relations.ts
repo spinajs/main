@@ -195,9 +195,19 @@ export class BelongsToRecursiveRelation extends NativeOrmRelation {
 
 @NewInstance()
 @Inject(Container)
-export class QueryRelation extends NativeOrmRelation {
+export class QueryRelation extends OrmRelation {
 
+  public execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void) {
+    if (callback) {
+      callback.call(this._query, this);
+    }
+  }
 
+  public executeOnQuery(callback: (this: ISelectQueryBuilder<any>, relation: NativeOrmRelation) => void): void {
+    if (callback) {
+      callback.call(this._query, this);
+    }
+  }
 
   public compile(): void {
     this._query.middleware(new QueryRelationMiddleware(this._description.Callback, this._description.Mapper, this._description));

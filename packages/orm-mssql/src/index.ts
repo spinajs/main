@@ -1,4 +1,4 @@
-import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature } from '@spinajs/orm';
+import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, ITransaction } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log-common';
@@ -9,13 +9,18 @@ import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler } from './compilers.js';
 import { MssqlModelDehydrator } from './dehydrator.js';
 import { MsSqlDatetimeValueConverter } from './converters.js';
+import { AsyncLocalStorage } from 'async_hooks';
+
+export interface IMsSqlTransactionContext {
+  request: mssql.Request;
+}
 
 @Injectable('orm-driver-mssql')
 @NewInstance()
 export class MsSqlOrmDriver extends SqlDriver {
   protected _connectionPool: mssql.ConnectionPool = null;
   protected _executionId = 0;
-  protected _transactionRequest: mssql.Request = null;
+  protected TransactionStorage = new AsyncLocalStorage<IMsSqlTransactionContext>();
 
   constructor(options: IDriverOptions) {
     super(Object.assign({ AliasSeparator: '#' }, options));
@@ -33,7 +38,9 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Log.timeStart(`query-${tName}`);
 
     try {
-      const req = this._transactionRequest ?? this._connectionPool.request();
+      // Check if we're inside a transaction context and use that request
+      const txContext = this.TransactionStorage.getStore();
+      const req = txContext?.request ?? this._connectionPool.request();
       let idx = 0;
       let i = 0;
 
@@ -206,32 +213,43 @@ export class MsSqlOrmDriver extends SqlDriver {
     });
   }
 
-  public async transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<void> {
+  public async transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<ITransaction> {
+    const trx: ITransaction = {
+      commit: () => Promise.resolve(),
+      rollback: () => Promise.resolve(),
+    };
+
     if (!queryOrCallback) {
-      return;
+      return trx;
     }
 
     const transaction = this._connectionPool.transaction();
-
     await transaction.begin();
-
-    this._transactionRequest = transaction.request();
+    const request = transaction.request();
 
     try {
-      if (Array.isArray(queryOrCallback)) {
-        for (const q of queryOrCallback) {
-          await q;
+      // Run the callback/queries within async context so executeOnDb uses this request
+      await this.TransactionStorage.run({ request }, async () => {
+        if (Array.isArray(queryOrCallback)) {
+          for (const q of queryOrCallback) {
+            await q;
+          }
+        } else {
+          await queryOrCallback(this);
         }
-      } else {
-        await queryOrCallback(this);
-      }
+      });
 
-      await transaction.commit();
+      return {
+        commit: async () => {
+          await transaction.commit();
+        },
+        rollback: async () => {
+          await transaction.rollback();
+        },
+      };
     } catch (err) {
       await transaction.rollback();
       throw err;
-    } finally {
-      this._transactionRequest = null;
     }
   }
 }

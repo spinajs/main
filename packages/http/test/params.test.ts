@@ -10,7 +10,7 @@ import { fsService, fs as sFs } from '@spinajs/fs';
 
 import { dir, req, TestConfiguration } from './common.js';
 import { Controllers, HttpServer } from '../src/index.js';
-import { CvsSampleObjectWithHydrator, CvsSampleObjectWithHydratorHydrator, SampleCvsModel, SampleModel, SampleObject, SampleObjectWithSchema } from './dto/index.js';
+import { CvsSampleObjectWithHydrator, CvsSampleObjectWithHydratorHydrator, CvsSampleObjectWithSchema, SampleCvsModel, SampleModel, SampleObject, SampleObjectWithSchema } from './dto/index.js';
 import { HeaderParams } from './controllers/params/HeaderParams.js';
 import { UrlParams } from './controllers/params/UrlParams.js';
 import { BodyParams } from './controllers/params/BodyParams.js';
@@ -807,6 +807,27 @@ describe('controller action test params', function () {
       expect(res.status).to.eq(400);
     });
 
+    it('should parse csv file to objects with TypedArray and extract schema from underlying type', async () => {
+      const spy = CvsFileParams.prototype.modelsFromCvsWithTypedArray as sinon.SinonSpy;
+      
+      // Valid data should pass schema validation
+      let res = await req()
+        .post('params/cvs/modelsFromCvsWithTypedArray')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username.csv'), { filename: 'test.cvs' });
+
+      expect(res.status).to.eq(200);
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0][0]).to.be.instanceOf(CvsSampleObjectWithSchema);
+      expect(spy.args[0][0][0].Username).to.eq('booker12');
+
+      // Invalid data should fail schema validation - this tests that TypedArray schema extraction works
+      res = await req()
+        .post('params/cvs/modelsFromCvsWithTypedArray')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username_invalid.csv'), { filename: 'test.cvs' });
+
+      expect(res.status).to.eq(400);
+    });
+
     it('should parse csv file to objectst with hydrator', async () => {
       const spy = CvsFileParams.prototype.modelsFromCvsWithHydrator as sinon.SinonSpy;
       const spy2 = CvsSampleObjectWithHydratorHydrator.prototype.hydrate as sinon.SinonSpy;
@@ -820,6 +841,33 @@ describe('controller action test params', function () {
       expect(spy.args[0][0][0].Username).to.eq('booker12');
 
       expect(spy2.called).to.be.true;
+    });
+
+    it('should validate csv data with schema option and succeed', async () => {
+      const spy = CvsFileParams.prototype.objectsFromCvsWithSchemaOption as sinon.SinonSpy;
+      const res = await req()
+        .post('params/cvs/objectsFromCvsWithSchemaOption')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username.csv'), { filename: 'test.csv' });
+
+      expect(res.status).to.eq(200);
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0]).containSubset([
+        {
+          FirstName: 'Rachel',
+          Identifier: 9012,
+          LastName: 'Booker',
+          Username: 'booker12',
+        },
+      ]);
+    });
+
+    it('should validate csv data with schema option and fail for invalid data', async () => {
+      const res = await req()
+        .post('params/cvs/objectsFromCvsWithSchemaOption')
+        .attach('objects', fs.readFileSync(dir('./test-files') + '/username_invalid.csv'), { filename: 'test.csv' });
+
+      expect(res.status).to.eq(400);
+      expect(res.body.error.message).to.eq('CSV data validation failed');
     });
   });
 

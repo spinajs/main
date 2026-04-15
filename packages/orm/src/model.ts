@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, ITransaction } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
@@ -180,7 +180,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     return reduceRelations(this);
   }
 
-  public static getModelDescriptor() {
+  public static getModelDescriptor(): IModelDescriptor {
     throw new Error('Not implemented');
   }
 
@@ -392,6 +392,10 @@ export class ModelBase<M = unknown> implements IModelBase {
     throw new Error('Not implemented');
   }
 
+  public static transaction<T extends typeof ModelBase>(this: T, _callback: (trx: OrmDriver) => Promise<void>): Promise<ITransaction> {
+    throw new Error('Not implemented');
+  }
+
   constructor(data?: Partial<M>) {
     this.setDefaults();
 
@@ -556,7 +560,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     query.middleware({
-      afterQuery: (data: any) => {
+      afterQuery: (data: IUpdateResult) => {
         const response = sResponseMapper.read(data, this.PrimaryKeyName);
         // if already exists do not overwrite
         // sometimes we have models with primary key as string etc
@@ -564,6 +568,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         if (!this.PrimaryKeyValue) {
           this.PrimaryKeyValue = response.LastInsertId;
         }
+        return data;
       },
       modelCreation: (): any => null,
       afterHydration: (): any => null,
@@ -860,6 +865,7 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description, container } = createQuery(this, InsertQueryBuilder);
 
     const converter = container.resolve(ObjectToSqlConverter);
+    const sResponseMapper = query.Container.resolve(ServerResponseMapper);
 
     if (Array.isArray(data)) {
       if (insertBehaviour !== InsertBehaviour.None) {
@@ -896,14 +902,15 @@ export const MODEL_STATIC_MIXINS = {
 
     const iMidleware = {
       afterQuery: (result: IUpdateResult) => {
+        const response = sResponseMapper.read(result);
         if (Array.isArray(data)) {
           (data as Array<InstanceType<T>>).forEach((v, idx) => {
             if (v instanceof ModelBase) {
-              v.PrimaryKeyValue = v.PrimaryKeyValue ?? result.LastInsertId - data.length + idx + 1;
+              v.PrimaryKeyValue = v.PrimaryKeyValue ?? response.LastInsertId + idx;
             }
           });
         } else if (data instanceof ModelBase) {
-          (data as InstanceType<T>).PrimaryKeyValue = (data as InstanceType<T>).PrimaryKeyValue ?? result.LastInsertId;
+          (data as InstanceType<T>).PrimaryKeyValue = (data as InstanceType<T>).PrimaryKeyValue ?? response.LastInsertId;
         }
 
         return result;
@@ -1024,8 +1031,12 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     // check for all unique columns ( unique constrain )
+    // skip columns that don't have a value in the provided data
     description.Columns.filter((c) => c.Unique || c.PrimaryKey).forEach((c) => {
-      query.andWhere(c.Name, (data as any)[c.Name]);
+      const value = (data as any)?.[c.Name];
+      if (value !== undefined) {
+        query.andWhere(c.Name, value);
+      }
     });
 
     _prepareOrderBy(description, query);
@@ -1146,6 +1157,11 @@ export const MODEL_STATIC_MIXINS = {
       await query.asRaw<{ count: number }>()
     ).count;
   },
+
+  async transaction<T extends typeof ModelBase>(this: T, callback: (trx: OrmDriver) => Promise<void>) {
+    const driver = this.getModelDescriptor();
+    return driver.Driver.transaction(callback);
+  }
 };
 
 export const _modelProxyFactory = (_c: IContainer, model: Constructor<ModelBase>) => {

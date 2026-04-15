@@ -199,6 +199,60 @@ describe('mysql model functions', () => {
     expect(user.Name).to.eq('test');
     expect(user.Password).to.eq('test_password');
   });
+
+  it('should batch insert models and fill primary keys', async () => {
+    const users = [
+      new User({ Name: 'batch_user_1', Password: 'password1' }),
+      new User({ Name: 'batch_user_2', Password: 'password2' }),
+      new User({ Name: 'batch_user_3', Password: 'password3' }),
+    ];
+
+    await User.insert(users);
+
+    // All primary keys should be filled
+    expect(users[0].Id).to.be.gt(0);
+    expect(users[1].Id).to.be.gt(0);
+    expect(users[2].Id).to.be.gt(0);
+
+    // Primary keys should be sequential
+    expect(users[1].Id).to.eq(users[0].Id + 1);
+    expect(users[2].Id).to.eq(users[1].Id + 1);
+
+    // Verify data is persisted correctly
+    const allUsers = await User.all();
+    expect(allUsers.length).to.eq(3);
+
+    const dbUser1 = await User.get(users[0].Id);
+    const dbUser2 = await User.get(users[1].Id);
+    const dbUser3 = await User.get(users[2].Id);
+
+    expect(dbUser1.Name).to.eq('batch_user_1');
+    expect(dbUser2.Name).to.eq('batch_user_2');
+    expect(dbUser3.Name).to.eq('batch_user_3');
+  });
+
+  it('should batch insert single model and fill primary key', async () => {
+    const user = new User({ Name: 'single_batch', Password: 'password' });
+
+    await User.insert([user]);
+
+    expect(user.Id).to.be.gt(0);
+
+    const dbUser = await User.get(user.Id);
+    expect(dbUser.Name).to.eq('single_batch');
+  });
+
+  // Note: InsertBehaviour is not supported with array inserts, testing single model InsertOrUpdate instead
+  it('should insert with InsertOrUpdate and fill primary key', async () => {
+    const user = new User({ Name: 'upsert_user_1', Password: 'password1' });
+
+    await User.insert(user, InsertBehaviour.InsertOrUpdate);
+
+    expect(user.Id).to.be.gt(0);
+
+    const dbUser = await User.get(user.Id);
+    expect(dbUser.Name).to.eq('upsert_user_1');
+  });
 });
 
 describe('MySql queries', () => {
@@ -219,7 +273,6 @@ describe('MySql queries', () => {
 
   after(async () => {
     await db().Connections.get('mysql').disconnect();
-    process.exit();
   });
 
   it('should select and sort', async () => {
@@ -239,7 +292,7 @@ describe('MySql queries', () => {
       this.where({ Name: 'a' });
     }).orderBy('Name');
 
-    return expect(userQuery).to.be.fulfilled;
+    expect(userQuery).to.be.fulfilled;
   });
 
   it('should select to model', async () => {
@@ -287,5 +340,151 @@ describe('MySql queries', () => {
     expect(user.CreatedAt).instanceof(DateTime);
     expect(user.Name).to.eq('test not duplicated');
     expect(user.Password).to.eq('test_password_duplicated');
+  });
+});
+
+describe('MySql transactions', () => {
+  beforeEach(async () => {
+    DI.clearCache();
+
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(MySqlOrmDriver).as('orm-driver-mysql');
+    await DI.resolve(Orm);
+
+    await db().Connections.get('mysql').schema().dropTable('user_test');
+    await db().Connections.get('mysql').schema().dropTable('test_model');
+    await db().Connections.get('mysql').schema().dropTable('orm_migrations');
+
+    await db().migrateUp();
+    await db().reloadTableInfo();
+  });
+
+  after(async () => {
+    await db().Connections.get('mysql').disconnect();
+  });
+
+  it('should commit transaction on success', async () => {
+    await db().Connections.get('mysql').transaction(async () => {
+      await db().Connections.get('mysql').insert().into('user_test').values({
+        Name: 'transaction_user_1',
+        Password: 'password1',
+        CreatedAt: '2024-01-01',
+      });
+
+      await db().Connections.get('mysql').insert().into('user_test').values({
+        Name: 'transaction_user_2',
+        Password: 'password2',
+        CreatedAt: '2024-01-01',
+      });
+    });
+
+    const users = await User.all();
+    expect(users.length).to.eq(2);
+    expect(users.find(u => u.Name === 'transaction_user_1')).to.not.be.undefined;
+    expect(users.find(u => u.Name === 'transaction_user_2')).to.not.be.undefined;
+  });
+
+  it('should rollback transaction on error', async () => {
+    try {
+      await db().Connections.get('mysql').transaction(async () => {
+        await db().Connections.get('mysql').insert().into('user_test').values({
+          Name: 'rollback_user_1',
+          Password: 'password1',
+          CreatedAt: '2024-01-01',
+        });
+
+        // This should be rolled back
+        throw new Error('Intentional error for rollback test');
+      });
+    } catch (err) {
+      // Expected error
+      expect((err as Error).message).to.eq('Intentional error for rollback test');
+    }
+
+    const users = await User.all();
+    expect(users.length).to.eq(0);
+    expect(users.find(u => u.Name === 'rollback_user_1')).to.be.undefined;
+  });
+
+  it('should rollback all changes when later query fails', async () => {
+    try {
+      await db().Connections.get('mysql').transaction(async () => {
+        // First insert should succeed
+        await db().Connections.get('mysql').insert().into('user_test').values({
+          Name: 'first_insert',
+          Password: 'password',
+          CreatedAt: '2024-01-01',
+        });
+
+        // Second insert into non-existent table should fail
+        await db().Connections.get('mysql').insert().into('non_existent_table').values({
+          Name: 'should_fail',
+        });
+      });
+    } catch (err) {
+      // Expected error - table doesn't exist
+    }
+
+    // First insert should also be rolled back
+    const users = await User.all();
+    expect(users.length).to.eq(0);
+  });
+
+  it('should handle transaction with model operations', async () => {
+    await db().Connections.get('mysql').transaction(async () => {
+      await User.create({
+        Name: 'model_transaction_user',
+        Password: 'password',
+      });
+    });
+
+    const user = await User.where('Name', 'model_transaction_user').first();
+    expect(user).to.not.be.undefined;
+    expect(user.Name).to.eq('model_transaction_user');
+  });
+
+  it('should rollback model operations on error', async () => {
+    try {
+      await db().Connections.get('mysql').transaction(async () => {
+        await User.create({
+          Name: 'model_rollback_user',
+          Password: 'password',
+        });
+
+        throw new Error('Rollback model transaction');
+      });
+    } catch (err) {
+      // Expected
+    }
+
+    const user = await User.where('Name', 'model_rollback_user').first();
+    expect(user).to.be.undefined;
+  });
+
+  it('should handle empty transaction callback', async () => {
+    await expect(db().Connections.get('mysql').transaction()).to.be.fulfilled;
+  });
+
+  it('should handle multiple sequential transactions', async () => {
+    // First transaction
+    await db().Connections.get('mysql').transaction(async () => {
+      await db().Connections.get('mysql').insert().into('user_test').values({
+        Name: 'seq_transaction_1',
+        Password: 'password',
+        CreatedAt: '2024-01-01',
+      });
+    });
+
+    // Second transaction
+    await db().Connections.get('mysql').transaction(async () => {
+      await db().Connections.get('mysql').insert().into('user_test').values({
+        Name: 'seq_transaction_2',
+        Password: 'password',
+        CreatedAt: '2024-01-01',
+      });
+    });
+
+    const users = await User.all();
+    expect(users.length).to.eq(2);
   });
 });

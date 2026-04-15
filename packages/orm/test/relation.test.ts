@@ -725,7 +725,7 @@ describe('Orm relations tests', () => {
 
   it('HasMany nested relation is executed', async () => {
     const eStub = sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
+      .stub(FakeSqliteDriver.prototype, '_execute_for_test')
       .onCall(0)
       .returns(
         new Promise((res) => {
@@ -810,7 +810,7 @@ describe('Orm relations tests', () => {
   it('OneToOneRelationHydrator is working', async () => {
     await db();
 
-    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+    sinon.stub(FakeSqliteDriver.prototype, '_execute_for_test').returns(
       new Promise((res) => {
         res([
           {
@@ -845,7 +845,7 @@ describe('Orm relations tests', () => {
     await db();
 
     sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
+      .stub(FakeSqliteDriver.prototype, '_execute_for_test')
       .returns(
         new Promise((res) => {
           res([
@@ -879,7 +879,7 @@ describe('Orm relations tests', () => {
     await db();
 
     sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
+      .stub(FakeSqliteDriver.prototype, '_execute_for_test')
       .onCall(0)
       .returns(
         new Promise((res) => {
@@ -913,7 +913,7 @@ describe('Orm relations tests', () => {
   it('OneToOneRelation should be dehydrated', async () => {
     await db();
 
-    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+    sinon.stub(FakeSqliteDriver.prototype, '_execute_for_test').returns(
       new Promise((res) => {
         res([
           {
@@ -951,7 +951,7 @@ describe('Orm relations tests', () => {
     await db();
 
     sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
+      .stub(FakeSqliteDriver.prototype, '_execute_for_test')
       .onFirstCall()
       .returns(
         new Promise((res) => {
@@ -990,7 +990,7 @@ describe('Orm relations tests', () => {
     await db();
 
     sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
+      .stub(FakeSqliteDriver.prototype, '_execute_for_test')
       .onFirstCall()
       .returns(
         new Promise((res) => {
@@ -1036,7 +1036,7 @@ describe('Orm relations tests', () => {
     await db();
 
     sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
+      .stub(FakeSqliteDriver.prototype, '_execute_for_test')
       .onFirstCall()
       .returns(
         new Promise((res) => {
@@ -1126,7 +1126,7 @@ describe('Orm relations tests', () => {
     await db();
 
     sinon
-      .stub(FakeSqliteDriver.prototype, 'execute')
+      .stub(FakeSqliteDriver.prototype, '_execute_for_test')
       .onFirstCall()
       .returns(
         new Promise((res) => {

@@ -1,6 +1,6 @@
 import { Log } from '@spinajs/log-common';
 /* eslint-disable prettier/prettier */
-import { IColumnDescriptor, IDriverOptions, ISupportedFeature, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
+import { IColumnDescriptor, IDriverOptions, ISupportedFeature, ITransaction, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, QueryBuilder, TruncateTableQueryBuilder, Builder } from './builders.js';
 import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
@@ -143,5 +143,5 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * @param queryOrCallback - one or more queries to execute in transaction scope. If parameter is function
    * its executed in transaction scope, thus all db operation in callback function are in transaction
    */
-  public abstract transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<void>;
+  public abstract transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<ITransaction>;
 }
