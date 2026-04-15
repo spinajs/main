@@ -54,8 +54,8 @@ export function extractModelDescriptorInherited(targetOrForward: any): IModelDes
   // we want collapse metadata vals in reverse order ( base class first )
   const inheritanceChain = getConstructorChain(target).reverse();
   const merger = (a: any, b: any) => {
-    if (_.isArray(a)) {
-      return a.concat(b);
+    if (_.isArray(a) || _.isArray(b)) {
+      return [...(a ?? []), ...(b ?? [])];
     }
 
     if (!(_.isNil(a) || _.isEmpty(a)) && (_.isNil(b) || _.isEmpty(b))) {
