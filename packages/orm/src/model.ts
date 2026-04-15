@@ -862,12 +862,18 @@ export const MODEL_STATIC_MIXINS = {
    * Try to insert new value
    */
   async insert<T extends typeof ModelBase>(this: T, data: InstanceType<T> | Partial<InstanceType<T>> | Array<InstanceType<T>> | Array<Partial<InstanceType<T>>>, insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
+
+
     const { query, description, container } = createQuery(this, InsertQueryBuilder);
 
     const converter = container.resolve(ObjectToSqlConverter);
     const sResponseMapper = query.Container.resolve(ServerResponseMapper);
 
     if (Array.isArray(data)) {
+      if(data.length === 0) {
+        return;
+      }
+      
       if (insertBehaviour !== InsertBehaviour.None) {
         throw new OrmException(`insert behaviour is not supported with arrays`);
       }
