@@ -10,7 +10,9 @@ import { Filterable } from '@spinajs/orm-http';
 export class FilterableUserMetadata extends UserMetadata{
    
     @Filterable(['eq', 'like', 'b-like','e-like'])
-    public Key: string;
+    public get Key(): string {
+        return super.Key;
+    }
 
     @Filterable(['eq'])
     public Type: 'number' | 'float' | 'string' | 'json' | 'boolean' | 'datetime';
