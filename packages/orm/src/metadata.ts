@@ -15,11 +15,12 @@ import { DateTime } from 'luxon';
  */
 export abstract class MetadataModel<T> extends ModelBase<MetadataModel<T>> {
   protected _value: any;
+  protected _key: string;
 
   @Primary()
   public Id: number;
 
-  public Key: string;
+ 
 
   public Type: 'number' | 'float' | 'string' | 'json' | 'boolean' | 'datetime';
 
@@ -31,6 +32,14 @@ export abstract class MetadataModel<T> extends ModelBase<MetadataModel<T>> {
   public set Value(value: any) {
     this._value = value;
     this.Type = this.getType(value);
+  }
+
+  public get Key() { 
+    return this._key;
+  }
+
+  public set Key(value: string) {
+    this._key = value;
   }
 
   protected getType(val: any): 'number' | 'float' | 'string' | 'json' | 'boolean' | 'datetime' {
