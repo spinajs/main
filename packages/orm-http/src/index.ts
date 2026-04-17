@@ -63,7 +63,7 @@ export class FromDbModel extends RouteArgs {
     return { CallData: callData, Args: result };
   }
 
-  protected _extractValue(param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
+  protected _extractValue(param: IRouteParameter<FromModelOptions<typeof ModelBase>>, req: sRequest) {
     let pkValue: any = null;
     const field = param?.Options?.paramField ?? param.Name;
 
@@ -86,7 +86,7 @@ export class FromDbModel extends RouteArgs {
     return pkValue;
   }
 
-  protected fromDbModelDefaultQueryFunction(callData: IRouteCall, _args: unknown[], param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
+  protected fromDbModelDefaultQueryFunction(callData: IRouteCall, _args: unknown[], param: IRouteParameter<FromModelOptions<typeof ModelBase>>, req: sRequest) {
     const pkValue = this._extractValue(param, req);
     const query = param.RuntimeType['query']() as SelectQueryBuilder;
     const descriptor = extractModelDescriptor(param.RuntimeType);
@@ -182,7 +182,7 @@ export function AsModel(field?: string, type?: ParameterType) {
  * @param options options for model fetching
  * @returns 
  */
-export function FromModel(options?: FromModelOptions<ModelBase<any>>) {
+export function FromModel<T extends typeof ModelBase>(options?: FromModelOptions<T>) {
   return Route(Parameter('FromDbModel', null, options));
 }
 

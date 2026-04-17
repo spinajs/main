@@ -1,9 +1,14 @@
 import { Constructor, DI } from '@spinajs/di';
-import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions } from './interfaces.js';
+import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController, HTTP_STATUS_CODE } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
 import { Options as CsvParseOptions } from 'csv-parse';
 import { toArray } from '@spinajs/util';
+
+import { RequestTypeRouteArgs } from './route-args/RequestFields.js';
+import { BadRequest } from '@spinajs/exceptions';
+import * as express from 'express';
+
 
 export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
 
@@ -179,6 +184,34 @@ export function Middleware(policy: Constructor<RouteMiddleware>, ...options: any
       route.Middlewares.push(pDesc);
     } else {
       controller.Middlewares.push(pDesc);
+    }
+  });
+}
+
+/**
+ * 
+ * Checks if incoming request is proper type ( accepts proper content type ) and throws BadRequest if not
+ * 
+ * @param accepts 
+ * @returns 
+ */
+export function Accepts(accepts: HttpAcceptHeaders) {
+  return Middleware(class implements RouteMiddleware {
+    public isEnabled(): boolean {
+      return true;
+    }
+    public async onBefore(req: express.Request, res: express.Response, route: IRoute, _controller: IController): Promise<void> {
+      const paramExtract = await DI.resolve(RequestTypeRouteArgs);
+      const { Args } = await paramExtract.extract(null, null, null, req, res, route);
+
+      if (!(Args & accepts)) {
+        throw new BadRequest(`Accepted content type ${accepts} is not supported`, HTTP_STATUS_CODE.NOT_ACCEPTABLE);
+      }
+
+    }
+    public async onResponse(): Promise<void> {
+    }
+    public async onAfter(): Promise<void> {
     }
   });
 }

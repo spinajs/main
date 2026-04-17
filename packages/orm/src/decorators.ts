@@ -365,7 +365,7 @@ export function Virtual(virtualRelation?: Constructor<Relation<ModelBase<unknown
  * @param callback
  * @returns
  */
-export function Query<T extends ModelBase<unknown>, D extends ModelBase<unknown>>(callback: (data: T[]) => Promise<ISelectQueryBuilder>, mapper: (owner: T, data: D[]) => D | D[]) {
+export function Query<T extends ModelBase<unknown>, D extends ModelBase<unknown>>(callback: (data: T[]) => ISelectQueryBuilder, mapper: (owner: T, data: D[]) => D | D[]) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: any, propertyKey: string) => {
     model.Relations.set(propertyKey, {
       Name: propertyKey,

@@ -142,7 +142,7 @@ export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware 
 }
 
 export class QueryRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected callback: (data: ModelBase[]) => Promise<ISelectQueryBuilder>, protected mapper: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[], protected _description: IRelationDescriptor) { }
+  constructor(protected callback: (data: ModelBase[]) => ISelectQueryBuilder, protected mapper: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[], protected _description: IRelationDescriptor) { }
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -166,7 +166,7 @@ export class QueryRelationMiddleware implements IBuilderMiddleware {
 }
 
 export class VirtualRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected relationCallback:  (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void, protected callback: (data: ModelBase[]) => Promise<ISelectQueryBuilder>, protected mapper: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[], protected _description: IRelationDescriptor) { }
+  constructor(protected relationCallback:  (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void, protected callback: (data: ModelBase[]) => ISelectQueryBuilder, protected mapper: (owner: ModelBase, data: ModelBase[]) => ModelBase | ModelBase[], protected _description: IRelationDescriptor) { }
   public afterQuery(data: any[]): any[] {
     return data;
   }

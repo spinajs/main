@@ -17,7 +17,6 @@ export class BodyFieldRouteArgs extends RouteArgs {
     };
   }
 }
-
 @Injectable()
 export class RequestTypeRouteArgs extends RouteArgs {
   public get SupportedType(): ParameterType {
