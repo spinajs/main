@@ -48,7 +48,7 @@ export enum FilterableLogicalOperators {
   Or = 'or',
 }
 
-export interface FromModelOptions<T extends ModelBase> {
+export interface FromModelOptions<T extends typeof ModelBase> {
   /**
    * Optiona route/param/body field for primary key
    * If not set , route param is used
@@ -90,7 +90,7 @@ export interface FromModelOptions<T extends ModelBase> {
    * @param routeParams passed route params to query
    * @returns
    */
-  query?: (this: SelectQueryBuilder<T>, routeParams: any, value: any) => SelectQueryBuilder;
+  query?: (this: SelectQueryBuilder<T> & T['_queryScopes'], routeParams: any, value: any) => SelectQueryBuilder;
 }
 
 export type FilterableOperators = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'in' | 'nin' | 'between' | 'isnull' | 'notnull' | 'notbetween' | 'b-like' | 'e-like' | 'exists' | 'n-exists' | 'regexp';

@@ -490,7 +490,7 @@ export interface IRelationDescriptor {
    * @param data fetched data to prepare relation eg. parent model to extract primary key
    * @returns 
    */
-  Callback?: (data: ModelBase[]) => Promise<ISelectQueryBuilder>
+  Callback?: (data: ModelBase[]) => ISelectQueryBuilder
 
   /**
    * When using custom @Quuery relation, this function is used to map retrieved data to model
