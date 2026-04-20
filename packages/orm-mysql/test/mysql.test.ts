@@ -3,7 +3,7 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 
-import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { ICompilerOutput, InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 
@@ -11,7 +11,9 @@ import { MySqlOrmDriver } from '../src/index.js';
 import { User } from './models/User.js';
 
 import './migrations/TestMigration_2022_02_08_01_13_00.js';
+import './migrations/TestMigration_2022_02_08_01_14_00.js';
 import './models/TestModel.js';
+import './models/UserMetadata.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -40,6 +42,22 @@ export class ConnectionConf extends FrameworkConfiguration {
           Startup: false,
         },
         Connections: [
+           {
+            Driver: 'orm-driver-mysql',
+            Name: 'mysql-2',
+            Host: '127.0.0.1',
+            Password: 'root',
+            User: 'root',
+            Database: 'test-2',
+            Port: 3306,
+            Migration: {
+              Table: TEST_MIGRATION_TABLE_NAME,
+              OnStartup: true,
+              Transaction: {
+                Mode: MigrationTransactionMode.PerMigration,
+              },
+            },
+          },
           {
             Driver: 'orm-driver-mysql',
             Name: 'mysql',
@@ -72,9 +90,9 @@ describe('Mysql connection test', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-    await db().Connections.get('mysql').schema().dropTable('user_test');
-    await db().Connections.get('mysql').schema().dropTable('test_model');
-    await db().Connections.get('mysql').schema().dropTable('orm_migrations');
+    await db().Connections.get('mysql').truncate('user_test');
+
+    
   });
 
   it('Should connect', async () => {
@@ -89,10 +107,8 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
+    
     await db().Connections.get('mysql').truncate('user_test');
-    await db().Connections.get('mysql').schema().dropTable('user_test');
-    await db().Connections.get('mysql').schema().dropTable('test_model');
-    await db().Connections.get('mysql').schema().dropTable('orm_migrations');
   });
 
   it('Should migrate', async () => {
@@ -130,7 +146,6 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should delete', async () => {
-    await db().migrateUp();
     await db().Connections.get('mysql').insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
@@ -173,12 +188,9 @@ describe('mysql model functions', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-    await db().Connections.get('mysql').schema().dropTable('user_test');
-    await db().Connections.get('mysql').schema().dropTable('test_model');
-    await db().Connections.get('mysql').schema().dropTable('orm_migrations');
+   
+    await db().Connections.get('mysql').truncate('user_test');
 
-    await db().migrateUp();
-    await db().reloadTableInfo();
   });
 
   it('should model create', async () => {
@@ -262,13 +274,8 @@ describe('MySql queries', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-
-    await db().Connections.get('mysql').schema().dropTable('user_test');
-    await db().Connections.get('mysql').schema().dropTable('test_model');
-    await db().Connections.get('mysql').schema().dropTable('orm_migrations');
-
-    await db().migrateUp();
-    await db().reloadTableInfo();
+    await db().Connections.get('mysql').truncate('user_test');
+ 
   });
 
   after(async () => {
@@ -350,13 +357,8 @@ describe('MySql transactions', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-
-    await db().Connections.get('mysql').schema().dropTable('user_test');
-    await db().Connections.get('mysql').schema().dropTable('test_model');
-    await db().Connections.get('mysql').schema().dropTable('orm_migrations');
-
-    await db().migrateUp();
-    await db().reloadTableInfo();
+    await db().Connections.get('mysql').truncate('user_test');
+ 
   });
 
   after(async () => {
@@ -364,7 +366,7 @@ describe('MySql transactions', () => {
   });
 
   it('should commit transaction on success', async () => {
-    await db().Connections.get('mysql').transaction(async () => {
+    const result =  await db().Connections.get('mysql').transaction(async () => {
       await db().Connections.get('mysql').insert().into('user_test').values({
         Name: 'transaction_user_1',
         Password: 'password1',
@@ -377,6 +379,8 @@ describe('MySql transactions', () => {
         CreatedAt: '2024-01-01',
       });
     });
+
+    await result.commit();
 
     const users = await User.all();
     expect(users.length).to.eq(2);
@@ -431,12 +435,14 @@ describe('MySql transactions', () => {
   });
 
   it('should handle transaction with model operations', async () => {
-    await db().Connections.get('mysql').transaction(async () => {
+    const result = await db().Connections.get('mysql').transaction(async () => {
       await User.create({
         Name: 'model_transaction_user',
         Password: 'password',
       });
     });
+
+    await result.commit();
 
     const user = await User.where('Name', 'model_transaction_user').first();
     expect(user).to.not.be.undefined;
@@ -462,12 +468,12 @@ describe('MySql transactions', () => {
   });
 
   it('should handle empty transaction callback', async () => {
-    await expect(db().Connections.get('mysql').transaction()).to.be.fulfilled;
+    await expect((await db().Connections.get('mysql').transaction()).commit()).to.be.fulfilled;
   });
 
   it('should handle multiple sequential transactions', async () => {
     // First transaction
-    await db().Connections.get('mysql').transaction(async () => {
+    const  res = await db().Connections.get('mysql').transaction(async () => {
       await db().Connections.get('mysql').insert().into('user_test').values({
         Name: 'seq_transaction_1',
         Password: 'password',
@@ -475,8 +481,10 @@ describe('MySql transactions', () => {
       });
     });
 
+
+
     // Second transaction
-    await db().Connections.get('mysql').transaction(async () => {
+    const res2 = await db().Connections.get('mysql').transaction(async () => {
       await db().Connections.get('mysql').insert().into('user_test').values({
         Name: 'seq_transaction_2',
         Password: 'password',
@@ -484,7 +492,86 @@ describe('MySql transactions', () => {
       });
     });
 
+    await res.commit();
+    await res2.commit();
+
     const users = await User.all();
     expect(users.length).to.eq(2);
+  });
+});
+
+describe('MySql cross-schema whereExists', () => {
+  beforeEach(async () => {
+    DI.clearCache();
+
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(MySqlOrmDriver).as('orm-driver-mysql');
+    await DI.resolve(Orm);
+    await db().Connections.get('mysql').truncate('user_test');
+
+    
+  });
+
+  after(async () => {
+    await db().Connections.get('mysql').disconnect();
+    await db().Connections.get('mysql-2').disconnect();
+  });
+
+  it('should generate SQL with schema prefix when whereExists uses relation in different schema', async () => {
+    const query = User.whereExists('Metadata');
+    const compiled = query.toDB() as ICompilerOutput;
+
+    // The outer query should reference the 'test' database
+    expect(compiled.expression).to.include('`test`.`user_test`');
+    // The EXISTS subquery should reference the 'test-2' database for user_metadata
+    expect(compiled.expression).to.include('EXISTS');
+    expect(compiled.expression).to.include('`test-2`.`user_metadata`');
+  });
+
+  it('should generate SQL with schema prefix when whereExists uses relation with condition', async () => {
+    const query = User.whereExists('Metadata', function () {
+      this.where('Key', 'some_key');
+    });
+    const compiled = query.toDB() as ICompilerOutput;
+
+    expect(compiled.expression).to.include('`test`.`user_test`');
+    expect(compiled.expression).to.include('EXISTS');
+    expect(compiled.expression).to.include('`test-2`.`user_metadata`');
+    expect(compiled.expression).to.include('`Key`');
+  });
+
+   it('should generate SQL with schema prefix when whereExists uses relation in different schema with cloned query', async () => {
+    const query = User.whereExists('Metadata');
+    const cloned = query.clone();
+
+    const compiled = cloned.toDB() as ICompilerOutput;
+
+    // The outer query should reference the 'test' database
+    expect(compiled.expression).to.include('`test`.`user_test`');
+    // The EXISTS subquery should reference the 'test-2' database for user_metadata
+    expect(compiled.expression).to.include('EXISTS');
+    expect(compiled.expression).to.include('`test-2`.`user_metadata`');
+  });
+
+
+  it('should generate SQL with schema prefix when whereNotExists uses relation in different schema', async () => {
+    const query = User.whereNotExists('Metadata');
+    const compiled = query.toDB() as ICompilerOutput;
+
+    expect(compiled.expression).to.include('`test`.`user_test`');
+    expect(compiled.expression).to.include('NOT EXISTS');
+    expect(compiled.expression).to.include('`test-2`.`user_metadata`');
+  });
+
+  it('should generate SQL with schema prefix when whereNotExists uses relation with condition', async () => {
+    const query = User.whereNotExists('Metadata', function () {
+      this.where('Key', 'some_key');
+    });
+    const compiled = query.toDB() as ICompilerOutput;
+
+    expect(compiled.expression).to.include('`test`.`user_test`');
+    expect(compiled.expression).to.include('NOT EXISTS');
+    expect(compiled.expression).to.include('`test-2`.`user_metadata`');
+    expect(compiled.expression).to.include('`Key`');
   });
 });

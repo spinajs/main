@@ -388,7 +388,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     throw new Error('Not implemented');
   }
 
-  public static whereNotExists<T extends typeof ModelBase>(this: T, _query: ISelectQueryBuilder<T>): ISelectQueryBuilder<Array<InstanceType<T>>> {
+  public static whereNotExists<R extends typeof ModelBase, T extends typeof ModelBase>(this: T, _qOrR: string | ISelectQueryBuilder<T>, _func?: WhereFunction<InstanceType<R>>): ISelectQueryBuilder<Array<InstanceType<T>>> {
     throw new Error('Not implemented');
   }
 
@@ -1090,9 +1090,11 @@ export const MODEL_STATIC_MIXINS = {
     return query;
   },
 
-  whereNotExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, q: ISelectQueryBuilder<Z>) {
+  whereNotExists<T extends typeof ModelBase, Z extends ModelBase<unknown> | ModelBase<unknown>[]>(this: T, qOrRel: ISelectQueryBuilder<Z> | string, callback: WhereFunction<InstanceType<T>>) {
     const { query } = createQuery(this as any, SelectQueryBuilder);
-    query.whereNotExists(q);
+
+    query.whereNotExists(qOrRel, callback);
+
     return query;
   },
 

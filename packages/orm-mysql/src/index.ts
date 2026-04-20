@@ -283,21 +283,27 @@ export class MySqlOrmDriver extends SqlDriver {
 
             resolve({
               commit: async () => {
-                connection.commit((err) => {
-                  if (err) {
-                    connection.rollback(() => {
-                      connection.release();
-                      reject(err);
-                    });
-                    return;
-                  }
-                  connection.release();
-
+                return new Promise((res, rej) => {
+                  connection.commit((err) => {
+                    if (err) {
+                      connection.rollback(() => {
+                        connection.release();
+                        rej(err);
+                      });
+                      return;
+                    }
+                    connection.release();
+                    res();
+                  });
                 });
+
               },
               rollback: async () => {
-                connection.rollback(() => {
-                  connection.release();
+                return new Promise((res) => {
+                  connection.rollback(() => {
+                    connection.release();
+                    res();
+                  });
                 });
               },
             });

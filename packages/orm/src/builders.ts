@@ -1005,7 +1005,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
             callback.apply(relQuery);
           }
 
-          this.whereExist(relQuery);
+          this.whereNotExists(relQuery);
 
           break;
         case RelationType.ManyToMany:
@@ -1193,6 +1193,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._first = this._first;
     builder._nonSelect = this._nonSelect;
     builder._queryMiddlewares = [...this._queryMiddlewares];
+    builder._database = this._database;
 
     return builder as any;
   }
