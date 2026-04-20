@@ -539,4 +539,39 @@ describe('MySql cross-schema whereExists', () => {
     expect(compiled.expression).to.include('`test-2`.`user_metadata`');
     expect(compiled.expression).to.include('`Key`');
   });
+
+   it('should generate SQL with schema prefix when whereExists uses relation in different schema with cloned query', async () => {
+    const query = User.whereExists('Metadata');
+    const cloned = query.clone();
+
+    const compiled = cloned.toDB() as ICompilerOutput;
+
+    // The outer query should reference the 'test' database
+    expect(compiled.expression).to.include('`test`.`user_test`');
+    // The EXISTS subquery should reference the 'test-2' database for user_metadata
+    expect(compiled.expression).to.include('EXISTS');
+    expect(compiled.expression).to.include('`test-2`.`user_metadata`');
+  });
+
+
+  it('should generate SQL with schema prefix when whereNotExists uses relation in different schema', async () => {
+    const query = User.whereNotExists('Metadata');
+    const compiled = query.toDB() as ICompilerOutput;
+
+    expect(compiled.expression).to.include('`test`.`user_test`');
+    expect(compiled.expression).to.include('NOT EXISTS');
+    expect(compiled.expression).to.include('`test-2`.`user_metadata`');
+  });
+
+  it('should generate SQL with schema prefix when whereNotExists uses relation with condition', async () => {
+    const query = User.whereNotExists('Metadata', function () {
+      this.where('Key', 'some_key');
+    });
+    const compiled = query.toDB() as ICompilerOutput;
+
+    expect(compiled.expression).to.include('`test`.`user_test`');
+    expect(compiled.expression).to.include('NOT EXISTS');
+    expect(compiled.expression).to.include('`test-2`.`user_metadata`');
+    expect(compiled.expression).to.include('`Key`');
+  });
 });
