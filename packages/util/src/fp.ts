@@ -18,7 +18,7 @@ export function _chain<T>(...fns: (((arg?: any) => Promise<any>) | any | Promise
     } else {
       return prev.then(() => Promise.resolve(curr));
     }
-  }, Promise.resolve(null));
+  }, Promise.resolve(null)).then((res: () => Promise<T> | T) => typeof res === 'function' ? res() : res);
 }
 
 export function _zip(...fns: ((arg?: any) => Promise<any>)[]) {
