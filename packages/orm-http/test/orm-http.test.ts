@@ -5,6 +5,7 @@ import { Orm } from '@spinajs/orm';
 import { TestConfiguration, req } from './common.js';
 import { Simple } from './controllers/Simple.js';
 import { Controllers, HttpServer } from '@spinajs/http';
+import { fsService } from '@spinajs/fs';
 import 'mocha';
 import sinon from 'sinon';
 import { expect } from 'chai';
@@ -12,6 +13,8 @@ import './../src/index.js';
 import { FilterableModel } from './models/Filterable.js';
 import { FilterC } from './controllers/Filter.js';
 import './../src/route-arg.js';
+import { FilterableLogicalOperators } from './../src/index.js';
+
 
 describe('Http orm tests', function () {
   this.timeout(15000);
@@ -31,6 +34,7 @@ describe('Http orm tests', function () {
       await b.bootstrap();
     }
 
+    await DI.resolve(fsService);
     await DI.resolve(Controllers);
     await DI.resolve(Orm);
     const server = await DI.resolve(HttpServer);
@@ -69,6 +73,28 @@ describe('Http orm tests', function () {
       expect(spy.args[0][0][0].Field).to.eq('Foo');
       expect(spy.args[0][0][0].Operator).to.eq('eq');
       expect(spy.args[0][0][0].Value).to.eq(1);
+    });
+
+    it('Should relation one-to-many filter route-args works', async () => {
+      const spy = DI.get(FilterC).testRelationFilterOneToMany as sinon.SinonSpy;
+      await req().get('filter/testRelationFilterOneToMany?filter=[{"Field": "Text", "Operator": "eq","Value": "foo"}]').set('Accept', 'application/json');
+
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0].length).to.eq(1);
+      expect(spy.args[0][0][0].Field).to.eq('Text');
+      expect(spy.args[0][0][0].Operator).to.eq('eq');
+      expect(spy.args[0][0][0].Value).to.eq('foo');
+    });
+
+    it('Should relation one-to-one filter route-args works', async () => {
+      const spy = DI.get(FilterC).testRelationFilterOneToOne as sinon.SinonSpy;
+      await req().get('filter/testRelationFilterOneToOne?filter=[{"Field": "Text", "Operator": "eq","Value": "bar"}]').set('Accept', 'application/json');
+
+      expect(spy.args[0][0]).to.be.an('array');
+      expect(spy.args[0][0].length).to.eq(1);
+      expect(spy.args[0][0][0].Field).to.eq('Text');
+      expect(spy.args[0][0][0].Operator).to.eq('eq');
+      expect(spy.args[0][0][0].Value).to.eq('bar');
     });
 
     it('Should validate filter schema', async () => {
@@ -201,13 +227,16 @@ describe('Http orm tests', function () {
       expect(result2[0].Number).to.eq(4);
       expect(result2[1].Number).to.eq(5);
 
-      const result3 = await FilterableModel.filter<FilterableModel>([
-        {
-          Column: 'Text',
-          Value: 'hello',
-          Operator: 'eq',
-        },
-      ]);
+      const result3 = await FilterableModel.filter<FilterableModel>({
+        op: FilterableLogicalOperators.And,
+        filters: [
+          {
+            Column: 'Text',
+            Value: 'hello',
+            Operator: 'eq',
+          },
+        ],
+      });
 
       expect(result3).to.be.an('array');
       expect(result3.length).to.eq(1);

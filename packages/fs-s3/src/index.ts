@@ -21,9 +21,9 @@ import { createReadStream, existsSync } from 'fs';
 import { DateTime } from 'luxon';
 import { Readable } from 'stream';
 import iconv from 'iconv-lite';
-import { CloudUrlSigner, IS3Config } from './interfaces.js';
+import { S3UrlSigner, IS3Config } from './interfaces.js';
 
-export * from './cloudFronUrlSigner.js';
+export * from './s3BucketSigner.js';
 
 
 
@@ -56,7 +56,7 @@ export class fsS3 extends fs {
   @Autoinject()
   protected FileInfo: FileInfoService;
 
-  protected Signer?: CloudUrlSigner;
+  protected Signer?: S3UrlSigner;
 
   /**
    * Name of provider. We can have multiple providers of the same type but with different options.
@@ -106,6 +106,15 @@ export class fsS3 extends fs {
     await super.resolve();
 
     this.Logger.info(`Initializing S3 file provider '${this.Options.name}' for bucket '${this.Options.bucket}'`);
+    
+    // Log the full AWS config for debugging
+    this.Logger.info(`Full AWS Config: ${JSON.stringify({
+      endpoint: this.AwsConfig.endpoint,
+      region: this.AwsConfig.region,
+      forcePathStyle: this.AwsConfig.forcePathStyle,
+      credentialsType: typeof this.AwsConfig.credentials,
+    })}`);
+    
     const credentials = typeof this.AwsConfig.credentials === 'function' ? undefined : this.AwsConfig.credentials;
     this.Logger.info(`S3 Configuration: ${JSON.stringify({
       endpoint: this.AwsConfig.endpoint,
@@ -132,7 +141,7 @@ export class fsS3 extends fs {
 
     if (this.Options.signer) {
       this.Logger.info(`Initializing URL signer for service '${this.Options.signer.service}'`);
-      this.Signer = await DI.resolve(this.Options.signer.service, [this.Options.signer]);
+      this.Signer = await DI.resolve(this.Options.signer.service, [{...this.Options.signer, bucket: this.Options.bucket, s3Client: this.S3 }]);
       this.Logger.trace(`URL signer initialized successfully`);
     }
 

@@ -1,9 +1,12 @@
+import { S3Client } from "@aws-sdk/client-s3";
 import { DateTime } from "luxon";
 
-export interface ICloudUrlSignerOptions {
+export interface IS3UrlSigner {
     privateKey: string;
     publicKeyId: string;
     domain: string;
+    bucket: string;
+    s3Client: S3Client;
 }
 
 
@@ -21,8 +24,8 @@ export interface IS3Config {
     }
 }
 
-export abstract class CloudUrlSigner {
-    constructor(protected options: ICloudUrlSignerOptions) {
+export abstract class S3UrlSigner {
+    constructor(protected options: IS3UrlSigner) {
 
     }
 
