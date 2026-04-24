@@ -107,16 +107,8 @@ export class fsS3 extends fs {
 
     this.Logger.info(`Initializing S3 file provider '${this.Options.name}' for bucket '${this.Options.bucket}'`);
     
-    // Log the full AWS config for debugging
-    this.Logger.info(`Full AWS Config: ${JSON.stringify({
-      endpoint: this.AwsConfig.endpoint,
-      region: this.AwsConfig.region,
-      forcePathStyle: this.AwsConfig.forcePathStyle,
-      credentialsType: typeof this.AwsConfig.credentials,
-    })}`);
-    
     const credentials = typeof this.AwsConfig.credentials === 'function' ? undefined : this.AwsConfig.credentials;
-    this.Logger.info(`S3 Configuration: ${JSON.stringify({
+    this.Logger.debug(`S3 Configuration: ${JSON.stringify({
       endpoint: this.AwsConfig.endpoint,
 
       region: this.AwsConfig.region,
