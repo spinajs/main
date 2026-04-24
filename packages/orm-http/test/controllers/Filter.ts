@@ -1,5 +1,5 @@
 import { BaseController, Get, Ok, BasePath } from '@spinajs/http';
-import { IFilter, Filter } from './../../src/index.js';
+import { IFilter, Filter, IFilterRequest } from './../../src/index.js';
 import { FilterableModel } from '../models/Filterable.js';
 import { Test } from '../models/Test.js';
 import { Test2 } from '../models/Test2.js';
@@ -20,7 +20,7 @@ export class FilterC extends BaseController {
         operators: ['eq', 'gt'],
       },
     ])
-    filter: IFilter[],
+    filter: IFilterRequest[],
   ) {
     return new Ok(filter);
   }
@@ -28,12 +28,12 @@ export class FilterC extends BaseController {
   @Get()
   public testRelationFilterOneToMany(
     @Filter(Test2)
-    filter: IFilter[],
+    filter: IFilterRequest,
   ) {
 
 
     Test.select().populate("TestsTwos", function () {
-      this.filter(filter);
+      this.filter(filter.filters, filter.op);
     });
 
     return new Ok();
@@ -42,11 +42,11 @@ export class FilterC extends BaseController {
   @Get()
   public testRelationFilterOneToOne(
     @Filter(Belongs)
-    filter: IFilter[],
+    filter: IFilterRequest,
   ) {
 
     Test.select().populate("Belongs", function () {
-      this.filter(filter);
+      this.filter(filter.filters, filter.op);
     });
 
     return new Ok();
