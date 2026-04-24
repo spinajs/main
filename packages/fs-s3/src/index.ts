@@ -24,6 +24,7 @@ import iconv from 'iconv-lite';
 import { S3UrlSigner, IS3Config } from './interfaces.js';
 
 export * from './s3BucketSigner.js';
+export * from './cloudFrontSigner.js';
 
 
 

@@ -8,16 +8,12 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 export class S3BucketSigner extends S3UrlSigner {
 
     public async sign(path: string, until?: DateTime) {
-        const expiresIn = until
-            ? Math.max(1, Math.floor(until.diffNow("seconds").seconds))
-            : 900;
-
         const command = new GetObjectCommand({
             Bucket: this.options.bucket,
             Key: path,
         });
 
-        return getSignedUrl(this.options.s3Client, command, { expiresIn });
+        return getSignedUrl(this.options.s3Client, command, { expiresIn: this.getExpiresInSeconds(until) });
     }
 
 }
