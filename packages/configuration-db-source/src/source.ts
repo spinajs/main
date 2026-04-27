@@ -34,14 +34,38 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       table: 'configuration',
     });
 
-    await this.Connect();
+    try {
+      await this.Connect();
+    } catch (err) {
+      InternalLogger.error(`Failed to connect to database for configuration source (connection: ${this.Options.connection}): ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
+      return null;
+    }
 
-    if ((await this.CheckTable()) === false) {
+    if (!this.Connection) {
+      InternalLogger.warn(`No database connection available for configuration source (connection: ${this.Options.connection}), skipping db config`, 'configuration-db-source');
+      return null;
+    }
+
+    let tableExists = false;
+    try {
+      tableExists = await this.CheckTable();
+    } catch (err) {
+      InternalLogger.error(`Failed to check if configuration table '${this.Options.table}' exists: ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
+      return null;
+    }
+
+    if (tableExists === false) {
       InternalLogger.warn(`Table for db configuration source not exists. Please run migration before use !`, 'configuration-db-source');
       return null;
     }
 
-    const dbOptions = await this.Connection.select<IConfigurationEntry[]>().from(this.Options.table);
+    let dbOptions: IConfigurationEntry[];
+    try {
+      dbOptions = await this.Connection.select<IConfigurationEntry[]>().from(this.Options.table);
+    } catch (err) {
+      InternalLogger.error(`Failed to read configuration entries from table '${this.Options.table}': ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
+      return null;
+    }
 
     dbOptions.forEach((entry) => {
       entry.Value = parse(entry.Value as unknown as string, entry.Type);
@@ -87,9 +111,45 @@ export class ConfiguratioDbSource extends ConfigurationSource {
     // create or get connection
     if (DI.has(Orm)) {
       this.Connection = DI.get(Orm).Connections.get(dbConnection);
+
+      if (!this.Connection) {
+        throw new Error(`ORM is available but connection '${dbConnection}' was not found in ORM connections. Available connections: ${[...DI.get(Orm).Connections.keys()].join(', ') || 'none'}`);
+      }
+
+      // verify the existing connection is alive
+      try {
+        const alive = await this.Connection.ping();
+        if (!alive) {
+          InternalLogger.warn(`Database connection '${dbConnection}' exists but ping failed, connection may be broken`, 'configuration-db-source');
+        }
+      } catch (err) {
+        InternalLogger.warn(`Database connection '${dbConnection}' ping check failed: ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
+      }
     } else {
+      if (!DI.check(cfgConnectionOptions.Driver)) {
+        throw new Error(`ORM driver '${cfgConnectionOptions.Driver}' is not registered. Make sure the driver package is installed and properly imported.`);
+      }
+
       this.Connection = DI.resolve<OrmDriver>(cfgConnectionOptions.Driver, [cfgConnectionOptions]);
-      await this.Connection.connect();
+
+      try {
+        await this.Connection.connect();
+      } catch (err) {
+        InternalLogger.error(
+          `Failed to connect to database '${dbConnection}' (driver: ${cfgConnectionOptions.Driver}, host: ${cfgConnectionOptions.Host ?? 'N/A'}, database: ${cfgConnectionOptions.Database ?? cfgConnectionOptions.Filename ?? 'N/A'}): ${err instanceof Error ? err.message : String(err)}`,
+          'configuration-db-source',
+        );
+
+        // clean up the failed connection
+        try {
+          await this.Connection.disconnect();
+        } catch {
+          // ignore cleanup errors
+        }
+        this.Connection = null;
+
+        throw err;
+      }
     }
   }
 }

@@ -322,17 +322,38 @@ export class Orm extends AsyncService {
     const cConnections = this.Configuration.get<IDriverOptions[]>('db.Connections', []);
 
     for (const c of cConnections) {
+      const connectionInfo = JSON.stringify(_.pick(c, CFG_PROPS));
       this.Log.trace(`Trying to create connection name: ${c.Name}, driver: ${c.Driver}`);
 
       if (!this.Container.hasRegistered(c.Driver)) {
         throw new OrmException(`ORM connection driver ${c.Driver} not registerd`);
       }
 
-      const driver = await this.Container.resolve<OrmDriver>(c.Driver, [c]);
-      await driver.connect();
+      let driver: OrmDriver = null;
+      try {
+        driver = await this.Container.resolve<OrmDriver>(c.Driver, [c]);
+      } catch (err) {
+        this.Log.error(`Failed to resolve ORM driver ${c.Driver} for connection ${c.Name} with parameters ${connectionInfo}`);
+        throw new OrmException(`Failed to resolve ORM driver ${c.Driver} for connection ${c.Name}`, c, undefined, undefined, err);
+      }
+
+      try {
+        await driver.connect();
+      } catch (err) {
+        this.Log.error(`Failed to connect to database for connection ${c.Name} (driver: ${c.Driver}) with parameters ${connectionInfo}, reason: ${err instanceof Error ? err.message : String(err)}`);
+
+        // Try to clean up driver resources on failed connection
+        try {
+          await driver.disconnect();
+        } catch {
+          // ignore cleanup errors
+        }
+
+        throw new OrmException(`Failed to connect to database for connection ${c.Name} (driver: ${c.Driver}). Check if the database server is running and accessible.`, c, undefined, undefined, err);
+      }
 
       this.Connections.set(c.Name, driver);
-      this.Log.success(`Created ORM connection ${c.Name} with parametes ${JSON.stringify(_.pick(c, CFG_PROPS))}`);
+      this.Log.success(`Created ORM connection ${c.Name} with parameters ${connectionInfo}`);
     }
 
     const defaultConnection = this.Configuration.get<string>('db.DefaultConnection');
