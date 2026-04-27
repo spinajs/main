@@ -1,4 +1,5 @@
 import { Primary, Connection, Model, ModelBase } from '@spinajs/orm';
+import { Filterable } from '../../src/decorators.js';
 
 /**
  * Base modele for users used by ACL
@@ -11,5 +12,6 @@ export class Test2 extends ModelBase {
   @Primary()
   public Id: number;
 
+  @Filterable(["eq", "like"])
   public Text: string;
 }

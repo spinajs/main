@@ -37,6 +37,10 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
 
   constructor(public Options: T) {
     super();
+
+    if (!this.Options) {
+      throw new IOFail('Options for fs provider not provided, cannot create fs provider instance');
+    }
   }
 
   public async resolve() {

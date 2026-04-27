@@ -1,22 +1,20 @@
 import { DateTime } from "luxon";
-import { CloudUrlSigner } from "./interfaces.js";
+import { CloudFrontUrlSigner } from "./interfaces.js";
 import { getSignedUrl } from "@aws-sdk/cloudfront-signer";
 import { Injectable } from "@spinajs/di";
 
-@Injectable()
-export class CloudFrontUrlSigner extends CloudUrlSigner {
+@Injectable(CloudFrontUrlSigner)
+export class CloudFrontSigner extends CloudFrontUrlSigner {
 
     public async sign(path: string, until?: DateTime) {
-
         const url = `${this.options.domain}/${path}`;
 
-        return await getSignedUrl({
+        return getSignedUrl({
             url,
             keyPairId: this.options.publicKeyId,
             privateKey: this.options.privateKey,
-            dateLessThan: until ? until.toISO() : DateTime.now().plus({ hour: 1 }).toISO()
+            dateLessThan: this.getDateLessThan(until),
         });
-
     }
 
 }

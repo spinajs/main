@@ -26,7 +26,7 @@ export function req() {
   return chai.request('http://localhost:9999/');
 }
 
- 
+
 
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -37,6 +37,18 @@ export class TestConfiguration extends FrameworkConfiguration {
         dirs: {
           controllers: [dir('./../src/controllers'), dir('./controllers')],
         },
+      },
+      fs: {
+        defaultProvider: 'fs-temp',
+        providers: [
+
+          {
+            service: 'fsNative',
+            name: 'fs-temp',
+            basePath: dir('./files'),
+          },
+
+        ],
       },
       logger: {
         targets: [
