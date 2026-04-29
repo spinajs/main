@@ -108,6 +108,15 @@ export function _get_user(user: User | number | string) {
 
 
 
+/**
+ * Sets metadata key-value pairs on a user.
+ * Accepts either an array of `{ key, value }` objects or a single metadata key string with a separate value.
+ * Emits a {@link UserMetadataChange} event after the metadata is persisted.
+ *
+ * @param meta - metadata key (string) or array of `{ key, value }` entries to set
+ * @param value - value to assign when `meta` is a single key string (default: `null`)
+ * @returns a function that receives a {@link User} and returns the updated user
+ */
 export function _set_user_meta(meta: string | { key: string; value: any }[], value: any = null) {
   return async (u: User) => {
     const mArgs = _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u })), _to_array())(meta, 'Metadata');
@@ -131,6 +140,13 @@ export function _set_user_meta(meta: string | { key: string; value: any }[], val
   };
 }
 
+/**
+ * Retrieves a single metadata value from a user by key.
+ * Throws if the user's metadata has not been populated or the requested key does not exist.
+ *
+ * @param key - metadata key to retrieve
+ * @returns a function that receives a {@link User} and returns the metadata value
+ */
 export function _get_user_meta(key: string) {
   return async (u: User) => {
     _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u, key })))(u.Metadata, 'Metadata');
@@ -175,6 +191,13 @@ export function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm
   };
 }
 
+/**
+ * Emits a user-related event through the queue service.
+ *
+ * @param event - constructor of the {@link UserEvent} subclass to emit
+ * @param args - additional arguments forwarded to the event constructor
+ * @returns a function that receives a {@link User}, emits the event, and returns the user
+ */
 export function _user_ev(event: Constructor<UserEvent>, ...args: any[]) {
   return async (u: User) => {
     await _ev(new event(u, ...args))();
@@ -182,6 +205,12 @@ export function _user_ev(event: Constructor<UserEvent>, ...args: any[]) {
   };
 }
 
+/**
+ * Persists partial changes to a user record and emits a {@link UserChanged} event.
+ *
+ * @param data - optional partial user fields to merge into the existing record
+ * @returns a function that receives a {@link User}, applies the update, and returns the user
+ */
 export function _user_update(data?: Partial<User>) {
   return async (u: User) => {
     await _chain(u, _update<User>(data), _user_ev(UserChanged));
@@ -189,6 +218,14 @@ export function _user_update(data?: Partial<User>) {
   };
 }
 
+/**
+ * Resolves a user by identifier with metadata populated.
+ * If a {@link User} instance is passed it is returned as-is; otherwise the user is
+ * looked up by id, uuid, email, or login and its metadata relation is populated.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @returns a thunk that resolves to the {@link User}
+ */
 export function _user(identifier: number | string | User): () => Promise<User> {
   const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
 
@@ -222,25 +259,46 @@ export function _user_unsafe(identifier: number | string | User): () => Promise<
  * ===============================================
  */
 
+/**
+ * Activates a user account.
+ * Sets `IsActive` to `true`, emits a {@link UserActivated} event, and sends the activation email.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ */
 export async function activate(identifier: number | string | User) {
   return _chain(_user(identifier), _user_update({ IsActive: true }), _user_ev(UserActivated), _user_email('activated'));
 }
 
+/**
+ * Deactivates a user account.
+ * Sets `IsActive` to `false`, emits a {@link UserDeactivated} event, and sends the deactivation email.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ */
 export async function deactivate(identifier: number | string | User): Promise<void> {
   return _chain(_user(identifier), _user_update({ IsActive: false }), _user_ev(UserDeactivated), _user_email('deactivated'));
 }
 
 /**
- * 
- * @param email 
- * @param login 
- * @param password 
- * @param roles 
- * @param id optional user id ( if we migrate from other system  we want to keep user id )
- * @returns 
+ * Middleware signature used by the `create` action's `beforeCreate` / `afterCreate` hooks.
  */
 export type CreateMiddleware = (u: User) => Promise<User> | User;
 
+/**
+ * Creates a new user account.
+ *
+ * Validates and normalises inputs, hashes the password, inserts the user record,
+ * optionally sets metadata, runs configured `beforeCreate` / `afterCreate` middleware,
+ * emits a {@link UserCreated} event, and sends the "created" email.
+ *
+ * @param email - user email address (max 64 chars)
+ * @param login - user login name (max 32 chars)
+ * @param password - plain-text password; if empty a random one is generated
+ * @param roles - array of role names to assign
+ * @param id - optional explicit user id (useful when migrating from another system)
+ * @param metadata - optional key-value metadata to attach to the new user
+ * @returns an object containing the persisted {@link User} and the plain-text password
+ */
 export async function create(email: string, login: string, password: string, roles: string[], id?: number, metadata?: { [key: string]: any }): Promise<{ User: User; Password: string }> {
   const sPassword = await _service<PasswordProvider>('rbac.password', PasswordProvider)();
 
@@ -304,6 +362,12 @@ export async function create(email: string, login: string, password: string, rol
   );
 }
 
+/**
+ * Permanently deletes a user from the database.
+ * Emits a {@link UserDeleted} event and sends the "deleted" email.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ */
 export async function deleteUser(identifier: number | string | User): Promise<void> {
   return _chain(
     _user(identifier),
@@ -313,6 +377,14 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
   );
 }
 
+/**
+ * Grants an additional role to a user.
+ * The role is added only if not already present. Emits a {@link UserRoleGranted} event.
+ *
+ * @param identifier - numeric id or uuid / email / login string
+ * @param role - role name to grant
+ * @returns the updated {@link User}
+ */
 export async function grant(identifier: number | string, role: string): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
@@ -324,6 +396,14 @@ export async function grant(identifier: number | string, role: string): Promise<
   );
 }
 
+/**
+ * Revokes a role from a user.
+ * Removes the role from the user's role list and emits a {@link UserRoleRevoked} event.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param role - role name to revoke
+ * @returns the updated {@link User}
+ */
 export async function revoke(identifier: number | string | User, role: string): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
@@ -388,6 +468,13 @@ export async function unban(identifier: number | string | User): Promise<User> {
   );
 }
 
+/**
+ * Initiates a password-change request for a user.
+ * Generates a reset token, stores it along with the current timestamp and configured
+ * wait time in the user's metadata, and emits a {@link UserPasswordChangeRequest} event.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ */
 export async function passwordChangeRequest(identifier: number | string | User) {
   const pwdWaitTime = await _cfg<number>('rbac.password.reset_wait_time')();
 
@@ -402,6 +489,14 @@ export async function passwordChangeRequest(identifier: number | string | User) 
   );
 }
 
+/**
+ * Confirms a password reset by validating the token and expiration, then changing the password.
+ * Throws if the token has expired or does not match the stored value.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param newPassword - the new plain-text password to set
+ * @param token - the reset token that was issued by {@link passwordChangeRequest}
+ */
 export async function confirmPasswordReset(identifier: number | string | User, newPassword: string, token: string) {
   return _chain(
     _user(identifier),
@@ -432,6 +527,15 @@ export async function confirmPasswordReset(identifier: number | string | User, n
   );
 }
 
+/**
+ * Returns a function that changes a user's password.
+ * The new password is validated against the configured {@link PasswordValidationProvider},
+ * hashed via the configured {@link PasswordProvider}, persisted, and a
+ * {@link UserPasswordChanged} event is emitted.
+ *
+ * @param password - new plain-text password
+ * @returns a function that receives a {@link User} and returns the updated user
+ */
 export function changePassword(password: string): (u: User) => Promise<User> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
@@ -478,6 +582,16 @@ export function passwordMatch(password: string) {
   };
 }
 
+/**
+ * Authenticates a user with the given password.
+ * Delegates to the configured {@link AuthProvider}, updates `LastLoginAt`, and emits a
+ * {@link UserLogged} event on success. On failure a {@link UserLoginFailed} event is emitted
+ * and the original error is re-thrown.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param password - plain-text password to verify
+ * @returns the authenticated {@link User}
+ */
 export async function login(identifier: number | string | User, password: string): Promise<User> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
