@@ -138,7 +138,7 @@ describe('User model tests', function () {
   });
 
   it('Should create user with beforeCreate and afterCreate middleware', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
 
     const beforeSpy = sinon.spy((u: User) => {
       u.IsActive = true;

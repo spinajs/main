@@ -201,7 +201,7 @@ export class Users extends BaseController {
 
     const temporaryPassword = this.PasswordProvider.generate();
     const u = await create(data.Email, data.Login, temporaryPassword, [data.Role], undefined, data.Metadata);
-    return new Ok();
+    return new Ok(u);
   }
 
 

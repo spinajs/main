@@ -223,11 +223,11 @@ export function _user_unsafe(identifier: number | string | User): () => Promise<
  */
 
 export async function activate(identifier: number | string | User) {
-  return _chain(_user(identifier), _user_update({ IsActive: true }), _user_ev(UserActivated));
+  return _chain(_user(identifier), _user_update({ IsActive: true }), _user_ev(UserActivated), _user_email('activated'));
 }
 
 export async function deactivate(identifier: number | string | User): Promise<void> {
-  return _chain(_user(identifier), _user_update({ IsActive: false }), _user_ev(UserDeactivated));
+  return _chain(_user(identifier), _user_update({ IsActive: false }), _user_ev(UserDeactivated), _user_email('deactivated'));
 }
 
 /**
@@ -280,7 +280,9 @@ export async function create(email: string, login: string, password: string, rol
     // insert to db
     _insert(),
 
-    _either(() => metadata !== undefined, _set_user_meta(Object.entries(metadata).map(([key, value]) => ({ key, value }))), async (u: User) => u),
+    _either(() => metadata !== undefined,  
+      _set_user_meta(metadata ? Object.entries(metadata).map(([key, value]) => ({ key, value })) : []),
+      async (u: User) => u),
 
     // run after create middleware
     (u: User) =>
@@ -291,6 +293,9 @@ export async function create(email: string, login: string, password: string, rol
 
     // send event
     _user_ev(UserCreated, (u: User) => u.toJSON()),
+
+    // send email
+    _tap(_user_email('created')),
 
     // return user & password - if generated we want to know not hashed password
     (u: User) => {
@@ -304,6 +309,7 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
     _user(identifier),
     _tap((u: User) => u.destroy()),
     _user_ev(UserDeleted),
+    _user_email('deleted'),
   );
 }
 
@@ -358,6 +364,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
       { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
     ]),
     _user_ev(UserBanned),
+    _user_email('banned'),
   );
 }
 
