@@ -118,6 +118,7 @@ export function _set_user_meta(meta: string | { key: string; value: any }[], val
 
     await _chain(
       u,
+
       _tap(() => u.Metadata.update()),
       _user_ev(UserMetadataChange, () => {
         return mArgs.map((m: string | { key: string; value: any }) => {
@@ -238,6 +239,8 @@ export async function deactivate(identifier: number | string | User): Promise<vo
  * @param id optional user id ( if we migrate from other system  we want to keep user id )
  * @returns 
  */
+export type CreateMiddleware = (u: User) => Promise<User> | User;
+
 export async function create(email: string, login: string, password: string, roles: string[], id?: number, metadata?: { [key: string]: any }): Promise<{ User: User; Password: string }> {
   const sPassword = await _service<PasswordProvider>('rbac.password', PasswordProvider)();
 
@@ -267,10 +270,24 @@ export async function create(email: string, login: string, password: string, rol
         }),
       ),
 
+    // run before create middleware
+    (u: User) =>
+      _chain(
+        _cfg<CreateMiddleware[]>('rbac.actions.create.beforeCreate', []),
+        (beforeCreate: CreateMiddleware[]) => _chain(u, ...beforeCreate)
+      ),
+
     // insert to db
     _insert(),
 
     _either(() => metadata !== undefined, _set_user_meta(Object.entries(metadata).map(([key, value]) => ({ key, value }))), async (u: User) => u),
+
+    // run after create middleware
+    (u: User) =>
+      _chain(
+        _cfg<CreateMiddleware[]>('rbac.actions.create.afterCreate', []),
+        (afterCreate: CreateMiddleware[]) => _chain(u, ...afterCreate)
+      ),
 
     // send event
     _user_ev(UserCreated, (u: User) => u.toJSON()),
