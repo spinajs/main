@@ -238,7 +238,7 @@ export async function deactivate(identifier: number | string | User): Promise<vo
  * @param id optional user id ( if we migrate from other system  we want to keep user id )
  * @returns 
  */
-export async function create(email: string, login: string, password: string, roles: string[], id?: number): Promise<{ User: User; Password: string }> {
+export async function create(email: string, login: string, password: string, roles: string[], id?: number, metadata?: { [key: string]: any }): Promise<{ User: User; Password: string }> {
   const sPassword = await _service('rbac.password', PasswordProvider)();
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
@@ -269,6 +269,8 @@ export async function create(email: string, login: string, password: string, rol
 
     // insert to db
     _insert(),
+
+    _either(() => metadata !== undefined, _set_user_meta(Object.entries(metadata).map(([key, value]) => ({ key, value }))), async (u: User) => u),
 
     // send event
     _user_ev(UserCreated, (u: User) => u.toJSON()),
