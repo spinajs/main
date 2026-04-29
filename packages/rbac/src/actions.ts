@@ -239,7 +239,7 @@ export async function deactivate(identifier: number | string | User): Promise<vo
  * @returns 
  */
 export async function create(email: string, login: string, password: string, roles: string[], id?: number, metadata?: { [key: string]: any }): Promise<{ User: User; Password: string }> {
-  const sPassword = await _service('rbac.password', PasswordProvider)();
+  const sPassword = await _service<PasswordProvider>('rbac.password', PasswordProvider)();
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
   login = _check_arg(_trim(), _non_empty(), _max_length(32))(login, 'login');

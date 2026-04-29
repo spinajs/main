@@ -109,6 +109,34 @@ describe('User model tests', function () {
     expect(Password).to.be.a('string');
   });
 
+  it('Should create user with metadata', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+
+    const { User: U, Password } = await create('meta@wp.pl', 'metameta', 'bbbb', ['admin'], undefined, {
+      'user:niceName': 'Meta User',
+      'user:locale': 'en',
+    });
+
+    const user = await User.query().whereAnything('meta@wp.pl').populate('Metadata').firstOrFail();
+    expect(user).to.be.not.null;
+    expect(user.IsActive).to.eq(false);
+    expect(user.Login).to.eq('metameta');
+    expect(user.Email).to.eq('meta@wp.pl');
+    expect(user.Role).to.include('admin');
+
+    expect(user.Metadata['user:niceName']).to.eq('Meta User');
+    expect(user.Metadata['user:locale']).to.eq('en');
+
+    expect(eStub.callCount).to.eq(3);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserMetadataChange);
+    expect((eStub.args[1] as any)[0]).to.be.instanceOf(UserCreated);
+    expect((eStub.args[2] as any)[0]).to.be.instanceOf(EmailSend);
+
+    expect(U).to.be.instanceOf(User);
+    expect(Password).to.be.not.null;
+    expect(Password).to.be.a('string');
+  });
+
   it('Shouldn create user with already existing email', async () => {
     await expect(create('test@spinajs.pl', 'test', 'bbbb', ['admin'])).to.be.rejected;
   });
