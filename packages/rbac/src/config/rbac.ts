@@ -100,6 +100,12 @@ const rbac = {
         subject: 'Your password will expire soon',
       },
 
+      activated: {
+        enabled: true,
+        template: './user-activated-email-template.pug',
+        subject: 'Account activated',
+      },
+
       // when user is created, should he confirm email
       // if false, user is acvite at creation,
       // when true, first, user will be sent confirmation email
@@ -125,7 +131,7 @@ const rbac = {
       system: {
         $extend: ['admin'],
       },
-      
+
       'admin.users': {
         users: {
           'create:any': ['*'],
@@ -215,12 +221,13 @@ const rbac = {
     /**
      * System role is used to perform internal operations on users, like password reset, email change etc.
      */
-/**
-     * Middleware functions for user actions.
-     * Each action can have before and after middleware arrays.
-     * Middleware functions receive the User and should return the User.
-     * eg. beforeCreate: [(u: User) => { u.Metadata['custom:key'] = 'value'; return u; }]
-     */
+    systemRole: 'system',
+    /**
+         * Middleware functions for user actions.
+         * Each action can have before and after middleware arrays.
+         * Middleware functions receive the User and should return the User.
+         * eg. beforeCreate: [(u: User) => { u.Metadata['custom:key'] = 'value'; return u; }]
+         */
     actions: {
       create: {
         beforeCreate: [] as Array<Function>,
@@ -228,7 +235,7 @@ const rbac = {
       },
     },
 
-    systemRole: 'system',
+
 
     /**
      * Column name in database where role is stored, by default is "Role", but if your user table has different column name, you can change it here
