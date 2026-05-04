@@ -19,7 +19,7 @@ import { Orm } from '../src/orm.js';
 import { RelationModel2 } from './mocks/models/RelationModel2.js';
 import { Model4 } from './mocks/models/Model4.js';
 import { ModelNested2 } from './mocks/models/ModelNested2.js';
-import { Dataset, OneToManyRelationList, SingleRelation } from '../src/relation-objects.js';
+import { Dataset, ManyQueryRelationList, OneToManyRelationList, SingleRelation } from '../src/relation-objects.js';
 import './../src/bootstrap.js';
 import { QueryRelationModel } from './mocks/models/QueryRelationModel.js';
 
@@ -908,6 +908,12 @@ describe('Orm relations tests', () => {
     expect(result[0].Many.Populated).to.be.true;
     expect(result[0].Many.length).to.be.greaterThan(0);
     expect(result[0].Many[0]).to.be.not.null;
+  });
+
+  it('Query relation should be proper type', async () => {
+    await db();
+    const r = new QueryRelationModel();
+    expect(r.Many).to.be.instanceOf(ManyQueryRelationList);
   });
 
   it('OneToOneRelation should be dehydrated', async () => {

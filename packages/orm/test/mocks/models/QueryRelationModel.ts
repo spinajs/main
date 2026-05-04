@@ -15,10 +15,10 @@ export class QueryRelationModel extends ModelBase {
 
   @Query<QueryRelationModel, RawModel>(
     (data: QueryRelationModel[]) => {
-      return Promise.resolve(RawModel.query().whereIn(
+      return RawModel.query().whereIn(
         'Id',
         data.map((x) => x.Id),
-      ) as any);
+      )
     },
     (_owner, data) => {
       return data;

@@ -5,7 +5,7 @@ import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescript
 import 'reflect-metadata';
 import { ModelBase } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { Relation } from './relation-objects.js';
+import { ManyQueryRelationList, Relation } from './relation-objects.js';
 import { Orm } from './orm.js';
 import { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 import { extractModelDescriptor, extractModelDescriptorInherited } from './descriptor.js';
@@ -378,6 +378,8 @@ export function Query<T extends ModelBase<unknown>, D extends ModelBase<unknown>
       ForeignKey: '',
       PrimaryKey: '',
       Recursive: false,
+      RelationClass: ManyQueryRelationList
+
     });
   });
 }
