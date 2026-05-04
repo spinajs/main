@@ -25,5 +25,30 @@ export function OrmResource(resourceName?: string) {
 export function ResourceOwner() { 
   return extractDecoratorPropertyDescriptor((model: IRbacModelDescriptor, _target: any, propertyKey: string) => {
     model.OwnerField = propertyKey;
+
+    // Also register the field as a column so ORM WhereStatement recognizes it
+    if (model.Columns && !model.Columns.find((c) => c.Name === propertyKey)) {
+      model.Columns.push({
+        Name: propertyKey,
+        Type: '',
+        MaxLength: 0,
+        Comment: '',
+        DefaultValue: null,
+        NativeType: '',
+        Unsigned: false,
+        Nullable: false,
+        PrimaryKey: false,
+        AutoIncrement: false,
+        Converter: null,
+        Schema: null,
+        Unique: false,
+        Uuid: false,
+        Ignore: false,
+        Aggregate: false,
+        IsForeignKey: false,
+        ForeignKeyDescription: null,
+        Virtual: false,
+      });
+    }
   });
 }

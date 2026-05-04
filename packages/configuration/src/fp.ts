@@ -12,7 +12,7 @@ import { _catch, _chain, _check_arg, _non_empty, _non_nil } from '@spinajs/util'
 export function _cfg<T>(path: string, defaultValue?: T) {
   _check_arg(_non_empty())(path, 'path');
 
-  return () => _check_arg(_non_nil())(DI.get(Configuration).get<T>(path, defaultValue), path);
+  return () => defaultValue ? DI.get(Configuration).get<T>(path, defaultValue) : _check_arg(_non_nil())(DI.get(Configuration).get<T>(path, defaultValue), path);
 }
 
 /**
@@ -27,7 +27,7 @@ export function _service<T>(path: string, type: Class<T>, options?: []): () => P
     _chain(
       _cfg(path),
       _catch(
-        ({service} : {service: string}) =>
+        ({ service }: { service: string }) =>
           _chain(
             () => DI.getRegisteredTypes(type),
             (types: Constructor<unknown>[]) => types.find((t) => t.name === service),

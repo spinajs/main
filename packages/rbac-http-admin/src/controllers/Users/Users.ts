@@ -200,13 +200,8 @@ export class Users extends BaseController {
   ) {
 
     const temporaryPassword = this.PasswordProvider.generate();
-    const u = await create(data.Email, data.Login, temporaryPassword, [data.Role]);
-
-    for (const key in data.Metadata) {
-      u.User.Metadata[key] = data.Metadata[key];
-    }
-    await u.User.Metadata.update();
-    return new Ok();
+    const u = await create(data.Email, data.Login, temporaryPassword, [data.Role], undefined, data.Metadata);
+    return new Ok(u);
   }
 
 

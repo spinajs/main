@@ -13,7 +13,7 @@ export const TEST_USER_UUID_3 = uuidv4();
 export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
   public async up(connection: OrmDriver<IDriverOptions>): Promise<void> {
 
-    connection.schema().createTable('test', (table) =>{ 
+    await connection.schema().createTable('test', (table) =>{ 
       table.int('Id').primaryKey().autoIncrement();
       table.int('UserId');
     });

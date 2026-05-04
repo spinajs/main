@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, USER_COMMON_METADATA, login, UserLogged, UserBanned } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, USER_COMMON_METADATA, login, UserLogged, UserBanned, CreateMiddleware } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
@@ -107,6 +107,72 @@ describe('User model tests', function () {
     expect(U).to.be.instanceOf(User);
     expect(Password).to.be.not.null;
     expect(Password).to.be.a('string');
+  });
+
+  it('Should create user with metadata', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+
+    const { User: U, Password } = await create('meta@wp.pl', 'metameta', 'bbbb', ['admin'], undefined, {
+      'user:niceName': 'Meta User',
+      'user:locale': 'en',
+    });
+
+    const user = await User.query().whereAnything('meta@wp.pl').populate('Metadata').firstOrFail();
+    expect(user).to.be.not.null;
+    expect(user.IsActive).to.eq(false);
+    expect(user.Login).to.eq('metameta');
+    expect(user.Email).to.eq('meta@wp.pl');
+    expect(user.Role).to.include('admin');
+
+    expect(user.Metadata['user:niceName']).to.eq('Meta User');
+    expect(user.Metadata['user:locale']).to.eq('en');
+
+    expect(eStub.callCount).to.eq(3);
+    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserMetadataChange);
+    expect((eStub.args[1] as any)[0]).to.be.instanceOf(UserCreated);
+    expect((eStub.args[2] as any)[0]).to.be.instanceOf(EmailSend);
+
+    expect(U).to.be.instanceOf(User);
+    expect(Password).to.be.not.null;
+    expect(Password).to.be.a('string');
+  });
+
+  it('Should create user with beforeCreate and afterCreate middleware', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+
+    const beforeSpy = sinon.spy((u: User) => {
+      u.IsActive = true;
+      return u;
+    });
+
+    const afterSpy = sinon.spy(async (u: User) => {
+      return u;
+    });
+
+    const config = DI.get(Configuration);
+    config.set('rbac.actions.create.beforeCreate', [beforeSpy as CreateMiddleware]);
+    config.set('rbac.actions.create.afterCreate', [afterSpy as CreateMiddleware]);
+
+    const { User: U } = await create('middleware@wp.pl', 'middlewareuser', 'bbbb', ['admin']);
+
+    const user = await User.query().whereAnything('middleware@wp.pl').firstOrFail();
+    expect(user).to.be.not.null;
+
+    // beforeCreate middleware set IsActive to true
+    expect(user.IsActive).to.eq(true);
+    expect(user.Login).to.eq('middlewareuser');
+
+    expect(beforeSpy.calledOnce).to.be.true;
+    expect(afterSpy.calledOnce).to.be.true;
+
+    // beforeCreate is called before insert, afterCreate is called after insert
+    expect(beforeSpy.calledBefore(afterSpy)).to.be.true;
+
+    expect(U).to.be.instanceOf(User);
+
+    // reset config
+    config.set('rbac.actions.create.beforeCreate', []);
+    config.set('rbac.actions.create.afterCreate', []);
   });
 
   it('Shouldn create user with already existing email', async () => {

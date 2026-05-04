@@ -52,7 +52,7 @@ export class UserQueryScopes implements QueryScope {
         UserMetadata.query().where(function () {
           this.where('Key', USER_COMMON_METADATA.USER_BAN_IS_BANNED);
           this.where('Value', 'true');
-          this.where(new RawQuery('user_id = banned_count.Id'));
+          this.where(new RawQuery('user_id = Id'));
         }),
       )
       .selectCount()
