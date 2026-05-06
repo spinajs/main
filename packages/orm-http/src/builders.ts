@@ -131,6 +131,16 @@ const OPERATOR_MAP: Record<FilterableOperators, {
     validate: ValidationHelpers.requireString,
     applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.REGEXP, filter.Value),
     applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.REGEXP, filter.Value)
+  },
+  'in-set': {
+    validate: ValidationHelpers.requireArray,
+    applyAnd: (qb, filter) => qb.whereInSet(filter.Column, filter.Value),
+    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereInSet(filter.Column, filter.Value))
+  },
+  'nin-set': {
+    validate: ValidationHelpers.requireArray,
+    applyAnd: (qb, filter) => qb.whereNotInSet(filter.Column, filter.Value),
+    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereNotInSet(filter.Column, filter.Value))
   }
 };
 
