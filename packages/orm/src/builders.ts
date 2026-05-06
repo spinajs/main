@@ -5,7 +5,7 @@ import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
@@ -1955,6 +1955,33 @@ export class DropTableQueryBuilder extends QueryBuilder {
 }
 
 @NewInstance()
+export class DropViewQueryBuilder extends QueryBuilder {
+  public Exists: boolean;
+
+  constructor(container: Container, driver: OrmDriver, name: string, database?: string) {
+    super(container, driver, null);
+
+    this.setTable(name);
+
+    if (database) {
+      this.database(database);
+    }
+
+    this.Exists = false;
+    this.QueryContext = QueryContext.Schema;
+  }
+
+  public ifExists() {
+    this.Exists = true;
+    return this;
+  }
+
+  public toDB(): ICompilerOutput {
+    return this._container.resolve<DropViewCompiler>(DropViewCompiler, [this]).compile();
+  }
+}
+
+@NewInstance()
 export class AlterTableQueryBuilder extends QueryBuilder {
   protected _columns: ColumnQueryBuilder[];
 
@@ -2409,6 +2436,10 @@ export class SchemaQueryBuilder {
 
   public dropTable(name: string, schema?: string) {
     return new DropTableQueryBuilder(this.container, this.driver, name, schema);
+  }
+
+  public dropView(name : string, schema? : string) { 
+    return new DropViewQueryBuilder(this.container, this.driver, name, schema);
   }
 
   public async tableExists(name: string, schema?: string) {

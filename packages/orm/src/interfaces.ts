@@ -1214,6 +1214,12 @@ export abstract class DropTableCompiler implements IQueryCompiler {
 }
 
 @NewInstance()
+export abstract class DropViewCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
+
+@NewInstance()
 export abstract class ColumnQueryCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }
