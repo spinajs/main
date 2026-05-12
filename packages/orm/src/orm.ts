@@ -1,4 +1,4 @@
-import { BooleanValueConverter, DatetimeValueConverter, TimeValueConverter } from './interfaces.js';
+import { BooleanValueConverter, DatetimeValueConverter, IValueConverter, TimeValueConverter } from './interfaces.js';
 import { Configuration } from '@spinajs/configuration-common';
 import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
@@ -195,7 +195,7 @@ export class Orm extends AsyncService {
             d.Columns.forEach((c) => {
               if (!c.Converter) {
                 if (converters && converters.has(c.NativeType.toLocaleLowerCase())) {
-                  c.Converter = connection.Container.resolve(converters.get(c.NativeType.toLocaleLowerCase()));
+                  c.Converter = connection.Container.resolve<IValueConverter>(converters.get(c.NativeType.toLocaleLowerCase()));
                 }
               }
             });
