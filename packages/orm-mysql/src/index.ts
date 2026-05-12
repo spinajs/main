@@ -204,6 +204,7 @@ export class MySqlOrmDriver extends SqlDriver {
     }
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
+      this.Log.trace(`Table ${schema}.${name} does not have any columns.`);
       return null;
     }
 
