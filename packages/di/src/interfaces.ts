@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { ResolveType } from './enums.js';
-import { Class, Factory } from './types.js';
+import { Class, Factory, InferClassOrFactory, InferTypedArray, ResolveResult, ResolveArrayResult } from './types.js';
 import { EventEmitter } from 'events';
 import { TypedArray } from './array.js';
 import { Registry } from './registry.js';
@@ -103,11 +103,15 @@ export interface IContainer extends EventEmitter {
 
   resolve<T>(type: string, options?: unknown[], check?: boolean): T;
   resolve<T>(type: string, check?: boolean): T;
-  resolve<T>(type: Class<T> | Factory<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncService ? Promise<T> : T;
-  resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
-  resolve<T>(type: Class<T> | Factory<T>, check?: boolean): T extends AsyncService ? Promise<T> : T;
-  resolve<T>(type: TypedArray<T>, check?: boolean): T extends AsyncService ? Promise<T[]> : T[];
-  resolve<T>(type: Class<T> | TypedArray<T> | string, options?: unknown[] | boolean, check?: boolean): Promise<T | T[]> | T | T[];
+  resolve<T>(type: Class<T> | Factory<T>, check?: boolean): ResolveResult<T>;
+  resolve<T>(type: Class<T> | Factory<T>, options?: unknown[] | boolean, check?: boolean): ResolveResult<T>;
+  resolve<T>(type: TypedArray<T>, check?: boolean): ResolveArrayResult<T>;
+  resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): ResolveArrayResult<T>;
+  resolve<T extends Class<any> | Factory<any>>(type: T, options?: unknown[] | boolean, check?: boolean): ResolveResult<InferClassOrFactory<T>>;
+  resolve<T extends TypedArray<any>>(type: T, options?: unknown[] | boolean, check?: boolean): ResolveArrayResult<InferTypedArray<T>>;
+  resolve<T extends Class<any> | Factory<any>>(type: T, check?: boolean): ResolveResult<InferClassOrFactory<T>>;
+  resolve<T extends TypedArray<any>>(type: T, check?: boolean): ResolveArrayResult<InferTypedArray<T>>;
+  resolve(type: Class<any> | TypedArray<any> | string, options?: unknown[] | boolean, check?: boolean): unknown;
 
   dispose(): Promise<void>;
 
