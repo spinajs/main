@@ -80,7 +80,12 @@ export class TwoFactorAuthController extends BaseController {
             });
         }
         catch (err) {
-            this._log.error(err);
+
+            if (err instanceof Error) {
+                this._log.error(err, "2fa verification failed");
+            } else {
+                this._log.error("2fa verification failed", { error: err });
+            }
 
             return new ForbiddenResponse({
                 error: {
