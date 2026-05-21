@@ -79,6 +79,7 @@ export function _exists(path: string) {
 
 export function _is_of_type(path: string, extension: string) {
   return async () => {
+    const { fileTypeFromFile } = await import('file-type');
     const type = await fileTypeFromFile(path);
     if (type.ext !== extension) {
       throw new IOFail(`File ${path} is invalid. Requested extension is ${extension}, file mime type is ${type.ext}`);
@@ -88,6 +89,7 @@ export function _is_of_type(path: string, extension: string) {
 
 export function _is_of_mimetype(path: string, mimetype: string) {
   return async () => {
+    const { fileTypeFromFile } = await import('file-type');
     const type = await fileTypeFromFile(path);
     if (type.mime !== mimetype) {
       throw new IOFail(`File ${path} is invalid. Requested mime type is ${mimetype}, file mime type is ${type.mime}`);

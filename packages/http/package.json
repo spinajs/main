@@ -84,6 +84,7 @@
     "luxon": "^3.6.1",
     "mime": "^3.0.0",
     "randomstring": "^1.2.3",
+    "typescript": "^5.0.0",
     "uuid": "^9.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

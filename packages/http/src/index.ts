@@ -8,3 +8,4 @@ export * from './server.js';
 export * from './transformers/index.js';
 export * from './file-middlewares/index.js';
 export * from './bootstrap.js';
+export * from './cache.js';
