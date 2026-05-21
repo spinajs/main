@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http-swagger",
-  "version": "2.0.468",
+  "version": "2.0.469",
   "description": "Swagger/OpenAPI documentation generator for SpineJS HTTP controllers. Reads route metadata and JSDoc comments to produce OpenAPI 3.0 specs.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -49,15 +49,15 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.468",
-    "@spinajs/di": "^2.0.468",
-    "@spinajs/exceptions": "^2.0.468",
-    "@spinajs/http": "^2.0.468",
-    "@spinajs/log": "^2.0.468",
-    "@spinajs/reflection": "^2.0.468",
-    "@spinajs/fs": "^2.0.468",
-    "@spinajs/templates": "^2.0.468",
-    "@spinajs/templates-pug": "^2.0.468"
+    "@spinajs/configuration": "^2.0.469",
+    "@spinajs/di": "^2.0.469",
+    "@spinajs/exceptions": "^2.0.469",
+    "@spinajs/http": "^2.0.469",
+    "@spinajs/log": "^2.0.469",
+    "@spinajs/reflection": "^2.0.469",
+    "@spinajs/fs": "^2.0.469",
+    "@spinajs/templates": "^2.0.469",
+    "@spinajs/templates-pug": "^2.0.469"
   },
   "devDependencies": {
   }
