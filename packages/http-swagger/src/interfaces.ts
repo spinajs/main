@@ -67,6 +67,7 @@ export interface IMethodDocumentation {
   description?: string;
   params: Record<string, IParamDocumentation>;
   returns?: IReturnDocumentation;
+  responses?: Record<string, IResponseDocumentation>;
   examples?: IExampleDocumentation[];
   tags?: string[];
   deprecated?: boolean;
@@ -81,6 +82,12 @@ export interface IParamDocumentation {
 
 export interface IReturnDocumentation {
   description?: string;
+  type?: string;
+  schema?: IOpenApiSchema;
+}
+
+export interface IResponseDocumentation {
+  description: string;
   type?: string;
 }
 

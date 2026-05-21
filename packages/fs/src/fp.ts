@@ -2,7 +2,6 @@ import { _resolve } from '@spinajs/di';
 import { FileHasher, FileInfoService, fs, IFileInfo } from './interfaces.js';
 import { _chain, _check_arg, _is_string, _non_empty, _trim, _use } from '@spinajs/util';
 import { access, constants, readFile } from "fs";
-import { fileTypeFromFile } from 'file-type';
 import { Abortable } from 'events';
 import { IOFail } from '@spinajs/exceptions';
 

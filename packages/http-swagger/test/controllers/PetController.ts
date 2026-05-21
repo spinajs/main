@@ -34,6 +34,9 @@ export class PetController extends BaseController {
    * Retrieves detailed information about a specific pet.
    * @param id The unique pet identifier
    * @returns A pet object with full details
+   * @response 400 Invalid ID supplied
+   * @response 404 Pet not found
+   * @response 500 Internal server error
    */
   @Get(':id')
   public async getPet(@Param() id: number) {
@@ -86,5 +89,24 @@ export class PetController extends BaseController {
   @Patch(':id')
   public async patchPet(@Param() id: number, @Body() data: object) {
     return new Ok({ id, ...data });
+  }
+
+  /**
+   * Find a pet by name (demonstrates return type inference)
+   * Returns availability status for a named pet.
+   * @param name The pet name to search for
+   */
+  @Get('find/:name')
+  public async findPet(@Param() name: string): Promise<{ id: number; name: string; available: boolean }> {
+    return { id: 1, name, available: true } as any;
+  }
+
+  /**
+   * List available pets (demonstrates array return type inference)
+   * @param type Filter by pet type
+   */
+  @Get('available')
+  public async listAvailable(@Query() type: string): Promise<Array<{ id: number; name: string; type: string }>> {
+    return [{ id: 1, name: 'Buddy', type }] as any;
   }
 }

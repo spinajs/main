@@ -5,6 +5,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { TestConfiguration, req } from './common.js';
 import '../src/index.js';
+import { FsBootsrapper, fsService } from '@spinajs/fs';
 
 describe('Swagger API', function () {
   this.timeout(30000);
@@ -14,6 +15,10 @@ describe('Swagger API', function () {
     DI.setESMModuleSupport();
     DI.register(TestConfiguration).as(Configuration);
 
+    const bootstrapper = DI.resolve(FsBootsrapper);
+    bootstrapper.bootstrap();
+    await DI.resolve(Configuration);
+    await DI.resolve(fsService);
     await DI.resolve(Controllers);
 
     const server = await DI.resolve<HttpServer>(HttpServer);
@@ -201,6 +206,41 @@ describe('Swagger API', function () {
 
       const limitParam = listPets.parameters.find((p: any) => p.name === 'limit');
       expect(limitParam.description).to.equal('Number of items per page');
+    });
+
+    it('should infer inline object schema from TypeScript return type annotation', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const findPet = spec.paths['/pets/find/{name}'].get;
+      const schema = findPet.responses['200'].content['application/json'].schema;
+
+      expect(schema.type).to.equal('object');
+      expect(schema.properties).to.have.property('id');
+      expect(schema.properties.id.type).to.equal('number');
+      expect(schema.properties).to.have.property('name');
+      expect(schema.properties.name.type).to.equal('string');
+      expect(schema.properties).to.have.property('available');
+      expect(schema.properties.available.type).to.equal('boolean');
+      expect(schema.required).to.include('id');
+      expect(schema.required).to.include('name');
+      expect(schema.required).to.include('available');
+    });
+
+    it('should infer array schema from TypeScript return type annotation', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const listAvailable = spec.paths['/pets/available'].get;
+      const schema = listAvailable.responses['200'].content['application/json'].schema;
+
+      expect(schema.type).to.equal('array');
+      expect(schema.items).to.exist;
+      expect(schema.items.type).to.equal('object');
+      expect(schema.items.properties).to.have.property('id');
+      expect(schema.items.properties.id.type).to.equal('number');
+      expect(schema.items.properties).to.have.property('name');
+      expect(schema.items.properties).to.have.property('type');
     });
   });
 

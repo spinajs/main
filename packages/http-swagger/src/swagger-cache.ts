@@ -1,9 +1,10 @@
 import ts from 'typescript';
+import { resolve as resolvePath } from 'path';
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
 import { BaseController } from '@spinajs/http';
 import { Logger, Log } from '@spinajs/log';
-import { ISwaggerCacheEntry, IMethodDocumentation, IExampleDocumentation } from './interfaces.js';
+import { ISwaggerCacheEntry, IMethodDocumentation, IExampleDocumentation, IOpenApiSchema } from './interfaces.js';
 
 /**
  * Cache for JSDoc documentation extracted from controller source files.
@@ -49,12 +50,16 @@ export class SwaggerDocCache extends AsyncService {
    * Extract JSDoc documentation from a TypeScript source file for a given class.
    */
   private extractDocumentation(file: string, className: string): ISwaggerCacheEntry {
-    const program = ts.createProgram([file], {
-      module: ts.ModuleKind.NodeNext,
+    // Normalize path so getSourceFile can find it (glob returns forward-slash paths on Windows)
+    const normalizedFile = resolvePath(file);
+    const program = ts.createProgram([normalizedFile], {
+      module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.Latest,
+      noResolve: true,
+      skipLibCheck: true,
     });
 
-    const sourceFile = program.getSourceFile(file);
+    const sourceFile = program.getSourceFile(normalizedFile);
     if (!sourceFile) {
       this.Log.warn(`Could not parse source file: ${file}`);
       return { className, methods: {} };
@@ -115,8 +120,16 @@ export class SwaggerDocCache extends AsyncService {
       }
     }
 
-    // Get JSDoc tags from the method
-    const jsDocs = ts.getJSDocTags(method);
+    // Infer return schema from TypeScript return type annotation
+    if (method.type) {
+      const schema = this.inferSchemaFromTypeNode(method.type);
+      if (!doc.returns) doc.returns = {};
+      doc.returns.schema = schema;
+    }
+
+    // Get JSDoc tags from the method using raw access (ts.getJSDocTags can return
+    // empty arrays when program is created with noResolve: true)
+    const jsDocs = this.getRawJSDocTags(method);
 
     for (const tag of jsDocs) {
       const tagName = tag.tagName.text;
@@ -128,7 +141,7 @@ export class SwaggerDocCache extends AsyncService {
           if (paramName) {
             doc.params[paramName] = {
               name: paramName,
-              description: this.getTagComment(tag),
+              description: this.getTagComment(tag)?.trim(),
               type: paramTag.typeExpression ? paramTag.typeExpression.getText() : undefined,
             };
           }
@@ -161,6 +174,21 @@ export class SwaggerDocCache extends AsyncService {
         }
         case 'deprecated': {
           doc.deprecated = true;
+          break;
+        }
+        case 'response': {
+          const comment = this.getTagComment(tag);
+          if (comment) {
+            const spaceIdx = comment.indexOf(' ');
+            if (spaceIdx > 0) {
+              const statusCode = comment.substring(0, spaceIdx).trim();
+              const description = comment.substring(spaceIdx + 1).trim();
+              if (/^\d+$/.test(statusCode)) {
+                if (!doc.responses) doc.responses = {};
+                doc.responses[statusCode] = { description };
+              }
+            }
+          }
           break;
         }
         case 'summary': {
@@ -204,13 +232,34 @@ export class SwaggerDocCache extends AsyncService {
   }
 
   /**
-   * Get a specific JSDoc tag value from a node.
+   * Get a specific JSDoc tag value from a node using raw jsDoc access.
+   * Note: ts.getJSDocTags() can return empty arrays when noResolve is used;
+   * direct access to (node as any).jsDoc is more reliable.
    */
   private getJSDocTagValues(node: ts.Node, tagName: string): string | undefined {
-    const tags = ts.getJSDocTags(node);
-    const found = tags.find((t) => t.tagName.text === tagName);
-    if (!found) return undefined;
-    return this.getTagComment(found);
+    const rawJsDocs = (node as any).jsDoc as ts.JSDoc[] | undefined;
+    if (!rawJsDocs) return undefined;
+    for (const jsDoc of rawJsDocs) {
+      if (!jsDoc.tags) continue;
+      const found = Array.from(jsDoc.tags).find((t) => t.tagName?.text === tagName);
+      if (found) return this.getTagComment(found);
+    }
+    return undefined;
+  }
+
+  /**
+   * Get all JSDoc tags from a node using raw jsDoc access.
+   */
+  private getRawJSDocTags(node: ts.Node): ts.JSDocTag[] {
+    const rawJsDocs = (node as any).jsDoc as ts.JSDoc[] | undefined;
+    if (!rawJsDocs) return [];
+    const result: ts.JSDocTag[] = [];
+    for (const jsDoc of rawJsDocs) {
+      if (jsDoc.tags) {
+        result.push(...Array.from(jsDoc.tags));
+      }
+    }
+    return result;
   }
 
   /**
@@ -258,5 +307,85 @@ export class SwaggerDocCache extends AsyncService {
     }
 
     return example;
+  }
+
+  /**
+   * Infer an OpenAPI schema from a TypeScript type node in the AST.
+   * Handles keyword types, arrays, type literals, and type references.
+   * Transparent wrappers (Promise, Ok) are unwrapped automatically.
+   */
+  private inferSchemaFromTypeNode(typeNode: ts.TypeNode): IOpenApiSchema {
+    switch (typeNode.kind) {
+      case ts.SyntaxKind.StringKeyword:
+        return { type: 'string' };
+      case ts.SyntaxKind.NumberKeyword:
+        return { type: 'number' };
+      case ts.SyntaxKind.BooleanKeyword:
+        return { type: 'boolean' };
+      case ts.SyntaxKind.VoidKeyword:
+      case ts.SyntaxKind.UndefinedKeyword:
+      case ts.SyntaxKind.NullKeyword:
+      case ts.SyntaxKind.AnyKeyword:
+      case ts.SyntaxKind.UnknownKeyword:
+      case ts.SyntaxKind.ObjectKeyword:
+        return { type: 'object' };
+    }
+
+    // T[]
+    if (ts.isArrayTypeNode(typeNode)) {
+      return { type: 'array', items: this.inferSchemaFromTypeNode(typeNode.elementType) };
+    }
+
+    // Named / generic type reference
+    if (ts.isTypeReferenceNode(typeNode)) {
+      const name = ts.isIdentifier(typeNode.typeName)
+        ? typeNode.typeName.text
+        : (typeNode.typeName as ts.QualifiedName).right.text;
+
+      // Unwrap transparent wrappers
+      if ((name === 'Promise' || name === 'Ok') && typeNode.typeArguments?.length) {
+        return this.inferSchemaFromTypeNode(typeNode.typeArguments[0]);
+      }
+
+      if (name === 'Array' && typeNode.typeArguments?.length) {
+        return { type: 'array', items: this.inferSchemaFromTypeNode(typeNode.typeArguments[0]) };
+      }
+
+      switch (name) {
+        case 'string': return { type: 'string' };
+        case 'number': return { type: 'number' };
+        case 'boolean': return { type: 'boolean' };
+        default:
+          return { $ref: `#/components/schemas/${name}` };
+      }
+    }
+
+    // Inline object literal { prop: type; ... }
+    if (ts.isTypeLiteralNode(typeNode)) {
+      const properties: Record<string, IOpenApiSchema> = {};
+      const required: string[] = [];
+
+      for (const member of typeNode.members) {
+        if (ts.isPropertySignature(member) && ts.isIdentifier(member.name) && member.type) {
+          const propName = member.name.text;
+          properties[propName] = this.inferSchemaFromTypeNode(member.type);
+          if (!member.questionToken) required.push(propName);
+        }
+      }
+
+      const schema: IOpenApiSchema = { type: 'object', properties };
+      if (required.length) schema.required = required;
+      return schema;
+    }
+
+    // A | B — strip null/undefined, use first remaining type
+    if (ts.isUnionTypeNode(typeNode)) {
+      const meaningful = typeNode.types.filter(
+        (t) => t.kind !== ts.SyntaxKind.NullKeyword && t.kind !== ts.SyntaxKind.UndefinedKeyword,
+      );
+      if (meaningful.length === 1) return this.inferSchemaFromTypeNode(meaningful[0]);
+    }
+
+    return { type: 'object' };
   }
 }

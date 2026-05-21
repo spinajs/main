@@ -4,6 +4,7 @@ import { join, normalize, resolve } from 'path';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
 import express from 'express';
+import os from 'os';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -31,7 +32,18 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
       },
       fs: {
+        defaultProvider: 'fs-temp',
         providers: [
+          {
+            service: 'fsNative',
+            name: 'fs-temp',
+            basePath: dir('./cache'),
+          },
+          {
+            service: 'fsNative',
+            name: '__file_upload_default_provider__',
+            basePath: os.tmpdir(),
+          },
           {
             service: 'fsNative',
             name: '__fs_swagger_views__',
@@ -58,7 +70,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         targets: [
           {
             name: 'Empty',
-            type: 'BlackHoleTarget',
+            type: 'ConsoleTarget',
           },
         ],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],

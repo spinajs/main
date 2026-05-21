@@ -26,7 +26,7 @@ export class SwaggerController extends BaseController {
       return new Ok({ error: 'Swagger documentation is disabled' });
     }
 
-    return new Ok(this.Swagger.Spec);
+    return new Ok(await this.Swagger.getSpec());
   }
 
   /**
@@ -44,7 +44,7 @@ export class SwaggerController extends BaseController {
     return new TemplateResponse(
       { template: 'swagger.pug', provider: '__fs_swagger_views__' },
       {
-        title: cfg.pageTitle || this.Swagger.Spec?.info?.title || 'API Documentation',
+        title: cfg.pageTitle || (await this.Swagger.getSpec())?.info?.title || 'API Documentation',
         cssUrl: cfg.cssUrl || 'https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css',
         bundleUrl: cfg.bundleUrl || 'https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js',
         presetUrl: cfg.presetUrl || 'https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js',

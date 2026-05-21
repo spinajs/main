@@ -5,6 +5,7 @@ import {
   IOpenApiOperation,
   IOpenApiParameter,
   IOpenApiRequestBody,
+  IOpenApiResponse,
   IOpenApiSchema,
   IOpenApiTag,
   ISwaggerCacheEntry,
@@ -162,7 +163,7 @@ export class OpenApiBuilder {
 
     if (routePath) {
       if (routePath === '/') {
-        path = `/${basePath}`;
+        path = `/${basePath}/`;
       } else if (basePath === '/') {
         path = `/${routePath}`;
       } else {
@@ -223,13 +224,23 @@ export class OpenApiBuilder {
 
     const bodyParams: { param: IRouteParameter; doc?: { name: string; description?: string; type?: string } }[] = [];
 
+    // Extract path param names from the Express route path as fallback when param.Name is not set
+    const pathParamNames = (route.Path || '').match(/:([a-zA-Z_][a-zA-Z0-9_]*)/g)?.map((p) => p.slice(1)) ?? [];
+    let pathParamIndex = 0;
+
     // Process route parameters
     for (const [, param] of route.Parameters) {
       if (INTERNAL_PARAMS.has(param.Type as string)) {
         continue;
       }
 
-      const paramDoc = methodDoc?.params?.[param.Name];
+      const isPathParam = PARAM_LOCATION_MAP[param.Type as string] === 'path';
+      const resolvedName = param.Name || (isPathParam ? pathParamNames[pathParamIndex++] : undefined);
+      if (isPathParam && resolvedName && !param.Name) {
+        param.Name = resolvedName;
+      }
+
+      const paramDoc = methodDoc?.params?.[resolvedName ?? param.Name];
 
       if (BODY_PARAMS.has(param.Type as string)) {
         bodyParams.push({ param, doc: paramDoc });
@@ -238,7 +249,7 @@ export class OpenApiBuilder {
 
       const location = PARAM_LOCATION_MAP[param.Type as string];
       if (location) {
-        const apiParam = this.buildParameter(param, location, paramDoc);
+        const apiParam = this.buildParameter(param, location, paramDoc, resolvedName);
         operation.parameters!.push(apiParam);
       }
     }
@@ -279,9 +290,10 @@ export class OpenApiBuilder {
     param: IRouteParameter,
     location: 'query' | 'path' | 'header' | 'cookie',
     doc?: { name: string; description?: string; type?: string },
+    resolvedName?: string,
   ): IOpenApiParameter {
     return {
-      name: param.Name || `param_${param.Index}`,
+      name: resolvedName || param.Name || `param_${param.Index}`,
       in: location,
       description: doc?.description,
       required: location === 'path', // Path params are always required
@@ -341,32 +353,34 @@ export class OpenApiBuilder {
   }
 
   /**
-   * Build response definitions from JSDoc @returns documentation.
+   * Build response definitions from JSDoc @returns and @response tags.
+   * Only responses explicitly documented in JSDoc are included.
    */
-  private buildResponses(methodDoc: IMethodDocumentation | undefined): Record<string, { description: string; content?: Record<string, { schema?: IOpenApiSchema }> }> {
-    const responses: Record<string, { description: string; content?: Record<string, { schema?: IOpenApiSchema }> }> = {};
+  private buildResponses(methodDoc: IMethodDocumentation | undefined): Record<string, IOpenApiResponse> {
+    const responses: Record<string, IOpenApiResponse> = {};
 
     if (methodDoc?.returns) {
+      const schema =
+        methodDoc.returns.type
+          ? this.inferSchemaFromString(methodDoc.returns.type)
+          : (methodDoc.returns.schema ?? { type: 'object' });
+
       responses['200'] = {
         description: methodDoc.returns.description || 'Successful response',
-        content: {
-          'application/json': {
-            schema: methodDoc.returns.type ? this.inferSchemaFromString(methodDoc.returns.type) : { type: 'object' },
-          },
-        },
+        content: { 'application/json': { schema } },
       };
     } else {
-      responses['200'] = {
-        description: 'Successful response',
-      };
+      responses['200'] = { description: 'Successful response' };
     }
 
-    // Always add common error responses
-    responses['400'] = { description: 'Bad Request' };
-    responses['401'] = { description: 'Unauthorized' };
-    responses['403'] = { description: 'Forbidden' };
-    responses['404'] = { description: 'Not Found' };
-    responses['500'] = { description: 'Internal Server Error' };
+    if (methodDoc?.responses) {
+      for (const [statusCode, resp] of Object.entries(methodDoc.responses)) {
+        responses[statusCode] = {
+          description: resp.description,
+          ...(resp.type && { content: { 'application/json': { schema: this.inferSchemaFromString(resp.type) } } }),
+        };
+      }
+    }
 
     return responses;
   }

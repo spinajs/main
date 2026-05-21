@@ -1,4 +1,4 @@
-import { AsyncService, Autoinject, Singleton } from '@spinajs/di';
+import { AsyncService, Autoinject, LazyInject, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Controllers } from '@spinajs/http';
 import { Logger, Log } from '@spinajs/log';
@@ -15,7 +15,7 @@ export class SwaggerService extends AsyncService {
   @Logger('http-swagger')
   protected Log!: Log;
 
-  @Autoinject()
+  @LazyInject()
   protected ControllersService!: Controllers;
 
   @Autoinject()
@@ -26,25 +26,22 @@ export class SwaggerService extends AsyncService {
 
   private _spec: IOpenApiDocument | null = null;
 
-  public get Spec(): IOpenApiDocument | null {
-    return this._spec;
-  }
-
   public get IsEnabled(): boolean {
     return this.SwaggerConfig?.enabled !== false;
   }
 
   public async resolve(): Promise<void> {
     await super.resolve();
+  }
 
-    if (!this.IsEnabled) {
-      this.Log.info('Swagger documentation is disabled');
-      return;
+  public async getSpec(): Promise<IOpenApiDocument | null> {
+    if (!this.IsEnabled) return null;
+    if (!this._spec) {
+      this.Log.info('Building Swagger/OpenAPI documentation...');
+      const spec = await this.buildSpec();
+      this.Log.info(`Swagger documentation ready. ${Object.keys(spec.paths ?? {}).length} paths documented.`);
     }
-
-    this.Log.info('Building Swagger/OpenAPI documentation...');
-    await this.buildSpec();
-    this.Log.info(`Swagger documentation ready. ${Object.keys(this._spec?.paths || {}).length} paths documented.`);
+    return this._spec;
   }
 
   /**
