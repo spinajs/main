@@ -1,8 +1,8 @@
 import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { BaseController, BasePath, Get, Ok, TemplateResponse } from '@spinajs/http';
-import { SwaggerService } from './swagger-service.js';
-import { ISwaggerUiConfig } from './interfaces.js';
+import { SwaggerService } from '../swagger-service.js';
+import { ISwaggerUiConfig } from '../interfaces.js';
 
 /**
  * Controller that serves Swagger/OpenAPI documentation.
