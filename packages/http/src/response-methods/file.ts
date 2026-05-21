@@ -15,7 +15,7 @@ export class ZipResponse extends Response {
   constructor(protected Options: IFileResponseOptions, protected responseOptions?: IResponseOptions) {
     super(null);
 
-    this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename);
+    this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename) ?? undefined;
     this.Options.provider = Options.provider ?? 'local';
   }
 
@@ -60,7 +60,7 @@ export class FileResponse extends Response {
   constructor(protected Options: IFileResponseOptions, protected responseOptions?: IResponseOptions) {
     super(null);
 
-    this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename);
+    this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename) ?? undefined;
     this.Options.provider = Options.provider ?? 'local';
   }
 

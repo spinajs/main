@@ -11,10 +11,10 @@ import { ISwaggerUiConfig } from './interfaces.js';
 @BasePath('docs')
 export class SwaggerController extends BaseController {
   @Autoinject()
-  protected Swagger: SwaggerService;
+  protected Swagger!: SwaggerService;
 
   @Config('http.swagger.ui')
-  protected UiConfig: ISwaggerUiConfig;
+  protected UiConfig!: ISwaggerUiConfig;
 
   /**
    * Returns the OpenAPI 3.0 JSON specification.

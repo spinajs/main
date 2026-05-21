@@ -16,7 +16,7 @@ export class ForbiddenResponse extends BadRequestResponse {
   protected _errorCode = HTTP_STATUS_CODE.FORBIDDEN;
   protected _template = 'forbidden.pug';
 
-  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(data: string | object | Promise<unknown> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }

@@ -12,13 +12,13 @@ import { ISwaggerCacheEntry, IMethodDocumentation, IExampleDocumentation } from 
 @Singleton()
 export class SwaggerDocCache extends AsyncService {
   @Logger('http-swagger')
-  protected Log: Log;
+  protected Log!: Log;
 
   @FileSystem('__fs_swagger_cache__')
-  protected CacheFS: fFs;
+  protected CacheFS!: fFs;
 
   @Autoinject(FileHasher)
-  protected Hasher: FileHasher;
+  protected Hasher!: FileHasher;
 
   public async resolve() {
     await super.resolve();
@@ -41,7 +41,8 @@ export class SwaggerDocCache extends AsyncService {
       return entry;
     }
 
-    return await this.CacheFS.read(hash).then((x: string) => JSON.parse(x) as ISwaggerCacheEntry);
+    const content = await this.CacheFS.read(hash) as string
+    return JSON.parse(content) as ISwaggerCacheEntry;
   }
 
   /**

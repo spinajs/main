@@ -105,7 +105,7 @@ export class OpenApiBuilder {
     controller: ClassInfo<BaseController>,
     docCache: ISwaggerCacheEntry,
   ): void {
-    const descriptor = controller.instance.Descriptor;
+    const descriptor = controller.instance?.Descriptor;
     if (!descriptor) return;
 
     const basePath = descriptor.BasePath || '';

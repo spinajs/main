@@ -10,7 +10,7 @@ import { htmlResponse } from '../responses.js';
  * HTML resposne with HTML from pug file
  */
 export class TemplateResponse extends Response {
-  protected file: string;
+  protected file!: string;
 
   protected fsTemplates: fs;
   protected templateFile: string | ITemplateResponseOptions;

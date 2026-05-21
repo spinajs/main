@@ -10,7 +10,7 @@ export class BadRequestResponse extends Response {
   protected _errorCode = HTTP_STATUS_CODE.BAD_REQUEST;
   protected _template = 'badRequest.pug';
 
-  constructor(error: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(error: string | object | Promise<unknown> | null, protected options?: IResponseOptions) {
     super(error, options);
   }
 }

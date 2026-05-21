@@ -11,7 +11,7 @@ export class NotAcceptable extends BadRequestResponse {
   protected _errorCode = HTTP_STATUS_CODE.NOT_ACCEPTABLE;
   protected _template = 'notAcceptable.pug';
 
-  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(data: string | object | Promise<unknown> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }

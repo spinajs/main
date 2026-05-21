@@ -9,10 +9,10 @@ import { SwaggerDocCache } from '../swagger-cache.js';
 @Command('http:swagger:cache', 'generate swagger documentation cache from controller JSDoc comments')
 export class SwaggerCacheCommand extends CliCommand {
   @Logger('http-swagger')
-  protected Log: Log;
+  protected Log!: Log;
 
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
-  protected Controllers: Array<ClassInfo<BaseController>>;
+  protected Controllers!: Array<ClassInfo<BaseController>>;
 
   public async execute(): Promise<void> {
     await DI.resolve(fsService);

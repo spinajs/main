@@ -14,7 +14,7 @@ export class EntityTooLarge extends Response {
   protected _errorCode = HTTP_STATUS_CODE.ENTITY_TOO_LARGE;
   protected _template = 'entityTooLarge.pug';
 
-  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(data: string | object | Promise<unknown> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }

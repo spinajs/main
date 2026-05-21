@@ -13,16 +13,16 @@ import { ISwaggerConfig, IOpenApiDocument } from './interfaces.js';
 @Singleton()
 export class SwaggerService extends AsyncService {
   @Logger('http-swagger')
-  protected Log: Log;
+  protected Log!: Log;
 
   @Autoinject()
-  protected ControllersService: Controllers;
+  protected ControllersService!: Controllers;
 
   @Autoinject()
-  protected DocCache: SwaggerDocCache;
+  protected DocCache!: SwaggerDocCache;
 
   @Config('http.swagger')
-  protected SwaggerConfig: ISwaggerConfig;
+  protected SwaggerConfig!: ISwaggerConfig;
 
   private _spec: IOpenApiDocument | null = null;
 

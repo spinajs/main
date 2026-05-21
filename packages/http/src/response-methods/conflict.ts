@@ -16,7 +16,7 @@ export class Conflict extends BadRequestResponse {
   protected _errorCode = HTTP_STATUS_CODE.CONFLICT;
   protected _template = 'conflict.pug';
 
-  constructor(error: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(error: string | object | Promise<unknown> | null, protected options?: IResponseOptions) {
     super(error, options);
   }
 }

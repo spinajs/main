@@ -16,7 +16,7 @@ export class Unauthorized extends BadRequestResponse {
   protected _errorCode = HTTP_STATUS_CODE.UNAUTHORIZED;
   protected _template = 'unauthorized.pug';
 
-  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(data: string | object | Promise<unknown> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }
