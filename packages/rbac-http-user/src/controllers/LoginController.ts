@@ -8,6 +8,12 @@ import { LoggedPolicy, User as UserRouteArg } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
  
 
+/**
+ * Authentication endpoints.
+ * Handles user login, logout, and current-session inspection.
+ * All session state is maintained via the signed `ssid` cookie.
+ * @tags Authentication
+ */
 @BasePath('auth')
 export class LoginController extends BaseController {
   @Autoinject()
@@ -41,6 +47,18 @@ export class LoginController extends BaseController {
   @Autoinject(AccessControl)
   protected AC: AccessControl;
 
+  /**
+   * Login
+   * Authenticates the user with email and password. On success, sets the signed `ssid` session cookie
+   * and returns user data with their RBAC grants. When two-factor authentication is enabled and
+   * configured for the user, the response instead signals that 2FA verification is required.
+   * If the caller already has an active session it is invalidated before creating a new one.
+   * @security []
+   * @param credentials.Email User email address
+   * @param credentials.Password User password (plain text — transmitted over HTTPS only)
+   * @returns {object} On full login: user profile with Grants map. On 2FA required: { TwoFactorAuthRequired: true }. On 2FA init required: { TwoFactorInitRequired: true }
+   * @response 401 Invalid email or password
+   */
   @Post()
   public async login(@UserRouteArg() logged: User, @Cookie(true) ssid: string, @Body() credentials: UserLoginDto) {
     try {
@@ -150,6 +168,13 @@ export class LoginController extends BaseController {
     }
   }
 
+  /**
+   * Logout
+   * Destroys the current session identified by the `ssid` cookie and clears the cookie on the client.
+   * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
+   * @security cookieAuth
+   * @response 401 No active session
+   */
   @Get()
   @Policy(LoggedPolicy)
   public async logout(@Cookie(true) ssid: string) {
@@ -178,6 +203,14 @@ export class LoginController extends BaseController {
     });
   }
 
+  /**
+   * Get current user
+   * Returns the user object associated with the current session.
+   * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
+   * @security cookieAuth
+   * @returns {object} User data from the current session
+   * @response 401 No active session
+   */
   @Get()
   @Policy(LoggedPolicy)
   public async whoami(@UserRouteArg() User: User) {

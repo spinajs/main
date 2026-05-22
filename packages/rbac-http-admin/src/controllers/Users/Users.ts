@@ -105,6 +105,12 @@ const USER_FILTER: IColumnFilter<User>[] = [
   }
 ];
 
+/**
+ * User account management (admin).
+ * Full CRUD operations for user accounts. Supports pagination, sorting, filtering,
+ * and optional relation loading. All write operations require full authorization.
+ * @tags Admin Users
+ */
 @BasePath('users')
 @Policy(AuthorizedPolicy)
 @Resource('users')
@@ -113,6 +119,24 @@ export class Users extends BaseController {
   @Autoinject()
   protected PasswordProvider: PasswordProvider
 
+  /**
+   * List users (admin)
+   * Returns a paginated, sortable, filterable list of all users. Supports optional inclusion
+   * of related Metadata. The total user count (matching current filters) is returned in the
+   * X-Total-Count response header.
+   * Filterable fields: Uuid (eq), Email (eq, like), Login (eq, like), CreatedAt, LastLoginAt,
+   * DeletedAt (eq, gte, lte, lt, gt, isnull, notnull), IsActive (eq), Role (eq, neq),
+   * user:niceName metadata (eq, neq, like).
+   * @security cookieAuth
+   * @param pagination.page Page number (zero-based)
+   * @param pagination.limit Number of users per page (default: 10)
+   * @param order.column Column to sort by (default: CreatedAt)
+   * @param order.order Sort direction: ASC or DESC (default: DESC)
+   * @param include Relations to include — currently supports: Metadata
+   * @returns {array} Array of user objects: { Uuid, Email, Login, Role, CreatedAt, RegisteredAt, LastLoginAt, DeletedAt, IsActive, Metadata? }
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — readAny permission required on users resource
+   */
   @Get("/")
   @Permission(['readAny'])
   public async list(
@@ -164,6 +188,17 @@ export class Users extends BaseController {
     );
   }
 
+  /**
+   * Get user by UUID (admin)
+   * Retrieves a single user record by UUID. Supports optional inclusion of related Metadata.
+   * @security cookieAuth
+   * @param user User UUID path parameter
+   * @param include Relations to include — currently supports: Metadata
+   * @returns {object} User object: { Uuid, Email, Login, Role, CreatedAt, RegisteredAt, LastLoginAt, DeletedAt, IsActive, Metadata? }
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — readAny permission required on users resource
+   * @response 404 User not found
+   */
   @Get(":user")
   public async getSingleUser(@FromModel({ queryField: "Uuid" }) user: User, @Query({
     type: 'array',
@@ -178,6 +213,17 @@ export class Users extends BaseController {
     return new Ok(user.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
+  /**
+   * Get user by login (admin)
+   * Retrieves a single user record by login name. Supports optional inclusion of related Metadata.
+   * @security cookieAuth
+   * @param user User login name path parameter
+   * @param include Relations to include — currently supports: Metadata
+   * @returns {object} User object: { Uuid, Email, Login, Role, CreatedAt, RegisteredAt, LastLoginAt, DeletedAt, IsActive, Metadata? }
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — readAny permission required on users resource
+   * @response 404 User not found
+   */
   @Get("byLogin/:user")
   public async getByLogin(@FromModel({ queryField: "Login" }) user: User, @Query({
     type: 'array',
@@ -193,6 +239,21 @@ export class Users extends BaseController {
   }
 
 
+  /**
+   * Create user (admin)
+   * Creates a new user account with a system-generated temporary password.
+   * The temporary password is not returned — it should be delivered to the user via email or other channel.
+   * @security cookieAuth
+   * @param data.Login Unique login name (3–32 characters)
+   * @param data.Email Unique email address
+   * @param data.Role Initial role to assign
+   * @param data.Metadata Optional key-value metadata to attach at creation
+   * @returns {object} Created user object: { Uuid, Email, Login, Role, CreatedAt, IsActive }
+   * @response 400 Validation error — missing required fields or invalid format
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — createAny permission required on users resource
+   * @response 409 Login or email already in use
+   */
   @Post("/")
   @Permission(['createAny'])
   public async addUser(
@@ -205,6 +266,23 @@ export class Users extends BaseController {
   }
 
 
+  /**
+   * Update user (admin)
+   * Partially updates a user account. All fields are optional — only provided fields are changed.
+   * Metadata is merged: existing keys are updated, new keys are added, unlisted keys are preserved.
+   * @security cookieAuth
+   * @param user User UUID path parameter
+   * @param data.Login New login name (3–32 characters)
+   * @param data.Email New email address
+   * @param data.Role New role to assign (replaces existing role)
+   * @param data.Metadata Metadata keys to create or update
+   * @response 200 User updated successfully
+   * @response 400 Validation error — invalid field format
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — updateAny permission required on users resource
+   * @response 404 User not found
+   * @response 409 Login or email already in use by another account
+   */
   @Patch(":user")
   @Permission(['updateAny'])
   public async updateUser(
