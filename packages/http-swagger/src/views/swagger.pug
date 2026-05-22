@@ -10,22 +10,7 @@ html(lang="en")
       *, *:before, *:after { box-sizing: inherit; }
       body { margin: 0; background: #fafafa; }
   body
-    div#swagger-ui
+    div#swagger-ui(data-spec-url=specUrl)
     script(src=bundleUrl)
     script(src=presetUrl)
-    script.
-      window.onload = function() {
-        SwaggerUIBundle({
-          url: '#{specUrl}',
-          dom_id: '#swagger-ui',
-          deepLinking: true,
-          presets: [
-            SwaggerUIBundle.presets.apis,
-            SwaggerUIStandalonePreset
-          ],
-          plugins: [
-            SwaggerUIBundle.plugins.DownloadUrl
-          ],
-          layout: "StandaloneLayout"
-        });
-      };
+    script(src="/docs/static/swagger-ui-init.js")

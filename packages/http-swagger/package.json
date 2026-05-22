@@ -19,9 +19,10 @@
     "node": ">=16.11"
   },
   "scripts": {
-    "build": "npm run clean && npm run compile",
+    "build": "npm run clean && npm run compile && npm run copy",
     "compile": "tsc -b tsconfig.mjs.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "copy": "cpx \"src/views/**/*.{pug,js}\" lib/views/",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -60,8 +61,11 @@
     "@spinajs/reflection": "^2.0.470",
     "@spinajs/fs": "^2.0.470",
     "@spinajs/templates": "^2.0.470",
-    "@spinajs/templates-pug": "^2.0.470"
+    "@spinajs/templates-pug": "^2.0.470",
+    "@spinajs/validation": "^2.0.470",
+    "swagger-ui-dist": "^5.0.0"
   },
   "devDependencies": {
+    "cpx": "1.5.0"
   }
 }

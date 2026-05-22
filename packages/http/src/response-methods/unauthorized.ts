@@ -12,11 +12,11 @@ import { Injectable } from '@spinajs/di';
 
 @HandleException([AuthenticationFailed])
 @Injectable(Response)
-export class Unauthorized extends BadRequestResponse {
+export class Unauthorized<T = any> extends BadRequestResponse<T> {
   protected _errorCode = HTTP_STATUS_CODE.UNAUTHORIZED;
   protected _template = 'unauthorized.pug';
 
-  constructor(data: string | object | Promise<unknown> | null, protected options?: IResponseOptions) {
+  constructor(data: T | Promise<T> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }

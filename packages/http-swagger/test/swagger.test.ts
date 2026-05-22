@@ -244,6 +244,114 @@ describe('Swagger API', function () {
     });
   });
 
+  describe('Generic response type inference', function () {
+    it('should infer inline object schema from Ok<T> return type', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const op = spec.paths['/typed/ok/{id}'].get;
+      const schema = op.responses['200'].content['application/json'].schema;
+
+      expect(schema.type).to.equal('object');
+      expect(schema.properties).to.have.property('id');
+      expect(schema.properties.id.type).to.equal('number');
+      expect(schema.properties).to.have.property('name');
+      expect(schema.properties.name.type).to.equal('string');
+      expect(schema.properties).to.have.property('available');
+      expect(schema.properties.available.type).to.equal('boolean');
+    });
+
+    it('should infer array schema from Ok<T[]> return type', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const op = spec.paths['/typed/ok-array'].get;
+      const schema = op.responses['200'].content['application/json'].schema;
+
+      expect(schema.type).to.equal('array');
+      expect(schema.items).to.exist;
+      expect(schema.items.type).to.equal('object');
+      expect(schema.items.properties).to.have.property('id');
+      expect(schema.items.properties.id.type).to.equal('number');
+      expect(schema.items.properties).to.have.property('name');
+      expect(schema.items.properties.name.type).to.equal('string');
+    });
+
+    it('should infer inline object schema from Json<T> return type', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const op = spec.paths['/typed/json/{id}'].get;
+      const schema = op.responses['200'].content['application/json'].schema;
+
+      expect(schema.type).to.equal('object');
+      expect(schema.properties).to.have.property('id');
+      expect(schema.properties.id.type).to.equal('number');
+      expect(schema.properties).to.have.property('name');
+      expect(schema.properties.name.type).to.equal('string');
+    });
+
+    it('should infer inline object schema from Created<T> return type', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const op = spec.paths['/typed/created'].post;
+      const schema = op.responses['200'].content['application/json'].schema;
+
+      expect(schema.type).to.equal('object');
+      expect(schema.properties).to.have.property('id');
+      expect(schema.properties.id.type).to.equal('number');
+      expect(schema.properties).to.have.property('name');
+      expect(schema.properties.name.type).to.equal('string');
+    });
+
+    it('should not generate $ref to framework response wrapper types', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const specStr = result.text;
+
+      const wrappers = ['Ok', 'Json', 'Created', 'BadRequest', 'NotFound', 'ServerError', 'Unauthorized', 'Forbidden'];
+      for (const name of wrappers) {
+        expect(specStr).to.not.include(`"#/components/schemas/${name}"`);
+      }
+    });
+
+    it('should extract schema from @Schema-decorated DTO query parameter', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const op = spec.paths['/typed/paginated'].get;
+      expect(op.parameters).to.be.an('array');
+
+      const paginationParam = op.parameters.find((p: any) => p.name === 'pagination');
+      expect(paginationParam).to.exist;
+      expect(paginationParam.in).to.equal('query');
+      expect(paginationParam.schema.type).to.equal('object');
+      expect(paginationParam.schema.properties).to.have.property('page');
+      expect(paginationParam.schema.properties.page.type).to.equal('integer');
+      expect(paginationParam.schema.properties).to.have.property('limit');
+      expect(paginationParam.schema.properties.limit.type).to.equal('integer');
+    });
+  });
+
+  describe('Json response class behaviour', function () {
+    it('should return application/json regardless of Accept header', async () => {
+      const result = await req().get('typed/json/42').send(); // no Accept header
+
+      expect(result).to.have.status(200);
+      expect(result.headers['content-type']).to.match(/application\/json/);
+      expect(result.body).to.have.property('id', 42);
+      expect(result.body).to.have.property('name', 'Buddy');
+    });
+
+    it('should return application/json even when Accept is text/html', async () => {
+      const result = await req().get('typed/json/7').set('Accept', 'text/html').send();
+
+      expect(result).to.have.status(200);
+      expect(result.headers['content-type']).to.match(/application\/json/);
+      expect(result.body).to.have.property('id', 7);
+    });
+  });
+
   describe('GET /docs/', function () {
     it('should return Swagger UI HTML page', async () => {
       const result = await req().get('docs/').set('Accept', 'text/html').send();

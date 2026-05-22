@@ -730,11 +730,11 @@ export interface IPolicyDescriptor {
 
 export type ResponseFunction = (req: express.Request, res: express.Response) => void;
 
-export abstract class Response {
+export abstract class Response<T = any> {
   protected _errorCode!: number;
   protected _template!: string;
 
-  constructor(protected responseData?: string | object | Promise<unknown> | null, protected options?: IResponseOptions) { }
+  constructor(protected responseData?: T | Promise<T> | null, protected options?: IResponseOptions) { }
 
   public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {
     const response = await this.prepareResponse();
@@ -744,11 +744,11 @@ export abstract class Response {
     });
   }
 
-  protected async prepareResponse() {
+  protected async prepareResponse(): Promise<T | T[]> {
     if (Array.isArray(this.responseData)) {
-      return Promise.all(this.responseData);
+      return Promise.all(this.responseData as any[]) as Promise<T[]>;
     }
-    return isPromise(this.responseData) ? await this.responseData : this.responseData;
+    return (isPromise(this.responseData) ? await this.responseData : this.responseData) as T;
   }
 }
 

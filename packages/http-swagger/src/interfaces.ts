@@ -158,6 +158,8 @@ export interface IOpenApiParameter {
   description?: string;
   required?: boolean;
   schema?: IOpenApiSchema;
+  style?: string;
+  explode?: boolean;
 }
 
 export interface IOpenApiRequestBody {

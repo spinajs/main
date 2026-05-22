@@ -1,5 +1,6 @@
-import { ClassInfo } from '@spinajs/di';
+import { ClassInfo, TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
+import { SCHEMA_SYMBOL } from '@spinajs/validation';
 import {
   IOpenApiDocument,
   IOpenApiOperation,
@@ -28,6 +29,7 @@ const INTERNAL_PARAMS = new Set<string>([
   'FromDi',
   'FromSession',
   'RequestTypeRouteArgs',
+  'FilterModelRouteArg',
 ]);
 
 /**
@@ -292,13 +294,89 @@ export class OpenApiBuilder {
     doc?: { name: string; description?: string; type?: string },
     resolvedName?: string,
   ): IOpenApiParameter {
+    const schema = this.schemaFromParam(param, doc?.type);
+    const isArray = schema?.type === 'array';
+
     return {
       name: resolvedName || param.Name || `param_${param.Index}`,
       in: location,
       description: doc?.description,
-      required: location === 'path', // Path params are always required
-      schema: this.inferSchema(param.RuntimeType, doc?.type),
+      required: location === 'path',
+      schema,
+      ...(isArray && location === 'query' ? { style: 'form', explode: true } : {}),
     };
+  }
+
+  /**
+   * Resolve the best schema for a route parameter.
+   * Priority: JSDoc type → decorator schema (param.Schema) → auto-detected primitive (param.RouteParamSchema) → @Schema metadata on DTO class → runtime type inference
+   */
+  private schemaFromParam(param: IRouteParameter, docType?: string): IOpenApiSchema {
+    if (docType) {
+      return this.inferSchemaFromString(docType);
+    }
+
+    if (param.Schema && typeof param.Schema === 'object') {
+      return this.convertJsonSchema(param.Schema);
+    }
+
+    if (param.RouteParamSchema && typeof param.RouteParamSchema === 'object') {
+      return this.convertJsonSchema(param.RouteParamSchema);
+    }
+
+    const runtimeType = param.RuntimeType;
+    if (runtimeType) {
+      if (runtimeType instanceof TypedArray) {
+        const itemType = (runtimeType as TypedArray<any>).Type as any;
+        const itemSchema = Reflect.getMetadata(SCHEMA_SYMBOL, itemType) ?? (itemType?.prototype ? Reflect.getMetadata(SCHEMA_SYMBOL, itemType.prototype) : undefined);
+        if (itemSchema) {
+          return { type: 'array', items: this.convertJsonSchema(itemSchema) };
+        }
+      } else {
+        const rt = runtimeType as any;
+        const classSchema = Reflect.getMetadata(SCHEMA_SYMBOL, rt) ?? (rt?.prototype ? Reflect.getMetadata(SCHEMA_SYMBOL, rt.prototype) : undefined);
+        if (classSchema) {
+          return this.convertJsonSchema(classSchema);
+        }
+      }
+    }
+
+    return this.inferSchema(runtimeType, undefined);
+  }
+
+  /**
+   * Convert a JSON Schema object to an OpenAPI schema, mapping known keywords.
+   */
+  private convertJsonSchema(jsonSchema: any): IOpenApiSchema {
+    if (!jsonSchema || typeof jsonSchema !== 'object') {
+      return { type: 'string' };
+    }
+
+    const result: IOpenApiSchema = {};
+
+    if (jsonSchema.type) result.type = jsonSchema.type;
+    if (jsonSchema.format) result.format = jsonSchema.format;
+    if (jsonSchema.description) result.description = jsonSchema.description;
+    if (jsonSchema.enum) result.enum = jsonSchema.enum;
+    if (jsonSchema.required) result.required = jsonSchema.required;
+
+    if (jsonSchema.items) {
+      result.items = this.convertJsonSchema(jsonSchema.items);
+    }
+
+    if (jsonSchema.properties) {
+      result.properties = {};
+      for (const [k, v] of Object.entries(jsonSchema.properties)) {
+        result.properties[k] = this.convertJsonSchema(v);
+      }
+    }
+
+    // If only enum is present with no type, infer type from first enum value
+    if (!result.type && result.enum && result.enum.length > 0) {
+      result.type = typeof result.enum[0];
+    }
+
+    return result;
   }
 
   /**
@@ -323,7 +401,7 @@ export class OpenApiBuilder {
         required: true,
         content: {
           [contentType]: {
-            schema: this.inferSchema(bp.param.RuntimeType, bp.doc?.type),
+            schema: this.schemaFromParam(bp.param, bp.doc?.type),
           },
         },
       };
@@ -334,7 +412,7 @@ export class OpenApiBuilder {
     for (const bp of bodyParams) {
       const name = bp.param.Name || `param_${bp.param.Index}`;
       properties[name] = {
-        ...this.inferSchema(bp.param.RuntimeType, bp.doc?.type),
+        ...this.schemaFromParam(bp.param, bp.doc?.type),
         description: bp.doc?.description,
       };
     }

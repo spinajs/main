@@ -12,11 +12,11 @@ import { Injectable } from '@spinajs/di';
 
 @HandleException(ValidationFailed)
 @Injectable(Response)
-export class ValidationError extends BadRequestResponse {
+export class ValidationError<T = any> extends BadRequestResponse<T> {
   protected _errorCode = HTTP_STATUS_CODE.BAD_REQUEST;
   protected _template = 'validationError.pug';
 
-  constructor(data: string | object | Promise<unknown> | null, protected options?: IResponseOptions) {
+  constructor(data: T | Promise<T> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }

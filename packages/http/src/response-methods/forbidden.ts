@@ -12,11 +12,11 @@ import { Injectable } from '@spinajs/di';
 
 @HandleException(Forbidden)
 @Injectable(Response)
-export class ForbiddenResponse extends BadRequestResponse {
+export class ForbiddenResponse<T = any> extends BadRequestResponse<T> {
   protected _errorCode = HTTP_STATUS_CODE.FORBIDDEN;
   protected _template = 'forbidden.pug';
 
-  constructor(data: string | object | Promise<unknown> | null, protected options?: IResponseOptions) {
+  constructor(data: T | Promise<T> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }

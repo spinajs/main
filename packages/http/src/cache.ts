@@ -317,7 +317,13 @@ export class DefaultControllerCache extends AsyncService {
         ? typeNode.typeName.text
         : (typeNode.typeName as ts.QualifiedName).right.text;
 
-      if ((name === 'Promise' || name === 'Ok') && typeNode.typeArguments?.length) {
+      // Unwrap transparent wrappers — pass through to the inner type argument
+      const TRANSPARENT_WRAPPERS = new Set([
+        'Promise', 'Ok', 'Json', 'Created', 'BadRequest', 'NotFound',
+        'ServerError', 'Unauthorized', 'Forbidden', 'Conflict', 'NoContent',
+        'ValidationError', 'NotAllowed', 'EntityTooLarge',
+      ]);
+      if (TRANSPARENT_WRAPPERS.has(name) && typeNode.typeArguments?.length) {
         return this.inferSchemaFromTypeNode(typeNode.typeArguments[0]);
       }
       if (name === 'Array' && typeNode.typeArguments?.length) {
@@ -327,7 +333,8 @@ export class DefaultControllerCache extends AsyncService {
         case 'string':  return { type: 'string' };
         case 'number':  return { type: 'number' };
         case 'boolean': return { type: 'boolean' };
-        default:        return { $ref: `#/components/schemas/${name}` };
+        // Avoid generating $ref to schemas that aren't registered in components
+        default:        return { type: 'object', description: name };
       }
     }
 

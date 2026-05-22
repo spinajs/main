@@ -6,11 +6,11 @@ import { Injectable } from '@spinajs/di';
 
 @HandleException([InvalidArgument, BadRequest, ExpectedResponseUnacceptable])
 @Injectable(Response)
-export class BadRequestResponse extends Response {
+export class BadRequestResponse<T = any> extends Response<T> {
   protected _errorCode = HTTP_STATUS_CODE.BAD_REQUEST;
   protected _template = 'badRequest.pug';
 
-  constructor(error: string | object | Promise<unknown> | null, protected options?: IResponseOptions) {
+  constructor(error: T | Promise<T> | null, protected options?: IResponseOptions) {
     super(error, options);
   }
 }
