@@ -92,6 +92,15 @@ export class TestConfiguration extends FrameworkConfiguration {
           version: '2.0.0',
           description: 'A test API for swagger generation',
           servers: [{ url: 'http://localhost:4557', description: 'Test server' }],
+          securitySchemes: {
+            cookieAuth: {
+              type: 'apiKey',
+              in: 'cookie',
+              name: 'ssid',
+              description: 'Session cookie set after login',
+            },
+          },
+          security: [{ cookieAuth: [] }],
           ui: {
             cssUrl: 'https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css',
             bundleUrl: 'https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js',

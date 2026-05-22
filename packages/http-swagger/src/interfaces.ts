@@ -71,6 +71,7 @@ export interface IMethodDocumentation {
   examples?: IExampleDocumentation[];
   tags?: string[];
   deprecated?: boolean;
+  security?: Array<Record<string, string[]>>;
 }
 
 export interface IParamDocumentation {

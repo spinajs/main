@@ -50,6 +50,12 @@ export interface IMethodDoc {
   examples?: IExampleDoc[];
   tags?: string[];
   deprecated?: boolean;
+  /**
+   * Per-operation security override.
+   * Empty array means public (no auth required).
+   * Each entry is a security requirement object: { schemeName: scopes[] }.
+   */
+  security?: Array<Record<string, string[]>>;
 }
 
 export interface IControllerDocumentation {
@@ -239,6 +245,18 @@ export class DefaultControllerCache extends AsyncService {
         case 'summary': {
           const val = this.getTagComment(tag);
           if (val) doc.summary = val;
+          break;
+        }
+        case 'security': {
+          const val = this.getTagComment(tag)?.trim();
+          if (val === '[]' || val === '') {
+            doc.security = [];
+          } else if (val) {
+            // Comma-separated scheme names, each maps to an empty scopes array.
+            // e.g. "@security cookieAuth" → [{ cookieAuth: [] }]
+            // e.g. "@security cookieAuth, bearerAuth" → [{ cookieAuth: [] }, { bearerAuth: [] }]
+            doc.security = val.split(',').map((s): Record<string, string[]> => ({ [s.trim()]: [] }));
+          }
           break;
         }
       }

@@ -11,7 +11,7 @@ import { Schema } from '@spinajs/validation';
     limit: { type: 'integer', minimum: 1, maximum: 100 },
   },
 })
-export class PaginationDto {
+class PaginationDto {
   page?: number;
   limit?: number;
 }
@@ -58,6 +58,7 @@ export class TypedController extends BaseController {
    */
   @Post('created')
   public async createdTyped(@Body() data: object): Promise<Created<{ id: number; name: string }>> {
+    void data;
     return new Created({ id: 1, name: 'New Pet' });
   }
 
@@ -68,6 +69,27 @@ export class TypedController extends BaseController {
    */
   @Get('paginated')
   public async paginated(@Query() pagination?: PaginationDto): Promise<Ok<Array<{ id: number }>>> {
+    void pagination;
     return new Ok([{ id: 1 }]);
+  }
+
+  /**
+   * Get current user profile (requires authentication)
+   * Returns profile data for the logged-in user.
+   * @security cookieAuth
+   */
+  @Get('profile')
+  public async profile(): Promise<Ok<{ userId: number; name: string }>> {
+    return new Ok({ userId: 1, name: 'Alice' });
+  }
+
+  /**
+   * Public endpoint — no authentication required
+   * Returns server status.
+   * @security []
+   */
+  @Get('public-status')
+  public async publicStatus(): Promise<Ok<{ status: string }>> {
+    return new Ok({ status: 'ok' });
   }
 }

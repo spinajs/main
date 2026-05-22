@@ -1,4 +1,4 @@
-import { join, normalize, resolve } from 'path';
+import { join, normalize, resolve, dirname } from 'path';
 import { existsSync } from 'fs';
 import { ConfigVar, Configuration } from '@spinajs/configuration-common';
 import { DI } from '@spinajs/di';
@@ -12,12 +12,16 @@ function lib(...paths: string[]) {
 }
 
 function swaggerUiDist() {
-
-  const paths = [
-    join(cwd(), 'node_modules', 'swagger-ui-dist'),
-    join(cwd(), 'node_modules', '@spinajs', 'http-swagger', 'node_modules', 'swagger-ui-dist'),
-  ]
-  return paths.find(p => existsSync(p)) || (() => { throw new Error('swagger-ui-dist package not found. Please install it as a dependency.') })();
+  let dir = cwd();
+  // Walk up the directory tree to handle hoisted packages in monorepos
+  while (true) {
+    const candidate = join(dir, 'node_modules', 'swagger-ui-dist');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error('swagger-ui-dist package not found. Please install it as a dependency.');
 }
 
 function dir(path: string) {

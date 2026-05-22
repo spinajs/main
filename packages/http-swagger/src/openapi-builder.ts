@@ -222,6 +222,8 @@ export class OpenApiBuilder {
       deprecated: methodDoc?.deprecated,
       parameters: [],
       responses: this.buildResponses(methodDoc),
+      // Per-operation security: undefined = inherit global, [] = public, [...] = explicit schemes
+      security: methodDoc?.security,
     };
 
     const bodyParams: { param: IRouteParameter; doc?: { name: string; description?: string; type?: string } }[] = [];

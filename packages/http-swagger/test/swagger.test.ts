@@ -11,18 +11,26 @@ describe('Swagger API', function () {
   this.timeout(30000);
 
   before(async () => {
-    DI.clearCache();
-    DI.setESMModuleSupport();
-    DI.register(TestConfiguration).as(Configuration);
 
-    const bootstrapper = DI.resolve(FsBootsrapper);
-    bootstrapper.bootstrap();
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Controllers);
+    try {
 
-    const server = await DI.resolve<HttpServer>(HttpServer);
-    server.start();
+      DI.clearCache();
+      DI.setESMModuleSupport();
+      DI.register(TestConfiguration).as(Configuration);
+
+      const bootstrapper = DI.resolve(FsBootsrapper);
+      bootstrapper.bootstrap();
+      await DI.resolve(Configuration);
+      await DI.resolve(fsService);
+      await DI.resolve(Controllers);
+
+      const server = await DI.resolve<HttpServer>(HttpServer);
+      server.start();
+    } catch (err) {
+      console.error('Error during test setup:', err);
+      throw err;
+    }
+
   });
 
   after(async () => {
@@ -359,7 +367,7 @@ describe('Swagger API', function () {
       expect(result).to.have.status(200);
       expect(result).to.have.header('content-type', /text\/html/);
       expect(result.text).to.include('swagger-ui');
-      expect(result.text).to.include('SwaggerUIBundle');
+      expect(result.text).to.include('swagger-ui-bundle.js');
     });
 
     it('should reference the spec URL in the HTML', async () => {
@@ -379,6 +387,54 @@ describe('Swagger API', function () {
 
       expect(result.text).to.include('cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css');
       expect(result.text).to.include('cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js');
+    });
+  });
+
+  describe('Security scheme support', function () {
+    it('should include securitySchemes in components from configuration', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      expect(spec.components).to.be.an('object');
+      expect(spec.components.securitySchemes).to.be.an('object');
+      expect(spec.components.securitySchemes).to.have.property('cookieAuth');
+      expect(spec.components.securitySchemes.cookieAuth.type).to.equal('apiKey');
+      expect(spec.components.securitySchemes.cookieAuth.in).to.equal('cookie');
+      expect(spec.components.securitySchemes.cookieAuth.name).to.equal('ssid');
+    });
+
+    it('should include global security requirement from configuration', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      expect(spec.security).to.be.an('array');
+      expect(spec.security).to.deep.include({ cookieAuth: [] });
+    });
+
+    it('should apply @security tag as per-operation override requiring cookieAuth', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const op = spec.paths['/typed/profile'].get;
+      expect(op.security).to.be.an('array');
+      expect(op.security).to.deep.include({ cookieAuth: [] });
+    });
+
+    it('should apply @security [] to mark an operation as public (no auth)', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const op = spec.paths['/typed/public-status'].get;
+      expect(op.security).to.be.an('array');
+      expect(op.security).to.have.length(0);
+    });
+
+    it('should leave operations without @security tag unset (inherit global)', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const op = spec.paths['/pets/'].get;
+      expect(op.security).to.be.undefined;
     });
   });
 });
