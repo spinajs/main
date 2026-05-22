@@ -10,18 +10,18 @@ import { Schema } from '@spinajs/validation';
   type: 'object',
   $id: 'arrow.common.userDto',
   properties: {
-    Login: { type: 'string', minLength: 3, maxLength: 32 },
-    Email: { type: 'string', format: 'email' },
-    Role: { type: 'string', minLength: 1, maxLength: 32 },
+    Login: { type: 'string', minLength: 3, maxLength: 32, description: 'Unique login name (3–32 characters)' },
+    Email: { type: 'string', format: 'email', description: 'Unique email address' },
+    Role: { type: 'string', minLength: 1, maxLength: 32, description: 'RBAC role to assign to the user' },
     Metadata: {
       type: 'object',
       $id: 'arrow.common.userMetadata',
       properties: {
-        Key: { type: 'string', minLength: 1, maxLength: 64 },
-        Value: { type: 'string', minLength: 0, maxLength: 256 },
+        Key: { type: 'string', minLength: 1, maxLength: 64, description: 'Metadata key' },
+        Value: { type: 'string', minLength: 0, maxLength: 256, description: 'Metadata value' },
       },
       additionalProperties: true,
-      description: 'Additional metadata for the user, can be used to store custom data',
+      description: 'Optional key-value metadata to attach to the user account',
     },
   },
   required: ['Login', 'Email', 'Role'],
@@ -244,10 +244,6 @@ export class Users extends BaseController {
    * Creates a new user account with a system-generated temporary password.
    * The temporary password is not returned — it should be delivered to the user via email or other channel.
    * @security cookieAuth
-   * @param data.Login Unique login name (3–32 characters)
-   * @param data.Email Unique email address
-   * @param data.Role Initial role to assign
-   * @param data.Metadata Optional key-value metadata to attach at creation
    * @returns {object} Created user object: { Uuid, Email, Login, Role, CreatedAt, IsActive }
    * @response 400 Validation error — missing required fields or invalid format
    * @response 401 Unauthorized — valid session required
@@ -272,10 +268,6 @@ export class Users extends BaseController {
    * Metadata is merged: existing keys are updated, new keys are added, unlisted keys are preserved.
    * @security cookieAuth
    * @param user User UUID path parameter
-   * @param data.Login New login name (3–32 characters)
-   * @param data.Email New email address
-   * @param data.Role New role to assign (replaces existing role)
-   * @param data.Metadata Metadata keys to create or update
    * @response 200 User updated successfully
    * @response 400 Validation error — invalid field format
    * @response 401 Unauthorized — valid session required

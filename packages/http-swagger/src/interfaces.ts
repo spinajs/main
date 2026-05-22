@@ -194,6 +194,12 @@ export interface IOpenApiSchema {
   $ref?: string;
   description?: string;
   enum?: any[];
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  nullable?: boolean;
 }
 
 export interface IOpenApiComponents {

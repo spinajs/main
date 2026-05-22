@@ -361,6 +361,12 @@ export class OpenApiBuilder {
     if (jsonSchema.description) result.description = jsonSchema.description;
     if (jsonSchema.enum) result.enum = jsonSchema.enum;
     if (jsonSchema.required) result.required = jsonSchema.required;
+    if (jsonSchema.minimum !== undefined) result.minimum = jsonSchema.minimum;
+    if (jsonSchema.maximum !== undefined) result.maximum = jsonSchema.maximum;
+    if (jsonSchema.minLength !== undefined) result.minLength = jsonSchema.minLength;
+    if (jsonSchema.maxLength !== undefined) result.maxLength = jsonSchema.maxLength;
+    if (jsonSchema.pattern) result.pattern = jsonSchema.pattern;
+    if (jsonSchema.nullable) result.nullable = jsonSchema.nullable;
 
     if (jsonSchema.items) {
       result.items = this.convertJsonSchema(jsonSchema.items);

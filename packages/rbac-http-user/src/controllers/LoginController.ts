@@ -54,8 +54,6 @@ export class LoginController extends BaseController {
    * configured for the user, the response instead signals that 2FA verification is required.
    * If the caller already has an active session it is invalidated before creating a new one.
    * @security []
-   * @param credentials.Email User email address
-   * @param credentials.Password User password (plain text — transmitted over HTTPS only)
    * @returns {object} On full login: user profile with Grants map. On 2FA required: { TwoFactorAuthRequired: true }. On 2FA init required: { TwoFactorInitRequired: true }
    * @response 401 Invalid email or password
    */

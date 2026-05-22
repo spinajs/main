@@ -5,9 +5,9 @@ export const MetadataDtoSchema = {
     title: 'User metadata DTO',
     type: 'object',
     properties: {
-        Key: { type: 'string', maxLength: 255, minLength: 6 },
-        Value: { type: 'string' },
-        Type: { type: "string", enum: ['number', 'float', 'string', 'json', 'boolean', 'datetime'] }
+        Key: { type: 'string', maxLength: 255, minLength: 6, description: 'Metadata key (dot-notation supported, e.g. user:niceName)' },
+        Value: { type: 'string', description: 'Metadata value stored as a string regardless of Type' },
+        Type: { type: 'string', enum: ['number', 'float', 'string', 'json', 'boolean', 'datetime'], description: 'Declared value type used for serialization/deserialization' },
     },
     required: ['Key', 'Type'],
 };

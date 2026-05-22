@@ -8,8 +8,9 @@ import { Schema } from '@spinajs/validation';
     type: 'object',
     $id: 'arrow.common.roleDTO',
     properties: {
-        role: { type: 'string', minimum: 0, maximum: 32 },
+        role: { type: 'string', minLength: 1, maxLength: 32, description: 'RBAC role name to grant or revoke' },
     },
+    required: ['role'],
 })
 export class RoleDto {
     public role: string;
@@ -34,7 +35,6 @@ export class Roles extends BaseController {
      * Assigns the specified RBAC role to the user identified by login name.
      * @security cookieAuth
      * @param login User login name
-     * @param roleDto.role Role name to grant
      * @response 200 Role granted successfully
      * @response 400 Invalid role name
      * @response 401 Unauthorized — valid session required
@@ -53,7 +53,6 @@ export class Roles extends BaseController {
      * Removes the specified RBAC role from the user identified by login name.
      * @security cookieAuth
      * @param login User login name
-     * @param roleDto.role Role name to revoke
      * @response 200 Role revoked successfully
      * @response 400 Invalid role name
      * @response 401 Unauthorized — valid session required

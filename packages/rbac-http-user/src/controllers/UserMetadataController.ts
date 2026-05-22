@@ -78,7 +78,6 @@ export class UserMetadataController extends BaseController {
      * Inserts a new metadata entry for the given user, or updates it if the key already exists.
      * @security cookieAuth
      * @param user User UUID path parameter
-     * @param metadata Metadata entry body: { Key, Value, Type }
      * @response 200 Metadata created or updated successfully
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — updateAny permission required
@@ -101,7 +100,7 @@ export class UserMetadataController extends BaseController {
      * @security cookieAuth
      * @param _user User UUID path parameter (used for authorization scope)
      * @param meta Metadata Id or Key to update
-     * @param data Updated metadata fields: { Key, Value, Type }
+
      * @response 200 Metadata updated successfully
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — updateAny permission required
@@ -209,7 +208,6 @@ export class UserMetadataController extends BaseController {
      * Add or update own metadata
      * Inserts a new metadata entry for the authenticated user, or updates it if the key already exists.
      * @security cookieAuth
-     * @param metadata Metadata entry body: { Key, Value, Type }
      * @response 200 Metadata created or updated successfully
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — updateOwn permission required
@@ -225,7 +223,7 @@ export class UserMetadataController extends BaseController {
      * Updates Key, Value, and Type of an existing metadata entry identified by Id or Key.
      * @security cookieAuth
      * @param meta Metadata Id or Key to update
-     * @param data Updated metadata fields: { Key, Value, Type }
+
      * @response 200 Metadata updated successfully
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — updateOwn permission required

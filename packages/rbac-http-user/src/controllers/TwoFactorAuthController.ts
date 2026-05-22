@@ -81,7 +81,6 @@ export class TwoFactorAuthController extends BaseController {
      * Validates the provided TOTP token against the user's 2FA secret. On success, marks the session
      * as fully authorized and returns the user profile with RBAC grants — identical to a full login response.
      * @security cookieAuth
-     * @param token.Token Six-digit TOTP code from the authenticator app
      * @returns {object} User profile with grants: { Uuid, Email, Login, Role, IsActive, CreatedAt, LastLoginAt, Grants }
      * @response 403 Invalid or expired TOTP token
      * @response 401 Unauthorized — valid session required

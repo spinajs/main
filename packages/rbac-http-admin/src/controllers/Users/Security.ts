@@ -10,8 +10,8 @@ import { Autoinject } from '@spinajs/di';
     type: 'object',
     $id: 'arrow.common.changePasswordDTO',
     properties: {
-        password: { type: 'string', minLength: 8, maxLength: 128 },
-        confirmPassword: { type: 'string', minLength: 8, maxLength: 128 }
+        password: { type: 'string', minLength: 8, maxLength: 128, description: 'New password (8–128 characters)' },
+        confirmPassword: { type: 'string', minLength: 8, maxLength: 128, description: 'Must match password' },
     },
     required: ['password', 'confirmPassword'],
     allOf: [
@@ -60,8 +60,6 @@ export class Security extends BaseController {
      * Minimum length is 8 characters.
      * @security cookieAuth
      * @param user User UUID path parameter
-     * @param dto.password New password (min 8, max 128 characters)
-     * @param dto.confirmPassword Must match password
      * @response 200 Password changed successfully
      * @response 400 Passwords do not match or fail validation
      * @response 401 Unauthorized — valid session required

@@ -87,9 +87,6 @@ export class UserController extends BaseController {
    * Changes the authenticated user's password. Requires the current (old) password for verification.
    * The new password and its confirmation must match.
    * @security cookieAuth
-   * @param pwd.OldPassword Current password for verification
-   * @param pwd.Password New password
-   * @param pwd.ConfirmPassword Must match Password
    * @response 400 Old password is incorrect, or new passwords do not match
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — insufficient permissions
