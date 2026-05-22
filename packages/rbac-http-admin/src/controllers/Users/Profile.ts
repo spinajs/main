@@ -24,7 +24,7 @@ export class Roles extends BaseController {
      * The shape of the returned profile depends on the active provider implementation.
      * @security cookieAuth
      * @param login User login name
-     * @returns {object} User profile data as returned by the configured UserProfileProvider
+     * @returns {IUserProfile} User profile data as returned by the configured UserProfileProvider
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — readAny permission required on users resource
      * @response 404 User not found

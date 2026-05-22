@@ -2,6 +2,7 @@ import { BaseController, BasePath, Get, Ok, Policy } from '@spinajs/http';
 import { AccessControl } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AuthorizedPolicy } from '../policies/AuthorizedPolicy.js';
+import { IGrantsMap } from '../interfaces.js';
 
 /**
  * RBAC grants management.
@@ -19,11 +20,11 @@ export class GrantsController extends BaseController {
      * Get RBAC grants
      * Returns the full RBAC grants object defining roles and their permissions across resources.
      * @security cookieAuth
-     * @returns {object} RBAC grants map keyed by role name
+     * @returns {IGrantsMap} RBAC grants map keyed by role name
      * @response 401 Unauthorized — valid session cookie required
      */
     @Get()
-    public getGrants() {
+    public getGrants(): Ok<IGrantsMap> {
         return new Ok(this.AC.getGrants());
     }
 

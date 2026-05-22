@@ -133,7 +133,7 @@ export class Users extends BaseController {
    * @param order.column Column to sort by (default: CreatedAt)
    * @param order.order Sort direction: ASC or DESC (default: DESC)
    * @param include Relations to include — currently supports: Metadata
-   * @returns {array} Array of user objects: { Uuid, Email, Login, Role, CreatedAt, RegisteredAt, LastLoginAt, DeletedAt, IsActive, Metadata? }
+   * @returns {IUserData[]} Paginated list of user accounts, each with optional Metadata relation
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — readAny permission required on users resource
    */
@@ -194,7 +194,7 @@ export class Users extends BaseController {
    * @security cookieAuth
    * @param user User UUID path parameter
    * @param include Relations to include — currently supports: Metadata
-   * @returns {object} User object: { Uuid, Email, Login, Role, CreatedAt, RegisteredAt, LastLoginAt, DeletedAt, IsActive, Metadata? }
+   * @returns {IUserData} User account with optional Metadata relation
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — readAny permission required on users resource
    * @response 404 User not found
@@ -219,7 +219,7 @@ export class Users extends BaseController {
    * @security cookieAuth
    * @param user User login name path parameter
    * @param include Relations to include — currently supports: Metadata
-   * @returns {object} User object: { Uuid, Email, Login, Role, CreatedAt, RegisteredAt, LastLoginAt, DeletedAt, IsActive, Metadata? }
+   * @returns {IUserData} User account with optional Metadata relation
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — readAny permission required on users resource
    * @response 404 User not found
@@ -244,7 +244,7 @@ export class Users extends BaseController {
    * Creates a new user account with a system-generated temporary password.
    * The temporary password is not returned — it should be delivered to the user via email or other channel.
    * @security cookieAuth
-   * @returns {object} Created user object: { Uuid, Email, Login, Role, CreatedAt, IsActive }
+   * @returns {IUserData} Created user account
    * @response 400 Validation error — missing required fields or invalid format
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — createAny permission required on users resource

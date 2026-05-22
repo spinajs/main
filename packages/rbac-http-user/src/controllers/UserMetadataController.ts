@@ -27,7 +27,7 @@ export class UserMetadataController extends BaseController {
      * @param pagination.limit Number of entries per page
      * @param order.column Column to sort by (default: Id)
      * @param order.order Sort direction: ASC or DESC (default: DESC)
-     * @returns {array} Array of UserMetadata entries: { Id, Key, Value, Type, user_id }
+     * @returns {IUserMetadataEntry[]} Paginated list of metadata entries for the user
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — readAny permission required
      * @response 404 User not found
@@ -57,7 +57,7 @@ export class UserMetadataController extends BaseController {
      * @security cookieAuth
      * @param user User UUID path parameter
      * @param key Metadata key to retrieve
-     * @returns {object} UserMetadata entry: { Id, Key, Value, Type, user_id }
+     * @returns {IUserMetadataEntry} Single metadata entry for the user
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — readAny permission required
      * @response 404 User or metadata key not found
@@ -167,7 +167,7 @@ export class UserMetadataController extends BaseController {
      * @param pagination.limit Number of entries per page
      * @param order.column Column to sort by (default: Id)
      * @param order.order Sort direction: ASC or DESC (default: DESC)
-     * @returns {array} Array of UserMetadata entries: { Id, Key, Value, Type }
+     * @returns {IUserMetadataEntry[]} Paginated list of own metadata entries
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — readOwn permission required
      */
@@ -191,7 +191,7 @@ export class UserMetadataController extends BaseController {
      * Retrieves a single metadata entry by key for the authenticated user.
      * @security cookieAuth
      * @param key Metadata key to retrieve
-     * @returns {object} UserMetadata entry: { Id, Key, Value, Type }
+     * @returns {IUserMetadataEntry} Single own metadata entry by key
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — readOwn permission required
      * @response 404 Metadata key not found

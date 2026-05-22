@@ -4,7 +4,7 @@ import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwi
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, ILoginResponse, IUserWithGrants } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
  
 
@@ -54,11 +54,11 @@ export class LoginController extends BaseController {
    * configured for the user, the response instead signals that 2FA verification is required.
    * If the caller already has an active session it is invalidated before creating a new one.
    * @security []
-   * @returns {object} On full login: user profile with Grants map. On 2FA required: { TwoFactorAuthRequired: true }. On 2FA init required: { TwoFactorInitRequired: true }
+   * @returns {ILoginResponse} On full login: IUserWithGrants. On 2FA required: ITwoFactorAuthRequired. On 2FA setup required: ITwoFactorInitRequired
    * @response 401 Invalid email or password
    */
   @Post()
-  public async login(@UserRouteArg() logged: User, @Cookie(true) ssid: string, @Body() credentials: UserLoginDto) {
+  public async login(@UserRouteArg() logged: User, @Cookie(true) ssid: string, @Body() credentials: UserLoginDto): Promise<Ok<ILoginResponse> | Unauthorized> {
     try {
 
       // if logged user is already logged in, delete his session
@@ -87,7 +87,7 @@ export class LoginController extends BaseController {
           },
         },
       ];
-      let result: any = {};
+      let result: ILoginResponse;
 
       session.Data.set('User', user.Uuid);
 
@@ -111,9 +111,7 @@ export class LoginController extends BaseController {
         session.Data.set('Authorized', false);
         session.Data.set('TwoFactorAuth', true);
 
-        result = {
-          TwoFactorInitRequired: true,
-        };
+        result = { TwoFactorInitRequired: true };
       }
       else if (this.TwoFactorAuthEnabled && user.Metadata['2fa:enabled']) {
 
@@ -124,9 +122,7 @@ export class LoginController extends BaseController {
         session.Data.set('Authorized', false);
         session.Data.set('TwoFactorAuth', true);
 
-        result = {
-          TwoFactorAuthRequired: true,
-        };
+        result = { TwoFactorAuthRequired: true };
       } else {
 
         session.Data.set('Authorized', true);
@@ -135,12 +131,12 @@ export class LoginController extends BaseController {
         const userGrants = user.Role.map(r => _unwindGrants(r, grants));
         const combinedGrants = Object.assign({}, ...userGrants);
 
+        // dehydrateWithRelations({ dateTimeFormat: 'iso' }) converts DateTime to ISO strings
+        // at runtime — the ORM types don't reflect the dateTimeFormat option in generics
         result = {
-          ...user.dehydrateWithRelations({
-            dateTimeFormat: "iso"
-          }),
+          ...user.dehydrateWithRelations({ dateTimeFormat: "iso" }),
           Grants: combinedGrants,
-        };
+        } as unknown as IUserWithGrants;
       }
 
 
@@ -206,7 +202,7 @@ export class LoginController extends BaseController {
    * Returns the user object associated with the current session.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
    * @security cookieAuth
-   * @returns {object} User data from the current session
+   * @returns {IUserProfile} User data from the current session
    * @response 401 No active session
    */
   @Get()

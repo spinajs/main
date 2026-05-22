@@ -6,7 +6,7 @@ import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import * as cs from 'cookie-signature';
 import _ from 'lodash';
-import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap } from '@spinajs/rbac-http';
 import { _chain, _either } from '@spinajs/util';
 
 
@@ -38,7 +38,7 @@ export class UserController extends BaseController {
    * Reloads the authenticated user's record from the database (including metadata) and
    * updates the session with the latest data. Returns the refreshed user data.
    * @security cookieAuth
-   * @returns {object} Refreshed user profile data: Uuid, Email, Login, Role, CreatedAt, IsActive
+   * @returns {IUserProfile} Refreshed user profile data
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — insufficient permissions
    */
@@ -66,13 +66,13 @@ export class UserController extends BaseController {
    * Returns the flattened RBAC grants for the authenticated user, combining all roles
    * the user is assigned to into a single permission map keyed by resource.
    * @security cookieAuth
-   * @returns {object} Combined RBAC grants map: { [resource]: { [action]: { attributes } } }
+   * @returns {IGrantsMap} Combined RBAC grants map: resource → action → permission descriptor
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — insufficient permissions
    */
   @Get("grants")
   @Permission(['readOwn'])
-  public async getGrants(@User() user: UserModel) {
+  public async getGrants(@User() user: UserModel): Promise<Ok<IGrantsMap>> {
 
     const grants = this.AC.getGrants();
     const userGrants = user.Role.map(r => _unwindGrants(r, grants));
