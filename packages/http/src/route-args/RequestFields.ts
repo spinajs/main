@@ -26,7 +26,7 @@ export class RequestTypeRouteArgs extends RouteArgs {
   public async extract(callData: IRouteCall,_args : unknown [],  _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
     let acceptHeader = HttpAcceptHeaders.ALL;
 
-    switch (req.headers.accept.toLowerCase()) {
+    switch (req.headers.accept?.toLowerCase()) {
       case 'text/*':
       case 'text/html':
         acceptHeader = HttpAcceptHeaders.HTML;

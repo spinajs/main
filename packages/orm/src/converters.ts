@@ -89,14 +89,14 @@ export class UniversalValueConverter extends ValueConverter {
 export class StandardModelToSqlConverter extends ModelToSqlConverter {
   public toSql(model: ModelBase<unknown>): unknown {
     const obj = {};
-    const relArr = [...model.ModelDescriptor.Relations.values()];
+    const relArr = [...model.ModelDescriptor!.Relations.values()];
 
-    model.ModelDescriptor.Columns?.filter((x) => !x.IsForeignKey && !x.Virtual).forEach((c) => {
+    model.ModelDescriptor!.Columns?.filter((x) => !x.IsForeignKey && !x.Virtual).forEach((c) => {
       const val = (model as any)[c.Name];
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor.Converters.get(c.Name)?.Options) : val;
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor!.Converters.get(c.Name)?.Options) : val;
     });
 
     for (const val of relArr) {
@@ -125,7 +125,7 @@ export class StandardObjectToSqlConverter extends ObjectToSqlConverter {
     descriptor.Columns.forEach((c) => {
       const val = (model as any)[c.Name];
       if (val === undefined) return;
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, null, c, descriptor.Converters.get(c.Name)?.Options) : val;
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, undefined as unknown as ModelBase, c, descriptor.Converters.get(c.Name)?.Options) : val;
     });
 
     relArr

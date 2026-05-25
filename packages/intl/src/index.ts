@@ -198,6 +198,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
 
       phrases.some((phrase) => {
         const matches = phrase.match(/^\s*([\(\)\[\]\d,]+)?\s*(.*)$/);
+        if(!matches) return false;
 
         if (matches[1] && _matchInterval(count, matches[1])) {
           toReturn = matches[2];
@@ -276,7 +277,7 @@ export class SpineJsInternationalizationFromJson extends Intl {
  * @param locale  - selected locale, if not specified - default locale is selected
  */
 globalAny.__ = (text: string | IPhraseWithOptions, ...args: any[]) => {
-  return DI.get<Intl>(Intl).__(text, ...args);
+  return DI.get<Intl>(Intl)!.__(text, ...args);
 };
 
 /**
@@ -288,7 +289,7 @@ globalAny.__ = (text: string | IPhraseWithOptions, ...args: any[]) => {
  * @example use like `__n("%s cats", 1) returns `1 cat`
  */
 globalAny.__n = (text: string | IPhraseWithOptions, count: number) => {
-  return DI.get<Intl>(Intl).__n(text, count);
+  return DI.get<Intl>(Intl)!.__n(text, count);
 };
 
 /**
@@ -297,7 +298,7 @@ globalAny.__n = (text: string | IPhraseWithOptions, count: number) => {
  * @param text  - text to translate
  */
 globalAny.__l = (text: string) => {
-  return DI.get<Intl>(Intl).__l(text);
+  return DI.get<Intl>(Intl)!.__l(text);
 };
 
 /**
@@ -306,7 +307,7 @@ globalAny.__l = (text: string) => {
  * @param text  - text to translate
  */
 globalAny.__h = (text: string) => {
-  return DI.get<Intl>(Intl).__h(text);
+  return DI.get<Intl>(Intl)!.__h(text);
 };
 
 /**
@@ -315,7 +316,7 @@ globalAny.__h = (text: string) => {
 
 export function __translate(lang: string) {
   return (text: string | IPhraseWithOptions, ...args: any[]) => {
-    const intl = DI.get<Intl>(Intl);
+    const intl = DI.get<Intl>(Intl)!;
     if (typeof text === 'string') {
       return intl.__(
         {
@@ -332,7 +333,7 @@ export function __translate(lang: string) {
 
 export function __translateNumber(lang: string) {
   return (text: string | IPhraseWithOptions, count: number) => {
-    const intl = DI.get<Intl>(Intl);
+    const intl = DI.get<Intl>(Intl)!;
     if (typeof text === 'string') {
       return intl.__n(
         {
@@ -348,11 +349,11 @@ export function __translateNumber(lang: string) {
 }
 
 export function __translateL(text: string) {
-  const intl = DI.get<Intl>(Intl);
+  const intl = DI.get<Intl>(Intl)!;
   return intl.__l(text);
 }
 export function __translateH(text: string) {
-  const intl = DI.get<Intl>(Intl);
+  const intl = DI.get<Intl>(Intl)!;
   return intl.__h(text);
 }
 
@@ -371,9 +372,9 @@ export function guessLanguage(lang?: string) {
 
   }
 
-  return lang ?? DI.get(Configuration).get<string>('intl.defaultLocale');
+  return lang ?? DI.get(Configuration)!.get<string>('intl.defaultLocale');
 }
 
 export function defaultLanguage() {
-  return DI.get(Configuration).get<string>('intl.defaultLocale');
+  return DI.get(Configuration)!.get<string>('intl.defaultLocale');
 }

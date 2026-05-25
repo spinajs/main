@@ -5,8 +5,8 @@ export const UserLoginDtoSchema = {
   title: 'User login DTO',
   type: 'object',
   properties: {
-    Login: { type: 'string', format: 'email' },
-    Password: { type: 'string', maxLength: 32 },
+    Email: { type: 'string', format: 'email', description: 'User email address' },
+    Password: { type: 'string', maxLength: 32, description: 'User password' },
   },
   required: ['Email', 'Password'],
 };

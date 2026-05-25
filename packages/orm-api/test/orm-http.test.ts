@@ -43,7 +43,7 @@ describe('Http orm tests', function () {
 
   describe('query params', function () {
     it('simple query', async () => {
-      const spy = DI.get(Simple).testGet as sinon.SinonSpy;
+      const spy = DI.get(Simple)!.testGet as sinon.SinonSpy;
 
       await req().get('simple/1').set('Accept', 'application/json');
 
@@ -52,7 +52,7 @@ describe('Http orm tests', function () {
     });
 
     it('should hydrate data to model', async () => {
-      const spy = DI.get(Simple).testHydrate as sinon.SinonSpy;
+      const spy = DI.get(Simple)!.testHydrate as sinon.SinonSpy;
       await req()
         .post('simple/testHydrate')
         .send({

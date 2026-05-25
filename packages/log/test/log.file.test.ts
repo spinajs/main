@@ -43,7 +43,7 @@ describe("file target tests", function () {
   afterEach(async () => {
     sinon.restore();
 
-    const target = DI.get(FileTarget);
+    const target = DI.get(FileTarget)!;
     await target.dispose();
 
     return new Promise((resolve, reject) => {
@@ -184,7 +184,7 @@ describe("file target tests", function () {
         (entry) => {
           const result = reg.exec(entry);
           reg.lastIndex = 0;
-          const num = parseInt(result[1]);
+          const num = parseInt(result![1]);
           const curr = prev;
           prev = num;
           return curr < num;

@@ -423,6 +423,18 @@
       }
     },
 
+     {
+      "type": "node",
+      "request": "launch",
+      "name": "[ HTTP ] swagger api test",
+      "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
+      "cwd": "${workspaceFolder}/packages/http-swagger/",
+      "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+
     {
       "type": "node",
       "request": "launch",
@@ -524,5 +536,6 @@
         "NODE_ENV": "development"
       }
     }
+   
   ]
 }

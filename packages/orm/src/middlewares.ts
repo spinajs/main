@@ -17,7 +17,7 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
     return data;
   }
 
-  public modelCreation(_: any): ModelBase {
+  public modelCreation(_: any): ModelBase | null {
     return null;
   }
 
@@ -31,7 +31,7 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
       afterQuery(data: any[]) {
         return data;
       },
-      modelCreation(): ModelBase {
+      modelCreation(): ModelBase | null {
         return null;
       },
       async afterHydration(relationData: ModelBase[]) {
@@ -45,7 +45,7 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
             d[self._description.Name] = self._description.Factory(d, self._description, d.Container, relData);
           } else {
             if (!self._description.RelationClass) {
-              throw new OrmException(`Relation class not defined for ${self._description.Name} in ${self._description.SourceModel.name}`);
+              throw new OrmException(`Relation class not defined for ${self._description.Name} in ${self._description.SourceModel?.name}`);
             }
 
             if (_.isFunction(self._description.RelationClass)) {
@@ -75,7 +75,7 @@ export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware 
     return data;
   }
 
-  public modelCreation(_: any): ModelBase {
+  public modelCreation(_: any): ModelBase | null {
     return null;
   }
 
@@ -90,7 +90,7 @@ export class BelongsToRelationRecursiveMiddleware implements IBuilderMiddleware 
       afterQuery(data: any[]) {
         return data;
       },
-      modelCreation(_: any): ModelBase {
+      modelCreation(_: any): ModelBase | null {
         return null;
       },
       async afterHydration(relationData: ModelBase[]) {
@@ -147,7 +147,7 @@ export class QueryRelationMiddleware implements IBuilderMiddleware {
   public afterQuery(data: any[]): any[] {
     return data;
   }
-  public modelCreation(_: any): ModelBase {
+  public modelCreation(_: any): ModelBase | null {
     return null;
   }
   public async afterHydration(data: ModelBase[]): Promise<any[] | void> {
@@ -170,13 +170,13 @@ export class VirtualRelationMiddleware implements IBuilderMiddleware {
   public afterQuery(data: any[]): any[] {
     return data;
   }
-  public modelCreation(_: any): ModelBase {
+  public modelCreation(_: any): ModelBase | null {
     return null;
   }
 
   public async afterHydration(data: ModelBase[]): Promise<any[] | void> {
     return Promise.all(data.map(async d => {
-      const relationInstance = DI.resolve(this._description.RelationClass, [d, this._description]);
+      const relationInstance = DI.resolve(this._description.RelationClass!, [d, this._description]);
       await relationInstance.populate(this.relationCallback);
 
       (d as any)[this._description.Name] = relationInstance;
@@ -191,7 +191,7 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
     return data;
   }
 
-  public modelCreation(_: any): ModelBase {
+  public modelCreation(_: any): ModelBase | null {
     return null;
   }
 
@@ -202,7 +202,7 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
       afterQuery(data: any[]) {
         return data.map((d) => Object.assign({}, d[self._description.Name], { JunctionModel: self.pickProps(d, [self._description.Name]) }));
       },
-      modelCreation(_: any): ModelBase {
+      modelCreation(_: any): ModelBase | null {
         return null;
       },
       async afterHydration(relationData: ModelBase[]) {
@@ -246,7 +246,7 @@ export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
   afterQuery(data: any[]): any[] {
     return data;
   }
-  modelCreation(_: any): ModelBase<unknown> {
+  modelCreation(_: any): ModelBase<unknown> | null {
     return null;
   }
   afterHydration(data: ModelBase<unknown>[]): Promise<void | any[]> {
@@ -287,7 +287,7 @@ export class BelongsToRelationResultTransformMiddleware implements IBuilderMiddl
     });
   }
 
-  public modelCreation(_: any): ModelBase {
+  public modelCreation(_: any): ModelBase | null {
     return null;
   }
 

@@ -111,22 +111,22 @@ export class DynamoDbSessionProvider extends SessionProvider {
     const result = await this.DynamoDb.getItem(params).promise();
 
     if (!result.Item) {
-      return null;
+      return null as any;
     } else {
       // DynamoDB ttl takes time, sometimes
       // we receive session before ttl mark result as expired
       // and deletes it
-      const ttl = parseInt(result.Item.Expiration.N);
+      const ttl = parseInt(result.Item.Expiration.N!);
       if (ttl < DateTime.now().toMillis()) {
-        return null;
+        return null as any;
       }
 
-      const data = JSON.parse(result.Item.Data.S);
+      const data = JSON.parse(result.Item.Data.S!);
 
       return new UserSession({
-        Creation: DateTime.fromISO(result.Item.Creation.S),
+        Creation: DateTime.fromISO(result.Item.Creation.S!),
         Expiration: DateTime.fromMillis(ttl),
-        SessionId: result.Item.SessionId.S,
+        SessionId: result.Item.SessionId.S!,
         Data: new Map(Object.entries(data)),
       });
     }
@@ -152,7 +152,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       UpdateExpression: 'set Expiration = :e',
       ExpressionAttributeValues: {
         ':e': {
-          N: `${session.Expiration.toMillis()}`,
+          N: `${session.Expiration!.toMillis()}`,
         },
       },
       ReturnValues: 'UPDATED_NEW',
@@ -188,7 +188,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
 
     if (sessions.Items && sessions.Items.length > 0) {
       for (const item of sessions.Items) {
-        await this.delete(item.SessionId.S);
+        await this.delete(item.SessionId.S!);
       }
     }
   }
@@ -206,7 +206,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       sId = sessionOrId.SessionId;
       sData = JSON.stringify(Object.fromEntries(sessionOrId.Data), replacer);
       sCreationTime = sessionOrId.Creation;
-      sExpirationTime = sessionOrId.Expiration;
+      sExpirationTime = sessionOrId.Expiration!;
     }
 
     const params = {

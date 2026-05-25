@@ -6,7 +6,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import '../src';
 import { DbSessionStore } from '../src/index.js';
-import { Session } from '@spinajs/rbac';
+import { UserSession as Session } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -119,9 +119,9 @@ describe('db session provider', function () {
     const r = await s.restore('a');
 
     expect(r).to.be.not.null;
-    expect(r.SessionId).to.eq('a');
-    expect(r.Data.has('foo')).to.be.true;
-    expect(r.Data.get('foo')).to.eq('bar');
+    expect(r!.SessionId).to.eq('a');
+    expect(r!.Data.has('foo')).to.be.true;
+    expect(r!.Data.get('foo')).to.eq('bar');
   });
 
   it('should update session', async () => {
@@ -138,13 +138,13 @@ describe('db session provider', function () {
     await s.save(sS);
 
     let r = await s.restore('a');
-    expect(r.Data.get('foo')).to.eq('bar');
+    expect(r!.Data.get('foo')).to.eq('bar');
 
     sS.Data.set('foo', 'bar 2');
 
     await s.save(sS);
     r = await s.restore('a');
-    expect(r.Data.get('foo')).to.eq('bar 2');
+    expect(r!.Data.get('foo')).to.eq('bar 2');
   });
 
   it('should delete session', async () => {
@@ -192,9 +192,9 @@ describe('db session provider', function () {
 
     const sR2 = await s.restore('a');
 
-    expect(sR2.Expiration.toMillis() === date2.toMillis());
-    expect(sR.Expiration.toMillis() === date.toMillis());
-    expect(sR2.Expiration.toMillis() > sR.Expiration.toMillis());
+    expect(sR2!.Expiration!.toMillis() === date2.toMillis());
+    expect(sR!.Expiration!.toMillis() === date.toMillis());
+    expect(sR2!.Expiration!.toMillis() > sR!.Expiration!.toMillis());
   });
   it('should return null when session expired', async () => {
     const s = await session();

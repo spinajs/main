@@ -6,13 +6,13 @@ import { Injectable, Singleton } from '@spinajs/di';
 @Singleton()
 @Injectable(ConfigVarProtocol)
 export class AwsParameterStoreVarProtocol extends ConfigVarProtocol {
-    protected Client: SSMClient;
+    protected Client!: SSMClient;
 
     get Protocol(): string {
         return 'aws-parameters://';
     }
 
-    public async getVar(path: string, configuration: any): Promise<unknown> {
+    public async getVar(path: string, configuration: any): Promise<string | undefined> {
         if (!this.Client) {
             this.Client = new SSMClient({
                 ...configuration?.aws?.parameterStore,
@@ -36,6 +36,6 @@ export class AwsParameterStoreVarProtocol extends ConfigVarProtocol {
 
         InternalLogger.info(`Obtained config value for ${path} from AWS Parameter store`, 'Configuration');
 
-        return response.Parameter?.Value || "";
+        return response.Parameter?.Value;
     }
 }

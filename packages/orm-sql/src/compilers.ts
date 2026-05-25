@@ -42,7 +42,7 @@ export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQue
     const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
     if (converters && v && converters.has(v.constructor.name)) {
       const converter = this._container.resolve<ValueConverter>(converters.get(v.constructor.name));
-      val = converter.toDB(val, null, null);
+      val = converter.toDB(val, null as any, null as any, null);
     }
 
     return val;
@@ -83,7 +83,7 @@ export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
 @NewInstance()
 export class SqlWithRecursiveCompiler implements IRecursiveCompiler {
   public recursive(builder: IWithRecursiveBuilder): ICompilerOutput {
-    const statement = builder.CteRecursive.build();
+    const statement = builder.CteRecursive!.build();
 
     let exprr = `WITH RECURSIVE recursive_cte(${statement.Statements[0]}) AS`;
     exprr += ` ( `;
@@ -139,16 +139,16 @@ export class SqlLimitQueryCompiler extends LimitQueryCompiler {
     const bindings = [];
     let stmt = '';
 
-    if (limits.limit > 0) {
+    if ((limits.limit ?? 0) > 0) {
       stmt += ` LIMIT ?`;
       bindings.push(limits.limit);
     } else {
-      if (limits.offset > 0) {
+      if ((limits.offset ?? 0) > 0) {
         stmt += ` LIMIT 18446744073709551615`;
       }
     }
 
-    if (limits.offset > 0) {
+    if ((limits.offset ?? 0) > 0) {
       stmt += ` OFFSET ?`;
       bindings.push(limits.offset);
     }
@@ -290,12 +290,12 @@ export class SqlSelectQueryCompiler extends SqlQueryCompiler<SelectQueryBuilder>
     const expression = columns + ' ' + from + (join.expression ? ` ${join.expression}` : '') + (where.expression ? ` WHERE ${where.expression}` : '') + group.expression + (having.expression ? ` HAVING ${having.expression}` : '') + sort.expression + limit.expression;
 
     const bindings = [];
-    bindings.push(...join.bindings);
-    bindings.push(...where.bindings);
-    bindings.push(...group.bindings);
-    bindings.push(...having.bindings);
-    bindings.push(...sort.bindings);
-    bindings.push(...limit.bindings);
+    bindings.push(...(join.bindings ?? []));
+    bindings.push(...(where.bindings ?? []));
+    bindings.push(...(group.bindings ?? []));
+    bindings.push(...(having.bindings ?? []));
+    bindings.push(...(sort.bindings ?? []));
+    bindings.push(...(limit.bindings ?? []));
 
     return {
       bindings,
@@ -350,8 +350,8 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
     const where = this.where(this._builder);
 
     const bindings = [];
-    bindings.push(...set.bindings);
-    bindings.push(...where.bindings);
+    bindings.push(...(set.bindings ?? []));
+    bindings.push(...(where.bindings ?? []));
 
     return {
       bindings,
@@ -404,8 +404,8 @@ export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder<
 
     _expression = _from + (_where.expression ? ` WHERE ${_where.expression}` : '') + _limit.expression;
 
-    _bindings.push(..._where.bindings);
-    _bindings.push(..._limit.bindings);
+    _bindings.push(...(_where.bindings ?? []));
+    _bindings.push(...(_limit.bindings ?? []));
 
     return {
       bindings: _bindings,
@@ -768,7 +768,7 @@ export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
       };
     });
 
-    const pKey = this.builder.Columns.find((c) => c.PrimaryKey);
+    const pKey = this.builder.Columns.find((c) => c.PrimaryKey)!;
 
     return [
       // clone table
@@ -1049,6 +1049,8 @@ export class SqlAlterColumnQueryCompiler extends SqlColumnQueryCompiler {
         expression: `MODIFY ${cDefinition.expression}`,
       };
     }
+
+    return cDefinition;
   }
 }
 
@@ -1110,18 +1112,18 @@ export class SqlEventQueryCompiler extends SqlQueryCompiler<EventQueryBuilder> {
           if (Array.isArray(res)) {
             res.forEach((x) => {
               prev.bindings = prev.bindings.concat(x.bindings);
-              prev.expression.push(x.expression);
+              prev.expression.push(x.expression!);
             });
           } else {
             prev.bindings = prev.bindings.concat(res.bindings);
-            prev.expression.push(res.expression);
+            prev.expression.push(res.expression!);
           }
 
           return prev;
         },
         {
-          expression: [],
-          bindings: [],
+          expression: [] as string[],
+          bindings: [] as any[],
         },
       );
 

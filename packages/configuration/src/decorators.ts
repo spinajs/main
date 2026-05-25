@@ -11,15 +11,15 @@ import { AddDependencyForProperty, Class, DI, IContainer, IInjectDescriptor, IMa
  * @returns
  */
 export function Config(path: string, options?: IConfigEntryOptions) {
-  return (target?: any, key?: string): any => {
-    let config: Configuration = null;
+  return (target: any, key: string): any => {
+    let config: Configuration;
 
     // register conf, so we can expose eg. in db if config is set
     DI.register({ path, options }).asValue('__configuration_property__');
 
     const getter = () => {
       if (!config) {
-        config = DI.get(Configuration);
+        config = DI.get(Configuration)!;
       }
 
       // try to return val
@@ -45,7 +45,7 @@ export function Config(path: string, options?: IConfigEntryOptions) {
  * @param type - if type is provided, it will override type obtain from reflection. Use it specific with arrays and maps, becouse ts reflection module cannot extract array and map type data
  */
 export function AutoinjectService(path: string, type?: Class<unknown>) {
-  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
     const t = type ?? (Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>);
     descriptor.inject.push({
       autoinject: true,
@@ -55,14 +55,19 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
       mapFunc: (x: IMappableService) => {
         return x.ServiceName || x.constructor.name;
       },
-      serviceFunc: (path: string, container: IContainer) => {
+      serviceFunc: (data: string | any[], container: IContainer) => {
         const cfg = container.get(Configuration);
 
-        if(!cfg){
-          throw new Error(`Configuration service is not registered in DI container. Cannot autoinject service for property ${propertyKey.toString()}, path: ${path}`);
+        if (!cfg) {
+          throw new Error(`Configuration service is not registered in DI container. Cannot autoinject service for property ${propertyKey.toString()}, path: ${data}`);
         }
 
-        const cfgVal = cfg.get<any>(path);
+        let cfgVal: any;
+        if (typeof data === 'string') {
+          cfgVal = cfg.get<any>(data);
+        } else {
+          cfgVal = data;
+        }
 
         if (!cfgVal) {
           throw new Error(`Configuration value ${path} is empty`);

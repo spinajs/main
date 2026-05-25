@@ -1,4 +1,5 @@
 import { DI } from '@spinajs/di';
+import { Controllers } from '@spinajs/http';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
 import { join, normalize, resolve } from 'path';

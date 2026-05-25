@@ -17,12 +17,12 @@ export abstract class SqlDriver extends OrmDriver {
 
       if (Array.isArray(compiled)) {
         // TODO: rethink this cast
-        return Promise.all(compiled.map((c) => this.executeOnDb(c.expression, c.bindings, builder.QueryContext))) as any;
+        return Promise.all(compiled.map((c) => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext))) as any;
       } else {
-        return this.executeOnDb(compiled.expression, compiled.bindings, builder.QueryContext);
+        return this.executeOnDb(compiled.expression!, compiled.bindings!, builder.QueryContext);
       }
-    } catch (err) {
-      this.Log.error(`Error during query execution: ${err.message}, ${err.stack}, model: ${builder.Model.name}, context: ${builder.QueryContext}`);
+    } catch (err: any) {
+      this.Log.error(`Error during query execution: ${err.message}, ${err.stack}, model: ${builder.Model?.name}, context: ${builder.QueryContext}`);
       throw err;
     }
   }

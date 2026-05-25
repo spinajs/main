@@ -50,7 +50,7 @@ export class FrameworkConfiguration extends Configuration {
   /**
    * Env passed via CLI args  ( in case if NODE_ENV var is not set )
    */
-  public Env = 'development';
+  public Env : string | undefined;
 
   /**
    * Current running app name
@@ -91,7 +91,7 @@ export class FrameworkConfiguration extends Configuration {
   constructor(options?: ConfigurationOptions) {
     super();
     this.CustomConfigPaths = options?.cfgCustomPaths ?? [];
-    this.RunApp = options?.app ?? parseArgv('--app');
+    this.RunApp = options?.app ?? parseArgv('--app') ?? '';
     this.AppBaseDir = options?.appBaseDir ?? parseArgv('--apppath') ?? join(process.cwd(), '../apps/');
     this.Env = parseArgv('--env') ?? process.env.APP_ENV;
   }
@@ -216,7 +216,7 @@ export class FrameworkConfiguration extends Configuration {
      * eg. when custom modules have config and dont want to use files
      * eg. in webpack environment
      */
-    this.Container.resolve(Array.ofType('__configuration__')).forEach((c: IConfigLike) => {
+    this.Container.resolve(Array.ofType<IConfigLike>('__configuration__')).forEach((c: IConfigLike) => {
       Object.keys(c).forEach((k) => {
         this.merge(k, c[`${k}`]);
       });

@@ -75,7 +75,7 @@ export class Builder<T = any> implements IBuilder<T> {
       .then((result: T) => {
         try {
           if (this._asRaw) {
-            onfulfilled(result);
+            onfulfilled?.(result);
             return;
           }
 
@@ -115,7 +115,7 @@ export class Builder<T = any> implements IBuilder<T> {
             if (this._middlewares.length > 0) {
               Promise.all(afterMiddlewarePromises).then(() => {
                 try {
-                  onfulfilled(models as unknown as T);
+                  onfulfilled?.(models as unknown as T);
                 } catch (err) {
                   if (onrejected) {
                     onrejected(err);
@@ -125,10 +125,10 @@ export class Builder<T = any> implements IBuilder<T> {
                 }
               }, onrejected);
             } else {
-              onfulfilled(models as unknown as T);
+              onfulfilled?.(models as unknown as T);
             }
           } else {
-            onfulfilled(transformedResult);
+            onfulfilled?.(transformedResult);
           }
         } catch (err) {
           if (onrejected) {
@@ -167,10 +167,10 @@ export class Builder<T = any> implements IBuilder<T> {
 @NewInstance()
 @Inject(Container)
 export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
-  protected _method: QueryMethod;
-  protected _table: string;
-  protected _tableAlias: string;
-  protected _database: string;
+  protected _method!: QueryMethod;
+  protected _table!: string;
+  protected _tableAlias!: string;
+  protected _database!: string;
 
   constructor(container: IContainer, driver: OrmDriver, model?: Constructor<ModelBase>) {
     super(container, driver, model);
@@ -230,7 +230,9 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
     }
 
     this._table = table;
-    this.setAlias(alias);
+    if (alias !== undefined) {
+      this.setAlias(alias);
+    }
 
     return this;
   }
@@ -294,7 +296,7 @@ export class LimitBuilder<T> implements ILimitBuilder<T> {
   }
 
   public async firstOrFail() {
-    return this.firstOrThrow((output: ICompilerOutput) => new OrmNotFoundException(`Database entry not found for the given query.`, null, output.expression, output.bindings));
+    return this.firstOrThrow((output: ICompilerOutput) => new OrmNotFoundException(`Database entry not found for the given query.`, undefined, output.expression ?? undefined, output.bindings ?? undefined));
   }
 
   public async orThrow(error: Error | ((output: ICompilerOutput) => Error)) {
@@ -493,12 +495,12 @@ export class RawQuery {
 
   constructor(query: string, bindings?: any[]) {
     this._query = query;
-    this._bindings = bindings;
+    this._bindings = bindings ?? [];
   }
 }
 @NewInstance()
 export class GroupByBuilder implements IGroupByBuilder {
-  protected _container: Container;
+  protected _container!: Container;
   protected _groupStatements: IQueryStatement[] = [];
 
   public get GroupStatements(): IQueryStatement[] {
@@ -573,7 +575,7 @@ export class JoinBuilder implements IJoinBuilder {
 
   public join<R = ModelBase>(method: JoinMethod, arg1: string | IJoinStatementOptions<R> | Constructor<R> | RawQuery, arg2?: (this: IWhereBuilder<R>) => void, arg3?: (this: ISelectQueryBuilder<R>) => void): this {
 
-    let options: IJoinStatementOptions<R> = null;
+    let options: IJoinStatementOptions<R> | undefined;
 
 
 
@@ -589,7 +591,7 @@ export class JoinBuilder implements IJoinBuilder {
       }
 
       const descriptor = extractModelDescriptor(this._model);
-      const relations = descriptor.Relations;
+      const relations = descriptor?.Relations;
 
       if (!relations || relations.size === 0) {
         throw new InvalidOperation(`Model ${this._model.name} does not have any relations defined. Cannot use relation join.`);
@@ -616,7 +618,7 @@ export class JoinBuilder implements IJoinBuilder {
     }
 
     const statement = this._container.resolve<JoinStatement>(JoinStatement, [{
-      ...options,
+      ...(options ?? {}),
       method,
       builder: this,
     }]);
@@ -631,9 +633,9 @@ export class JoinBuilder implements IJoinBuilder {
 
 @NewInstance()
 export class WithRecursiveBuilder implements IWithRecursiveBuilder {
-  protected _container: Container;
+  protected _container!: Container;
 
-  protected _cteStatement: IQueryStatement;
+  protected _cteStatement: IQueryStatement | undefined;
 
   public get CteRecursive() {
     return this._cteStatement;
@@ -687,6 +689,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     this._statements = [];
     this._model = parent.Model;
     this._parent = parent;
+    this._tableAlias = parent.TableAlias;
   }
 
   public clone<P extends IWhereBuilder<any>>(_parent: P): WhereBuilder<T> {
@@ -740,7 +743,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     if (column === null || (column === undefined && arguments.length === 1)) {
-      return;
+      return this;
     }
 
     // Support "where true || where false"
@@ -896,7 +899,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     // TODO: refactor and remove code duplication with whereNotExists
     // TODO: move relation handling to separate DI service for every exists relation type
 
-    let relQuery: ISelectQueryBuilder = null;
+    let relQuery: ISelectQueryBuilder | undefined;
     let sourcePKey = '';
     const self = this;
     if (typeof query === 'string') {
@@ -926,7 +929,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
             } else {
               sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             }
-            relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
+            // relQuery is guaranteed assigned above before this lazy callback executes
+            relQuery!.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
 
           if (callback) {
@@ -946,7 +950,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
               sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             }
 
-            relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
+            // relQuery is guaranteed assigned above before this lazy callback executes
+            relQuery!.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
           }));
 
           (this as unknown as SelectQueryBuilder).setAlias();
@@ -968,7 +973,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
-    let relQuery: ISelectQueryBuilder = null;
+    let relQuery: ISelectQueryBuilder | undefined;
     let sourcePKey = '';
     const self = this;
     if (typeof query === 'string') {
@@ -998,7 +1003,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
             } else {
               sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             }
-            relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
+            // relQuery is guaranteed assigned above before this lazy callback executes
+            relQuery!.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
 
           if (callback) {
@@ -1018,7 +1024,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
             } else {
               sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             }
-            relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
+            // relQuery is guaranteed assigned above before this lazy callback executes
+            relQuery!.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
           }));
 
           relQuery.rightJoin({
@@ -1094,22 +1101,22 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   protected _groupStatements: IQueryStatement[] = [];
 
-  protected _cteStatement: IQueryStatement;
+  protected _cteStatement: IQueryStatement | undefined;
 
   protected _relations: IOrmRelation[] = [];
 
-  protected _owner: IOrmRelation;
+  protected _owner: IOrmRelation | undefined;
 
   public get Statements() {
     return this._statements;
   }
 
-  public get Owner(): IOrmRelation {
+  public get Owner(): IOrmRelation | undefined {
     return this._owner;
   }
 
   @use(WhereBuilder, LimitBuilder, OrderByBuilder, ColumnsBuilder, JoinBuilder, WithRecursiveBuilder, GroupByBuilder)
-  this: this;
+  this!: this;
 
   public get IsDistinct() {
     return this._distinct;
@@ -1189,7 +1196,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._distinct = this._distinct;
     builder._table = this._table;
     builder._tableAlias = this._tableAlias;
-    builder._cteStatement = this._cteStatement ? this._cteStatement.clone(builder) : null;
+    builder._cteStatement = this._cteStatement ? this._cteStatement.clone(builder) : undefined;
     builder._first = this._first;
     builder._nonSelect = this._nonSelect;
     builder._queryMiddlewares = [...this._queryMiddlewares];
@@ -1202,12 +1209,12 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     // TODO: do not use toLocaleLowerCase for comparison, relations should be case sensitive
     // leave it now for backward compatibility
-    let relInstance: IOrmRelation = this._relations.find((r) => r.Name.toLocaleLowerCase() === relation.toLocaleLowerCase());
+    let relInstance: IOrmRelation | undefined = this._relations.find((r) => r.Name.toLocaleLowerCase() === relation.toLocaleLowerCase());
 
     if (!relInstance) {
       const descriptor = extractModelDescriptor(this._model);
       let rDescriptor = null;
-      for (const [key, value] of descriptor.Relations) {
+      for (const [key, value] of descriptor!.Relations) {
 
         // TODO: do not use toLocaleLowerCase for comparison, relations should be case sensitive
         // leave it now for backward compatibility
@@ -1244,10 +1251,12 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
             break;
         }
       }
-      this._relations.push(relInstance);
+      if (relInstance) {
+        this._relations.push(relInstance);
+      }
     }
 
-    return relInstance;
+    return relInstance!;
   }
 
   public populate<R = this>(relation: Constructor<ModelBase>): this;
@@ -1262,7 +1271,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     if (isConstructor(relation)) {
       const descriptor = extractModelDescriptor(this._model);
-      const relations = descriptor.Relations;
+      const relations = descriptor!.Relations;
       const rel = relations.values().find((r) => r.TargetModel === (relation as Constructor<ModelBase>));
 
       if (!rel) {
@@ -1278,7 +1287,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     }
 
     if (typeof relation === 'object') {
-      for (const i in relation) {
+      for (const i in (relation as any)) {
         this.populate(i, () => {
           // TODO: remove cast, linter thinks relation is null ???
           if (typeof (relation as any)[i] !== null) this.populate((relation as any)[i]);
@@ -1400,21 +1409,21 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       if (this._first) {
         if (Array.isArray(result)) {
           if (result.length !== 0) {
-            return onfulfilled(result ? result[0] : null);
+            return onfulfilled?.(result[0]) as TResult1 | PromiseLike<TResult1>;
           } else {
             try {
-              return onfulfilled(undefined);
+              return onfulfilled?.(undefined as unknown as T) as TResult1 | PromiseLike<TResult1>;
             } catch (err) {
-              onrejected(err);
+              onrejected?.(err);
             }
           }
         } else {
-          return onfulfilled(result);
+          return onfulfilled?.(result) as TResult1 | PromiseLike<TResult1>;
         }
       } else {
-        return onfulfilled(result);
+        return onfulfilled?.(result) as TResult1 | PromiseLike<TResult1>;
       }
-    }, onrejected);
+    }, onrejected) as PromiseLike<TResult1 | TResult2>;
   }
 
   public async execute(): Promise<T> {
@@ -1464,7 +1473,7 @@ export class OnDuplicateQueryBuilder {
 
   protected _parent: QueryBuilder;
 
-  protected _columnsToUpdate: Array<string | RawQuery>;
+  protected _columnsToUpdate!: Array<string | RawQuery>;
 
   protected _container: IContainer;
 
@@ -1474,7 +1483,7 @@ export class OnDuplicateQueryBuilder {
     this._parent = insertQueryBuilder;
     this._container = container;
 
-    this._column = _.isArray(column) ? column : [column];
+    this._column = _.isArray(column) ? column : (column !== undefined ? [column] : []);
     this._returning = returning ?? ['*'];
   }
 
@@ -1654,7 +1663,7 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     let columnToCheck = column;
     if (!columnToCheck && this._model) {
       const dsc = extractModelDescriptor(this._model);
-      columnToCheck = dsc.Columns.filter((c) => c.Unique).map((c) => c.Name);
+      columnToCheck = dsc!.Columns.filter((c) => c.Unique).map((c) => c.Name);
     }
 
     this._update = true;
@@ -1916,7 +1925,7 @@ export class AlterColumnQueryBuilder extends ColumnQueryBuilder {
 @NewInstance()
 export class TableExistsQueryBuilder extends QueryBuilder {
   constructor(container: Container, driver: OrmDriver, name: string) {
-    super(container, driver, null);
+    super(container, driver, undefined);
 
     this.setTable(name);
 
@@ -1932,7 +1941,7 @@ export class DropTableQueryBuilder extends QueryBuilder {
   public Exists: boolean;
 
   constructor(container: Container, driver: OrmDriver, name: string, database?: string) {
-    super(container, driver, null);
+    super(container, driver, undefined);
 
     this.setTable(name);
 
@@ -1959,7 +1968,7 @@ export class DropViewQueryBuilder extends QueryBuilder {
   public Exists: boolean;
 
   constructor(container: Container, driver: OrmDriver, name: string, database?: string) {
-    super(container, driver, null);
+    super(container, driver, undefined);
 
     this.setTable(name);
 
@@ -1994,7 +2003,7 @@ export class AlterTableQueryBuilder extends QueryBuilder {
   }
 
   constructor(container: Container, driver: OrmDriver, name: string) {
-    super(container, driver, null);
+    super(container, driver, undefined);
 
     this.setTable(name);
 
@@ -2134,7 +2143,7 @@ export class TableQueryBuilder extends QueryBuilder {
 
   protected _charset: string;
 
-  protected _checkExists: boolean;
+  protected _checkExists!: boolean;
 
   protected _temporary: boolean;
 
@@ -2153,7 +2162,7 @@ export class TableQueryBuilder extends QueryBuilder {
   }
 
   constructor(container: Container, driver: OrmDriver, name: string) {
-    super(container, driver, null);
+    super(container, driver, undefined);
 
     this._charset = '';
     this._comment = '';
@@ -2213,7 +2222,7 @@ export class CloneTableQueryBuilder extends QueryBuilder {
 
   protected _shallow: boolean;
 
-  protected _filter: SelectQueryBuilder;
+  protected _filter!: SelectQueryBuilder;
 
   public get CloneSource() {
     return this._cloneSrc;
@@ -2543,7 +2552,7 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
 
   const cnt = driver.Container;
   const models = DI.getRegisteredTypes<ModelBase>('__models__');
-  const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : null]);
+  const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : undefined]);
 
   if (qr instanceof SelectQueryBuilder) {
     const scope = (model as any)._queryScopes as QueryScope;

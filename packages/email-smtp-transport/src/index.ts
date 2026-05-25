@@ -70,25 +70,30 @@ export class EmailSenderSmtp extends EmailSender {
   
 
     if(!_.isString(email.template)){
+
+      if(!email.template){
+        throw new IOFail(`Email template is required when email template is not string. Please provide template or change template property to string with path to template`);
+      }
+
       fs = await DI.resolve<fs>('__file_provider__', [email.template.fs]);
       if (!fs) {
-        throw new IOFail(`Filesystem provider for ${email.template.fs} not registered. Make sure you importer all required fs providers`);
+        throw new IOFail(`Filesystem provider for ${email.template!.fs} not registered. Make sure you importer all required fs providers`);
       }
-    } 
+    }
 
     this.Log.trace(`Using filesystem ${fs.Name} to resolve email template`);
-    const tfile = await  (_.isString(email.template) ? fs.download(email.template) : fs.download(email.template.file));
+    const tfile = await  (_.isString(email.template) ? fs.download(email.template) : fs.download(email.template!.file));
     this.Log.trace(`Resolved email template ${tfile}`);
  
     const options = {
       from: email.from ?? this.Options.defaults?.mailFrom, // sender address
       to: email.to.join(','), // list of receivers
-      cc: email.cc ? email.cc.join(',') : null,
-      bcc: email.bcc ? email.bcc.join(',') : null,
+      cc: email.cc ? email.cc.join(',') : undefined,
+      bcc: email.bcc ? email.bcc.join(',') : undefined,
       replyTo: email.replyTo,
       subject: email.subject, // Subject line
       text: email.text, // plain text body
-      html: email.template ? await this.Tempates.render(tfile, { ...email.model, ...this.Options.templates?.defaults }, email.lang) : null,
+      html: email.template ? await this.Tempates.render(tfile, { ...email.model, ...this.Options.templates?.defaults }, email.lang) : undefined,
       attachments: [] as any[],
     };
 

@@ -1,15 +1,14 @@
 {
   "name": "@spinajs/log",
-  "version": "2.0.467",
+  "version": "2.0.471",
   "description": "Log lib for all spinejs related libs",
-  
-    "main": "lib/cjs/index.js",
+  "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+    ".": {
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
   },
   "type": "module",
   "private": false,
@@ -32,7 +31,6 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/log)",
   "license": "MIT",
@@ -42,17 +40,17 @@
   "homepage": "https://github.com/spinajs/log#readme",
   "dependencies": {
     "@colors/colors": "^1.5.0",
-    "@spinajs/configuration": "^2.0.467",
-    "@spinajs/di": "^2.0.467",
-    "@spinajs/exceptions": "^2.0.467",
-    "@spinajs/internal-logger": "^2.0.467",
-    "@spinajs/log-common": "^2.0.467",
+    "@spinajs/configuration": "^2.0.471",
+    "@spinajs/di": "^2.0.471",
+    "@spinajs/exceptions": "^2.0.471",
+    "@spinajs/internal-logger": "^2.0.471",
+    "@spinajs/log-common": "^2.0.471",
     "ajv": "^8.12.0",
-    "chalk": "5.2.0",
+    "chalk": "^4.1.2",
     "glob": "^8.1.0",
     "glob-to-regexp": "^0.4.1",
     "lodash": "^4.17.21",
-     "luxon": "^3.6.1",
+    "luxon": "^3.6.1",
     "node-schedule": "^2.1.1"
   },
   "devDependencies": {

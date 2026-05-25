@@ -18,7 +18,7 @@ export interface IMsSqlTransactionContext {
 @Injectable('orm-driver-mssql')
 @NewInstance()
 export class MsSqlOrmDriver extends SqlDriver {
-  protected _connectionPool: mssql.ConnectionPool = null;
+  protected _connectionPool: mssql.ConnectionPool = null as any;
   protected _executionId = 0;
   protected TransactionStorage = new AsyncLocalStorage<IMsSqlTransactionContext>();
 
@@ -60,7 +60,7 @@ export class MsSqlOrmDriver extends SqlDriver {
       void this.Log.write({
         Level: LogLevel.Trace,
         Variables: {
-          error: null,
+          error: undefined,
           message: `Executed: ${finalQuery}, bindings: ${params ? params.join(',') : 'none'}`,
           logger: this.Log.Name,
           level: 'TRACE',
@@ -117,11 +117,11 @@ export class MsSqlOrmDriver extends SqlDriver {
 
   public async connect(): Promise<OrmDriver> {
     try {
-      this._connectionPool = await mssql.connect({
+      this._connectionPool = (await mssql.connect({
         user: this.Options.User,
         password: this.Options.Password,
         database: this.Options.Database,
-        server: this.Options.Host,
+        server: this.Options.Host!,
         options: {
           trustServerCertificate: (this.Options.Options?.TrustServerCertificate as boolean) ?? true,
           cryptoCredentialsDetails: this.Options.Options?.CryptoCredentialsDetails ? this.Options.Options?.CryptoCredentialsDetails : {},
@@ -131,7 +131,7 @@ export class MsSqlOrmDriver extends SqlDriver {
           min: 0,
           idleTimeoutMillis: 3000,
         },
-      });
+      })) as mssql.ConnectionPool;
 
       await this.executeOnDb(`USE ${this.Options.Database}`, [], QueryContext.Schema);
 
@@ -141,7 +141,7 @@ export class MsSqlOrmDriver extends SqlDriver {
       if (this._connectionPool) {
         try {
           await this._connectionPool.close();
-          this._connectionPool = null;
+          this._connectionPool = null as any;
         } catch (closeErr) {
           this.Log.warn(`Error cleaning up failed MSSQL connection pool for ${this.Options.Name}: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
         }
@@ -169,7 +169,7 @@ export class MsSqlOrmDriver extends SqlDriver {
   public async disconnect(): Promise<OrmDriver> {
     if (this._connectionPool) {
       await this._connectionPool.close();
-      this._connectionPool = null;
+      this._connectionPool = null as any;
     }
     return this;
   }
@@ -178,7 +178,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     const tblInfo = (await this.executeOnDb(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=? ${schema ? 'AND TABLE_CATALOG=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as ITableColumnInfo[];
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
-      return null;
+      return null as any;
     }
 
     const indexList = (await this.executeOnDb(`select C.COLUMN_NAME,T.CONSTRAINT_TYPE FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS T JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE C ON C.CONSTRAINT_NAME=T.CONSTRAINT_NAME WHERE C.TABLE_NAME=? ${schema ? ' AND c.TABLE_CATALOG=?' : ''}`, schema ? [name, schema] : [name], QueryContext.Select)) as IIndexInfo[];
@@ -199,16 +199,16 @@ export class MsSqlOrmDriver extends SqlDriver {
         Uuid: false,
         Ignore: false,
         IsForeignKey: false,
-        ForeignKeyDescription: null,
+        ForeignKeyDescription: null as any,
         Aggregate: false,
 
         // simply assumpt that integer pkeys are autoincement / auto fill  by default
         AutoIncrement: isPrimary && r.DATA_TYPE === 'int',
         Name: r.COLUMN_NAME,
-        Converter: null,
+        Converter: null as any,
         Schema: schema ? schema : this.Options.Database,
         Unique: sUnique,
-      } as IColumnDescriptor;
+      } as unknown as IColumnDescriptor;
     });
   }
 

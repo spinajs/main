@@ -30,8 +30,9 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
         if (!this.Rules.types || this.Rules.types.length === 0) {
             return;
         }
+ 
 
-        if (!file.Info.MimeType) {
+        if (!file.Info || !file.Info!.MimeType) {
             throw new ValidationFailed('validation error', [{
                 instancePath: '/file/type',
                 schemaPath: '#/properties/file/type',
@@ -45,9 +46,9 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
             // Support wildcards like 'image/*'
             if (allowedType.endsWith('/*')) {
                 const category = allowedType.split('/')[0];
-                return file.Info.MimeType!.startsWith(category + '/');
+                return file.Info!.MimeType!.startsWith(category + '/');
             }
-            return file.Info.MimeType!.toLowerCase() === allowedType.toLowerCase();
+            return file.Info!.MimeType!.toLowerCase() === allowedType.toLowerCase();
         });
 
         if (!isValid) {
@@ -57,9 +58,9 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
                 keyword: 'type',
                 params: {
                     allowedTypes: this.Rules.types,
-                    actual: file.Info.MimeType
+                    actual: file.Info!.MimeType
                 },
-                message: `File type must be one of: ${this.Rules.types.join(', ')}. Got: ${file.Info.MimeType}`
+                message: `File type must be one of: ${this.Rules.types.join(', ')}. Got: ${file.Info!.MimeType}`
             }]);
         }
 
@@ -71,7 +72,7 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
             return file;
         }
 
-        if (!file.Info.Width || !file.Info.Height) {
+        if (!file.Info! || !file.Info!.Width || !file.Info!.Height) {
             throw new ValidationFailed('validation error', [{
                 instancePath: '/file',
                 schemaPath: '#/properties/file/proportions',
@@ -97,7 +98,7 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
                 }]);
             }
 
-            const actualRatio = file.Info.Width / file.Info.Height;
+            const actualRatio = file.Info!.Width! / file.Info!.Height!;
             const expectedRatio = expectedWidth / expectedHeight;
             const tolerance = 0.01; // 1% tolerance
 
@@ -108,10 +109,10 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
                     keyword: 'proportions',
                     params: {
                         expected: this.Rules.proportions,
-                        actual: `${file.Info.Width}x${file.Info.Height}`,
+                        actual: `${file.Info!.Width}x${file.Info!.Height}`,
                         ratio: actualRatio.toFixed(2)
                     },
-                    message: `Image proportions must be ${this.Rules.proportions}. Got: ${file.Info.Width}x${file.Info.Height} (${actualRatio.toFixed(2)})`
+                    message: `Image proportions must be ${this.Rules.proportions}. Got: ${file.Info!.Width}x${file.Info!.Height} (${actualRatio.toFixed(2)})`
                 }]);
             }
         });
@@ -123,7 +124,7 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
             return;
         }
 
-        if (!file.Info.Width || !file.Info.Height) {
+        if (!file.Info || !file.Info!.Width || !file.Info!.Height) {
             throw new ValidationFailed('validation error', [{
                 instancePath: '/file',
                 schemaPath: '#/properties/file/resolution',
@@ -134,53 +135,53 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
         }
 
 
-        if (file.Info.Width < this.Rules.resolution?.minWidth!) {
+        if (file.Info!.Width < this.Rules.resolution?.minWidth!) {
             throw new ValidationFailed('validation error', [{
                 instancePath: '/file/width',
                 schemaPath: '#/properties/file/resolution/width',
                 keyword: 'resolution',
-                params: { expected: this.Rules.resolution?.minWidth, actual: file.Info.Width },
-                message: `Image width must be greater than ${this.Rules.resolution?.minWidth}px. Got: ${file.Info.Width}px`
+                params: { expected: this.Rules.resolution?.minWidth, actual: file.Info!.Width },
+                message: `Image width must be greater than ${this.Rules.resolution?.minWidth}px. Got: ${file.Info!.Width}px`
             }]);
         }
 
-        if (file.Info.Height < this.Rules.resolution?.minHeight!) {
+        if (file.Info!.Height < this.Rules.resolution?.minHeight!) {
             throw new ValidationFailed('validation error', [{
                 instancePath: '/file/height',
                 schemaPath: '#/properties/file/resolution/height',
                 keyword: 'resolution',
-                params: { expected: this.Rules.resolution?.minHeight, actual: file.Info.Height },
-                message: `Image height must be greater than ${this.Rules.resolution?.minHeight}px. Got: ${file.Info.Height}px`
+                params: { expected: this.Rules.resolution?.minHeight, actual: file.Info!.Height },
+                message: `Image height must be greater than ${this.Rules.resolution?.minHeight}px. Got: ${file.Info!.Height}px`
             }]);
         }
 
-        if (file.Info.Height > this.Rules.resolution?.maxHeight!) {
+        if (file.Info!.Height > this.Rules.resolution?.maxHeight!) {
             throw new ValidationFailed('validation error', [{
                 instancePath: '/file/height',
                 schemaPath: '#/properties/file/resolution/height',
                 keyword: 'resolution',
-                params: { expected: this.Rules.resolution?.maxHeight, actual: file.Info.Height },
-                message: `Image height must be lower than ${this.Rules.resolution?.maxHeight}px. Got: ${file.Info.Height}px`
+                params: { expected: this.Rules.resolution?.maxHeight, actual: file.Info!.Height },
+                message: `Image height must be lower than ${this.Rules.resolution?.maxHeight}px. Got: ${file.Info!.Height}px`
             }]);
         }
 
-        if (file.Info.Width > this.Rules.resolution?.maxWidth!) {
+        if (file.Info!.Width > this.Rules.resolution?.maxWidth!) {
             throw new ValidationFailed('validation error', [{
                 instancePath: '/file/width',
                 schemaPath: '#/properties/file/resolution/width',
                 keyword: 'resolution',
-                params: { expected: this.Rules.resolution?.maxWidth, actual: file.Info.Width },
-                message: `Image width must be lower than ${this.Rules.resolution?.maxWidth}px. Got: ${file.Info.Width}px`
+                params: { expected: this.Rules.resolution?.maxWidth, actual: file.Info!.Width },
+                message: `Image width must be lower than ${this.Rules.resolution?.maxWidth}px. Got: ${file.Info!.Width}px`
             }]);
         }
 
-        if (file.Info.Height > this.Rules.resolution?.maxHeight!) {
+        if (file.Info!.Height > this.Rules.resolution?.maxHeight!) {
             throw new ValidationFailed('validation error', [{
                 instancePath: '/file/height',
                 schemaPath: '#/properties/file/resolution/height',
                 keyword: 'resolution',
-                params: { expected: this.Rules.resolution?.maxHeight, actual: file.Info.Height },
-                message: `Image height must be lower than ${this.Rules.resolution?.maxHeight}px. Got: ${file.Info.Height}px`
+                params: { expected: this.Rules.resolution?.maxHeight, actual: file.Info!.Height },
+                message: `Image height must be lower than ${this.Rules.resolution?.maxHeight}px. Got: ${file.Info!.Height}px`
             }]);
         }
     }

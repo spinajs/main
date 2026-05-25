@@ -13,10 +13,10 @@ export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor
       // if we have @belonsgTo relation we add to this filter schema all avaible filters
       // from the related model
       const descriptor = extractModelDescriptor(operatorsOrClass);
-      if (descriptor.FilterableColumns) {
-        const keys = [...descriptor.FilterableColumns.keys()];
+      if (descriptor!.FilterableColumns) {
+        const keys = [...descriptor!.FilterableColumns.keys()];
         const ops = keys.map((k) => {
-          return [`${propertyKey}.${k}`, descriptor.FilterableColumns.get(k)];
+          return [`${propertyKey}.${k}`, descriptor!.FilterableColumns!.get(k)];
         });
 
         model.FilterableColumns = new Map<string, IColumnFilter<unknown>>([...model.FilterableColumns.entries(), ...(ops as any)]);

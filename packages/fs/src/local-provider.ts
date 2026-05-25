@@ -56,7 +56,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
         `Base path ${this.Options.basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
       );
 
-      await mkdir(this.Options.basePath, { recursive: true });
+      await mkdir(this.Options.basePath!, { recursive: true });
 
       this.Logger.success(`Base path ${this.Options.basePath} created`);
     }
@@ -110,7 +110,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * Write to file string or buffer
    */
   public async write(path: string, data: string | Uint8Array, encoding: BufferEncoding) {
-    let fHandle: FileHandle = null;
+    let fHandle: FileHandle = null as any;
 
     try {
       fHandle = await open(this.resolvePath(path), 'w');
@@ -129,7 +129,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     await appendFile(path, data, encoding);
   }
 
-  public writeStream(path: string, rStream?: BufferEncoding | NodeJS.ReadStream, encoding?: BufferEncoding) {
+  public writeStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding) {
     const stream = createWriteStream(this.resolvePath(path), {
       encoding: (typeof rStream === 'string' ? rStream : encoding) ?? 'binary',
     });
@@ -241,7 +241,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public tmppath(): string {
-    return join(this.Options.basePath, super.tmpname());
+    return join(this.Options.basePath!, super.tmpname());
   }
 
   /**
@@ -272,7 +272,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   public async isDir(path: string): Promise<boolean> {
     try {
       const pStat = await this.stat(path);
-      return pStat.IsDirectory;
+      return pStat.IsDirectory ?? false;
     } catch {
       return false;
     }

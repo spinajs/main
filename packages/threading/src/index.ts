@@ -38,7 +38,7 @@ export const criticalSection = async <T>(name: string, callback: () => Promise<T
   let mutex = Promise.resolve();
 
   if (mutexes && mutexes.has(name)) {
-    mutex = mutexes.get(name);
+    mutex = mutexes.get(name)!;
   }
 
   // wait until mutex is released

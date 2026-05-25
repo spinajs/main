@@ -196,7 +196,7 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncServ
       this.Options = {
         enabled: true,
         layout: "${datetime} ${level} ${message}${?error} Exception: ${error:message}${/error} (${logger})",
-      }  as T;
+      } as T;
     }
   }
 
@@ -268,16 +268,18 @@ export abstract class Log extends SyncService {
   }
 
   public timeEnd(name: string): number {
-    if (this.Timers.has(name)) {
-      const cTime = new Date();
-      const diff = cTime.getTime() - this.Timers.get(name).getTime();
 
-      this.Timers.delete(name);
-
-      return diff;
+    const timer = this.Timers.get(name);
+    if (!timer) {
+      return 0;
     }
 
-    return 0;
+    const cTime = new Date();
+    const diff = cTime.getTime() - timer.getTime();
+
+    this.Timers.delete(name);
+
+    return diff;
   }
 
   public child(name: string, variables?: LogVariables): Log {
@@ -339,7 +341,7 @@ export function Logger(name: string, variables?: Record<string, unknown>) {
     const getter = () => {
       if (!logger) {
         const allLoggers = DI.get(Array.ofType(Log));
-        const found = allLoggers.find((l) => l.Name === name);
+        const found = allLoggers!.find((l) => l.Name === name);
 
         if (found) {
           logger = found;

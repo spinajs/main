@@ -55,13 +55,13 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   it('Should migrate', async () => {
     await db().migrateUp();
 
-    await db().Connections.get('sqlite').select().from('user');
-    await expect(db().Connections.get('sqlite').select().from('notexisted')).to.be.rejected;
+    await db().Connections.get('sqlite')!.select().from('user');
+    await expect(db().Connections.get('sqlite')!.select().from('notexisted')).to.be.rejected;
   });
 
   it('Should create schema builder', () => {
     const result = db()
-      .Connections.get('sqlite')
+      .Connections.get('sqlite')!
       .schema()
       .createTable('test', (table) => {
         table.timestamp('timestamp');
@@ -75,8 +75,8 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   it('Should check if table exists', async () => {
     await db().migrateUp();
 
-    const exists = await db().Connections.get('sqlite').schema().tableExists('user');
-    const notExists = await db().Connections.get('sqlite').schema().tableExists('user2');
+    const exists = await db().Connections.get('sqlite')!.schema().tableExists('user');
+    const notExists = await db().Connections.get('sqlite')!.schema().tableExists('user2');
 
     expect(exists).to.eq(true);
     expect(notExists).to.eq(false);
@@ -85,7 +85,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   it('should insert query', async () => {
     await db().migrateUp();
     await db().reloadTableInfo();
-    const iResult = await db().Connections.get('sqlite').insert().into('user').values({
+    const iResult = await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -104,7 +104,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
 
   it('should insert or ignore  query', () => {
     const result = db()
-      .Connections.get('sqlite')
+      .Connections.get('sqlite')!
       .insert()
       .into('user')
       .values({
@@ -121,22 +121,22 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
 
   it('should delete', async () => {
     await db().migrateUp();
-    await db().Connections.get('sqlite').insert().into('user').values({
+    await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
       IsActive: true,
     });
 
-    await db().Connections.get('sqlite').del().from('user').where('id', 1);
+    await db().Connections.get('sqlite')!.del().from('user').where('id', 1);
 
-    const result = await db().Connections.get('sqlite').select().from('user').first();
+    const result = await db().Connections.get('sqlite')!.select().from('user').first();
     expect(result).to.be.undefined;
   });
 
   it('should update', async () => {
     await db().migrateUp();
-    await db().Connections.get('sqlite').insert().into('user').values({
+    await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -144,7 +144,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     });
 
     await db()
-      .Connections.get('sqlite')
+      .Connections.get('sqlite')!
       .update()
       .in('user')
       .update({
@@ -152,7 +152,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
       })
       .where('id', 1);
 
-    const result: User = await db().Connections.get('sqlite').select<User>().from('user').first();
+    const result: User = await db().Connections.get('sqlite')!.select<User>().from('user').first();
     expect(result).to.be.not.null;
     expect(result.Name).to.eq('test updated');
   });
@@ -169,8 +169,8 @@ describe('Sqlite driver migrate', () => {
 
   it('Should migrate create migrate table', async () => {
     await db().migrateUp();
-    const mTable = await db().Connections.get('sqlite').tableInfo(TEST_MIGRATION_TABLE_NAME);
-    const mResult = await db().Connections.get('sqlite').select().from(TEST_MIGRATION_TABLE_NAME).first();
+    const mTable = await db().Connections.get('sqlite')!.tableInfo(TEST_MIGRATION_TABLE_NAME);
+    const mResult = await db().Connections.get('sqlite')!.select().from(TEST_MIGRATION_TABLE_NAME).first();
     expect(mTable).to.be.not.null;
     expect(mResult).to.be.not.null;
     expect((mResult as any).Migration).to.eq('TestMigration_2022_02_08_01_13_00');
@@ -187,14 +187,14 @@ describe('Sqlite driver migrate', () => {
 
   it('Should migrate', async () => {
     await db().migrateUp();
-    await db().Connections.get('sqlite').insert().into('user').values({
+    await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
       IsActive: true,
       DateTime: 0,
     });
-    const result = await db().Connections.get('sqlite').select().from('user').first();
+    const result = await db().Connections.get('sqlite')!.select().from('user').first();
 
     expect(result).to.be.not.null;
     expect(result).to.eql({
@@ -228,7 +228,7 @@ describe('Sqlite model functions', function () {
       IsActive: true,
     });
 
-    const result: User = await db().Connections.get('sqlite').select<User>().from('user').first();
+    const result: User = await db().Connections.get('sqlite')!.select<User>().from('user').first();
 
     expect(result).to.be.not.null;
     expect(result.Id).to.eq(1);
@@ -257,8 +257,8 @@ describe('Sqlite model functions', function () {
     const check = await TestOwned.getOrFail(1);
     await check.Owner.populate();
 
-    expect(check.Owner.Value.constructor.name).to.eq('TestModel');
-    expect(check.Owner.Value.Id).to.eq(1);
+    expect(check.Owner.Value!.constructor.name).to.eq('TestModel');
+    expect(check.Owner.Value!.Id).to.eq(1);
   });
 
   it('should model be updated with one-to-one relation', async () => {
@@ -283,8 +283,8 @@ describe('Sqlite model functions', function () {
     const check = await TestOwned.getOrFail(1);
     await check.Owner.populate();
 
-    expect(check.Owner.Value.constructor.name).to.eq('TestModel');
-    expect(check.Owner.Value.Id).to.eq(2);
+    expect(check.Owner.Value!.constructor.name).to.eq('TestModel');
+    expect(check.Owner.Value!.Id).to.eq(2);
   });
 
   it('model should attach & set one-to many relations', async () => {
@@ -372,8 +372,8 @@ describe('Sqlite model functions', function () {
     const result = await TestOwned.where('Id', '>', 0).populate('Owner');
 
     expect(result.length).to.eq(2);
-    expect(result[0].Owner.Value.Id).to.eq(1);
-    expect(result[1].Owner.Value.Id).to.eq(2);
+    expect(result[0].Owner.Value!.Id).to.eq(1);
+    expect(result[1].Owner.Value!.Id).to.eq(2);
   });
 
   it('Should hydrate single belongs to', async () => {
@@ -389,7 +389,7 @@ describe('Sqlite model functions', function () {
 
     const result = await owned_by_has_many_1.where('Id', '>', 0).populate('File');
     expect(result.length).to.eq(1);
-    expect(result[0].File.Value.Val).to.eq('leaf');
+    expect(result[0].File.Value!.Val).to.eq('leaf');
   });
 
   it('Should proper hydrate hasMany with belongsTo relation', async () => {
@@ -470,20 +470,20 @@ describe('Sqlite model functions', function () {
 
     expect(result.length).to.eq(2);
 
-    expect(result[0].Owner.Value.Many.length).to.eq(4);
-    expect(result[1].Owner.Value.Many.length).to.eq(4);
+    expect(result[0].Owner.Value!.Many.length).to.eq(4);
+    expect(result[1].Owner.Value!.Many.length).to.eq(4);
 
-    expect(result[0].Owner.Value.Many[0].Id).to.eq(1);
-    expect(result[0].Owner.Value.Many[1].Id).to.eq(2);
-    expect(result[0].Owner.Value.Many[2].Id).to.eq(3);
-    expect(result[0].Owner.Value.Many[3].Id).to.eq(4);
-    expect(result[1].Owner.Value.Many[0].Id).to.eq(5);
-    expect(result[1].Owner.Value.Many[1].Id).to.eq(6);
-    expect(result[1].Owner.Value.Many[2].Id).to.eq(7);
-    expect(result[1].Owner.Value.Many[3].Id).to.eq(8);
+    expect(result[0].Owner.Value!.Many[0].Id).to.eq(1);
+    expect(result[0].Owner.Value!.Many[1].Id).to.eq(2);
+    expect(result[0].Owner.Value!.Many[2].Id).to.eq(3);
+    expect(result[0].Owner.Value!.Many[3].Id).to.eq(4);
+    expect(result[1].Owner.Value!.Many[0].Id).to.eq(5);
+    expect(result[1].Owner.Value!.Many[1].Id).to.eq(6);
+    expect(result[1].Owner.Value!.Many[2].Id).to.eq(7);
+    expect(result[1].Owner.Value!.Many[3].Id).to.eq(8);
 
-    expect(result[0].Owner.Value.Owner.Value.Id).to.eq(1);
-    expect(result[1].Owner.Value.Owner.Value.Id).to.eq(2);
+    expect(result[0].Owner.Value!.Owner.Value!.Id).to.eq(1);
+    expect(result[1].Owner.Value!.Owner.Value!.Id).to.eq(2);
   });
 
   it('model relation belongsto should populate ', async () => {
@@ -529,17 +529,17 @@ describe('Sqlite model functions', function () {
     expect(result2.length).to.eq(2);
     expect(result.length).to.eq(2);
 
-    expect(result[0].Owner.Value.Many.length).to.eq(4);
-    expect(result[1].Owner.Value.Many.length).to.eq(4);
+    expect(result[0].Owner.Value!.Many.length).to.eq(4);
+    expect(result[1].Owner.Value!.Many.length).to.eq(4);
 
-    expect(result[0].Owner.Value.Many[0].Id).to.eq(1);
-    expect(result[0].Owner.Value.Many[1].Id).to.eq(2);
-    expect(result[0].Owner.Value.Many[2].Id).to.eq(3);
-    expect(result[0].Owner.Value.Many[3].Id).to.eq(4);
-    expect(result[1].Owner.Value.Many[0].Id).to.eq(5);
-    expect(result[1].Owner.Value.Many[1].Id).to.eq(6);
-    expect(result[1].Owner.Value.Many[2].Id).to.eq(7);
-    expect(result[1].Owner.Value.Many[3].Id).to.eq(8);
+    expect(result[0].Owner.Value!.Many[0].Id).to.eq(1);
+    expect(result[0].Owner.Value!.Many[1].Id).to.eq(2);
+    expect(result[0].Owner.Value!.Many[2].Id).to.eq(3);
+    expect(result[0].Owner.Value!.Many[3].Id).to.eq(4);
+    expect(result[1].Owner.Value!.Many[0].Id).to.eq(5);
+    expect(result[1].Owner.Value!.Many[1].Id).to.eq(6);
+    expect(result[1].Owner.Value!.Many[2].Id).to.eq(7);
+    expect(result[1].Owner.Value!.Many[3].Id).to.eq(8);
   });
 
   it('model relation set should work', async () => {
@@ -700,14 +700,14 @@ describe('Sqlite queries', function () {
   });
 
   it('should select and sort', async () => {
-    await db().Connections.get('sqlite').insert().into('user').values({
+    await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'a',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
       IsActive: true,
     });
 
-    await db().Connections.get('sqlite').insert().into('user').values({
+    await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'b',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -722,7 +722,7 @@ describe('Sqlite queries', function () {
   });
 
   it('should select to model', async () => {
-    await db().Connections.get('sqlite').insert().into('user').values({
+    await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -737,7 +737,7 @@ describe('Sqlite queries', function () {
   });
 
   it('should map datetime', async () => {
-    await db().Connections.get('sqlite').insert().into('user').values({
+    await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -751,7 +751,7 @@ describe('Sqlite queries', function () {
   });
 
   it('should run on duplicate', async () => {
-    await db().Connections.get('sqlite').insert().into('user').values({
+    await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -811,7 +811,7 @@ describe('Relation tests', function () {
     expect(result[0].Localisations[0].Network.Value).to.be.not.null;
     expect(result[0].Localisations[1].Network.Value).to.be.not.null;
 
-    expect(result[0].Localisations[0].Network.Value.Name).to.eq('Network 1');
+    expect(result[0].Localisations[0].Network.Value!.Name).to.eq('Network 1');
 
     expect(result[0].Localisations[0].Metadata.length).to.eq(1);
     expect(result[0].Localisations[1].Metadata.length).to.eq(1);
@@ -846,9 +846,9 @@ describe('Sqlite driver migrate with transaction', function () {
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
     expect(exSpy.getCall(35).args[0]).to.eq('COMMIT');
 
-    expect(driver.executeOnDb('SELECT * FROM user', null, QueryContext.Select)).to.be.fulfilled;
+    expect(driver.executeOnDb('SELECT * FROM user', [] as any, QueryContext.Select)).to.be.fulfilled;
 
-    const result = (await driver.executeOnDb(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, null, QueryContext.Select)) as unknown[];
+    const result = (await driver.executeOnDb(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, [] as any, QueryContext.Select)) as unknown[];
     expect(result[0]).to.be.not.undefined;
     expect(result[0]).to.be.not.null;
     expect((result[0] as any).Migration).to.eq('TestMigration_2022_02_08_01_13_00');
@@ -861,7 +861,7 @@ describe('Sqlite driver migrate with transaction', function () {
         await connection.insert().into('not_exists').values({ id: 1 });
       }
       public down(_connection: OrmDriver): Promise<void> {
-        return;
+        return Promise.resolve();
       }
     }
 
@@ -888,8 +888,8 @@ describe('Sqlite driver migrate with transaction', function () {
     expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
     expect(exSpy.getCall(5).args[0]).to.eq('ROLLBACK');
 
-    expect(driver.executeOnDb('SELECT * FROM user', null, QueryContext.Select)).to.be.rejected;
-    const result = (await driver.executeOnDb(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, null, QueryContext.Select)) as unknown[];
+    expect(driver.executeOnDb('SELECT * FROM user', [] as any, QueryContext.Select)).to.be.rejected;
+    const result = (await driver.executeOnDb(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, [] as any, QueryContext.Select)) as unknown[];
     expect(result.length).to.be.eq(0);
 
     DI.unregister(Fake2Orm);

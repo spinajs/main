@@ -127,7 +127,7 @@ export class Orm extends AsyncService {
     for (const m of this.Models) {
       const descriptor = extractModelDescriptor(m.type);
       if (descriptor) {
-        const connection = this.Connections.get(descriptor.Connection);
+        const connection = this.Connections.get(descriptor.Connection!);
 
         if (!connection) {
           this.Log.warn(`Cannot find connection ${descriptor.Connection} in connection list (model ${descriptor.Name})`);
@@ -175,7 +175,9 @@ export class Orm extends AsyncService {
             for (const [key, val] of descriptor.Converters) {
               const column = d.Columns.find((c) => c.Name === key);
               if (column) {
-                column.Converter = connection.Container.hasRegistered(val.Class) ? connection.Container.resolve(val.Class) : null;
+                if (connection.Container.hasRegistered(val.Class)) {
+                  column.Converter = connection.Container.resolve(val.Class);
+                }
               }
             }
 
@@ -329,7 +331,7 @@ export class Orm extends AsyncService {
         throw new OrmException(`ORM connection driver ${c.Driver} not registerd`);
       }
 
-      let driver: OrmDriver = null;
+      let driver: OrmDriver | null = null;
       try {
         driver = await this.Container.resolve<OrmDriver>(c.Driver, [c]);
       } catch (err) {
@@ -362,7 +364,7 @@ export class Orm extends AsyncService {
         throw new InvalidOperation(`default connection ${defaultConnection} not exists`);
       }
 
-      this.Connections.set('default', this.Connections.get(defaultConnection));
+      this.Connections.set('default', this.Connections.get(defaultConnection)!);
     }
 
     // wire connection aliases
@@ -375,7 +377,7 @@ export class Orm extends AsyncService {
         throw new InvalidOperation(`default connection ${conn} not exists`);
       }
 
-      this.Connections.set(a, this.Connections.get(conn));
+      this.Connections.set(a, this.Connections.get(conn)!);
     }
 
     // register in container factory func for retrieving db connections
@@ -413,7 +415,7 @@ export class Orm extends AsyncService {
     return created;
   }
 
-  private async executeAvaibleMigrations(name: string, callback: (migration: OrmMigration, driver: OrmDriver) => Promise<void>, down: boolean, force: boolean) {
+  private async executeAvaibleMigrations(name: string | undefined, callback: (migration: OrmMigration, driver: OrmDriver) => Promise<void>, down: boolean, force: boolean) {
     const toMigrate = name ? this.Migrations.filter((m) => m.name === name) : this.Migrations;
 
     let migrations = toMigrate

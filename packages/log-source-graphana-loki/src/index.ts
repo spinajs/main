@@ -144,7 +144,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
     const keyFor = (x: ILogEntry) => {
       return [this.Options.labels.app, x.Variables.logger, x.Variables.level, ...Object.values(this.Options.labels)].join("-");
     };
-    const valFor = (x: ILogEntry) => [x.Variables["n_timestamp"].toString(), format(x.Variables, this.Options.layout)];
+    const valFor = (x: ILogEntry) => [(x.Variables["n_timestamp"] as any).toString(), format(x.Variables, this.Options.layout)];
 
     this.Status = TargetStatus.WRITTING;
 
@@ -157,7 +157,6 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
           stream: {
             logger: x.Variables.logger,
             level: x.Variables.level,
-            app: this.Options.labels.app,
             ...this.Options.labels,
           },
           values: [valFor(x)],

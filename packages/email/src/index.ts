@@ -33,7 +33,7 @@ export class DefaultEmailService extends EmailService {
       throw new InvalidOperation(`Email sender ${email.connection} not exists. Please check your configuration files.`);
     }
 
-    await this.Senders.get(email.connection).send(email);
+    await this.Senders.get(email.connection)!.send(email);
 
     // inform others of email event
     await this.Queue.emit(new EmailSent(email));

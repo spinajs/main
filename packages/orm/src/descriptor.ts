@@ -42,7 +42,7 @@ function createDefaultModelDescriptor(): IModelDescriptor {
   };
 }
 
-export function extractModelDescriptorInherited(targetOrForward: any): IModelDescriptor {
+export function extractModelDescriptorInherited(targetOrForward: any): IModelDescriptor | null {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
 
   if (!target) {
@@ -83,7 +83,7 @@ export function extractModelDescriptorInherited(targetOrForward: any): IModelDes
   }
 }
 
-export function extractModelDescriptor(targetOrForward: any): IModelDescriptor {
+export function extractModelDescriptor(targetOrForward: any): IModelDescriptor | null {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
   if (!target) {
     return null;

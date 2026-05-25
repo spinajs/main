@@ -135,7 +135,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('Should migrate configuration table', async () => {
-    const result = await (await db()).Connections.get('sqlite').schema().tableExists('configuration');
+    const result = await (await db()).Connections.get('sqlite')!.schema().tableExists('configuration');
     expect(result).to.be.true;
   });
 

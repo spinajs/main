@@ -40,7 +40,7 @@ export interface ISupportedFeature {
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
-  TargetModelDescriptor: IModelDescriptor;
+  TargetModelDescriptor: IModelDescriptor | null;
 
   /**
    * Indicates if data was fetched  from db
@@ -344,7 +344,7 @@ export interface IModelDescriptor {
   /**
    * Connection name, must be avaible in db config
    */
-  Connection: string;
+  Connection: string | null;
 
   /**
    * Table name in database for this model
@@ -397,7 +397,7 @@ export interface IModelDescriptor {
   /**
    * Orm driver that this model
    */
-  Driver: OrmDriver;
+  Driver: OrmDriver | null;
 
   /**
    * Json schema for validation
@@ -414,7 +414,7 @@ export interface IDiscriminationMap {
   /**
    * Field values mapped for proper models
    */
-  Models: Map<string, Constructor<ModelBase>>;
+  Models: Map<string, Constructor<ModelBase>> | null;
 }
 
 export interface IDiscriminationEntry {
@@ -461,7 +461,7 @@ export interface IRelationDescriptor {
   /**
    * Relation owner
    */
-  SourceModel: Constructor<ModelBase> & IModelStatic;
+  SourceModel: (Constructor<ModelBase> & IModelStatic) | null;
 
   /**
    * Relation foreign key (one to one, one to many)
@@ -560,7 +560,7 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
 }
 
 export interface IModelBase {
-  ModelDescriptor: IModelDescriptor;
+  ModelDescriptor: IModelDescriptor | null;
   Container: IContainer;
   PrimaryKeyName: string;
   PrimaryKeyValue: any;
@@ -716,7 +716,7 @@ export interface IColumnDescriptor {
   /**
    * Value converter between database & model
    */
-  Converter: IValueConverter;
+  Converter: IValueConverter | null | undefined;
 
   /**
    * JSON schema definition build for this column. Used to automate data validation
@@ -731,7 +731,7 @@ export interface IColumnDescriptor {
   /**
    * Is uuid generated column
    */
-  Uuid: boolean;
+  Uuid: boolean | undefined;
 
   // should be skipped when serializing to json
   Ignore: boolean;
@@ -753,7 +753,7 @@ export interface IColumnDescriptor {
     From: string;
     To: string;
     Table: string;
-  };
+  } | null | undefined;
 }
 
 /**
@@ -870,7 +870,7 @@ export interface IOrderByBuilder {
   orderBy(column: string): this;
   orderByDescending(column: string): this;
   order(column: string, direction: SortOrder): this;
-  getSort(): ISort;
+  getSort(): ISort | null;
 }
 
 export interface IColumnsBuilder {
@@ -969,7 +969,7 @@ export interface IWhereBuilder<T> {
 }
 
 export interface IWithRecursiveBuilder {
-  CteRecursive: IQueryStatement;
+  CteRecursive: IQueryStatement | undefined;
 
   withRecursive(recKeyName: string, pkKeyName: string): this;
 }
@@ -1079,8 +1079,8 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
 }
 
 export interface ICompilerOutput {
-  expression: string;
-  bindings: any[];
+  expression: string | null;
+  bindings: any[] | null;
 }
 
 export interface IQueryCompiler {
@@ -1268,7 +1268,7 @@ export interface IBuilderMiddleware<T = any[]> {
    *
    * @param data - raw data to create
    */
-  modelCreation(data: any): ModelBase;
+  modelCreation(data: any): ModelBase | null;
 
   /**
    * executed after model was created ( all returned data by query is executed)

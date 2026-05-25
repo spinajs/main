@@ -9,8 +9,6 @@ import _ from 'lodash';
 @Model('users_metadata')
 export class UserMetadata extends MetadataModel<UserMetadata> {
   public user_id: number;
-
-  public Key : string;
 }
 
 

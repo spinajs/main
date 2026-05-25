@@ -21,7 +21,7 @@ function __saveConfigOptions(v: __dbCOnfigOptions) {
     void DbConfig.insert(
       {
         Slug: v.path,
-        Value: v.options.exposeOptions.type === 'json' ? JSON.stringify(v.options.defaultValue) : v.options.defaultValue,
+        Value: v.options.exposeOptions?.type === 'json' ? JSON.stringify(v.options.defaultValue) : v.options.defaultValue,
         Group: v.options.exposeOptions?.group,
         Label: v.options.exposeOptions?.label,
         Description: v.options.exposeOptions?.description,
@@ -29,7 +29,7 @@ function __saveConfigOptions(v: __dbCOnfigOptions) {
         Required: v.options.required,
         Type: v.options.exposeOptions?.type,
         Watch: v.options.exposeOptions?.watch ?? false,
-        Default: v.options.exposeOptions.type === 'json' ? JSON.stringify(v.options.defaultValue) : v.options.defaultValue ?? undefined,
+        Default: v.options.exposeOptions?.type === 'json' ? JSON.stringify(v.options.defaultValue) : v.options.defaultValue ?? undefined,
         Exposed: true,
       },
       InsertBehaviour.InsertOrIgnore,
@@ -49,7 +49,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
         __saveConfigOptions(v);
 
         void DbConfig.where("Slug", v.path).first().then((result: DbConfig) => {
-          const cService = DI.get(Configuration);
+          const cService = DI.get(Configuration)!;
           cService.set(v.path, result?.Value ?? v.options.defaultValue)
         });
       }
@@ -58,7 +58,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     // register vals added before orm is resolved eg. at bostrap phase
     DI.once('di.resolved.Orm', (container: IContainer) => {
       const vars = container
-        .get<__dbCOnfigOptions>(Array.ofType('__configuration_property__'))
+        .get<__dbCOnfigOptions>(Array.ofType('__configuration_property__'))!
         .filter((x) => x.options)
         .filter((x) => x.options.expose);
 
@@ -72,8 +72,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       const interval = DI.get('__config_watch_interval__');
 
       const watchTimer = setInterval(() => {
-        const varsToWatch = vars.filter((x) => x.options.exposeOptions.watch);
-        const cService = container.get(Configuration);
+        const varsToWatch = vars.filter((x) => x.options.exposeOptions?.watch);
+        const cService = container.get(Configuration)!;
 
         if (varsToWatch.length === 0) {
           return;

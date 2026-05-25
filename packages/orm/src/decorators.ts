@@ -72,11 +72,11 @@ function _getMetadataFrom(target: any) {
   return metadata[target.name];
 }
 
-export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
+export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
   return (target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
     const metadata = _getMetadataFrom(target.constructor);
     if (callback) {
-      callback(metadata, target.constructor, propertyKey, indexOrDescriptor);
+      callback(metadata, target.constructor, propertyKey as string, indexOrDescriptor);
     }
   };
 }
@@ -285,7 +285,7 @@ export function DiscriminationMap(fieldName: string, discriminationMap: IDiscrim
     model.DiscriminationMap.Models = new Map<string, Constructor<ModelBase>>();
 
     discriminationMap.forEach((d) => {
-      model.DiscriminationMap.Models.set(d.Key, d.Value);
+      model.DiscriminationMap.Models!.set(d.Key, d.Value);
     });
   });
 }
@@ -299,7 +299,7 @@ export function Recursive() {
     if (!model.Relations.has(propertyKey)) {
       throw new InvalidOperation(`cannot set recursive on not existing relation ( relation ${propertyKey} on model ${model.Name} )`);
     }
-    const relation = model.Relations.get(propertyKey);
+    const relation = model.Relations.get(propertyKey)!;
     relation.Recursive = true;
   });
 }
@@ -327,9 +327,9 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
       Type: RelationType.One,
       SourceModel: target,
       TargetModelType: targetModel,
-      TargetModel: null,
+      TargetModel: undefined as any,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
-      PrimaryKey: primaryKey ?? targetModelDesc.PrimaryKey,
+      PrimaryKey: primaryKey ?? targetModelDesc?.PrimaryKey ?? model.PrimaryKey,
       Recursive: false,
     });
   });
@@ -342,11 +342,11 @@ export function Virtual(virtualRelation?: Constructor<Relation<ModelBase<unknown
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Virtual,
-      Callback: null,
-      Mapper: null,
-      SourceModel: null,
-      TargetModelType: null,
-      TargetModel: null,
+      Callback: undefined,
+      Mapper: undefined,
+      SourceModel: undefined as any,
+      TargetModelType: undefined as any,
+      TargetModel: undefined as any,
       ForeignKey: '',
       PrimaryKey: '',
       Recursive: false,
@@ -370,11 +370,11 @@ export function Query<T extends ModelBase<unknown>, D extends ModelBase<unknown>
     model.Relations.set(propertyKey, {
       Name: propertyKey,
       Type: RelationType.Query,
-      Callback: callback,
-      Mapper: mapper,
-      SourceModel: null,
-      TargetModelType: null,
-      TargetModel: null,
+      Callback: callback as any,
+      Mapper: mapper as any,
+      SourceModel: undefined as any,
+      TargetModelType: undefined as any,
+      TargetModel: undefined as any,
       ForeignKey: '',
       PrimaryKey: '',
       Recursive: false,
@@ -397,7 +397,7 @@ export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: str
       Type: RelationType.One,
       SourceModel: target,
       TargetModelType: forwardRef.forwardRef,
-      TargetModel: null,
+      TargetModel: undefined as any,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
       PrimaryKey: primaryKey ?? model.PrimaryKey,
       Recursive: false,
@@ -469,11 +469,11 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       Type: RelationType.Many,
       SourceModel: target,
       TargetModelType: targetModel,
-      TargetModel: null,
+      TargetModel: undefined as any,
       ForeignKey: options ? options.foreignKey ?? `${model.Name.toLowerCase()}_id` : `${model.Name.toLowerCase()}_id`,
       PrimaryKey: options ? options.primaryKey ?? model.PrimaryKey : model.PrimaryKey,
       Recursive: false,
-      Factory: options?.factory ? options.factory : null,
+      Factory: options?.factory ? options.factory : undefined,
       RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_factory__', [type]),
     });
   });
@@ -486,7 +486,7 @@ export function Historical(targetModel: Constructor<ModelBase>) {
       Type: RelationType.Many,
       SourceModel: target,
       TargetModelType: targetModel,
-      TargetModel: null,
+      TargetModel: undefined as any,
       ForeignKey: model.PrimaryKey,
       PrimaryKey: model.PrimaryKey,
       Recursive: false,
@@ -508,7 +508,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       Type: RelationType.ManyToMany,
       SourceModel: target,
       TargetModelType: targetModel,
-      TargetModel: null,
+      TargetModel: undefined as any,
       ForeignKey: '',
       // ForeignKey: options?.targetModelPKey ?? targetModelDescriptor.PrimaryKey,
       PrimaryKey: options?.sourceModelPKey ?? model.PrimaryKey,
@@ -517,8 +517,8 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       JunctionModelTargetModelFKey_Name: '',
       JunctionModelSourceModelFKey_Name: options?.junctionModelSourcePk ?? `${model.Name.toLowerCase()}_id`,
       RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_to_many_factory__', [type]),
-      Factory: options ? options.factory : null,
-      JoinMode: options ? options.joinMode : null,
+      Factory: options ? options.factory : undefined,
+      JoinMode: options ? options.joinMode : undefined,
     };
 
     // HACK:
@@ -527,24 +527,24 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
     // using of getters is temporary ??? too much code change for now
     if (typeof targetModel === 'string') {
       const getModel = function () {
-        return extractModelDescriptor(DI.get(Orm).Models.find((x) => x.name === targetModel).type);
+        return extractModelDescriptor(DI.get(Orm)!.Models.find((x) => x.name === targetModel)!.type);
       };
 
       Object.defineProperty(descriptor, 'ForeignKey', {
         get: function () {
-          return options?.targetModelPKey ?? getModel().PrimaryKey;
+          return options?.targetModelPKey ?? getModel()!.PrimaryKey;
         },
       });
 
       Object.defineProperty(descriptor, 'JunctionModelTargetModelFKey_Name', {
         get: function () {
-          return options?.junctionModelTargetPk ?? `${getModel().Name.toLowerCase()}_id`;
+          return options?.junctionModelTargetPk ?? `${getModel()!.Name.toLowerCase()}_id`;
         },
       });
     } else {
       const targetModelDescriptor = extractModelDescriptor(targetModel);
-      descriptor.ForeignKey = options?.targetModelPKey ?? targetModelDescriptor.PrimaryKey;
-      descriptor.JunctionModelTargetModelFKey_Name = options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`;
+      descriptor.ForeignKey = options?.targetModelPKey ?? targetModelDescriptor!.PrimaryKey;
+      descriptor.JunctionModelTargetModelFKey_Name = options?.junctionModelTargetPk ?? `${targetModelDescriptor!.Name.toLowerCase()}_id`;
     }
 
     let type: Constructor<Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>> = Reflect.getMetadata('design:type', target.prototype, propertyKey);

@@ -6,7 +6,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import '../src';
 import { DynamoDbSessionProvider } from '../src/index.js';
-import { Session } from '@spinajs/rbac';
+import { UserSession as Session } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 
 chai.use(chaiAsPromised);
@@ -164,9 +164,9 @@ describe('dynamodb session provider', function () {
 
     const sR2 = await s.restore('a');
 
-    expect(sR2.Expiration.toMillis() === date2.toMillis());
-    expect(sR.Expiration.toMillis() === date.toMillis());
-    expect(sR2.Expiration.toMillis() > sR.Expiration.toMillis());
+    expect(sR2.Expiration!.toMillis() === date2.toMillis());
+    expect(sR.Expiration!.toMillis() === date.toMillis());
+    expect(sR2.Expiration!.toMillis() > sR.Expiration!.toMillis());
   });
   it('should return null when session expired', async () => {
     const s = await session();

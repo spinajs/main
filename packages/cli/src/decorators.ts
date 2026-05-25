@@ -49,12 +49,12 @@ export function Option(
   parser?: (opt: string) => unknown,
 ) {
   return function (target: object) {
-    const arg = {
+    const arg: IOption = {
       flags,
       description,
       defaultValue,
       required,
-      parser,
+      parser: parser as IOption['parser'],
     };
     let args: IOption[] = [];
 
@@ -85,12 +85,12 @@ export function Argument(
   parser?: (opt: string) => unknown,
 ) {
   return function (target: object) {
-    const arg = {
+    const arg: IArgument = {
       name,
       description,
       defaultValue,
       required,
-      parser,
+      parser: parser as IArgument['parser'],
     };
     let args: IArgument[] = [];
 

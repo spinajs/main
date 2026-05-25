@@ -76,7 +76,7 @@ export function _contains_key<K, V>(key: K): (arg: unknown, name: string) => Map
       if (!arg.has(key)) {
         throw new InvalidArgument(`${name} should contain key ${key}`, name, 'MISSING_KEY');
       }
-    } else if (typeof arg === 'object' && !Object.keys(arg).includes(key.toString())) {
+    } else if (typeof arg === 'object' && !Object.keys(arg).includes(String(key))) {
       throw new InvalidArgument(`${name} should contain key ${key}`, name, 'MISSING_KEY');
     }
 

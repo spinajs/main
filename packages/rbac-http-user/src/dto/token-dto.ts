@@ -4,8 +4,9 @@ export const TokenDtoSchema = {
   title: 'Token DTO',
   type: 'object',
   properties: {
-    Token: { type: 'string', maxLength: 64 },
+    Token: { type: 'string', maxLength: 64, description: 'Six-digit TOTP code from the authenticator app' },
   },
+  required: ['Token'],
 };
 
 @Schema(TokenDtoSchema)

@@ -6,11 +6,17 @@ import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import * as cs from 'cookie-signature';
 import _ from 'lodash';
-import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap } from '@spinajs/rbac-http';
 import { _chain, _either } from '@spinajs/util';
 
 
 
+/**
+ * Current user profile management.
+ * Allows an authenticated user to read and modify their own account — refresh profile data,
+ * view their RBAC grants, and change their password.
+ * @tags User
+ */
 @BasePath('user')
 @Resource('user')
 @Policy(AuthorizedPolicy)
@@ -27,6 +33,15 @@ export class UserController extends BaseController {
   @Autoinject(AccessControl)
   protected AC: AccessControl;
 
+  /**
+   * Refresh current user profile
+   * Reloads the authenticated user's record from the database (including metadata) and
+   * updates the session with the latest data. Returns the refreshed user data.
+   * @security cookieAuth
+   * @returns {IUserProfile} Refreshed user profile data
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — insufficient permissions
+   */
   @Get()
   @Permission(['readOwn'])
   public async refresh(@User() user: UserModel, @Cookie() ssid: string) {
@@ -46,9 +61,18 @@ export class UserController extends BaseController {
     return new Ok(user.dehydrate());
   }
 
+  /**
+   * Get current user grants
+   * Returns the flattened RBAC grants for the authenticated user, combining all roles
+   * the user is assigned to into a single permission map keyed by resource.
+   * @security cookieAuth
+   * @returns {IGrantsMap} Combined RBAC grants map: resource → action → permission descriptor
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — insufficient permissions
+   */
   @Get("grants")
   @Permission(['readOwn'])
-  public async getGrants(@User() user: UserModel) {
+  public async getGrants(@User() user: UserModel): Promise<Ok<IGrantsMap>> {
 
     const grants = this.AC.getGrants();
     const userGrants = user.Role.map(r => _unwindGrants(r, grants));
@@ -58,6 +82,15 @@ export class UserController extends BaseController {
   }
 
 
+  /**
+   * Change own password
+   * Changes the authenticated user's password. Requires the current (old) password for verification.
+   * The new password and its confirmation must match.
+   * @security cookieAuth
+   * @response 400 Old password is incorrect, or new passwords do not match
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — insufficient permissions
+   */
   @Patch('password')
   @Permission(["updateOwn"])
   public async newPassword(@User() user: UserModel, @Body() pwd: PasswordDto) {

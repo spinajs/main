@@ -213,7 +213,7 @@ export abstract class SessionProvider<T = ISession> extends AsyncService {
    *
    * @param sessionId - session identifier
    */
-  public abstract restore(sessionId: string): Promise<T>;
+  public abstract restore(sessionId: string): Promise<T | null>;
 
   /**
    *

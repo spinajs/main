@@ -27,17 +27,17 @@ function Controller(callback: (controller: IControllerDescriptor, target: any, p
     }
 
     if (callback) {
-      callback(metadata, target, propertyKey, indexOrDescriptor);
+      callback(metadata, target, propertyKey!, indexOrDescriptor!);
     }
   };
 }
 
-export function Route(callback: (controller: IControllerDescriptor, route: IRoute, target: any, propertyKey?: string, indexOrDescriptor?: number | PropertyDescriptor) => void) {
-  return Controller((metadata: IControllerDescriptor, target: any, propertyKey: string, indexOrDescriptor: number | PropertyDescriptor) => {
-    let route: IRoute = null;
+export function Route(callback: (controller: IControllerDescriptor, route: IRoute, target: any, propertyKey?: string | symbol, indexOrDescriptor?: number | PropertyDescriptor) => void) {
+  return Controller((metadata: IControllerDescriptor, target: any, propertyKey: string | symbol, indexOrDescriptor: number | PropertyDescriptor) => {
+    let route: IRoute | null = null;
     if (propertyKey) {
       if (metadata.Routes.has(propertyKey)) {
-        route = metadata.Routes.get(propertyKey);
+        route = metadata.Routes.get(propertyKey)!;
       } else {
         route = {
           InternalType: RouteType.UNKNOWN,
@@ -56,7 +56,7 @@ export function Route(callback: (controller: IControllerDescriptor, route: IRout
     }
 
     if (callback) {
-      callback(metadata, route, target, propertyKey, indexOrDescriptor);
+      callback(metadata, route!, target, propertyKey, indexOrDescriptor);
     }
   });
 }
@@ -66,9 +66,14 @@ export function Route(callback: (controller: IControllerDescriptor, route: IRout
  * have information about this.
  */
 export function Type(type: any) {
-  return Route((_: IControllerDescriptor, route: IRoute, _target: any, _propertyKey: string, index: number) => {
+  return Route((_: IControllerDescriptor, route: IRoute, _target: any, _propertyKey: string | symbol, index: number | PropertyDescriptor ) => {
+
+    if(typeof index !== 'number'){
+      throw new Error(`@Type decorator can be used only on method parameters. Invalid usage on ${_propertyKey.toString()} of ${_target.constructor.name}`);
+    }
+
     if (route.Parameters.has(index)) {
-      route.Parameters.get(index).RuntimeType = type;
+      route.Parameters.get(index)!.RuntimeType = type;
     } else {
       const param: IRouteParameter = {
         Index: index,
@@ -76,7 +81,7 @@ export function Type(type: any) {
         RuntimeType: type,
         RouteParamSchema: '',
         Options: null,
-        Type: null,
+        Type: '' as any,
       };
 
       route.Parameters.set(index, param);
@@ -85,7 +90,16 @@ export function Type(type: any) {
 }
 
 export function Parameter(type: ParameterType | string, schema?: any, options?: any) {
-  return (_: IControllerDescriptor, route: IRoute, target: any, propertyKey: string, index: number) => {
+  return (_: IControllerDescriptor, route: IRoute, target: any, propertyKey?: string | symbol, index?: number | PropertyDescriptor) => {
+
+    if(propertyKey === undefined){
+      throw new Error(`propertyKey is required for @Parameter decorator. Invalid usage on ${target.constructor.name}`);
+    }
+
+    if(typeof index !== 'number'){
+      throw new Error(`@Parameter decorator can be used only on method parameters. Invalid usage on ${propertyKey.toString()} of ${target.constructor.name}`);
+    }
+
     const rType = Reflect.getMetadata('design:paramtypes', target.prototype || target, propertyKey)[index];
 
     let tSchema = null;
@@ -103,6 +117,11 @@ export function Parameter(type: ParameterType | string, schema?: any, options?: 
 
     if (route.Parameters.has(index)) {
       const p = route.Parameters.get(index);
+
+      if(!p){
+        throw new Error(`Failed to get parameter metadata for parameter at index ${index} of method ${String(propertyKey)} in controller ${target.constructor.name}`);
+      }
+      
       p.Type = type;
       p.Options = options;
       p.RouteParamSchema = tSchema;
@@ -159,7 +178,7 @@ export function HandleException(exception: Constructor<Error> | Constructor<Erro
  * @returns
  */
 export function Policy(policy: Constructor<BasePolicy> | string, ...options: any[]) {
-  return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1: string, _2: number | PropertyDescriptor) => {
+  return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1: string | symbol, _2: number | PropertyDescriptor) => {
     const pDesc = {
       Options: options,
       Type: policy,
@@ -174,7 +193,7 @@ export function Policy(policy: Constructor<BasePolicy> | string, ...options: any
 }
 
 export function Middleware(policy: Constructor<RouteMiddleware>, ...options: any[]) {
-  return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1: string, _2: number | PropertyDescriptor) => {
+  return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1: string | symbol, _2: number | PropertyDescriptor) => {
     const pDesc = {
       Options: options,
       Type: policy,
@@ -202,7 +221,7 @@ export function Accepts(accepts: HttpAcceptHeaders) {
     }
     public async onBefore(req: express.Request, res: express.Response, route: IRoute, _controller: IController): Promise<void> {
       const paramExtract = await DI.resolve(RequestTypeRouteArgs);
-      const { Args } = await paramExtract.extract(null, null, null, req, res, route);
+      const { Args } = await paramExtract.extract(null as any, null as any, null as any, req, res, route);
 
       if (!(Args & accepts)) {
         throw new BadRequest(`Accepted content type ${accepts} is not supported`, HTTP_STATUS_CODE.NOT_ACCEPTABLE);

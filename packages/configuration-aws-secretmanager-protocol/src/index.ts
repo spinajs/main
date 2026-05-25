@@ -9,13 +9,13 @@ export * from "./awsParameterStoreProtocol.js";
 @Singleton()
 @Injectable(ConfigVarProtocol)
 export class AwsSecretsManagerVarProtocol extends ConfigVarProtocol {
-  protected Client: SecretsManagerClient;
+  protected Client!: SecretsManagerClient;
 
   get Protocol(): string {
     return 'aws-secrets://';
   }
 
-  public async getVar(path: string, configuration: any): Promise<unknown> {
+  public async getVar(path: string, configuration: any): Promise<string | undefined> {
     if (!this.Client) {
       this.Client = new SecretsManagerClient({
         ...configuration?.aws?.secretsManager,

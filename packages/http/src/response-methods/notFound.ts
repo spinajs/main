@@ -11,11 +11,11 @@ import { Injectable } from '@spinajs/di';
  */
 @HandleException(ResourceNotFound)
 @Injectable(Response)
-export class NotFound extends BadRequestResponse {
+export class NotFound<T = any> extends BadRequestResponse<T> {
   protected _errorCode = HTTP_STATUS_CODE.NOT_FOUND;
   protected _template = 'notFound.pug';
 
-  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(data: T | Promise<T> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }

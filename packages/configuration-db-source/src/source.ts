@@ -15,11 +15,11 @@ import { parse } from './models/DbConfig.js';
 @Singleton()
 @Injectable(ConfigurationSource)
 export class ConfiguratioDbSource extends ConfigurationSource {
-  protected Connection: OrmDriver;
+  protected Connection!: OrmDriver;
 
-  protected Configuration: Configuration;
+  protected Configuration!: Configuration;
 
-  protected Options: IConfiguratioDbSourceConfig;
+  protected Options!: IConfiguratioDbSourceConfig;
 
   public get Order(): number {
     // load as last, we want to have access to
@@ -38,12 +38,12 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       await this.Connect();
     } catch (err) {
       InternalLogger.error(`Failed to connect to database for configuration source (connection: ${this.Options.connection}): ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
-      return null;
+      return {}  as IConfigLike;
     }
 
     if (!this.Connection) {
       InternalLogger.warn(`No database connection available for configuration source (connection: ${this.Options.connection}), skipping db config`, 'configuration-db-source');
-      return null;
+      return {}  as IConfigLike;
     }
 
     let tableExists = false;
@@ -51,12 +51,12 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       tableExists = await this.CheckTable();
     } catch (err) {
       InternalLogger.error(`Failed to check if configuration table '${this.Options.table}' exists: ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
-      return null;
+      return {}  as IConfigLike;
     }
 
     if (tableExists === false) {
       InternalLogger.warn(`Table for db configuration source not exists. Please run migration before use !`, 'configuration-db-source');
-      return null;
+      return {}  as IConfigLike;
     }
 
     let dbOptions: IConfigurationEntry[];
@@ -64,7 +64,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       dbOptions = await this.Connection.select<IConfigurationEntry[]>().from(this.Options.table);
     } catch (err) {
       InternalLogger.error(`Failed to read configuration entries from table '${this.Options.table}': ${err instanceof Error ? err.message : String(err)}`, 'configuration-db-source');
-      return null;
+      return {}  as IConfigLike;
     }
 
     dbOptions.forEach((entry) => {
@@ -72,7 +72,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
     });
 
     const final: IConfigLike = {
-      onConfigLoad: null,
+      onConfigLoad: null as any,
     };
     dbOptions.forEach((entry) => {
       InternalLogger.trace(`Loaded config ${entry.Slug} from db source`, 'Configuration-db-source');
@@ -110,10 +110,10 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
     // create or get connection
     if (DI.has(Orm)) {
-      this.Connection = DI.get(Orm).Connections.get(dbConnection);
+      this.Connection = DI.get(Orm)!.Connections.get(dbConnection)!;
 
       if (!this.Connection) {
-        throw new Error(`ORM is available but connection '${dbConnection}' was not found in ORM connections. Available connections: ${[...DI.get(Orm).Connections.keys()].join(', ') || 'none'}`);
+        throw new Error(`ORM is available but connection '${dbConnection}' was not found in ORM connections. Available connections: ${[...DI.get(Orm)!.Connections.keys()].join(', ') || 'none'}`);
       }
 
       // verify the existing connection is alive
@@ -146,7 +146,6 @@ export class ConfiguratioDbSource extends ConfigurationSource {
         } catch {
           // ignore cleanup errors
         }
-        this.Connection = null;
 
         throw err;
       }

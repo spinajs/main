@@ -49,7 +49,7 @@ export class Registry {
     const sourceName = getTypeName(source);
     const targetName = getTypeName(type);
     if (this.registry.has(sourceName)) {
-      return this.registry.get(sourceName).find((s) => s.name === targetName) !== undefined;
+      return this.registry.get(sourceName)!.find((s) => s.name === targetName) !== undefined;
     } else if (parent && this.container.Parent) {
       return this.container.Parent.hasRegisteredType(source, type, parent);
     }
@@ -64,14 +64,14 @@ export class Registry {
     const name = getTypeName(service);
 
     if (this.registry.has(name)) {
-      return this.registry.get(name);
+      return this.registry.get(name)!;
     }
 
     if (this.container.Parent && parent) {
       return this.container.Parent.getRegisteredTypes(service, parent);
     }
 
-    return null;
+    return null as any;
   }
 
   public hasRegistered<T>(service: TypedArray<T> | Class<T> | string, parent = true): boolean {

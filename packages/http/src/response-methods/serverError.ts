@@ -12,11 +12,11 @@ import { IOFail, MethodNotImplemented, UnexpectedServerError } from '@spinajs/ex
 
 @HandleException([MethodNotImplemented, IOFail, UnexpectedServerError])
 @Injectable(Response)
-export class ServerError extends BadRequestResponse {
+export class ServerError<T = any> extends BadRequestResponse<T> {
   protected _errorCode = HTTP_STATUS_CODE.INTERNAL_ERROR;
   protected _template = 'serverError.pug';
 
-  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(data: T | Promise<T> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }

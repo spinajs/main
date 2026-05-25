@@ -15,8 +15,8 @@ export class BanUser extends CliCommand {
     try {
       (await banOrUnban) ? ban(idOrUuid, reason, duration) : unban(idOrUuid);
 
-      this.Log.success(`User ${idOrUuid} ${ban ? 'banned' : 'unbanned'}`);
-    } catch (e) {
+      this.Log.success(`User ${idOrUuid} ${banOrUnban ? 'banned' : 'unbanned'}`);
+    } catch (e: any) {
       this.Log.error(`Error while banning user ${idOrUuid} ${e.message}`);
     }
   }

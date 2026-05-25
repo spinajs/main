@@ -12,11 +12,11 @@ import { Injectable } from '@spinajs/di';
 
 @HandleException(ResourceDuplicated)
 @Injectable(Response)
-export class Conflict extends BadRequestResponse {
+export class Conflict<T = any> extends BadRequestResponse<T> {
   protected _errorCode = HTTP_STATUS_CODE.CONFLICT;
   protected _template = 'conflict.pug';
 
-  constructor(error: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(error: T | Promise<T> | null, protected options?: IResponseOptions) {
     super(error, options);
   }
 }

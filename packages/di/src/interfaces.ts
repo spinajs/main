@@ -81,7 +81,7 @@ export interface ResolvableObject {
 export interface IContainer extends EventEmitter {
   Cache: ContainerCache;
   Registry: Registry;
-  Parent: IContainer;
+  Parent: IContainer | undefined;
 
   clear(): void;
   clearRegistry(): void;
@@ -129,7 +129,7 @@ export interface IInjectDescriptor<T> {
 export interface IToInject<T> {
   inject: Class<T> | TypedArray<T>;
   autoinject: boolean;
-  autoinjectKey: string;
+  autoinjectKey: string | symbol;
 
   /**
    * additional data passed to DI when resolving
@@ -152,7 +152,7 @@ export interface IToInject<T> {
    * and allows to use @AutoinjectService() decorator
    */
   serviceFunc?: (data: string | any[], container: IContainer) => IServiceFuncResult | IServiceFuncResult[];
-  mapFunc?: (x: any) => string;
+  mapFunc?: (x: any) => string | undefined;
 }
 
 export interface IMappableService {
@@ -167,7 +167,7 @@ export interface IServiceFuncResult {
 export interface IResolvedInjection {
   instance: unknown;
   autoinject: boolean;
-  autoinjectKey: string;
+  autoinjectKey: string | symbol;
 }
 
 /**

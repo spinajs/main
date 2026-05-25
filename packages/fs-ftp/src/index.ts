@@ -174,7 +174,12 @@ export class fsFTP extends fs {
 
   public async upload(srcPath: string, destPath?: string) {
     await this._restoreRootDir();
-    await this._ensureDir(destPath);
+    
+    if (!destPath) {
+      destPath = path.basename(srcPath);
+    }
+    
+    await this._ensureDir(destPath!);
     await this.FtpClient.uploadFrom(srcPath, path.basename(srcPath));
   }
 
@@ -186,7 +191,7 @@ export class fsFTP extends fs {
    * @param rStream readable stream, must be provided beforehand
    * @param encoding optional stream encoding
    */
-  public async writeStream(_path: string, _encoding?: BufferEncoding): Promise<any> {
+  public async writeStream(_path: string, _encoding?: BufferEncoding | NodeJS.ReadableStream, _enc?: BufferEncoding): Promise<any> {
     throw new MethodNotImplemented('fs ftp does not support writing streams');
   }
 
@@ -203,7 +208,7 @@ export class fsFTP extends fs {
       if (!result) {
         return false;
       }
-      return result.IsFile;
+      return result.IsFile ?? false;
     } catch (e) {
       return false;
     }
@@ -215,7 +220,7 @@ export class fsFTP extends fs {
       await this._setWorkingDir(p);
 
       const result = await this.stat(path.basename(p));
-      return result && result.IsDirectory;
+      return !!(result && result.IsDirectory);
     } catch {
       return false;
     }
@@ -297,7 +302,7 @@ export class fsFTP extends fs {
 
   public async isDir(dir: string): Promise<boolean> {
     const stat = await this.stat(dir);
-    return stat.IsDirectory;
+    return stat.IsDirectory ?? false;
   }
 
   /**
@@ -312,14 +317,14 @@ export class fsFTP extends fs {
         IsDirectory: found.isDirectory,
         IsFile: found.isFile,
         Size: found.size,
-        AccessTime: null,
-        ModifiedTime: DateTime.fromJSDate(found.modifiedAt),
-        CreationTime: null,
+        AccessTime: undefined,
+        ModifiedTime: DateTime.fromJSDate(found.modifiedAt!),
+        CreationTime: undefined,
         AdditionalData: found,
       };
     }
 
-    return null;
+    return null as any;
   }
 
   public tmppath(): string {

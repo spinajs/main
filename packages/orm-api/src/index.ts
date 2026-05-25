@@ -33,8 +33,8 @@ export class FromDbModel extends RouteArgs {
   public async extract(callData: IRouteCall, args : unknown[], param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
     let result = null;
   
-    if (param.Options.query) {
-      result = await param.Options.query.call(param.RuntimeType.query(), callData.Payload);
+    if (param.Options!.query) {
+      result = await param.Options!.query.call(param.RuntimeType.query(), callData.Payload);
     } else {
       result = await this.fromDbModelDefaultQueryFunction(callData, args, param, req);
     }
@@ -44,9 +44,9 @@ export class FromDbModel extends RouteArgs {
 
   protected fromDbModelDefaultQueryFunction(callData : IRouteCall, _args: unknown[], param: IRouteParameter<FromModelOptions<ModelBase>>, req: sRequest) {
     let pkValue: any = null;
-    const field = param.Options.field ?? param.Name;
+    const field = param.Options!.field ?? param.Name;
 
-    switch (param.Options.paramType) {
+    switch (param.Options!.paramType) {
       case ParameterType.FromQuery:
         pkValue = req.query[field];
         break;
@@ -64,15 +64,15 @@ export class FromDbModel extends RouteArgs {
 
     const query = param.RuntimeType['query']() as SelectQueryBuilder;
     const descriptor = extractModelDescriptor(param.RuntimeType);
-    query.setTable(descriptor.TableName, `$${descriptor.TableName}`);
-    query.where(function() { 
-      this.where(descriptor.PrimaryKey, pkValue);
+    query.setTable(descriptor!.TableName, `$${descriptor!.TableName}`);
+    query.where(function() {
+      this.where(descriptor!.PrimaryKey, pkValue);
     });
 
     /**
      * Checks BelongsToRelations
      */
-    for (const [, v] of descriptor.Relations) {
+    for (const [, v] of descriptor!.Relations) {
       // if its one-to-one relations ( belongsTo)
       // check if we have same field in route param list
       // If exists, we assume that we want parent ( owner of this model )
@@ -90,8 +90,8 @@ export class FromDbModel extends RouteArgs {
      * Include relations passed in options
      * NOTE: from options, not request that should be always included
      */
-    if(param.Options.include){
-      query.populate(param.Options.include);
+    if(param.Options!.include){
+      query.populate(param.Options!.include);
     }
 
     /**

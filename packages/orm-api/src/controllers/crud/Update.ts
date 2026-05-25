@@ -34,7 +34,7 @@ export class CrudUpdate extends Crud {
       }),
     );
 
-    entity.hydrate(data);
+    entity.hydrate(data as any);
     await entity.update();
 
     this.Log.trace('Updated entity with id ${id}');

@@ -23,7 +23,7 @@ export class RbacMiddleware extends ServerMiddleware {
   public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
     return async (req: sRequest, _res: express.Response, next: express.NextFunction) => {
       try {
-        let session: ISession = null;
+        let session: ISession | null = null;
         if (req.cookies?.ssid) {
           const ssid: string | false = cs.unsign(req.cookies.ssid, this.CoockieSecret);
           if (ssid) {
@@ -48,7 +48,7 @@ export class RbacMiddleware extends ServerMiddleware {
       }
     };
   }
-  public after(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
+  public after(): ((req: sRequest, res: express.Response, next: express.NextFunction) => void) | null {
     return null;
   }
 }

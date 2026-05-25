@@ -62,7 +62,7 @@ export class PugRenderer extends TemplateRenderer {
     const lang = language ? language : guessLanguage();
     const tLang = lang ?? defaultLanguage();
 
-    const content = fTemplate(
+    const content = fTemplate!(
       _.merge(model ?? {}, {
         __: __translate(tLang),
         __n: __translateNumber(tLang),

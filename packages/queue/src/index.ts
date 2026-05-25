@@ -64,7 +64,7 @@ export class DefaultQueueService extends QueueService {
   }
 
   public async stopConsuming(event: Constructor<QueueMessage>) {
-    this.getConnectionsForMessage(event).forEach((c) => this.Connections.get(c).unsubscribe(event));
+    this.getConnectionsForMessage(event).forEach((c) => this.Connections.get(c)!.unsubscribe(event));
   }
 
   /**
@@ -175,7 +175,7 @@ export class DefaultQueueService extends QueueService {
    * @param connection - connection name to obtain
    * @returns
    */
-  public get(connection?: string) {
-    return this.Connections.get(`${connection ?? this.Configuration.default}`);
+  public get(connection?: string): QueueClient {
+    return this.Connections.get(`${connection ?? this.Configuration.default}`)!;
   }
 }

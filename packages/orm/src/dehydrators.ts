@@ -10,20 +10,20 @@ export abstract class ModelDehydrator {
 export class StandardModelDehydrator extends ModelDehydrator {
   public dehydrate(model: ModelBase, options?: IDehydrateOptions) {
     const obj = {};
-    const relArr = [...model.ModelDescriptor.Relations.values()];
+    const relArr = [...model.ModelDescriptor!.Relations.values()];
 
-    model.ModelDescriptor.Columns?.forEach((c) => {
+    model.ModelDescriptor!.Columns?.forEach((c) => {
       // if in omit list OR it is foreign key for relation - skip
       if ((options?.omit && options?.omit.indexOf(c.Name) !== -1) || (relArr.find((r) => r.ForeignKey === c.Name) && !c.PrimaryKey)) {
         return;
       }
 
       const val = (model as any)[c.Name];
-      if (!c.PrimaryKey && !c.Nullable && !options.ignoreNullable && (val === null || val === undefined || val === '')) {
+      if (!c.PrimaryKey && !c.Nullable && !options?.ignoreNullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }
 
-      const v = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor.Converters.get(c.Name)?.Options, options) : val;
+      const v = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor!.Converters.get(c.Name)?.Options, options) : val;
       if (options?.skipNull && v === null) {
         return;
       }
@@ -46,7 +46,7 @@ export class StandardModelDehydrator extends ModelDehydrator {
 export class StandardModelWithRelationsDehydrator extends StandardModelDehydrator {
   public dehydrate(model: ModelBase<unknown>, options?: IDehydrateOptions): any {
     const obj = super.dehydrate(model, options);
-    const relArr = [...model.ModelDescriptor.Relations.values()];
+    const relArr = [...model.ModelDescriptor!.Relations.values()];
 
     for (const val of relArr) {
       if (options?.omit && options?.omit.indexOf(val.Name) !== -1) {

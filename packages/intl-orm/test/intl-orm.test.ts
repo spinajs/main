@@ -10,7 +10,7 @@ import { DI } from '@spinajs/di';
 
 import { TestConfiguration } from './common.js';
 import { Test } from './models/Test.js';
-import { DbTranslationSource, IntlModelMiddleware } from '../src/index.js';
+import { DbTranslationSource } from '../src/index.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { Test2 } from './models/Test2.js';
 import './migrations/Test_2022_06_28_01_13_00.js';
@@ -159,7 +159,7 @@ describe('ORM intl tests', function () {
     expect(result).to.be.not.null;
     expect(result).to.be.an('array');
 
-    expect(result[0].Owner.Value.Text).to.eq('owner hello');
+    expect(result![0]!.Owner.Value!.Text).to.eq('owner hello');
   });
 
   it('Should translate belongsTo relation nested automatically', async () => {
@@ -180,8 +180,8 @@ describe('ORM intl tests', function () {
     expect(result).to.be.not.null;
     expect(result).to.be.an('array');
 
-    expect(result[0].Owner.Value.Text).to.eq('owner hello');
-    expect(result[0].Owner.Value.Owner.Value.Text).to.eq('owner2 hello');
+    expect(result![0]!.Owner.Value!.Text).to.eq('owner hello');
+    expect(result![0]!.Owner.Value!.Owner.Value!.Text).to.eq('owner2 hello');
   });
 
   it('Should load translations for entity', async () => {

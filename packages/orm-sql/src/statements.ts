@@ -5,7 +5,7 @@ import { NewInstance } from '@spinajs/di';
 import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor } from '@spinajs/orm';
 import { InvalidArgument } from '@spinajs/exceptions';
 
-function _columnWrap(column: string, tableAlias: string, isAggregate?: boolean): string {
+function _columnWrap(column: string, tableAlias: string | undefined, isAggregate?: boolean): string {
   if (tableAlias && !isAggregate) {
     return `\`${tableAlias}\`.\`${column}\``;
   }
@@ -70,8 +70,8 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
       .join(',');
 
     return {
-      Bindings: initialQuery.bindings.concat(additionalQuery.bindings),
-      Statements: [cte_columns, initialQuery.expression, additionalQuery.expression],
+      Bindings: initialQuery.bindings!.concat(additionalQuery.bindings!),
+      Statements: [cte_columns, initialQuery.expression!, additionalQuery.expression!],
     };
   }
 }
@@ -79,7 +79,7 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
 @NewInstance()
 export class SqlBetweenStatement extends BetweenStatement {
   public clone(): SqlBetweenStatement {
-    return new SqlBetweenStatement(this._column, this._val, this._not, this._tableAlias);
+    return new SqlBetweenStatement(this._column, this._val, this._not, this._tableAlias!);
   }
 
   public build(): IQueryStatementResult {
@@ -116,7 +116,7 @@ export class SqlGroupByStatement extends GroupByStatement {
 @NewInstance()
 export class SqlWhereStatement extends WhereStatement {
 
-  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_builder: T): SqlWhereStatement {
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_builder?: T): SqlWhereStatement {
     return new SqlWhereStatement(
       this._column,
       this._operator,
@@ -132,7 +132,7 @@ export class SqlWhereStatement extends WhereStatement {
     let val = this._value;
     if (this._model) {
       const desc = extractModelDescriptor(this._model);
-      const rel = desc.Relations.get(column as string);
+      const rel = desc!.Relations.get(column as string);
       if (rel) {
         column = rel.ForeignKey;
       }
@@ -148,22 +148,23 @@ export class SqlWhereStatement extends WhereStatement {
         val = val.PrimaryKeyValue;
       } else {
         const dsc = extractModelDescriptor(this._model);
-        let converter: ValueConverter = null;
+        let converter: ValueConverter | null = null;
         if (dsc && dsc.Converters.has(this._column as string)) {
-          converter = this._container.resolve<ValueConverter>(dsc.Converters.get(this._column as string).Class);
+          converter = this._container.resolve<ValueConverter>(dsc.Converters.get(this._column as string)!.Class);
         } else {
           const converters = this._container.get<Map<string, any>>('__orm_db_value_converters__');
           if (converters && this._value && converters.has(this._value.constructor.name)) {
             converter = this._container.resolve<ValueConverter>(converters.get(this._value.constructor.name));
-            val = converter.toDB(val, null, null);
+            val = converter.toDB(val, null as any, null as any, null);
           }
         }
 
         val = converter
           ? converter.toDB(
             this._value,
+            null as any,
+            (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any,
             null,
-            dsc ? dsc.Columns.find((x) => x.Name === this._column) : null,
           )
           : this._value;
       }
@@ -178,10 +179,10 @@ export class SqlWhereStatement extends WhereStatement {
 
 @NewInstance()
 export class SqlJoinStatement extends JoinStatement {
-  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement {
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
     return new SqlJoinStatement({
       ...this._options,
-      builder: parent as SelectQueryBuilder ?? this._options.builder,
+      builder: (parent as SelectQueryBuilder) ?? this._options.builder,
     })
   }
 
@@ -209,19 +210,19 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     if (sourceModelDriver.constructor.name !== joinModelDriver.constructor.name) {
-      throw new InvalidArgument(`Cannot join models with different drivers. Source model ${sourceModel.Name} uses ${sourceModelDriver.constructor.name} driver, while join model ${joinModel.Name} uses ${joinModelDriver.constructor.name} driver.`);
+      throw new InvalidArgument(`Cannot join models with different drivers. Source model ${sourceModel?.Name} uses ${sourceModelDriver.constructor.name} driver, while join model ${joinModel?.Name} uses ${joinModelDriver.constructor.name} driver.`);
     }
 
     /**
      * Set owner table alias if not set
      * To avoid errors of NON_UNIQUE columns in joins
      */
-    if (!this._options.builder.TableAlias) {
-      this._options.builder.setAlias(`${sourceModelDriver.Options.AliasSeparator}${this._options.builder.Table}${sourceModelDriver.Options.AliasSeparator}`);
+    if (!this._options.builder?.TableAlias) {
+      this._options.builder?.setAlias(`${sourceModelDriver.Options.AliasSeparator}${this._options.builder?.Table}${sourceModelDriver.Options.AliasSeparator}`);
     }
 
-    const sourceTableAlias = this._options.builder.TableAlias;
-    const joinTableAlias = this._options.joinTableAlias ? this._options.joinTableAlias : `${joinModelDriver.Options.AliasSeparator}${joinModel.Name}${joinModelDriver.Options.AliasSeparator}`;
+    const sourceTableAlias = this._options.builder?.TableAlias;
+    const joinTableAlias = this._options.joinTableAlias ? this._options.joinTableAlias : `${joinModelDriver.Options.AliasSeparator}${joinModel?.Name}${joinModelDriver.Options.AliasSeparator}`;
 
     let sourceTable = sourceModel ? sourceModel.TableName : this._options.builder ? this._options.builder.Table : null;
     let joinTable = joinModel ? joinModel.TableName : this._options.joinTable;
@@ -271,8 +272,8 @@ export class SqlJoinStatement extends JoinStatement {
 
 @NewInstance()
 export class SqlInStatement extends InStatement {
-  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent: T): IQueryStatement {
-    return new SqlInStatement(this._column, this._val, this._not, parent as SelectQueryBuilder);
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
+    return new SqlInStatement(this._column, this._val, this._not, (parent ?? this._builder) as SelectQueryBuilder);
   }
 
   public build(): IQueryStatementResult {
@@ -302,14 +303,14 @@ export class SqlInSetStatement extends InSetStatement {
   }
 
   public clone(): IQueryStatement {
-    return new SqlInSetStatement(this._column, this._val, this._not, this._tableAlias);
+    return new SqlInSetStatement(this._column, this._val, this._not, this._tableAlias!);
   }
 }
 
 @NewInstance()
 export class SqlColumnStatement extends ColumnStatement {
   public clone(): SqlColumnStatement {
-    return new SqlColumnStatement(this._column, this._alias, this._tableAlias, this.Descriptor);
+    return new SqlColumnStatement(this._column, this._alias, this._tableAlias!, this.Descriptor);
   }
 
   public build(): IQueryStatementResult {
@@ -339,7 +340,7 @@ export class SqlColumnStatement extends ColumnStatement {
 @NewInstance()
 export class SqlColumnMethodStatement extends ColumnMethodStatement {
   public clone(): SqlColumnMethodStatement {
-    return new SqlColumnMethodStatement(this._column, this._method, this._alias, this._tableAlias);
+    return new SqlColumnMethodStatement(this._column, this._method, this._alias, this._tableAlias!);
   }
 
   public build(): IQueryStatementResult {
@@ -399,7 +400,7 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
 
 @NewInstance()
 export class SqlWhereQueryStatement extends WhereQueryStatement {
-  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent: T): IQueryStatement {
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent?: T): IQueryStatement {
 
     // TODO: fix this any cast !
     return new SqlWhereQueryStatement(this._builder.clone(_parent as any));
@@ -418,7 +419,7 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
 
 @NewInstance()
 export class SqlExistsQueryStatement extends ExistsQueryStatement {
-  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent: T): IQueryStatement {
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent?: T): IQueryStatement {
 
 
     // TODO: this look wrong to clone _builder, 
@@ -439,7 +440,7 @@ export class SqlExistsQueryStatement extends ExistsQueryStatement {
     }
 
     return {
-      Bindings: compiled.bindings,
+      Bindings: compiled.bindings ?? [],
       Statements: [exprr],
     };
   }

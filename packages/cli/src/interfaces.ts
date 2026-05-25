@@ -12,7 +12,7 @@ export interface IOption {
   description?: string;
   defaultValue?: string | boolean | string[];
   required?: boolean;
-  parser?: (opt: string) => unknown;
+  parser?: <T>(value: string, previous: T) => T;
 }
 
 export interface IArgument {
@@ -20,7 +20,7 @@ export interface IArgument {
   description?: string;
   defaultValue?: unknown;
   required?: boolean;
-  parser?: (opt: string) => unknown;
+  parser?: <T>(value: string, previous: T) => T;
 }
 
 /**

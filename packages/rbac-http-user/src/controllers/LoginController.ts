@@ -4,10 +4,16 @@ import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwi
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, ILoginResponse, IUserWithGrants } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
  
 
+/**
+ * Authentication endpoints.
+ * Handles user login, logout, and current-session inspection.
+ * All session state is maintained via the signed `ssid` cookie.
+ * @tags Authentication
+ */
 @BasePath('auth')
 export class LoginController extends BaseController {
   @Autoinject()
@@ -41,8 +47,18 @@ export class LoginController extends BaseController {
   @Autoinject(AccessControl)
   protected AC: AccessControl;
 
+  /**
+   * Login
+   * Authenticates the user with email and password. On success, sets the signed `ssid` session cookie
+   * and returns user data with their RBAC grants. When two-factor authentication is enabled and
+   * configured for the user, the response instead signals that 2FA verification is required.
+   * If the caller already has an active session it is invalidated before creating a new one.
+   * @security []
+   * @returns {ILoginResponse} On full login: IUserWithGrants. On 2FA required: ITwoFactorAuthRequired. On 2FA setup required: ITwoFactorInitRequired
+   * @response 401 Invalid email or password
+   */
   @Post()
-  public async login(@UserRouteArg() logged: User, @Cookie(true) ssid: string, @Body() credentials: UserLoginDto) {
+  public async login(@UserRouteArg() logged: User, @Cookie(true) ssid: string, @Body() credentials: UserLoginDto): Promise<Ok<ILoginResponse> | Unauthorized> {
     try {
 
       // if logged user is already logged in, delete his session
@@ -71,7 +87,7 @@ export class LoginController extends BaseController {
           },
         },
       ];
-      let result: any = {};
+      let result: ILoginResponse;
 
       session.Data.set('User', user.Uuid);
 
@@ -95,9 +111,7 @@ export class LoginController extends BaseController {
         session.Data.set('Authorized', false);
         session.Data.set('TwoFactorAuth', true);
 
-        result = {
-          TwoFactorInitRequired: true,
-        };
+        result = { TwoFactorInitRequired: true };
       }
       else if (this.TwoFactorAuthEnabled && user.Metadata['2fa:enabled']) {
 
@@ -108,9 +122,7 @@ export class LoginController extends BaseController {
         session.Data.set('Authorized', false);
         session.Data.set('TwoFactorAuth', true);
 
-        result = {
-          TwoFactorAuthRequired: true,
-        };
+        result = { TwoFactorAuthRequired: true };
       } else {
 
         session.Data.set('Authorized', true);
@@ -119,12 +131,12 @@ export class LoginController extends BaseController {
         const userGrants = user.Role.map(r => _unwindGrants(r, grants));
         const combinedGrants = Object.assign({}, ...userGrants);
 
+        // dehydrateWithRelations({ dateTimeFormat: 'iso' }) converts DateTime to ISO strings
+        // at runtime — the ORM types don't reflect the dateTimeFormat option in generics
         result = {
-          ...user.dehydrateWithRelations({
-            dateTimeFormat: "iso"
-          }),
+          ...user.dehydrateWithRelations({ dateTimeFormat: "iso" }),
           Grants: combinedGrants,
-        };
+        } as unknown as IUserWithGrants;
       }
 
 
@@ -150,6 +162,13 @@ export class LoginController extends BaseController {
     }
   }
 
+  /**
+   * Logout
+   * Destroys the current session identified by the `ssid` cookie and clears the cookie on the client.
+   * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
+   * @security cookieAuth
+   * @response 401 No active session
+   */
   @Get()
   @Policy(LoggedPolicy)
   public async logout(@Cookie(true) ssid: string) {
@@ -178,6 +197,14 @@ export class LoginController extends BaseController {
     });
   }
 
+  /**
+   * Get current user
+   * Returns the user object associated with the current session.
+   * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
+   * @security cookieAuth
+   * @returns {IUserProfile} User data from the current session
+   * @response 401 No active session
+   */
   @Get()
   @Policy(LoggedPolicy)
   public async whoami(@UserRouteArg() User: User) {

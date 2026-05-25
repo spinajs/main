@@ -6,11 +6,11 @@ import { BadRequestResponse } from './badRequest.js';
  * Returns HTTP 204 NO CONTENT
  * @param err - error to send
  */
-export class NoContent extends BadRequestResponse {
+export class NoContent<T = any> extends BadRequestResponse<T> {
   protected _errorCode = HTTP_STATUS_CODE.NO_CONTENT;
   protected _template = 'noContent.pug';
 
-  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(data: T | Promise<T> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }

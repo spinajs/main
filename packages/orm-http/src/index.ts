@@ -90,16 +90,16 @@ export class FromDbModel extends RouteArgs {
     const pkValue = this._extractValue(param, req);
     const query = param.RuntimeType['query']() as SelectQueryBuilder;
     const descriptor = extractModelDescriptor(param.RuntimeType);
-    const queryField = param?.Options?.queryField ?? descriptor.PrimaryKey;
+    const queryField = param?.Options?.queryField ?? descriptor!.PrimaryKey;
 
-    query.setTable(descriptor.TableName, `$${descriptor.TableName}`);
+    query.setTable(descriptor!.TableName, `$${descriptor!.TableName}`);
     query.select('*');
     query.where(queryField, pkValue);
 
     /**
      * Checks BelongsToRelations
      */
-    for (const [, v] of descriptor.Relations) {
+    for (const [, v] of descriptor!.Relations) {
       // if its one-to-one relations ( belongsTo)
       // check if we have same field in route param list
       // If exists, we assume that we want parent ( owner of this model )

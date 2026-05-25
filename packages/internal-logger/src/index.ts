@@ -98,13 +98,13 @@ export class InternalLogger extends Bootstrapper {
     });
   }
 
-  protected static LogBuffer: ILogEntry[] =[];
+  protected static LogBuffer: ILogEntry[] = [];
 
   private static _write(err: Error | string, message: string, name: string, level: LogLevel, ...args: any[]) {
     if (err instanceof Error) {
       InternalLogger.write(err, message, level, name, {}, ...args);
     } else {
-      InternalLogger.write(null, err, level, message, {}, [name, ...args]);
+      InternalLogger.write(null as any, err, level, message, {}, [name, ...args]);
     }
   }
 
@@ -265,9 +265,10 @@ export class InternalLoggerProxy extends Log {
     this.Timers.set(name, new Date());
   }
   timeEnd(name: string): number {
-    if (this.Timers.has(name)) {
+    const timer = this.Timers.get(name)
+    if (timer) {
       const cTime = new Date();
-      const diff = cTime.getTime() - this.Timers.get(name).getTime();
+      const diff = cTime.getTime() - timer.getTime();
 
       this.Timers.delete(name);
 

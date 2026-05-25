@@ -7,17 +7,21 @@ import Path from 'path';
 @Singleton()
 export class ZipFileTransformer extends FileUploadMiddleware {
     @Logger('http')
-    protected Log: Log;
+    protected Log!: Log;
 
     public async beforeUpload(file: IUploadedFile<any>): Promise<IUploadedFile<any>> {
         const originalName = file.BaseName;
         const originalSize = file.Size;
 
+        if(!file.Provider){
+            throw new Error(`File provider is not available for file ${file.BaseName}. Zip middleware requires file provider to be able to zip file. Make sure you are using compatible file provider that supports zip operation`);
+        }
+
         try {
             this.Log.timeStart(`[ZIP] ${originalName}`)
 
-            const result = await file.Provider.zip(originalName, file.Provider);
-            const stat = await file.Provider.stat(result.asFilePath());
+            const result = await file.Provider!.zip(originalName, file.Provider!);
+            const stat = await file.Provider!.stat(result.asFilePath());
             
             const duration = this.Log.timeEnd(`[ZIP] ${originalName}`);
             this.Log.trace(`[ZIP] Transformed ${originalName} to ${result.asFilePath()}, duration: ${duration}ms`);
@@ -25,7 +29,7 @@ export class ZipFileTransformer extends FileUploadMiddleware {
             return {
                 ...file,
                 BaseName: result.asFilePath(),
-                Size: stat.Size,
+                Size: stat.Size!,
                 Type: "application/zip",
                 Name: Path.parse(file.Name).name + ".zip",
                 Data: {
@@ -37,7 +41,7 @@ export class ZipFileTransformer extends FileUploadMiddleware {
             throw err;
         }
         finally {
-            await file.Provider.rm(originalName);
+            await file.Provider!.rm(originalName);
         }
 
 

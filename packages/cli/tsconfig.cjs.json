@@ -11,6 +11,7 @@
     { "path": "../di/tsconfig.cjs.json" },
     { "path": "../exceptions/tsconfig.cjs.json" },
     { "path": "../log-common/tsconfig.cjs.json" },
-    { "path": "../reflection/tsconfig.cjs.json" }
+    { "path": "../reflection/tsconfig.cjs.json" },
+    { "path": "../util/tsconfig.cjs.json" }
   ]
 }

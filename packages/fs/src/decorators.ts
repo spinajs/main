@@ -8,7 +8,7 @@ import { fs } from "./interfaces.js";
  * @returns
  */
 export function FileSystem(provider: string) {
-    return (target?: any, key?: string): any => {
+    return (target: any, key: string): any => {
 
         const getter = () => {
             return DI.resolve<fs>("__file_provider__", [provider]);

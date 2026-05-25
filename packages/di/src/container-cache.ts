@@ -42,8 +42,8 @@ export class ContainerCache {
     const tName = getTypeName(key);
 
     if (this.has(key)) {
-      if (this.cache.get(tName).indexOf(instance) === -1) {
-        this.cache.get(tName).push(instance);
+      if (this.cache.get(tName)!.indexOf(instance) === -1) {
+        this.cache.get(tName)!.push(instance);
       }
     } else {
       this.cache.set(tName, [instance]);
@@ -129,7 +129,7 @@ export class ContainerCache {
           const found = cached.find((x: unknown) => {
             if (!(x as IInstanceCheck).__checkInstance__) {
               // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-              throw new ResolveException(`service ${x.constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
+              throw new ResolveException(`service ${(x as any).constructor.name} is marked as PerInstanceCheck resolver, but no __checkInstance__ function is provided`);
             }
             return (x as IInstanceCheck).__checkInstance__(options);
           });
@@ -151,7 +151,7 @@ export class ContainerCache {
 
     // Check if creation is already in progress (async)
     if (this.resolutionPromises.has(keyName)) {
-      return this.resolutionPromises.get(keyName);
+      return this.resolutionPromises.get(keyName)!;
     }
 
     // Check if creation is already in progress (sync)

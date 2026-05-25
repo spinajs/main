@@ -149,7 +149,7 @@ describe('User model tests', function () {
       return u;
     });
 
-    const config = DI.get(Configuration);
+    const config = DI.get(Configuration)!;
     config.set('rbac.actions.create.beforeCreate', [beforeSpy as CreateMiddleware]);
     config.set('rbac.actions.create.afterCreate', [afterSpy as CreateMiddleware]);
 
@@ -171,8 +171,8 @@ describe('User model tests', function () {
     expect(U).to.be.instanceOf(User);
 
     // reset config
-    config.set('rbac.actions.create.beforeCreate', []);
-    config.set('rbac.actions.create.afterCreate', []);
+    config!.set('rbac.actions.create.beforeCreate', []);
+    config!.set('rbac.actions.create.afterCreate', []);
   });
 
   it('Shouldn create user with already existing email', async () => {

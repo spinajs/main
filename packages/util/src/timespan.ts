@@ -474,7 +474,7 @@ export class TimeSpan {
         daysOrHours,
         hoursOrMinutes,
         minutesOrSeconds,
-        seconds,
+        seconds!,
         milliseconds,
       );
     } else {

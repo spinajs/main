@@ -36,7 +36,7 @@ export function _all() {
   };
 }
 
-export function _use(value: () => Promise<unknown> | object | string | number | {}, name: string) {
+export function _use(value: () => Promise<unknown> | object | string | number | {} | undefined, name: string) {
   return async (arg?: unknown) => {
 
     const res = await _chain(value());

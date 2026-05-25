@@ -81,7 +81,7 @@ export class ConnectionConf extends FrameworkConfiguration {
 }
 
 export function db() {
-  return DI.get(Orm);
+  return DI.get(Orm)!;
 }
 
 describe('Mysql connection test', () => {
@@ -90,13 +90,13 @@ describe('Mysql connection test', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-    await db().Connections.get('mysql').truncate('user_test');
+    await db().Connections.get('mysql')!.truncate('user_test');
 
     
   });
 
   it('Should connect', async () => {
-    const result = await db().Connections.get('mysql').ping();
+    const result = await db().Connections.get('mysql')!.ping();
     expect(result).to.equal(true);
   });
 });
@@ -108,21 +108,21 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
     
-    await db().Connections.get('mysql').truncate('user_test');
+    await db().Connections.get('mysql')!.truncate('user_test');
   });
 
   it('Should migrate', async () => {
     await db().migrateUp();
 
-    await db().Connections.get('mysql').select().from('user_test');
-    await expect(db().Connections.get('mysql').select().from('notexisted')).to.be.rejected;
+    await db().Connections.get('mysql')!.select().from('user_test');
+    await expect(db().Connections.get('mysql')!.select().from('notexisted')).to.be.rejected;
   });
 
   it('Should check if table exists', async () => {
     await db().migrateUp();
 
-    const exists = await db().Connections.get('mysql').schema().tableExists('user_test');
-    const notExists = await db().Connections.get('mysql').schema().tableExists('user2');
+    const exists = await db().Connections.get('mysql')!.schema().tableExists('user_test');
+    const notExists = await db().Connections.get('mysql')!.schema().tableExists('user2');
 
     expect(exists).to.eq(true);
     expect(notExists).to.eq(false);
@@ -130,13 +130,13 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
 
   it('should insert query', async () => {
     await db().migrateUp();
-    const iResult = await db().Connections.get('mysql').insert().into('user_test').values({
+    const iResult = await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
     });
 
-    const result: User = (await db().Connections.get('mysql').select().from('user_test').orderByDescending('Id').first()) as User;
+    const result: User = (await db().Connections.get('mysql')!.select().from('user_test').orderByDescending('Id').first()) as User;
 
     expect(iResult.RowsAffected).to.eq(1);
     expect(iResult.LastInsertId).to.gt(0);
@@ -146,28 +146,28 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should delete', async () => {
-    await db().Connections.get('mysql').insert().into('user_test').values({
+    await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
     });
 
-    await db().Connections.get('mysql').del().from('user_test').where('id', '!=', 0);
+    await db().Connections.get('mysql')!.del().from('user_test').where('id', '!=', 0);
 
-    const result = await db().Connections.get('mysql').select().from('user_test').orderByDescending('Id').first();
+    const result = await db().Connections.get('mysql')!.select().from('user_test').orderByDescending('Id').first();
     expect(result).to.be.undefined;
   });
 
   it('should update', async () => {
     await db().migrateUp();
-    const iResult = await db().Connections.get('mysql').insert().into('user_test').values({
+    const iResult = await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
     });
 
     const uResult = await db()
-      .Connections.get('mysql')
+      .Connections.get('mysql')!
       .update()
       .in('user_test')
       .update({
@@ -175,7 +175,7 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
       })
       .where('id', iResult.LastInsertId);
 
-    const result: User = (await db().Connections.get('mysql').select().from('user_test').orderByDescending('Id').first()) as User;
+    const result: User = (await db().Connections.get('mysql')!.select().from('user_test').orderByDescending('Id').first()) as User;
     expect(uResult.RowsAffected).to.eq(1);
     expect(result).to.be.not.null;
     expect(result.Name).to.eq('test updated');
@@ -189,7 +189,7 @@ describe('mysql model functions', () => {
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
    
-    await db().Connections.get('mysql').truncate('user_test');
+    await db().Connections.get('mysql')!.truncate('user_test');
 
   });
 
@@ -199,7 +199,7 @@ describe('mysql model functions', () => {
       Password: 'test_password',
     });
 
-    const result: User = (await db().Connections.get('mysql').select().from('user_test').orderByDescending('Id').first()) as User;
+    const result: User = (await db().Connections.get('mysql')!.select().from('user_test').orderByDescending('Id').first()) as User;
 
     expect(result).to.be.not.null;
     expect(result.Id).to.gt(0);
@@ -274,22 +274,22 @@ describe('MySql queries', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-    await db().Connections.get('mysql').truncate('user_test');
+    await db().Connections.get('mysql')!.truncate('user_test');
  
   });
 
   after(async () => {
-    await db().Connections.get('mysql').disconnect();
+    await db().Connections.get('mysql')!.disconnect();
   });
 
   it('should select and sort', async () => {
-    await db().Connections.get('mysql').insert().into('user_test').values({
+    await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'a',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
     });
 
-    await db().Connections.get('mysql').insert().into('user_test').values({
+    await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'b',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -303,7 +303,7 @@ describe('MySql queries', () => {
   });
 
   it('should select to model', async () => {
-    const result = await db().Connections.get('mysql').insert().into('user_test').values({
+    const result = await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -317,7 +317,7 @@ describe('MySql queries', () => {
   });
 
   it('should map datetime', async () => {
-    await db().Connections.get('mysql').insert().into('user_test').values({
+    await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -331,7 +331,7 @@ describe('MySql queries', () => {
   });
 
   it('should run on duplicate', async () => {
-    const iResult = await db().Connections.get('mysql').insert().into('user_test').values({
+    const iResult = await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'test not duplicated',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -357,23 +357,23 @@ describe('MySql transactions', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-    await db().Connections.get('mysql').truncate('user_test');
+    await db().Connections.get('mysql')!.truncate('user_test');
  
   });
 
   after(async () => {
-    await db().Connections.get('mysql').disconnect();
+    await db().Connections.get('mysql')!.disconnect();
   });
 
   it('should commit transaction on success', async () => {
-    const result =  await db().Connections.get('mysql').transaction(async () => {
-      await db().Connections.get('mysql').insert().into('user_test').values({
+    const result =  await db().Connections.get('mysql')!.transaction(async () => {
+      await db().Connections.get('mysql')!.insert().into('user_test').values({
         Name: 'transaction_user_1',
         Password: 'password1',
         CreatedAt: '2024-01-01',
       });
 
-      await db().Connections.get('mysql').insert().into('user_test').values({
+      await db().Connections.get('mysql')!.insert().into('user_test').values({
         Name: 'transaction_user_2',
         Password: 'password2',
         CreatedAt: '2024-01-01',
@@ -390,8 +390,8 @@ describe('MySql transactions', () => {
 
   it('should rollback transaction on error', async () => {
     try {
-      await db().Connections.get('mysql').transaction(async () => {
-        await db().Connections.get('mysql').insert().into('user_test').values({
+      await db().Connections.get('mysql')!.transaction(async () => {
+        await db().Connections.get('mysql')!.insert().into('user_test').values({
           Name: 'rollback_user_1',
           Password: 'password1',
           CreatedAt: '2024-01-01',
@@ -412,16 +412,16 @@ describe('MySql transactions', () => {
 
   it('should rollback all changes when later query fails', async () => {
     try {
-      await db().Connections.get('mysql').transaction(async () => {
+      await db().Connections.get('mysql')!.transaction(async () => {
         // First insert should succeed
-        await db().Connections.get('mysql').insert().into('user_test').values({
+        await db().Connections.get('mysql')!.insert().into('user_test').values({
           Name: 'first_insert',
           Password: 'password',
           CreatedAt: '2024-01-01',
         });
 
         // Second insert into non-existent table should fail
-        await db().Connections.get('mysql').insert().into('non_existent_table').values({
+        await db().Connections.get('mysql')!.insert().into('non_existent_table').values({
           Name: 'should_fail',
         });
       });
@@ -435,7 +435,7 @@ describe('MySql transactions', () => {
   });
 
   it('should handle transaction with model operations', async () => {
-    const result = await db().Connections.get('mysql').transaction(async () => {
+    const result = await db().Connections.get('mysql')!.transaction(async () => {
       await User.create({
         Name: 'model_transaction_user',
         Password: 'password',
@@ -451,7 +451,7 @@ describe('MySql transactions', () => {
 
   it('should rollback model operations on error', async () => {
     try {
-      await db().Connections.get('mysql').transaction(async () => {
+      await db().Connections.get('mysql')!.transaction(async () => {
         await User.create({
           Name: 'model_rollback_user',
           Password: 'password',
@@ -468,13 +468,13 @@ describe('MySql transactions', () => {
   });
 
   it('should handle empty transaction callback', async () => {
-    await expect((await db().Connections.get('mysql').transaction()).commit()).to.be.fulfilled;
+    await expect((await db().Connections.get('mysql')!.transaction()).commit()).to.be.fulfilled;
   });
 
   it('should handle multiple sequential transactions', async () => {
     // First transaction
-    const  res = await db().Connections.get('mysql').transaction(async () => {
-      await db().Connections.get('mysql').insert().into('user_test').values({
+    const  res = await db().Connections.get('mysql')!.transaction(async () => {
+      await db().Connections.get('mysql')!.insert().into('user_test').values({
         Name: 'seq_transaction_1',
         Password: 'password',
         CreatedAt: '2024-01-01',
@@ -484,8 +484,8 @@ describe('MySql transactions', () => {
 
 
     // Second transaction
-    const res2 = await db().Connections.get('mysql').transaction(async () => {
-      await db().Connections.get('mysql').insert().into('user_test').values({
+    const res2 = await db().Connections.get('mysql')!.transaction(async () => {
+      await db().Connections.get('mysql')!.insert().into('user_test').values({
         Name: 'seq_transaction_2',
         Password: 'password',
         CreatedAt: '2024-01-01',
@@ -507,14 +507,14 @@ describe('MySql cross-schema whereExists', () => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-    await db().Connections.get('mysql').truncate('user_test');
+    await db().Connections.get('mysql')!.truncate('user_test');
 
     
   });
 
   after(async () => {
-    await db().Connections.get('mysql').disconnect();
-    await db().Connections.get('mysql-2').disconnect();
+    await db().Connections.get('mysql')!.disconnect();
+    await db().Connections.get('mysql-2')!.disconnect();
   });
 
   it('should generate SQL with schema prefix when whereExists uses relation in different schema', async () => {

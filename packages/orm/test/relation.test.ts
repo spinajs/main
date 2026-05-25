@@ -589,59 +589,59 @@ describe('Orm relations tests', () => {
   it('Belongs to relation decorator', async () => {
     const descriptor = extractModelDescriptor(RelationModel1);
 
-    expect(descriptor.Relations.size).to.eq(1);
-    expect(descriptor.Relations.has('Owner')).to.be.true;
+    expect(descriptor!.Relations.size).to.eq(1);
+    expect(descriptor!.Relations.has('Owner')).to.be.true;
 
-    expect(descriptor.Relations.get('Owner')).to.include({
+    expect(descriptor!.Relations.get('Owner')).to.include({
       Name: 'Owner',
       Type: RelationType.One,
       PrimaryKey: 'Id',
       ForeignKey: 'OwnerId',
     });
 
-    const desc = descriptor.Relations.get('Owner');
+    const desc = descriptor!.Relations.get('Owner');
 
-    expect(desc.TargetModel.name).to.eq('RelationModel2');
-    expect(desc.SourceModel.name).to.eq('RelationModel1');
+    expect(desc!.TargetModel.name).to.eq('RelationModel2');
+    expect(desc!.SourceModel.name).to.eq('RelationModel1');
   });
 
   it('HasMany relation decorator', async () => {
     const descriptor = extractModelDescriptor(RelationModel2);
 
-    expect(descriptor.Relations.size).to.eq(2);
-    expect(descriptor.Relations.has('Many')).to.be.true;
+    expect(descriptor!.Relations.size).to.eq(2);
+    expect(descriptor!.Relations.has('Many')).to.be.true;
 
-    expect(descriptor.Relations.get('Many')).to.include({
+    expect(descriptor!.Relations.get('Many')).to.include({
       Name: 'Many',
       Type: RelationType.Many,
       PrimaryKey: 'Id',
       ForeignKey: 'RelId2',
     });
 
-    const desc = descriptor.Relations.get('Many');
+    const desc = descriptor!.Relations.get('Many');
 
-    expect(desc.TargetModel.name).to.eq('Model1');
-    expect(desc.SourceModel.name).to.eq('RelationModel2');
+    expect(desc!.TargetModel.name).to.eq('Model1');
+    expect(desc!.SourceModel.name).to.eq('RelationModel2');
   });
 
   it('HasManyToMany relation decorator', async () => {
     const descriptor = extractModelDescriptor(Model4);
 
-    expect(descriptor.Relations.size).to.eq(1);
-    expect(descriptor.Relations.has('ManyOwners')).to.be.true;
+    expect(descriptor!.Relations.size).to.eq(1);
+    expect(descriptor!.Relations.has('ManyOwners')).to.be.true;
 
-    expect(descriptor.Relations.get('ManyOwners')).to.include({
+    expect(descriptor!.Relations.get('ManyOwners')).to.include({
       Name: 'ManyOwners',
       Type: RelationType.ManyToMany,
       PrimaryKey: 'Id',
       ForeignKey: 'Id',
     });
 
-    const desc = descriptor.Relations.get('ManyOwners');
+    const desc = descriptor!.Relations.get('ManyOwners');
 
-    expect(desc.TargetModel.name).to.eq('Model5');
-    expect(desc.SourceModel.name).to.eq('Model4');
-    expect(desc.JunctionModel.name).to.eq('JunctionModel');
+    expect(desc!.TargetModel.name).to.eq('Model5');
+    expect(desc!.SourceModel.name).to.eq('Model4');
+    expect(desc!.JunctionModel!.name).to.eq('JunctionModel');
   });
 
   it('Belongs to relation is executed', async () => {
@@ -835,10 +835,10 @@ describe('Orm relations tests', () => {
 
     expect(result).to.be.not.null;
     expect(result.Owner.Value).to.be.not.null;
-    expect(result.Owner.Value.Owner).to.be.not.null;
+    expect(result.Owner.Value!.Owner).to.be.not.null;
 
     expect(result.Owner instanceof SingleRelation).to.be.true;
-    expect(result.Owner.Value.Owner instanceof SingleRelation).to.be.true;
+    expect(result.Owner.Value!.Owner instanceof SingleRelation).to.be.true;
   });
 
   it('OneToMany relation should be dehydrated', async () => {
@@ -1125,7 +1125,7 @@ describe('Orm relations tests', () => {
     m.attach(m2);
 
     expect(m.Owner.Value).to.be.not.null;
-    expect(m.Owner.Value.Id).to.eq(777);
+    expect(m.Owner.Value!.Id).to.eq(777);
   });
 
   it('HasManyToMany relation should be executed', async () => {
@@ -1192,7 +1192,7 @@ describe('Orm relations tests', () => {
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
-        SourceModel: null,
+        SourceModel: null as any,
         ForeignKey: 'IdA',
         PrimaryKey: 'Id',
         Recursive: false,
@@ -1206,7 +1206,7 @@ describe('Orm relations tests', () => {
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
-        SourceModel: null,
+        SourceModel: null as any,
         ForeignKey: 'IdA',
         PrimaryKey: 'Id',
         Recursive: false,
@@ -1231,7 +1231,7 @@ describe('Orm relations tests', () => {
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
-        SourceModel: null,
+        SourceModel: null as any,
         ForeignKey: 'IdA',
         PrimaryKey: 'Id',
         Recursive: false,
@@ -1245,7 +1245,7 @@ describe('Orm relations tests', () => {
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
-        SourceModel: null,
+        SourceModel: null as any,
         ForeignKey: 'IdA',
         PrimaryKey: 'Id',
         Recursive: false,
@@ -1270,7 +1270,7 @@ describe('Orm relations tests', () => {
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
-        SourceModel: null,
+        SourceModel: null as any,
         ForeignKey: 'IdA',
         PrimaryKey: 'Id',
         Recursive: false,
@@ -1284,7 +1284,7 @@ describe('Orm relations tests', () => {
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
-        SourceModel: null,
+        SourceModel: null as any,
         ForeignKey: 'IdA',
         PrimaryKey: 'Id',
         Recursive: false,
@@ -1307,7 +1307,7 @@ describe('Orm relations tests', () => {
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
-        SourceModel: null,
+        SourceModel: null as any,
         ForeignKey: 'IdA',
         PrimaryKey: 'Id',
         Recursive: false,
@@ -1321,7 +1321,7 @@ describe('Orm relations tests', () => {
         TargetModelType: Model1,
         Name: 'Translations',
         Type: RelationType.Many,
-        SourceModel: null,
+        SourceModel: null as any,
         ForeignKey: 'IdA',
         PrimaryKey: 'Id',
         Recursive: false,

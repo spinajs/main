@@ -8,10 +8,6 @@ import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
 
-interface IDynamicImportType {
-  default: unknown;
-}
-
 export abstract class BaseFileSource extends ConfigurationSource {
   /**
    * Configuration base dir, where to look for app config
@@ -90,7 +86,10 @@ export abstract class BaseFileSource extends ConfigurationSource {
     this.BasePath = bPath === null ? process.cwd() : bPath;
 
     if (this.RunApp) {
-      this.CommonDirs = this.CommonDirs.concat([join(this.appBaseDir, `/${this.RunApp}/config`)]);
+
+      if(this.appBaseDir) {
+        this.CommonDirs = this.CommonDirs.concat([join(this.appBaseDir, `/${this.RunApp}/config`)]);
+      }
 
       // common dirs for app where config resides
       this.CommonDirs = this.CommonDirs.concat([join(process.cwd(), `/apps/${this.RunApp}/config`)]);
@@ -104,7 +103,7 @@ export abstract class BaseFileSource extends ConfigurationSource {
     }
   }
 
-  protected async load(extension: string, callback: (file: string) => Promise<unknown>) {
+  protected async load(extension: string, callback: (file: string) => Promise<IConfigLike>) {
     const config = {};
 
     const toResolve = this.CommonDirs.map((f) => (path.isAbsolute(f) ? f : join(this.BasePath, f)))
@@ -121,12 +120,12 @@ export abstract class BaseFileSource extends ConfigurationSource {
       .filter((f: string, index: number, self: unknown[]) => self.indexOf(f) === index)
       .map(callback);
 
-    const result = await Promise.all<IDynamicImportType[] | unknown[]>(toResolve);
+    const result = await Promise.all<IConfigLike>(toResolve);
 
     result
-      .filter((v: IDynamicImportType) => v !== undefined && v !== null)
+      .filter((v: IConfigLike) => v !== undefined && v !== null)
       // load & merge configs
-      .map((c: IDynamicImportType) => _.mergeWith(config, c.default ?? c, mergeArrays));
+      .map((c: IConfigLike) => _.mergeWith(config, c.default ?? c, mergeArrays));
 
     return config;
   }
@@ -163,7 +162,7 @@ export class JsFileSource extends BaseFileSource {
         let cfg = (await DI.__spinajs_require__(file)) as IConfigLike;
         // execute config func before merge with rest of configuration
         if (typeof cfg.onConfigLoad === 'function') {
-          cfg = await cfg.onConfigLoad(cfg);
+          cfg = (await cfg.onConfigLoad(cfg))!;
         }
 
         // all root props gets file info saved
@@ -177,8 +176,7 @@ export class JsFileSource extends BaseFileSource {
         return cfg;
       } catch (err) {
         InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
-        return null;
-      }
+        return {} as IConfigLike;      }
     }
   }
 }
@@ -207,9 +205,9 @@ export class JsonFileSource extends BaseFileSource {
         }
         return Promise.resolve(cfg);
       } catch (err) {
-        console.error(`error loading configuration file ${file}, reasoun: ${(err as Error).message}`);
-        return null;
+        InternalLogger.error(err as Error, `error loading configuration file ${file}`, 'configuration');
+        return Promise.resolve({} as IConfigLike);
       }
-    }
+    } 
   }
 }

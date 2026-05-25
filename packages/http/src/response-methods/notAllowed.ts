@@ -7,11 +7,11 @@ import { BadRequestResponse } from './badRequest.js';
  * @param err - error to send
  */
 
-export class NotAllowed extends BadRequestResponse {
+export class NotAllowed<T = any> extends BadRequestResponse<T> {
   protected _errorCode = HTTP_STATUS_CODE.NOT_ALLOWED;
   protected _template = 'not-allowed.pug';
 
-  constructor(data: string | object | Promise<unknown>, protected options?: IResponseOptions) {
+  constructor(data: T | Promise<T> | null, protected options?: IResponseOptions) {
     super(data, options);
   }
 }

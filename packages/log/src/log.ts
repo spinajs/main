@@ -15,9 +15,9 @@ function wrapWrite(this: Log, level: LogLevel) {
       return this.write(createLogMessageObject(err, message, level, this.Name, this.Variables, ...args));
     } else {
       if (message) {
-        return this.write(createLogMessageObject(err, null, level, this.Name, this.Variables, ...[message, ...args]));
+        return this.write(createLogMessageObject(err, null as any, level, this.Name, this.Variables, ...[message, ...args]));
       } else {
-        return this.write(createLogMessageObject(err, null, level, this.Name, this.Variables, ...args));
+        return this.write(createLogMessageObject(err, null as any, level, this.Name, this.Variables, ...args));
       }
     }
   };
@@ -113,7 +113,7 @@ export class FrameworkLogger extends Log {
     wrapWrite.apply(this, [LogLevel.Success])(err, message, ...args);
   }
 
-  public write(entry: ILogEntry) {
+  public write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]> {
     if (entry.Variables.logger === this.Name) {
       return Promise.allSettled(
 
@@ -126,6 +126,7 @@ export class FrameworkLogger extends Log {
         })
       );
     }
+    return Promise.resolve([]);
   }
 
   protected resolveLogTargets() {

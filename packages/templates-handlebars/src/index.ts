@@ -68,7 +68,7 @@ export class HandlebarsRenderer extends TemplateRenderer {
     const lang = language ? language : guessLanguage();
     const tLang = lang ?? defaultLanguage();
 
-    const content = fTemplate(
+    const content = fTemplate!(
       _.merge(model ?? {}, {
         lang: tLang,
       }),

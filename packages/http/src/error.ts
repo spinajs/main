@@ -7,14 +7,19 @@ import { ServerError } from './response-methods/serverError.js';
 import randomstring from 'randomstring';
 import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
-
 export function __handle_error__() {
 
     const logger = DI.resolve(Log, ['http']);
     const config = DI.get(Configuration);
-    const isProductionEnv = config.get<boolean>('configuration.isProduction');
-    const errorMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__');
 
+    if(!config){
+        logger.warn('Configuration service is not registered in DI container, error handler will use default values. Register configuration service to use custom configuration');
+    }
+
+    const isProductionEnv = config ? config.get<boolean>('configuration.isProduction') : false;
+    const errorMap = DI.get<Map<string, Constructor<HttpResponse>>>('__http_error_map__');
+    const acceptHeaders = config ? config.get<HttpAcceptHeaders>('http.AcceptHeaders') : null;
+    const fatalTemplate = config ? config.get<string>('http.FatalTemplate') : null;
 
 
     return (err: any, req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
@@ -42,10 +47,10 @@ export function __handle_error__() {
         logger.error(err, `Error in controller ${req.method} at path ${req.originalUrl}`);
 
 
-        let response: HttpResponse = null;
-        if (errorMap.has(err.constructor.name)) {
+        let response: HttpResponse | null = null;
+        if (errorMap && errorMap.has(err.constructor.name)) {
             const httpResponse = errorMap.get(err.constructor.name);
-            response = new httpResponse(error);
+            response = new httpResponse!(error);
         } else {
             logger.warn(`Error type ${error.constructor} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
             response = new ServerError(error);
@@ -64,10 +69,10 @@ export function __handle_error__() {
                 logger.fatal(err, `Cannot send error response`);
                 res.status(HTTP_STATUS_CODE.INTERNAL_ERROR);
 
-                if (req.accepts('html') && (this.HttpConfig.AcceptHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
+                if (acceptHeaders && fatalTemplate && req.accepts('html') && (acceptHeaders & HttpAcceptHeaders.HTML) === HttpAcceptHeaders.HTML) {
                     // final fallback rendering error fails, we render embedded html error page
                     const ticketNo = randomstring.generate(7);
-                    res.send(this.HttpConfig.FatalTemplate.replace('{ticket}', ticketNo));
+                    res.send(fatalTemplate.replace('{ticket}', ticketNo));
                 } else {
                     res.json(error);
                 }

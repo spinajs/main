@@ -156,14 +156,28 @@ export class FromFile extends FromFormBase {
       ]);
     }
 
-    const uplFiles = files.map((f: formidable.File) => {
+    const uplFiles = files.map((f: formidable.File | undefined) => {
+
+     if(!f){
+        throw new ValidationFailed(`File ${param.Name} is required`, [
+          {
+            propertyName: param.Name,
+            message: 'Missing file',
+            keyword: 'required',
+            params: {},
+            schemaPath: '#/required',
+            instancePath: 'FormData',
+          },
+        ]);
+      }
+
       const uploadedFile: IUploadedFile = {
         Size: f.size,
         BaseName: basename(f.filepath),
-        Name: f.originalFilename,
-        Type: f.mimetype,
-        LastModifiedDate: f.mtime,
-        Hash: f.hash,
+        Name: f.originalFilename ?? '',
+        Type: f.mimetype ?? '',
+        LastModifiedDate: f.mtime ?? undefined,
+        Hash: f.hash ?? undefined,
         Provider: uploadFs,
         OriginalFile: f,
       };
@@ -276,7 +290,7 @@ export interface ICsvOptions {
 @NewInstance()
 export class FromCSV extends FromFormBase {
   @Autoinject()
-  protected Validator: DataValidator;
+  protected Validator!: DataValidator;
 
   public get SupportedType(): ParameterType {
     return ParameterType.FromCSV;
@@ -305,7 +319,7 @@ export class FromCSV extends FromFormBase {
       this.validateCsvData(csvData, schema);
     }
 
-    const args = await Promise.all(csvData.map((x) => this.tryHydrateParam(x, param, route)));
+    const args = await Promise.all(csvData.map((x) => this.tryHydrateParam(x, param, route!)));
 
     return {
       ...data,
@@ -404,11 +418,11 @@ export class FromForm extends FromFormBase {
     // and array of objects
     const fData = Object.fromEntries(
       Object.entries(this.FormData.Fields).map(([key, value]) => {
-        return [key, value[0]];
+        return [key, value![0]];
       }),
     );
 
-    result = await this.tryHydrateParam(fData, param, route);
+    result = await this.tryHydrateParam(fData, param, route!);
 
     return {
       ...data,

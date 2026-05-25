@@ -54,7 +54,8 @@ export abstract class QueueService extends AsyncService {
   public abstract get(connection?: string): QueueClient;
 
   protected getConnectionsForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
-    const option = this.Configuration.routing[(event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name] ?? this.Configuration.default;
+    const eventName = ((event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name) as string;
+    const option: string | IMessageRoutingOption | string[] | IMessageRoutingOption[] = (this.Configuration.routing as any)[eventName] ?? this.Configuration.default;
 
     if (_.isString(option)) {
       return [this.Configuration.default];
@@ -62,18 +63,16 @@ export abstract class QueueService extends AsyncService {
 
     if (_.isArray(option)) {
       return _.uniq(
-        option.map((x) => {
+        option.map((x): string => {
           if (_.isString(x)) {
             return this.Configuration.default;
           }
 
-          if (x.connection) {
-            return x.connection;
-          }
+          return x.connection ?? this.Configuration.default;
         }),
       );
     } else {
-      return [option.connection];
+      return [option.connection!];
     }
   }
 }
@@ -94,31 +93,31 @@ export abstract class QueueMessage implements IQueueMessage {
   // defaults to class name
   public Name: string;
 
-  public Type: QueueMessageType;
+  public Type!: QueueMessageType;
 
-  public Persistent: boolean;
+  public Persistent!: boolean;
 
-  public Priority: number;
+  public Priority!: number;
 
   /**
    * The time in milliseconds that a message will wait before being scheduled to be delivered by the broker
    */
-  public ScheduleDelay: number;
+  public ScheduleDelay!: number | undefined;
 
   /**
    * The time in milliseconds to wait after the start time to wait before scheduling the message again
    */
-  public SchedulePeriod: number;
+  public SchedulePeriod!: number | undefined;
 
   /**
    * The number of times to repeat scheduling a message for delivery
    */
-  public ScheduleRepeat: number;
+  public ScheduleRepeat!: number | undefined;
 
   /**
    * Use a Cron entry to set the schedule
    */
-  public ScheduleCron: string;
+  public ScheduleCron!: string | undefined;
 
   constructor(data?: any) {
     if (data) {
@@ -268,7 +267,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
 
     if (!rOption) {
       this.Log.warn(`No routing for event ${eName} found, using default channel`);
-      return [isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel];
+      return [isJob ? this.Options.defaultQueueChannel! : this.Options.defaultTopicChannel!];
     }
 
     if (_.isString(rOption)) {
@@ -277,17 +276,17 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
 
     if (_.isArray(rOption)) {
       return _.uniq(
-        rOption.map((x) => {
+        rOption.map((x): string => {
           if (_.isString(x)) {
             return x;
           }
 
-          return x.channel ?? (isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel);
+          return x.channel ?? (isJob ? this.Options.defaultQueueChannel! : this.Options.defaultTopicChannel!);
         }),
       );
     }
 
-    return [rOption.channel ?? (isJob ? this.Options.defaultQueueChannel : this.Options.defaultTopicChannel)];
+    return [rOption.channel ?? (isJob ? this.Options.defaultQueueChannel! : this.Options.defaultTopicChannel!)];
   }
 }
 

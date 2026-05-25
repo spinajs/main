@@ -6,6 +6,8 @@ import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isFactory, isTypedArray, isPromise } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service } from './interfaces.js';
 import { Class, Factory } from './types.js';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 import { EventEmitter } from 'events';
 import { Binder } from './binder.js';
 import { Registry } from './registry.js';
@@ -31,7 +33,7 @@ export class Container extends EventEmitter implements IContainer {
   /**
    * Parent container if avaible
    */
-  private parent: IContainer;
+  private parent: IContainer | undefined;
 
   /**
    * Child containers created from this container
@@ -58,7 +60,7 @@ export class Container extends EventEmitter implements IContainer {
 
     this.registry = new Registry(this);
     this.cache = new ContainerCache(this);
-    this.parent = parent || undefined;
+    this.parent = parent;
   }
 
   /**
@@ -86,7 +88,7 @@ export class Container extends EventEmitter implements IContainer {
       if (entry.value instanceof Service) {
         try {
           await entry.value.dispose();
-        } catch (err) {
+        } catch (err: any) {
           disposalErrors.push(err);
           // Continue with other services even if one fails
         }
@@ -195,7 +197,7 @@ export class Container extends EventEmitter implements IContainer {
       return this.cache.get(getTypeName(service.Type)) as T[];
     }
 
-    const r = this.cache.get(this.getCurrentType(service, null, parent ?? true) ?? service, parent);
+    const r = this.cache.get(this.getCurrentType(service, null as any, parent ?? true) ?? service, parent);
     return r[r.length - 1] as T;
   }
 
@@ -213,10 +215,10 @@ export class Container extends EventEmitter implements IContainer {
    */
   public isResolved<T>(service: string | Class<T> | TypedArray<T>, parent = true): boolean {
     if (service instanceof Array && service.constructor.name === 'TypedArray' || service instanceof TypedArray) {
-      return this.Cache.has(this.getCurrentType(service.Type, null, parent ?? true) ?? service, parent);
+      return this.Cache.has(this.getCurrentType(service.Type, null as any, parent ?? true) ?? service, parent);
     }
 
-    return this.Cache.has(this.getCurrentType(service, null, parent ?? true) ?? service, parent);
+    return this.Cache.has(this.getCurrentType(service, null as any, parent ?? true) ?? service, parent);
   }
 
   /**
@@ -290,7 +292,7 @@ export class Container extends EventEmitter implements IContainer {
         return [];
       }
 
-      const resolved = targetType.map((r) => this.resolveType(type, r, opt));
+      const resolved = targetType.map((r) => this.resolveType(type, r, opt ?? undefined));
 
       if (resolved.some((r) => r instanceof Promise)) {
         return Promise.all(resolved).then(() => this.get(type, check ?? true)) as any;
@@ -301,10 +303,10 @@ export class Container extends EventEmitter implements IContainer {
 
       const fType = this.getCurrentType(type, tType, check ?? true);
       if (fType === null) {
-        return null;
+        return null as any;
       }
 
-      const rValue = this.resolveType(sourceType, fType, opt);
+      const rValue = this.resolveType(sourceType, fType, opt ?? undefined);
       return rValue as any;
     }
   }
@@ -313,7 +315,7 @@ export class Container extends EventEmitter implements IContainer {
     return this.Registry.getTypes(service, parent);
   }
 
-  private getCurrentType<T>(type: Class<T> | string, tType: Class<T>, check: boolean) {
+  private getCurrentType<T>(type: Class<T> | string, tType?: Class<T>, check?: boolean) {
     // finaly resolve single type:
     // 1. last registered type OR
     // 2. if non is registered - type itself
@@ -342,7 +344,7 @@ export class Container extends EventEmitter implements IContainer {
      * If its a factory func, always resolve as new instance
      */
     if (isFactory(targetType)) {
-      return this.getNewInstance(targetType, null, options) as T;
+      return this.getNewInstance(targetType, undefined, options) as T;
     }
 
     // we now know its not factory func
@@ -434,8 +436,8 @@ export class Container extends EventEmitter implements IContainer {
     if (isFactory(typeToCreate)) {
       newInstance = typeToCreate(this, ...(options ?? []));
     } else {
-      if (a.constructor.name === 'Array') {
-        args = args.concat(a.filter((i) => !i.autoinject).map((i) => i.instance));
+      if (a!.constructor.name === 'Array') {
+        args = args.concat(a!.filter((i) => !i.autoinject).map((i) => i.instance));
       }
 
       if (options && options.length !== 0) {
@@ -443,12 +445,12 @@ export class Container extends EventEmitter implements IContainer {
       }
 
       /* eslint-disable */
-      newInstance = new (Function.prototype.bind.apply(typeToCreate, args))();
+      newInstance = new (Function.prototype.bind.apply(typeToCreate, args as any))();
 
-      for (const ai of a.filter((i) => i.autoinject)) {
+      for (const ai of a!.filter((i) => i.autoinject)) {
         // TYPE HACK to tell typescript we dont care type
         /* eslint-disable */
-        (newInstance as any)[`${ai.autoinjectKey}`] = ai.instance;
+        (newInstance as any)[`${String(ai.autoinjectKey)}`] = ai.instance;
       }
 
       if (isAsyncService(newInstance)) {
@@ -555,7 +557,10 @@ export class Container extends EventEmitter implements IContainer {
       if (_.isArray(val) && t.mapFunc) {
         instance = new Map<string, unknown>();
         for (const i of val) {
-          (instance as Map<string, unknown>).set(t.mapFunc(i), i);
+          const key = t.mapFunc(i);
+          if (key !== undefined) {
+            (instance as Map<string, unknown>).set(key, i);
+          }
         }
       }
 
@@ -574,8 +579,8 @@ export class Container extends EventEmitter implements IContainer {
       descriptor.resolver = rootMeta.resolver;
     }
 
-    function geAllTypes(clz: Record<string, any>): string[] {
-      if (!clz) return undefined;
+    function geAllTypes(clz: Record<string, any>): void {
+      if (!clz) return;
       const toInject: IInjectDescriptor<unknown> = Reflect.getMetadata(DI_DESCRIPTION_SYMBOL, clz);
       if (toInject) {
         toInject.inject.forEach((x) => {

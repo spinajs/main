@@ -39,10 +39,10 @@ function _validate(param: unknown) {
 @Injectable()
 export class LangArgument extends RouteArgs {
   @Config('intl.queryParameter')
-  protected LangQueryParameter: string;
+  protected LangQueryParameter!: string;
 
   @Config('intl.defaultLocale')
-  protected defaultLocale: string;
+  protected defaultLocale!: string;
 
   get SupportedType(): string {
     return 'LangArgument';
@@ -70,10 +70,10 @@ export class LangArgument extends RouteArgs {
 @Injectable(ServerMiddleware)
 export class IntHttpMiddleware extends ServerMiddleware {
   @Config('intl.queryParameter')
-  protected LangQueryParameter: string;
+  protected LangQueryParameter!: string;
 
   @Config('intl.defaultLocale')
-  protected defaultLocale: string;
+  protected defaultLocale!: string;
 
   public before(): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
     return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
@@ -85,7 +85,7 @@ export class IntHttpMiddleware extends ServerMiddleware {
       next();
     };
   }
-  public after(): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
+  public after(): ((req: express.Request, res: express.Response, next: express.NextFunction) => void) | null {
     return null;
   }
 }

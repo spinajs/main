@@ -291,6 +291,9 @@ export class fsS3 extends fs {
     });
 
     const result = await this.S3.send(command);
+    if(!result.Metadata || !result.Metadata['hash']){
+      throw new IOFail(`Hash metadata is not available for file ${path}`);
+    }
 
     return result.Metadata['hash'];
   }
@@ -367,7 +370,7 @@ export class fsS3 extends fs {
    * @param rStream readable stream, must be provided beforehand
    * @param encoding optional stream encoding
    */
-  public async writeStream(_path: string, _encoding?: BufferEncoding): Promise<any> {
+  public async writeStream(_path: string, _encoding?: BufferEncoding | NodeJS.ReadableStream, _enc?: BufferEncoding): Promise<any> {
     throw new IOFail('Method not implemented, s3 does not support writable streams');
   }
 
@@ -384,7 +387,11 @@ export class fsS3 extends fs {
 
       await this.S3.send(command);
     } catch (err) {
-      if (err.name === 'NotFound') return false;
+
+      if(err instanceof Error && err.name === 'NotFound') {
+        return false;
+      }
+
       throw err;
     }
 
@@ -486,7 +493,7 @@ export class fsS3 extends fs {
 
       // no creation time
       CreationTime: DateTime.min(),
-      ModifiedTime: DateTime.fromJSDate(result.LastModified),
+      ModifiedTime: result.LastModified ? DateTime.fromJSDate(result.LastModified) : DateTime.min(),
 
       // no access time in s3s
       AccessTime: DateTime.min(),
@@ -526,7 +533,7 @@ export class fsS3 extends fs {
     });
 
     const result = await this.S3.send(command);
-    return result.Contents?.map((x) => x.Key) ?? [];
+    return (result.Contents?.map((x) => x.Key) ?? []) as string[];
   }
 
   public async unzip(_path: string, _destPath?: string, _dstFs?: fs): Promise<string> {

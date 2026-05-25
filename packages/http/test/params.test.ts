@@ -71,7 +71,7 @@ describe('controller action test params', function () {
 
     it('simple query', async () => {
       await req().get('params/query/simple?a=hello&b=true&c=666');
-      const spy = DI.get(QueryParams).simple as sinon.SinonSpy;
+      const spy = DI.get(QueryParams)!.simple as sinon.SinonSpy;
 
       expect(spy.args[0][0]).to.eq('hello');
       expect(spy.args[0][1]).to.eq(true);
@@ -81,14 +81,14 @@ describe('controller action test params', function () {
     it('queryObject', async () => {
       await req().get('params/query/queryObject?a={"id":1,"name":"test"}');
 
-      const spy = DI.get(QueryParams).queryObject as sinon.SinonSpy;
+      const spy = DI.get(QueryParams)!.queryObject as sinon.SinonSpy;
       expect(spy.args[0][0].id).to.eq(1);
       expect(spy.args[0][0].name).to.eq('test');
     });
 
     it('queryModel', async () => {
       await req().get('params/query/queryModel?a={"id":1,"name":"test","args":[1,2,3]}');
-      const spy = DI.get(QueryParams).queryModel as sinon.SinonSpy;
+      const spy = DI.get(QueryParams)!.queryModel as sinon.SinonSpy;
 
       expect(spy.args[0][0].constructor.name).to.eq('SampleModel');
       expect((spy.args[0][0] as SampleModel).id).to.eq(1);
@@ -97,7 +97,7 @@ describe('controller action test params', function () {
     });
     it('queryMixedData', async () => {
       await req().get('params/query/queryMixedData?a={"id":1,"name":"test","args":[1,2,3]}&b={"id":1,"name":"test"}&c=hello world');
-      const spy = DI.get(QueryParams).queryMixedData as sinon.SinonSpy;
+      const spy = DI.get(QueryParams)!.queryMixedData as sinon.SinonSpy;
 
       expect(spy.args[0][0].constructor.name).to.eq('SampleModel');
       expect((spy.args[0][0] as SampleModel).id).to.eq(1);
@@ -111,7 +111,7 @@ describe('controller action test params', function () {
     });
     it('queryModelWithSchema', async () => {
       await req().get('params/query/queryModelWithSchema?a={"id":1,"name":"test","args":[1,2,3]}');
-      const spy = DI.get(QueryParams).queryModel as sinon.SinonSpy;
+      const spy = DI.get(QueryParams)!.queryModel as sinon.SinonSpy;
 
       expect(spy.args[0][0].constructor.name).to.eq('SampleModel');
       expect((spy.args[0][0] as SampleModel).id).to.eq(1);
@@ -124,7 +124,7 @@ describe('controller action test params', function () {
       expect(badResult.body).to.be.not.null;
     });
     it('queryDate', async () => {
-      const spy = DI.get(QueryParams).queryDate as sinon.SinonSpy;
+      const spy = DI.get(QueryParams)!.queryDate as sinon.SinonSpy;
 
       await req().get('params/query/queryDate?a=2022-06-28T20:59:55Z');
 
@@ -132,7 +132,7 @@ describe('controller action test params', function () {
       expect(spy.args[0][0].toFormat('dd-MM-yyyy')).to.eq('28-06-2022');
     });
     it('queryDateFromUnixtime', async () => {
-      const spy = DI.get(QueryParams).queryDateFromUnixtime as sinon.SinonSpy;
+      const spy = DI.get(QueryParams)!.queryDateFromUnixtime as sinon.SinonSpy;
 
       await req().get('params/query/queryDateFromUnixtime?a=1656367511');
 
@@ -140,17 +140,17 @@ describe('controller action test params', function () {
       expect(spy.args[0][0].toFormat('dd-MM-yyyy')).to.eq('28-06-2022');
     });
     it('queryUuid', async () => {
-      const spy = DI.get(QueryParams).queryUuid as sinon.SinonSpy;
+      const spy = DI.get(QueryParams)!.queryUuid as sinon.SinonSpy;
       await req().get('params/query/queryUuid?a=3e9eb5ac-e2bb-4b11-9931-afc3ec7245fb');
       expect(spy.args[0][0]).to.eq('3e9eb5ac-e2bb-4b11-9931-afc3ec7245fb');
     });
     it('pkey', async () => {
-      const spy = DI.get(QueryParams).pkey as sinon.SinonSpy;
+      const spy = DI.get(QueryParams)!.pkey as sinon.SinonSpy;
       await req().get('params/query/pkey?id=1');
       expect(spy.args[0][0]).to.eq(1);
     });
     it('array', async () => {
-      const spy = DI.get(QueryParams).array as sinon.SinonSpy;
+      const spy = DI.get(QueryParams)!.array as sinon.SinonSpy;
       await req().get('params/query/array?a=["1","2","3"]');
       expect(spy.args[0][0]).to.be.an('array');
       expect(spy.args[0][0]).to.include.members(['1', '2', '3']);
@@ -160,11 +160,11 @@ describe('controller action test params', function () {
   describe('headers params', function () {
     it('headerParam', async () => {
       await req().get('params/headers/headerParam').set('x-custom-header', 'hello world');
-      assert.calledWith(DI.get(HeaderParams).headerParam as sinon.SinonSpy, 'hello world');
+      assert.calledWith(DI.get(HeaderParams)!.headerParam as sinon.SinonSpy, 'hello world');
     });
 
     it('headerDate', async () => {
-      const spy = DI.get(HeaderParams).headerDate as sinon.SinonSpy;
+      const spy = DI.get(HeaderParams)!.headerDate as sinon.SinonSpy;
 
       await req().get('params/headers/headerDate').set('x-custom-header', 'Date: Wed, 21 Oct 2015 07:28:00 GMT');
       expect(spy.args[0][0].constructor.name).to.eq('DateTime');
@@ -172,7 +172,7 @@ describe('controller action test params', function () {
     });
 
     it('headerParamNoName', async () => {
-      const spy = DI.get(HeaderParams).headerParamNoName as sinon.SinonSpy;
+      const spy = DI.get(HeaderParams)!.headerParamNoName as sinon.SinonSpy;
 
       await req().get('params/headers/headerParamNoName').set('customHeaderName', 'hello world');
       expect(spy.args[0][0]).to.eq('hello world');
@@ -180,13 +180,13 @@ describe('controller action test params', function () {
 
     it('headerParamObject', async () => {
       await req().get('params/headers/headerParamObject').set('x-custom-header', '{"id":1,"name":"test"}');
-      assert.calledWith(DI.get(HeaderParams).headerParamObject as sinon.SinonSpy, {
+      assert.calledWith(DI.get(HeaderParams)!.headerParamObject as sinon.SinonSpy, {
         id: 1,
         name: 'test',
       });
     });
     it('headerParamModel', async () => {
-      const spy = DI.get(HeaderParams).headerParamModel as sinon.SinonSpy;
+      const spy = DI.get(HeaderParams)!.headerParamModel as sinon.SinonSpy;
       await req().get('params/headers/headerParamModel').set('x-custom-header', '{"id":1,"name":"test","args":[1,2,3]}');
 
       expect(spy.args[0][0].constructor.name).to.eq('SampleModel');
@@ -195,7 +195,7 @@ describe('controller action test params', function () {
       expect((spy.args[0][0] as SampleModel).args).to.include.members([1, 2, 3]);
     });
     it('headerParamObjectWithSchema', async () => {
-      const spy = DI.get(HeaderParams).headerParamObjectWithSchema as sinon.SinonSpy;
+      const spy = DI.get(HeaderParams)!.headerParamObjectWithSchema as sinon.SinonSpy;
 
       await req().get('params/headers/headerParamObjectWithSchema').set('x-custom-header', '{"id":1,"name":"test"}');
       expect(spy.args[0][0].constructor.name).to.eq('SampleObjectWithSchema');
@@ -210,7 +210,7 @@ describe('controller action test params', function () {
 
   describe('url params', function () {
     it('simple', async () => {
-      const spy = DI.get(UrlParams).simple as sinon.SinonSpy;
+      const spy = DI.get(UrlParams)!.simple as sinon.SinonSpy;
       await req().get('params/url/simple/1');
 
       expect(spy.args[0][0]).to.eq(1);
@@ -225,7 +225,7 @@ describe('controller action test params', function () {
     });
 
     it('paramWithHydrator', async () => {
-      const spy = DI.get(UrlParams).paramWithHydrator as sinon.SinonSpy;
+      const spy = DI.get(UrlParams)!.paramWithHydrator as sinon.SinonSpy;
       await req().get('params/url/paramWithHydrator/1111');
 
       expect(spy.args[0][0].constructor.name).to.eq('SampleModelWithHydrator2');
@@ -233,7 +233,7 @@ describe('controller action test params', function () {
     });
 
     it('paramWithSchema', async () => {
-      const spy = DI.get(UrlParams).paramWithSchema as sinon.SinonSpy;
+      const spy = DI.get(UrlParams)!.paramWithSchema as sinon.SinonSpy;
       await req().get('params/url/paramWithSchema/1');
 
       expect(spy.args[0][0]).to.eq(1);
@@ -246,7 +246,7 @@ describe('controller action test params', function () {
     });
 
     it('multipleParam', async () => {
-      const spy = DI.get(UrlParams).multipleParam as sinon.SinonSpy;
+      const spy = DI.get(UrlParams)!.multipleParam as sinon.SinonSpy;
       await req().get('params/url/multipleParam/1/test/true');
 
       expect(spy.args[0][0]).to.eq(1);
@@ -255,7 +255,7 @@ describe('controller action test params', function () {
     });
 
     it('pkey', async () => {
-      const spy = DI.get(UrlParams).pkey as sinon.SinonSpy;
+      const spy = DI.get(UrlParams)!.pkey as sinon.SinonSpy;
       await req().get('params/url/pkey/1');
 
       expect(spy.args[0][0]).to.eq(1);
@@ -268,7 +268,7 @@ describe('controller action test params', function () {
     });
 
     it('uuid', async () => {
-      const spy = DI.get(UrlParams).uuid as sinon.SinonSpy;
+      const spy = DI.get(UrlParams)!.uuid as sinon.SinonSpy;
       await req().get('params/url/uuid/eb05fc27-77d1-4807-a00a-8a4c86f9680f');
 
       expect(spy.args[0][0]).to.eq('eb05fc27-77d1-4807-a00a-8a4c86f9680f');
@@ -289,7 +289,7 @@ describe('controller action test params', function () {
 
   describe('body params', function () {
     it('simple', async () => {
-      const spy = DI.get(BodyParams).simple as sinon.SinonSpy;
+      const spy = DI.get(BodyParams)!.simple as sinon.SinonSpy;
       await req().post('params/body/simple').send({
         id: 1,
       });
@@ -298,7 +298,7 @@ describe('controller action test params', function () {
     });
 
     it('bodyObject', async () => {
-      const spy = DI.get(BodyParams).bodyObject as sinon.SinonSpy;
+      const spy = DI.get(BodyParams)!.bodyObject as sinon.SinonSpy;
       await req().post('params/body/bodyObject').send({
         id: 1,
         name: 'test',
@@ -309,7 +309,7 @@ describe('controller action test params', function () {
     });
 
     it('multipleBodyObjects', async () => {
-      const spy = DI.get(BodyParams).multipleBodyObjects as sinon.SinonSpy;
+      const spy = DI.get(BodyParams)!.multipleBodyObjects as sinon.SinonSpy;
       await req()
         .post('params/body/multipleBodyObjects')
         .send({
@@ -325,7 +325,7 @@ describe('controller action test params', function () {
     });
 
     it('bodyModel', async () => {
-      const spy = DI.get(BodyParams).bodyModel as sinon.SinonSpy;
+      const spy = DI.get(BodyParams)!.bodyModel as sinon.SinonSpy;
       await req()
         .post('params/body/bodyModel')
         .send({
@@ -340,7 +340,7 @@ describe('controller action test params', function () {
     });
 
     it('multipleBodyModel', async () => {
-      const spy = DI.get(BodyParams).multipleBodyModel as sinon.SinonSpy;
+      const spy = DI.get(BodyParams)!.multipleBodyModel as sinon.SinonSpy;
       await req()
         .post('params/body/multipleBodyModel')
         .send({
@@ -367,7 +367,7 @@ describe('controller action test params', function () {
     });
 
     it('arrayOfHydratedModels', async () => {
-      const spy = DI.get(BodyParams).arrayOfHydratedModels as sinon.SinonSpy;
+      const spy = DI.get(BodyParams)!.arrayOfHydratedModels as sinon.SinonSpy;
       await req()
         .post('params/body/arrayOfHydratedModels')
         .send([
@@ -401,7 +401,7 @@ describe('controller action test params', function () {
     });
 
     it('bodyArray', async () => {
-      const spy = DI.get(BodyParams).bodyArray as sinon.SinonSpy;
+      const spy = DI.get(BodyParams)!.bodyArray as sinon.SinonSpy;
       await req()
         .post('params/body/bodyArray')
         .send([
@@ -433,7 +433,7 @@ describe('controller action test params', function () {
     });
 
     it('bodyModelWithHydrator', async () => {
-      const spy = DI.get(BodyParams).bodyModelWithHydrator as sinon.SinonSpy;
+      const spy = DI.get(BodyParams)!.bodyModelWithHydrator as sinon.SinonSpy;
       await req()
         .post('params/body/bodyModelWithHydrator')
         .send({
@@ -449,7 +449,7 @@ describe('controller action test params', function () {
     });
 
     it('bodyModelWithSchema', async () => {
-      const spy = DI.get(BodyParams).bodyModelWithSchema as sinon.SinonSpy;
+      const spy = DI.get(BodyParams)!.bodyModelWithSchema as sinon.SinonSpy;
       await req()
         .post('params/body/bodyModelWithSchema')
         .send({

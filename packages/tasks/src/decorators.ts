@@ -46,7 +46,7 @@ export function Task(taskName: string, description: string, opts?: TaskOptions) 
           State: 'stopped',
         });
 
-        if (!opts.taskStacking) {
+        if (!opts!.taskStacking) {
           const lock = await mutex_acquire({
             Name: `task-${_name}`,
           });

@@ -49,8 +49,8 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
           }
 
           if (builder instanceof SelectQueryBuilder || builder instanceof UpdateQueryBuilder || builder instanceof DeleteQueryBuilder) {
-            const canAny = (ac.can(storage.User.Role) as any)[(QUERY_TO_PERMISSION as any)[builder.constructor.name].all](resource).granted;
-            const canOwn = (ac.can(storage.User.Role) as any)[(QUERY_TO_PERMISSION as any)[builder.constructor.name].own](resource).granted;
+            const canAny = (ac!.can(storage.User.Role) as any)[(QUERY_TO_PERMISSION as any)[builder.constructor.name].all](resource).granted;
+            const canOwn = (ac!.can(storage.User.Role) as any)[(QUERY_TO_PERMISSION as any)[builder.constructor.name].own](resource).granted;
 
             /**
              * Model can have custom rbac permission check
@@ -118,8 +118,8 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
               }
           } else if (builder instanceof InsertQueryBuilder) {
 
-            const canAny = (ac.can(storage.User.Role) as any)['createAny'](resource).granted;
-            const canOwn = (ac.can(storage.User.Role) as any)['createOwn'](resource).granted;
+            const canAny = (ac!.can(storage.User.Role) as any)['createAny'](resource).granted;
+            const canOwn = (ac!.can(storage.User.Role) as any)['createOwn'](resource).granted;
 
 
             if (storage.PermissionScope && storage.PermissionScope === "createOwn") {

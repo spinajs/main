@@ -1,5 +1,4 @@
 import 'mocha';
-import { expect } from 'chai';
 import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';

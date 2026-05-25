@@ -32,7 +32,7 @@ export class DbSessionStore extends SessionProvider {
     }, this.CleanupInterval);
   }
 
-  public async restore(sessionId: string): Promise<ISession> {
+  public async restore(sessionId: string): Promise<ISession | null> {
     const session = await DbSession.where({
       SessionId: sessionId,
     }).first();
@@ -59,11 +59,11 @@ export class DbSessionStore extends SessionProvider {
     await DbSession.destroy(sessionId);
   }
 
-  public async save(sessionOrId: string | ISession, data?: Map<string, unknown>): Promise<void> {
+  public async save(sessionOrId: string | ISession, data?: object): Promise<void> {
 
     const sessionId = _.isString(sessionOrId) ? sessionOrId : sessionOrId.SessionId;
     const userId = _.isString(sessionOrId) ? null : sessionOrId.UserId;
-    const sData = _.isString(sessionOrId) ? data : sessionOrId.Data;
+    const sData: Map<string, unknown> = _.isString(sessionOrId) ? data as any : sessionOrId.Data;
     let sCreationTime = DateTime.now();
     let sExpirationTime = DateTime.now().plus({ minutes: this.DefaultExpirationTime });
 
@@ -71,7 +71,7 @@ export class DbSessionStore extends SessionProvider {
       SessionId: sessionId,
       CreatedAt: sCreationTime,
       Expiration: sExpirationTime,
-      UserId: userId
+      UserId: userId as any
     });
     s.Data = JSON.stringify(Object.fromEntries(sData), replacer);
     await s.insert(InsertBehaviour.InsertOrUpdate);

@@ -70,7 +70,7 @@ export class JsTranslationSource extends TranslationSource {
 
       if (!data) {
         this.Log.warn(`No localisation data at ${f} for lang ${lang}`);
-        return;
+        continue;
       }
 
       translations = _.merge({ [lang]: (data as any)[lang] ?? data }, translations);

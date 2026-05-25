@@ -1,4 +1,5 @@
 export * from "./array.js";
+export * from "./assert.js";
 export * from "./hash.js";
 export * from "./json.js";
 export * from "./args.js";

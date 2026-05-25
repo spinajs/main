@@ -68,7 +68,7 @@ export class UserQueryScopes implements QueryScope {
 
   public notDeleted(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
     return this.where({
-      DeletedAt: null,
+      DeletedAt: null as any,
     });
   }
 
@@ -80,7 +80,7 @@ export class UserQueryScopes implements QueryScope {
   public isActiveUser(this: ISelectQueryBuilder<User[]> & UserQueryScopes) {
     return this.where({
       IsActive: true,
-      DeletedAt: null,
+      DeletedAt: null as any,
     });
   }
 
@@ -192,7 +192,7 @@ export class UserBase extends ModelBase<UserBase> {
     this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
     this.Role = _check_arg(_default([_cfg('rbac.defaultRole')()]))(this.Role, 'role');
 
-    this._ac = DI.get('AccessControl');
+    this._ac = DI.get('AccessControl')!;
   }
 
   @Primary()
@@ -272,7 +272,7 @@ export class UserBase extends ModelBase<UserBase> {
      * Hide meta keys we dont want to show publicly
      */
     if (base.Metadata) {
-      base.Metadata = base.Metadata.filter(m => !UserMetadataBase._hiddenKeys.includes(m.Key))
+      base.Metadata = base.Metadata.filter(m => !UserMetadataBase._hiddenKeys.includes(m.Key)) as any
     }
 
     return base as any;

@@ -71,7 +71,7 @@ export function Permission(permission: PermissionType[] = ['readOwn']) {
       }
     }
 
-    Policy(RbacPolicy)(target, propertyKey, null);
+    Policy(RbacPolicy)(target, propertyKey, undefined);
   });
 }
 
