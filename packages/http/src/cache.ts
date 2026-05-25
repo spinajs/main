@@ -74,6 +74,26 @@ export interface IControllerDocumentation {
   methods: Record<string, IMethodDoc>;
 }
 
+/** Context passed to every JSDoc tag extractor */
+export interface ITagExtractorContext {
+  /** Doc object being populated for the current method */
+  doc: IMethodDoc;
+  /** Source file the tag was parsed from (needed for safe getText() calls) */
+  sourceFile: ts.SourceFile;
+  /** Cache instance — exposes helper methods like getTagComment, safeGetText */
+  cache: DefaultControllerCache;
+}
+
+/**
+ * JSDoc tag handler. Register new tags by pushing into
+ * `DefaultControllerCache.tagExtractors`.
+ */
+export interface ITagExtractor {
+  /** Tag names this handler accepts (e.g. ['returns', 'return']) */
+  tags: string[];
+  extract(tag: ts.JSDocTag, ctx: ITagExtractorContext): void;
+}
+
 // ---------------------------------------------------------------------------
 
 @Singleton()
@@ -246,80 +266,95 @@ export class DefaultControllerCache extends AsyncService {
       doc.returns.schema = this.inferSchemaFromTypeNode(method.type);
     }
 
+    const ctx: ITagExtractorContext = { doc, sourceFile, cache: this };
     for (const tag of this.getRawJSDocTags(method)) {
       const tagName = tag.tagName.text;
-
-      switch (tagName) {
-        case 'param': {
-          const paramTag = tag as ts.JSDocParameterTag;
-          const name = ts.isIdentifier(paramTag.name) ? paramTag.name.text : (paramTag.name as any)?.right?.text ?? '';
-          if (name) {
-            doc.params[name] = {
-              name,
-              description: this.getTagComment(tag)?.trim(),
-              type: this.safeGetText(paramTag.typeExpression, sourceFile),
-            };
-          }
-          break;
-        }
-        case 'returns':
-        case 'return': {
-          if (!doc.returns) doc.returns = {};
-          doc.returns.description = this.getTagComment(tag) ?? undefined;
-          doc.returns.type = this.safeGetText((tag as ts.JSDocReturnTag).typeExpression, sourceFile);
-          break;
-        }
-        case 'response': {
-          const comment = this.getTagComment(tag);
-          if (comment) {
-            const space = comment.indexOf(' ');
-            if (space > 0) {
-              const code = comment.substring(0, space).trim();
-              const desc = comment.substring(space + 1).trim();
-              if (/^\d+$/.test(code)) {
-                if (!doc.responses) doc.responses = {};
-                doc.responses[code] = { description: desc };
-              }
-            }
-          }
-          break;
-        }
-        case 'example': {
-          const ex = this.parseExample(tag);
-          if (ex) (doc.examples ??= []).push(ex);
-          break;
-        }
-        case 'tags':
-        case 'tag':
-        case 'category': {
-          const val = this.getTagComment(tag);
-          if (val) doc.tags = val.split(',').map((t) => t.trim());
-          break;
-        }
-        case 'deprecated':
-          doc.deprecated = true;
-          break;
-        case 'summary': {
-          const val = this.getTagComment(tag);
-          if (val) doc.summary = val;
-          break;
-        }
-        case 'security': {
-          const val = this.getTagComment(tag)?.trim();
-          if (val === '[]' || val === '') {
-            doc.security = [];
-          } else if (val) {
-            // Comma-separated scheme names, each maps to an empty scopes array.
-            // e.g. "@security cookieAuth" → [{ cookieAuth: [] }]
-            // e.g. "@security cookieAuth, bearerAuth" → [{ cookieAuth: [] }, { bearerAuth: [] }]
-            doc.security = val.split(',').map((s): Record<string, string[]> => ({ [s.trim()]: [] }));
-          }
+      for (const ex of this.tagExtractors) {
+        if (ex.tags.includes(tagName)) {
+          ex.extract(tag, ctx);
           break;
         }
       }
     }
 
     return doc;
+  }
+
+  // ---------------------------------------------------------------------------
+  // JSDoc tag extractors
+  //
+  // Subclasses can mutate `this.tagExtractors` (e.g. in resolve()) to add or
+  // override tag handlers. Each tag name is matched once per JSDoc tag — the
+  // first matching extractor wins.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Built-in tag extractors. Public so subclasses / consumers can append
+   * custom JSDoc tag handlers without overriding extractMethodDoc.
+   */
+  public readonly tagExtractors: ITagExtractor[] = [
+    { tags: ['param'], extract: (tag, ctx) => this.extractParamTag(tag as ts.JSDocParameterTag, ctx) },
+    { tags: ['returns', 'return'], extract: (tag, ctx) => this.extractReturnTag(tag as ts.JSDocReturnTag, ctx) },
+    { tags: ['response'], extract: (tag, ctx) => this.extractResponseTag(tag, ctx) },
+    { tags: ['example'], extract: (tag, ctx) => this.extractExampleTag(tag, ctx) },
+    { tags: ['tags', 'tag', 'category'], extract: (tag, ctx) => this.extractTagsTag(tag, ctx) },
+    { tags: ['deprecated'], extract: (_tag, ctx) => { ctx.doc.deprecated = true; } },
+    { tags: ['summary'], extract: (tag, ctx) => this.extractSummaryTag(tag, ctx) },
+    { tags: ['security'], extract: (tag, ctx) => this.extractSecurityTag(tag, ctx) },
+  ];
+
+  private extractParamTag(tag: ts.JSDocParameterTag, ctx: ITagExtractorContext): void {
+    const name = ts.isIdentifier(tag.name) ? tag.name.text : (tag.name as any)?.right?.text ?? '';
+    if (!name) return;
+    ctx.doc.params[name] = {
+      name,
+      description: this.getTagComment(tag)?.trim(),
+      type: this.safeGetText(tag.typeExpression, ctx.sourceFile),
+    };
+  }
+
+  private extractReturnTag(tag: ts.JSDocReturnTag, ctx: ITagExtractorContext): void {
+    if (!ctx.doc.returns) ctx.doc.returns = {};
+    ctx.doc.returns.description = this.getTagComment(tag) ?? undefined;
+    ctx.doc.returns.type = this.safeGetText(tag.typeExpression, ctx.sourceFile);
+  }
+
+  private extractResponseTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const comment = this.getTagComment(tag);
+    if (!comment) return;
+    const space = comment.indexOf(' ');
+    if (space <= 0) return;
+    const code = comment.substring(0, space).trim();
+    if (!/^\d+$/.test(code)) return;
+    const desc = comment.substring(space + 1).trim();
+    (ctx.doc.responses ??= {})[code] = { description: desc };
+  }
+
+  private extractExampleTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const ex = this.parseExample(tag);
+    if (ex) (ctx.doc.examples ??= []).push(ex);
+  }
+
+  private extractTagsTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const val = this.getTagComment(tag);
+    if (val) ctx.doc.tags = val.split(',').map((t) => t.trim());
+  }
+
+  private extractSummaryTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const val = this.getTagComment(tag);
+    if (val) ctx.doc.summary = val;
+  }
+
+  private extractSecurityTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const val = this.getTagComment(tag)?.trim();
+    if (val === '[]' || val === '') {
+      ctx.doc.security = [];
+    } else if (val) {
+      // Comma-separated scheme names, each maps to an empty scopes array.
+      // e.g. "@security cookieAuth"            → [{ cookieAuth: [] }]
+      // e.g. "@security cookieAuth, bearerAuth" → [{ cookieAuth: [] }, { bearerAuth: [] }]
+      ctx.doc.security = val.split(',').map((s): Record<string, string[]> => ({ [s.trim()]: [] }));
+    }
   }
 
   private getJSDocComment(node: ts.Node): string | undefined {
