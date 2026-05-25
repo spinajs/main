@@ -37,13 +37,13 @@ export interface IOrmRelation {
   Descriptor: IRelationDescriptor;
 }
 
-function _paramCheck<T>(callback: () => T, err: string) {
+function _paramCheck<T>(callback: () => T, err: string): NonNullable<T> {
   const val = callback();
-  if (!callback()) {
+  if (!val) {
     throw new Error(err);
   }
 
-  return val;
+  return val as NonNullable<T>;
 }
 
 
@@ -95,9 +95,9 @@ export abstract class NativeOrmRelation extends OrmRelation {
     super(_container, _query, _description, parentRelation);
     this._targetModel = this._description.TargetModel;
     this._targetModelDescriptor = _paramCheck(() => extractModelDescriptor(this._targetModel), `Model ${this._targetModel?.name} does not have model descriptor set`);
-    this._driver = _paramCheck(() => DI.resolve<OrmDriver>('OrmConnection', [this._targetModelDescriptor.Connection]), `Connection ${this._targetModelDescriptor.Connection} is not set in configuration file`);
+    this._driver = _paramCheck(() => DI.resolve<OrmDriver>('OrmConnection', [this._targetModelDescriptor.Connection!]), `Connection ${this._targetModelDescriptor.Connection} is not set in configuration file`);
     this._relationQuery = this._container.resolve('SelectQueryBuilder', [this._driver, this._targetModel, this]);
-    this._separator = this._driver.Options.AliasSeparator;
+    this._separator = this._driver.Options.AliasSeparator ?? '';
 
     if (this._driver.Options.Database) {
       this._relationQuery.database(this._driver.Options.Database);
@@ -137,17 +137,17 @@ export class BelongsToRelation extends NativeOrmRelation {
     }
 
     if (!this.parentRelation && !this._query.TableAlias) {
-      this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
+      this._query.setAlias(`${this._separator}${this._description.SourceModel!.name}${this._separator}`);
     }
 
     this._query.leftJoin({
       joinTable: this._targetModelDescriptor.TableName,
       joinTableAlias: this.Alias,
       sourceTablePrimaryKey: this._description.ForeignKey,
-      joinTableDatabase: this._targetModelDescriptor.Driver.Options.Database,
+      joinTableDatabase: this._targetModelDescriptor.Driver?.Options.Database,
       joinTableForeignKey: this._description.PrimaryKey,
-      joinTableDriver: this._targetModelDescriptor.Driver,
-    })
+      joinTableDriver: this._targetModelDescriptor.Driver!,
+    } as any)
 
     this._relationQuery.Relations.forEach((r) => r.compile());
 
@@ -210,7 +210,7 @@ export class QueryRelation extends OrmRelation {
   }
 
   public compile(): void {
-    this._query.middleware(new QueryRelationMiddleware(this._description.Callback, this._description.Mapper, this._description));
+    this._query.middleware(new QueryRelationMiddleware(this._description.Callback!, this._description.Mapper!, this._description));
   }
 }
 
@@ -218,7 +218,7 @@ export class QueryRelation extends OrmRelation {
 @Inject(Container)
 export class VirtualRelation extends OrmRelation {
 
-  protected _relationCallback:  (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void;
+  protected _relationCallback: ((this: ISelectQueryBuilder, relation: NativeOrmRelation) => void) | undefined;
 
   public execute(callback?: (this: ISelectQueryBuilder, relation: NativeOrmRelation) => void): void {
     this._relationCallback = callback;
@@ -229,7 +229,7 @@ export class VirtualRelation extends OrmRelation {
   }
 
   public compile(): void {
-    this._query.middleware(new VirtualRelationMiddleware(this._relationCallback, this._description.Callback, this._description.Mapper, this._description));
+    this._query.middleware(new VirtualRelationMiddleware(this._relationCallback!, this._description.Callback!, this._description.Mapper!, this._description));
   }
 }
 
@@ -254,13 +254,13 @@ export class OneToManyRelation extends NativeOrmRelation {
     }
 
     if (!this.parentRelation && !this._query.TableAlias) {
-      this._query.setAlias(`${this._separator}${this._description.SourceModel.name}${this._separator}`);
+      this._query.setAlias(`${this._separator}${this._description.SourceModel!.name}${this._separator}`);
     }
 
     this._relationQuery.Relations.forEach((r) => r.compile());
 
     this._query.middleware(new DiscriminationMapMiddleware(this._targetModelDescriptor));
-    this._query.middleware(new HasManyRelationMiddleware(this._relationQuery, this._description, null));
+    this._query.middleware(new HasManyRelationMiddleware(this._relationQuery, this._description, ''));
 
     this._compiled = true;
   }
@@ -291,10 +291,10 @@ export class ManyToManyRelation extends NativeOrmRelation {
       throw new InvalidOperation(`model ${this._description.JunctionModel} not exists in orm module`);
     }
 
-    this._joinModelDescriptor = extractModelDescriptor(this._joinModel);
+    this._joinModelDescriptor = extractModelDescriptor(this._joinModel)!;
 
-    const orm = DI.get<Orm>('Orm');
-    const driver = orm.Connections.get(this._joinModelDescriptor.Connection);
+    const orm = DI.get<Orm>('Orm')!;
+    const driver = orm.Connections.get(this._joinModelDescriptor.Connection!)!;
 
     const cnt = driver.Container;
     this._joinQuery = cnt.resolve<ISelectQueryBuilder>('SelectQueryBuilder', [driver, this._targetModel, this]);
@@ -327,10 +327,10 @@ export class ManyToManyRelation extends NativeOrmRelation {
         joinTable: this._targetModelDescriptor.TableName,
         joinTableAlias: this.Alias,
         sourceTablePrimaryKey: this._description.JunctionModelTargetModelFKey_Name,
-        joinTableDatabase: this._targetModelDescriptor.Driver.Options.Database,
+        joinTableDatabase: this._targetModelDescriptor.Driver?.Options.Database,
         joinTableForeignKey: this._description.PrimaryKey,
-        joinTableDriver: this._targetModelDescriptor.Driver,
-      }
+        joinTableDriver: this._targetModelDescriptor.Driver!,
+      } as any
     )
 
 
@@ -339,10 +339,10 @@ export class ManyToManyRelation extends NativeOrmRelation {
     const joinRelationDescriptor = {
       Name: this._description.Name,
       Type: RelationType.Many,
-      TargetModelType: this._description.JunctionModel,
+      TargetModelType: this._description.JunctionModel!,
       TargetModel: this._description.JunctionModel as any,
       SourceModel: this._description.SourceModel as any,
-      ForeignKey: this._description.JunctionModelSourceModelFKey_Name,
+      ForeignKey: this._description.JunctionModelSourceModelFKey_Name ?? '',
       PrimaryKey: this._description.PrimaryKey,
       Recursive: false,
     };

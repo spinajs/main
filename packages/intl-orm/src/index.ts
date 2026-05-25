@@ -1,5 +1,7 @@
 import { Container, DI, Inject, Injectable, NewInstance } from '@spinajs/di';
 import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, Orm, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation, ISelectQueryBuilder, NativeOrmRelation } from '@spinajs/orm';
+import type { IModelStatic } from '@spinajs/orm';
+import type { Constructor } from '@spinajs/di';
 import { TranslationSource, guessLanguage, defaultLanguage, IIntlAsyncStorage } from '@spinajs/intl';
 import _ from 'lodash';
 import { IntlTranslation } from './models/IntlTranslation.js';
@@ -41,7 +43,7 @@ export class IntlModelRelation extends NativeOrmRelation {
       _container,
       _query,
       {
-        TargetModel: IntlResource as any,
+        TargetModel: IntlResource as unknown as Constructor<ModelBase> & IModelStatic,
         TargetModelType: IntlResource,
         Name: 'Translations',
         Type: RelationType.Many,
@@ -57,7 +59,7 @@ export class IntlModelRelation extends NativeOrmRelation {
   }
 
   public compile(): void {
-    this._query.middleware(new IntlModelMiddleware(this._lang, this._relationQuery, this._mDescriptor, this.parentRelation));
+    this._query.middleware(new IntlModelMiddleware(this._lang, this._relationQuery, this._mDescriptor, this.parentRelation!));
   }
 
   public translate(_lang: string) {
@@ -74,7 +76,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
     return data;
   }
   public modelCreation(_: any): ModelBase {
-    return null;
+    return null as any;
   }
   public async afterHydration(data: ModelBase[]): Promise<any[]> {
     const self = this;
@@ -88,7 +90,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
         return data;
       },
       modelCreation(): ModelBase {
-        return null;
+        return null as any;
       },
       async afterHydration(relationData: ModelBase[]) {
         data.forEach((d) => {

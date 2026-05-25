@@ -12,7 +12,12 @@ import { ServerError } from './index.js';
 import * as cs from 'cookie-signature';
 
 export function _setCoockies(res: express.Response, options?: IResponseOptions) {
-  const cfg: Configuration = DI.get(Configuration);
+  const cfg = DI.get(Configuration);
+  if (!cfg) {
+    throw new Error('Configuration service is not registered in DI container, cannot set coockies without configuration. Please register configuration service to use coockies in http responses');
+  }
+
+
 
   // default coockie optiosn set in config for all cockies
   const opt = cfg.get<express.CookieOptions>('http.cookie.options', {});
@@ -55,7 +60,7 @@ export function jsonResponse(model: any, options?: IResponseOptions) {
 
     _setCoockies(res, options);
     _setHeaders(res, options);
- 
+
     if (model) {
       res.json(model);
     } else {
@@ -92,7 +97,7 @@ export function textResponse(model: any, options?: IResponseOptions) {
  * @param status - optional status code
  */
 export function htmlResponse(file: string, model: any, options?: IResponseOptions) {
-  const cfg: Configuration = DI.get(Configuration);
+  const cfg: Configuration = DI.get(Configuration)!;
 
   return (req: express.Request, res: express.Response) => {
     if (!req.accepts('html')) {
@@ -121,7 +126,7 @@ export function htmlResponse(file: string, model: any, options?: IResponseOption
     _setCoockies(res, options);
     _setHeaders(res, options);
 
-    _render(file, model, options?.StatusCode).catch((err) => {
+    _render(file, model, options?.StatusCode ? options.StatusCode : HTTP_STATUS_CODE.OK).catch((err) => {
       const log: Log = DI.resolve(Log, ['http']);
 
       log.warn(`Cannot render html file ${file}, error: ${err.message}:${err.stack}`, err);
@@ -144,7 +149,7 @@ export function htmlResponse(file: string, model: any, options?: IResponseOption
     });
 
     function _render(f: string, m: any, c: HTTP_STATUS_CODE) {
-      const templateEngine = DI.get(Templates);
+      const templateEngine = DI.get(Templates)!;
 
       return templateEngine.render(f, m).then((content) => {
         res.status(c ? c : HTTP_STATUS_CODE.OK);
@@ -164,7 +169,12 @@ export function htmlResponse(file: string, model: any, options?: IResponseOption
  *                  to `Accept` header
  */
 export function httpResponse(model: any, template: string, options?: IResponseOptions) {
-  const cfg: Configuration = DI.get(Configuration);
+  const cfg: Configuration | null = DI.get(Configuration);
+
+  if(!cfg) {
+    throw new Error('Configuration service is not registered in DI container, cannot send http response without configuration. Please register configuration service to use http responses');
+  }
+
   const acceptedHeaders = cfg.get<HttpAcceptHeaders>('http.AcceptHeaders');
   const transformers = DI.resolve(Array.ofType(DataTransformer));
 
@@ -173,7 +183,7 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
     return transform(req, res, transformerName);
   };
 
-  const dataTransform = function (req: express.Request, res: express.Response){ 
+  const dataTransform = function (req: express.Request, res: express.Response) {
     const transformerName = (req.headers['x-data-transform'] as string) ?? 'invalid-x-data-transform-header';
     return transform(req, res, transformerName);
   }
@@ -227,7 +237,7 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
           });
         });
     } else if (req.accepts('json') && (acceptedHeaders & HttpAcceptHeaders.JSON) === HttpAcceptHeaders.JSON) {
-      if (options.StatusCode >= 400) {
+      if (options && options.StatusCode && options.StatusCode >= 400) {
         errorTransform(req, res);
       } else {
         if (req.headers['x-data-transform']) {

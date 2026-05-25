@@ -63,7 +63,7 @@ export abstract class CloudFrontUrlSigner {
      * Defaults to 1 hour from now when `until` is not provided.
      */
     protected getDateLessThan(until?: DateTime): string {
-        return (until ?? DateTime.now().plus({ hour: 1 })).toISO();
+        return (until ?? DateTime.now().plus({ hour: 1 })).toISO()!;
     }
 
     /**

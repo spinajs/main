@@ -30,22 +30,22 @@ export abstract class BaseController extends AsyncService implements IController
    */
   [action: string]: any;
 
-  protected _router: Express.Router;
+  protected _router!: Express.Router;
 
   @Autoinject(Container)
-  protected _container: IContainer;
+  protected _container!: IContainer;
 
   @Autoinject()
-  protected _validator: DataValidator;
+  protected _validator!: DataValidator;
 
   @Logger('http')
-  protected _log: Log;
+  protected _log!: Log;
 
   @Autoinject()
-  protected _actionLocalStorage: AsyncLocalStorage<IActionLocalStoregeContext>;
+  protected _actionLocalStorage!: AsyncLocalStorage<IActionLocalStoregeContext>;
 
   @Autoinject(Configuration)
-  protected _cfg: Configuration;
+  protected _cfg!: Configuration;
 
   
 
@@ -86,7 +86,6 @@ export abstract class BaseController extends AsyncService implements IController
     }
 
     this._router = Express.Router();
-    this._actionLocalStorage = DI.get(AsyncLocalStorage<IActionLocalStoregeContext>);
 
     for (const [, route] of this.Descriptor.Routes) {
       const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [];
@@ -103,7 +102,7 @@ export abstract class BaseController extends AsyncService implements IController
           }
         }
       } else {
-        path = `/${this.BasePath}/${route.Method}`;
+        path = `/${this.BasePath}/${String(route.Method)}`;
       }
 
       // add global route path prefix
@@ -125,11 +124,11 @@ export abstract class BaseController extends AsyncService implements IController
                 self._log.warn(`No policy named ${policyType} is registered ( check your configuration at ${m.Type})`);
                 return null;
               } else {
-                self._log.trace(`Policy ${policyType} is used in controller ${self.constructor.name}::${route.Method} at path ${path}`);
+                self._log.trace(`Policy ${policyType} is used in controller ${self.constructor.name}::${String(route.Method)} at path ${path}`);
                 return self._container.resolve<BasePolicy>(policyType, m.Options);
               }
             } else {
-              self._log.trace(`Policy ${m.Type.name} is used in controller ${self.constructor.name}::${route.Method} at path ${path}`);
+              self._log.trace(`Policy ${m.Type.name} is used in controller ${self.constructor.name}::${String(route.Method)} at path ${path}`);
               return self._container.resolve<BasePolicy>(m.Type, m.Options);
             }
           })
@@ -137,7 +136,7 @@ export abstract class BaseController extends AsyncService implements IController
       );
       const enabledMiddlewares = middlewares.filter((m) => m.isEnabled(route, this));
 
-      this._log.trace(`Registering route ${route.Type.toUpperCase()} ${this.constructor.name}::${route.Method} at ${path}`);
+      this._log.trace(`Registering route ${route.Type.toUpperCase()} ${this.constructor.name}::${String(route.Method)} at ${path}`);
 
       // Execute all policies for route
       // If at least ONE policy returns no error allow route to execute
@@ -154,16 +153,16 @@ export abstract class BaseController extends AsyncService implements IController
             return p
               .execute(req, route, this)
               .then(() => {
-                this._log.trace(`Policy succeded for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method}, policy: ${p.constructor.name}`);
+                this._log.trace(`Policy succeded for route ${self.constructor.name}:${String(route.Method)} ${self.BasePath}/${String(route.Path || route.Method)}, policy: ${p.constructor.name}`);
               })
               .catch((err) => {
-                this._log.trace(`Policy failed for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method} error ${err}, policy: ${p.constructor.name}`);
+                this._log.trace(`Policy failed for route ${self.constructor.name}:${String(route.Method)} ${self.BasePath}/${String(route.Path || route.Method)} error ${err}, policy: ${p.constructor.name}`);
                 throw err;
               });
           })).then((results) => {
             const fullfilled = results.find(r => r.status === 'fulfilled');
             if (fullfilled) {
-              this._log.trace(`Policy for route ${self.constructor.name}:${route.Method} ${self.BasePath}/${route.Path || route.Method} succeded, continue execution`);
+              this._log.trace(`Policy for route ${self.constructor.name}:${String(route.Method)} ${self.BasePath}/${String(route.Path || route.Method)} succeded, continue execution`);
               next();
               return;
             }
@@ -182,7 +181,7 @@ export abstract class BaseController extends AsyncService implements IController
             const args = (await _extractRouteArgs(route, req, res)).concat([req, res, next]);
 
             try {
-              const result = this[route.Method].call(this, ...args);
+              const result = (this as any)[route.Method].call(this, ...args);
 
               if (isPromise(result)) {
                 result
@@ -222,7 +221,7 @@ export abstract class BaseController extends AsyncService implements IController
 
       // register to express router
       if (route.InternalType === 'unknown') {
-        this._log.warn(`Unknown route type for ${this.constructor.name}::${route.Method} at path ${path}`);
+        this._log.warn(`Unknown route type for ${this.constructor.name}::${String(route.Method)} at path ${path}`);
         return;
       }
 
@@ -273,7 +272,7 @@ export abstract class BaseController extends AsyncService implements IController
       for (const { param, handler: routeArgsHandler } of sortedParams) {
         if (!routeArgsHandler) {
           throw new UnexpectedServerError(`Route parameter not registered for parameter: ${param.Name},
-            in method: ${route.Method},
+            in method: ${String(route.Method)},
             in controller: ${self.constructor.name}. Check if you have registered it in DI container.`);
         }
 
@@ -293,19 +292,19 @@ export class Controllers extends AsyncService {
    * Loaded controllers
    */
   @ResolveFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
-  public Controllers: Promise<Array<ClassInfo<BaseController>>>;
+  public Controllers!: Promise<Array<ClassInfo<BaseController>>>;
 
   @Logger('http')
-  protected Log: Log;
+  protected Log!: Log;
 
   @Autoinject(Container)
-  protected Container: IContainer;
+  protected Container!: IContainer;
 
   @Autoinject()
-  protected Server: HttpServer;
+  protected Server!: HttpServer;
 
   @Autoinject()
-  protected ControllersCache: DefaultControllerCache;
+  protected ControllersCache!: DefaultControllerCache;
 
   public async registerFromFile(file: string) {
     if (!fs.existsSync(file)) {
@@ -350,6 +349,11 @@ export class Controllers extends AsyncService {
     this.Log.trace(`Loading controller: ${controller.name}`);
 
     const parameters = await this.ControllersCache.getCache(controller);
+    if(!controller.instance){
+      this.Log.warn(`Controller ${controller.name} in file ${controller.file} is not resolved. Make sure it is decorated with @injectable and has a public constructor without required parameters`);
+      return;
+    }
+
     if (!controller.instance.Descriptor) {
       this.Log.warn(`Controller ${controller.name} in file ${controller.file} dont have descriptor or routes defined`);
     } else {
@@ -366,6 +370,12 @@ export class Controllers extends AsyncService {
         } else {
           this.Log.error(`Controller ${controller.name} does not have member ${name as string} for route ${route.Path}`);
         }
+      }
+
+
+      if(!controller.instance.Router){
+        this.Log.warn(`Controller ${controller.name} in file ${controller.file} has no router instance. Check if it extends BaseController and super.resolve() is called in resolve method`);
+        return;
       }
 
       this.Server.use(controller.instance.Router);

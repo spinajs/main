@@ -15,7 +15,7 @@ export class RbacPolicy extends BasePolicy {
   constructor() {
     super();
 
-    this.Ac = DI.get('AccessControl');
+    this.Ac = DI.get('AccessControl')!;
   }
 
   public isEnabled(_action: IRoute, _instance: IController): boolean {
@@ -27,12 +27,12 @@ export class RbacPolicy extends BasePolicy {
     const descriptor: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance);
     let permission = descriptor.Permission ?? [];
 
-    if (descriptor.Routes.has(action.Method)) {
+    if (descriptor.Routes.has(String(action.Method))) {
       //req.storage.PermissionScope = descriptor.Routes.get(action.Method).Permission;
       if (req.headers['x-permission-scope']) {
         req.storage.PermissionScope = req.headers['x-permission-scope'] as PermissionType ?? null;
       }
-      permission = descriptor.Routes.get(action.Method).Permission ?? [];
+      permission = descriptor.Routes.get(String(action.Method))!.Permission ?? [];
     }
 
     // check if route has its own permission
@@ -44,19 +44,19 @@ export class RbacPolicy extends BasePolicy {
       throw new AuthenticationFailed('user not logged or session expired');
     }
 
-    if (!permission.some(p => checkRoutePermission(req, descriptor.Resource, p).granted)) {
+    if (!permission.some(p => checkRoutePermission(req, descriptor.Resource, p)?.granted)) {
       throw new Forbidden(`role(s) ${req.storage.User.Role} does not have permission ${permission} for resource ${descriptor.Resource}`);
     }
   }
 }
 
 export function checkRbacPermission(role: string | string[], resource: string, permission: string): Permission {
-  const ac = DI.get<AccessControl>('AccessControl');
+  const ac = DI.get<AccessControl>('AccessControl')!;
   return (ac.can(role) as any)[permission](resource);
 }
 
-export function checkUserPermission(user: User, resource: string, permission: string): Permission {
-  const ac = DI.get<AccessControl>('AccessControl');
+export function checkUserPermission(user: User, resource: string, permission: string): Permission | null {
+  const ac = DI.get<AccessControl>('AccessControl')!;
 
   if (!user) {
     return null;
@@ -65,7 +65,7 @@ export function checkUserPermission(user: User, resource: string, permission: st
   return (ac.can(user.Role) as any)[permission](resource);
 }
 
-export function checkRoutePermission(req: sRequest, resource: string, permission: string): Permission {
+export function checkRoutePermission(req: sRequest, resource: string, permission: string): Permission | null {
   if (!req.storage || !req.storage.User) {
     return null;
   }

@@ -25,7 +25,7 @@ const MODEL_PROXY_HANDLER = {
     if ((target as any)[p] !== value) {
       (target as any)[p] = value;
 
-      if (p !== 'IsDirty' && target.ModelDescriptor.Columns.find((x) => x.Name === p)) {
+      if (p !== 'IsDirty' && target.ModelDescriptor?.Columns.find((x) => x.Name === p)) {
         target.IsDirty = true;
 
         // HACK to access private prop ( internal use )
@@ -49,7 +49,7 @@ export function updateModelDescriptor(targetOrForward: any, callback: (descripto
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
 
   if (!target) {
-    return null;
+    return;
   }
 
   const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
@@ -104,9 +104,9 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public get Container() {
     if (!this._container) {
-      const driver = DI.resolve<OrmDriver>('OrmConnection', [this.ModelDescriptor.Connection]);
+      const driver = DI.resolve<OrmDriver>('OrmConnection', [this.ModelDescriptor!.Connection!]);
       if (!driver) {
-        throw new Error(`model ${this.constructor.name} have invalid connection ${this.ModelDescriptor.Connection}, please check your db config file or model connection name`);
+        throw new Error(`model ${this.constructor.name} have invalid connection ${this.ModelDescriptor!.Connection}, please check your db config file or model connection name`);
       }
 
       this._container = driver.Container;
@@ -116,7 +116,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   public get PrimaryKeyName() {
-    return this.ModelDescriptor.PrimaryKey;
+    return this.ModelDescriptor!.PrimaryKey;
   }
 
   public get PrimaryKeyValue() {
@@ -126,7 +126,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   public set PrimaryKeyValue(newVal: any) {
     (this as any)[this.PrimaryKeyName] = newVal;
 
-    this.ModelDescriptor.Relations.forEach((r) => {
+    this.ModelDescriptor!.Relations.forEach((r) => {
       const rel = (this as any)[r.Name];
       if (!rel) return;
 
@@ -149,9 +149,9 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   public driver(): OrmDriver {
-    const orm = DI.get<Orm>('Orm');
-    const driver = orm.Connections.get(this.ModelDescriptor.Connection);
-    return driver;
+    const orm = DI.get<Orm>('Orm')!;
+    const driver = orm.Connections.get(this.ModelDescriptor!.Connection!);
+    return driver!;
   }
 
   /**
@@ -159,7 +159,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public getFlattenRelationModels(recursive?: boolean): ModelBase[] {
     const reduceRelations = function (m: ModelBase): ModelBase[] {
-      const relations = [...m.ModelDescriptor.Relations.values()];
+      const relations = [...m.ModelDescriptor!.Relations.values()];
       const models = _.flatMap(relations, (r) => {
         if (r.Type === RelationType.Many || r.Type === RelationType.ManyToMany) {
           return (m as any)[r.Name];
@@ -424,7 +424,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   public attach(data: ModelBase) {
     // TODO: refactor this, to not check every time for relation
     // do this as map or smth
-    for (const [_, v] of this.ModelDescriptor.Relations.entries()) {
+    for (const [_, v] of this.ModelDescriptor!.Relations.entries()) {
       if (v.TargetModel.name === (data as any).constructor.name) {
         // TODO: refactor this, so we dont update foreign key
         // instead we must use belongsTo relation on data model to update
@@ -437,7 +437,7 @@ export class ModelBase<M = unknown> implements IModelBase {
             break;
           case RelationType.Many:
             // attach to related model too
-            const rel = [...data.ModelDescriptor.Relations.entries()].find((e) => e[1].ForeignKey === v.ForeignKey);
+            const rel = [...data.ModelDescriptor!.Relations.entries()].find((e) => e[1].ForeignKey === v.ForeignKey);
             if (rel) {
               (data as any)[rel[0]].Value = this;
             }
@@ -502,8 +502,8 @@ export class ModelBase<M = unknown> implements IModelBase {
    * If model can be in achived state - sets archived at date and saves it to db
    */
   public async archive() {
-    if (this.ModelDescriptor.Archived) {
-      (this as any)[this.ModelDescriptor.Archived.ArchivedAt] = DateTime.now();
+    if (this.ModelDescriptor!.Archived) {
+      (this as any)[this.ModelDescriptor!.Archived.ArchivedAt] = DateTime.now();
     } else {
       throw new OrmException('archived at column not exists in model');
     }
@@ -528,8 +528,8 @@ export class ModelBase<M = unknown> implements IModelBase {
       return result;
     }
 
-    if (this.ModelDescriptor.Timestamps.UpdatedAt) {
-      (this as any)[this.ModelDescriptor.Timestamps.UpdatedAt] = DateTime.now();
+    if (this.ModelDescriptor!.Timestamps.UpdatedAt) {
+      (this as any)[this.ModelDescriptor!.Timestamps.UpdatedAt] = DateTime.now();
     }
 
     result = await query.update(this.toSql(true)).where(this.PrimaryKeyName, this.PrimaryKeyValue);
@@ -619,11 +619,11 @@ export class ModelBase<M = unknown> implements IModelBase {
    * with unique constraints. If none exists, throws exception
    */
   public async refresh(): Promise<void> {
-    let model: this = null;
+    let model: this | null = null;
 
     model = await this.fresh();
 
-    for (const c of this.ModelDescriptor.Columns) {
+    for (const c of this.ModelDescriptor!.Columns) {
       (this as any)[c.Name] = (model as any)[c.Name];
     }
   }
@@ -636,7 +636,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * sets default values for model. values are taken from DB default column prop
    */
   protected setDefaults() {
-    this.ModelDescriptor.Columns?.forEach((c) => {
+    this.ModelDescriptor!.Columns?.forEach((c) => {
       if (c.Uuid) {
         (this as any)[c.Name] = uuidv4();
       } else {
@@ -644,11 +644,11 @@ export class ModelBase<M = unknown> implements IModelBase {
       }
     });
 
-    if (this.ModelDescriptor.Timestamps.CreatedAt) {
-      (this as any)[this.ModelDescriptor.Timestamps.CreatedAt] = DateTime.now();
+    if (this.ModelDescriptor!.Timestamps.CreatedAt) {
+      (this as any)[this.ModelDescriptor!.Timestamps.CreatedAt] = DateTime.now();
     }
 
-    for (const [, rel] of this.ModelDescriptor.Relations) {
+    for (const [, rel] of this.ModelDescriptor!.Relations) {
       if (rel.Factory) {
         (this as any)[rel.Name] = rel.Factory(this, rel, this.Container, []);
       } else if (rel.RelationClass) {
@@ -662,7 +662,7 @@ export class ModelBase<M = unknown> implements IModelBase {
           throw new OrmException(`RelationClass for relation ${rel.Name} is not a class or a function returning class`);
         }
       } else {
-        (this as any)[rel.Name] = new SingleRelation(this, rel.TargetModel, rel, null);
+        (this as any)[rel.Name] = new SingleRelation(this, rel.TargetModel, rel, undefined);
       }
     }
   }
@@ -754,8 +754,8 @@ export const MODEL_STATIC_MIXINS = {
 
   driver(): OrmDriver {
     const dsc = this.getModelDescriptor();
-    const orm = DI.get<Orm>('Orm');
-    const driver = orm.Connections.get(dsc.Connection);
+    const orm = DI.get<Orm>('Orm')!;
+    const driver = orm.Connections.get(dsc.Connection!);
 
     if (!driver) {
       throw new Error(`model ${this.name} have invalid connection ${dsc.Connection}, please check your db config file or model connection name`);
@@ -764,7 +764,7 @@ export const MODEL_STATIC_MIXINS = {
     return driver;
   },
 
-  populate(this: ModelBase, relation: string, owner: ModelBase | number | string): SelectQueryBuilder {
+  populate(this: ModelBase, relation: string, owner: ModelBase | number | string): SelectQueryBuilder | undefined {
     //TODO: fix cast
     const modelDescriptor = (this as any).getModelDescriptor() as IModelDescriptor;
 
@@ -776,7 +776,7 @@ export const MODEL_STATIC_MIXINS = {
       throw new OrmException(`Model ${this.constructor.name} has no relation ${relation}`);
     }
 
-    const relationDescriptor = modelDescriptor.Relations.get(relation);
+    const relationDescriptor = modelDescriptor.Relations.get(relation)!;
 
     const hydrateMiddleware = {
       afterQuery(data: any[]) {
@@ -790,7 +790,7 @@ export const MODEL_STATIC_MIXINS = {
 
     switch (relationDescriptor.Type) {
       case RelationType.One:
-        const { query: JoinQuery } = createQuery(relationDescriptor.SourceModel, SelectQueryBuilder);
+        const { query: JoinQuery } = createQuery(relationDescriptor.SourceModel!, SelectQueryBuilder);
 
         // NOTE: we could use simple right join, but we use LEFT JOIN
         // becouse sqlite does not support right join
@@ -805,7 +805,7 @@ export const MODEL_STATIC_MIXINS = {
           }
         });
 
-        JoinQuery.where(relationDescriptor.SourceModel.getModelDescriptor().PrimaryKey, owner);
+        JoinQuery.where(relationDescriptor.SourceModel!.getModelDescriptor().PrimaryKey, owner);
         JoinQuery.middleware(hydrateMiddleware);
         return JoinQuery;
       case RelationType.ManyToMany:
@@ -851,7 +851,7 @@ export const MODEL_STATIC_MIXINS = {
     const { query } = createQuery(this, SelectQueryBuilder);
 
     query.select('*');
-    if (page >= 0 && perPage > 0) {
+    if (page !== undefined && page >= 0 && perPage !== undefined && perPage > 0) {
       query.take(perPage).skip(page * perPage);
     }
 
@@ -902,7 +902,7 @@ export const MODEL_STATIC_MIXINS = {
       if (data instanceof ModelBase) {
         query.values(data.toSql());
       } else {
-        query.values(converter.toSql(data, description));
+        query.values(converter.toSql(data, description) as {} | {}[]);
       }
     }
 
@@ -979,7 +979,7 @@ export const MODEL_STATIC_MIXINS = {
   },
 
   destroy<T extends typeof ModelBase>(pks?: any | any[]): IWhereBuilder<InstanceType<T>> {
-    const description = _descriptor(this);
+    const description = _descriptor(this)!;
 
     const data = Array.isArray(pks) ? pks : [pks];
     if (data.length === 0) {
@@ -1056,7 +1056,7 @@ export const MODEL_STATIC_MIXINS = {
       // remove primary key from data to hydrate
       // we dont want to set primary key on new model if not exists
       // and autoincrement is set
-      if (primaryKey.AutoIncrement) {
+      if (primaryKey?.AutoIncrement) {
         delete (toHydrate as any)[description.PrimaryKey];
       }
 
@@ -1168,7 +1168,7 @@ export const MODEL_STATIC_MIXINS = {
 
   async transaction<T extends typeof ModelBase>(this: T, callback: (trx: OrmDriver) => Promise<void>) {
     const driver = this.getModelDescriptor();
-    return driver.Driver.transaction(callback);
+    return driver.Driver!.transaction(callback);
   }
 };
 
