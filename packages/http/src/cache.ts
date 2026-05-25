@@ -1,5 +1,7 @@
 import ts from 'typescript';
-import { resolve as resolvePath } from 'path';
+import { resolve as resolvePath, dirname, join, isAbsolute } from 'path';
+import { existsSync } from 'fs';
+import { createRequire } from 'module';
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
 import type { BaseController } from './controllers.js';
@@ -56,6 +58,13 @@ export interface IMethodDoc {
    * Each entry is a security requirement object: { schemeName: scopes[] }.
    */
   security?: Array<Record<string, string[]>>;
+}
+
+export interface IPolicyDoc {
+  /** Source/declaration file where the policy class is defined */
+  file?: string;
+  /** JSDoc class-level description, if present */
+  description?: string;
 }
 
 export interface IControllerDocumentation {
@@ -118,6 +127,54 @@ export class DefaultControllerCache extends AsyncService {
     return this.CacheFS.read(docHash).then((x) => JSON.parse(x.toString()) as IControllerDocumentation);
   }
 
+  /**
+   * Resolve JSDoc descriptions for policy classes referenced by a controller.
+   *
+   * Policy class names come from `controller.instance.Descriptor.Policies`
+   * and `route.Policies` at runtime. To find each class's source we parse the
+   * controller's compiled JS file (which preserves *all* imports — unlike the
+   * .d.ts which only emits type-referenced ones) and resolve the matching
+   * module specifier against the controller's directory or node_modules.
+   *
+   * Per-call in-memory cache only — policy doc volume is small and the cost is
+   * dominated by ts.createProgram which we already pay for the controller.
+   */
+  public async getPolicyDocumentation(
+    controller: ClassInfo<BaseController>,
+    policyNames: string[],
+  ): Promise<Record<string, IPolicyDoc>> {
+    const out: Record<string, IPolicyDoc> = {};
+    if (policyNames.length === 0) return out;
+
+    const controllerJs = resolvePath(controller.file);
+    const importMap = this.extractImports(controllerJs);
+    if (importMap.size === 0) return out;
+
+    const seenFiles = new Set<string>();
+    for (const name of policyNames) {
+      if (out[name]) continue;
+      const moduleSpec = importMap.get(name);
+      if (!moduleSpec) continue;
+
+      const policyFile = this.resolvePolicyFile(controllerJs, moduleSpec);
+      if (!policyFile || seenFiles.has(policyFile)) {
+        if (policyFile) out[name] = { file: policyFile };
+        continue;
+      }
+      seenFiles.add(policyFile);
+
+      try {
+        const description = this.extractClassJsDoc(policyFile, name);
+        out[name] = { file: policyFile, description };
+      } catch (err) {
+        this.Log.trace(`Could not parse policy file ${policyFile} for ${name}: ${(err as Error).message}`);
+        out[name] = { file: policyFile };
+      }
+    }
+
+    return out;
+  }
+
   // ---------------------------------------------------------------------------
   // Single-pass TypeScript extraction
   // ---------------------------------------------------------------------------
@@ -161,7 +218,7 @@ export class DefaultControllerCache extends AsyncService {
         parameters[methodName] = member.parameters.map((p) => (p.name as ts.Identifier).text);
 
         // JSDoc documentation
-        documentation.methods[methodName] = this.extractMethodDoc(member);
+        documentation.methods[methodName] = this.extractMethodDoc(member, sourceFile);
       }
     });
 
@@ -172,7 +229,7 @@ export class DefaultControllerCache extends AsyncService {
   // JSDoc extraction helpers
   // ---------------------------------------------------------------------------
 
-  private extractMethodDoc(method: ts.MethodDeclaration): IMethodDoc {
+  private extractMethodDoc(method: ts.MethodDeclaration, sourceFile: ts.SourceFile): IMethodDoc {
     const doc: IMethodDoc = { params: {} };
 
     const comment = this.getJSDocComment(method);
@@ -200,7 +257,7 @@ export class DefaultControllerCache extends AsyncService {
             doc.params[name] = {
               name,
               description: this.getTagComment(tag)?.trim(),
-              type: paramTag.typeExpression?.getText() ?? undefined,
+              type: this.safeGetText(paramTag.typeExpression, sourceFile),
             };
           }
           break;
@@ -209,7 +266,7 @@ export class DefaultControllerCache extends AsyncService {
         case 'return': {
           if (!doc.returns) doc.returns = {};
           doc.returns.description = this.getTagComment(tag) ?? undefined;
-          doc.returns.type = (tag as ts.JSDocReturnTag).typeExpression?.getText() ?? undefined;
+          doc.returns.type = this.safeGetText((tag as ts.JSDocReturnTag).typeExpression, sourceFile);
           break;
         }
         case 'response': {
@@ -290,6 +347,121 @@ export class DefaultControllerCache extends AsyncService {
     const rawJsDocs = (node as any).jsDoc as ts.JSDoc[] | undefined;
     if (!rawJsDocs) return [];
     return rawJsDocs.flatMap((j) => (j.tags ? Array.from(j.tags) : []));
+  }
+
+  private safeGetText(node: ts.Node | undefined, sourceFile: ts.SourceFile): string | undefined {
+    if (!node) return undefined;
+    try {
+      return node.getText(sourceFile);
+    } catch {
+      return undefined;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Policy doc helpers — used by getPolicyDocumentation()
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Parse a JS or TS file and return `imported name → module specifier` for
+   * every static `import { X, Y as Z } from 'mod'` declaration. Default and
+   * namespace imports are skipped — policies are always named exports.
+   */
+  private extractImports(file: string): Map<string, string> {
+    const map = new Map<string, string>();
+    const program = ts.createProgram([file], {
+      allowJs: true,
+      module: ts.ModuleKind.NodeNext,
+      target: ts.ScriptTarget.Latest,
+      noResolve: true,
+      skipLibCheck: true,
+    });
+    const sourceFile = program.getSourceFile(file);
+    if (!sourceFile) return map;
+
+    ts.forEachChild(sourceFile, (node) => {
+      if (!ts.isImportDeclaration(node)) return;
+      if (!ts.isStringLiteral(node.moduleSpecifier)) return;
+      const specifier = node.moduleSpecifier.text;
+
+      const named = node.importClause?.namedBindings;
+      if (named && ts.isNamedImports(named)) {
+        for (const el of named.elements) {
+          // `imported as local` → bind local to the source module
+          map.set(el.name.text, specifier);
+        }
+      }
+    });
+
+    return map;
+  }
+
+  /**
+   * Resolve a module specifier (relative or package) referenced from
+   * `fromFile` into the on-disk `.d.ts` we can parse. Prefers .d.ts over .js so
+   * JSDoc preserved by tsc declaration emit is available.
+   */
+  private resolvePolicyFile(fromFile: string, specifier: string): string | undefined {
+    if (specifier.startsWith('.')) {
+      const base = resolvePath(dirname(fromFile), specifier);
+      return this.pickDeclarationFile(base);
+    }
+
+    // Bare package specifier — use Node's resolver, anchored at the controller's dir
+    try {
+      const require = createRequire(fromFile);
+      const resolved = require.resolve(specifier);
+      return this.pickDeclarationFile(resolved);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * From a JS/path candidate, return the matching declaration file. Tries
+   * .d.ts variants first; falls back to the .js itself if no declarations
+   * exist (we can still parse JSDoc out of the source).
+   */
+  private pickDeclarationFile(candidate: string): string | undefined {
+    const noExt = candidate.replace(/\.(js|mjs|cjs|d\.ts|ts)$/i, '');
+    const candidates = [
+      `${noExt}.d.ts`,
+      candidate.replace(/\.js$/i, '.d.ts'),
+      candidate,
+      `${noExt}.ts`,
+      `${noExt}.js`,
+    ];
+    for (const c of candidates) {
+      if (isAbsolute(c) && existsSync(c)) return c;
+    }
+    return undefined;
+  }
+
+  /**
+   * Extract the JSDoc block immediately above the class declaration named
+   * `className` in `file`. Returns the description text without tags.
+   */
+  private extractClassJsDoc(file: string, className: string): string | undefined {
+    const program = ts.createProgram([file], {
+      allowJs: true,
+      module: ts.ModuleKind.NodeNext,
+      target: ts.ScriptTarget.Latest,
+      noResolve: true,
+      skipLibCheck: true,
+    });
+    const sourceFile = program.getSourceFile(file);
+    if (!sourceFile) return undefined;
+
+    let description: string | undefined;
+    ts.forEachChild(sourceFile, (node) => {
+      if (description) return;
+      if (ts.isClassDeclaration(node) && node.name?.text === className) {
+        description = this.getJSDocComment(node);
+      }
+    });
+    // Suppress the unused-import linting in environments that strip them out
+    void join;
+    return description;
   }
 
   private getTagComment(tag: ts.JSDocTag): string | undefined {

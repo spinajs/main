@@ -151,14 +151,6 @@ export class UserMetadataController extends BaseController {
         return new Ok();
     }
 
-
-
-    /**
-     * --------------------------------------------------------------------------
-     */
-
-
-
     /**
      * List own metadata
      * Returns a paginated, filtered, and ordered list of metadata entries for the authenticated user.

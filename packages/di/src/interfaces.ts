@@ -151,7 +151,7 @@ export interface IToInject<T> {
    * where services can be changed in configuration files
    * and allows to use @AutoinjectService() decorator
    */
-  serviceFunc?: (data: string | any[], container: IContainer) => IServiceFuncResult | IServiceFuncResult[];
+  serviceFunc?: (data: string | any[], container: IContainer) => IServiceFuncResult | IServiceFuncResult[] | undefined;
   mapFunc?: (x: any) => string | undefined;
 }
 
