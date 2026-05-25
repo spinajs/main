@@ -109,7 +109,7 @@ class AutoinjectBar {}
 
 class AutoinjectClass {
   @Autoinject()
-  public Test: AutoinjectBar = null;
+  public Test!: AutoinjectBar;
 }
 
 class LazyInjectDep {
@@ -506,8 +506,8 @@ describe('Dependency injection', () => {
 
     expect(instance.Service.get('SampleImplementation1Single')).to.be.not.null;
     expect(instance.Service.get('SampleImplementation2Single')).to.be.not.null;
-    expect(instance.Service.get('SampleImplementation1Single').constructor.name).to.eq('SampleImplementation1Single');
-    expect(instance.Service.get('SampleImplementation2Single').constructor.name).to.eq('SampleImplementation2Single');
+    expect(instance.Service.get('SampleImplementation1Single')!.constructor.name).to.eq('SampleImplementation1Single');
+    expect(instance.Service.get('SampleImplementation2Single')!.constructor.name).to.eq('SampleImplementation2Single');
   });
 
   it('Should autoinject with additional options', () => {
@@ -851,7 +851,7 @@ describe('Dependency injection', () => {
   });
 
   it('Should throw if type is unknown', () => {
-    return expect(() => DI.resolve(undefined)).to.throw(InvalidArgument, 'argument `type` cannot be null or undefined');
+    return expect(() => DI.resolve(undefined as any)).to.throw(InvalidArgument, 'argument `type` cannot be null or undefined');
   });
 
   it('Should resolve from factory func', () => {
@@ -1017,8 +1017,8 @@ describe('Dependency injection', () => {
     const getted = DI.get(Array.ofType(InjectableBase));
 
     expect(getted).to.be.an('array').that.have.length(2);
-    expect(getted[0]).to.be.instanceOf(InjectableTest);
-    expect(getted[1]).to.be.instanceOf(InjectableTest2);
+    expect(getted![0]).to.be.instanceOf(InjectableTest);
+    expect(getted![1]).to.be.instanceOf(InjectableTest2);
   });
 
   it('Should return empty arrat when trying to resolve array type', () => {
@@ -1180,8 +1180,8 @@ describe('Dependency injection', () => {
     DI.register({ id: 2 }).asValue('Test');
 
     const instance = DI.get(Array.ofType('Test'));
-    expect(instance[0]).to.include({ id: 1 });
-    expect(instance[1]).to.include({ id: 2 });
+    expect(instance![0]).to.include({ id: 1 });
+    expect(instance![1]).to.include({ id: 2 });
   });
 
   it('Should register asValue but with override', () => {
@@ -1193,14 +1193,14 @@ describe('Dependency injection', () => {
     expect(instance).to.include({ id: 2 });
 
     const instance2 = DI.get(Array.ofType('Test'));
-    expect(instance2.length).to.eq(1);
+    expect(instance2!.length).to.eq(1);
   });
 
   it('Should register asMapValue', () => {
     DI.register({ id: 1 }).asMapValue('Test', '1');
 
     const instance = DI.get<Map<string, any>>('Test');
-    expect(instance.get('1')).to.include({ id: 1 });
+    expect(instance!.get('1')).to.include({ id: 1 });
   });
 
   it('Should register multiple asMapValue', () => {
@@ -1208,8 +1208,8 @@ describe('Dependency injection', () => {
     DI.register({ id: 2 }).asMapValue('Test', '2');
 
     const instance = DI.get<Map<string, any>>('Test');
-    expect(instance.get('1')).to.include({ id: 1 });
-    expect(instance.get('2')).to.include({ id: 2 });
+    expect(instance!.get('1')).to.include({ id: 1 });
+    expect(instance!.get('2')).to.include({ id: 2 });
   });
 
   it('Should resolve per name', () => {
