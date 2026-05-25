@@ -3,7 +3,11 @@ import { Parameter, Policy, Route } from '@spinajs/http';
 import { RbacPolicy } from './policies/RbacPolicy.js';
 import { PermissionType } from '@spinajs/rbac';
 
-export const ACL_CONTROLLER_DESCRIPTOR = Symbol('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
+/**
+ * Global symbol so external packages (e.g. http-swagger) can read the RBAC
+ * descriptor via Reflect metadata without importing rbac-http.
+ */
+export const ACL_CONTROLLER_DESCRIPTOR = Symbol.for('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
 
 export function setRbacMetadata(target: any, callback: (meta: IRbacDescriptor) => void) {
   let metadata: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, target.prototype || target);

@@ -2,6 +2,7 @@ import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
 import { AddDependencyForProperty, Class, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
+import { InternalLogger } from '@spinajs/internal-logger';
 
 /**
  * Injects configuration value to given class property
@@ -70,7 +71,8 @@ export function AutoinjectService(path: string, type?: Class<unknown>) {
         }
 
         if (!cfgVal) {
-          throw new Error(`Configuration value ${path} is empty`);
+          InternalLogger.warn(`Configuration value for path ${data} is empty. Cannot autoinject service for property ${propertyKey.toString()}`, "Configuration");
+          return undefined;
         }
 
         if (_.isString(cfgVal)) {

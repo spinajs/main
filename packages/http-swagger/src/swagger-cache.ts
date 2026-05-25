@@ -1,5 +1,5 @@
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
-import { DefaultControllerCache, IMethodDoc } from '@spinajs/http';
+import { DefaultControllerCache, IMethodDoc, IPolicyDoc } from '@spinajs/http';
 import { BaseController } from '@spinajs/http';
 import { Logger, Log } from '@spinajs/log';
 import { ISwaggerCacheEntry } from './interfaces.js';
@@ -24,6 +24,39 @@ export class SwaggerDocCache extends AsyncService {
   public async getCache(controller: ClassInfo<BaseController>): Promise<ISwaggerCacheEntry> {
     this.Log.trace(`Getting swagger doc cache for ${controller.name}`);
     const doc = await this.ControllerCache.getDocumentation(controller);
+
+    // Walk runtime descriptors to learn which policy classes are applied where
+    // (.d.ts strips decorators, so we can only get this from the live class).
+    const descriptor = controller.instance?.Descriptor;
+    const controllerPolicies: string[] = [];
+    const routePolicies: Record<string, string[]> = {};
+    const allPolicyNames = new Set<string>();
+
+    if (descriptor) {
+      for (const p of descriptor.Policies ?? []) {
+        const name = this.policyName(p?.Type);
+        if (name) {
+          controllerPolicies.push(name);
+          allPolicyNames.add(name);
+        }
+      }
+      for (const [methodName, route] of descriptor.Routes ?? []) {
+        const names: string[] = [];
+        for (const p of route?.Policies ?? []) {
+          const n = this.policyName(p?.Type);
+          if (n) {
+            names.push(n);
+            allPolicyNames.add(n);
+          }
+        }
+        if (names.length > 0) routePolicies[String(methodName)] = names;
+      }
+    }
+
+    let policies: Record<string, IPolicyDoc> | undefined;
+    if (allPolicyNames.size > 0) {
+      policies = await this.ControllerCache.getPolicyDocumentation(controller, [...allPolicyNames]);
+    }
 
     return {
       className: doc.className,
@@ -51,6 +84,16 @@ export class SwaggerDocCache extends AsyncService {
           },
         ]),
       ),
+      controllerPolicies: controllerPolicies.length > 0 ? controllerPolicies : undefined,
+      routePolicies: Object.keys(routePolicies).length > 0 ? routePolicies : undefined,
+      policies,
     };
+  }
+
+  private policyName(type: unknown): string | undefined {
+    if (!type) return undefined;
+    if (typeof type === 'string') return type;
+    if (typeof type === 'function') return (type as { name?: string }).name || undefined;
+    return undefined;
   }
 }

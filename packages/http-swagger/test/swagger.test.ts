@@ -57,7 +57,9 @@ describe('Swagger API', function () {
 
       expect(spec.info.title).to.equal('Test Pet Store API');
       expect(spec.info.version).to.equal('2.0.0');
-      expect(spec.info.description).to.equal('A test API for swagger generation');
+      // Description starts with the configured value; OpenApiBuilder may append
+      // a "Policies" reference section when policies are present in the suite.
+      expect(spec.info.description).to.match(/^A test API for swagger generation/);
     });
 
     it('should contain servers from configuration', async () => {

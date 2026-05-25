@@ -98,6 +98,14 @@ export interface IExampleDocumentation {
   value?: string;
 }
 
+/** JSDoc-extracted documentation for a policy class */
+export interface IPolicyDocumentation {
+  /** File where the policy is defined (for traceability) */
+  file?: string;
+  /** Class-level JSDoc description, if present */
+  description?: string;
+}
+
 /**
  * Cache entry for a single controller's JSDoc documentation
  */
@@ -106,6 +114,12 @@ export interface ISwaggerCacheEntry {
   classDescription?: string;
   classTags?: string[];
   methods: Record<string, IMethodDocumentation>;
+  /** Controller-level policies (applied to every route on the controller) */
+  controllerPolicies?: string[];
+  /** Per-route policy class names */
+  routePolicies?: Record<string, string[]>;
+  /** Docs for each referenced policy class, keyed by class name */
+  policies?: Record<string, IPolicyDocumentation>;
 }
 
 /**
@@ -151,6 +165,16 @@ export interface IOpenApiOperation {
   requestBody?: IOpenApiRequestBody;
   responses: Record<string, IOpenApiResponse>;
   security?: Record<string, string[]>[];
+  /** RBAC resource name (from rbac-http @Resource) */
+  'x-rbac-resource'?: string;
+  /**
+   * Permissions accepted for this route (accesscontrol actions:
+   * readAny|readOwn|updateAny|updateOwn|createAny|createOwn|deleteAny|deleteOwn).
+   * Access is granted if the caller's role(s) have at least one.
+   */
+  'x-rbac-permissions'?: string[];
+  /** Policy class names applied to this route (controller-level + route-level, in execution order) */
+  'x-policies'?: string[];
 }
 
 export interface IOpenApiParameter {
@@ -181,8 +205,9 @@ export interface IOpenApiExample {
 }
 
 export interface IOpenApiResponse {
-  description: string;
+  description?: string;
   content?: Record<string, IOpenApiMediaType>;
+  $ref?: string;
 }
 
 export interface IOpenApiSchema {
@@ -200,9 +225,14 @@ export interface IOpenApiSchema {
   maxLength?: number;
   pattern?: string;
   nullable?: boolean;
+  oneOf?: IOpenApiSchema[];
+  anyOf?: IOpenApiSchema[];
+  allOf?: IOpenApiSchema[];
+  example?: unknown;
 }
 
 export interface IOpenApiComponents {
   schemas?: Record<string, IOpenApiSchema>;
   securitySchemes?: Record<string, ISecurityScheme>;
+  responses?: Record<string, IOpenApiResponse>;
 }

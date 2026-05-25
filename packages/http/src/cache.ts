@@ -1,5 +1,7 @@
 import ts from 'typescript';
-import { resolve as resolvePath } from 'path';
+import { resolve as resolvePath, dirname, join, isAbsolute } from 'path';
+import { existsSync } from 'fs';
+import { createRequire } from 'module';
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
 import type { BaseController } from './controllers.js';
@@ -58,11 +60,38 @@ export interface IMethodDoc {
   security?: Array<Record<string, string[]>>;
 }
 
+export interface IPolicyDoc {
+  /** Source/declaration file where the policy class is defined */
+  file?: string;
+  /** JSDoc class-level description, if present */
+  description?: string;
+}
+
 export interface IControllerDocumentation {
   className: string;
   classDescription?: string;
   classTags?: string[];
   methods: Record<string, IMethodDoc>;
+}
+
+/** Context passed to every JSDoc tag extractor */
+export interface ITagExtractorContext {
+  /** Doc object being populated for the current method */
+  doc: IMethodDoc;
+  /** Source file the tag was parsed from (needed for safe getText() calls) */
+  sourceFile: ts.SourceFile;
+  /** Cache instance — exposes helper methods like getTagComment, safeGetText */
+  cache: DefaultControllerCache;
+}
+
+/**
+ * JSDoc tag handler. Register new tags by pushing into
+ * `DefaultControllerCache.tagExtractors`.
+ */
+export interface ITagExtractor {
+  /** Tag names this handler accepts (e.g. ['returns', 'return']) */
+  tags: string[];
+  extract(tag: ts.JSDocTag, ctx: ITagExtractorContext): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +147,54 @@ export class DefaultControllerCache extends AsyncService {
     return this.CacheFS.read(docHash).then((x) => JSON.parse(x.toString()) as IControllerDocumentation);
   }
 
+  /**
+   * Resolve JSDoc descriptions for policy classes referenced by a controller.
+   *
+   * Policy class names come from `controller.instance.Descriptor.Policies`
+   * and `route.Policies` at runtime. To find each class's source we parse the
+   * controller's compiled JS file (which preserves *all* imports — unlike the
+   * .d.ts which only emits type-referenced ones) and resolve the matching
+   * module specifier against the controller's directory or node_modules.
+   *
+   * Per-call in-memory cache only — policy doc volume is small and the cost is
+   * dominated by ts.createProgram which we already pay for the controller.
+   */
+  public async getPolicyDocumentation(
+    controller: ClassInfo<BaseController>,
+    policyNames: string[],
+  ): Promise<Record<string, IPolicyDoc>> {
+    const out: Record<string, IPolicyDoc> = {};
+    if (policyNames.length === 0) return out;
+
+    const controllerJs = resolvePath(controller.file);
+    const importMap = this.extractImports(controllerJs);
+    if (importMap.size === 0) return out;
+
+    const seenFiles = new Set<string>();
+    for (const name of policyNames) {
+      if (out[name]) continue;
+      const moduleSpec = importMap.get(name);
+      if (!moduleSpec) continue;
+
+      const policyFile = this.resolvePolicyFile(controllerJs, moduleSpec);
+      if (!policyFile || seenFiles.has(policyFile)) {
+        if (policyFile) out[name] = { file: policyFile };
+        continue;
+      }
+      seenFiles.add(policyFile);
+
+      try {
+        const description = this.extractClassJsDoc(policyFile, name);
+        out[name] = { file: policyFile, description };
+      } catch (err) {
+        this.Log.trace(`Could not parse policy file ${policyFile} for ${name}: ${(err as Error).message}`);
+        out[name] = { file: policyFile };
+      }
+    }
+
+    return out;
+  }
+
   // ---------------------------------------------------------------------------
   // Single-pass TypeScript extraction
   // ---------------------------------------------------------------------------
@@ -161,7 +238,7 @@ export class DefaultControllerCache extends AsyncService {
         parameters[methodName] = member.parameters.map((p) => (p.name as ts.Identifier).text);
 
         // JSDoc documentation
-        documentation.methods[methodName] = this.extractMethodDoc(member);
+        documentation.methods[methodName] = this.extractMethodDoc(member, sourceFile);
       }
     });
 
@@ -172,7 +249,7 @@ export class DefaultControllerCache extends AsyncService {
   // JSDoc extraction helpers
   // ---------------------------------------------------------------------------
 
-  private extractMethodDoc(method: ts.MethodDeclaration): IMethodDoc {
+  private extractMethodDoc(method: ts.MethodDeclaration, sourceFile: ts.SourceFile): IMethodDoc {
     const doc: IMethodDoc = { params: {} };
 
     const comment = this.getJSDocComment(method);
@@ -189,80 +266,95 @@ export class DefaultControllerCache extends AsyncService {
       doc.returns.schema = this.inferSchemaFromTypeNode(method.type);
     }
 
+    const ctx: ITagExtractorContext = { doc, sourceFile, cache: this };
     for (const tag of this.getRawJSDocTags(method)) {
       const tagName = tag.tagName.text;
-
-      switch (tagName) {
-        case 'param': {
-          const paramTag = tag as ts.JSDocParameterTag;
-          const name = ts.isIdentifier(paramTag.name) ? paramTag.name.text : (paramTag.name as any)?.right?.text ?? '';
-          if (name) {
-            doc.params[name] = {
-              name,
-              description: this.getTagComment(tag)?.trim(),
-              type: paramTag.typeExpression?.getText() ?? undefined,
-            };
-          }
-          break;
-        }
-        case 'returns':
-        case 'return': {
-          if (!doc.returns) doc.returns = {};
-          doc.returns.description = this.getTagComment(tag) ?? undefined;
-          doc.returns.type = (tag as ts.JSDocReturnTag).typeExpression?.getText() ?? undefined;
-          break;
-        }
-        case 'response': {
-          const comment = this.getTagComment(tag);
-          if (comment) {
-            const space = comment.indexOf(' ');
-            if (space > 0) {
-              const code = comment.substring(0, space).trim();
-              const desc = comment.substring(space + 1).trim();
-              if (/^\d+$/.test(code)) {
-                if (!doc.responses) doc.responses = {};
-                doc.responses[code] = { description: desc };
-              }
-            }
-          }
-          break;
-        }
-        case 'example': {
-          const ex = this.parseExample(tag);
-          if (ex) (doc.examples ??= []).push(ex);
-          break;
-        }
-        case 'tags':
-        case 'tag':
-        case 'category': {
-          const val = this.getTagComment(tag);
-          if (val) doc.tags = val.split(',').map((t) => t.trim());
-          break;
-        }
-        case 'deprecated':
-          doc.deprecated = true;
-          break;
-        case 'summary': {
-          const val = this.getTagComment(tag);
-          if (val) doc.summary = val;
-          break;
-        }
-        case 'security': {
-          const val = this.getTagComment(tag)?.trim();
-          if (val === '[]' || val === '') {
-            doc.security = [];
-          } else if (val) {
-            // Comma-separated scheme names, each maps to an empty scopes array.
-            // e.g. "@security cookieAuth" → [{ cookieAuth: [] }]
-            // e.g. "@security cookieAuth, bearerAuth" → [{ cookieAuth: [] }, { bearerAuth: [] }]
-            doc.security = val.split(',').map((s): Record<string, string[]> => ({ [s.trim()]: [] }));
-          }
+      for (const ex of this.tagExtractors) {
+        if (ex.tags.includes(tagName)) {
+          ex.extract(tag, ctx);
           break;
         }
       }
     }
 
     return doc;
+  }
+
+  // ---------------------------------------------------------------------------
+  // JSDoc tag extractors
+  //
+  // Subclasses can mutate `this.tagExtractors` (e.g. in resolve()) to add or
+  // override tag handlers. Each tag name is matched once per JSDoc tag — the
+  // first matching extractor wins.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Built-in tag extractors. Public so subclasses / consumers can append
+   * custom JSDoc tag handlers without overriding extractMethodDoc.
+   */
+  public readonly tagExtractors: ITagExtractor[] = [
+    { tags: ['param'], extract: (tag, ctx) => this.extractParamTag(tag as ts.JSDocParameterTag, ctx) },
+    { tags: ['returns', 'return'], extract: (tag, ctx) => this.extractReturnTag(tag as ts.JSDocReturnTag, ctx) },
+    { tags: ['response'], extract: (tag, ctx) => this.extractResponseTag(tag, ctx) },
+    { tags: ['example'], extract: (tag, ctx) => this.extractExampleTag(tag, ctx) },
+    { tags: ['tags', 'tag', 'category'], extract: (tag, ctx) => this.extractTagsTag(tag, ctx) },
+    { tags: ['deprecated'], extract: (_tag, ctx) => { ctx.doc.deprecated = true; } },
+    { tags: ['summary'], extract: (tag, ctx) => this.extractSummaryTag(tag, ctx) },
+    { tags: ['security'], extract: (tag, ctx) => this.extractSecurityTag(tag, ctx) },
+  ];
+
+  private extractParamTag(tag: ts.JSDocParameterTag, ctx: ITagExtractorContext): void {
+    const name = ts.isIdentifier(tag.name) ? tag.name.text : (tag.name as any)?.right?.text ?? '';
+    if (!name) return;
+    ctx.doc.params[name] = {
+      name,
+      description: this.getTagComment(tag)?.trim(),
+      type: this.safeGetText(tag.typeExpression, ctx.sourceFile),
+    };
+  }
+
+  private extractReturnTag(tag: ts.JSDocReturnTag, ctx: ITagExtractorContext): void {
+    if (!ctx.doc.returns) ctx.doc.returns = {};
+    ctx.doc.returns.description = this.getTagComment(tag) ?? undefined;
+    ctx.doc.returns.type = this.safeGetText(tag.typeExpression, ctx.sourceFile);
+  }
+
+  private extractResponseTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const comment = this.getTagComment(tag);
+    if (!comment) return;
+    const space = comment.indexOf(' ');
+    if (space <= 0) return;
+    const code = comment.substring(0, space).trim();
+    if (!/^\d+$/.test(code)) return;
+    const desc = comment.substring(space + 1).trim();
+    (ctx.doc.responses ??= {})[code] = { description: desc };
+  }
+
+  private extractExampleTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const ex = this.parseExample(tag);
+    if (ex) (ctx.doc.examples ??= []).push(ex);
+  }
+
+  private extractTagsTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const val = this.getTagComment(tag);
+    if (val) ctx.doc.tags = val.split(',').map((t) => t.trim());
+  }
+
+  private extractSummaryTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const val = this.getTagComment(tag);
+    if (val) ctx.doc.summary = val;
+  }
+
+  private extractSecurityTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
+    const val = this.getTagComment(tag)?.trim();
+    if (val === '[]' || val === '') {
+      ctx.doc.security = [];
+    } else if (val) {
+      // Comma-separated scheme names, each maps to an empty scopes array.
+      // e.g. "@security cookieAuth"            → [{ cookieAuth: [] }]
+      // e.g. "@security cookieAuth, bearerAuth" → [{ cookieAuth: [] }, { bearerAuth: [] }]
+      ctx.doc.security = val.split(',').map((s): Record<string, string[]> => ({ [s.trim()]: [] }));
+    }
   }
 
   private getJSDocComment(node: ts.Node): string | undefined {
@@ -290,6 +382,121 @@ export class DefaultControllerCache extends AsyncService {
     const rawJsDocs = (node as any).jsDoc as ts.JSDoc[] | undefined;
     if (!rawJsDocs) return [];
     return rawJsDocs.flatMap((j) => (j.tags ? Array.from(j.tags) : []));
+  }
+
+  private safeGetText(node: ts.Node | undefined, sourceFile: ts.SourceFile): string | undefined {
+    if (!node) return undefined;
+    try {
+      return node.getText(sourceFile);
+    } catch {
+      return undefined;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Policy doc helpers — used by getPolicyDocumentation()
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Parse a JS or TS file and return `imported name → module specifier` for
+   * every static `import { X, Y as Z } from 'mod'` declaration. Default and
+   * namespace imports are skipped — policies are always named exports.
+   */
+  private extractImports(file: string): Map<string, string> {
+    const map = new Map<string, string>();
+    const program = ts.createProgram([file], {
+      allowJs: true,
+      module: ts.ModuleKind.NodeNext,
+      target: ts.ScriptTarget.Latest,
+      noResolve: true,
+      skipLibCheck: true,
+    });
+    const sourceFile = program.getSourceFile(file);
+    if (!sourceFile) return map;
+
+    ts.forEachChild(sourceFile, (node) => {
+      if (!ts.isImportDeclaration(node)) return;
+      if (!ts.isStringLiteral(node.moduleSpecifier)) return;
+      const specifier = node.moduleSpecifier.text;
+
+      const named = node.importClause?.namedBindings;
+      if (named && ts.isNamedImports(named)) {
+        for (const el of named.elements) {
+          // `imported as local` → bind local to the source module
+          map.set(el.name.text, specifier);
+        }
+      }
+    });
+
+    return map;
+  }
+
+  /**
+   * Resolve a module specifier (relative or package) referenced from
+   * `fromFile` into the on-disk `.d.ts` we can parse. Prefers .d.ts over .js so
+   * JSDoc preserved by tsc declaration emit is available.
+   */
+  private resolvePolicyFile(fromFile: string, specifier: string): string | undefined {
+    if (specifier.startsWith('.')) {
+      const base = resolvePath(dirname(fromFile), specifier);
+      return this.pickDeclarationFile(base);
+    }
+
+    // Bare package specifier — use Node's resolver, anchored at the controller's dir
+    try {
+      const require = createRequire(fromFile);
+      const resolved = require.resolve(specifier);
+      return this.pickDeclarationFile(resolved);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * From a JS/path candidate, return the matching declaration file. Tries
+   * .d.ts variants first; falls back to the .js itself if no declarations
+   * exist (we can still parse JSDoc out of the source).
+   */
+  private pickDeclarationFile(candidate: string): string | undefined {
+    const noExt = candidate.replace(/\.(js|mjs|cjs|d\.ts|ts)$/i, '');
+    const candidates = [
+      `${noExt}.d.ts`,
+      candidate.replace(/\.js$/i, '.d.ts'),
+      candidate,
+      `${noExt}.ts`,
+      `${noExt}.js`,
+    ];
+    for (const c of candidates) {
+      if (isAbsolute(c) && existsSync(c)) return c;
+    }
+    return undefined;
+  }
+
+  /**
+   * Extract the JSDoc block immediately above the class declaration named
+   * `className` in `file`. Returns the description text without tags.
+   */
+  private extractClassJsDoc(file: string, className: string): string | undefined {
+    const program = ts.createProgram([file], {
+      allowJs: true,
+      module: ts.ModuleKind.NodeNext,
+      target: ts.ScriptTarget.Latest,
+      noResolve: true,
+      skipLibCheck: true,
+    });
+    const sourceFile = program.getSourceFile(file);
+    if (!sourceFile) return undefined;
+
+    let description: string | undefined;
+    ts.forEachChild(sourceFile, (node) => {
+      if (description) return;
+      if (ts.isClassDeclaration(node) && node.name?.text === className) {
+        description = this.getJSDocComment(node);
+      }
+    });
+    // Suppress the unused-import linting in environments that strip them out
+    void join;
+    return description;
   }
 
   private getTagComment(tag: ts.JSDocTag): string | undefined {

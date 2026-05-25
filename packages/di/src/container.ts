@@ -362,7 +362,7 @@ export class Container extends EventEmitter implements IContainer {
         cType = t as Class<T>[];
       }
 
-      if(cType[cType.length -1] === targetType  || !t || t.length === 0) {
+      if (cType[cType.length - 1] === targetType || !t || t.length === 0) {
         break;
       }
     }
@@ -488,6 +488,17 @@ export class Container extends EventEmitter implements IContainer {
       // all services will be resolved and mapped
       if (t.serviceFunc) {
         const services = t.serviceFunc(t.data, this);
+
+        if (!services) {
+
+          return {
+            autoinject: t.autoinject,
+            autoinjectKey: t.autoinjectKey,
+            instance: undefined
+          };
+        }
+
+
         const types = this.getRegisteredTypes(t.inject);
         const findType = (name: string) => {
           const found = types.find((t) => t.name === name);

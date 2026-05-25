@@ -151,10 +151,17 @@ export class UserMetadataController extends BaseController {
         return new Ok();
     }
 
-
-
     /**
-     * --------------------------------------------------------------------------
+     * List own metadata
+     * Returns a paginated, filtered, and ordered list of metadata entries for the authenticated user.
+     * @security cookieAuth
+     * @param pagination.page Page number (zero-based)
+     * @param pagination.limit Number of entries per page
+     * @param order.column Column to sort by (default: Id)
+     * @param order.order Sort direction: ASC or DESC (default: DESC)
+     * @returns {IUserMetadataEntry[]} Paginated list of own metadata entries
+     * @response 401 Unauthorized — valid session required
+     * @response 403 Forbidden — readOwn permission required
      */
 
 
