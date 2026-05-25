@@ -19,7 +19,7 @@ export class Templates {
      * @returns 
      */
     public async render(template: string, model: unknown, language?: string): Promise<string> {
-        return window.ipc.__spinaJsIpcBridge.call("render", "Templates", null, template, model, language);
+        return window.ipc.__spinaJsIpcBridge.call("render", "Templates", [], template, model, language);
     }
 
     /**
@@ -33,6 +33,6 @@ export class Templates {
      * @returns 
      */
     public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
-        return window.ipc.__spinaJsIpcBridge.call("renderToFile", "Templates", null, template, model, filePath, language);
+        return window.ipc.__spinaJsIpcBridge.call("renderToFile", "Templates", [], template, model, filePath, language);
     }
 }

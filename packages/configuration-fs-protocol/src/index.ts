@@ -11,13 +11,19 @@ export class ConfigurationFsPathProtocol extends ConfigVarProtocol {
     return 'fs-path://';
   }
 
-  public async getVar(path: string): Promise<unknown> {
+  public async getVar(path: string): Promise<any> {
     // we defer invocation of path resolve
     // to be sure Config & fsService are resolved
     return new ConfigVar(() => {
 
       const reg = /^(.*)\/(.*)/;
       const args = path.match(reg);
+
+      if (!args || args.length < 3) {
+        InternalLogger.warn(`Invalid fs-path variable format: ${path}, expected format is fs-path://filesystemName/path/to/file`, 'Configuration');
+        return null;
+      }
+
       const fsName = args[1];
       const fPath = args[2];
       const f = DI.resolve<fs>('__file_provider__', [fsName]);

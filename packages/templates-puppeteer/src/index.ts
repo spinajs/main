@@ -51,8 +51,8 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
   protected TemplatingService: Templates;
 
   public async renderToFile(template: string, model: any, filePath: string, language?: string): Promise<void> {
-    let server: http.Server = null;
-    let browser: Browser = null;
+    let server: http.Server = null as any;
+    let browser: Browser = null as any;
     try {
       this.Log.timeStart(`puppeteer-template-rendering-${filePath}`);
       this.Log.trace(`Rendering template ${template} to file ${filePath}`);

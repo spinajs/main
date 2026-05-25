@@ -13,9 +13,9 @@ describe('Orm converters', () => {
 
     expect(uid).to.not.be.null;
     expect(uid instanceof Buffer).to.be.true;
-    expect(uid.length).to.eq(16);
+    expect((uid as Buffer).length).to.eq(16);
 
-    const back = converter.fromDB(uid);
+    const back = converter.fromDB(uid as Buffer);
     expect(back === u.replace(/-/g, '')).to.be.true;
   });
 });

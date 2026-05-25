@@ -219,7 +219,7 @@ export interface IActionLocalStoregeContext {
   responseStart: Date;
   responseEnd: Date;
   responseTime: number;
-  realIp: string;
+  realIp: string | undefined;
 }
 
 export interface IResponseHeader {
@@ -240,10 +240,10 @@ export interface IResponseOptions {
 }
 
 export abstract class ServerMiddleware extends AsyncService {
-  public Order: number;
+  public Order!: number;
 
-  public abstract before(): (req: Request, res: express.Response, next: express.NextFunction) => void | null;
-  public abstract after(): (req: Request, res: express.Response, next: express.NextFunction) => void | null;
+  public abstract before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null;
+  public abstract after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null;
 }
 
 /**
@@ -622,7 +622,7 @@ export interface IRoute {
   /**
    * url path eg. /foo/bar/:id
    */
-  Path: string;
+  Path: string | undefined;
 
   /**
    * HTTP request method, used internally. Not visible to others.
@@ -638,7 +638,7 @@ export interface IRoute {
   /**
    * Method name assigned to this route eg. `findUsers`
    */
-  Method: string;
+  Method: string | symbol;
 
   /**
    * Custom route parameters taken from query string or message body
@@ -797,7 +797,7 @@ export interface IControllerDescriptor {
   /**
    * Base url path for controller ( added for all child url's)
    */
-  BasePath: string;
+  BasePath: string | null;
 }
 
 /**

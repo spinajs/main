@@ -11,7 +11,7 @@ import { dirname, join, resolve } from 'path';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 declare let jasmine: never;
 
-export function parseArgv(param: string): string {
+export function parseArgv(param: string): string | undefined {
   const index = process.argv.indexOf(param);
 
   if (index === -1 || process.argv.length <= index + 1) {
@@ -21,7 +21,7 @@ export function parseArgv(param: string): string {
   return process.argv[index + 1];
 }
 
-export function findBasePath(path: string): string {
+export function findBasePath(path: string): string | null {
   if (fs.existsSync(join(path, 'node_modules'))) {
     return path;
   }

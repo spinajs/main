@@ -164,13 +164,13 @@ export class Users extends BaseController {
       }, function () {
         this.select('Value', "user:niceName")
       })
-      .populate(include)
+      .populate(include ?? [])
       .take(pagination?.limit ?? 10)
-      .skip(pagination?.limit * pagination?.page)
+      .skip((pagination?.limit ?? 0) * (pagination?.page ?? 0))
       .order(order?.column ?? 'CreatedAt', order?.order ?? SortOrder.DESC)
-      .filter(filter?.filters, filter?.op, USER_FILTER);
+      .filter(filter?.filters ?? [], filter?.op, USER_FILTER);
 
-    const count = await User.query().filter(filter?.filters, filter?.op, USER_FILTER).selectCount();
+    const count = await User.query().filter(filter?.filters ?? [], filter?.op, USER_FILTER).selectCount();
 
 
     return new Ok(

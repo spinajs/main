@@ -255,7 +255,7 @@ describe('User model tests', function () {
       const meta = user.Metadata.find((x) => x.Key === 'test:test');
 
       expect(meta).to.be.not.undefined;
-      expect(meta.Value).to.be.eq('test');
+      expect(meta!.Value).to.be.eq('test');
     });
   });
 

@@ -33,7 +33,7 @@ export class EmailSent extends QueueEvent {
     super();
 
     this.Connection = email.connection;
-    this.From = email.from;
+    this.From = email.from ?? '';
     this.To = email.to;
     this.Template = email.template;
     this.Model = email.model;

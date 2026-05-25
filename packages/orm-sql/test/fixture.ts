@@ -35,7 +35,7 @@ export class FakeSqliteDriver extends SqlDriver {
     };
   }
 
-  public transaction(_queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<void> {
+  public transaction(_queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<any> {
     return Promise.resolve();
   }
 
@@ -58,7 +58,7 @@ export class FakeSqliteDriver extends SqlDriver {
   }
 
   public tableInfo(_table: string, _schema: string): Promise<IColumnDescriptor[]> {
-    return null;
+    return null as any;
   }
 
   public resolve() {

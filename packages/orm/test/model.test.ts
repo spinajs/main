@@ -83,8 +83,8 @@ describe('General model tests', () => {
     const a = new Model_AA();
     const b = new Model_BB();
 
-    expect(a.ModelDescriptor.Connection).to.eq('test_model_conn_1');
-    expect(b.ModelDescriptor.Connection).to.eq('test_model_conn_2');
+    expect(a.ModelDescriptor!.Connection).to.eq('test_model_conn_1');
+    expect(b.ModelDescriptor!.Connection).to.eq('test_model_conn_2');
   });
 
   it('Models should have added mixins', async () => {
@@ -948,7 +948,7 @@ describe('General model tests', () => {
     const models = await orm.Models;
 
     let toCheck = models.find((x) => x.name === 'Model1');
-    let descriptor = toCheck.type.getModelDescriptor() as IModelDescriptor;
+    let descriptor = toCheck!.type.getModelDescriptor() as IModelDescriptor;
 
     expect(descriptor).to.include({
       Connection: 'sqlite',
@@ -976,7 +976,7 @@ describe('General model tests', () => {
     expect(descriptor.Columns.find((c) => c.Name === 'Id')).to.exist;
 
     toCheck = models.find((x) => x.name === 'Model2');
-    descriptor = toCheck.type.getModelDescriptor() as IModelDescriptor;
+    descriptor = toCheck!.type.getModelDescriptor() as IModelDescriptor;
 
     expect(descriptor).to.include({
       Connection: 'SampleConnection1',
@@ -1052,7 +1052,7 @@ describe('General model tests', () => {
       afterQuery(data: any[]) {
         return data;
       },
-      modelCreation(_: any): ModelBase {
+      modelCreation(_: any): ModelBase | null {
         return null;
       },
 

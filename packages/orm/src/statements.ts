@@ -23,18 +23,18 @@ export interface IQueryStatement {
 }
 
 export abstract class QueryStatement implements IQueryStatement {
-  protected _tableAlias: string;
+  protected _tableAlias: string | undefined;
 
-  public get TableAlias() {
-    return this._tableAlias;
+  public get TableAlias(): string {
+    return this._tableAlias ?? '';
   }
 
   public set TableAlias(alias: string) {
     this._tableAlias = alias;
   }
 
-  constructor(tableAlias?: string) {
-    this._tableAlias = tableAlias;
+  constructor(tableAlias?: string | null) {
+    this._tableAlias = tableAlias ?? undefined;
   }
 
   public abstract build(): IQueryStatementResult;
@@ -73,7 +73,7 @@ export abstract class GroupByStatement extends QueryStatement {
   constructor(expression: string | RawQuery, tableAlias: string) {
     super(tableAlias);
 
-    this._expr = expression || null;
+    this._expr = expression;
   }
 
   public abstract build(): IQueryStatementResult;
@@ -156,11 +156,11 @@ export abstract class WhereStatement extends QueryStatement {
     if (this._model) {
       const desc = extractModelDescriptor(this._model);
       const columnName = typeof column === 'string' ? column : null;
-      const columnDesc = columnName ? desc.Columns.find((x) => x.Name === columnName) : null;
+      const columnDesc = columnName && desc ? desc.Columns.find((x) => x.Name === columnName) : null;
 
       // Allow primary key columns and any model property even if not explicitly in Columns array
       // Some properties may be defined without decorators or only with @Primary
-      if (columnName && !columnDesc && columnName !== desc.PrimaryKey && !(columnName in this._model.prototype)) {
+      if (columnName && !columnDesc && columnName !== desc?.PrimaryKey && !(columnName in this._model.prototype)) {
         throw new InvalidArgument(`column ${columnName} not exists in model ${this._model.name}`);
       }
 
@@ -217,18 +217,18 @@ export abstract class JoinStatement extends QueryStatement {
     if ((_.isFunction(_options.callback) || _options.callback instanceof Lazy) && _options.joinModel) {
 
       const joinModelDescriptor = extractModelDescriptor(_options.joinModel);
-      const driver = joinModelDescriptor.Driver;
-      const container = joinModelDescriptor.Driver.Container;
+      const driver = joinModelDescriptor!.Driver!;
+      const container = joinModelDescriptor!.Driver!.Container;
 
       this._whereBuilder = container.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, _options.joinModel, this]);
-      this._whereBuilder.database(driver.Options.Database);
-      this._whereBuilder.where(_options.callback);
+      this._whereBuilder.database(driver.Options.Database!);
+      this._whereBuilder.where(_options.callback!);
 
       if(_options.queryCallback){
         _options.queryCallback.call(this._whereBuilder);
       }
 
-      this._options.builder.mergeBuilder(this._whereBuilder);
+      this._options.builder!.mergeBuilder(this._whereBuilder);
     }
   }
 
@@ -298,9 +298,9 @@ export abstract class InSetStatement extends QueryStatement {
 export abstract class ColumnStatement extends QueryStatement {
   protected _column: string | RawQuery;
   protected _alias: string;
-  protected _descriptor: IColumnDescriptor;
+  protected _descriptor: IColumnDescriptor | undefined | null;
 
-  constructor(column: string | RawQuery, alias: string, tableAlias: string, descriptor: IColumnDescriptor) {
+  constructor(column: string | RawQuery, alias: string, tableAlias: string, descriptor: IColumnDescriptor | undefined | null) {
     super(tableAlias);
 
     this._column = column || '';
@@ -321,8 +321,8 @@ export abstract class ColumnStatement extends QueryStatement {
     return this._alias;
   }
 
-  public get TableAlias() {
-    return this._tableAlias;
+  public get TableAlias(): string {
+    return this._tableAlias ?? '';
   }
 
   public set TableAlias(alias: string) {
@@ -353,7 +353,7 @@ export abstract class ColumnMethodStatement extends ColumnStatement {
   protected _method: ColumnMethods;
 
   constructor(column: string | RawQuery, method: ColumnMethods, alias: string, tableAlias: string) {
-    super(column, alias, tableAlias, null);
+    super(column, alias, tableAlias, undefined);
     this._method = method;
   }
 

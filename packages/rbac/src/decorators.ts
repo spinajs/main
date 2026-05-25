@@ -39,14 +39,14 @@ export function ResourceOwner() {
         Nullable: false,
         PrimaryKey: false,
         AutoIncrement: false,
-        Converter: null,
+        Converter: null as any,
         Schema: null,
         Unique: false,
         Uuid: false,
         Ignore: false,
         Aggregate: false,
         IsForeignKey: false,
-        ForeignKeyDescription: null,
+        ForeignKeyDescription: null as any,
         Virtual: false,
       });
     }

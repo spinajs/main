@@ -1,2 +1,2 @@
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-class FooService222 {}
+export class FooService222 {}

@@ -10,9 +10,15 @@ import { _catch, _chain, _check_arg, _non_empty, _non_nil } from '@spinajs/util'
  * @returns
  */
 export function _cfg<T>(path: string, defaultValue?: T) {
+  const cfg = DI.get(Configuration);
+  if (!cfg) {
+    throw new ResolveException('Configuration service is not registered in DI container, register it to use _cfg function');
+  }
+
   _check_arg(_non_empty())(path, 'path');
 
-  return () => defaultValue ? DI.get(Configuration).get<T>(path, defaultValue) : _check_arg(_non_nil())(DI.get(Configuration).get<T>(path, defaultValue), path);
+
+  return () => _check_arg(_non_nil())(cfg.get<T>(path, defaultValue), path);
 }
 
 /**

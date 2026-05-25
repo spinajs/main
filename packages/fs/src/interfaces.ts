@@ -20,7 +20,13 @@ export class URI {
       throw new InvalidArgument(`URI ${uri} is not valid`);
     }
 
-    const match = reg.exec(uri)[2];
+    const e = reg.exec(uri);
+
+    if(!e || e.length < 3){
+      throw new InvalidArgument(`URI ${uri} is not valid`);
+    }
+
+    const match = e[2];
     const fsName = match.substring(0, match.indexOf('/'));
     this.Path = match.substring(match.indexOf('/') + 1);
     this.Fs = DI.resolve<fs>('__file_provider__', [fsName]);
@@ -274,7 +280,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    * @param destPath dest path ( relative to base path of provider )
    */
   public static upload(srcPath: string, destPath?: URI): Promise<void> {
-    return destPath.Fs.upload(srcPath, destPath.Path);
+    return destPath!.Fs.upload(srcPath, destPath!.Path);
   }
 
   /**
@@ -310,7 +316,8 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
     return path.Fs.write(path.Path, data, encoding);
   }
 
-  public static writeStream(path: URI, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
+  public static writeStream(path: URI, encoding: BufferEncoding): Promise<WriteStream | PassThrough>;
+  public static writeStream(path: URI, readStream: NodeJS.ReadableStream | BufferEncoding, encoding?: BufferEncoding): Promise<WriteStream | PassThrough>;
   public static writeStream(
     path: URI,
     readStream: NodeJS.ReadableStream | BufferEncoding,

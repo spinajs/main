@@ -45,7 +45,7 @@ export class TypescriptCompiler {
 
     // Walk the tree to search for classes
     ts.forEachChild(
-      sourceFile,
+      sourceFile!,
       this.walkClassNode(
         className,
         this.walkMemberNode((method: ts.MethodDeclaration) => {
@@ -64,7 +64,7 @@ export class TypescriptCompiler {
     return (node: ts.Node) => {
       if (node.kind === ts.SyntaxKind.ClassDeclaration) {
         const cldecl = node as ts.ClassDeclaration;
-        if (cldecl.name.text === className) {
+        if (cldecl.name?.text === className) {
           callback(cldecl);
         }
       }
@@ -115,7 +115,7 @@ function _listOrResolveFromFiles(
       throw new InvalidArgument('configPath parameter is null or empty');
     }
 
-    let instances: Array<ClassInfo<any>> | Promise<Array<ClassInfo<any>>> = null;
+    let instances: Array<ClassInfo<any>> | Promise<Array<ClassInfo<any>>> | null = null;
 
     const getter = () => {
       if (!instances) {
@@ -131,7 +131,7 @@ function _listOrResolveFromFiles(
     });
 
     async function _loadInstances(): Promise<Array<ClassInfo<any>>> {
-      const config = DI.get(Configuration);
+      const config = DI.get(Configuration)!;
       const logger = DI.resolve(Log, ['reflection']);
       let directories = config.get<string[]>(configPath);
 

@@ -4,16 +4,18 @@ import { AsyncService, ClassInfo, DI } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log-common';
 import { Command } from 'commander';
 import { ResolveFromFiles } from '@spinajs/reflection';
+import { _check_arg, _non_nil } from '@spinajs/util';
 
 export * from './interfaces.js';
 export * from './decorators.js';
 
+
 export class Cli extends AsyncService {
   @Logger('CLI')
-  protected Log: Log;
+  protected Log!: Log;
 
   @ResolveFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')
-  public Commands: Promise<Array<ClassInfo<CliCommand>>>;
+  public Commands!: Promise<Array<ClassInfo<CliCommand>>>;
 
   public async resolve(): Promise<void> {
 
@@ -28,7 +30,13 @@ export class Cli extends AsyncService {
     const program = new Command();
 
     for (const cmd of commands) {
-      this.Log.trace(`Found command ${cmd.name}`);
+
+      if(!cmd.instance){
+        this.Log.warn(`Command ${cmd.name} is not resolved. Make sure it is decorated with @injectable and has a public constructor without required parameters`);
+        continue;
+      }
+
+      this.Log.info(`Found command ${cmd.name}`);
 
       const cMeta = Reflect.getMetadata(META_COMMAND, cmd.type) as ICommand;
       const oMeta = Reflect.getMetadata(META_OPTION, cmd.type) as IOption[];
@@ -43,22 +51,21 @@ export class Cli extends AsyncService {
       c.description(cMeta.description);
 
       oMeta?.forEach((o) => {
-        if (o.required) {
-          c.requiredOption(o.flags, o.description, o.parser, o.defaultValue);
-        } else {
-          c.option(o.flags, o.description, o.parser, o.defaultValue);
+
+        const optFunc = o.required ? c.requiredOption : c.option;
+        optFunc.call(c, o.flags, o.description ?? '', (o.parser ?? ((value: string) => value)) as any, o.defaultValue);
         }
-      });
+      );
 
       aMeta?.forEach((a) => {
-        c.argument(a.name, a.description, a.parser, a.defaultValue);
+        c.argument(a.name, a.description ?? '', (a.parser ?? ((value: string) => value)) as any, a.defaultValue);
       });
 
-      cmd.instance.onCreation(c);
+      cmd.instance!.onCreation(c);
 
       c.action(async (...args) => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-        await cmd.instance.execute(...args);
+        await cmd.instance!.execute(...args);
       });
 
       program.addCommand(c);

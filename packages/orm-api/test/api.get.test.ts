@@ -49,7 +49,7 @@ describe('crud tests', function () {
     server.stop();
 
     const orm = DI.get(Orm);
-    orm.dispose();
+    orm!.dispose();
 
     DI.uncache(Orm);
   });

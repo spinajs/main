@@ -12,13 +12,13 @@ import { ConfigurationEntryType, IConfigurationEntryMeta } from '../types.js';
 @Model('configuration')
 export class DbConfig<T = unknown> extends ModelBase {
   @Primary()
-  public Id: number;
+  public Id!: number;
 
-  public Slug: string;
+  public Slug!: string;
 
   public Value?: T;
 
-  public Group: string;
+  public Group!: string;
 
   public Label?: string;
 
@@ -26,11 +26,11 @@ export class DbConfig<T = unknown> extends ModelBase {
 
   public Meta?: IConfigurationEntryMeta;
 
-  public Required: boolean;
+  public Required!: boolean;
 
-  public Type: ConfigurationEntryType;
+  public Type!: ConfigurationEntryType;
 
-  public Watch: boolean;
+  public Watch!: boolean;
 
   public Default?: T;
 
@@ -39,8 +39,8 @@ export class DbConfig<T = unknown> extends ModelBase {
   public hydrate(data: Partial<this>) {
     Object.assign(this, {
       ...data,
-      Value: parse(data.Value as unknown as string, data.Type),
-      Default: parse(data.Value as unknown as string, data.Type)
+      Value: parse(data.Value as unknown as string, data.Type!),
+      Default: parse(data.Value as unknown as string, data.Type!)
     });
   }
 

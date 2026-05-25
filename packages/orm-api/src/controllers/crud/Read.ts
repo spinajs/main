@@ -76,8 +76,8 @@ export class CrudRead extends Crud {
     query
       .select('*')
       .populate(includes)
-      .order(getParams.order, getParams.orderDirection ?? SortOrder.ASC)
-      .skip(getParams.page * getParams.perPage)
+      .order(getParams.order!, getParams.orderDirection ?? SortOrder.ASC)
+      .skip((getParams.page ?? 0) * (getParams.perPage ?? 10))
       .take(getParams.perPage ?? 10);
 
     // apply basic filters
@@ -120,7 +120,7 @@ export class CrudRead extends Crud {
     const mDescriptor = model.getModelDescriptor();
     const rDescriptor = model.getRelationDescriptor(relation);
     const rmDescriptor = rDescriptor.TargetModel.getModelDescriptor();
-    const { query, permission } = this.getSafeQuery(rDescriptor.TargetModel, user);
+    const { query, permission } = this.getSafeQuery(rDescriptor.TargetModel, user!);
 
     if (!mDescriptor.Relations.has(relation)) {
       return new BadRequest(`Resource ${mDescriptor.Name} does not have relation ${relation} defined`);
@@ -152,7 +152,7 @@ export class CrudRead extends Crud {
   public async getRelations(@ModelType() model: IModelStatic, @Param() id: any, @Param() relation: string, @Query() params: QueryArgs, @Query() filters: QueryFilter, @Query() includes: QueryIncludes, @User() user?: UserModel) {
     const mDescriptor = model.getModelDescriptor();
     const rDescriptor = model.getRelationDescriptor(relation);
-    const { query, permission } = this.getSafeQuery(rDescriptor.TargetModel, user);
+    const { query, permission } = this.getSafeQuery(rDescriptor.TargetModel, user!);
 
     if (!mDescriptor.Relations.has(relation)) {
       return new BadRequest(`Resource ${mDescriptor.Name} does not have relation ${relation} defined`);
@@ -170,8 +170,8 @@ export class CrudRead extends Crud {
       .where(rDescriptor.ForeignKey, id)
       .select('*')
       .populate(includes)
-      .order(params.order, params.orderDirection ?? SortOrder.ASC)
-      .skip(params.page * params.perPage)
+      .order(params.order!, params.orderDirection ?? SortOrder.ASC)
+      .skip((params.page ?? 0) * (params.perPage ?? 10))
       .take(params.perPage ?? 10);
 
     // apply basic filters

@@ -160,7 +160,7 @@ export class StompQueueClient extends QueueClient {
         return;
       }
 
-      this.Subscriptions.get(c).unsubscribe();
+      this.Subscriptions.get(c)!.unsubscribe();
       this.Subscriptions.delete(c);
     });
   }

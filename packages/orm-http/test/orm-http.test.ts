@@ -54,7 +54,7 @@ describe('Http orm tests', function () {
 
   describe('query params', function () {
     it('Should filter route-args works', async () => {
-      const spy = DI.get(FilterC).testFilter as sinon.SinonSpy;
+      const spy = DI.get(FilterC)!.testFilter as sinon.SinonSpy;
       await req().get('filter/testFilter?filter=[{"Column": "Number", "Operator": "eq","Value": 1}]').set('Accept', 'application/json');
 
       expect(spy.args[0][0]).to.be.an('array');
@@ -65,7 +65,7 @@ describe('Http orm tests', function () {
     });
 
     it('Should custom filter route-args works', async () => {
-      const spy = DI.get(FilterC).testCustomFilter as sinon.SinonSpy;
+      const spy = DI.get(FilterC)!.testCustomFilter as sinon.SinonSpy;
       await req().get('filter/testCustomFilter?filter=[{"Column": "Foo", "Operator": "eq","Value": 1}]').set('Accept', 'application/json');
 
       expect(spy.args[0][0]).to.be.an('array');
@@ -76,7 +76,7 @@ describe('Http orm tests', function () {
     });
 
     it('Should relation one-to-many filter route-args works', async () => {
-      const spy = DI.get(FilterC).testRelationFilterOneToMany as sinon.SinonSpy;
+      const spy = DI.get(FilterC)!.testRelationFilterOneToMany as sinon.SinonSpy;
       await req().get('filter/testRelationFilterOneToMany?filter=[{"Column": "Text", "Operator": "eq","Value": "foo"}]').set('Accept', 'application/json');
 
       expect(spy.args[0][0]).to.be.an('array');
@@ -87,7 +87,7 @@ describe('Http orm tests', function () {
     });
 
     it('Should relation one-to-one filter route-args works', async () => {
-      const spy = DI.get(FilterC).testRelationFilterOneToOne as sinon.SinonSpy;
+      const spy = DI.get(FilterC)!.testRelationFilterOneToOne as sinon.SinonSpy;
       await req().get('filter/testRelationFilterOneToOne?filter=[{"Column": "Text", "Operator": "eq","Value": "bar"}]').set('Accept', 'application/json');
 
       expect(spy.args[0][0]).to.be.an('array');
@@ -105,7 +105,7 @@ describe('Http orm tests', function () {
     });
 
     it('simple query', async () => {
-      const spy = DI.get(Simple).testGet as sinon.SinonSpy;
+      const spy = DI.get(Simple)!.testGet as sinon.SinonSpy;
 
       await req().get('simple/1').set('Accept', 'application/json');
 
@@ -115,7 +115,7 @@ describe('Http orm tests', function () {
 
     it('simple query with include', async () =>{ 
 
-      const spy = DI.get(Simple).testInclude as sinon.SinonSpy;
+      const spy = DI.get(Simple)!.testInclude as sinon.SinonSpy;
       
       await req().get('simple/testinclude/1?include=["Belongs"]').set('Accept', 'application/json');
       expect(spy.args[0][0].constructor.name).to.eq('Test');
@@ -125,7 +125,7 @@ describe('Http orm tests', function () {
 
     it('simple query with parent model', async () =>{ 
 
-      const spy = DI.get(Simple).testWithParent as sinon.SinonSpy;
+      const spy = DI.get(Simple)!.testWithParent as sinon.SinonSpy;
       
       await req().get('simple/testWithParent/1/1').set('Accept', 'application/json');
       expect(spy.args[0][0].constructor.name).to.eq('Test');
@@ -140,7 +140,7 @@ describe('Http orm tests', function () {
 
 
     it('should hydrate data to model', async () => {
-      const spy = DI.get(Simple).testHydrate as sinon.SinonSpy;
+      const spy = DI.get(Simple)!.testHydrate as sinon.SinonSpy;
       await req()
         .post('simple/testHydrate')
         .send({

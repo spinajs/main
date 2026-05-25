@@ -2,6 +2,7 @@
   "compilerOptions": {
     "composite": true,
     "noImplicitAny": true,
+    "strictNullChecks": true,
     "removeComments": false,
     "preserveConstEnums": true,
     "noUnusedLocals": true,

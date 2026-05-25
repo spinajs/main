@@ -19,7 +19,7 @@ export class UserSession implements ISession {
   /**
    * Expiration time for session, if null it does not expire
    */
-  public Expiration: DateTime = null;
+  public Expiration: DateTime | undefined = undefined;
 
   public Data: Map<string, unknown> = new Map();
 
@@ -64,7 +64,7 @@ export class MemorySessionStore extends SessionProvider<ISession> {
 
   public async restore(sessionId: string): Promise<ISession | null> {
     if (this.Sessions.has(sessionId)) {
-      const session = this.Sessions.get(sessionId);
+      const session = this.Sessions.get(sessionId)!;
       if (!session.Expiration || session.Expiration > DateTime.now()) {
         return session;
       }
@@ -82,7 +82,7 @@ export class MemorySessionStore extends SessionProvider<ISession> {
 
   public async save(idOrSession: ISession | string, data?: object): Promise<void> {
     if (_.isString(idOrSession)) {
-      const s = this.Sessions.get(idOrSession);
+      const s = this.Sessions.get(idOrSession)!;
 
       for (const key in data) {
         s.Data.set(key, (data as any)[key]);

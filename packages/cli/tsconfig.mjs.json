@@ -12,6 +12,7 @@
     { "path": "../di/tsconfig.mjs.json" },
     { "path": "../exceptions/tsconfig.mjs.json" },
     { "path": "../log/tsconfig.mjs.json" },
-    { "path": "../reflection/tsconfig.mjs.json" }
+    { "path": "../reflection/tsconfig.mjs.json" },
+    { "path": "../util/tsconfig.mjs.json" }
   ]
 }

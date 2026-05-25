@@ -41,7 +41,7 @@ export class RbacBootstrapper extends Bootstrapper {
         const log = container.resolve(Log, ['rbac']);
         log.warn(`No grants are set in configuration for access control. Please check grants & permission configuration.`);
       } else {
-        ac.setGrants(grants);
+        ac!.setGrants(grants);
       }
     });
 
@@ -59,7 +59,7 @@ export class RbacBootstrapper extends Bootstrapper {
 
     DI.register((_) => {
       const conf = DI.get(Configuration);
-      const guestEnabled = conf.get('rbac.enableGuestAccount', false);
+      const guestEnabled = conf!.get('rbac.enableGuestAccount', false);
 
       return new User({
         Login: 'guest',

@@ -36,22 +36,22 @@ const EXIFTOOL_MAPPINGS = {
 
 function _fInfoInit(): IFileInfo {
   return {
-    FileSize: null,
-    Height: null,
-    Width: null,
-    Duration: null,
-    FrameCount: null,
-    FrameRate: null,
-    Bitrate: null,
-    Codec: null,
-    Raw: null
+    FileSize: 0,
+    Height: undefined,
+    Width: undefined,
+    Duration: undefined,
+    FrameCount: undefined,
+    FrameRate: undefined,
+    Bitrate: undefined,
+    Codec: undefined,
+    Raw: undefined
   }
 }
 
 @Injectable(FileInfoService)
 export class DefaultFileInfo extends FileInfoService {
   @Logger('fs')
-  protected Log: Log;
+  protected Log!: Log;
 
   public async getInfo(pathToFile: string): Promise<IFileInfo> {
     if (!existsSync(pathToFile)) {

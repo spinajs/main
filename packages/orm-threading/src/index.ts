@@ -37,11 +37,11 @@ export class OrmMutex extends Mutex {
     if (mutex.Locked && mutex.Tenant !== _tenant) {
       return {
         Locked: false,
-        Mutex: null,
+        Mutex: null as any,
       };
     }
 
-    const result = await __mutex__
+    const result = await (__mutex__ as any)
       .update({
         Locked: true,
         Tenant: _tenant,
@@ -62,14 +62,14 @@ export class OrmMutex extends Mutex {
   public async release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean> {
     const _name = _check_arg(_trim(), _non_empty())(options.Name, 'Empty mutex name');
     const _tenant = _check_arg(_trim(), _default(this.AppName))(options.Tenant, '');
-    let result: IUpdateResult = null;
+    let result: IUpdateResult = null as any;
 
     if (deleteOnClose) {
-      result = await __mutex__.destroy(_name).where({
+      result = await (__mutex__ as any).destroy(_name).where({
         Tenant: _tenant,
       });
     } else {
-      result = await __mutex__
+      result = await (__mutex__ as any)
         .update({
           Locked: false,
         })
@@ -86,7 +86,7 @@ export class OrmMutex extends Mutex {
     const _name = _check_arg(_trim(), _non_empty())(options.Name, 'Empty mutex name');
     const _tenant = _check_arg(_trim(), _default(this.AppName))(options.Tenant, '');
 
-    const mutex = await __mutex__.getOrCreate(_name, {
+    const mutex = await (__mutex__ as any).getOrCreate(_name, {
       Name: _name,
       Tenant: _tenant,
     });
@@ -103,7 +103,7 @@ export class OrmMutex extends Mutex {
     /**
      * Delete mutex can only tenant
      * */
-    const result = await __mutex__.destroy(_name).where({
+    const result = await (__mutex__ as any).destroy(_name).where({
       Tenant: _tenant,
     });
     return result.RowsAffected === 1;
@@ -111,7 +111,7 @@ export class OrmMutex extends Mutex {
 
   public async get(name: string): Promise<MutexLock | null> {
     const _name = _check_arg(_trim(), _non_empty())(name, 'Empty mutex name');
-    return __mutex__.get(_name);
+    return (__mutex__ as any).get(_name);
   }
 
   public async wait(name: string, timeout?: number): Promise<boolean> {
@@ -121,12 +121,12 @@ export class OrmMutex extends Mutex {
       const checkInterval = setInterval(async () => {
         try {
           const mutex = await this.get(name);
-          if (!mutex.Locked) {
+          if (!mutex!.Locked) {
             clearInterval(checkInterval);
             resolve(true);
           } else {
             if (timeout !== 0) {
-              if (DateTime.now().diff(start).milliseconds >= timeout) {
+              if (DateTime.now().diff(start).milliseconds >= timeout!) {
                 clearInterval(checkInterval);
                 resolve(false);
               }

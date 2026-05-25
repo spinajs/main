@@ -34,7 +34,7 @@ export class Translatable extends ModelBase {
 
   public async update(data?: Partial<this>) {
     const selectedLang = guessLanguage(this.Language);
-    const defaultLanguage = DI.get(Configuration).get<string>('intl.defaultLocale');
+    const defaultLanguage = DI.get(Configuration)!.get<string>('intl.defaultLocale');
 
     let result = {
       RowsAffected: 0,
@@ -47,14 +47,14 @@ export class Translatable extends ModelBase {
       this.Language = selectedLang;
       // TODO: temporaty use uniqyBy, pls FIX model descriptor proper handling in ORM module
       const tColumns = _.uniqBy(
-        this.ModelDescriptor.Columns.filter((c) => c.Translate),
+        this.ModelDescriptor!.Columns.filter((c) => c.Translate),
         'Name',
       );
 
       const { query } = this.createUpdateQuery();
 
-      if (this.ModelDescriptor.Timestamps.UpdatedAt) {
-        (this as any)[this.ModelDescriptor.Timestamps.UpdatedAt] = new Date();
+      if (this.ModelDescriptor!.Timestamps.UpdatedAt) {
+        (this as any)[this.ModelDescriptor!.Timestamps.UpdatedAt] = new Date();
       }
 
       // update only non translated

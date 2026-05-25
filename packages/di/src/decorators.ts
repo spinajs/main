@@ -125,7 +125,7 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
           autoinject: false,
           autoinjectKey: '',
           inject: a,
-          mapFunc: null,
+          mapFunc: undefined,
         });
       }
     }
@@ -159,7 +159,7 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
  * ```
  */
 export function Autoinject<T>(typeOrOptions?: Class<T> | IAutoinjectOptions<T>, options?: IAutoinjectOptions<T>) {
-  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string) => {
+  return AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>, target: Class<unknown>, propertyKey: string | symbol) => {
     let type = Reflect.getMetadata('design:type', target, propertyKey) as Class<unknown>;
     const isArray = type.name === 'Array' || type.name === 'Map';
     let opt = options;
@@ -206,8 +206,8 @@ export function Autoinject<T>(typeOrOptions?: Class<T> | IAutoinjectOptions<T>, 
  * ```
  */
 export function LazyInject(service?: Class<any> | string) {
-  return (target?: any, key?: string) => {
-    const type = Reflect.getMetadata('design:type', target, key) as Class<unknown>;
+  return (target: any, key: string) => {
+    const type = Reflect.getMetadata('design:type', target, key!) as Class<unknown>;
 
     // property getter
     const getter = () => {

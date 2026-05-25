@@ -58,7 +58,7 @@ export class ConnectionConf extends FrameworkConfiguration {
 }
 
 export function db() {
-  return DI.get(Orm);
+  return DI.get(Orm)!;
 }
 
 describe('Sqlite driver migration, updates, deletions & inserts', function () {
@@ -71,7 +71,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('should select', async () => {
-    const result = await db().Connections.get('lowdb').select().from('users').where('Id', 1).first();
+    const result = await db().Connections.get('lowdb')!.select().from('users').where('Id', 1).first();
 
     expect(result).to.be.not.null;
     expect(result).to.deep.eq({
@@ -83,7 +83,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('Should select multiple conditions', async () => {
-    const result = await db().Connections.get('lowdb').select().from('users').where('Id', 1).where('Name', 'spinajs').first();
+    const result = await db().Connections.get('lowdb')!.select().from('users').where('Id', 1).where('Name', 'spinajs').first();
 
     expect(result).to.be.not.null;
     expect(result).to.deep.eq({
@@ -95,7 +95,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('Select should return null', async () => {
-    const result = await db().Connections.get('lowdb').select().from('users').where('Id', 1).where('Name', 'spinsssajs').first();
+    const result = await db().Connections.get('lowdb')!.select().from('users').where('Id', 1).where('Name', 'spinsssajs').first();
     expect(result).to.be.undefined;
   });
 
@@ -110,7 +110,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('should insert', async () => {
-    await db().Connections.get('lowdb').insert().into('users').values({
+    await db().Connections.get('lowdb')!.insert().into('users').values({
       Name: 'test',
       Password: 'test_password',
       CreatedAt: '2019-10-18',
@@ -128,7 +128,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('should delete', async () => {
-    await db().Connections.get('lowdb').del().from('users').where({ Id: 1 });
+    await db().Connections.get('lowdb')!.del().from('users').where({ Id: 1 });
   });
   it('should delete by model', async () => {});
 

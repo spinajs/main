@@ -92,5 +92,5 @@ export class ConnectionConf extends FrameworkConfiguration {
 }
 
 export function db() {
-  return DI.get(Orm);
+  return DI.get(Orm)!;
 }

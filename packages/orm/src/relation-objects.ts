@@ -56,7 +56,7 @@ export class Dataset {
  */
 @NewInstance()
 export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q extends typeof ModelBase<R> = typeof ModelBase<R>> extends Array<R> implements IRelation<R, O> {
-  public TargetModelDescriptor: IModelDescriptor;
+  public TargetModelDescriptor: IModelDescriptor | null;
 
   public Populated: boolean = false;
 
@@ -187,17 +187,17 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
 
 @NewInstance()
 export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase> {
-  public TargetModelDescriptor: IModelDescriptor;
+  public TargetModelDescriptor: IModelDescriptor | null;
 
   protected Orm: Orm;
 
-  public Value: R;
+  public Value: R | null | undefined;
 
   public Populated: boolean = false;
 
-  constructor(protected _owner: O, protected model: Constructor<R> | ForwardRefFunction, protected Relation: IRelationDescriptor, object?: R) {
-    this.TargetModelDescriptor = extractModelDescriptor(model);
-    this.Orm = DI.get(Orm);
+  constructor(protected _owner: O, protected model: Constructor<R> | ForwardRefFunction | null, protected Relation: IRelationDescriptor | null, object?: R) {
+    this.TargetModelDescriptor = model ? extractModelDescriptor(model) : null;
+    this.Orm = DI.get(Orm)!;
 
     this.Value = object;
   }
@@ -207,12 +207,12 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
     await this._owner.update();
   }
 
-  public attach(obj: R) {
+  public attach(obj: R | null) {
     this.Value = obj;
     this._owner.IsDirty = true;
 
     // TODO hack for dirty props
-    (this._owner as any).__dirty_props__.push(this.Relation.ForeignKey);
+    (this._owner as any).__dirty_props__.push(this.Relation?.ForeignKey);
   }
 
   public detach() {
@@ -221,7 +221,7 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
 
   public async remove() {
     this.detach();
-    await this.Value.destroy();
+    await this.Value!.destroy();
     await this._owner.update();
   }
 
@@ -233,16 +233,16 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
      * TODO: create only relation query without loading its owner.
      */
 
-    const query = createQuery(this.Relation.TargetModel, SelectQueryBuilder<ModelBase>).query;
-    const desc = extractModelDescriptor(this.Relation.TargetModel);
-    query.where({ [desc.PrimaryKey]: (this._owner as any)[this.Relation.ForeignKey] });
+    const query = createQuery(this.Relation!.TargetModel, SelectQueryBuilder<ModelBase>).query;
+    const desc = extractModelDescriptor(this.Relation!.TargetModel);
+    query.where({ [desc!.PrimaryKey]: (this._owner as any)[this.Relation!.ForeignKey] });
 
     if (callback) {
       callback.apply(query);
     }
 
-    const relColumn = this._owner.ModelDescriptor.Columns.find((c) => c.Name === this.Relation.ForeignKey);
-    if (relColumn.Nullable) {
+    const relColumn = this._owner.ModelDescriptor?.Columns.find((c) => c.Name === this.Relation!.ForeignKey);
+    if (relColumn?.Nullable) {
       this.Value = await query.first();
     } else {
       this.Value = await query.firstOrFail();
@@ -290,7 +290,7 @@ export class ManyQueryRelationList<R extends ModelBase, O extends ModelBase> ext
 
 export class SingleQueryRelation<R extends ModelBase, O extends ModelBase = ModelBase> extends SingleRelation<R, O> {
   constructor(owner: O, object: R) {
-    super(owner, null, null, object);
+    super(owner, null, null, object as R);
     this.Populated = true;
   }
 }
@@ -298,7 +298,7 @@ export class SingleQueryRelation<R extends ModelBase, O extends ModelBase = Mode
 @NewInstance()
 export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> extends Relation<T, O, typeof ModelBase<T>> {
 
-  protected junctionModelDescriptor: IModelDescriptor;
+  protected junctionModelDescriptor: IModelDescriptor | null;
 
   constructor(owner: O, relation: IRelationDescriptor, objects?: T[]) {
     super(owner, relation, objects);
@@ -326,7 +326,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
  * @param obj
  */
   public set(obj: T[] | ((data: T[], pKeyName: string) => T[])) {
-    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor.PrimaryKey) : obj;
+    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor!.PrimaryKey) : obj;
     this.empty();
     this.push(...toPush);
   }
@@ -372,7 +372,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   * @returns
   */
   protected async _dbDiff(data: T[]) {
-    const query = this.Driver.del().from(this.junctionModelDescriptor.TableName).where(this.Relation.JunctionModelSourceModelFKey_Name, this.Owner.PrimaryKeyValue);
+    const query = this.Driver.del().from(this.junctionModelDescriptor!.TableName).where(this.Relation.JunctionModelSourceModelFKey_Name!, this.Owner.PrimaryKeyValue);
 
     if (this.Driver.Options.Database) {
       query.database(this.Driver.Options.Database);
@@ -381,7 +381,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     // if we have data in relation, we need to exclude them from delete query
     const toDelete = [...data].filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
     if (toDelete.length !== 0) {
-      query.whereNotIn(this.Relation.JunctionModelTargetModelFKey_Name, toDelete);
+      query.whereNotIn(this.Relation.JunctionModelTargetModelFKey_Name!, toDelete);
     }
 
     await query;
@@ -406,9 +406,9 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
    */
   public async update() {
     for (const f of this) {
-      const junctionEntry = new this.Relation.JunctionModel();
+      const junctionEntry = new this.Relation.JunctionModel!();
       const desc = junctionEntry.ModelDescriptor;
-      const relationsArray = Array.from(desc.Relations.values());
+      const relationsArray = Array.from(desc!.Relations.values());
       const sourceModelRelation = relationsArray.find((r) => r.TargetModel === this.Owner.constructor);
       const targetModelRelation = relationsArray.find((r) => r.TargetModel === f.constructor);
 
@@ -472,7 +472,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns
    */
   protected async _dbDiff(data: T[]) {
-    const query = this.Driver.del().from(this.TargetModelDescriptor.TableName).where(this.Relation.ForeignKey, this.Owner.PrimaryKeyValue);
+    const query = this.Driver.del().from(this.TargetModelDescriptor!.TableName).where(this.Relation.ForeignKey, this.Owner.PrimaryKeyValue);
 
     if (this.Driver.Options.Database) {
       query.database(this.Driver.Options.Database);
@@ -481,7 +481,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     // if we have data in relation, we need to exclude them from delete query
     const toDelete = data.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
     if (toDelete.length !== 0) {
-      query.whereNotIn(this.TargetModelDescriptor.PrimaryKey, toDelete);
+      query.whereNotIn(this.TargetModelDescriptor!.PrimaryKey, toDelete);
     }
 
     await query;
@@ -545,7 +545,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns Difference between this relation and dataset
    */
   public diff(dataset: T[], callback?: (a: T, b: T) => boolean) {
-    return Dataset.diff(dataset, callback)([...this], this.TargetModelDescriptor.PrimaryKey);
+    return Dataset.diff(dataset, callback)([...this], this.TargetModelDescriptor!.PrimaryKey);
   }
 
   /**
@@ -554,7 +554,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @param obj
    */
   public set(obj: T[] | ((data: T[], pKeyName: string) => T[])) {
-    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor.PrimaryKey) : obj;
+    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor!.PrimaryKey) : obj;
     this.empty();
     this.push(...toPush);
   }
@@ -567,7 +567,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns Data that are in both sets
    */
   public intersection(obj: T[], callback?: (a: T, b: T) => boolean) {
-    return Dataset.intersection(obj, callback)([...this], this.TargetModelDescriptor.PrimaryKey);
+    return Dataset.intersection(obj, callback)([...this], this.TargetModelDescriptor!.PrimaryKey);
   }
 
   /**
@@ -583,7 +583,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * Returns the elements of an array that meet the condition specified in a callback function.
    * @param predicate A function that accepts up to three arguments. The filter method calls the predicate function one time for each element in the array.
    */
-  public filter(predicate: (value: T, index?: number, array?: T[]) => boolean): T[] {
+  public filter(predicate: (value: T, index: number, array: T[]) => boolean): T[] {
     return [...this].filter(predicate);
   }
 

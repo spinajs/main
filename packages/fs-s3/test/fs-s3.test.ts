@@ -157,7 +157,7 @@ describe('fs s3 basic tests', function () {
 
     const m = await f3.getMetadata('Big_Buck_Bunny_1080_10s_30MB.mp4');
 
-    expect(m.height).to.eq('1080');
+    expect(m!.height).to.eq('1080');
   });
 
   it('should copy file within S3', async () => {

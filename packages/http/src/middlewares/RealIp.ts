@@ -10,7 +10,7 @@ export class RealIp extends ServerMiddleware {
     this.Order = 1;
   }
 
-  public after(): (_req: sRequest, _res: express.Response, _next: express.NextFunction) => void {
+  public after(): ((_req: sRequest, _res: express.Response, _next: express.NextFunction) => void) | null {
     return null;
   }
 

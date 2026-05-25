@@ -18,7 +18,7 @@ export class Templates extends AsyncService {
   protected Renderers: TemplateRenderer[];
 
   public getRendererFor(extname: string): TemplateRenderer {
-    return this.Renderers.find((x) => x.Extension === extname);
+    return this.Renderers.find((x) => x.Extension === extname)!;
   }
 
   public async compileToFile(template: string, renderer: string, model: unknown, filePath: string, language?: string): Promise<void> {

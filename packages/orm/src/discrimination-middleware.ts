@@ -9,10 +9,10 @@ export class DiscriminationMapMiddleware implements IBuilderMiddleware {
     return data;
   }
 
-  public modelCreation(data: any): ModelBase {
+  public modelCreation(data: any): ModelBase | null {
     if (this._description.DiscriminationMap && this._description.DiscriminationMap.Field) {
       const distValue = data[this._description.DiscriminationMap.Field];
-      if (distValue && this._description.DiscriminationMap.Models.has(distValue)) {
+      if (distValue && this._description.DiscriminationMap.Models?.has(distValue)) {
         const result = new (this._description.DiscriminationMap.Models.get(distValue) as any)();
         result.hydrate(data);
 

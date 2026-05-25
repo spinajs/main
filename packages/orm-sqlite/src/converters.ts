@@ -7,9 +7,9 @@ import { ModelBase, ModelToSqlConverter, OrmException, RelationType } from '@spi
 export class SqliteModelToSqlConverter extends ModelToSqlConverter {
   public toSql(model: ModelBase<unknown>): unknown {
     const obj = {};
-    const relArr = [...model.ModelDescriptor.Relations.values()];
+    const relArr = [...model.ModelDescriptor!.Relations.values()];
 
-    model.ModelDescriptor.Columns?.filter((x) => !x.IsForeignKey).forEach((c) => {
+    model.ModelDescriptor!.Columns?.filter((x) => !x.IsForeignKey).forEach((c) => {
       const val = (model as any)[c.Name];
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
@@ -21,7 +21,7 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
       // this way insertquerycompiler will not try to fill DEFAULT in missing data
       if (val === undefined) return;
 
-      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor.Converters.get(c.Name)?.Options) : val;
+      (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor!.Converters.get(c.Name)?.Options) : val;
     });
 
     for (const val of relArr) {

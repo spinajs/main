@@ -51,7 +51,7 @@ export class LowDBHttpSynchronizer extends LowdbDataSynchronizer {
     this.syncTimer = setInterval(async () => {
       this.log.trace(`Synchronizing lowdb database...`);
 
-      const dbFileName = format({}, this.Driver.Options.Filename);
+      const dbFileName = format({}, this.Driver.Options.Filename!);
       const stat = fs.statSync(dbFileName);
 
       const result = await fetch(this.Options.Host, {
@@ -121,6 +121,8 @@ export class LowDBDriver extends OrmDriver {
         return this.handleUpdate(builder as UpdateQueryBuilder<unknown>);
       case QueryContext.Select:
         return this.handleSelect(builder as QueryBuilder<any>);
+      default:
+        return Promise.resolve(undefined);
     }
   }
 
@@ -230,7 +232,7 @@ export class LowDBDriver extends OrmDriver {
   }
 
   public async connect(): Promise<OrmDriver> {
-    const dbFileName = format({}, this.Options.Filename);
+    const dbFileName = format({}, this.Options.Filename!);
     const path = Path.parse(dbFileName);
     const schemaFileName = format({}, Path.join(path.dir, `${path.name}.schema.json`));
 

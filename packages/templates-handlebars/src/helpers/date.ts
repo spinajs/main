@@ -36,7 +36,7 @@ export function formatDate(date: unknown, format: string): string {
  */
 export function now(format?: string): string {
   const dt = DateTime.now();
-  return format ? dt.toFormat(format) : dt.toISO();
+  return format ? dt.toFormat(format) : dt.toISO()!;
 }
 
 /**
@@ -98,7 +98,7 @@ export function dateAdd(date: unknown, amount: number, unit: string): string {
   };
 
   const normalizedUnit = units[unit.toLowerCase()] || 'days';
-  return dt.plus({ [normalizedUnit]: amount }).toISO();
+  return dt.plus({ [normalizedUnit]: amount }).toISO()!;
 }
 
 /**
@@ -216,7 +216,7 @@ export function dateStartOf(date: unknown, unit: string): string {
   };
 
   const normalizedUnit = units[unit.toLowerCase()] || 'day';
-  return dt.startOf(normalizedUnit as any).toISO();
+  return dt.startOf(normalizedUnit as any).toISO()!;
 }
 
 /**
@@ -249,7 +249,7 @@ export function dateEndOf(date: unknown, unit: string): string {
   };
 
   const normalizedUnit = units[unit.toLowerCase()] || 'day';
-  return dt.endOf(normalizedUnit as any).toISO();
+  return dt.endOf(normalizedUnit as any).toISO()!;
 }
 
 /**
@@ -258,10 +258,10 @@ export function dateEndOf(date: unknown, unit: string): string {
  */
 export function dateISO(date: unknown): string {
   if (date instanceof Date) {
-    return DateTime.fromJSDate(date).toISO();
+    return DateTime.fromJSDate(date).toISO()!;
   }
   if (date instanceof DateTime) {
-    return date.toISO();
+    return date.toISO()!;
   }
   if (typeof date === 'string') {
     const dt = DateTime.fromISO(date);
@@ -304,7 +304,7 @@ export function unixTimestamp(date?: unknown): number {
  */
 export function fromTimestamp(ts: number, format?: string): string {
   const dt = DateTime.fromMillis(ts);
-  return format ? dt.toFormat(format) : dt.toISO();
+  return format ? dt.toFormat(format) : dt.toISO()!;
 }
 
 /**

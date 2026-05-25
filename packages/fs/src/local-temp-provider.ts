@@ -50,8 +50,11 @@ export class fsNativeTemp extends fsNative<IFsLocalTempOptions> {
 
       for (const f of files) {
         const stat = await this.stat(f);
-        const timeDiff = today.diff(stat.CreationTime, 'seconds');
+        if(stat.CreationTime === undefined){
+          continue;
+        }
 
+        const timeDiff = today.diff(stat.CreationTime, 'seconds');
         if (timeDiff.seconds > (this.Options.maxFileAge || DEFAULT_FILE_AGE)) {
           this.Logger.trace(
             `Temp file at path ${f} is older than ${

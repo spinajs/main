@@ -65,7 +65,9 @@ export class PathVariable extends ConfigVariable {
       case 'temp':
         return tmpdir();
       case 'appdata':
-        return process.env.APPDATA;
+        return process.env.APPDATA ?? '';
+      default:
+        return '';
     }
   }
 }
@@ -102,7 +104,7 @@ export function format(customVars: ConfVariables | null, layout: string): string
     );
   }
 
-  return _format(customVars, layout);
+  return _format(customVars as ConfVariables, layout);
 }
 
 /**

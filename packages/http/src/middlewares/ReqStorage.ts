@@ -15,7 +15,7 @@ export class RequestStorage extends ServerMiddleware {
     this.Order = -2;
   }
 
-  public after(): (_req: sRequest, _res: express.Response, next: express.NextFunction) => void {
+  public after(): ((_req: sRequest, _res: express.Response, next: express.NextFunction) => void) | null {
     return null;
   }
 

@@ -24,35 +24,35 @@ import './middlewares/ReqStorage.js';
 @Inject(Templates)
 export class HttpServer extends AsyncService {
   @Autoinject(Configuration)
-  protected Configuration: Configuration;
+  protected Configuration!: Configuration;
 
   @Autoinject(Container)
-  protected Container: IContainer;
+  protected Container!: IContainer;
 
   @Autoinject(ServerMiddleware)
-  protected Middlewares: ServerMiddleware[];
+  protected Middlewares!: ServerMiddleware[];
 
   @Config('http')
-  protected HttpConfig: IHttpServerConfiguration;
+  protected HttpConfig!: IHttpServerConfiguration;
 
   @Config('https')
-  protected HttpsEnabled: boolean;
+  protected HttpsEnabled!: boolean;
 
   @Config('process.env.APP_ENV', {
     defaultValue: 'development',
   })
-  protected AppEnv: string;
+  protected AppEnv!: string;
 
   /**
    * Express app instance
    */
-  protected Express: Express.Express;
+  protected Express!: Express.Express;
 
   /**
    * Http socket server
    */
-  protected _httpServer: Http;
-  protected _httpsServer: Https;
+  protected _httpServer!: Http;
+  protected _httpsServer!: Https;
 
   /**
    * Track active connections for cleanup
@@ -67,7 +67,7 @@ export class HttpServer extends AsyncService {
    * Logger for this module
    */
   @Logger('http')
-  protected Log: Log;
+  protected Log!: Log;
 
   constructor() {
     super();

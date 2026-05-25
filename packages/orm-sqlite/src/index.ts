@@ -156,7 +156,7 @@ export class SqliteOrmDriver extends SqlDriver {
         void this.Log.write({
           Level: LogLevel.Trace,
           Variables: {
-            error: null,
+            error: undefined,
             message: `Executed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
             logger: this.Log.Name,
             level: 'TRACE',
@@ -194,12 +194,12 @@ export class SqliteOrmDriver extends SqlDriver {
 
   public async connect(): Promise<OrmDriver> {
     return new Promise((resolve, reject) => {
-      this.Db = new sqlite3.Database(format({}, this.Options.Filename), (err: unknown) => {
+      this.Db = new sqlite3.Database(format({}, this.Options.Filename!), (err: unknown) => {
         if (err) {
           // Clean up the database handle if connection fails
           if (this.Db) {
             this.Db.close(() => {
-              this.Db = null;
+              this.Db = null as any;
               reject(err);
             });
           } else {
@@ -225,7 +225,7 @@ export class SqliteOrmDriver extends SqlDriver {
           return;
         }
 
-        this.Db = null;
+        this.Db = null as any;
         resolve(this);
       });
     });
@@ -257,7 +257,7 @@ export class SqliteOrmDriver extends SqlDriver {
       return trx;
     }
 
-    await this.executeOnDb('BEGIN TRANSACTION', null, QueryContext.Transaction);
+    await this.executeOnDb('BEGIN TRANSACTION', [] as any, QueryContext.Transaction);
 
     try {
       if (Array.isArray(qrOrCallback)) {
@@ -270,14 +270,14 @@ export class SqliteOrmDriver extends SqlDriver {
 
       return {
         commit: async () => {
-          await this.executeOnDb('COMMIT', null, QueryContext.Transaction);
+          await this.executeOnDb('COMMIT', [] as any, QueryContext.Transaction);
         },
         rollback: async () => {
-          await this.executeOnDb('ROLLBACK', null, QueryContext.Transaction);
+          await this.executeOnDb('ROLLBACK', [] as any, QueryContext.Transaction);
         },
       };
     } catch (ex) {
-      await this.executeOnDb('ROLLBACK', null, QueryContext.Transaction);
+      await this.executeOnDb('ROLLBACK', [] as any, QueryContext.Transaction);
       throw ex;
     }
   }
@@ -290,26 +290,26 @@ export class SqliteOrmDriver extends SqlDriver {
    * @param _schema - optional schema name
    */
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
-    const converters = this.Container.get<Map<string, any>>('__orm_db_value_converters__');
+    const converters = this.Container.get<Map<string, any>>('__orm_db_value_converters__')!;
 
-    const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${name});`, null, QueryContext.Select)) as ITableInfo[];
+    const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${name});`, [] as any, QueryContext.Select)) as ITableInfo[];
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
-      return null;
+      return null as any;
     }
 
     // get all indices for table
-    const indexList = (await this.executeOnDb(`PRAGMA index_list("${name}")`, null, QueryContext.Select)) as IIndexInfoList[];
+    const indexList = (await this.executeOnDb(`PRAGMA index_list("${name}")`, [] as any, QueryContext.Select)) as IIndexInfoList[];
     let uIndices: string[] = [];
 
     // get all unique & fetch for whitch column
     for (const idx of indexList.filter((i) => i.unique === 1)) {
-      const iInfo = (await this.executeOnDb(`PRAGMA index_info("${idx.name}")`, null, QueryContext.Select)) as IIndexInfo[];
+      const iInfo = (await this.executeOnDb(`PRAGMA index_info("${idx.name}")`, [] as any, QueryContext.Select)) as IIndexInfo[];
       uIndices = iInfo.map((x) => x.name);
     }
 
     // get all foreign keys
-    const foreignKeys = (await this.executeOnDb(`PRAGMA foreign_key_list("${name}")`, null, QueryContext.Select)) as IForeignKeyList[];
+    const foreignKeys = (await this.executeOnDb(`PRAGMA foreign_key_list("${name}")`, [] as any, QueryContext.Select)) as IForeignKeyList[];
 
     return tblInfo.map((r: ITableInfo) => {
       const fk = foreignKeys.find((i) => i.from === r.name);
@@ -334,7 +334,7 @@ export class SqliteOrmDriver extends SqlDriver {
               Table: fk.table,
               To: fk.to,
             }
-          : null,
+          : null as any,
         // simply assumpt that integer pkeys are autoincement / auto fill  by default
         AutoIncrement: r.pk === 1 && r.type === 'INTEGER',
         Name: r.name,

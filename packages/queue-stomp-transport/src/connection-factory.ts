@@ -13,7 +13,7 @@ import { Configuration } from '@spinajs/configuration';
  */
 DI.register(async (container, options: IQueueConnectionOptions) => {
 
-  const cfg = container.get(Configuration);
+  const cfg = container.get(Configuration)!;
   const appName = cfg.get<string>("app.name","no-app");
   const env = cfg.get<string>("process.env.APP_ENV", "development");
 

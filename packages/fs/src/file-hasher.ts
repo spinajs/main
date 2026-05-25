@@ -14,7 +14,7 @@ export class DefaultFileHasher extends FileHasher {
     return this.Alghoritm === requestedAlgo;
   }
 
-  public Name: string;
+  public Name!: string;
 
   constructor(public Alghoritm?: string, public HashOptions?: crypto.HashOptions) {
     super();
@@ -25,6 +25,10 @@ export class DefaultFileHasher extends FileHasher {
   public async hash(pathToFile: string): Promise<string> {
     if (!fs.existsSync(pathToFile)) {
       throw new IOFail(`File ${pathToFile} not exists`);
+    }
+
+    if(!this.Alghoritm){
+      throw new IOFail(`Hashing algorithm is not specified for file hasher. Please provide algorithm as constructor parameter or set default algorithm in configuration`);
     }
 
     const algo = crypto.createHash(this.Alghoritm, this.HashOptions);

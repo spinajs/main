@@ -87,7 +87,7 @@ export class MySqlOrmDriver extends SqlDriver {
         void this.Log.write({
           Level: LogLevel.Trace,
           Variables: {
-            error: null,
+            error: undefined,
             message: `Executed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
             logger: this.Log.Name,
             level: 'TRACE',
@@ -187,7 +187,7 @@ export class MySqlOrmDriver extends SqlDriver {
         if (err) {
           reject(err);
         } else {
-          this.Pool = null;
+          this.Pool = null as any;
           resolve(this);
         }
       });
@@ -205,7 +205,7 @@ export class MySqlOrmDriver extends SqlDriver {
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
       this.Log.trace(`Table ${schema}.${name} does not have any columns.`);
-      return null;
+      return null as any;
     }
 
     if (isView && isView[0].Table_type === 'VIEW') {
@@ -354,7 +354,7 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
       this.SshClient = new SSHClient();
 
       this.SshClient.on('ready', () => {
-        this.SshClient.forwardOut('127.0.0.1', 12345, this.Options.Host, this.Options.Port, (err, stream) => {
+        this.SshClient.forwardOut('127.0.0.1', 12345, this.Options.Host!, this.Options.Port!, (err, stream) => {
           if (err) {
             reject(err);
             return;
@@ -381,10 +381,10 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
       });
 
       this.SshClient.connect({
-        host: this.Options.SSH.Host,
-        port: this.Options.SSH.Port,
-        username: this.Options.SSH.User,
-        privateKey: fs.readFileSync(this.Options.SSH.PrivateKey),
+        host: this.Options.SSH!.Host,
+        port: this.Options.SSH!.Port,
+        username: this.Options.SSH!.User,
+        privateKey: fs.readFileSync(this.Options.SSH!.PrivateKey!),
       });
     });
   }

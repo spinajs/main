@@ -164,5 +164,5 @@ export abstract class ConfigVarProtocol extends AsyncService {
    * @param path var path to load eg. secretmanager:someval
    * @param configuration - acces to whole configuration object ( sometimes we need to use other config vars to access it)
    */
-  public abstract getVar(path: string, configuration: any): Promise<string | number | boolean | ConfigVar | {}>;
+  public abstract getVar(path: string, configuration: any): Promise<string | number | boolean | ConfigVar | {} | undefined>;
 }

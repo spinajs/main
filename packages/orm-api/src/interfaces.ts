@@ -12,7 +12,7 @@ export class JsonApiIncomingObject {
     id: string;
     attributes: any;
     relationships: any;
-  } = null;
+  } = null as any;
 
   constructor(data: any) {
     Object.assign(this, data);

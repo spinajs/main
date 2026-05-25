@@ -20,7 +20,7 @@ export class MetricsBootstrapper extends Bootstrapper {
 
     DI.on('di.resolved.HttpServer', (_: IContainer, server: HttpServer) => {
       const cfg = _.get(Configuration);
-      const promCfg = cfg.get<any>('metrics.http');
+      const promCfg = cfg!.get<any>('metrics.http');
 
       server.use(
         promHttpBundle({

@@ -49,7 +49,7 @@ describe('model generated queries', () => {
     });
 
     await Model1.update({ Bar: '1' }).where({
-      Id: null,
+      Id: null as any,
     });
 
     expect(updateSpy.returnValues[0].expression).to.eq('UPDATE `TestTable1` SET `Bar` = ? WHERE `Id` = ?');
@@ -75,13 +75,13 @@ describe('model generated queries', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Bar',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -120,7 +120,7 @@ describe('model generated queries', () => {
 
     const result = (Model1.query().whereIdIsGreaterThan(999) as SelectQueryBuilder).toDB();
     expect(result.expression).to.equal('SELECT * FROM `TestTable1` WHERE `Id` >= ?');
-    expect(result.bindings[0]).to.eq(999);
+    expect(result.bindings![0]).to.eq(999);
   });
 
   it('model insert with uuid from static function', async () => {
@@ -152,13 +152,13 @@ describe('model generated queries', () => {
             PrimaryKey: true,
             AutoIncrement: true,
             Name: 'Key',
-            Converter: null,
+            Converter: null as any,
             Schema: 'sqlite',
             Unique: false,
             Uuid: true,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null,
+            ForeignKeyDescription: null as any,
             Aggregate: false,
             Virtual: false,
           },
@@ -173,13 +173,13 @@ describe('model generated queries', () => {
             PrimaryKey: true,
             AutoIncrement: true,
             Name: 'Value',
-            Converter: null,
+            Converter: null as any,
             Schema: 'sqlite',
             Unique: false,
             Uuid: true,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null,
+            ForeignKeyDescription: null as any,
             Aggregate: false,
             Virtual: false,
           },
@@ -197,7 +197,7 @@ describe('model generated queries', () => {
 
 
     expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id WHERE ( `$UserMetadata$`.`Key` = ? )');
-    expect(result.bindings[0]).to.eq('user:niceName');
+    expect(result.bindings![0]).to.eq('user:niceName');
   });
 
   it('model join with exists', async () => {
@@ -218,13 +218,13 @@ describe('model generated queries', () => {
             PrimaryKey: true,
             AutoIncrement: true,
             Name: 'Key',
-            Converter: null,
+            Converter: null as any,
             Schema: 'sqlite',
             Unique: false,
             Uuid: true,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null,
+            ForeignKeyDescription: null as any,
             Aggregate: false,
             Virtual: false,
           },
@@ -239,13 +239,13 @@ describe('model generated queries', () => {
             PrimaryKey: true,
             AutoIncrement: true,
             Name: 'Value',
-            Converter: null,
+            Converter: null as any,
             Schema: 'sqlite',
             Unique: false,
             Uuid: true,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null,
+            ForeignKeyDescription: null as any,
             Aggregate: false,
             Virtual: false,
           },
@@ -263,9 +263,9 @@ describe('model generated queries', () => {
     }).toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id WHERE ( `$UserMetadata$`.`Key` = ? ) AND EXISTS ( SELECT * FROM `users_metadata` WHERE `Key` = ? AND `Value` = ? AND user_id = `$users$`.`Id` )');
-    expect(result.bindings[0]).to.eq('user:niceName');
-    expect(result.bindings[1]).to.eq('user:niceName');
-    expect(result.bindings[2]).to.eq('testValue');
+    expect(result.bindings![0]).to.eq('user:niceName');
+    expect(result.bindings![1]).to.eq('user:niceName');
+    expect(result.bindings![2]).to.eq('testValue');
 
   });
 
@@ -285,13 +285,13 @@ describe('model generated queries', () => {
             PrimaryKey: true,
             AutoIncrement: true,
             Name: 'Id',
-            Converter: null,
+            Converter: null as any,
             Schema: 'sqlite',
             Unique: false,
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null,
+            ForeignKeyDescription: null as any,
             Aggregate: false,
             Virtual: false
           },
@@ -306,13 +306,13 @@ describe('model generated queries', () => {
             PrimaryKey: false,
             AutoIncrement: false,
             Name: 'Bar',
-            Converter: null,
+            Converter: null as any,
             Schema: 'sqlite',
             Unique: false,
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null,
+            ForeignKeyDescription: null as any,
             Aggregate: false,
             Virtual: false
           },
@@ -327,13 +327,13 @@ describe('model generated queries', () => {
             PrimaryKey: false,
             AutoIncrement: false,
             Name: 'Far',
-            Converter: null,
+            Converter: null as any,
             Schema: 'sqlite',
             Unique: false,
             Uuid: false,
             Ignore: false,
             IsForeignKey: false,
-            ForeignKeyDescription: null,
+            ForeignKeyDescription: null as any,
             Aggregate: false,
             Virtual: false
           },
@@ -344,7 +344,7 @@ describe('model generated queries', () => {
     const model = new Model2({
       Far: 'hello',
     });
-    model.Bar = null;
+    model.Bar = null as any;
 
     expect(model.insert()).to.be.rejected;
 

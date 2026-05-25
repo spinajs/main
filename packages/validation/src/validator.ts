@@ -143,7 +143,7 @@ export class DataValidator extends AsyncService {
    */
   public tryValidate(schema: object | string, data: object): [boolean, IValidationError[]];
   public tryValidate(schemaOrData: object | string, data?: object): [boolean, IValidationError[] | null] {
-    let schema: ISchemaObject = null;
+    let schema: ISchemaObject | null = null;
 
     if (data === null || data === undefined) {
       schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject;
@@ -170,7 +170,7 @@ export class DataValidator extends AsyncService {
    * Internal method to get the schema being used for validation
    */
   private getValidationSchema(schemaOrData: object | string, data?: object): ISchemaObject | null {
-    let schema: ISchemaObject = null;
+    let schema: ISchemaObject | null = null;
 
     if (data === null || data === undefined) {
       schema = Reflect.getMetadata(SCHEMA_SYMBOL, schemaOrData) as ISchemaObject;
@@ -207,12 +207,12 @@ export class DataValidator extends AsyncService {
    */
   public validate(schema: object | string, data: object): void;
   public validate(schemaOrData: object | string, data?: object): void {
-    const [isValid, errors] = this.tryValidate(schemaOrData, data);
+    const [isValid, errors] = this.tryValidate(schemaOrData, data!);
     if (!isValid) {
       const validatedData = data !== null && data !== undefined ? data : schemaOrData;
       const usedSchema = this.getValidationSchema(schemaOrData, data);
       
-      switch (errors[0].keyword) {
+      switch (errors![0].keyword) {
         case 'invalid_argument':
           throw new InvalidArgument('data is null or undefined');
         case 'empty_schema':

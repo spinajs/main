@@ -14,27 +14,27 @@ import { DateTime } from 'luxon';
 import { RelationModel2 } from './Models/RelationModel2.js';
 
 function sqb() {
-  const connection = db().Connections.get('sqlite');
+  const connection = db()!.Connections.get('sqlite')!;
   return connection.Container.resolve(SelectQueryBuilder, [connection]);
 }
 
 function dqb() {
-  const connection = db().Connections.get('sqlite');
+  const connection = db()!.Connections.get('sqlite')!;
   return connection.Container.resolve(DeleteQueryBuilder, [connection]);
 }
 
 function iqb() {
-  const connection = db().Connections.get('sqlite');
+  const connection = db()!.Connections.get('sqlite')!;
   return connection.Container.resolve(InsertQueryBuilder, [connection]);
 }
 
 function schqb() {
-  const connection = db().Connections.get('sqlite');
+  const connection = db()!.Connections.get('sqlite')!;
   return connection.Container.resolve(SchemaQueryBuilder, [connection]);
 }
 
 function inqb() {
-  const connection = db().Connections.get('sqlite');
+  const connection = db()!.Connections.get('sqlite')!;
   return connection.Container.resolve(IndexQueryBuilder, [connection]);
 }
 
@@ -90,7 +90,7 @@ describe('Query builder generic', () => {
     }).to.throw();
 
     expect(() => {
-      sqb().select('*').from(null).toDB();
+      sqb().select('*').from(null as any).toDB();
     }).to.throw();
   });
  
@@ -245,11 +245,11 @@ describe('Where query builder', () => {
     let result = sqb().select('*').from('users').where('CreatedAt', new Date('2022-07-21T09:35:31.820Z')).toDB();
 
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
-    expect(result.bindings[0]).to.equal('2022-07-21 11:35:31.820');
+    expect(result.bindings![0]).to.equal('2022-07-21 11:35:31.820');
 
     result = sqb().select('*').from('users').where('CreatedAt', DateTime.fromISO('2022-07-21T09:35:31.820Z')).toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
-    expect(result.bindings[0]).to.equal('2022-07-21 11:35:31.820');
+    expect(result.bindings![0]).to.equal('2022-07-21 11:35:31.820');
   });
 
   it('Should resolve datetime in where as object', () => {
@@ -262,7 +262,7 @@ describe('Where query builder', () => {
       .toDB();
 
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
-    expect(result.bindings[0]).to.equal('2022-07-21 11:35:31.820');
+    expect(result.bindings![0]).to.equal('2022-07-21 11:35:31.820');
 
     result = sqb()
       .select('*')
@@ -272,7 +272,7 @@ describe('Where query builder', () => {
       })
       .toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `CreatedAt` = ?');
-    expect(result.bindings[0]).to.equal('2022-07-21 11:35:31.820');
+    expect(result.bindings![0]).to.equal('2022-07-21 11:35:31.820');
   });
 
   it('where with nested expressions', () => {
@@ -385,11 +385,11 @@ describe('Delete query builder', () => {
   it('Should delete with datetime', () => {
     const result = dqb().from('users').database('spine').where('CreatedAt', DateTime.fromISO('2022-07-21T09:35:31.820Z')).toDB();
     expect(result.expression).to.equal('DELETE FROM `spine`.`users` WHERE `CreatedAt` = ?');
-    expect(result.bindings[0]).to.equal('2022-07-21 11:35:31.820');
+    expect(result.bindings![0]).to.equal('2022-07-21 11:35:31.820');
   });
 
   it('Simple truncate', () => {
-    const result = db().Connections.get('sqlite').truncate('users').database('spine').toDB();
+    const result = db()!.Connections.get('sqlite')!.truncate('users').database('spine').toDB();
     expect(result.expression).to.equal('TRUNCATE TABLE `spine`.`users`');
   });
 });
@@ -417,13 +417,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Id',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -438,13 +438,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'relation_id',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -459,13 +459,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'relation2_id',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -487,13 +487,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Id',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -508,13 +508,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'RelationProperty',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -536,13 +536,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Id',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -557,13 +557,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'RelationProperty3',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -585,13 +585,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Id',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -606,13 +606,13 @@ describe('Relations query builder', () => {
               PrimaryKey: false,
               AutoIncrement: false,
               Name: 'owner_id',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -627,13 +627,13 @@ describe('Relations query builder', () => {
               PrimaryKey: false,
               AutoIncrement: false,
               Name: 'target_id',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -655,13 +655,13 @@ describe('Relations query builder', () => {
               PrimaryKey: true,
               AutoIncrement: true,
               Name: 'Id',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -676,13 +676,13 @@ describe('Relations query builder', () => {
               PrimaryKey: false,
               AutoIncrement: false,
               Name: 'Model4Property',
-              Converter: null,
+              Converter: null as any,
               Schema: 'sqlite',
               Unique: false,
               Uuid: false,
               Ignore: false,
               IsForeignKey: false,
-              ForeignKeyDescription: null,
+              ForeignKeyDescription: null as any,
               Aggregate: false,
               Virtual: false,
             },
@@ -701,19 +701,19 @@ describe('Relations query builder', () => {
   it('should query by relation in where', () => {
     const result = RelationModel.where({ Relation: 1 }).toDB() as ICompilerOutput;
     expect(result.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = ?');
-    expect(result.bindings[0]).to.equal(1);
+    expect(result.bindings![0]).to.equal(1);
 
     const result2 = RelationModel.where({ Relation: new RelationModel2({ Id: 2 }) }).toDB() as ICompilerOutput;
     expect(result2.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = ?');
-    expect(result2.bindings[0]).to.equal(2);
+    expect(result2.bindings![0]).to.equal(2);
 
     const result3 = RelationModel.where('Relation', 1).toDB() as ICompilerOutput;
     expect(result3.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = ?');
-    expect(result3.bindings[0]).to.equal(1);
+    expect(result3.bindings![0]).to.equal(1);
 
     const result4 = RelationModel.where('Relation', new RelationModel2({ Id: 2 })).toDB() as ICompilerOutput;
     expect(result4.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = ?');
-    expect(result4.bindings[0]).to.equal(2);
+    expect(result4.bindings![0]).to.equal(2);
   });
 
   it('belongsTo simple', () => {
@@ -1083,16 +1083,16 @@ describe('schema building', () => {
 
     expect(result[0].expression).to.be.eq('CREATE TABLE `users` (`Id` INT NOT NULL AUTO_INCREMENT,`Name` VARCHAR(255) NOT NULL ,PRIMARY KEY (`Id`) )');
     expect(result[1].expression).to.be.eq('CREATE TABLE `users__history` LIKE `users`');
-    expect(result[2].expression.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` CHANGE COLUMN Id Id INT NOT NULL , DROP PRIMARY KEY;`);
-    expect(result[3].expression.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__`);
-    expect(result[4].expression.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD PRIMARY KEY (Id, __revision__)`);
-    expect(result[5].expression.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__history__insert_trigger BEFORE INSERT ON \`users__history\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); SET NEW.__revision__ = rev + 1; END;`);
-    expect(result[6].expression.replace(r, ' ')).to.be.eq('DROP TRIGGER IF EXISTS users__insert_trigger');
-    expect(result[7].expression.replace(r, ' ')).to.be.eq('DROP TRIGGER IF EXISTS users__update_trigger');
-    expect(result[8].expression.replace(r, ' ')).to.be.eq('DROP TRIGGER IF EXISTS users__delete_trigger');
-    expect(result[9].expression.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__insert_trigger AFTER INSERT ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'insert', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
-    expect(result[10].expression.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__update_trigger AFTER UPDATE ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'update', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
-    expect(result[11].expression.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__delete_trigger BEFORE DELETE ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'delete', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
+    expect(result[2].expression!.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` CHANGE COLUMN Id Id INT NOT NULL , DROP PRIMARY KEY;`);
+    expect(result[3].expression!.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER __revision__, ADD __end__ DATETIME AFTER __start__`);
+    expect(result[4].expression!.replace(r, ' ')).to.be.eq(`ALTER TABLE \`users__history\` ADD PRIMARY KEY (Id, __revision__)`);
+    expect(result[5].expression!.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__history__insert_trigger BEFORE INSERT ON \`users__history\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); SET NEW.__revision__ = rev + 1; END;`);
+    expect(result[6].expression!.replace(r, ' ')).to.be.eq('DROP TRIGGER IF EXISTS users__insert_trigger');
+    expect(result[7].expression!.replace(r, ' ')).to.be.eq('DROP TRIGGER IF EXISTS users__update_trigger');
+    expect(result[8].expression!.replace(r, ' ')).to.be.eq('DROP TRIGGER IF EXISTS users__delete_trigger');
+    expect(result[9].expression!.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__insert_trigger AFTER INSERT ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'insert', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
+    expect(result[10].expression!.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__update_trigger AFTER UPDATE ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'update', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
+    expect(result[11].expression!.replace(r, ' ')).to.be.eq(`DELIMITER $$ CREATE TRIGGER users__delete_trigger BEFORE DELETE ON \`users\` FOR EACH ROW BEGIN DECLARE rev INT; SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM \`users__history\` WHERE Id = NEW.Id); UPDATE \`users__history\` SET __end__ = NOW() WHERE Id = NEW.Id AND __revision__ = rev; INSERT INTO \`users__history\` SELECT 'delete', 0, NOW(), NULL, d.* FROM \`users\` AS d WHERE d.Id = NEW.Id; END;`);
   });
 
   it('should drop table', () => {
@@ -1307,7 +1307,7 @@ describe('schema building', () => {
     expect(result.length).to.eq(2);
     expect(result[0].expression).to.equal('CREATE TABLE `cloneTest` LIKE `test`');
     expect(result[1].expression).to.equal('INSERT INTO `cloneTest` SELECT * FROM `test` WHERE `id` > ?');
-    expect(result[1].bindings[0]).to.equal(10);
+    expect(result[1].bindings![0]).to.equal(10);
   });
 
   it('Should drop column', () => {

@@ -129,7 +129,7 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
       return '1970-01-01 00:00:00';
     }
 
-    let dt: DateTime = null;
+    let dt: DateTime | null = null;
     if (typeof value === 'string') {
       dt = DateTime.fromISO(value);
     } else {

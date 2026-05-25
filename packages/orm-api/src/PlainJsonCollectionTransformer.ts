@@ -12,7 +12,7 @@ export class PlainJsonCollectionTransformer extends CollectionApiTransformer {
         if (Array.isArray(data)) {
             return {
                 Collection: data.map(x => x.toJSON()),
-                Count: options.totalCount,
+                Count: options!.totalCount,
             }
         }
 

@@ -47,7 +47,7 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
       USING (SELECT * FROM ${table} WHERE ${this._builder.getColumn().map((c) => {
         return `${c} = ?`;
       })}) as source
-      ON (target.${descriptor.PrimaryKey} = source.${descriptor.PrimaryKey})
+      ON (target.${descriptor!.PrimaryKey} = source.${descriptor!.PrimaryKey})
       WHEN MATCHED
         THEN UPDATE
             SET ${columns}
@@ -81,7 +81,7 @@ export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
     const dResult = super.upsort();
 
     return {
-      bindings: dResult.bindings.concat(iBindings),
+      bindings: dResult.bindings!.concat(iBindings),
       expression: dResult.expression + iExpression + '; SELECT SCOPE_IDENTITY() as ID;',
     };
   }
@@ -124,9 +124,9 @@ export class MsSqlLimitCompiler extends SqlLimitQueryCompiler {
     const bindings = [];
     let stmt = '';
 
-    if (limits.limit > 0) {
+    if ((limits.limit ?? 0) > 0) {
       stmt += ` OFFSET ? ROWS`;
-      bindings.push(Math.max(limits.offset, 0));
+      bindings.push(Math.max(limits.offset ?? 0, 0));
       stmt += ` FETCH NEXT ? ROWS ONLY`;
       bindings.push(limits.limit);
     }
@@ -212,7 +212,7 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
     const _where = this.where(this._builder);
     const _expression = _from + (_where.expression ? ` WHERE ${_where.expression}` : '');
 
-    _bindings.push(..._where.bindings);
+    _bindings.push(...(_where.bindings ?? []));
 
     return {
       bindings: _bindings,
@@ -224,7 +224,7 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
     const lBuilder = this._builder;
     const limits = lBuilder.getLimits();
 
-    return `DELETE ${limits.limit > 0 ? `TOP ${limits.limit} ` : ''}FROM ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
+    return `DELETE ${(limits.limit ?? 0) > 0 ? `TOP ${limits.limit} ` : ''}FROM ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
   }
 }
 
