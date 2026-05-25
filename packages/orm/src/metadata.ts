@@ -117,7 +117,11 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
             userMeta.Value = value;
             this.Owner.attach(userMeta);
           } else {
-            found.forEach((x) => (x.Value = value));
+            found.forEach((x) => {
+              if (x.Value === value) return;
+              x.Value = value;
+              x.IsDirty = true;
+            });
           }
         }
         return true;
