@@ -103,6 +103,11 @@ export class StandardModelToSqlConverter extends ModelToSqlConverter {
       if (val.Type === RelationType.One) {
         if ((model as any)[val.Name].Value) {
           (obj as any)[val.ForeignKey] = (model as any)[val.Name].Value.PrimaryKeyValue;
+        } else if ((model as any)[val.ForeignKey] != null) {
+          // Fallback: when the BelongsTo SingleRelation has no Value (e.g. relation wasn't
+          // attached after populate), fall back to the raw FK column hydrated from the row.
+          // Without this, InsertOrUpdate emits the FK as an empty binding and orphans the row.
+          (obj as any)[val.ForeignKey] = (model as any)[val.ForeignKey];
         }
       }
 
