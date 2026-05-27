@@ -924,10 +924,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           relQuery = rel.TargetModel.query();
           relQuery.where(Lazy.oF(function () {
             const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : false);
+            const desc = (self._model as any).getModelDescriptor();
             if (!sourceAlias) {
-              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+              sourcePKey = `\`${desc.TableName}\`.\`${desc.PrimaryKey}\``;
             } else {
-              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+              sourcePKey = `\`${sourceAlias}\`.\`${desc.PrimaryKey}\``;
             }
             // relQuery is guaranteed assigned above before this lazy callback executes
             relQuery!.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
@@ -944,10 +945,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           relQuery = (rel.JunctionModel as IModelStatic).query();
           relQuery.where(Lazy.oF(function () {
             const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : false);
+            const desc = (self._model as any).getModelDescriptor();
             if (!sourceAlias) {
-              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+              sourcePKey = `\`${desc.TableName}\`.\`${desc.PrimaryKey}\``;
             } else {
-              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+              sourcePKey = `\`${sourceAlias}\`.\`${desc.PrimaryKey}\``;
             }
 
             // relQuery is guaranteed assigned above before this lazy callback executes
@@ -998,10 +1000,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           relQuery = rel.TargetModel.query();
           relQuery.where(Lazy.oF(function () {
             const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
+            const desc = (self._model as any).getModelDescriptor();
             if (sourceAlias === undefined) {
-              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+              sourcePKey = `\`${desc.TableName}\`.\`${desc.PrimaryKey}\``;
             } else {
-              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+              sourcePKey = `\`${sourceAlias}\`.\`${desc.PrimaryKey}\``;
             }
             // relQuery is guaranteed assigned above before this lazy callback executes
             relQuery!.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
@@ -1019,10 +1022,11 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           relQuery.where(Lazy.oF(function () {
 
             const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
+            const desc = (self._model as any).getModelDescriptor();
             if (sourceAlias === undefined) {
-              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+              sourcePKey = `\`${desc.TableName}\`.\`${desc.PrimaryKey}\``;
             } else {
-              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+              sourcePKey = `\`${sourceAlias}\`.\`${desc.PrimaryKey}\``;
             }
             // relQuery is guaranteed assigned above before this lazy callback executes
             relQuery!.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
