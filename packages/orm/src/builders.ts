@@ -5,7 +5,7 @@ import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, IModelDescriptor } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
@@ -902,11 +902,15 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     let relQuery: ISelectQueryBuilder | undefined;
     let sourcePKey = '';
     const self = this;
+    let tableName = '';
+    let tDesc: IModelDescriptor | undefined;
+
     if (typeof query === 'string') {
       const rel = (this._model as any).getRelationDescriptor(query) as IRelationDescriptor;
       if (!rel) {
         throw new OrmException(`relation ${query} not found in model ${this.constructor.name}`);
       }
+
 
       switch (rel.Type) {
         case RelationType.One:
@@ -921,14 +925,14 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           break;
         case RelationType.Many:
 
-          relQuery = rel.TargetModel.query();
+          tableName = rel.TargetModel.getModelDescriptor().TableName;
+          tDesc = (self._model as IModelStatic).getModelDescriptor();
+
+          // set alias to avoid conflicts in case of multiple relations to same model and to make sure that relation query is correct even if source query has alias
+          relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
           relQuery.where(Lazy.oF(function () {
-            const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : false);
-            if (!sourceAlias) {
-              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            } else {
-              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            }
+            const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : tDesc!.TableName);
+            sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             // relQuery is guaranteed assigned above before this lazy callback executes
             relQuery!.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
@@ -942,13 +946,14 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           break;
         case RelationType.ManyToMany:
           relQuery = (rel.JunctionModel as IModelStatic).query();
+
+          tableName = rel.TargetModel.getModelDescriptor().TableName;
+          tDesc = (self._model as IModelStatic).getModelDescriptor();
+
+          relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
           relQuery.where(Lazy.oF(function () {
-            const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : false);
-            if (!sourceAlias) {
-              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            } else {
-              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            }
+            const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : tDesc!.TableName);
+            sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
 
             // relQuery is guaranteed assigned above before this lazy callback executes
             relQuery!.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
@@ -976,6 +981,9 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     let relQuery: ISelectQueryBuilder | undefined;
     let sourcePKey = '';
     const self = this;
+    let tableName = '';
+    let tDesc: IModelDescriptor | undefined;
+
     if (typeof query === 'string') {
       const rel = (this._model as any).getRelationDescriptor(query) as IRelationDescriptor;
       if (!rel) {
@@ -994,15 +1002,14 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
           break;
         case RelationType.Many:
+          tableName = rel.TargetModel.getModelDescriptor().TableName;
+          tDesc = (self._model as IModelStatic).getModelDescriptor();
 
-          relQuery = rel.TargetModel.query();
+          // set alias to avoid conflicts in case of multiple relations to same model and to make sure that relation query is correct even if source query has alias
+          relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
           relQuery.where(Lazy.oF(function () {
-            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
-            if (sourceAlias === undefined) {
-              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            } else {
-              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            }
+            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : tDesc!.TableName);
+            sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
             // relQuery is guaranteed assigned above before this lazy callback executes
             relQuery!.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
           }));
@@ -1016,14 +1023,16 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
           break;
         case RelationType.ManyToMany:
           relQuery = (rel.JunctionModel as IModelStatic).query();
+          tableName = rel.TargetModel.getModelDescriptor().TableName;
+          tDesc = (self._model as IModelStatic).getModelDescriptor();
+
+          relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
+
           relQuery.where(Lazy.oF(function () {
 
-            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : "__exists__");
-            if (sourceAlias === undefined) {
-              sourcePKey = `\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            } else {
-              sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            }
+            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : tDesc!.TableName);
+            sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
+
             // relQuery is guaranteed assigned above before this lazy callback executes
             relQuery!.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
           }));
@@ -2447,7 +2456,7 @@ export class SchemaQueryBuilder {
     return new DropTableQueryBuilder(this.container, this.driver, name, schema);
   }
 
-  public dropView(name : string, schema? : string) { 
+  public dropView(name: string, schema?: string) {
     return new DropViewQueryBuilder(this.container, this.driver, name, schema);
   }
 

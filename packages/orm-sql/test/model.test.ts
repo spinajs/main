@@ -269,6 +269,58 @@ describe('model generated queries', () => {
 
   });
 
+  it('Should whereExists use table name as alias', async () => { 
+
+    const q = User.select().whereExist("Metadata", function () {
+      this.where('Key', "user:niceName");
+      this.where('Value', 'testValue');
+    }).toDB() as ICompilerOutput;
+
+    expect(q.expression).to.equal('SELECT * FROM `users` WHERE EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `users`.`Id` )');
+    expect(q.bindings![0]).to.eq('user:niceName');
+    expect(q.bindings![1]).to.eq('testValue');
+
+  });
+
+  
+  it('Should whereNotExists use table name as alias', async () => { 
+
+    const q = User.select().whereNotExists("Metadata", function () {
+      this.where('Key', "user:niceName");
+      this.where('Value', 'testValue');
+    }).toDB() as ICompilerOutput;
+
+    expect(q.expression).to.equal('SELECT * FROM `users` WHERE NOT EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND `users_metadata_exists`.user_id = `users`.`Id` )');
+    expect(q.bindings![0]).to.eq('user:niceName');
+    expect(q.bindings![1]).to.eq('testValue');
+
+  });
+
+  it('should whereExists use table alias if exists', async () => {
+
+    const q = User.select().setAlias('u').whereExist("Metadata", function () {
+      this.where('Key', "user:niceName");
+      this.where('Value', 'testValue');
+    }).toDB() as ICompilerOutput;
+
+    expect(q.expression).to.equal('SELECT `u`.* FROM `users` as `u` WHERE EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `u`.`Id` )');
+    expect(q.bindings![0]).to.eq('user:niceName');
+    expect(q.bindings![1]).to.eq('testValue');
+  });
+
+  it('should whereNotExists use table alias if exists', async () => {
+
+    const q = User.select().setAlias('u').whereNotExists("Metadata", function () {
+      this.where('Key', "user:niceName");
+      this.where('Value', 'testValue');
+    }).toDB() as ICompilerOutput;
+
+    expect(q.expression).to.equal('SELECT `u`.* FROM `users` as `u` WHERE NOT EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `u`.`Id` )');
+    expect(q.bindings![0]).to.eq('user:niceName');
+    expect(q.bindings![1]).to.eq('testValue');
+  });
+  
+
   it('insert should throw when fields are null', async () => {
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
     tableInfoStub.withArgs('TestTable2', undefined).returns(
