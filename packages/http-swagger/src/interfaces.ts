@@ -183,6 +183,7 @@ export interface IOpenApiParameter {
   description?: string;
   required?: boolean;
   schema?: IOpenApiSchema;
+  content?: Record<string, IOpenApiMediaType>;
   style?: string;
   explode?: boolean;
 }
