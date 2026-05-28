@@ -5,7 +5,7 @@ import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IModelStatic, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, IModelDescriptor } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
@@ -15,6 +15,7 @@ import { DateTime } from 'luxon';
 import { Lazy } from '@spinajs/util';
 import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
 import { extractModelDescriptor } from './descriptor.js';
+import { ExistsRelationHandler } from './existsRelationHandlers.js';
 
 /**
  *  Trick typescript by using the inbuilt interface inheritance and declaration merging
@@ -895,160 +896,45 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
-
-    // TODO: refactor and remove code duplication with whereNotExists
-    // TODO: move relation handling to separate DI service for every exists relation type
-
-    let relQuery: ISelectQueryBuilder | undefined;
-    let sourcePKey = '';
-    const self = this;
-    let tableName = '';
-    let tDesc: IModelDescriptor | undefined;
-
-    if (typeof query === 'string') {
-      const rel = (this._model as any).getRelationDescriptor(query) as IRelationDescriptor;
-      if (!rel) {
-        throw new OrmException(`relation ${query} not found in model ${this.constructor.name}`);
-      }
-
-
-      switch (rel.Type) {
-        case RelationType.One:
-          this.whereNotNull(rel.ForeignKey);
-
-          // simply use right join for condition check
-          if (callback) {
-            // TODO: cast fix
-            (this as any).rightJoin(rel.TargetModel, callback.bind(query));
-          }
-
-          break;
-        case RelationType.Many:
-
-          tableName = rel.TargetModel.getModelDescriptor().TableName;
-          tDesc = (self._model as IModelStatic).getModelDescriptor();
-
-          // set alias to avoid conflicts in case of multiple relations to same model and to make sure that relation query is correct even if source query has alias
-          relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
-          relQuery.where(Lazy.oF(function () {
-            const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : tDesc!.TableName);
-            sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            // relQuery is guaranteed assigned above before this lazy callback executes
-            relQuery!.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
-          }));
-
-          if (callback) {
-            callback.apply(relQuery);
-          }
-
-          this.whereExist(relQuery);
-
-          break;
-        case RelationType.ManyToMany:
-          relQuery = (rel.JunctionModel as IModelStatic).query();
-
-          tableName = rel.TargetModel.getModelDescriptor().TableName;
-          tDesc = (self._model as IModelStatic).getModelDescriptor();
-
-          relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
-          relQuery.where(Lazy.oF(function () {
-            const sourceAlias = self._tableAlias ?? (self._parent ? self._parent.TableAlias : tDesc!.TableName);
-            sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-
-            // relQuery is guaranteed assigned above before this lazy callback executes
-            relQuery!.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
-          }));
-
-          (this as unknown as SelectQueryBuilder).setAlias();
-          relQuery.rightJoin({
-            joinModel: rel.TargetModel,
-            joinTableForeignKey: rel.ForeignKey,
-            sourceTablePrimaryKey: rel.JunctionModelTargetModelFKey_Name,
-            callback: callback,
-          });
-
-          this.whereExist(relQuery);
-          break;
-      }
-    } else {
-      this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, false]));
-    }
-
-    return this;
+    return this.buildExistsClause(query, false, callback);
   }
 
   public whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this {
-    let relQuery: ISelectQueryBuilder | undefined;
-    let sourcePKey = '';
-    const self = this;
-    let tableName = '';
-    let tDesc: IModelDescriptor | undefined;
+    return this.buildExistsClause(query, true, callback);
+  }
 
-    if (typeof query === 'string') {
-      const rel = (this._model as any).getRelationDescriptor(query) as IRelationDescriptor;
-      if (!rel) {
-        throw new OrmException(`relation ${query} not found in model ${this.constructor.name}`);
-      }
+  /**
+   * Shared implementation for {@link whereExist} / {@link whereNotExists}.
+   *
+   * For a ready sub-query it pushes an {@link ExistsQueryStatement} directly. For a relation
+   * name it resolves the matching {@link ExistsRelationHandler} from the container (one per
+   * {@link RelationType}) and lets it either mutate this builder or return a correlated
+   * sub-query that we then wrap in EXISTS / NOT EXISTS.
+   *
+   * @param query relation name or a ready sub-query
+   * @param negated `true` for NOT EXISTS, `false` for EXISTS
+   * @param callback optional where-callback applied to the relation sub-query
+   */
+  protected buildExistsClause<R>(query: ISelectQueryBuilder | string, negated: boolean, callback?: WhereFunction<R>): this {
+    if (typeof query !== 'string') {
+      this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, negated]));
+      return this;
+    }
 
-      switch (rel.Type) {
-        case RelationType.One:
-          this.whereNotNull(rel.ForeignKey);
+    const rel = (this._model as any).getRelationDescriptor(query) as IRelationDescriptor;
+    if (!rel) {
+      throw new OrmException(`relation ${query} not found in model ${this.constructor.name}`);
+    }
 
-          // simply use right join for condition check
-          if (callback) {
-            // TODO: cast fix
-            (this as any).rightJoin(rel.TargetModel, callback.bind(query));
-          }
+    const handlers = this._container.resolve(Array.ofType(ExistsRelationHandler)) as ExistsRelationHandler[];
+    const handler = handlers.find((h) => h.Type === rel.Type);
+    if (!handler) {
+      throw new OrmException(`no ExistsRelationHandler registered for relation type ${rel.Type} (relation ${query} on ${this.constructor.name})`);
+    }
 
-          break;
-        case RelationType.Many:
-          tableName = rel.TargetModel.getModelDescriptor().TableName;
-          tDesc = (self._model as IModelStatic).getModelDescriptor();
-
-          // set alias to avoid conflicts in case of multiple relations to same model and to make sure that relation query is correct even if source query has alias
-          relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
-          relQuery.where(Lazy.oF(function () {
-            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : tDesc!.TableName);
-            sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-            // relQuery is guaranteed assigned above before this lazy callback executes
-            relQuery!.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKey}`));
-          }));
-
-          if (callback) {
-            callback.apply(relQuery);
-          }
-
-          this.whereNotExists(relQuery);
-
-          break;
-        case RelationType.ManyToMany:
-          relQuery = (rel.JunctionModel as IModelStatic).query();
-          tableName = rel.TargetModel.getModelDescriptor().TableName;
-          tDesc = (self._model as IModelStatic).getModelDescriptor();
-
-          relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
-
-          relQuery.where(Lazy.oF(function () {
-
-            const sourceAlias = self._tableAlias || (self._parent ? self._parent.TableAlias : tDesc!.TableName);
-            sourcePKey = `\`${sourceAlias}\`.\`${(self._model as any).getModelDescriptor().PrimaryKey}\``;
-
-            // relQuery is guaranteed assigned above before this lazy callback executes
-            relQuery!.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKey}`));
-          }));
-
-          relQuery.rightJoin({
-            joinModel: rel.TargetModel,
-            joinTableForeignKey: rel.PrimaryKey,
-            sourceTablePrimaryKey: rel.ForeignKey,
-            callback: callback,
-          });
-
-          this.whereNotExists(relQuery);
-          break;
-      }
-    } else {
-      this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, true]));
+    const subquery = handler.apply(this, rel, query, callback);
+    if (subquery) {
+      this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [subquery, negated]));
     }
 
     return this;

@@ -269,7 +269,8 @@ describe('model generated queries', () => {
 
   });
 
-  it('Should whereExists use table name as alias', async () => { 
+  it('Should whereExists use table name as alias', async () => {
+    await DI.resolve(Orm);
 
     const q = User.select().whereExist("Metadata", function () {
       this.where('Key', "user:niceName");
@@ -283,20 +284,22 @@ describe('model generated queries', () => {
   });
 
   
-  it('Should whereNotExists use table name as alias', async () => { 
+  it('Should whereNotExists use table name as alias', async () => {
+    await DI.resolve(Orm);
 
     const q = User.select().whereNotExists("Metadata", function () {
       this.where('Key', "user:niceName");
       this.where('Value', 'testValue');
     }).toDB() as ICompilerOutput;
 
-    expect(q.expression).to.equal('SELECT * FROM `users` WHERE NOT EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND `users_metadata_exists`.user_id = `users`.`Id` )');
+    expect(q.expression).to.equal('SELECT * FROM `users` WHERE NOT EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `users`.`Id` )');
     expect(q.bindings![0]).to.eq('user:niceName');
     expect(q.bindings![1]).to.eq('testValue');
 
   });
 
   it('should whereExists use table alias if exists', async () => {
+    await DI.resolve(Orm);
 
     const q = User.select().setAlias('u').whereExist("Metadata", function () {
       this.where('Key', "user:niceName");
@@ -309,6 +312,7 @@ describe('model generated queries', () => {
   });
 
   it('should whereNotExists use table alias if exists', async () => {
+    await DI.resolve(Orm);
 
     const q = User.select().setAlias('u').whereNotExists("Metadata", function () {
       this.where('Key', "user:niceName");
