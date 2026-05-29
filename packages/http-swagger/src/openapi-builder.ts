@@ -630,12 +630,21 @@ export class OpenApiBuilder {
   ): IOpenApiParameter {
     const schema = this.schemaFromParam(param, doc?.type);
     const isArray = schema?.type === 'array';
+    const isObject = schema?.type === 'object';
 
-    return {
+    const base = {
       name: resolvedName || param.Name || `param_${param.Index}`,
       in: location,
       description: doc?.description,
       required: location === 'path',
+    };
+
+    if (isObject && location === 'query') {
+      return { ...base, content: { 'application/json': { schema } } };
+    }
+
+    return {
+      ...base,
       schema,
       ...(isArray && location === 'query' ? { style: 'form', explode: true } : {}),
     };
