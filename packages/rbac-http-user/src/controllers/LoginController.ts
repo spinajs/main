@@ -1,13 +1,13 @@
 import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, Unauthorized, Policy } from '@spinajs/http';
-import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants, UserImpersonationEnded } from '@spinajs/rbac';
-import { _ev } from '@spinajs/queue';
-import { Autoinject } from '@spinajs/di';
+import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants } from '@spinajs/rbac';
+import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
 import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, ILoginResponse, IUserWithGrants } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
+import { LogoutHandler, ILogoutContext } from '../logout.js';
 
 
 /**
@@ -187,44 +187,28 @@ export class LoginController extends BaseController {
       return new Ok();
     }
 
-    // If impersonation is active, end it and keep the original user's session
-    // alive — logout's "destroy" semantics target the original user, who is
-    // still logged in.
-    const impersonatorUuid = session?.Data.get('Impersonator') as string | undefined;
-    if (impersonatorUuid) {
-      const original = await User.getByUuid(impersonatorUuid);
-      session.Data.set('User', original.Uuid);
-      session.Data.delete('Impersonator');
-      session.Data.delete('ImpersonationStartedAt');
-      const restoredActiveRole = (session.Data.get('OriginalActiveRole') as string | undefined) ?? original.Role?.[0];
-      if (restoredActiveRole) {
-        session.Data.set('ActiveRole', restoredActiveRole);
+    // Delegate to the registered LogoutHandler chain. Each handler decides
+    // whether to take ownership of the response (returns non-null) or defer
+    // to the next handler. Built-ins:
+    //  - ImpersonationLogoutHandler (priority 10): reverts an active
+    //    impersonation and keeps the session alive.
+    //  - DefaultLogoutHandler (priority 999): destroys the session and clears
+    //    the ssid cookie.
+    // Apps can register additional handlers via @Injectable(LogoutHandler).
+    const handlers = await DI.resolve(Array.ofType(LogoutHandler));
+    const sorted = [...handlers].sort((a, b) => a.Priority - b.Priority);
+
+    const ctx: ILogoutContext = { Ssid: ssid, Session: session, User: user };
+    for (const handler of sorted) {
+      const result = await handler.handle(ctx);
+      if (result) {
+        return new Ok(result.Body ?? null, { Coockies: result.Cookies ?? [] });
       }
-      session.Data.delete('OriginalActiveRole');
-      await this.SessionProvider.save(session);
-      await _ev(new UserImpersonationEnded(original, user))();
-      return new Ok({ ImpersonationEnded: true });
     }
 
-    await this.SessionProvider.delete(ssid);
-
-    // send empty cookie to confirm session deletion
-    return new Ok(null, {
-      Coockies: [
-        {
-          Name: 'ssid',
-          Value: '',
-          Options: {
-            httpOnly: true,
-            maxAge: 0,
-
-            // any optopnal cookie options
-            // or override default ones
-            ...this.SessionCookieConfig
-          },
-        },
-      ],
-    });
+    // No handler claimed the request — should not happen as long as the
+    // default handler is registered, but return a clean response anyway.
+    return new Ok();
   }
 
   /**

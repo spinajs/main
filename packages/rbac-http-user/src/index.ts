@@ -6,6 +6,10 @@ export * from './controllers/LoginController.js';
 export * from './controllers/ActiveRoleController.js';
 export * from './controllers/ImpersonationController.js';
 export * from './controllers/UserController.js';
+
+export * from './logout.js';
+export * from './handlers/ImpersonationLogoutHandler.js';
+export * from './handlers/DefaultLogoutHandler.js';
 export * from './controllers/UserMetadataController.js';
 export * from "./controllers/TwoFactorAuthController.js";
 
