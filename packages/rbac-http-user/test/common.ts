@@ -62,7 +62,7 @@ export class TestConfiguration extends FrameworkConfiguration {
       http: {
         port: 8888,
         middlewares: [
-          helmet(),
+          (helmet as any)(),
           express.json({
             limit: '5mb',
           }),
