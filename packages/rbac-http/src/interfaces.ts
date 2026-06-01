@@ -54,6 +54,30 @@ export interface IActiveRoleResponse {
   Grants: IGrantsMap;
 }
 
+/** Response for /auth/impersonate when an impersonation has just been started or queried */
+export interface IImpersonationResponse {
+  /** Target user (whose identity is now in effect) */
+  User: IUserProfile;
+  /** Original user who initiated the impersonation */
+  Impersonator: IUserProfile;
+  /** ActiveRole now in effect — defaults to target.Role[0] when impersonation starts */
+  ActiveRole: string;
+  /** Roles the target may switch to via /auth/active-role */
+  AvailableRoles: string[];
+  /** RBAC grants resolved for ActiveRole */
+  Grants: IGrantsMap;
+  /** ISO timestamp when impersonation was started */
+  StartedAt: string;
+}
+
+/** Lightweight status reply for GET /auth/impersonate */
+export interface IImpersonationState {
+  Active: boolean;
+  ImpersonatorUuid?: string;
+  TargetUuid?: string;
+  StartedAt?: string;
+}
+
 /** Login response when TOTP verification step is still pending */
 export interface ITwoFactorAuthRequired {
   TwoFactorAuthRequired: true;
@@ -92,6 +116,13 @@ declare module '@spinajs/http' {
      * first role in User.Role at login; can be changed via /auth/active-role.
      */
     ActiveRole?: string;
+
+    /**
+     * Original logged-in user when an impersonation is active. `User` then
+     * holds the target user; `Impersonator` holds whoever initiated it.
+     * Null/undefined on regular requests.
+     */
+    Impersonator?: User | null;
   }
 }
 

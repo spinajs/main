@@ -1,10 +1,11 @@
 import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, Unauthorized, Policy } from '@spinajs/http';
-import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants } from '@spinajs/rbac';
+import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants, UserImpersonationEnded } from '@spinajs/rbac';
+import { _ev } from '@spinajs/queue';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, ILoginResponse, IUserWithGrants } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, ILoginResponse, IUserWithGrants } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 
@@ -173,15 +174,36 @@ export class LoginController extends BaseController {
   /**
    * Logout
    * Destroys the current session identified by the `ssid` cookie and clears the cookie on the client.
+   * If an impersonation is active, the session is NOT destroyed — instead the
+   * impersonation is ended and the original user resumes their session.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
    * @security cookieAuth
    * @response 401 No active session
    */
   @Get()
   @Policy(LoggedPolicy)
-  public async logout(@Cookie(true) ssid: string) {
+  public async logout(@Cookie(true) ssid: string, @SessionRouteArg() session: ISession, @UserRouteArg() user: User) {
     if (!ssid) {
       return new Ok();
+    }
+
+    // If impersonation is active, end it and keep the original user's session
+    // alive — logout's "destroy" semantics target the original user, who is
+    // still logged in.
+    const impersonatorUuid = session?.Data.get('Impersonator') as string | undefined;
+    if (impersonatorUuid) {
+      const original = await User.getByUuid(impersonatorUuid);
+      session.Data.set('User', original.Uuid);
+      session.Data.delete('Impersonator');
+      session.Data.delete('ImpersonationStartedAt');
+      const restoredActiveRole = (session.Data.get('OriginalActiveRole') as string | undefined) ?? original.Role?.[0];
+      if (restoredActiveRole) {
+        session.Data.set('ActiveRole', restoredActiveRole);
+      }
+      session.Data.delete('OriginalActiveRole');
+      await this.SessionProvider.save(session);
+      await _ev(new UserImpersonationEnded(original, user))();
+      return new Ok({ ImpersonationEnded: true });
     }
 
     await this.SessionProvider.delete(ssid);
@@ -216,13 +238,11 @@ export class LoginController extends BaseController {
    */
   @Get()
   @Policy(LoggedPolicy)
-  public async whoami(@UserRouteArg() User: User, @SessionRouteArg() session: ISession) {
-
-    const activeRole = (session?.Data.get('ActiveRole') as string | undefined) ?? User.Role?.[0];
+  public async whoami(@UserRouteArg() User: User, @FromSession() ActiveRole: string) {
 
     return new Ok({
       ...User.dehydrateWithRelations({ dateTimeFormat: 'iso' }),
-      ActiveRole: activeRole,
+      ActiveRole: ActiveRole ?? User.Role?.[0],
       AvailableRoles: User.Role ?? [],
     });
   }

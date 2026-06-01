@@ -39,6 +39,14 @@ export class RbacMiddleware extends ServerMiddleware {
           req.storage.User = await DI.resolve<User>('RbacUserFactory', [session.Data.get('User')]);
           req.storage.Session = session;
 
+          // When impersonation is active, session.Data.User is the *target*
+          // user. Resolve the original (Impersonator) alongside so downstream
+          // code can render banners, audit actions, and end the impersonation.
+          const impersonatorUuid = session.Data.get('Impersonator') as string | undefined;
+          if (impersonatorUuid) {
+            req.storage.Impersonator = await DI.resolve<User>('RbacUserFactory', [impersonatorUuid]);
+          }
+
           const sessionActiveRole = session.Data.get('ActiveRole') as string | undefined;
           req.storage.ActiveRole = sessionActiveRole && req.storage.User.Role.includes(sessionActiveRole)
             ? sessionActiveRole

@@ -32,6 +32,8 @@ const rbac = {
       UserPasswordChangeRequest: { connection: 'rbac-user-empty-queue' },
       UserRoleGranted: { connection: 'rbac-user-empty-queue' },
       UserRoleRevoked: { connection: 'rbac-user-empty-queue' },
+      UserImpersonationStarted: { connection: 'rbac-user-empty-queue' },
+      UserImpersonationEnded: { connection: 'rbac-user-empty-queue' },
     },
 
     // by default all events from rbac module are routed to rbac-user-empty-queue
@@ -252,6 +254,26 @@ const rbac = {
        * Use to gate privileged role switches (e.g. 'admin', 'system').
        */
       requirePassword: [] as string[],
+    },
+
+    /**
+     * Impersonation lets a privileged user (createAny on virtual resource
+     * 'user:impersonate') act as another user for the rest of the session.
+     * Example admin grant:
+     *   admin: { 'user:impersonate': { 'create:any': ['*'] } }
+     */
+    impersonation: {
+      /**
+       * When true, starting impersonation requires the impersonator to
+       * re-enter their password as a confirmation step.
+       */
+      requirePassword: true,
+
+      /**
+       * Targets whose role list intersects this set cannot be impersonated.
+       * 'system' is reserved for internal automation and is blocked by default.
+       */
+      protectedRoles: ['system'] as string[],
     },
   },
 };

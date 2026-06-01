@@ -327,4 +327,11 @@ export interface IRbacAsyncStorage<U = User> {
    * instead of the full role array. The user may switch via /auth/active-role.
    */
   ActiveRole?: string;
+
+  /**
+   * Original user when an impersonation is active. `User` then holds the
+   * target user; `Impersonator` holds whoever initiated impersonation.
+   * Unset on regular (non-impersonated) requests.
+   */
+  Impersonator?: U;
 }
