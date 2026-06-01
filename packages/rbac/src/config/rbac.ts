@@ -241,6 +241,18 @@ const rbac = {
      * Column name in database where role is stored, by default is "Role", but if your user table has different column name, you can change it here
      */
     roleColumn: 'Role',
+
+    /**
+     * Role switching behavior. Users with multiple roles can switch the
+     * currently active role via /auth/active-role.
+     */
+    roleSwitch: {
+      /**
+       * Roles whose activation requires the user to re-enter their password.
+       * Use to gate privileged role switches (e.g. 'admin', 'system').
+       */
+      requirePassword: [] as string[],
+    },
   },
 };
 

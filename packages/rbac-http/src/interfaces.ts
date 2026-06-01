@@ -38,6 +38,19 @@ export type IGrantsMap = Record<string, Record<string, { attributes: string[] }>
 
 /** Successful authentication response — user profile merged with RBAC grants */
 export interface IUserWithGrants extends IUserProfile {
+  /**
+   * Currently active role used for request-bound permission checks.
+   * Picked from User.Role; defaults to User.Role[0] at login.
+   */
+  ActiveRole: string;
+
+  Grants: IGrantsMap;
+}
+
+/** Response for /auth/active-role endpoints */
+export interface IActiveRoleResponse {
+  ActiveRole: string;
+  AvailableRoles: string[];
   Grants: IGrantsMap;
 }
 
@@ -65,14 +78,20 @@ declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
     User: User | null;
     Session: ISession;
-    
+
     /**
-     * Controller route permission context 
+     * Controller route permission context
      * To check if we run from (read|update|insert|delete)Own or (read|update|insert|delete)Any scope
-     * 
+     *
      * eg. we want to read only current user data but it has admin privlidges too....
      */
     PermissionScope? : PermissionType;
+
+    /**
+     * Currently selected role from User.Role for the request. Defaults to the
+     * first role in User.Role at login; can be changed via /auth/active-role.
+     */
+    ActiveRole?: string;
   }
 }
 

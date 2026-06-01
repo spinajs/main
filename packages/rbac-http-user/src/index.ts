@@ -3,6 +3,7 @@ import { UserMetadataBase } from '@spinajs/rbac';
 import { TWO_FA_METATADATA_KEYS } from './2fa/Default2FaToken.js';
 
 export * from './controllers/LoginController.js';
+export * from './controllers/ActiveRoleController.js';
 export * from './controllers/UserController.js';
 export * from './controllers/UserMetadataController.js';
 export * from "./controllers/TwoFactorAuthController.js";

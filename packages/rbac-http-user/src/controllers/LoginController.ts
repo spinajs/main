@@ -4,8 +4,9 @@ import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwi
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg, ILoginResponse, IUserWithGrants } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, ILoginResponse, IUserWithGrants } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
+import type { ISession } from '@spinajs/rbac';
 
 
 /**
@@ -91,6 +92,13 @@ export class LoginController extends BaseController {
 
       session.Data.set('User', user.Uuid);
 
+      // Default active role = first role from the user's role list.
+      // Users with multiple roles can later switch via /auth/active-role.
+      const activeRole = user.Role?.[0];
+      if (activeRole) {
+        session.Data.set('ActiveRole', activeRole);
+      }
+
       // we have two states for user
       // LOGGED - when user use proper login/password and session is created
       // AUTHORIZED - when user is atuhenticated eg. by 2fa check. If 2fa is disabled
@@ -128,13 +136,13 @@ export class LoginController extends BaseController {
         session.Data.set('Authorized', true);
 
         const grants = this.AC.getGrants();
-        const userGrants = user.Role.map(r => _unwindGrants(r, grants));
-        const combinedGrants = Object.assign({}, ...userGrants);
+        const combinedGrants = activeRole ? _unwindGrants(activeRole, grants) : {};
 
         // dehydrateWithRelations({ dateTimeFormat: 'iso' }) converts DateTime to ISO strings
         // at runtime — the ORM types don't reflect the dateTimeFormat option in generics
         result = {
           ...user.dehydrateWithRelations({ dateTimeFormat: "iso" }),
+          ActiveRole: activeRole,
           Grants: combinedGrants,
         } as unknown as IUserWithGrants;
       }
@@ -199,7 +207,8 @@ export class LoginController extends BaseController {
 
   /**
    * Get current user
-   * Returns the user object associated with the current session.
+   * Returns the user object associated with the current session along with the
+   * currently active role and the full list of roles the user may switch to.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
    * @security cookieAuth
    * @returns {User} User data from the current session
@@ -207,10 +216,15 @@ export class LoginController extends BaseController {
    */
   @Get()
   @Policy(LoggedPolicy)
-  public async whoami(@UserRouteArg() User: User) {
+  public async whoami(@UserRouteArg() User: User, @SessionRouteArg() session: ISession) {
 
-    // user is taken from session data
-    return new Ok(User);
+    const activeRole = (session?.Data.get('ActiveRole') as string | undefined) ?? User.Role?.[0];
+
+    return new Ok({
+      ...User.dehydrateWithRelations({ dateTimeFormat: 'iso' }),
+      ActiveRole: activeRole,
+      AvailableRoles: User.Role ?? [],
+    });
   }
 }
 

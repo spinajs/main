@@ -74,8 +74,9 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
 
           const ownScope = storage?.PermissionScope ?? (QUERY_TO_PERMISSION as any)[builder.constructor.name].own;
           const anyScope = storage?.PermissionScope ?? (QUERY_TO_PERMISSION as any)[builder.constructor.name].all;
-          const canAny = (this.Ac!.can(storage.User.Role) as any)[anyScope](resource).granted;
-          const canOwn = (this.Ac!.can(storage.User.Role) as any)[ownScope](resource).granted;
+          const roles = storage.ActiveRole ? [storage.ActiveRole] : storage.User.Role;
+          const canAny = (this.Ac!.can(roles) as any)[anyScope](resource).granted;
+          const canOwn = (this.Ac!.can(roles) as any)[ownScope](resource).granted;
 
 
           if (builder instanceof SelectQueryBuilder || builder instanceof UpdateQueryBuilder || builder instanceof DeleteQueryBuilder) {

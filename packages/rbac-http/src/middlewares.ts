@@ -38,8 +38,14 @@ export class RbacMiddleware extends ServerMiddleware {
            */
           req.storage.User = await DI.resolve<User>('RbacUserFactory', [session.Data.get('User')]);
           req.storage.Session = session;
+
+          const sessionActiveRole = session.Data.get('ActiveRole') as string | undefined;
+          req.storage.ActiveRole = sessionActiveRole && req.storage.User.Role.includes(sessionActiveRole)
+            ? sessionActiveRole
+            : req.storage.User.Role?.[0];
         } else {
           req.storage.User = DI.resolve<User>('RbacGuestUserFactory');
+          req.storage.ActiveRole = req.storage.User.Role?.[0];
         }
 
         next();
