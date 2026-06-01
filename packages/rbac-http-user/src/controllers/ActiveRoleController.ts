@@ -4,7 +4,7 @@ import { AccessControl, AuthProvider, PasswordProvider, SessionProvider, _unwind
 import type { ISession, User } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
-import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, IActiveRoleResponse } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, IActiveRoleResponse } from '@spinajs/rbac-http';
 
 /**
  * Active role endpoints.
@@ -40,9 +40,8 @@ export class ActiveRoleController extends BaseController {
    */
   @Get('active-role')
   @Policy(LoggedPolicy)
-  public async getActiveRole(@UserRouteArg() user: User, @SessionRouteArg() session: ISession): Promise<Ok<IActiveRoleResponse>> {
-    const activeRole = (session?.Data.get('ActiveRole') as string | undefined) ?? user.Role?.[0];
-    return new Ok(this.buildResponse(user, activeRole));
+  public async getActiveRole(@UserRouteArg() user: User, @FromSession() ActiveRole: string): Promise<Ok<IActiveRoleResponse>> {
+    return new Ok(this.buildResponse(user, ActiveRole ?? user.Role?.[0]));
   }
 
   /**
