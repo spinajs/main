@@ -6,7 +6,7 @@ import { AutoinjectService, Config, Configuration } from '@spinajs/configuration
 import _ from 'lodash';
 import { LoggedPolicy, User as UserRouteArg, ILoginResponse, IUserWithGrants } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
- 
+
 
 /**
  * Authentication endpoints.
@@ -202,7 +202,7 @@ export class LoginController extends BaseController {
    * Returns the user object associated with the current session.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
    * @security cookieAuth
-   * @returns {IUserProfile} User data from the current session
+   * @returns {User} User data from the current session
    * @response 401 No active session
    */
   @Get()
