@@ -2,25 +2,7 @@ import * as express from 'express';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 
-import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
-
-export interface IServerTimingEntry {
-  name: string;
-  /** duration in ms */
-  dur?: number;
-  /** optional description */
-  desc?: string;
-}
-
-declare module '../interfaces.js' {
-  interface IActionLocalStoregeContext {
-    /**
-     * Phase markers contributed by middlewares / controllers, surfaced as
-     * the `Server-Timing` response header (when enabled).
-     */
-    serverTiming?: IServerTimingEntry[];
-  }
-}
+import { ServerMiddleware, Request as sRequest, IServerTimingEntry } from '../interfaces.js';
 
 /**
  * Emits a `Server-Timing` response header so browsers / devtools can show

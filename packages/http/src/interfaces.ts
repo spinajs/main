@@ -214,12 +214,25 @@ export abstract class FileUploadMiddleware {
   public abstract beforeUpload(file: IUploadedFile, options?: IUploadOptions): Promise<IUploadedFile>;
 }
 
+export interface IServerTimingEntry {
+  name: string;
+  /** duration in ms */
+  dur?: number;
+  /** optional description */
+  desc?: string;
+}
+
 export interface IActionLocalStoregeContext {
   requestId: string;
   responseStart: Date;
   responseEnd: Date;
   responseTime: number;
   realIp: string | undefined;
+  /**
+   * Phase markers contributed by middlewares / controllers, surfaced as the
+   * `Server-Timing` response header when {@link ServerTiming} is enabled.
+   */
+  serverTiming?: IServerTimingEntry[];
 }
 
 export interface IResponseHeader {
