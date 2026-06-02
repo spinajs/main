@@ -11,3 +11,8 @@ export * from './bootstrap.js';
 export * from './cache.js';
 export * from './middlewares/NotFound.js';
 export * from './middlewares/ErrorHandler.js';
+export * from './middlewares/AccessLog.js';
+export * from './middlewares/Compression.js';
+export * from './middlewares/Cors.js';
+export * from './middlewares/SlowRequestWarning.js';
+export * from './middlewares/ServerTiming.js';
