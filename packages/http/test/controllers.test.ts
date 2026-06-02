@@ -16,9 +16,8 @@ import { DataTransformer } from './../src/interfaces.js';
 import { TestTransformer } from './transformers/TestTransformer.js';
 import { SamplePolicy } from './policies/SamplePolicy.js';
 import { SampleMiddleware } from './middlewares/SampleMiddleware.js';
-import { join } from 'path';
 
-import { dir } from './common.js';
+import { TestMethods2 } from './controllers2/TestMethods2.js';
 
 function ctr() {
   return DI.get(Controllers);
@@ -78,7 +77,7 @@ describe('http & controller tests', function () {
 
   it('should manual register controller', async () => {
     const c = await ctr();
-    await c?.registerFromFile(join(dir('controllers2'), 'TestMethods2.ts'));
+    await c?.add(TestMethods2);
 
     const server = await DI.resolve(HttpServer);
     server.start();

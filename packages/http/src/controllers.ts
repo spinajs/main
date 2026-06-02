@@ -1,15 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isPromise } from 'node:util/types';
-import { basename } from 'node:path';
-import * as fs from 'node:fs';
 
 import Express from 'express';
 
 import _ from 'lodash';
 
-import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container } from '@spinajs/di';
-import { UnexpectedServerError, IOFail, ResourceNotFound } from '@spinajs/exceptions';
-import { ResolveFromFiles } from '@spinajs/reflection';
+import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container, Class } from '@spinajs/di';
+import { UnexpectedServerError } from '@spinajs/exceptions';
+import { ListFromFiles } from '@spinajs/reflection';
 import { Logger, Log } from '@spinajs/log';
 import { DataValidator } from '@spinajs/validation';
 import { Configuration } from '@spinajs/configuration';
@@ -289,9 +287,12 @@ export abstract class BaseController extends AsyncService implements IController
 
 export class Controllers extends AsyncService {
   /**
-   * Loaded controllers
+   * File-scanned controller types (no instances). Each entry's `type` is
+   * registered as `BaseController` in DI during `resolve()`, then every
+   * controller — file-scanned and bootstrapper-registered alike — is
+   * resolved through `Array.ofType(BaseController)`.
    */
-  @ResolveFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
+  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
   public Controllers!: Promise<Array<ClassInfo<BaseController>>>;
 
   @Logger('http')
@@ -306,47 +307,60 @@ export class Controllers extends AsyncService {
   @Autoinject()
   protected ControllersCache!: DefaultControllerCache;
 
-  public async registerFromFile(file: string) {
-    if (!fs.existsSync(file)) {
-      throw new IOFail(`Controller file at path ${file} not found`);
+  /**
+   * Single Express router that all controllers' routers are mounted onto.
+   * It occupies one fixed position in the parent Express stack, so
+   * dynamically-added controllers (via {@link add}) land at the right place
+   * automatically — Express evaluates sub-router stacks lazily on each
+   * request. NotFound / Error middleware live AFTER this router via the
+   * standard ServerMiddleware.after() lifecycle.
+   */
+  protected ControllersRouter!: Express.Router;
+
+  /**
+   * Tracks which controller types have already been route-registered so
+   * {@link add} is idempotent.
+   */
+  protected RegisteredTypes: Set<Class<BaseController>> = new Set();
+
+  /**
+   * Dynamically register a controller after startup. Equivalent to having
+   * declared it via @Injectable / file-scan / bootstrapper registration
+   * before `resolve()` ran, but usable at any point.
+   *
+   * Registers the type as BaseController (idempotent), resolves the
+   * singleton instance, runs the per-controller cache + descriptor setup,
+   * and mounts the controller's Router on the shared ControllersRouter.
+   *
+   * No Express stack mutation needed: the shared router was mounted once
+   * during resolve() and lives at a fixed slot; the new controller's router
+   * just becomes another entry in the shared router's internal stack.
+   */
+  public async add(type: Class<BaseController>): Promise<void> {
+    if (this.RegisteredTypes.has(type)) {
+      this.Log.trace(`Controller ${type.name} already registered, skipping`);
+      return;
     }
 
-    const types = await DI.__spinajs_require__(file.replace('.js', '.d.ts'));
-    const typeName = basename(basename(file, '.js'), '.ts');
-    const type = (types as any)[typeName];
-    const instance = await DI.resolve<BaseController>(type);
+    DI.register(type as any).as(BaseController);
+    const instance = (await DI.resolve(type)) as BaseController;
+
     const ci = new ClassInfo<BaseController>();
-
-    ci.file = file.replace('.js', '.d.ts');
-    ci.instance = instance;
-    ci.name = typeName;
+    ci.name = type.name;
     ci.type = type;
-
-    // ensure dynamically added controllers are registered before 404/error middleware
-    const expressRouter = (this.Server as any).Express?._router;
-    const tail: any[] = [];
-
-    if (expressRouter?.stack?.length) {
-      const last = expressRouter.stack[expressRouter.stack.length - 1];
-      if (last?.handle?.length === 4) {
-        tail.unshift(expressRouter.stack.pop());
-      }
-
-      const last2 = expressRouter.stack[expressRouter.stack.length - 1];
-      if (last2?.handle?.length === 3) {
-        tail.unshift(expressRouter.stack.pop());
-      }
-    }
+    ci.instance = instance;
+    ci.file = '<dynamic>';
 
     await this.register(ci);
-
-    if (tail.length && expressRouter?.stack) {
-      expressRouter.stack.push(...tail);
-    }
   }
 
   public async register(controller: ClassInfo<BaseController>) {
     this.Log.trace(`Loading controller: ${controller.name}`);
+
+    if (controller.type && this.RegisteredTypes.has(controller.type)) {
+      this.Log.trace(`Controller ${controller.name} already registered, skipping`);
+      return;
+    }
 
     const parameters = await this.ControllersCache.getCache(controller);
     if(!controller.instance){
@@ -378,7 +392,10 @@ export class Controllers extends AsyncService {
         return;
       }
 
-      this.Server.use(controller.instance.Router);
+      this.ControllersRouter.use(controller.instance.Router);
+      if (controller.type) {
+        this.RegisteredTypes.add(controller.type);
+      }
     }
   }
 
@@ -386,14 +403,56 @@ export class Controllers extends AsyncService {
 
     await super.resolve();
 
-    const controllers = await this.Controllers;
-    for (const c of controllers) {
-      await this.register(c);
+    // Shared sub-router. All controller routers mount onto this one; this
+    // one mounts onto Express exactly once. Dynamic adds land here too,
+    // which is how `add()` avoids the old Express-stack juggling.
+    this.ControllersRouter = Express.Router();
+
+    // Two registration paths converge here:
+    //  1. Directory-scanned controllers (existing behavior). @ListFromFiles
+    //     hands us the class types; we register each as `BaseController` so
+    //     they show up in the DI collection.
+    //  2. Bootstrapper-registered controllers. A package's Bootstrapper can
+    //     conditionally call `DI.register(MyController).as(BaseController)`
+    //     before this service resolves. Those classes are already in the
+    //     collection by the time we get here.
+    // Resolving `Array.ofType(BaseController)` then instantiates everything
+    // in a single pass — file-scanned + bootstrap-registered, with class
+    // identity dedupe (multiple `as(BaseController)` calls for the same type
+    // resolve to one singleton).
+    const listed = await this.Controllers;
+     
+    for (const ci of _.uniqBy(listed, c => c.name)) {
+      if (!ci.type){
+        this.Log.warn(`Controller ${ci.name} in file ${ci.file} has no type. Make sure it is decorated with @injectable and has a public constructor without required parameters`);
+        continue;
+      };
+      
+      DI.register(ci.type).as(BaseController);
+      this.Log.trace(`Controller ${ci.name} from ${ci.file} registered as BaseController`);
     }
 
-    this.Server.use((req: Express.Request, _res: Express.Response, next: Express.NextFunction) => {
-      next(new ResourceNotFound(`Route not found: ${req.method} ${req.originalUrl}`));
-    });
-    this.Server.use(__handle_error__()); // Global error handler
+    const instances = (await DI.resolve(Array.ofType(BaseController))) as BaseController[];
+
+    for (const instance of instances) {
+      const type = instance.constructor as Class<BaseController>;
+      const ci = Object.assign(new ClassInfo<BaseController>(), {
+        name: type.name,
+        type,
+        instance,
+        file: '<di>',
+      } as Partial<ClassInfo<BaseController>>);
+      // The file-scanned entry has no instance (List, not Resolve) — patch it.
+      if (!ci.instance) ci.instance = instance;
+      await this.register(ci);
+    }
+
+    // Mount the shared controllers router on the Express app ONCE. From here
+    // on, anything added via `this.ControllersRouter.use(...)` (including
+    // future `add()` calls) is picked up by Express automatically.
+    // NotFound / Error handling is handled by NotFoundMiddleware and
+    // ErrorHandlerMiddleware (ServerMiddleware impls), attached to the
+    // Express stack tail during HttpServer.start().
+    this.Server.use(this.ControllersRouter);
   }
 }

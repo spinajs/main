@@ -243,7 +243,13 @@ export abstract class ServerMiddleware extends AsyncService {
   public Order!: number;
 
   public abstract before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null;
-  public abstract after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null;
+  /**
+   * Returns the handler attached to the Express stack after controllers
+   * during HttpServer.start(). May be a regular 3-arg request handler OR a
+   * 4-arg Express error handler — the latter is needed to wire the global
+   * error middleware (see ErrorHandlerMiddleware) through the same lifecycle.
+   */
+  public abstract after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | express.ErrorRequestHandler | null;
 }
 
 /**

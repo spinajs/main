@@ -19,6 +19,8 @@ import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
 import './middlewares/RealIp.js';
 import './middlewares/ReqStorage.js';
+import './middlewares/NotFound.js';
+import './middlewares/ErrorHandler.js';
 
 @Injectable()
 @Inject(Templates)
