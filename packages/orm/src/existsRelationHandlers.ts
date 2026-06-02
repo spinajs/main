@@ -18,12 +18,7 @@ import { WhereFunction } from './types.js';
 export abstract class ExistsRelationHandler {
   public abstract get Type(): RelationType;
 
-  public abstract apply<R>(
-    builder: WhereBuilder<any>,
-    rel: IRelationDescriptor,
-    relationName: string,
-    callback?: WhereFunction<R>,
-  ): ISelectQueryBuilder | undefined;
+  public abstract apply<R>(builder: WhereBuilder<any>, rel: IRelationDescriptor, relationName: string, callback?: WhereFunction<R>): ISelectQueryBuilder | undefined;
 }
 
 /**
@@ -38,7 +33,9 @@ function sourcePKeyRef(builder: WhereBuilder<any>, tDesc: { TableName: string; P
 
 @Injectable(ExistsRelationHandler)
 export class OneExistsRelationHandler extends ExistsRelationHandler {
-  public get Type(): RelationType { return RelationType.One; }
+  public get Type(): RelationType {
+    return RelationType.One;
+  }
 
   public apply<R>(builder: WhereBuilder<any>, rel: IRelationDescriptor, relationName: string, callback?: WhereFunction<R>): undefined {
     builder.whereNotNull(rel.ForeignKey);
@@ -54,7 +51,9 @@ export class OneExistsRelationHandler extends ExistsRelationHandler {
 
 @Injectable(ExistsRelationHandler)
 export class ManyExistsRelationHandler extends ExistsRelationHandler {
-  public get Type(): RelationType { return RelationType.Many; }
+  public get Type(): RelationType {
+    return RelationType.Many;
+  }
 
   public apply<R>(builder: WhereBuilder<any>, rel: IRelationDescriptor, _relationName: string, callback?: WhereFunction<R>): ISelectQueryBuilder {
     const tDesc = (builder.Model as unknown as IModelStatic).getModelDescriptor();
@@ -63,9 +62,11 @@ export class ManyExistsRelationHandler extends ExistsRelationHandler {
     // set alias to avoid conflicts in case of multiple relations to same model and to make
     // sure that relation query is correct even if source query has alias
     const relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
-    relQuery.where(Lazy.oF(function () {
-      relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKeyRef(builder, tDesc)}`));
-    }));
+    relQuery.where(
+      Lazy.oF(function () {
+        relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKeyRef(builder, tDesc)}`));
+      }),
+    );
 
     if (callback) {
       callback.apply(relQuery);
@@ -77,7 +78,9 @@ export class ManyExistsRelationHandler extends ExistsRelationHandler {
 
 @Injectable(ExistsRelationHandler)
 export class ManyToManyExistsRelationHandler extends ExistsRelationHandler {
-  public get Type(): RelationType { return RelationType.ManyToMany; }
+  public get Type(): RelationType {
+    return RelationType.ManyToMany;
+  }
 
   // TODO: the ManyToMany exists branch is untested and does not join the junction table
   //       into the sub-query although it references its columns - it needs a dedicated fix.
@@ -87,9 +90,11 @@ export class ManyToManyExistsRelationHandler extends ExistsRelationHandler {
     const tableName = rel.TargetModel.getModelDescriptor().TableName;
 
     const relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
-    relQuery.where(Lazy.oF(function () {
-      relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKeyRef(builder, tDesc)}`));
-    }));
+    relQuery.where(
+      Lazy.oF(function () {
+        relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKeyRef(builder, tDesc)}`));
+      }),
+    );
 
     relQuery.rightJoin({
       joinModel: rel.TargetModel,

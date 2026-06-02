@@ -926,7 +926,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       throw new OrmException(`relation ${query} not found in model ${this.constructor.name}`);
     }
 
-    const handlers = this._container.resolve(Array.ofType(ExistsRelationHandler)) as ExistsRelationHandler[];
+    const handlers = this._container.resolve(Array.ofType(ExistsRelationHandler));
     const handler = handlers.find((h) => h.Type === rel.Type);
     if (!handler) {
       throw new OrmException(`no ExistsRelationHandler registered for relation type ${rel.Type} (relation ${query} on ${this.constructor.name})`);
