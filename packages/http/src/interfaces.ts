@@ -817,6 +817,15 @@ export interface IControllerDescriptor {
    * Base url path for controller ( added for all child url's)
    */
   BasePath: string | null;
+
+  /**
+   * Absolute path of the source file that declared the controller, captured
+   * from the V8 stack frame the first time a route decorator runs on the
+   * class. Used by ControllersCache when a controller is registered through
+   * DI rather than the directory scan, so JSDoc / parameter-name extraction
+   * still has a real file to parse.
+   */
+  SourceFile?: string;
 }
 
 /**

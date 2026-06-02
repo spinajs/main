@@ -1,9 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
+import { existsSync } from 'fs';
 
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { BaseController } from '../src/index.js';
+import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL, Get, Ok } from '../src/index.js';
+import type { IControllerDescriptor } from '../src/interfaces.js';
 
 class MinimalTestConfiguration extends FrameworkConfiguration {
   protected onLoad() {
@@ -94,5 +96,23 @@ describe('Conditional controller registration (Array.ofType<BaseController>)', (
 
     expect(names).to.include('ControllerA');
     expect(names).to.include('ControllerB');
+  });
+
+  describe('Source file capture (for DI-registered controllers)', () => {
+    class StackCaptureController extends BaseController {
+      @Get()
+      public ping() { return new Ok(); }
+    }
+
+    it('captures the controller source file from the V8 stack at decoration time', () => {
+      const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, StackCaptureController.prototype) as IControllerDescriptor;
+      expect(descriptor).to.exist;
+      expect(descriptor.SourceFile, 'SourceFile metadata should be populated').to.be.a('string');
+      // The captured path should be this very test file, since that's where
+      // the @Get() decorator ran.
+      expect(descriptor.SourceFile!).to.match(/conditional-controller\.test\.(ts|js)$/);
+      // And it should resolve to an actually-existing file on disk.
+      expect(existsSync(descriptor.SourceFile!), `captured source file should exist: ${descriptor.SourceFile}`).to.be.true;
+    });
   });
 });

@@ -349,7 +349,9 @@ export class Controllers extends AsyncService {
     ci.name = type.name;
     ci.type = type;
     ci.instance = instance;
-    ci.file = '<dynamic>';
+    // Source file was captured at decoration time by the route decorators.
+    // Sentinel only if nothing was captured (no route decorators ran).
+    ci.file = instance.Descriptor?.SourceFile ?? '<dynamic>';
 
     await this.register(ci);
   }
@@ -421,13 +423,19 @@ export class Controllers extends AsyncService {
     // identity dedupe (multiple `as(BaseController)` calls for the same type
     // resolve to one singleton).
     const listed = await this.Controllers;
-     
+
+    // Remember the original file path per type so the second loop can preserve
+    // it. Without this every controller would end up tagged `<di>`, breaking
+    // ControllersCache.getCache() which expects a real on-disk source file.
+    const fileByType = new Map<Class<BaseController>, ClassInfo<BaseController>>();
+
     for (const ci of _.uniqBy(listed, c => c.name)) {
       if (!ci.type){
         this.Log.warn(`Controller ${ci.name} in file ${ci.file} has no type. Make sure it is decorated with @injectable and has a public constructor without required parameters`);
         continue;
       };
-      
+
+      fileByType.set(ci.type as Class<BaseController>, ci);
       DI.register(ci.type).as(BaseController);
       this.Log.trace(`Controller ${ci.name} from ${ci.file} registered as BaseController`);
     }
@@ -436,11 +444,16 @@ export class Controllers extends AsyncService {
 
     for (const instance of instances) {
       const type = instance.constructor as Class<BaseController>;
-      const ci = Object.assign(new ClassInfo<BaseController>(), {
+      const originalCi = fileByType.get(type);
+      const ci = originalCi ?? Object.assign(new ClassInfo<BaseController>(), {
         name: type.name,
         type,
         instance,
-        file: '<di>',
+        // For DI-registered controllers without a file scan entry, fall back
+        // to the source file captured at decoration time by `Controller()`.
+        // Only sentinel '<di>' if nothing was captured (abstract base, or no
+        // route decorators ran).
+        file: instance.Descriptor?.SourceFile ?? '<di>',
       } as Partial<ClassInfo<BaseController>>);
       // The file-scanned entry has no instance (List, not Resolve) — patch it.
       if (!ci.instance) ci.instance = instance;

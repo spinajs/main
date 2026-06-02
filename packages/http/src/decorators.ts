@@ -21,6 +21,12 @@ function Controller(callback: (controller: IControllerDescriptor, target: any, p
         Middlewares: [],
         Policies: [],
         Routes: new Map<string, IRoute>(),
+        // Capture the controller's source file from the V8 stack the first
+        // time a route decorator runs on this class. The first frame outside
+        // this module / common transpiler shims is the controller source —
+        // exactly what ControllersCache needs when the controller was added
+        // through DI rather than the file scan.
+        SourceFile: captureControllerSourceFile(),
       };
 
       Reflect.defineMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, metadata, target.prototype || target);
@@ -30,6 +36,54 @@ function Controller(callback: (controller: IControllerDescriptor, target: any, p
       callback(metadata, target, propertyKey!, indexOrDescriptor!);
     }
   };
+}
+
+/**
+ * Walk the current V8 stack and return the absolute path of the first frame
+ * that is NOT inside this decorators module or a common transpiler helper.
+ * That frame is the user's controller source file. Works equally for CJS
+ * (path frames like `at ... (C:\\foo\\bar.js:12:3)`) and ESM (URL frames like
+ * `at ... (file:///C:/foo/bar.js:12:3)`).
+ */
+function captureControllerSourceFile(): string | undefined {
+  const stack = new Error().stack;
+  if (!stack) return undefined;
+
+  const lines = stack.split('\n');
+  const skipMarkers = [
+    'decorators.ts',
+    'decorators.js',
+    'tslib',
+    'reflect-metadata',
+    '__decorate',
+    '__esDecorate',
+    'node:internal',
+  ];
+
+  for (const line of lines) {
+    if (skipMarkers.some(m => line.includes(m))) continue;
+    // Match `(path:line:col)` or bare `path:line:col` at the end of the frame.
+    const m = line.match(/\(([^()]+):\d+:\d+\)\s*$/) || line.match(/at\s+([^\s()]+):\d+:\d+\s*$/);
+    if (!m) continue;
+
+    let file = m[1];
+    if (file.startsWith('file://')) {
+      // Strip ESM file:// URL scheme. Windows: file:///C:/foo → C:/foo.
+      try {
+        file = decodeURIComponent(file.replace(/^file:\/\/\/?/, ''));
+        // Normalize Windows drive letter forms (`/C:/...` → `C:/...`).
+        if (/^[A-Za-z]:/.test(file)) {
+          // already a drive-letter path
+        } else if (file.startsWith('/')) {
+          // POSIX absolute path stays as-is
+        }
+      } catch {
+        // fall through with the raw match
+      }
+    }
+    return file;
+  }
+  return undefined;
 }
 
 export function Route(callback: (controller: IControllerDescriptor, route: IRoute, target: any, propertyKey?: string | symbol, indexOrDescriptor?: number | PropertyDescriptor) => void) {

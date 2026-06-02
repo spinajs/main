@@ -114,6 +114,14 @@ export class DefaultControllerCache extends AsyncService {
 
   /** Returns parameter-name map used for route argument binding. */
   public async getCache(controller: ClassInfo<BaseController>): Promise<Record<string, string[]>> {
+    // Sentinel values like `<di>` are set by Controllers.resolve() / add() for
+    // controllers registered through DI rather than a file scan. There's no
+    // on-disk source to parse, so fall back to a runtime extraction of
+    // parameter names from each method's Function.toString().
+    if (!this.isResolvableSource(controller.file)) {
+      return this.extractParametersAtRuntime(controller);
+    }
+
     const file = resolvePath(controller.file.replace('.js', '.d.ts'));
     const hash = await this.Hasher.hash(file);
     const docHash = `doc_${hash}`;
@@ -134,8 +142,41 @@ export class DefaultControllerCache extends AsyncService {
     return this.CacheFS.read(hash).then((x) => JSON.parse(x.toString()) as Record<string, string[]>);
   }
 
+  /** Whether `file` points at a real on-disk source we can parse. */
+  private isResolvableSource(file: string | undefined): boolean {
+    if (!file) return false;
+    // Bracketed sentinels (e.g. `<di>`, `<dynamic>`) are used by Controllers
+    // for entries that were never loaded from a file.
+    return !(file.startsWith('<') && file.endsWith('>'));
+  }
+
+  /**
+   * Fallback: derive route method parameter names by parsing each method's
+   * Function.toString() output. Loses JSDoc documentation (no @param tags
+   * etc.) but keeps argument binding working for DI-registered controllers
+   * that have no source file on disk.
+   */
+  private extractParametersAtRuntime(controller: ClassInfo<BaseController>): Record<string, string[]> {
+    const parameters: Record<string, string[]> = {};
+    const instance = controller.instance;
+    if (!instance || !instance.Descriptor) return parameters;
+
+    for (const [methodName] of instance.Descriptor.Routes) {
+      const fn = (instance as any)[methodName as string];
+      if (typeof fn !== 'function') continue;
+      parameters[methodName as string] = parseFnParamNames(fn);
+    }
+    return parameters;
+  }
+
   /** Returns the JSDoc / TypeScript-annotation documentation for a controller. */
   public async getDocumentation(controller: ClassInfo<BaseController>): Promise<IControllerDocumentation> {
+    // No source file → no JSDoc to extract. Return an empty shell so callers
+    // (e.g. http-swagger) gracefully skip the controller instead of throwing.
+    if (!this.isResolvableSource(controller.file)) {
+      return { className: controller.name, methods: {} };
+    }
+
     const file = resolvePath(controller.file.replace('.js', '.d.ts'));
     const hash = await this.Hasher.hash(file);
     const docHash = `doc_${hash}`;
@@ -587,4 +628,20 @@ export class DefaultControllerCache extends AsyncService {
 
     return { type: 'object' };
   }
+}
+
+/**
+ * Pull parameter names from `Function.prototype.toString()` output. Modern V8
+ * preserves the literal signature so we can regex out `(a, b = 1, ...rest)`.
+ * Stripped of default values and TypeScript type annotations.
+ */
+function parseFnParamNames(fn: Function): string[] {
+  const src = Function.prototype.toString.call(fn);
+  const match = src.match(/^[^(]*\(([\s\S]*?)\)/);
+  if (!match) return [];
+  return match[1]
+    .split(',')
+    .map((p: string) => p.trim())
+    .filter(Boolean)
+    .map((p: string) => p.replace(/^\.\.\./, '').split(/[=:]/)[0].trim());
 }
