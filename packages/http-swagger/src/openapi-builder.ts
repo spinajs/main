@@ -1,4 +1,5 @@
 import { ClassInfo, TypedArray } from '@spinajs/di';
+import { resolveModelSchema } from './schema-providers.js';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL } from '@spinajs/validation';
 import {
@@ -110,6 +111,7 @@ export class OpenApiBuilder {
   private document: IOpenApiDocument;
   private tags: Map<string, IOpenApiTag> = new Map();
   private registeredResponses: Set<string> = new Set();
+  private registeredComponents: Set<string> = new Set();
   private errorSchemaRegistered = false;
   private registeredPolicies: Set<string> = new Set();
   private policySectionEntries: string[] = [];
@@ -823,7 +825,7 @@ export class OpenApiBuilder {
 
       responses['200'] = {
         description: methodDoc.returns.description || 'Successful response',
-        content: { 'application/json': { schema } },
+        content: { 'application/json': { schema: this.expandNamedSchemas(schema) } },
       };
     } else {
       responses['200'] = { description: 'Successful response' };
@@ -907,6 +909,69 @@ export class OpenApiBuilder {
       };
     }
     this.errorSchemaRegistered = true;
+  }
+
+  /**
+   * Swap named-type nodes for a reusable component `$ref`. The parser tags object
+   * schemas with the source type name in `description`; if a registered provider
+   * (ORM model, DTO, …) has a canonical schema for that name we register it once
+   * under `#/components/schemas/<Name>` and replace the node with a `$ref`. Names
+   * no provider handles are left as-is. Walks `items`, `properties` and
+   * `oneOf/anyOf/allOf`.
+   */
+  private expandNamedSchemas(schema: IOpenApiSchema): IOpenApiSchema {
+    // Case 1 — primitive / null: nothing to expand, return as-is.
+    if (!schema || typeof schema !== 'object') {
+      return schema;
+    }
+
+    // Case 2 — a named-model tag: replace the whole node with a $ref to its component.
+    if (schema.description && !schema.$ref) {
+      const ref = this.registerNamedComponent(schema.description);
+      if (ref) {
+        return { $ref: ref };
+      }
+    }
+
+    // Case 3 — a container: keep the node, expand the two places a model can hide.
+    if (schema.items) {
+      schema.items = this.expandNamedSchemas(schema.items);
+    }
+    if (schema.properties) {
+      for (const key of Object.keys(schema.properties)) {
+        schema.properties[key] = this.expandNamedSchemas(schema.properties[key]);
+      }
+    }
+
+    return schema;
+  }
+
+  /**
+   * Resolve a type name to a registered component `$ref` via the schema
+   * providers, registering the component once. Returns undefined when no provider
+   * recognises the name, so the caller leaves the schema as-is.
+   */
+  private registerNamedComponent(name: string): string | undefined {
+    const ref = `#/components/schemas/${name}`;
+    // Already registered just reference it.
+    if (this.registeredComponents.has(name)) {
+      return ref;
+    }
+
+    const resolved = resolveModelSchema(name);
+    if (!resolved) {
+      return undefined;
+    }
+
+    this.registeredComponents.add(name);
+
+    const components = (this.document.components ??= {});
+    const schemas = (components.schemas ??= {});
+
+    // Relations inside are tagged objects → become $refs to their own components.
+    schemas[name] = this.expandNamedSchemas(this.convertJsonSchema(resolved));
+
+    return ref;
   }
 
   /**

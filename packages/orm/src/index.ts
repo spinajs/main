@@ -2,6 +2,7 @@ export * from './interfaces.js';
 export * from './enums.js';
 export * from './symbols.js';
 export * from './descriptor.js';
+export * from './schema.js';
 export * from './statements.js';
 export * from './exceptions.js';
 export * from './converters.js';
