@@ -96,12 +96,7 @@ export interface ITagExtractor {
 
 // ---------------------------------------------------------------------------
 
-/**
- * Type names unwrapped to their first type argument (the payload): `Promise<T>`,
- * the http response classes (`Ok<T>`/`Json<T>`/… and error wrappers), and the ORM
- * data wrappers (`ModelData…<T>` → the model, so its NAME survives for http-swagger
- * to resolve).
- */
+/** Wrapper types unwrapped to their first type argument (`Promise<T>`, `Ok<T>`, `ModelData<T>`, …). */
 const TRANSPARENT_WRAPPERS = new Set<string>([
   'Promise', 'Ok', 'Json', 'Created', 'BadRequest', 'NotFound',
   'ServerError', 'Unauthorized', 'Forbidden', 'Conflict', 'NoContent',
@@ -585,10 +580,8 @@ export class DefaultControllerCache extends AsyncService {
   }
 
   /**
-   * A named type (`Foo<T>` or `import("mod").Foo<T>`). Wrappers and `Array<T>` are
-   * unwrapped; anything else becomes a named object (`description` = type name) for
-   * http-swagger's providers to expand — the parser only names the type, never
-   * expands it. (Inline `{...}` literals are expanded above; they have no name.)
+   * Schema for a named type: unwrap wrappers and `Array<T>`, otherwise tag it as a named object.
+   * The parser only names the type; http-swagger's providers expand it later.
    */
   private schemaFromNamedType(name: string, typeArguments: ts.NodeArray<ts.TypeNode> | undefined): ITypeSchema {
     if (TRANSPARENT_WRAPPERS.has(name) && typeArguments?.length) {
@@ -601,7 +594,7 @@ export class DefaultControllerCache extends AsyncService {
   }
 }
 
-/** Rightmost identifier of an entity name (`Foo` from `A.B.Foo`). */
+/** Rightmost identifier of an entity name. */
 function entityNameRight(name: ts.EntityName): string {
   return ts.isIdentifier(name) ? name.text : name.right.text;
 }

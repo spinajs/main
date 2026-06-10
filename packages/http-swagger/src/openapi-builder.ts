@@ -1,5 +1,5 @@
 import { ClassInfo, TypedArray } from '@spinajs/di';
-import { resolveModelSchema } from './schema-providers.js';
+import { resolveTypeSchema } from './schema-providers.js';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL } from '@spinajs/validation';
 import {
@@ -912,12 +912,8 @@ export class OpenApiBuilder {
   }
 
   /**
-   * Swap named-type nodes for a reusable component `$ref`. The parser tags object
-   * schemas with the source type name in `description`; if a registered provider
-   * (ORM model, DTO, …) has a canonical schema for that name we register it once
-   * under `#/components/schemas/<Name>` and replace the node with a `$ref`. Names
-   * no provider handles are left as-is. Walks `items`, `properties` and
-   * `oneOf/anyOf/allOf`.
+   * Swaps named-type nodes for a reusable component `$ref`, registering each component once.
+   * Walks `items` and `properties` so nested types are expanded too.
    */
   private expandNamedSchemas(schema: IOpenApiSchema): IOpenApiSchema {
     // Case 1 — primitive / null: nothing to expand, return as-is.
@@ -947,18 +943,17 @@ export class OpenApiBuilder {
   }
 
   /**
-   * Resolve a type name to a registered component `$ref` via the schema
-   * providers, registering the component once. Returns undefined when no provider
-   * recognises the name, so the caller leaves the schema as-is.
+   * Registers `name` as a reusable component and returns its `$ref`.
+   * Returns undefined when no provider recognises the name, so the caller leaves the node as-is.
    */
   private registerNamedComponent(name: string): string | undefined {
     const ref = `#/components/schemas/${name}`;
-    // Already registered just reference it.
+    // Already registered (or in progress) — just reference it.
     if (this.registeredComponents.has(name)) {
       return ref;
     }
 
-    const resolved = resolveModelSchema(name);
+    const resolved = resolveTypeSchema(name);
     if (!resolved) {
       return undefined;
     }
@@ -968,7 +963,7 @@ export class OpenApiBuilder {
     const components = (this.document.components ??= {});
     const schemas = (components.schemas ??= {});
 
-    // Relations inside are tagged objects → become $refs to their own components.
+    // Expand nested named tags into their own components.
     schemas[name] = this.expandNamedSchemas(this.convertJsonSchema(resolved));
 
     return ref;

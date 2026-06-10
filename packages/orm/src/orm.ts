@@ -201,8 +201,7 @@ export class Orm extends AsyncService {
               }
             });
 
-            // Build the model's JSON schema from its (now fully-populated) columns.
-            // Stored once here so validation and http-swagger can reuse it.
+            // Build the model's JSON schema from its columns.
             d.Schema = buildModelJsonSchema(d);
           });
         }

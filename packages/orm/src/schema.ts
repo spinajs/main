@@ -1,10 +1,7 @@
 import { ColumnType } from './enums.js';
 import { IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 
-/**
- * SQL column type → JSON-schema shape. Add a new type by adding a row.
- * Anything not listed falls back to `string` (safe default for text/enum/uuid/blob…).
- */
+/** SQL column type → JSON-schema shape; unlisted types fall back to `string`. */
 const SQL_TYPE_TO_SCHEMA: Record<string, any> = {
   [ColumnType.TINY_INTEGER]: { type: 'integer' },
   [ColumnType.SMALL_INTEGER]: { type: 'integer' },
@@ -24,10 +21,8 @@ const SQL_TYPE_TO_SCHEMA: Record<string, any> = {
 };
 
 /**
- * Build a JSON schema from a model's columns, stored on `descriptor.Schema` at
- * model load and reused by validation and http-swagger. `Ignore` columns (e.g.
- * `@Ignore()`) are excluded; relations are omitted (a consumer concern, not part
- * of the row-level data schema).
+ * Builds a JSON schema from a model's columns, stored on `descriptor.Schema` at model load.
+ * `Ignore` columns are excluded and relations are omitted.
  */
 export function buildModelJsonSchema(descriptor: IModelDescriptor): any {
   const properties: Record<string, any> = {};
@@ -50,7 +45,10 @@ export function buildModelJsonSchema(descriptor: IModelDescriptor): any {
   return schema;
 }
 
-/** Map a column descriptor to a JSON-schema property based on its SQL type. */
+/**
+ * Maps a column descriptor to a JSON-schema property based on its SQL type.
+ * Adds `maxLength`, `description` and `nullable` when the column has them.
+ */
 function columnToSchema(col: IColumnDescriptor): any {
   const converter = (col.Converter as { constructor?: { name?: string } } | null | undefined)?.constructor?.name;
 
