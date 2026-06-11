@@ -48,6 +48,11 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
       if (store) {
         const storage = store.getStore() as IRbacAsyncStorage;
 
+        if (storage && storage.SkipModelPermissionCheck) {
+          this.Log.trace(`Model permission check disabled for current execution context, skipping rbac check`);
+          return;
+        }
+
         if (storage && storage.User) {
           // add where statement
           const descriptor = extractModelDescriptor(builder.Model) as IRbacModelDescriptor;

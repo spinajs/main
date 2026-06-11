@@ -334,4 +334,12 @@ export interface IRbacAsyncStorage<U = User> {
    * Unset on regular (non-impersonated) requests.
    */
   Impersonator?: U;
+
+  /**
+   * When set, RbacModelPermissionMiddleware skips injecting permission
+   * constraints into query builders for this execution context.
+   * Set via @SkipModelPermission() decorator for controller actions
+   * that are assumed safe to execute without rbac query filtering.
+   */
+  SkipModelPermissionCheck?: boolean;
 }

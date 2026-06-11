@@ -123,6 +123,13 @@ declare module '@spinajs/http' {
      * Null/undefined on regular requests.
      */
     Impersonator?: User | null;
+
+    /**
+     * When set, RbacModelPermissionMiddleware skips injecting permission
+     * constraints into query builders for this request.
+     * Set via @SkipModelPermission() decorator.
+     */
+    SkipModelPermissionCheck?: boolean;
   }
 }
 

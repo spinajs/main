@@ -129,6 +129,12 @@ const rbac = {
       },
     ],
     grants: {
+      guest: {
+        'UserBase':{
+          'read:own': ['*'],
+        }
+      },
+      
       // system user can do anything that admin can and more
       system: {
         $extend: ['admin'],

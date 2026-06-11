@@ -1,7 +1,8 @@
 import { IRbacDescriptor, IRbacRoutePermissionDescriptor } from './interfaces.js';
-import { Parameter, Policy, Route } from '@spinajs/http';
+import { IController, IRoute, Middleware, Parameter, Policy, Route, RouteMiddleware, Request as sRequest, Response } from '@spinajs/http';
 import { RbacPolicy } from './policies/RbacPolicy.js';
 import { PermissionType } from '@spinajs/rbac';
+import * as express from 'express';
 
 /**
  * Global symbol so external packages (e.g. http-swagger) can read the RBAC
@@ -77,6 +78,29 @@ export function Permission(permission: PermissionType[] = ['readOwn']) {
 
     Policy(RbacPolicy)(target, propertyKey, undefined);
   });
+}
+
+/**
+ * Disables RbacModelPermissionMiddleware for controller action ( or whole controller when applied to class ).
+ *
+ * Use for actions that are assumed safe to execute - rbac permission
+ * constraints will NOT be injected into query builders for queries
+ * executed within the action. Route-level permission checks ( RbacPolicy )
+ * are NOT affected by this decorator.
+ */
+export function SkipModelPermission() {
+  return Middleware(
+    class extends RouteMiddleware {
+      public isEnabled(_route: IRoute, _controller: IController): boolean {
+        return true;
+      }
+      public async onBefore(req: express.Request, _res: express.Response, _route: IRoute, _controller: IController): Promise<void> {
+        (req as sRequest).storage.SkipModelPermissionCheck = true;
+      }
+      public async onResponse(_response: Response, _route: IRoute, _controller: IController): Promise<void> {}
+      public async onAfter(_req: express.Request, _res: express.Response, _route: IRoute, _controller: IController): Promise<void> {}
+    },
+  );
 }
 
 /**

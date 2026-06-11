@@ -4,7 +4,7 @@ import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwi
 import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, ILoginResponse, IUserWithGrants } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, ILoginResponse, IUserWithGrants, SkipModelPermission } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { LogoutHandler, ILogoutContext } from '../logout.js';
@@ -60,6 +60,7 @@ export class LoginController extends BaseController {
    * @response 401 Invalid email or password
    */
   @Post()
+  @SkipModelPermission()
   public async login(@UserRouteArg() logged: User, @Cookie(true) ssid: string, @Body() credentials: UserLoginDto): Promise<Ok<ILoginResponse> | Unauthorized> {
     try {
 

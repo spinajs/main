@@ -61,5 +61,40 @@ describe('Orm rbac test', function () {
 
       expect(result).to.be.not.null;
     });
+
+    it('should reject query when user has no permission', async () => {
+      const store = DI.resolve(AsyncLocalStorage);
+      await expect(
+        store.run(
+          {
+            User: new User({
+              Id: 1,
+              Role: ['user'],
+            }),
+          },
+          async () => {
+            return await ResourceModel.where('Id', '>', 0).first();
+          },
+        ),
+      ).to.be.rejected;
+    });
+
+    it('should skip rbac check when SkipModelPermissionCheck is set', async () => {
+      const store = DI.resolve(AsyncLocalStorage);
+      const result = await store.run(
+        {
+          User: new User({
+            Id: 1,
+            Role: ['user'],
+          }),
+          SkipModelPermissionCheck: true,
+        },
+        async () => {
+          return await ResourceModel.where('Id', '>', 0).first();
+        },
+      );
+
+      expect(result).to.be.not.null;
+    });
   });
 });
