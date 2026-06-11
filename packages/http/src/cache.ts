@@ -96,6 +96,14 @@ export interface ITagExtractor {
 
 // ---------------------------------------------------------------------------
 
+/** Wrapper types unwrapped to their first type argument (`Promise<T>`, `Ok<T>`, `ModelData<T>`, …). */
+const TRANSPARENT_WRAPPERS = new Set<string>([
+  'Promise', 'Ok', 'Json', 'Created', 'BadRequest', 'NotFound',
+  'ServerError', 'Unauthorized', 'Forbidden', 'Conflict', 'NoContent',
+  'ValidationError', 'NotAllowed', 'EntityTooLarge',
+  'ModelDataWithRelationData', 'ModelData',
+]);
+
 @Singleton()
 export class DefaultControllerCache extends AsyncService {
   @Logger('http')
@@ -538,29 +546,10 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     if (ts.isTypeReferenceNode(typeNode)) {
-      const name = ts.isIdentifier(typeNode.typeName)
-        ? typeNode.typeName.text
-        : (typeNode.typeName as ts.QualifiedName).right.text;
-
-      // Unwrap transparent wrappers — pass through to the inner type argument
-      const TRANSPARENT_WRAPPERS = new Set([
-        'Promise', 'Ok', 'Json', 'Created', 'BadRequest', 'NotFound',
-        'ServerError', 'Unauthorized', 'Forbidden', 'Conflict', 'NoContent',
-        'ValidationError', 'NotAllowed', 'EntityTooLarge',
-      ]);
-      if (TRANSPARENT_WRAPPERS.has(name) && typeNode.typeArguments?.length) {
-        return this.inferSchemaFromTypeNode(typeNode.typeArguments[0]);
-      }
-      if (name === 'Array' && typeNode.typeArguments?.length) {
-        return { type: 'array', items: this.inferSchemaFromTypeNode(typeNode.typeArguments[0]) };
-      }
-      switch (name) {
-        case 'string':  return { type: 'string' };
-        case 'number':  return { type: 'number' };
-        case 'boolean': return { type: 'boolean' };
-        // Avoid generating $ref to schemas that aren't registered in components
-        default:        return { type: 'object', description: name };
-      }
+      return this.schemaFromNamedType(entityNameRight(typeNode.typeName), typeNode.typeArguments);
+    }
+    if (ts.isImportTypeNode(typeNode) && typeNode.qualifier) {
+      return this.schemaFromNamedType(entityNameRight(typeNode.qualifier), typeNode.typeArguments);
     }
 
     if (ts.isTypeLiteralNode(typeNode)) {
@@ -582,9 +571,30 @@ export class DefaultControllerCache extends AsyncService {
       const meaningful = typeNode.types.filter(
         (t) => t.kind !== ts.SyntaxKind.NullKeyword && t.kind !== ts.SyntaxKind.UndefinedKeyword,
       );
-      if (meaningful.length === 1) return this.inferSchemaFromTypeNode(meaningful[0]);
+      if (meaningful.length === 1) {
+        return this.inferSchemaFromTypeNode(meaningful[0]);
+      }
     }
 
     return { type: 'object' };
   }
+
+  /**
+   * Schema for a named type: unwrap wrappers and `Array<T>`, otherwise tag it as a named object.
+   * The parser only names the type; http-swagger's providers expand it later.
+   */
+  private schemaFromNamedType(name: string, typeArguments: ts.NodeArray<ts.TypeNode> | undefined): ITypeSchema {
+    if (TRANSPARENT_WRAPPERS.has(name) && typeArguments?.length) {
+      return this.inferSchemaFromTypeNode(typeArguments[0]);
+    }
+    if (name === 'Array' && typeArguments?.length) {
+      return { type: 'array', items: this.inferSchemaFromTypeNode(typeArguments[0]) };
+    }
+    return { type: 'object', description: name };
+  }
+}
+
+/** Rightmost identifier of an entity name. */
+function entityNameRight(name: ts.EntityName): string {
+  return ts.isIdentifier(name) ? name.text : name.right.text;
 }

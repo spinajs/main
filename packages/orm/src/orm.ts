@@ -11,6 +11,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
 import { DateTime } from 'luxon';
 import { extractModelDescriptor } from './descriptor.js';
+import { buildModelJsonSchema } from './schema.js';
 import { TimeSpan } from '@spinajs/util';
 
 /**
@@ -166,8 +167,6 @@ export class Orm extends AsyncService {
               'Name',
             );
 
-            //  m.type[MODEL_DESCTRIPTION_SYMBOL].Schema = buildJsonSchema(columns);
-
             /**
              * Add coverters to columns set by decorators
              * eg. @CreatedAt decorator etc.
@@ -201,6 +200,9 @@ export class Orm extends AsyncService {
                 }
               }
             });
+
+            // Build the model's JSON schema from its columns.
+            d.Schema = buildModelJsonSchema(d);
           });
         }
       }

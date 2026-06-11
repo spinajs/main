@@ -1,3 +1,5 @@
+import { DI } from '@spinajs/di';
+
 export const SCHEMA_SYMBOL = Symbol('SCHEMA_SYMBOL');
 
 /**
@@ -9,5 +11,7 @@ export const SCHEMA_SYMBOL = Symbol('SCHEMA_SYMBOL');
 export function Schema(schema: object | string) {
   return (target: any) => {
     Reflect.defineMetadata(SCHEMA_SYMBOL, schema, target.prototype ?? target);
+    // Register under '__schemas__' so the class can be resolved by name.
+    DI.register(target).as('__schemas__');
   };
 }
