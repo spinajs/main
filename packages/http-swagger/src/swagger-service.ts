@@ -1,4 +1,4 @@
-import { AsyncService, Autoinject, LazyInject, Singleton } from '@spinajs/di';
+import { AsyncService, Autoinject, DI, LazyInject, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Controllers } from '@spinajs/http';
 import { Logger, Log } from '@spinajs/log';
@@ -54,7 +54,7 @@ export class SwaggerService extends AsyncService {
       version: '1.0.0',
     };
 
-    const builder = new OpenApiBuilder(config);
+    const builder = await DI.resolve(OpenApiBuilder, [config]);
     const controllers = await this.ControllersService.Controllers;
 
     for (const controller of controllers) {
