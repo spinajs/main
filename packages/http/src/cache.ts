@@ -19,6 +19,8 @@ export interface IParamDoc {
 
 export interface IResponseDoc {
   description: string;
+  /** Optional `{type}` annotation, e.g. `@response 400 {string} message` */
+  type?: string;
 }
 
 export interface IExampleDoc {
@@ -164,7 +166,8 @@ export class DefaultControllerCache extends AsyncService {
    * .d.ts which only emits type-referenced ones) and resolve the matching
    * module specifier against the controller's directory or node_modules.
    *
-   * Per-call in-memory cache only — policy doc volume is small and the cost is
+   * JSDoc is extracted per class — several policies may share one file, so the
+   * file is parsed once per class. Policy doc volume is small and the cost is
    * dominated by ts.createProgram which we already pay for the controller.
    */
   public async getPolicyDocumentation(
@@ -178,18 +181,13 @@ export class DefaultControllerCache extends AsyncService {
     const importMap = this.extractImports(controllerJs);
     if (importMap.size === 0) return out;
 
-    const seenFiles = new Set<string>();
     for (const name of policyNames) {
       if (out[name]) continue;
       const moduleSpec = importMap.get(name);
       if (!moduleSpec) continue;
 
       const policyFile = this.resolvePolicyFile(controllerJs, moduleSpec);
-      if (!policyFile || seenFiles.has(policyFile)) {
-        if (policyFile) out[name] = { file: policyFile };
-        continue;
-      }
-      seenFiles.add(policyFile);
+      if (!policyFile) continue;
 
       try {
         const description = this.extractClassJsDoc(policyFile, name);
@@ -334,8 +332,17 @@ export class DefaultControllerCache extends AsyncService {
     if (space <= 0) return;
     const code = comment.substring(0, space).trim();
     if (!/^\d+$/.test(code)) return;
-    const desc = comment.substring(space + 1).trim();
-    (ctx.doc.responses ??= {})[code] = { description: desc };
+    let desc = comment.substring(space + 1).trim();
+
+    // `@response 400 {string} message` — split the optional type annotation off
+    let type: string | undefined;
+    const typeMatch = /^\{([^}]+)\}\s*/.exec(desc);
+    if (typeMatch) {
+      type = typeMatch[1].trim();
+      desc = desc.substring(typeMatch[0].length).trim();
+    }
+
+    (ctx.doc.responses ??= {})[code] = { description: desc, ...(type ? { type } : {}) };
   }
 
   private extractExampleTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
