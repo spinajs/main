@@ -88,6 +88,7 @@
     "@spinajs/fs-ftp": "file:packages\\fs-ftp",
     "@spinajs/http": "file:packages\\http",
     "@spinajs/http-socket": "file:packages\\http-socket",
+    "@spinajs/http-progress": "file:packages\\http-progress",
     "@spinajs/http-swagger": "file:packages\\http-swagger",
     "@spinajs/internal-logger": "file:packages\\internal-logger",
     "@spinajs/intl": "file:packages\\intl",
