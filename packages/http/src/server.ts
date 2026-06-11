@@ -8,7 +8,6 @@ import '@spinajs/templates-pug';
 import { Server as Http, createServer as HttpCreateServer } from 'http';
 import { Server as Https, createServer as HttpsCreateServer } from 'https';
 import { existsSync } from 'fs';
-import cors from 'cors';
 import Express, { ErrorRequestHandler, RequestHandler } from 'express';
 import _ from 'lodash';
 import fs from 'fs';
@@ -19,6 +18,13 @@ import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
 import './middlewares/RealIp.js';
 import './middlewares/ReqStorage.js';
+import './middlewares/NotFound.js';
+import './middlewares/ErrorHandler.js';
+import './middlewares/AccessLog.js';
+import './middlewares/Compression.js';
+import './middlewares/Cors.js';
+import './middlewares/SlowRequestWarning.js';
+import './middlewares/ServerTiming.js';
 
 @Injectable()
 @Inject(Templates)
@@ -96,29 +102,8 @@ export class HttpServer extends AsyncService {
       this.use(m);
     });
 
-    /**
-     * Register cors options
-     */
-
-    const cOptions = this.Configuration.get<any>('http.cors', undefined);
-    if (!cOptions) {
-      this.Log.warn(`CORS options not set, server may be unavaible from outside ! Please set http.cors configuration option.`);
-    } else {
-      const corsOptions = {
-        origin(origin: any, callback: any) {
-          if (!cOptions || cOptions.origins.length === 0 || cOptions.origins.indexOf(origin) !== -1) {
-            callback(null, true);
-          } else {
-            callback(new Error('cors not allowed'));
-          }
-        },
-        exposedHeaders: cOptions.exposedHeaders,
-        allowedHeaders: cOptions.allowedHeaders,
-        credentials: true,
-      };
-
-      this.use(cors(corsOptions));
-    }
+    // CORS is now provided by CorsMiddleware (registered as ServerMiddleware,
+    // applied through the standard `Middlewares.before()` loop below).
 
     // register other server middlewares
     this.Middlewares.forEach((m) => {

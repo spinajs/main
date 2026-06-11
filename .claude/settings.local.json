@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(npx tsc *)",
-      "PowerShell(cd \"c:\\\\Users\\\\grzch\\\\SourceCodes\\\\Spinajs\\\\main\"; $packages = Get-ChildItem packages -Directory | Where-Object { Test-Path \"$\\($_.FullName\\)\\\\tsconfig.mjs.json\" } | Select-Object -ExpandProperty Name; $errors = @\\(\\); foreach \\($pkg in $packages\\) { $result = npx tsc -p \"packages/$pkg/tsconfig.mjs.json\" --noEmit 2>&1; if \\($LASTEXITCODE -ne 0\\) { $firstLine = \\($result | Select-Object -First 1\\); $errors += \"$pkg`: $firstLine\" } }; Write-Output \"Packages with errors:\"; $errors | ForEach-Object { Write-Output $_ })"
-    ]
-  }
-}

@@ -214,12 +214,25 @@ export abstract class FileUploadMiddleware {
   public abstract beforeUpload(file: IUploadedFile, options?: IUploadOptions): Promise<IUploadedFile>;
 }
 
+export interface IServerTimingEntry {
+  name: string;
+  /** duration in ms */
+  dur?: number;
+  /** optional description */
+  desc?: string;
+}
+
 export interface IActionLocalStoregeContext {
   requestId: string;
   responseStart: Date;
   responseEnd: Date;
   responseTime: number;
   realIp: string | undefined;
+  /**
+   * Phase markers contributed by middlewares / controllers, surfaced as the
+   * `Server-Timing` response header when {@link ServerTiming} is enabled.
+   */
+  serverTiming?: IServerTimingEntry[];
 }
 
 export interface IResponseHeader {
@@ -243,7 +256,13 @@ export abstract class ServerMiddleware extends AsyncService {
   public Order!: number;
 
   public abstract before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null;
-  public abstract after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null;
+  /**
+   * Returns the handler attached to the Express stack after controllers
+   * during HttpServer.start(). May be a regular 3-arg request handler OR a
+   * 4-arg Express error handler — the latter is needed to wire the global
+   * error middleware (see ErrorHandlerMiddleware) through the same lifecycle.
+   */
+  public abstract after(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | express.ErrorRequestHandler | null;
 }
 
 /**
@@ -798,6 +817,15 @@ export interface IControllerDescriptor {
    * Base url path for controller ( added for all child url's)
    */
   BasePath: string | null;
+
+  /**
+   * Absolute path of the source file that declared the controller, captured
+   * from the V8 stack frame the first time a route decorator runs on the
+   * class. Used by ControllersCache when a controller is registered through
+   * DI rather than the directory scan, so JSDoc / parameter-name extraction
+   * still has a real file to parse.
+   */
+  SourceFile?: string;
 }
 
 /**
