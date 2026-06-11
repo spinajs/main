@@ -62,7 +62,7 @@ describe('Orm rbac test', function () {
       expect(result).to.be.not.null;
     });
 
-    it('should reject query when user has no permission', async () => {
+    it('should throw forbidden when user has no permission', async () => {
       const store = DI.resolve(AsyncLocalStorage);
       await expect(
         store.run(
@@ -76,7 +76,7 @@ describe('Orm rbac test', function () {
             return await ResourceModel.where('Id', '>', 0).first();
           },
         ),
-      ).to.be.rejected;
+      ).to.be.rejectedWith('User does not have permission to access Test:read permission');
     });
 
     it('should skip rbac check when SkipModelPermissionCheck is set', async () => {

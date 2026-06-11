@@ -80,8 +80,17 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
           const ownScope = storage?.PermissionScope ?? (QUERY_TO_PERMISSION as any)[builder.constructor.name].own;
           const anyScope = storage?.PermissionScope ?? (QUERY_TO_PERMISSION as any)[builder.constructor.name].all;
           const roles = storage.ActiveRole ? [storage.ActiveRole] : storage.User.Role;
-          const canAny = (this.Ac!.can(roles) as any)[anyScope](resource).granted;
-          const canOwn = (this.Ac!.can(roles) as any)[ownScope](resource).granted;
+
+          let canAny = false;
+          let canOwn = false;
+          try {
+            canAny = (this.Ac!.can(roles) as any)[anyScope](resource).granted;
+            canOwn = (this.Ac!.can(roles) as any)[ownScope](resource).granted;
+          } catch (err) {
+            // accesscontrol throws eg. "Role not found" when role has no grants registered
+            // treat as no permission so caller gets Forbidden instead of library error
+            this.Log.trace(`Permission check for roles ${roles} on resource ${resource} failed: ${(err as Error).message}, treating as no permission`);
+          }
 
 
           if (builder instanceof SelectQueryBuilder || builder instanceof UpdateQueryBuilder || builder instanceof DeleteQueryBuilder) {
