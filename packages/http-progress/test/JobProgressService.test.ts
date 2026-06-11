@@ -15,7 +15,6 @@ describe('JobProgressService', function () {
 
     beforeEach(() => {
         service = new JobProgressService();
-        // Prevent GC interval from being created in unit tests
         sinon.stub(globalThis, 'setInterval').returns(undefined as any);
     });
 
@@ -24,12 +23,16 @@ describe('JobProgressService', function () {
     });
 
     describe('create()', () => {
-        it('should return a UUID string', () => {
+        it('should return a UUID string when no jobId provided', () => {
             const jobId = service.create();
             expect(jobId).to.be.a('string');
-            expect(jobId).to.match(
-                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-            );
+            expect(jobId).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+        });
+
+        it('should use provided jobId', () => {
+            const jobId = service.create('my-custom-id');
+            expect(jobId).to.equal('my-custom-id');
+            expect(service.get('my-custom-id')).to.not.be.undefined;
         });
 
         it('should create a job with pending status and 0 progress', () => {
@@ -40,10 +43,10 @@ describe('JobProgressService', function () {
             expect(job!.progress).to.equal(0);
         });
 
-        it('should set createdAt as ISO string', () => {
+        it('should set createdAt as DateTime', () => {
             const jobId = service.create();
             const job = service.get(jobId);
-            expect(DateTime.fromISO(job!.createdAt).isValid).to.be.true;
+            expect(job!.createdAt).to.be.instanceOf(DateTime);
         });
     });
 
@@ -88,16 +91,8 @@ describe('JobProgressService', function () {
             expect(job.status).to.equal('done');
         });
 
-        it('should store downloadToken when provided', () => {
-            const jobId = service.create();
-            service.complete(jobId, 'my-token');
-            expect(service.get(jobId)!.downloadToken).to.equal('my-token');
-        });
-
-        it('should not set downloadToken when not provided', () => {
-            const jobId = service.create();
-            service.complete(jobId);
-            expect(service.get(jobId)!.downloadToken).to.be.undefined;
+        it('should throw for unknown jobId', () => {
+            expect(() => service.complete('non-existent')).to.throw();
         });
     });
 
@@ -108,6 +103,10 @@ describe('JobProgressService', function () {
             const job = service.get(jobId)!;
             expect(job.status).to.equal('error');
             expect(job.error).to.equal('Something went wrong');
+        });
+
+        it('should throw for unknown jobId', () => {
+            expect(() => service.fail('non-existent', new Error('x'))).to.throw();
         });
     });
 
@@ -123,51 +122,12 @@ describe('JobProgressService', function () {
         });
     });
 
-    describe('download tokens', () => {
-        it('createDownloadToken() should return a UUID string', () => {
-            const token = service.createDownloadToken('/tmp/file.pdf', 'fs-temp', 'offer.pdf');
-            expect(token).to.match(
-                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-            );
-        });
-
-        it('consumeDownloadToken() should return the entry on first call', () => {
-            const token = service.createDownloadToken('/tmp/file.pdf', 'fs-temp', 'offer.pdf');
-            const entry = service.consumeDownloadToken(token);
-            expect(entry).to.not.be.undefined;
-            expect(entry!.path).to.equal('/tmp/file.pdf');
-            expect(entry!.provider).to.equal('fs-temp');
-            expect(entry!.filename).to.equal('offer.pdf');
-        });
-
-        it('consumeDownloadToken() should return undefined on second call (one-time use)', () => {
-            const token = service.createDownloadToken('/tmp/file.pdf', 'fs-temp', 'offer.pdf');
-            service.consumeDownloadToken(token);
-            expect(service.consumeDownloadToken(token)).to.be.undefined;
-        });
-
-        it('consumeDownloadToken() should return undefined for unknown token', () => {
-            expect(service.consumeDownloadToken('unknown-token')).to.be.undefined;
-        });
-
-        it('consumeDownloadToken() should return undefined for expired token', () => {
-            const token = service.createDownloadToken('/tmp/file.pdf', 'fs-temp', 'offer.pdf');
-            // Manually expire the token
-            const downloads = (service as any)._downloads as Map<string, { expiresAt: DateTime }>;
-            downloads.get(token)!.expiresAt = DateTime.now().minus({ minutes: 1 });
-            expect(service.consumeDownloadToken(token)).to.be.undefined;
-        });
-    });
-
     describe('_gc()', () => {
         it('should remove expired jobs', () => {
             const jobId = service.create();
-            // Manually expire the job
             const jobs = (service as any)._jobs as Map<string, { _expiresAt: DateTime }>;
             jobs.get(jobId)!._expiresAt = DateTime.now().minus({ minutes: 1 });
-
             (service as any)._gc();
-
             expect(service.get(jobId)).to.be.undefined;
         });
 

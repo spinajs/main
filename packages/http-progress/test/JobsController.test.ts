@@ -3,11 +3,11 @@ import { expect } from 'chai';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import sinon from 'sinon';
-import { FileResponse } from '@spinajs/http';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { JobsController } from '../src/controllers/JobsControllers.js';
 import { JobProgressService } from '../src/services/JobProgressService.js';
 import { IJobStatusResponse } from '../src/models/JobEntry.js';
+import { DateTime } from 'luxon';
 
 chai.use(chaiAsPromised);
 
@@ -21,7 +21,7 @@ describe('JobsController', function () {
         jobId: 'abc-123',
         progress: 75,
         status: 'processing',
-        createdAt: new Date().toISOString(),
+        createdAt: DateTime.now(),
     };
 
     beforeEach(() => {
@@ -48,33 +48,11 @@ describe('JobsController', function () {
             expect(mockService.get.calledWith('abc-123')).to.be.true;
         });
 
-        it('should throw NotFound when job does not exist', () => {
+        it('should throw ResourceNotFound when job does not exist', () => {
             mockService.get.returns(undefined);
 
             expect(() => controller.getStatus('unknown')).to.throw(ResourceNotFound);
         });
     });
-
-    describe('download()', () => {
-        it('should return FileResponse when token is valid', () => {
-            mockService.consumeDownloadToken.returns({
-                path: '/tmp/offer.pdf',
-                provider: 'fs-temp',
-                filename: 'oferta.pdf',
-                expiresAt: null as any,
-            });
-
-            const result = controller.download('abc-123', 'valid-token');
-
-            expect(result).to.be.instanceOf(FileResponse);
-            expect((result as any).Options.filename).to.equal('oferta.pdf');
-            expect((result as any).Options.deleteAfterDownload).to.be.true;
-        });
-
-        it('should throw NotFound when token is invalid or expired', () => {
-            mockService.consumeDownloadToken.returns(undefined);
-
-            expect(() => controller.download('abc-123', 'bad-token')).to.throw(ResourceNotFound);
-        });
-    });
 });
+
