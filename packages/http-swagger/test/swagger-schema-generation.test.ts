@@ -1,57 +1,60 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI } from '@spinajs/di';
-import { Schema } from '@spinajs/validation';
-import { OpenApiBuilder, ModelSchemaProvider, DtoSchemaProvider, resolveTypeSchema } from '../src/index.js';
-
-const MODEL_DESCRIPTOR_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
+import { SchemaProvider } from '@spinajs/validation';
+import { OpenApiBuilder } from '../src/index.js';
 
 // RelationType: One = 0, Many = 1, ManyToMany = 2
-class TestUser {}
-class TestTag {}
-class TestPost {}
+//
+// A fake provider stands in for the real `ModelSchemaProvider` (@spinajs/orm) and
+// `DtoSchemaProvider` (@spinajs/validation) so these builder tests stay decoupled
+// from those packages. It returns the raw schema shape providers produce: relations
+// are emitted as `{ type: 'object', description }` refs that the builder later
+// expands into `$ref` components.
+const SCHEMAS: Record<string, any> = {
+  TestUser: {
+    type: 'object',
+    properties: {
+      id: { type: 'integer' },
+      email: { type: 'string' },
+      Posts: { type: 'array', items: { type: 'object', description: 'TestPost' } }, // Many → TestPost (cycle)
+    },
+    required: ['email'],
+  },
+  TestTag: {
+    type: 'object',
+    properties: { id: { type: 'integer' }, name: { type: 'string' } },
+  },
+  TestPost: {
+    type: 'object',
+    properties: {
+      id: { type: 'integer' },
+      title: { type: 'string' },
+      Author: { type: 'object', description: 'TestUser' }, // One → TestUser
+      Tags: { type: 'array', items: { type: 'object', description: 'TestTag' } }, // ManyToMany → TestTag
+    },
+    required: ['title'],
+  },
+  TestPaginationDto: {
+    type: 'object',
+    properties: { page: { type: 'integer' }, size: { type: 'integer' } },
+    required: ['page'],
+  },
+};
 
-function defineDescriptor(cls: any, name: string, descriptor: any) {
-  Reflect.defineMetadata(MODEL_DESCRIPTOR_SYMBOL, { [name]: descriptor }, cls);
+class FakeSchemaProvider extends SchemaProvider {
+  public getSchema(typeName: string): Record<string, unknown> | undefined {
+    return SCHEMAS[typeName];
+  }
 }
-
-// A `@Schema` DTO — self-registers under '__schemas__' at import.
-@Schema({
-  type: 'object',
-  properties: { page: { type: 'integer' }, size: { type: 'integer' } },
-  required: ['page'],
-})
-class TestPaginationDto {}
 
 describe('Swagger schema generation', function () {
   let builder: any;
 
-  before(() => {
-    DI.clearCache();
-    DI.setESMModuleSupport();
-
-    defineDescriptor(TestUser, 'TestUser', {
-      Schema: { type: 'object', properties: { id: { type: 'integer' }, email: { type: 'string' } }, required: ['email'] },
-      Relations: new Map([['Posts', { Type: 1, TargetModel: { name: 'TestPost' } }]]), // Many → TestPost (cycle)
-    });
-    defineDescriptor(TestTag, 'TestTag', {
-      Schema: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' } } },
-    });
-    defineDescriptor(TestPost, 'TestPost', {
-      Schema: { type: 'object', properties: { id: { type: 'integer' }, title: { type: 'string' } }, required: ['title'] },
-      Relations: new Map<string, any>([
-        ['Author', { Type: 0, TargetModel: { name: 'TestUser' } }], // One → TestUser
-        ['Tags', { Type: 2, TargetModel: { name: 'TestTag' } }], // ManyToMany → TestTag
-      ]),
-    });
-
-    DI.register(TestUser).as('__models__');
-    DI.register(TestTag).as('__models__');
-    DI.register(TestPost).as('__models__');
-  });
-
   beforeEach(() => {
     builder = new OpenApiBuilder({ title: 'Test', version: '1.0.0' } as any);
+    // The builder discovers providers through the `@Autoinject(SchemaProvider)`
+    // `SchemaProviders` field; inject the fake directly since we construct it by hand.
+    builder.SchemaProviders = [new FakeSchemaProvider()];
   });
 
   const expand = (s: any) => builder.expandNamedSchemas(s);
@@ -103,11 +106,7 @@ describe('Swagger schema generation', function () {
     expect(user.properties.Posts.items).to.deep.equal({ $ref: '#/components/schemas/TestPost' });
   });
 
-  it('@Schema registers the DTO class under __schemas__', () => {
-    expect(DI.getRegisteredTypes('__schemas__')).to.include(TestPaginationDto);
-  });
-
-  it('@Schema DTO name → component built from its @Schema', () => {
+  it('named DTO schema → component', () => {
     const out = expand({ type: 'object', description: 'TestPaginationDto' });
 
     expect(out).to.deep.equal({ $ref: '#/components/schemas/TestPaginationDto' });
@@ -117,22 +116,5 @@ describe('Swagger schema generation', function () {
     expect(dto.properties.page.type).to.equal('integer');
     expect(dto.properties.size.type).to.equal('integer');
     expect(dto.required).to.include('page');
-  });
-
-  it('resolveTypeSchema resolves models and DTOs, undefined for unknown names', () => {
-    expect(resolveTypeSchema('TestUser')).to.be.an('object');
-    expect(resolveTypeSchema('TestPaginationDto')).to.be.an('object');
-    expect(resolveTypeSchema('NoSuchType')).to.equal(undefined);
-  });
-
-  it('providers resolve their own kind and ignore the other', () => {
-    const model = new ModelSchemaProvider();
-    const dto = new DtoSchemaProvider();
-
-    expect(model.resolve('TestUser')).to.be.an('object');
-    expect(model.resolve('TestPaginationDto')).to.equal(undefined);
-
-    expect(dto.resolve('TestPaginationDto')).to.be.an('object');
-    expect(dto.resolve('TestUser')).to.equal(undefined);
   });
 });

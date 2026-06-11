@@ -128,6 +128,10 @@ export class DataValidator extends AsyncService {
     return !!this.Validator.getSchema(schemaId);
   }
 
+  public getSchema(schemaId: string): Record<string, unknown> | undefined {
+    return this.Validator.getSchema(schemaId)?.schema;
+  }
+
   /**
    * Tries to validate given data
    *
