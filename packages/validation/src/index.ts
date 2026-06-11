@@ -8,6 +8,7 @@
  */
 export { default } from './config/validation.js';
 export * from './decorators.js';
+export * from './schema-providers.js';
 export * from './exceptions/index.js';
 export * from './sources.js';
 export * from './validator.js';
