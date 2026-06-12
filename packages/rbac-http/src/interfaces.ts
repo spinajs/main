@@ -50,7 +50,6 @@ export interface IUserWithGrants extends IUserProfile {
 /** Response for /auth/active-role endpoints */
 export interface IActiveRoleResponse {
   ActiveRole: string;
-  AvailableRoles: string[];
   Grants: IGrantsMap;
 }
 
@@ -62,8 +61,6 @@ export interface IImpersonationResponse {
   Impersonator: IUserProfile;
   /** ActiveRole now in effect — defaults to target.Role[0] when impersonation starts */
   ActiveRole: string;
-  /** Roles the target may switch to via /auth/active-role */
-  AvailableRoles: string[];
   /** RBAC grants resolved for ActiveRole */
   Grants: IGrantsMap;
   /** ISO timestamp when impersonation was started */

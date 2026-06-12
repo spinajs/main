@@ -215,7 +215,7 @@ export class LoginController extends BaseController {
   /**
    * Get current user
    * Returns the user object associated with the current session along with the
-   * currently active role and the full list of roles the user may switch to.
+   * currently active role. Roles the user may switch to are listed in Role.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
    * @security cookieAuth
    * @returns {User} User data from the current session
@@ -228,7 +228,6 @@ export class LoginController extends BaseController {
     return new Ok({
       ...User.dehydrateWithRelations({ dateTimeFormat: 'iso' }),
       ActiveRole: ActiveRole ?? User.Role?.[0],
-      AvailableRoles: User.Role ?? [],
     });
   }
 }

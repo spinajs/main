@@ -32,8 +32,8 @@ export class ActiveRoleController extends BaseController {
 
   /**
    * Get active role
-   * Returns the currently active role for the session, all roles the user may switch to,
-   * and the RBAC grants resolved for the active role.
+   * Returns the currently active role for the session and the RBAC grants
+   * resolved for the active role. Roles the user may switch to are in User.Role.
    * @security cookieAuth
    * @returns {IActiveRoleResponse}
    * @response 401 No active session
@@ -41,7 +41,7 @@ export class ActiveRoleController extends BaseController {
   @Get('active-role')
   @Policy(LoggedPolicy)
   public async getActiveRole(@UserRouteArg() user: User, @FromSession() ActiveRole: string): Promise<Ok<IActiveRoleResponse>> {
-    return new Ok(this.buildResponse(user, ActiveRole ?? user.Role?.[0]));
+    return new Ok(this.buildResponse(ActiveRole ?? user.Role?.[0]));
   }
 
   /**
@@ -94,14 +94,13 @@ export class ActiveRoleController extends BaseController {
     session.Data.set('ActiveRole', payload.Role);
     await this.SessionProvider.save(session);
 
-    return new Ok(this.buildResponse(user, payload.Role));
+    return new Ok(this.buildResponse(payload.Role));
   }
 
-  protected buildResponse(user: User, activeRole: string): IActiveRoleResponse {
+  protected buildResponse(activeRole: string): IActiveRoleResponse {
     const grants = activeRole ? _unwindGrants(activeRole, this.AC.getGrants()) : {};
     return {
       ActiveRole: activeRole,
-      AvailableRoles: user.Role ?? [],
       Grants: grants,
     };
   }

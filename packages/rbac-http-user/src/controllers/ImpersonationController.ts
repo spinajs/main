@@ -275,7 +275,6 @@ export class ImpersonationController extends BaseController {
       User: target.dehydrateWithRelations({ dateTimeFormat: 'iso' }) as any,
       Impersonator: impersonator.dehydrateWithRelations({ dateTimeFormat: 'iso' }) as any,
       ActiveRole: activeRole,
-      AvailableRoles: target.Role ?? [],
       Grants: grants,
       StartedAt: startedAt,
     };

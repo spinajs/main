@@ -227,7 +227,7 @@ describe('ImpersonationController', function () {
       expect(body.User.Uuid).to.equal('user-uuid');
       expect(body.Impersonator.Uuid).to.equal('admin-uuid');
       expect(body.ActiveRole).to.equal('user');
-      expect(body.AvailableRoles).to.deep.equal(['user']);
+      expect(body.User.Role).to.deep.equal(['user']);
       expect(body.StartedAt).to.be.a('string');
 
       // Session state mutated correctly

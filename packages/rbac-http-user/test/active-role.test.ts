@@ -168,7 +168,7 @@ describe('ActiveRoleController', function () {
   });
 
   describe('getActiveRole', () => {
-    it('returns active role, available roles, and grants resolved from DI-backed AccessControl', async () => {
+    it('returns active role and grants resolved from DI-backed AccessControl', async () => {
       const user = buildUser(['admin', 'user']);
 
       const result = await controller.getActiveRole(user, 'admin');
@@ -176,7 +176,6 @@ describe('ActiveRoleController', function () {
       expect(result).to.be.instanceOf(Ok);
       const body = data(result);
       expect(body.ActiveRole).to.equal('admin');
-      expect(body.AvailableRoles).to.deep.equal(['admin', 'user']);
       expect(body.Grants).to.have.property('Test');
     });
 
