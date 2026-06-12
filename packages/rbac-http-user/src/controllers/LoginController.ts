@@ -144,6 +144,7 @@ export class LoginController extends BaseController {
         // at runtime — the ORM types don't reflect the dateTimeFormat option in generics
         result = {
           ...user.dehydrateWithRelations({ dateTimeFormat: "iso" }),
+          Role: user.Role, // temp fix for role grants, as dehydrateWithRelations returns string of roles, not array
           ActiveRole: activeRole,
           Grants: combinedGrants,
         } as unknown as IUserWithGrants;
