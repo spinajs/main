@@ -58,7 +58,7 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
           const descriptor = extractModelDescriptor(builder.Model) as IRbacModelDescriptor;
 
           // if model does not have @Resource() decorator set, model name is used
-          const resource = descriptor.RbacResource ?? descriptor.Name;
+          const resource = descriptor.RbacResource; // ?? descriptor.Name; // temporarly remove resource assign
 
           // no rbac is set do nothing
           if (!resource) {
