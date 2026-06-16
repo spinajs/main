@@ -1,7 +1,7 @@
 ﻿import { join } from 'path';
 
 function lib(...path: string[]) {
-    return join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'http-progress', 'lib', ...path);
+    return join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'queue-http-progress', 'lib', ...path);
 }
 
 function dir(path: string) {

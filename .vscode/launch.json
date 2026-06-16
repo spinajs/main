@@ -539,9 +539,9 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "[ HTTP ] http-progress test",
+      "name": "[ HTTP ] queue-http-progress test",
       "program": "${workspaceFolder}/node_modules/ts-mocha/bin/ts-mocha",
-      "cwd": "${workspaceFolder}/packages/http-progress/",
+      "cwd": "${workspaceFolder}/packages/queue-http-progress/",
       "args": ["-p", "tsconfig.json", "test/**/*.test.ts"],
       "env": {
         "NODE_ENV": "development"

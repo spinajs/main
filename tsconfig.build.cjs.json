@@ -16,7 +16,7 @@
     { "path": "./packages/email-smtp-transport/tsconfig.cjs.json" },
     { "path": "./packages/fs-s3/tsconfig.cjs.json" },
     { "path": "./packages/http/tsconfig.cjs.json" },
-    { "path": "./packages/http-progress/tsconfig.cjs.json" },
+    { "path": "./packages/queue-http-progress/tsconfig.cjs.json" },
     { "path": "./packages/http-swagger/tsconfig.cjs.json" },
     { "path": "./packages/intl/tsconfig.cjs.json" },
     { "path": "./packages/intl-http/tsconfig.cjs.json" },

@@ -1,5 +1,5 @@
 {
-  "name": "@spinajs/http-progress",
+  "name": "@spinajs/queue-http-progress",
   "version": "2.0.473",
   "description": "HTTP request progress tracking utility for SpineJS. Provides real-time progress updates for file uploads and downloads, integrating with SpineJS HTTP controllers.",
   "main": "lib/cjs/index.js",
@@ -57,6 +57,7 @@
     "@spinajs/exceptions": "^2.0.473",
     "@spinajs/http": "^2.0.473",
     "@spinajs/log": "^2.0.473",
+    "@spinajs/queue": "^2.0.473",
     "@spinajs/reflection": "^2.0.473",
     "@spinajs/fs": "^2.0.473",
     "@spinajs/templates": "^2.0.473",
