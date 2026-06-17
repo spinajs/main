@@ -196,54 +196,54 @@ export class UserBase extends ModelBase<UserBase> {
   }
 
   @Primary()
-  public Id: number;
+  public Id!: number;
 
-  public Uuid: string;
+  public Uuid!: string;
 
-  public Email: string;
+  public Email!: string;
 
   /**
    * Hashed password for user
    */
-  public Password: string;
+  public Password!: string;
 
   /**
    * Displayed name ( for others to see )
    */
-  public Login: string;
+  public Login!: string;
 
   /**
    * User role
    */
   @Set()
-  public Role: string[];
+  public Role!: string[];
 
   /**
    * User creation date
    */
   @CreatedAt()
-  public CreatedAt: DateTime;
+  public CreatedAt!: DateTime;
 
   /**
    * Registration date. User is registered when clicked confirmation link sended to provided email.
    */
   @DT()
-  public RegisteredAt: DateTime;
+  public RegisteredAt!: DateTime;
 
   /**
    * User deletion date
    */
   @SoftDelete()
-  public DeletedAt: DateTime;
+  public DeletedAt!: DateTime;
 
   @DT()
-  public LastLoginAt: DateTime;
+  public LastLoginAt!: DateTime;
 
   /**
    * Account is fully active (eg. passed registration)
    * Do not use it to ban users, active user still can have banned status
    */
-  public IsActive: boolean;
+  public IsActive!: boolean;
 
   /**
    * User additional information. Can be anything
@@ -254,7 +254,7 @@ export class UserBase extends ModelBase<UserBase> {
   @HasMany(UserMetadataBase, {
     foreignKey: "user_id"
   })
-  public Metadata: MetadataRelation<UserMetadataBase, User>;
+  public Metadata!: MetadataRelation<UserMetadataBase, User>;
 
   public get IsGuest(): boolean {
     return this.Role.indexOf('guest') !== -1 || this.Role.length === 0;

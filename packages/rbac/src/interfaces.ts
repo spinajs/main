@@ -314,12 +314,32 @@ export interface IRbacAsyncStorage<U = User> {
   Session?: ISession;
 
   /**
- * Controller route permission context 
+ * Controller route permission context
  * To check if we run from (read|update|insert|delete)Own or (read|update|insert|delete)Any scope
- * 
+ *
  * eg. we want to read only current user data but it has admin privlidges too....
  */
   PermissionScope?: PermissionType;
 
+  /**
+   * Currently selected role from User.Role list. When set, all request-bound
+   * permission checks (rbac query middleware, RbacPolicy) use this single role
+   * instead of the full role array. The user may switch via /auth/active-role.
+   */
+  ActiveRole?: string;
 
+  /**
+   * Original user when an impersonation is active. `User` then holds the
+   * target user; `Impersonator` holds whoever initiated impersonation.
+   * Unset on regular (non-impersonated) requests.
+   */
+  Impersonator?: U;
+
+  /**
+   * When set, RbacModelPermissionMiddleware skips injecting permission
+   * constraints into query builders for this execution context.
+   * Set via @SkipModelPermission() decorator for controller actions
+   * that are assumed safe to execute without rbac query filtering.
+   */
+  SkipModelPermissionCheck?: boolean;
 }

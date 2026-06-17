@@ -1,7 +1,6 @@
-import { ClassInfo, TypedArray } from '@spinajs/di';
-import { resolveTypeSchema } from './schema-providers.js';
+import { Autoinject, ClassInfo, TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
-import { SCHEMA_SYMBOL } from '@spinajs/validation';
+import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import {
   IOpenApiDocument,
   IOpenApiOperation,
@@ -116,6 +115,9 @@ export class OpenApiBuilder {
   private registeredPolicies: Set<string> = new Set();
   private policySectionEntries: string[] = [];
   private infoDescriptionBase: string = '';
+
+  @Autoinject(SchemaProvider)
+  protected SchemaProviders!: SchemaProvider[];
 
   constructor(config: ISwaggerConfig) {
     this.config = config;
@@ -953,7 +955,7 @@ export class OpenApiBuilder {
       return ref;
     }
 
-    const resolved = resolveTypeSchema(name);
+    const resolved = this.SchemaProviders.map((p) => p.getSchema(name)).find((r) => !!r);
     if (!resolved) {
       return undefined;
     }

@@ -49,7 +49,7 @@ export class ConnectionConf extends FrameworkConfiguration {
             Password: 'root',
             User: 'root',
             Database: 'test-2',
-            Port: 3306,
+            Port: 3900,
             Migration: {
               Table: TEST_MIGRATION_TABLE_NAME,
               OnStartup: true,
@@ -65,7 +65,7 @@ export class ConnectionConf extends FrameworkConfiguration {
             Password: 'root',
             User: 'root',
             Database: 'test',
-            Port: 3306,
+            Port: 3900,
             Migration: {
               Table: TEST_MIGRATION_TABLE_NAME,
               OnStartup: true,

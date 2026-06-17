@@ -45,7 +45,8 @@ export class RbacPolicy extends BasePolicy {
     }
 
     if (!permission.some(p => checkRoutePermission(req, descriptor.Resource, p)?.granted)) {
-      throw new Forbidden(`role(s) ${req.storage.User.Role} does not have permission ${permission} for resource ${descriptor.Resource}`);
+      const effective = req.storage.ActiveRole ?? req.storage.User.Role;
+      throw new Forbidden(`role(s) ${effective} does not have permission ${permission} for resource ${descriptor.Resource}`);
     }
   }
 }
@@ -70,5 +71,7 @@ export function checkRoutePermission(req: sRequest, resource: string, permission
     return null;
   }
 
-  return checkUserPermission(req.storage.User, resource, permission);
+  const ac = DI.get<AccessControl>('AccessControl')!;
+  const roles = req.storage.ActiveRole ? [req.storage.ActiveRole] : req.storage.User.Role;
+  return (ac.can(roles) as any)[permission](resource);
 }

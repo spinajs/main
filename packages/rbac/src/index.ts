@@ -23,6 +23,7 @@ export * from './middleware.js';
 export * from './decorators.js';
 export * from './util.js';
 export * from './profile.js';
+export * from './impersonation.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;

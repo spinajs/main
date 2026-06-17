@@ -1,12 +1,14 @@
 import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, Unauthorized, Policy } from '@spinajs/http';
 import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants } from '@spinajs/rbac';
-import { Autoinject } from '@spinajs/di';
+import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg, ILoginResponse, IUserWithGrants } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, ILoginResponse, IUserWithGrants, SkipModelPermission } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
- 
+import type { ISession } from '@spinajs/rbac';
+import { LogoutHandler, ILogoutContext } from '../logout.js';
+
 
 /**
  * Authentication endpoints.
@@ -58,6 +60,7 @@ export class LoginController extends BaseController {
    * @response 401 Invalid email or password
    */
   @Post()
+  @SkipModelPermission()
   public async login(@UserRouteArg() logged: User, @Cookie(true) ssid: string, @Body() credentials: UserLoginDto): Promise<Ok<ILoginResponse> | Unauthorized> {
     try {
 
@@ -90,6 +93,13 @@ export class LoginController extends BaseController {
       let result: ILoginResponse;
 
       session.Data.set('User', user.Uuid);
+
+      // Default active role = first role from the user's role list.
+      // Users with multiple roles can later switch via /auth/active-role.
+      const activeRole = user.Role?.[0];
+      if (activeRole) {
+        session.Data.set('ActiveRole', activeRole);
+      }
 
       // we have two states for user
       // LOGGED - when user use proper login/password and session is created
@@ -128,13 +138,14 @@ export class LoginController extends BaseController {
         session.Data.set('Authorized', true);
 
         const grants = this.AC.getGrants();
-        const userGrants = user.Role.map(r => _unwindGrants(r, grants));
-        const combinedGrants = Object.assign({}, ...userGrants);
+        const combinedGrants = activeRole ? _unwindGrants(activeRole, grants) : {};
 
         // dehydrateWithRelations({ dateTimeFormat: 'iso' }) converts DateTime to ISO strings
         // at runtime — the ORM types don't reflect the dateTimeFormat option in generics
         result = {
           ...user.dehydrateWithRelations({ dateTimeFormat: "iso" }),
+          Role: user.Role, // temp fix for role grants, as dehydrateWithRelations returns string of roles, not array
+          ActiveRole: activeRole,
           Grants: combinedGrants,
         } as unknown as IUserWithGrants;
       }
@@ -165,52 +176,60 @@ export class LoginController extends BaseController {
   /**
    * Logout
    * Destroys the current session identified by the `ssid` cookie and clears the cookie on the client.
+   * If an impersonation is active, the session is NOT destroyed — instead the
+   * impersonation is ended and the original user resumes their session.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
    * @security cookieAuth
    * @response 401 No active session
    */
   @Get()
   @Policy(LoggedPolicy)
-  public async logout(@Cookie(true) ssid: string) {
+  public async logout(@Cookie(true) ssid: string, @SessionRouteArg() session: ISession, @UserRouteArg() user: User) {
     if (!ssid) {
       return new Ok();
     }
 
-    await this.SessionProvider.delete(ssid);
+    // Delegate to the registered LogoutHandler chain. Each handler decides
+    // whether to take ownership of the response (returns non-null) or defer
+    // to the next handler. Built-ins:
+    //  - ImpersonationLogoutHandler (priority 10): reverts an active
+    //    impersonation and keeps the session alive.
+    //  - DefaultLogoutHandler (priority 999): destroys the session and clears
+    //    the ssid cookie.
+    // Apps can register additional handlers via @Injectable(LogoutHandler).
+    const handlers = await DI.resolve(Array.ofType(LogoutHandler));
+    const sorted = [...handlers].sort((a, b) => a.Priority - b.Priority);
 
-    // send empty cookie to confirm session deletion
-    return new Ok(null, {
-      Coockies: [
-        {
-          Name: 'ssid',
-          Value: '',
-          Options: {
-            httpOnly: true,
-            maxAge: 0,
+    const ctx: ILogoutContext = { Ssid: ssid, Session: session, User: user };
+    for (const handler of sorted) {
+      const result = await handler.handle(ctx);
+      if (result) {
+        return new Ok(result.Body ?? null, { Coockies: result.Cookies ?? [] });
+      }
+    }
 
-            // any optopnal cookie options
-            // or override default ones
-            ...this.SessionCookieConfig
-          },
-        },
-      ],
-    });
+    // No handler claimed the request — should not happen as long as the
+    // default handler is registered, but return a clean response anyway.
+    return new Ok();
   }
 
   /**
    * Get current user
-   * Returns the user object associated with the current session.
+   * Returns the user object associated with the current session along with the
+   * currently active role. Roles the user may switch to are listed in Role.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
    * @security cookieAuth
-   * @returns {IUserProfile} User data from the current session
+   * @returns {User} User data from the current session
    * @response 401 No active session
    */
   @Get()
   @Policy(LoggedPolicy)
-  public async whoami(@UserRouteArg() User: User) {
+  public async whoami(@UserRouteArg() User: User, @FromSession() ActiveRole: string) {
 
-    // user is taken from session data
-    return new Ok(User);
+    return new Ok({
+      ...User.dehydrateWithRelations({ dateTimeFormat: 'iso' }),
+      ActiveRole: ActiveRole ?? User.Role?.[0],
+    });
   }
 }
 

@@ -19,6 +19,8 @@ export interface IParamDoc {
 
 export interface IResponseDoc {
   description: string;
+  /** Optional `{type}` annotation, e.g. `@response 400 {string} message` */
+  type?: string;
 }
 
 export interface IExampleDoc {
@@ -122,6 +124,14 @@ export class DefaultControllerCache extends AsyncService {
 
   /** Returns parameter-name map used for route argument binding. */
   public async getCache(controller: ClassInfo<BaseController>): Promise<Record<string, string[]>> {
+    // Sentinel values like `<di>` are set by Controllers.resolve() / add() for
+    // controllers registered through DI rather than a file scan. There's no
+    // on-disk source to parse, so fall back to a runtime extraction of
+    // parameter names from each method's Function.toString().
+    if (!this.isResolvableSource(controller.file)) {
+      return this.extractParametersAtRuntime(controller);
+    }
+
     const file = resolvePath(controller.file.replace('.js', '.d.ts'));
     const hash = await this.Hasher.hash(file);
     const docHash = `doc_${hash}`;
@@ -142,8 +152,41 @@ export class DefaultControllerCache extends AsyncService {
     return this.CacheFS.read(hash).then((x) => JSON.parse(x.toString()) as Record<string, string[]>);
   }
 
+  /** Whether `file` points at a real on-disk source we can parse. */
+  private isResolvableSource(file: string | undefined): boolean {
+    if (!file) return false;
+    // Bracketed sentinels (e.g. `<di>`, `<dynamic>`) are used by Controllers
+    // for entries that were never loaded from a file.
+    return !(file.startsWith('<') && file.endsWith('>'));
+  }
+
+  /**
+   * Fallback: derive route method parameter names by parsing each method's
+   * Function.toString() output. Loses JSDoc documentation (no @param tags
+   * etc.) but keeps argument binding working for DI-registered controllers
+   * that have no source file on disk.
+   */
+  private extractParametersAtRuntime(controller: ClassInfo<BaseController>): Record<string, string[]> {
+    const parameters: Record<string, string[]> = {};
+    const instance = controller.instance;
+    if (!instance || !instance.Descriptor) return parameters;
+
+    for (const [methodName] of instance.Descriptor.Routes) {
+      const fn = (instance as any)[methodName as string];
+      if (typeof fn !== 'function') continue;
+      parameters[methodName as string] = parseFnParamNames(fn);
+    }
+    return parameters;
+  }
+
   /** Returns the JSDoc / TypeScript-annotation documentation for a controller. */
   public async getDocumentation(controller: ClassInfo<BaseController>): Promise<IControllerDocumentation> {
+    // No source file → no JSDoc to extract. Return an empty shell so callers
+    // (e.g. http-swagger) gracefully skip the controller instead of throwing.
+    if (!this.isResolvableSource(controller.file)) {
+      return { className: controller.name, methods: {} };
+    }
+
     const file = resolvePath(controller.file.replace('.js', '.d.ts'));
     const hash = await this.Hasher.hash(file);
     const docHash = `doc_${hash}`;
@@ -164,7 +207,8 @@ export class DefaultControllerCache extends AsyncService {
    * .d.ts which only emits type-referenced ones) and resolve the matching
    * module specifier against the controller's directory or node_modules.
    *
-   * Per-call in-memory cache only — policy doc volume is small and the cost is
+   * JSDoc is extracted per class — several policies may share one file, so the
+   * file is parsed once per class. Policy doc volume is small and the cost is
    * dominated by ts.createProgram which we already pay for the controller.
    */
   public async getPolicyDocumentation(
@@ -178,18 +222,13 @@ export class DefaultControllerCache extends AsyncService {
     const importMap = this.extractImports(controllerJs);
     if (importMap.size === 0) return out;
 
-    const seenFiles = new Set<string>();
     for (const name of policyNames) {
       if (out[name]) continue;
       const moduleSpec = importMap.get(name);
       if (!moduleSpec) continue;
 
       const policyFile = this.resolvePolicyFile(controllerJs, moduleSpec);
-      if (!policyFile || seenFiles.has(policyFile)) {
-        if (policyFile) out[name] = { file: policyFile };
-        continue;
-      }
-      seenFiles.add(policyFile);
+      if (!policyFile) continue;
 
       try {
         const description = this.extractClassJsDoc(policyFile, name);
@@ -334,8 +373,17 @@ export class DefaultControllerCache extends AsyncService {
     if (space <= 0) return;
     const code = comment.substring(0, space).trim();
     if (!/^\d+$/.test(code)) return;
-    const desc = comment.substring(space + 1).trim();
-    (ctx.doc.responses ??= {})[code] = { description: desc };
+    let desc = comment.substring(space + 1).trim();
+
+    // `@response 400 {string} message` — split the optional type annotation off
+    let type: string | undefined;
+    const typeMatch = /^\{([^}]+)\}\s*/.exec(desc);
+    if (typeMatch) {
+      type = typeMatch[1].trim();
+      desc = desc.substring(typeMatch[0].length).trim();
+    }
+
+    (ctx.doc.responses ??= {})[code] = { description: desc, ...(type ? { type } : {}) };
   }
 
   private extractExampleTag(tag: ts.JSDocTag, ctx: ITagExtractorContext): void {
@@ -597,4 +645,20 @@ export class DefaultControllerCache extends AsyncService {
 /** Rightmost identifier of an entity name. */
 function entityNameRight(name: ts.EntityName): string {
   return ts.isIdentifier(name) ? name.text : name.right.text;
+}
+
+/**
+ * Pull parameter names from `Function.prototype.toString()` output. Modern V8
+ * preserves the literal signature so we can regex out `(a, b = 1, ...rest)`.
+ * Stripped of default values and TypeScript type annotations.
+ */
+function parseFnParamNames(fn: Function): string[] {
+  const src = Function.prototype.toString.call(fn);
+  const match = src.match(/^[^(]*\(([\s\S]*?)\)/);
+  if (!match) return [];
+  return match[1]
+    .split(',')
+    .map((p: string) => p.trim())
+    .filter(Boolean)
+    .map((p: string) => p.replace(/^\.\.\./, '').split(/[=:]/)[0].trim());
 }

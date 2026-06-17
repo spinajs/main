@@ -335,11 +335,14 @@ describe('Swagger API', function () {
       const paginationParam = op.parameters.find((p: any) => p.name === 'pagination');
       expect(paginationParam).to.exist;
       expect(paginationParam.in).to.equal('query');
-      expect(paginationParam.schema.type).to.equal('object');
-      expect(paginationParam.schema.properties).to.have.property('page');
-      expect(paginationParam.schema.properties.page.type).to.equal('integer');
-      expect(paginationParam.schema.properties).to.have.property('limit');
-      expect(paginationParam.schema.properties.limit.type).to.equal('integer');
+      // Object-typed query params are JSON-encoded, so the schema lives under
+      // `content['application/json']` instead of `schema` (see #76).
+      const schema = paginationParam.content['application/json'].schema;
+      expect(schema.type).to.equal('object');
+      expect(schema.properties).to.have.property('page');
+      expect(schema.properties.page.type).to.equal('integer');
+      expect(schema.properties).to.have.property('limit');
+      expect(schema.properties.limit.type).to.equal('integer');
     });
   });
 
