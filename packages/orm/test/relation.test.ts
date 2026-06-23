@@ -602,7 +602,7 @@ describe('Orm relations tests', () => {
     const desc = descriptor!.Relations.get('Owner');
 
     expect(desc!.TargetModel.name).to.eq('RelationModel2');
-    expect(desc!.SourceModel.name).to.eq('RelationModel1');
+    expect(desc!.SourceModel?.name).to.eq('RelationModel1');
   });
 
   it('HasMany relation decorator', async () => {
@@ -621,7 +621,7 @@ describe('Orm relations tests', () => {
     const desc = descriptor!.Relations.get('Many');
 
     expect(desc!.TargetModel.name).to.eq('Model1');
-    expect(desc!.SourceModel.name).to.eq('RelationModel2');
+    expect(desc!.SourceModel?.name).to.eq('RelationModel2');
   });
 
   it('HasManyToMany relation decorator', async () => {
@@ -640,7 +640,7 @@ describe('Orm relations tests', () => {
     const desc = descriptor!.Relations.get('ManyOwners');
 
     expect(desc!.TargetModel.name).to.eq('Model5');
-    expect(desc!.SourceModel.name).to.eq('Model4');
+    expect(desc!.SourceModel?.name).to.eq('Model4');
     expect(desc!.JunctionModel!.name).to.eq('JunctionModel');
   });
 
