@@ -66,7 +66,7 @@ describe('General model tests', () => {
     const orm = await db();
     const models = await orm.Models;
 
-    expect(models.length).to.eq(22);
+    expect(models.length).to.eq(24);
   });
 
   it('Should set different connections to model', async () => {

@@ -476,7 +476,7 @@ export interface IRelationDescriptor {
   /**
    * Used in many to many relations, model for join table
    */
-  JunctionModel?: Constructor<ModelBase>;
+  JunctionModel?: Constructor<ModelBase>
 
   /**
    * Join table foreign keys, defaults to auto generated field names. Can be override.

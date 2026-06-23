@@ -9,6 +9,7 @@ export * from './exceptions.js';
 export * from './converters.js';
 export * from './decorators.js';
 export * from './builders.js';
+export * from './existsRelationHandlers.js';
 export * from './model.js';
 export * from './relations.js';
 export * from './relation-objects.js';
