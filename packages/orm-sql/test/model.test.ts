@@ -25,6 +25,7 @@ import { Model4 } from './Models/Model4.js';
 import "@spinajs/log";
 import { User } from './Models/User.js';
 import { UserMetadata } from './Models/UserMetadata.js';
+import { RelationModel3 } from './Models/RelationModel3.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -262,7 +263,7 @@ describe('model generated queries', () => {
       this.where('Value', 'testValue');
     }).toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id WHERE ( `$UserMetadata$`.`Key` = ? ) AND EXISTS ( SELECT * FROM `users_metadata` WHERE `Key` = ? AND `Value` = ? AND user_id = `$users$`.`Id` )');
+    expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id WHERE ( `$UserMetadata$`.`Key` = ? ) AND EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `$users$`.`Id` )');
     expect(result.bindings![0]).to.eq('user:niceName');
     expect(result.bindings![1]).to.eq('user:niceName');
     expect(result.bindings![2]).to.eq('testValue');
@@ -323,7 +324,37 @@ describe('model generated queries', () => {
     expect(q.bindings![0]).to.eq('user:niceName');
     expect(q.bindings![1]).to.eq('testValue');
   });
-  
+
+  it('whereExists on ManyToMany relation should correlate through the junction table', async () => {
+    await DI.resolve(Orm);
+
+    // the EXISTS sub-query is correlated FROM the junction table (JoinTable) - a single
+    // junction row linking the source row to any target already satisfies the check
+    const q = RelationModel3.select().whereExist('Models').toDB() as ICompilerOutput;
+
+    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` WHERE owner_id = `RelationTable3`.`Id` )');
+  });
+
+  it('whereExists on ManyToMany relation should join the target so the callback resolves', async () => {
+    await DI.resolve(Orm);
+
+    // a callback narrows the target, so the target table is joined through the junction
+    const q = RelationModel3.select().whereExist('Models', function () {
+      this.where('Id', 1);
+    }).toDB() as ICompilerOutput;
+
+    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id WHERE ( `$RelationModel4$`.`Id` = ? ) AND owner_id = `RelationTable3`.`Id` )');
+    expect(q.bindings![0]).to.eq(1);
+  });
+
+  it('whereNotExists on ManyToMany relation should correlate through the junction table', async () => {
+    await DI.resolve(Orm);
+
+    const q = RelationModel3.select().whereNotExists('Models').toDB() as ICompilerOutput;
+
+    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE NOT EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` WHERE owner_id = `RelationTable3`.`Id` )');
+  });
+
 
   it('insert should throw when fields are null', async () => {
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');

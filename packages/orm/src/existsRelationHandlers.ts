@@ -82,26 +82,26 @@ export class ManyToManyExistsRelationHandler extends ExistsRelationHandler {
     return RelationType.ManyToMany;
   }
 
-  // TODO: the ManyToMany exists branch is untested and does not join the junction table
-  //       into the sub-query although it references its columns - it needs a dedicated fix.
-  //       Keys below follow the canonical M2M join (see ManyToManyRelation.compile).
   public apply<R>(builder: WhereBuilder<any>, rel: IRelationDescriptor, _relationName: string, callback?: WhereFunction<R>): ISelectQueryBuilder {
     const tDesc = (builder.Model as unknown as IModelStatic).getModelDescriptor();
-    const tableName = rel.TargetModel.getModelDescriptor().TableName;
+    const junctionModel = rel.JunctionModel as unknown as IModelStatic;
+    const junctionTableName = junctionModel.getModelDescriptor().TableName;
 
-    const relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
+    const relQuery = junctionModel.query().setAlias(`${junctionTableName}_exists`);
     relQuery.where(
       Lazy.oF(function () {
         relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKeyRef(builder, tDesc)}`));
       }),
     );
 
-    relQuery.rightJoin({
-      joinModel: rel.TargetModel,
-      joinTableForeignKey: rel.PrimaryKey,
-      sourceTablePrimaryKey: rel.JunctionModelTargetModelFKey_Name,
-      callback: callback,
-    });
+    if (callback) {
+      relQuery.rightJoin({
+        joinModel: rel.TargetModel,
+        joinTableForeignKey: rel.PrimaryKey,
+        sourceTablePrimaryKey: rel.JunctionModelTargetModelFKey_Name,
+        callback: callback,
+      });
+    }
 
     return relQuery;
   }
