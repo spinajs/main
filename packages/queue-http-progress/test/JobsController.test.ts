@@ -3,11 +3,11 @@ import { expect } from 'chai';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import sinon from 'sinon';
-import { ResourceNotFound } from '@spinajs/exceptions';
 import { JobsController } from '../src/controllers/JobsControllers.js';
-import { JobProgressService } from '../src/services/JobProgressService.js';
 import { IJobStatusResponse } from '../src/models/JobEntry.js';
 import { DateTime } from 'luxon';
+import { JobModel } from '@spinajs/queue';
+import { Ok } from '@spinajs/http';
 
 chai.use(chaiAsPromised);
 
@@ -15,23 +15,17 @@ describe('JobsController', function () {
     this.timeout(5000);
 
     let controller: JobsController;
-    let mockService: sinon.SinonStubbedInstance<JobProgressService>;
 
-    const mockJob: IJobStatusResponse = {
-        jobId: 'abc-123',
-        progress: 75,
-        status: 'processing',
-        createdAt: DateTime.now(),
+    const mockJobRow = {
+        JobId: 'abc-123',
+        Progress: 75,
+        Status: 'executing' as const,
+        Result: null,
+        CreatedAt: DateTime.now(),
     };
 
     beforeEach(() => {
-        mockService = sinon.createStubInstance(JobProgressService);
         controller = new JobsController();
-        Object.defineProperty(controller, 'Jobs', {
-            value: mockService,
-            writable: true,
-            configurable: true,
-        });
     });
 
     afterEach(() => {
@@ -39,19 +33,31 @@ describe('JobsController', function () {
     });
 
     describe('getStatus()', () => {
-        it('should return the job status when job exists', () => {
-            mockService.get.returns(mockJob);
+        it('should return Ok with job status when job exists', async () => {
+            const queryBuilder = {
+                where: sinon.stub().returnsThis(),
+                firstOrFail: sinon.stub().resolves(mockJobRow),
+            };
+            sinon.stub(JobModel, 'select').returns(queryBuilder as any);
 
-            const result = controller.getStatus('abc-123');
+            const result = await controller.getStatus('abc-123');
 
-            expect(result).to.deep.equal(mockJob);
-            expect(mockService.get.calledWith('abc-123')).to.be.true;
+            expect(result).to.be.instanceOf(Ok);
+            const response = (result as any).responseData as IJobStatusResponse;
+            expect(response.jobId).to.equal('abc-123');
+            expect(response.progress).to.equal(75);
+            expect(response.status).to.equal('executing');
+            expect(queryBuilder.where.calledWith('JobId', 'abc-123')).to.be.true;
         });
 
-        it('should throw ResourceNotFound when job does not exist', () => {
-            mockService.get.returns(undefined);
+        it('should throw when job does not exist', async () => {
+            const queryBuilder = {
+                where: sinon.stub().returnsThis(),
+                firstOrFail: sinon.stub().rejects(new Error('Not found')),
+            };
+            sinon.stub(JobModel, 'select').returns(queryBuilder as any);
 
-            expect(() => controller.getStatus('unknown')).to.throw(ResourceNotFound);
+            await expect(controller.getStatus('unknown')).to.be.rejected;
         });
     });
 });
