@@ -9,7 +9,15 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
     const obj = {};
     const relArr = [...model.ModelDescriptor!.Relations.values()];
 
-    model.ModelDescriptor!.Columns?.filter((x) => !x.IsForeignKey).forEach((c) => {
+    // Foreign-key columns are normally written via their relation (the loop
+    // below sets obj[ForeignKey] from the related model). But a FK column with no
+    // backing relation on the model (e.g. a plain owner-id column such as
+    // user_sessions.UserId) would otherwise never be serialized at all, breaking
+    // INSERTs that hit its NOT NULL constraint. So only skip FK columns that an
+    // actual relation manages; serialize unrelated FK columns like normal ones.
+    const relationForeignKeys = new Set(relArr.map((r) => r.ForeignKey));
+
+    model.ModelDescriptor!.Columns?.filter((x) => !x.IsForeignKey || !relationForeignKeys.has(x.Name)).forEach((c) => {
       const val = (model as any)[c.Name];
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);

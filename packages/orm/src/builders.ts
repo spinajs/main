@@ -1208,7 +1208,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
-  public mergeBuilder(builder: SelectQueryBuilder) {
+  public mergeBuilder(builder: SelectQueryBuilder, includeStatements = true) {
     this._columns = this._columns.concat(builder._columns);
     this._cteStatement = builder._cteStatement;
     this._distinct = builder._distinct;
@@ -1216,7 +1216,14 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       column: builder._sort.column !== '' ? builder._sort.column : this._sort.column,
       order: builder._sort.order !== '' ? builder._sort.order : this._sort.order,
     };
-    this.mergeStatements(builder);
+    // `includeStatements: false` is used by JoinStatement so that a join
+    // callback's WHERE conditions are NOT folded into the main query's WHERE
+    // (which silently turns a LEFT JOIN into an inner filter). The join emits
+    // those conditions in its own ON clause instead. Columns/sort are still
+    // merged so join-callback selects (e.g. extra joined columns) keep working.
+    if (includeStatements) {
+      this.mergeStatements(builder);
+    }
   }
 
   public mergeRelations(builder: SelectQueryBuilder) {

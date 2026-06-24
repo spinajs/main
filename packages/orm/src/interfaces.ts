@@ -1075,7 +1075,7 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
    */
   all(): Promise<T>;
 
-  mergeBuilder(builder: ISelectQueryBuilder): void;
+  mergeBuilder(builder: ISelectQueryBuilder, includeStatements?: boolean): void;
 }
 
 export interface ICompilerOutput {

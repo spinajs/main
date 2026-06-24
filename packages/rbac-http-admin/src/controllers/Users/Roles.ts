@@ -12,7 +12,7 @@ import { Schema } from '@spinajs/validation';
     },
     required: ['role'],
 })
-export class RoleDto {
+class RoleDto {
     public role: string;
 
     constructor(data: Partial<RoleDto>) {
