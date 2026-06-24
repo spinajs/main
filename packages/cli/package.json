@@ -8,7 +8,8 @@
     ".": {
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "type": "module",
   "private": false,
@@ -43,9 +44,11 @@
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
     "@spinajs/configuration": "^2.0.481",
+    "@spinajs/configuration-common": "^2.0.481",
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
     "@spinajs/log": "^2.0.481",
+    "@spinajs/log-common": "^2.0.481",
     "@spinajs/reflection": "^2.0.481",
     "commander": "10.0.0",
     "reflect-metadata": "^0.1.13"
