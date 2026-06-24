@@ -14,6 +14,14 @@ import { META_ARGUMENT } from './../src/decorators.js';
 import { TestCommand } from './commands/TestCommand.js';
 import { TestCommand2 } from './commands/TestCommand2.js';
 import { TestCommand3 } from './commands/TestCommand3.js';
+import { TestCommandChoices } from './commands/TestCommandChoices.js';
+import { TestCommandVariadic } from './commands/TestCommandVariadic.js';
+import { TestCommandAlias } from './commands/TestCommandAlias.js';
+import { TestChildCommand } from './commands/TestChildCommand.js';
+import { TestHookCommand } from './commands/TestHookCommand.js';
+import { TestCommandEnv } from './commands/TestCommandEnv.js';
+import { TestCommandConfigKey } from './commands/TestCommandConfigKey.js';
+import { TestCommandAdvOpts } from './commands/TestCommandAdvOpts.js';
 
 
 //const expect = chai.expect;
@@ -40,6 +48,11 @@ export class ConnectionConf extends FrameworkConfiguration {
       system: {
         dirs: {
           cli: [dir('./commands')],
+        },
+      },
+      test: {
+        cli: {
+          port: 8080,
         },
       },
     }
@@ -134,5 +147,152 @@ describe('Commands', () => {
     // top-to-bottom order the arguments were written in.
     const meta = Reflect.getMetadata(META_ARGUMENT, TestCommand) as Array<{ name: string }>;
     expect(meta.map((m) => m.name)).to.deep.eq(['login', 'password']);
+  });
+
+  it('Should accept an argument value within choices', async () => {
+    const execute = spy(TestCommandChoices.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'choice-cmd', 'red']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0][0]).to.eq('red');
+  });
+
+  it('Should reject an argument value outside choices', async () => {
+    DI.register(() => ['node', 'script.js', 'choice-cmd', 'purple']).as('__cli_argv_provider__');
+
+    await expect(c()).to.be.rejected;
+  });
+
+  it('Should reject an option value outside choices', async () => {
+    DI.register(() => ['node', 'script.js', 'choice-cmd', 'red', '-s', 'xl']).as('__cli_argv_provider__');
+
+    await expect(c()).to.be.rejected;
+  });
+
+  it('Should collect variadic argument values into an array', async () => {
+    const execute = spy(TestCommandVariadic.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'variadic-cmd', 'a', 'b', 'c']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0][0]).to.deep.eq(['a', 'b', 'c']);
+  });
+
+  it('Should run a command invoked by its alias', async () => {
+    const execute = spy(TestCommandAlias.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'ac']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+  });
+
+  it('Should route a nested subcommand under its parent', async () => {
+    const execute = spy(TestChildCommand.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'parent-cmd', 'child-cmd']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+  });
+
+  it('Should fire preAction and postAction hooks around execute', async () => {
+    const pre = spy(TestHookCommand.prototype, 'onPreAction');
+    const post = spy(TestHookCommand.prototype, 'onPostAction');
+    const execute = spy(TestHookCommand.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'hook-cmd']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(pre.calledOnce).to.be.true;
+    expect(execute.calledOnce).to.be.true;
+    expect(post.calledOnce).to.be.true;
+    expect(pre.calledBefore(execute)).to.be.true;
+    expect(post.calledAfter(execute)).to.be.true;
+  });
+
+  it('Should read an option value from its environment variable', async () => {
+    const execute = spy(TestCommandEnv.prototype, 'execute');
+    process.env.TEST_CLI_HOST = 'env-host';
+
+    try {
+      DI.register(() => ['node', 'script.js', 'env-cmd']).as('__cli_argv_provider__');
+
+      await c();
+
+      expect(execute.calledOnce).to.be.true;
+      expect(execute.args[0][0]).to.have.property('host', 'env-host');
+    } finally {
+      delete process.env.TEST_CLI_HOST;
+    }
+  });
+
+  it('Should fall back to a configuration value for an option default', async () => {
+    const execute = spy(TestCommandConfigKey.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'config-cmd']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0][0]).to.have.property('port', 8080); // from test.cli.port
+  });
+
+  it('Should translate help text through the global __ when present', async () => {
+    const translator = spy((s: string) => s);
+    (globalThis as unknown as { __?: (s: string) => string }).__ = translator;
+
+    try {
+      DI.register(() => ['node', 'script.js', 'config-cmd']).as('__cli_argv_provider__');
+
+      await c();
+
+      // command descriptions are run through the translator while building
+      expect(translator.calledWith('config command')).to.be.true;
+    } finally {
+      delete (globalThis as unknown as { __?: (s: string) => string }).__;
+    }
+  });
+
+  it('Should reject when conflicting options are used together', async () => {
+    DI.register(() => ['node', 'script.js', 'adv-cmd', '--aaa', '--bbb']).as('__cli_argv_provider__');
+
+    await expect(c()).to.be.rejected;
+  });
+
+  it('Should use the preset value for an optional-value option given without a value', async () => {
+    const execute = spy(TestCommandAdvOpts.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'adv-cmd', '--cheese']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0][0]).to.have.property('cheese', 'cheddar');
+  });
+
+  it('Should honor a negatable option', async () => {
+    const execute = spy(TestCommandAdvOpts.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'adv-cmd', '--no-sauce']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0][0]).to.have.property('sauce', false);
+  });
+
+  it('Should resolve cleanly for --version (exitCode 0 path)', async () => {
+    DI.register(() => ['node', 'script.js', '--version']).as('__cli_argv_provider__');
+
+    await expect(c()).to.be.fulfilled;
   });
 });

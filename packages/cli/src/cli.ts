@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
-import { Cli } from './index.js';
+import { Cli, CommanderError } from './index.js';
 import { Configuration } from '@spinajs/configuration-common';
 import './args.js';
 
@@ -26,7 +26,12 @@ async function cli() {
     // immediatelly
     process.exit(0);
   } catch (err) {
-    log.error(err.message as string);
+    // commander errors are already routed through the framework logger via
+    // configureOutput; only log other failures (eg. bootstrap errors) here to
+    // avoid a duplicate line.
+    if (!(err instanceof CommanderError)) {
+      log.error((err as Error).message);
+    }
     process.exit(-1);
   }
 }
