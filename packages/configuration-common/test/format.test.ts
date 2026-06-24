@@ -112,4 +112,64 @@ describe('Variable forma test', () => {
 
     expect(formatted).to.eq(`${DateTime.now().toFormat('dd/MM/yyyy')} Log entry (app)`);
   });
+
+  it('Should resolve DI-registered variable (env) when not in custom vars', () => {
+    process.env.SPINAJS_FORMAT_TEST = 'from-env';
+    try {
+      expect(format(null, 'value: ${env:SPINAJS_FORMAT_TEST}')).to.eq('value: from-env');
+    } finally {
+      delete process.env.SPINAJS_FORMAT_TEST;
+    }
+  });
+
+  it('Should replace unknown variable with empty string', () => {
+    expect(format({ message: 'x' }, 'a ${doesnotexist} b')).to.eq('a  b');
+  });
+
+  it('Should call a function custom var with its option as argument', () => {
+    const formatted = format(
+      {
+        message: 'ignored',
+        greet: (name?: string) => `hi ${name ?? 'anon'}`,
+      } as any,
+      '${greet:bob}',
+    );
+    expect(formatted).to.eq('hi bob');
+  });
+
+  it('Should call object property when it is a function (${obj:prop})', () => {
+    const formatted = format(
+      {
+        message: 'ignored',
+        obj: { stamp: () => 'STAMPED' },
+      } as any,
+      '${obj:stamp}',
+    );
+    expect(formatted).to.eq('STAMPED');
+  });
+
+  it('Should keep special replacement patterns ($&, $`) literal in values', () => {
+    expect(format({ weird: 'a$&b' } as any, '${weird}')).to.eq('a$&b');
+    expect(format({ weird: 'x$`y' } as any, '${weird}')).to.eq('x$`y');
+    expect(format({ weird: 'price $100 & 50%' } as any, 'cost: ${weird}')).to.eq('cost: price $100 & 50%');
+  });
+
+  it('Should replace every occurrence of a string custom var', () => {
+    expect(format({ x: 'Q' } as any, '${x}-${x}-${x}')).to.eq('Q-Q-Q');
+  });
+
+  it('Should recursively format the message field before interpolation', () => {
+    const formatted = format(
+      {
+        message: 'hello ${who}',
+        who: 'world',
+      } as any,
+      '[${message}]',
+    );
+    expect(formatted).to.eq('[hello world]');
+  });
+
+  it('Should format against DI variables when custom vars are null', () => {
+    expect(format(null, '${date}')).to.eq(DateTime.now().toFormat('dd/MM/yyyy'));
+  });
 });
