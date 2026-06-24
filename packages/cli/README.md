@@ -12,6 +12,18 @@ Built on top of [commander](https://github.com/tj/commander.js).
 npm install @spinajs/cli
 ```
 
+## Examples
+
+Runnable examples for each feature set live in [examples/](examples/) — see
+[examples/README.md](examples/README.md) for the full list:
+
+- [basic command](examples/01-basic.ts)
+- [choices & variadic arguments](examples/02-choices-variadic.ts)
+- [subcommands & aliases](examples/03-subcommands.ts)
+- [lifecycle hooks & `onCreation`](examples/04-hooks-and-oncreation.ts)
+- [config- and env-backed options](examples/05-config-and-env.ts)
+- [advanced options (conflicts, negatable, preset)](examples/06-advanced-options.ts)
+
 ## Writing a command
 
 A command is a class extending `CliCommand`, decorated with `@Command` and
