@@ -2,7 +2,7 @@ import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { spy } from 'sinon';
+import { spy, restore } from 'sinon';
 import { expect } from 'chai';
 
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
@@ -10,8 +10,10 @@ import { DI } from '@spinajs/di';
 import '@spinajs/log';
 
 import { Cli } from './../src/index.js';
+import { META_ARGUMENT } from './../src/decorators.js';
 import { TestCommand } from './commands/TestCommand.js';
 import { TestCommand2 } from './commands/TestCommand2.js';
+import { TestCommand3 } from './commands/TestCommand3.js';
 
 
 //const expect = chai.expect;
@@ -56,6 +58,11 @@ describe('Commands', () => {
     await DI.resolve(Configuration);
   });
 
+  afterEach(() => {
+    // restore any spies so the same prototype method can be re-spied
+    restore();
+  });
+
   it('Should run command with arg and options', async () => {
     const execute = spy(TestCommand.prototype, 'execute');
 
@@ -86,5 +93,46 @@ describe('Commands', () => {
     expect(execute.args[0][0]).to.eq('userLogin2');
     expect(execute.args[0][1]).to.eq('userPassword2');
     expect(execute.args[0][2]).to.have.property('timeout', 10000);
+  });
+
+  it('Should use default for optional argument when omitted', async () => {
+    const execute = spy(TestCommand3.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'test-command3']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0][0]).to.eq(5); // default applied
+  });
+
+  it('Should parse provided optional argument', async () => {
+    const execute = spy(TestCommand3.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'test-command3', '10']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(execute.args[0][0]).to.eq(10); // parser applied
+  });
+
+  it('Should reject when a required option is missing', async () => {
+    DI.register(() => ['node', 'script.js', 'test-command', 'login', 'pass']).as('__cli_argv_provider__');
+
+    await expect(c()).to.be.rejected; // -t is required
+  });
+
+  it('Should reject on unknown command', async () => {
+    DI.register(() => ['node', 'script.js', 'does-not-exist']).as('__cli_argv_provider__');
+
+    await expect(c()).to.be.rejected;
+  });
+
+  it('Should preserve argument declaration order', () => {
+    // stacked decorators apply bottom-up; metadata must still reflect the
+    // top-to-bottom order the arguments were written in.
+    const meta = Reflect.getMetadata(META_ARGUMENT, TestCommand) as Array<{ name: string }>;
+    expect(meta.map((m) => m.name)).to.deep.eq(['login', 'password']);
   });
 });

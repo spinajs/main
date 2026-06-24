@@ -61,7 +61,9 @@ export function Option(
     if (Reflect.hasMetadata(META_OPTION, target)) {
       args = Reflect.getMetadata(META_OPTION, target) as IOption[];
     }
-    args.push(arg);
+    // stacked decorators apply bottom-up, so unshift to preserve the
+    // top-to-bottom declaration order.
+    args.unshift(arg);
 
     Reflect.defineMetadata(META_OPTION, args, target);
   };
@@ -97,7 +99,9 @@ export function Argument(
     if (Reflect.hasMetadata(META_ARGUMENT, target)) {
       args = Reflect.getMetadata(META_ARGUMENT, target) as IArgument[];
     }
-    args.push(arg);
+    // stacked decorators apply bottom-up, so unshift to preserve the
+    // top-to-bottom declaration order.
+    args.unshift(arg);
 
     Reflect.defineMetadata(META_ARGUMENT, args, target);
   };
