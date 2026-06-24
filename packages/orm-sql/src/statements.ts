@@ -263,9 +263,32 @@ export class SqlJoinStatement extends JoinStatement {
     const primaryKey = sourceTableAlias ? `\`${sourceTableAlias}\`.${this._options.sourceTablePrimaryKey}` : `\`${sourceTable}\`.${this._options.sourceTablePrimaryKey}`;
     const foreignKey = joinTableAlias ? `\`${joinTableAlias}\`.${this._options.joinTableForeignKey}` : `\`${joinTable}\`.${this._options.joinTableForeignKey}`;
 
+    // Conditions supplied via the join callback (e.g. `.leftJoin(rel, b => b.where('Key', 'x'))`)
+    // belong in the JOIN's ON clause, not the main WHERE — otherwise an outer
+    // join is silently narrowed to an inner one. We compile the join sub-builder's
+    // WHERE statements here and append them to ON (the constructor intentionally
+    // does NOT merge these into the main builder; see JoinStatement above).
+    let onExpression = `${primaryKey} = ${foreignKey}`;
+    const onBindings: unknown[] = [];
+
+    if (this._whereBuilder) {
+      const parts: string[] = [];
+      this._whereBuilder.Statements.filter((x: WhereStatement) => !x.IsAggregate).forEach((x: WhereStatement) => {
+        const r = x.build();
+        parts.push(...r.Statements);
+        if (Array.isArray(r.Bindings)) {
+          onBindings.push(...r.Bindings);
+        }
+      });
+
+      if (parts.length > 0) {
+        onExpression += ` AND ${parts.join(` ${this._whereBuilder.Op.toUpperCase()} `)}`;
+      }
+    }
+
     return {
-      Bindings: [],
-      Statements: [`${method} ${joinTable} ON ${primaryKey} = ${foreignKey}`],
+      Bindings: onBindings,
+      Statements: [`${method} ${joinTable} ON ${onExpression}`],
     };
   }
 }

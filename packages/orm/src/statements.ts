@@ -228,7 +228,11 @@ export abstract class JoinStatement extends QueryStatement {
         _options.queryCallback.call(this._whereBuilder);
       }
 
-      this._options.builder!.mergeBuilder(this._whereBuilder);
+      // Merge columns/sort from the join sub-builder, but NOT its WHERE
+      // statements — those are emitted in the JOIN's ON clause by build() so a
+      // LEFT JOIN stays a LEFT JOIN (otherwise the condition lands in the main
+      // WHERE and filters out rows the outer join is meant to keep).
+      this._options.builder!.mergeBuilder(this._whereBuilder, false);
     }
   }
 

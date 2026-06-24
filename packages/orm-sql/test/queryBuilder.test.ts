@@ -698,6 +698,49 @@ describe('Relations query builder', () => {
     sinon.restore();
   });
 
+  it('join callback where goes into ON clause not main WHERE', () => {
+    // A where condition supplied via the join callback must be emitted in the
+    // join's ON clause, otherwise a LEFT JOIN is silently narrowed into an
+    // inner filter (rows the outer join is meant to keep get filtered out).
+    const result = RelationModel.where('Id', 1)
+      .leftJoin('Relation', function (this: IWhereBuilder<RelationModel2>) {
+        this.where('RelationProperty', 'foo');
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('SELECT `$RelationTable$`.* FROM `RelationTable` as `$RelationTable$` LEFT JOIN `RelationTable2` as `$RelationModel2$` ON `$RelationTable$`.relation_id = `$RelationModel2$`.Id AND ( `$RelationModel2$`.`RelationProperty` = ? ) WHERE `$RelationTable$`.`Id` = ?');
+
+    // join binding must come before the main WHERE binding (ON precedes WHERE in SQL)
+    expect(result.bindings).to.deep.equal(['foo', 1]);
+  });
+
+  it('join callback with multiple where conditions combines them in ON clause', () => {
+    const result = RelationModel.where('Id', 1)
+      .leftJoin('Relation', function (this: IWhereBuilder<RelationModel2>) {
+        this.where('RelationProperty', 'foo');
+        this.where('Id', 5);
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('SELECT `$RelationTable$`.* FROM `RelationTable` as `$RelationTable$` LEFT JOIN `RelationTable2` as `$RelationModel2$` ON `$RelationTable$`.relation_id = `$RelationModel2$`.Id AND ( `$RelationModel2$`.`RelationProperty` = ? AND `$RelationModel2$`.`Id` = ? ) WHERE `$RelationTable$`.`Id` = ?');
+    expect(result.bindings).to.deep.equal(['foo', 5, 1]);
+  });
+
+  it('left join with callback stays a LEFT JOIN', () => {
+    // regression: the join callback must not fold its condition into the main
+    // WHERE, which would turn this LEFT JOIN into an effective inner join.
+    const result = RelationModel.where('Id', 1)
+      .leftJoin('Relation', function (this: IWhereBuilder<RelationModel2>) {
+        this.where('RelationProperty', 'foo');
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.match(/LEFT JOIN `RelationTable2`/);
+    // condition belongs to ON, so the WHERE must only contain the source filter
+    expect(result.expression).to.match(/WHERE `\$RelationTable\$`\.`Id` = \?$/);
+    expect(result.expression).to.not.match(/WHERE.*RelationProperty/);
+  });
+
   it('should query by relation in where', () => {
     const result = RelationModel.where({ Relation: 1 }).toDB() as ICompilerOutput;
     expect(result.expression).to.equal('SELECT * FROM `RelationTable` WHERE `relation_id` = ?');

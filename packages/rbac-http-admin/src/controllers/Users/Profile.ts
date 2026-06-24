@@ -12,7 +12,7 @@ import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
 @BasePath('users/profile')
 @Policy(AuthorizedPolicy)
 @Resource('users')
-export class Roles extends BaseController {
+export class Profile extends BaseController {
 
 
     @AutoinjectService('user.profile')
