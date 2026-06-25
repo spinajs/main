@@ -1,7 +1,7 @@
 {
   "name": "@spinajs/configuration-aws-secretmanager-protocol",
   "version": "2.0.481",
-  "description": "> TODO: description",
+  "description": "SpinaJS configuration protocols for AWS Secrets Manager and SSM Parameter Store",
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
   "license": "ISC",
