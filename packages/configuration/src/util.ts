@@ -94,12 +94,14 @@ export function pickObjects(obj: { [key: string]: any }): [string, any][] {
  * @returns
  */
 export function mapObject(obj: any, fn: (obj: any) => any) {
-  if(typeof obj !== 'object') return obj;
+  if (!_.isPlainObject(obj)) return obj;
   return Object.keys(obj).reduce((acc: any, key: string) => {
     const value = obj[key];
     if (Array.isArray(value)) {
-      acc[key] = value.map((x) => fn(mapObject(x, fn)));
-    } else if (typeof value === 'object' && value !== null && !(value instanceof ConfigVar)) {
+      // only descend into plain objects - class instances (eg. luxon DateTime)
+      // must be passed through untouched or they lose their prototype/methods
+      acc[key] = value.map((x) => (_.isPlainObject(x) ? fn(mapObject(x, fn)) : x));
+    } else if (_.isPlainObject(value) && !(value instanceof ConfigVar)) {
       acc[key] = fn(mapObject(value, fn));
     } else {
       acc[key] = value;

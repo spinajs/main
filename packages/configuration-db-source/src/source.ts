@@ -67,13 +67,16 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       return {}  as IConfigLike;
     }
 
+    // only load rows that are actually exposed for runtime use. We filter in
+    // memory instead of in SQL to stay driver-agnostic about how booleans are
+    // stored (sqlite: 0/1, others: true/false).
+    dbOptions = dbOptions.filter((entry) => Boolean((entry as unknown as { Exposed: unknown }).Exposed));
+
     dbOptions.forEach((entry) => {
       entry.Value = parse(entry.Value as unknown as string, entry.Type);
     });
 
-    const final: IConfigLike = {
-      onConfigLoad: null as any,
-    };
+    const final: IConfigLike = {} as IConfigLike;
     dbOptions.forEach((entry) => {
       InternalLogger.trace(`Loaded config ${entry.Slug} from db source`, 'Configuration-db-source');
       _.set(final, entry.Slug, entry.Value);

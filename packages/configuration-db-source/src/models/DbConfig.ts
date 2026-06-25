@@ -32,6 +32,8 @@ export class DbConfig<T = unknown> extends ModelBase {
 
   public Watch!: boolean;
 
+  public Exposed!: boolean;
+
   public Default?: T;
 
   public Environment?: string;
@@ -40,7 +42,7 @@ export class DbConfig<T = unknown> extends ModelBase {
     Object.assign(this, {
       ...data,
       Value: parse(data.Value as unknown as string, data.Type!),
-      Default: parse(data.Value as unknown as string, data.Type!)
+      Default: parse(data.Default as unknown as string, data.Type!)
     });
   }
 
@@ -88,6 +90,12 @@ export class DbConfig<T = unknown> extends ModelBase {
 }
 
 export function parse(input: string, type: string) {
+  // null / undefined / empty values cannot be parsed - pass them through
+  // untouched (eg. a row without a Default, or an unset Value).
+  if (input === null || input === undefined || input === '') {
+    return input;
+  }
+
   switch (type) {
     case 'string':
     case 'file':
@@ -98,7 +106,8 @@ export function parse(input: string, type: string) {
     case 'range':
       return Number(input);
     case 'boolean':
-      return input === '1' ? true : false;
+      // different drivers store booleans differently (sqlite: 0/1, others: 'true'/'false')
+      return input === '1' || input === 'true' || (input as unknown) === 1 || (input as unknown) === true;
     case 'datetime':
       return DateTime.fromISO(input);
     case 'time':
@@ -114,4 +123,23 @@ export function parse(input: string, type: string) {
     default:
       return JSON.parse(input) as unknown;
   }
+}
+
+/**
+ * Deep equality that understands luxon DateTime values.
+ *
+ * `_.isEqual` compares DateTime instances by their (large, internal) own
+ * properties, which is both fragile and can report equal instants as
+ * different. This compares DateTimes by their instant instead and falls back
+ * to lodash defaults for everything else (so arrays / objects of DateTimes,
+ * eg. *-range types, are compared element-wise).
+ */
+export function isConfigValueEqual(a: unknown, b: unknown): boolean {
+  return _.isEqualWith(a, b, (x: unknown, y: unknown) => {
+    if (DateTime.isDateTime(x) && DateTime.isDateTime(y)) {
+      return x.toMillis() === y.toMillis();
+    }
+    // returning undefined defers to lodash's default comparison
+    return undefined;
+  });
 }

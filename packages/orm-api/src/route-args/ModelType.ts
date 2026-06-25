@@ -17,9 +17,11 @@ export class ModelTypeRouteArgs extends RouteArgs {
     }
 
     public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: express.Request, _res: express.Response, _route?: IRoute) {
+        const rawParam = req.params[param.Name];
+        const modelParam = Array.isArray(rawParam) ? rawParam[0] : rawParam;
         return Promise.resolve({
             CallData: callData,
-            Args: this.Orm.Models.find((x) => x.name.toLowerCase() === req.params[param.Name].trim().toLowerCase())!.type,
+            Args: this.Orm.Models.find((x) => x.name.toLowerCase() === modelParam.trim().toLowerCase())!.type,
         });
     }
 }

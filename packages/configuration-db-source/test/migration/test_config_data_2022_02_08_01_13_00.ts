@@ -182,6 +182,19 @@ export class test_config_data_2022_02_08_01_13_00 extends OrmMigration {
         Watch: false,
       })
       .into('configuration');
+
+    // not exposed - must NOT be loaded by the configuration source
+    await connection
+      .insert()
+      .values({
+        Slug: 'config-hidden',
+        Value: 'should-not-load',
+        Group: 'db-conf',
+        Type: 'string',
+        Exposed: false,
+        Watch: false,
+      })
+      .into('configuration');
   }
 
   // tslint:disable-next-line: no-empty

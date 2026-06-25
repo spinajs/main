@@ -100,7 +100,6 @@
     "@spinajs/orm": "file:packages\\orm",
     "@spinajs/orm-api": "files:packages/templates-pdf",
     "@spinajs/orm-http": "file:packages\\orm-http",
-    "@spinajs/orm-lowdb": "file:packages\\orm-lowdb",
     "@spinajs/orm-mssql": "file:packages\\orm-mssql",
     "@spinajs/orm-mysql": "file:packages\\orm-mysql",
     "@spinajs/orm-sql": "file:packages\\orm-sql",

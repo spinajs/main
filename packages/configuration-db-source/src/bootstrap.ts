@@ -4,11 +4,10 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/require-await */
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
-import { DbConfig } from './models/DbConfig.js';
+import { DbConfig, isConfigValueEqual } from './models/DbConfig.js';
 import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
 import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
 import { InsertBehaviour } from '@spinajs/orm';
-import _ from 'lodash';
 
 /**
  * watch interval, default 3 min
@@ -86,9 +85,11 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
           )
           .then((result: unknown) => {
             (result as DbConfig[]).forEach((r) => {
-              const cfgVal = cService.get(`${r.Group}.${r.Slug}`);
-              if (!_.isEqual(cfgVal, r.Value)) {
-                cService.set(`${r.Group}.${r.Slug}`, r.Value);
+              // Slug is the canonical config path (same value passed to @Config).
+              // Group is display-only metadata and must not be part of the path.
+              const cfgVal = cService.get(r.Slug);
+              if (!isConfigValueEqual(cfgVal, r.Value)) {
+                cService.set(r.Slug, r.Value);
               }
             });
 

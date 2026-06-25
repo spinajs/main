@@ -196,8 +196,8 @@ export class DynamoDbSessionProvider extends SessionProvider {
   public async save(sessionOrId: string | ISession, data?: object): Promise<void> {
     let sId = '';
     let sData = null;
-    let sCreationTime = DateTime.now();
-    let sExpirationTime = DateTime.now().plus({ minutes: this.DefaultExpirationTime });
+    let sCreationTime: DateTime = DateTime.now();
+    let sExpirationTime: DateTime = DateTime.now().plus({ minutes: this.DefaultExpirationTime });
 
     if (_.isString(sessionOrId)) {
       sId = sessionOrId;
@@ -216,7 +216,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
         Data: {
           S: sData,
         },
-        Creation: { S: sCreationTime.toISO() },
+        Creation: { S: sCreationTime.toISO()! },
         Expiration: { N: `${sExpirationTime.toMillis()}` },
       },
     };

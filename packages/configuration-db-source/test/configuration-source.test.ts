@@ -7,11 +7,13 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import _ from 'lodash';
+import { DateTime } from 'luxon';
 import { join, normalize, resolve } from 'path';
 
-import { Bootstrapper, DI } from '@spinajs/di';
+import { Bootstrapper, DI, Injectable } from '@spinajs/di';
+import '@spinajs/log';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Config, Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 
 import { DbConfig } from './../src/index.js';
@@ -26,39 +28,64 @@ export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
+const TEST_CONFIG = {
+  logger: {
+    targets: [
+      {
+        name: 'Empty',
+        type: 'BlackHoleTarget',
+        layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
+      },
+    ],
+
+    rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+  },
+  configuration_db_source: {
+    connection: 'sqlite',
+    table: 'configuration',
+  },
+  db: {
+    DefaultConnection: 'sqlite',
+
+    Connections: [
+      {
+        Driver: 'orm-driver-sqlite',
+        Filename: ':memory:',
+        Name: 'sqlite',
+        Migration: {
+          OnStartup: true,
+        },
+      },
+    ],
+  },
+};
+
+/**
+ * The db configuration source (Order 999) reads `db.Connections` from the
+ * config that earlier sources have already produced - in production that is a
+ * file source. We emulate that here with an in-memory source that loads first
+ * (Order 0), so the db source can actually connect during the load loop.
+ *
+ * NOTE: `onLoad()` alone is NOT enough - it is merged AFTER all sources run,
+ * so the db source would never see the connection options.
+ */
+@Injectable(ConfigurationSource)
+export class ConnectionConfigSource extends ConfigurationSource {
+  public get Order(): number {
+    return 0;
+  }
+
+  public Load(): Promise<IConfigLike> {
+    return Promise.resolve(TEST_CONFIG as unknown as IConfigLike);
+  }
+}
+
 export class ConnectionConf extends FrameworkConfiguration {
   public onLoad(): unknown {
-    return {
-      logger: {
-        targets: [
-          {
-            name: 'Empty',
-            type: 'BlackHoleTarget',
-            layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
-          },
-        ],
-
-        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-      },
-      configuration_db_source: {
-        connection: 'sqlite',
-        table: 'configuration',
-      },
-      db: {
-        DefaultConnection: 'sqlite',
-
-        Connections: [
-          {
-            Driver: 'orm-driver-sqlite',
-            Filename: ':memory:',
-            Name: 'sqlite',
-            Migration: {
-              OnStartup: true,
-            },
-          },
-        ],
-      },
-    };
+    // connection options are provided by ConnectionConfigSource (Order 0) so the
+    // db source can see them during the load loop. onLoad is merged afterwards,
+    // so returning TEST_CONFIG here too would only duplicate logger targets.
+    return {};
   }
 }
 
@@ -140,22 +167,42 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('Should insert config values to db', async () => {
-    const result = await DbConfig.where('slug', 'test').first();
+    const result = await DbConfig.where('Slug', 'test').first();
 
     expect(result).to.be.not.null;
     expect(result.Slug).to.equal('test');
   });
 
-  it('Should load config values from db', async () => {
+  it('Should load config values from db at their Slug path', async () => {
     const c = await cfg();
 
-    expect(c.get('db-conf.config7')).to.be.not.null;
+    // Slug is the canonical config path; Group is display-only metadata
+    // and must NOT be part of the path the value is stored at.
+    expect(c.get('config1')).to.equal('text-value-1');
+    expect(c.get('config2')).to.equal(1);
+    expect(c.get('config3')).to.equal(10.4);
+    expect(c.get('config4')).to.deep.equal({ hello: 'world' });
+    expect(c.get('config8')).to.equal(false);
+
+    // datetime types are parsed to luxon DateTime
+    expect((c.get('config7') as DateTime).isValid).to.be.true;
+    expect(DateTime.isDateTime(c.get('config7'))).to.be.true;
+
+    // values are NOT placed under the Group prefix
+    expect(c.get('db-conf.config1')).to.be.undefined;
   });
 
-  it('Should watch config values from db', async () => {
+  it('Should NOT load config values that are not exposed', async () => {
     const c = await cfg();
 
-    expect(c.get('db-conf.test-watch')).to.be.undefined;
+    expect(c.get('config-hidden')).to.be.undefined;
+  });
+
+  it('Should watch config values from db at their Slug path', async () => {
+    const c = await cfg();
+
+    // exposed @Config var with no default - loaded from db as null/undefined
+    expect(c.get('test-watch')).to.not.exist;
 
     await DbConfig.update({
       Value: 'hello',
@@ -163,6 +210,6 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
 
     await wait(5000);
 
-    expect(c.get('db-config.test-watch')).to.eq('hello');
+    expect(c.get('test-watch')).to.eq('hello');
   });
 });
