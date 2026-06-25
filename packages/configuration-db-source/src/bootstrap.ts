@@ -3,8 +3,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/require-await */
-import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
+import { Autoinject, Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { DbConfig, isConfigValueEqual } from './models/DbConfig.js';
+import { DbConfigValueConverter } from './converter.js';
 import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
 import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
 import { InsertBehaviour, Orm } from '@spinajs/orm';
@@ -19,57 +20,11 @@ const LOG_CHANNEL = 'configuration-db-source';
 
 type __dbCOnfigOptions = { path: string; options: IConfigEntryOptions & IConfigEntryOptionsCommon };
 
-/**
- * Persists (or ignores, if it already exists) an exposed config option in the db.
- *
- * Returns the insert promise so callers can await it - eg. before reading the
- * row back - instead of firing it and racing the read.
- */
-async function __saveConfigOptions(v: __dbCOnfigOptions): Promise<void> {
-  if (!v.options.expose) {
-    return;
-  }
-
-  const value = v.options.exposeOptions?.type === 'json' ? JSON.stringify(v.options.defaultValue) : v.options.defaultValue;
-
-  await DbConfig.insert(
-    {
-      Slug: v.path,
-      Value: value,
-      Group: v.options.exposeOptions?.group,
-      Label: v.options.exposeOptions?.label,
-      Description: v.options.exposeOptions?.description,
-      Meta: v.options.exposeOptions?.meta,
-      Required: v.options.required,
-      Type: v.options.exposeOptions?.type,
-      Watch: v.options.exposeOptions?.watch ?? false,
-      Default: value ?? undefined,
-      Exposed: true,
-    },
-    InsertBehaviour.InsertOrIgnore,
-  );
-}
-
-/**
- * Persists an exposed option and then loads its current db value into the live
- * configuration.
- *
- * Save and read are sequenced (await save -> read) so the read always observes
- * the inserted row - reading right after a fire-and-forget insert could miss it.
- */
-async function __syncConfigOption(v: __dbCOnfigOptions): Promise<void> {
-  try {
-    await __saveConfigOptions(v);
-
-    const stored = await DbConfig.where('Slug', v.path).first();
-    DI.get(Configuration)!.set(v.path, stored?.Value ?? v.options.defaultValue);
-  } catch (err) {
-    InternalLogger.error(`Failed to sync exposed config option '${v.path}' with db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
-  }
-}
-
 @Injectable(Bootstrapper)
 export class DbConfigSourceBotstrapper extends Bootstrapper {
+  @Autoinject(DbConfigValueConverter)
+  protected Converter!: DbConfigValueConverter;
+
   public async bootstrap(): Promise<void> {
     DI.register(CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
 
@@ -81,7 +36,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
         return;
       }
 
-      void __syncConfigOption(v);
+      void this.syncConfigOption(v);
     });
 
     // register vals added before orm is resolved eg. at bootstrap phase
@@ -92,7 +47,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
         .filter((x) => x.options.expose);
 
       // insert all exposed config options (InsertOrIgnore - safe to repeat)
-      void Promise.all(vars.map((v) => __saveConfigOptions(v))).catch((err) => {
+      void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch((err) => {
         InternalLogger.error(`Failed to persist exposed config options to db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
       });
 
@@ -100,6 +55,59 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     });
 
     return;
+  }
+
+  /**
+   * Persists (or ignores, if it already exists) an exposed config option in the db.
+   *
+   * Returns the insert promise so callers can await it - eg. before reading the
+   * row back - instead of firing it and racing the read.
+   */
+  private async saveConfigOptions(v: __dbCOnfigOptions): Promise<void> {
+    if (!v.options.expose) {
+      return;
+    }
+
+    const type = v.options.exposeOptions?.type;
+
+    // serialize the default value to its canonical stored form using the same
+    // converter the model/source use, keyed off the declared `Type`.
+    const value = this.Converter.toDB(v.options.defaultValue, { Type: type } as any, undefined as any, { TypeColumn: 'Type' });
+
+    await DbConfig.insert(
+      {
+        Slug: v.path,
+        Value: value,
+        Group: v.options.exposeOptions?.group,
+        Label: v.options.exposeOptions?.label,
+        Description: v.options.exposeOptions?.description,
+        Meta: v.options.exposeOptions?.meta,
+        Required: v.options.required,
+        Type: type,
+        Watch: v.options.exposeOptions?.watch ?? false,
+        Default: value ?? undefined,
+        Exposed: true,
+      },
+      InsertBehaviour.InsertOrIgnore,
+    );
+  }
+
+  /**
+   * Persists an exposed option and then loads its current db value into the live
+   * configuration.
+   *
+   * Save and read are sequenced (await save -> read) so the read always observes
+   * the inserted row - reading right after a fire-and-forget insert could miss it.
+   */
+  private async syncConfigOption(v: __dbCOnfigOptions): Promise<void> {
+    try {
+      await this.saveConfigOptions(v);
+
+      const stored = await DbConfig.where('Slug', v.path).first();
+      DI.get(Configuration)!.set(v.path, stored?.Value ?? v.options.defaultValue);
+    } catch (err) {
+      InternalLogger.error(`Failed to sync exposed config option '${v.path}' with db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
+    }
   }
 
   /**
@@ -135,7 +143,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     const run = async () => {
       try {
-        const result = (await DbConfig.query().whereIn('Slug', watchedSlugs)) as DbConfig[];
+        const result = (await DbConfig.select().whereIn('Slug', watchedSlugs)) as DbConfig[];
         result.forEach((r) => {
           // Slug is the canonical config path (same value passed to @Config).
           // Group is display-only metadata and must not be part of the path.

@@ -6,11 +6,11 @@
 import { InternalLogger } from '@spinajs/internal-logger';
 /* eslint-disable prettier/prettier */
 import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
-import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
 import { IDriverOptions, Orm, OrmDriver } from '@spinajs/orm';
 import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types.js';
 import _ from 'lodash';
-import { parse } from './models/DbConfig.js';
+import { DbConfigValueConverter } from './converter.js';
 
 @Singleton()
 @Injectable(ConfigurationSource)
@@ -20,6 +20,9 @@ export class ConfiguratioDbSource extends ConfigurationSource {
   protected Configuration!: Configuration;
 
   protected Options!: IConfiguratioDbSourceConfig;
+
+  @Autoinject(DbConfigValueConverter)
+  protected Converter!: DbConfigValueConverter;
 
   public get Order(): number {
     // load as last, we want to have access to
@@ -69,11 +72,14 @@ export class ConfiguratioDbSource extends ConfigurationSource {
 
     // only load rows that are actually exposed for runtime use. We filter in
     // memory instead of in SQL to stay driver-agnostic about how booleans are
-    // stored (sqlite: 0/1, others: true/false).
+    // stored.
     dbOptions = dbOptions.filter((entry) => Boolean((entry as unknown as { Exposed: unknown }).Exposed));
 
+    // the source reads raw rows (it deliberately avoids the ORM model), so we
+    // convert each value with the same converter the model uses, keyed off the
+    // row's `Type` column.
     dbOptions.forEach((entry) => {
-      entry.Value = parse(entry.Value as unknown as string, entry.Type);
+      entry.Value = this.Converter.fromDB(entry.Value as unknown as string, entry, { TypeColumn: 'Type' });
     });
 
     const final: IConfigLike = {} as IConfigLike;

@@ -4,61 +4,113 @@
 import * as chai from 'chai';
 import { DateTime } from 'luxon';
 
-import { parse, isConfigValueEqual } from './../src/models/DbConfig.js';
+import { DbConfigValueConverter, isConfigValueEqual } from './../src/index.js';
 
 const expect = chai.expect;
 
-describe('configuration-db-source codec', function () {
-  describe('parse', () => {
-    it('parses primitive string-ish types as-is', () => {
-      expect(parse('hello', 'string')).to.equal('hello');
-      expect(parse('/path/to/file', 'file')).to.equal('/path/to/file');
-      expect(parse('one', 'oneOf')).to.equal('one');
+const converter = new DbConfigValueConverter();
+const OPTS = { TypeColumn: 'Type' };
+
+// read a stored text value of a given Type back into its runtime value
+function fromDb(value: any, type: string) {
+  return converter.fromDB(value, { Type: type }, OPTS);
+}
+
+// serialize a runtime value of a given Type into its stored text form
+function toDb(value: any, type: string) {
+  return converter.toDB(value, { Type: type } as any, undefined as any, OPTS);
+}
+
+describe('DbConfigValueConverter', function () {
+  describe('fromDB', () => {
+    it('reads string-ish types as-is', () => {
+      expect(fromDb('hello', 'string')).to.equal('hello');
+      expect(fromDb('/path/to/file', 'file')).to.equal('/path/to/file');
+      expect(fromDb('one', 'oneOf')).to.equal('one');
     });
 
-    it('parses numeric types', () => {
-      expect(parse('42', 'int')).to.equal(42);
-      expect(parse('10.4', 'float')).to.equal(10.4);
-      expect(parse('3', 'range')).to.equal(3);
+    it('reads numeric types', () => {
+      expect(fromDb('42', 'number')).to.equal(42);
+      expect(fromDb('10.4', 'float')).to.equal(10.4);
+      expect(fromDb('3', 'range')).to.equal(3);
     });
 
-    it('parses booleans regardless of driver representation', () => {
-      // sqlite stores 0/1, other drivers may store 'true'/'false' or native booleans
-      expect(parse('1', 'boolean')).to.equal(true);
-      expect(parse('0', 'boolean')).to.equal(false);
-      expect(parse('true', 'boolean')).to.equal(true);
-      expect(parse('false', 'boolean')).to.equal(false);
-      expect(parse(1 as any, 'boolean')).to.equal(true);
-      expect(parse(0 as any, 'boolean')).to.equal(false);
-      expect(parse(true as any, 'boolean')).to.equal(true);
+    it('reads canonical booleans', () => {
+      expect(fromDb('true', 'boolean')).to.equal(true);
+      expect(fromDb('false', 'boolean')).to.equal(false);
     });
 
-    it('parses json / manyOf via JSON', () => {
-      expect(parse(JSON.stringify({ a: 1 }), 'json')).to.deep.equal({ a: 1 });
-      expect(parse('["a","b"]', 'manyOf')).to.deep.equal(['a', 'b']);
+    it('reads json / manyOf via JSON', () => {
+      expect(fromDb(JSON.stringify({ a: 1 }), 'json')).to.deep.equal({ a: 1 });
+      expect(fromDb('["a","b"]', 'manyOf')).to.deep.equal(['a', 'b']);
     });
 
-    it('parses date / time / datetime to luxon DateTime', () => {
-      const d = parse('24-06-2026', 'date') as DateTime;
+    it('reads date / time / datetime (ISO) to luxon DateTime', () => {
+      const d = fromDb('2026-06-24', 'date') as DateTime;
       expect(DateTime.isDateTime(d)).to.be.true;
       expect(d.day).to.equal(24);
       expect(d.month).to.equal(6);
       expect(d.year).to.equal(2026);
 
-      const t = parse('13:05:09', 'time') as DateTime;
+      const t = fromDb('13:05:09', 'time') as DateTime;
       expect(DateTime.isDateTime(t)).to.be.true;
       expect(t.hour).to.equal(13);
       expect(t.minute).to.equal(5);
 
-      const dt = parse('2026-06-24T13:05:09.000', 'datetime') as DateTime;
+      const dt = fromDb('2026-06-24T13:05:09.000', 'datetime') as DateTime;
       expect(DateTime.isDateTime(dt)).to.be.true;
     });
 
-    it('parses range types into arrays of DateTime', () => {
-      const dates = parse('24-06-2026;25-06-2026', 'date-range') as DateTime[];
+    it('reads range types into arrays of DateTime', () => {
+      const dates = fromDb('2026-06-24;2026-06-25', 'date-range') as DateTime[];
       expect(dates).to.have.lengthOf(2);
       expect(dates.every((x) => DateTime.isDateTime(x))).to.be.true;
       expect(dates[1].day).to.equal(25);
+    });
+
+    it('passes null / empty values through untouched', () => {
+      expect(fromDb(null, 'datetime')).to.equal(null);
+      expect(fromDb(undefined, 'date')).to.equal(undefined);
+      expect(fromDb('', 'json')).to.equal('');
+    });
+  });
+
+  describe('toDB round-trips', () => {
+    it('numbers / booleans / strings', () => {
+      expect(toDb(42, 'number')).to.equal('42');
+      expect(toDb(10.4, 'float')).to.equal('10.4');
+      expect(toDb(true, 'boolean')).to.equal('true');
+      expect(toDb(false, 'boolean')).to.equal('false');
+      expect(toDb('hi', 'string')).to.equal('hi');
+    });
+
+    it('json / manyOf', () => {
+      expect(toDb({ a: 1 }, 'json')).to.equal('{"a":1}');
+      expect(toDb(['a', 'b'], 'manyOf')).to.equal('["a","b"]');
+    });
+
+    it('date / time / datetime serialize to ISO and round-trip', () => {
+      const date = DateTime.fromISO('2026-06-24');
+      const stored = toDb(date, 'date') as string;
+      expect(stored).to.equal('2026-06-24');
+      expect((fromDb(stored, 'date') as DateTime).day).to.equal(24);
+
+      const dt = DateTime.fromISO('2026-06-24T13:05:09.000Z');
+      const storedDt = toDb(dt, 'datetime') as string;
+      expect(DateTime.isDateTime(fromDb(storedDt, 'datetime'))).to.be.true;
+    });
+
+    it('date-range round-trips', () => {
+      const range = [DateTime.fromISO('2026-06-24'), DateTime.fromISO('2026-06-25')];
+      const stored = toDb(range, 'date-range') as string;
+      expect(stored).to.equal('2026-06-24;2026-06-25');
+      const back = fromDb(stored, 'date-range') as DateTime[];
+      expect(back.map((x) => x.day)).to.deep.equal([24, 25]);
+    });
+
+    it('passes null / undefined through untouched', () => {
+      expect(toDb(null, 'datetime')).to.equal(null);
+      expect(toDb(undefined, 'number')).to.equal(undefined);
     });
   });
 
