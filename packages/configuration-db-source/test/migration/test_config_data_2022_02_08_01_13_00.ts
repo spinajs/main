@@ -23,7 +23,7 @@ export class test_config_data_2022_02_08_01_13_00 extends OrmMigration {
         Slug: 'config2',
         Value: 1,
         Group: 'db-conf',
-        Type: 'int',
+        Type: 'number',
         Exposed: true,
         Watch: false,
       })
@@ -57,7 +57,7 @@ export class test_config_data_2022_02_08_01_13_00 extends OrmMigration {
       .insert()
       .values({
         Slug: 'config5',
-        Value: DateTime.now().toFormat('dd-MM-yyyy'),
+        Value: DateTime.now().toISODate(),
         Group: 'db-conf',
         Type: 'date',
         Exposed: true,
@@ -69,7 +69,7 @@ export class test_config_data_2022_02_08_01_13_00 extends OrmMigration {
       .insert()
       .values({
         Slug: 'config6',
-        Value: DateTime.now().toFormat('HH:mm:ss'),
+        Value: DateTime.now().toISOTime({ includeOffset: false }),
         Group: 'db-conf',
         Type: 'time',
         Exposed: true,
@@ -93,7 +93,7 @@ export class test_config_data_2022_02_08_01_13_00 extends OrmMigration {
       .insert()
       .values({
         Slug: 'config8',
-        Value: false,
+        Value: 'false',
         Group: 'db-conf',
         Type: 'boolean',
         Exposed: true,
@@ -105,7 +105,7 @@ export class test_config_data_2022_02_08_01_13_00 extends OrmMigration {
       .insert()
       .values({
         Slug: 'config9',
-        Value: DateTime.now().toFormat('dd-MM-yyyy') + ';' + DateTime.now().toFormat('dd-MM-yyyy'),
+        Value: DateTime.now().toISODate() + ';' + DateTime.now().toISODate(),
         Group: 'db-conf',
         Type: 'date-range',
         Exposed: true,
@@ -117,7 +117,7 @@ export class test_config_data_2022_02_08_01_13_00 extends OrmMigration {
       .insert()
       .values({
         Slug: 'config10',
-        Value: DateTime.now().toFormat('HH:mm:ss') + ';' + DateTime.now().toFormat('HH:mm:ss'),
+        Value: DateTime.now().toISOTime({ includeOffset: false }) + ';' + DateTime.now().toISOTime({ includeOffset: false }),
         Group: 'db-conf',
         Type: 'time-range',
         Exposed: true,
@@ -179,6 +179,19 @@ export class test_config_data_2022_02_08_01_13_00 extends OrmMigration {
         }),
         Type: 'range',
         Exposed: true,
+        Watch: false,
+      })
+      .into('configuration');
+
+    // not exposed - must NOT be loaded by the configuration source
+    await connection
+      .insert()
+      .values({
+        Slug: 'config-hidden',
+        Value: 'should-not-load',
+        Group: 'db-conf',
+        Type: 'string',
+        Exposed: false,
         Watch: false,
       })
       .into('configuration');

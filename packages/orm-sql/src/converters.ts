@@ -133,7 +133,7 @@ export class SqlDatetimeValueConverter extends DatetimeValueConverter {
     if (typeof value === 'string') {
       dt = DateTime.fromISO(value);
     } else {
-      dt = DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value);
+      dt = DateTime.isDateTime(value) ? value : DateTime.fromJSDate(value as Date);
     }
 
 

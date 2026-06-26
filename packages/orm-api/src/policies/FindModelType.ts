@@ -21,7 +21,8 @@ export class FindModelType extends BasePolicy {
       throw new InvalidOperation(`Invalid query parameters, 'model' is required`);
     }
 
-    const mClass = this.Orm.Models.find((x) => x.name.toLowerCase() === req.params.model.trim().toLowerCase());
+    const model = Array.isArray(req.params.model) ? req.params.model[0] : req.params.model;
+    const mClass = this.Orm.Models.find((x) => x.name.toLowerCase() === model.trim().toLowerCase());
     if (!mClass) {
       throw new InvalidOperation(`Resource type ${req.params.model} was not found`);
     }

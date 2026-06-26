@@ -49,36 +49,60 @@ export class UuidConverter extends ValueConverter {
   }
 }
 
+/**
+ * Universal converter for "type column" tables - text columns whose runtime
+ * type is decided by a sibling column (named by `options.TypeColumn`).
+ *
+ * Values are stored & read in canonical form: numbers as decimal text, booleans
+ * as `'true'` / `'false'`, dates / times / datetimes as ISO 8601, json as JSON.
+ */
 export class UniversalValueConverter extends ValueConverter {
   public toDB(value: any, model: ModelBase, _column: IColumnDescriptor, options: IUniversalConverterOptions) {
+    // null / undefined can't be type-converted - persist as-is
+    if (value === null || value === undefined) {
+      return value;
+    }
+
     const type = model ? (model as any)[options.TypeColumn] : (typeof value).toLowerCase();
     switch (type) {
-      case 'string':
-        return value;
       case 'boolean':
         return value ? 'true' : 'false';
       case 'datetime':
         return (value as DateTime).toISO();
+      case 'date':
+        return (value as DateTime).toISODate();
+      case 'time':
+        return (value as DateTime).toISOTime({ includeOffset: false });
       case 'float':
       case 'number':
-        (value as number).toString();
+        return (value as number).toString();
       case 'json':
         return JSON.stringify(value);
+      case 'string':
+      default:
+        return value;
     }
   }
 
-  public fromDB(value: string, raw: any, options: IUniversalConverterOptions) {
+  public fromDB(value: any, raw: any, options: IUniversalConverterOptions) {
+    // nothing to parse for empty values
+    if (value === null || value === undefined || value === '') {
+      return value;
+    }
+
     switch (raw[options.TypeColumn]) {
       case 'boolean':
-        return value === 'true' ? true : false;
+        return value === 'true';
       case 'datetime':
-        return DateTime.fromISO(value);
+      case 'date':
+      case 'time':
+        return DateTime.fromISO(value as string);
       case 'float':
-        return parseFloat(value);
+        return parseFloat(value as string);
       case 'number':
-        return parseInt(value, 10);
+        return parseInt(value as string, 10);
       case 'json':
-        return JSON.parse(value);
+        return _.isObject(value) ? value : JSON.parse(value as string);
       case 'string':
       default:
         return value;

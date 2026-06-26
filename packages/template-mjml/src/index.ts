@@ -37,7 +37,7 @@ export class MjmlRenderer extends TemplateRenderer {
     this.Log.timeStart(`MjmlRenderer.render.start.${templateName}`);
 
     const mjmTemplate = await this.Templates.compile(templateName, 'handlebars', model, language);
-    const html = mjml2html(mjmTemplate, this.Options);
+    const html = await mjml2html(mjmTemplate, this.Options);
 
     const time = this.Log.timeEnd(`MjmlRenderer.render.start.${templateName}`);
     this.Log.trace(`Rendering mjml template ${templateName} ended, (${time} ms)`);
