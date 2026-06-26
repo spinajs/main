@@ -2,14 +2,13 @@
   "name": "@spinajs/orm-sqlite",
   "version": "2.0.481",
   "description": "framework orm sql-lite language module",
-  
-    "main": "lib/cjs/index.js",
+  "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+    ".": {
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
   },
   "type": "module",
   "private": false,
@@ -29,12 +28,10 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "files": [
     "lib/**/*"
   ],
-  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -59,7 +56,7 @@
     "@spinajs/orm": "^2.0.481",
     "@spinajs/orm-sql": "^2.0.481",
     "lodash": "^4.17.21",
-     "luxon": "^3.6.1",
+    "luxon": "^3.6.1",
     "sqlite3": "5.1.7",
     "typescript-mix": "^3.1.3"
   },
