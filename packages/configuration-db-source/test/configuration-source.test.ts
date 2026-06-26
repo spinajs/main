@@ -116,6 +116,31 @@ export class Test {
     },
   })
   protected SomeVal2: string;
+
+  // a non-string exposed option - exercises converter serialization of the
+  // default value (number -> '42') and parsing it back on load.
+  @Config('test-number', {
+    defaultValue: 42,
+    expose: true,
+    exposeOptions: {
+      type: 'number',
+      group: 'db-config',
+    },
+  })
+  protected SomeNum: number;
+
+  // a watched non-string option - exercises the watch loop + converter + the
+  // DateTime-aware comparison for a numeric value.
+  @Config('test-watch-num', {
+    defaultValue: 0,
+    expose: true,
+    exposeOptions: {
+      type: 'number',
+      group: 'db-config',
+      watch: true,
+    },
+  })
+  protected SomeWatchNum: number;
 }
 
 async function wait(amount?: number) {
@@ -188,8 +213,33 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     expect((c.get('config7') as DateTime).isValid).to.be.true;
     expect(DateTime.isDateTime(c.get('config7'))).to.be.true;
 
+    // composite config-only types round-trip through the source converter
+    expect(c.get('config13')).to.deep.equal(['hello2', 'hello3']); // manyOf -> string[]
+    expect(c.get('config14')).to.equal(1); // range -> number
+
+    const dateRange = c.get('config9') as DateTime[]; // date-range -> DateTime[]
+    expect(dateRange).to.be.an('array').with.lengthOf(2);
+    expect(dateRange.every((x) => DateTime.isDateTime(x))).to.be.true;
+
     // values are NOT placed under the Group prefix
     expect(c.get('db-conf.config1')).to.be.undefined;
+  });
+
+  it('Should persist exposed options in canonical form and load them typed', async () => {
+    const c = await cfg();
+
+    // expose -> serialize default -> store -> source load, all via the converter
+    expect(c.get('test-number')).to.equal(42);
+
+    // the stored Value AND Default are the canonical text form ('42'), not the
+    // raw number or a JSON-encoded value
+    const conn = (await db()).Connections.get('sqlite')!;
+    const rows = (await conn.select().from('configuration')) as any[];
+    const row = rows.find((r) => r.Slug === 'test-number');
+
+    expect(row).to.be.not.undefined;
+    expect(row.Value).to.equal('42');
+    expect(row.Default).to.equal('42');
   });
 
   it('Should NOT load config values that are not exposed', async () => {
@@ -203,13 +253,16 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
 
     // exposed @Config var with no default - loaded from db as null/undefined
     expect(c.get('test-watch')).to.not.exist;
+    // numeric watched var was seeded with its default
+    expect(c.get('test-watch-num')).to.equal(0);
 
-    await DbConfig.update({
-      Value: 'hello',
-    }).where('Slug', 'test-watch');
+    await DbConfig.update({ Value: 'hello' }).where('Slug', 'test-watch');
+    await DbConfig.update({ Value: '100' }).where('Slug', 'test-watch-num');
 
     await wait(5000);
 
     expect(c.get('test-watch')).to.eq('hello');
+    // watched numeric value is refreshed AND converted back to a number
+    expect(c.get('test-watch-num')).to.equal(100);
   });
 });
