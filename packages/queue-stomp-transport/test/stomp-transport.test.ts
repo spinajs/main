@@ -55,7 +55,7 @@ export class ConnectionConf extends FrameworkConfiguration {
 
 const qList: StompQueueClient[] = [];
 
-async function q() {
+async function q(extra: Record<string, unknown> = {}) {
   const q = await DI.resolve(StompQueueClient, [
     {
       host: 'ws://localhost:61614/ws',
@@ -63,6 +63,7 @@ async function q() {
       debug: true,
       defaultQueueChannel: TestJobChannelName,
       defaultTopicChannel: TestEventChannelName,
+      ...extra,
     },
   ]);
 
@@ -83,8 +84,9 @@ describe('stomp queue transport test', function () {
 
   afterEach(async () => {
     for (const q of qList) {
-      q.dispose();
+      await q.dispose();
     }
+    qList.length = 0;
   });
 
   after(() => {
@@ -104,7 +106,7 @@ describe('stomp queue transport test', function () {
       },
     ]);
 
-    expect(p).to.be.rejected;
+    await expect(p).to.be.rejected;
   });
 
   it('Should emit job', async () => {
@@ -121,8 +123,8 @@ describe('stomp queue transport test', function () {
 
     const s = sinon.stub().returns(Promise.resolve());
 
-    c.subscribe(TestJobChannelName, s);
-    c.emit(message);
+    await c.subscribe(TestJobChannelName, s);
+    await c.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
@@ -143,8 +145,8 @@ describe('stomp queue transport test', function () {
 
     const s = sinon.stub().returns(Promise.resolve());
 
-    c.subscribe(TestEventChannelName, s);
-    c.emit(message);
+    await c.subscribe(TestEventChannelName, s);
+    await c.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
@@ -165,10 +167,8 @@ describe('stomp queue transport test', function () {
 
     const s = sinon.stub().returns(Promise.resolve());
 
-    c.subscribe(TestEventChannelName, s);
-    c.emit(message);
-    c.emit(message);
-    c.emit(message);
+    await c.subscribe(TestEventChannelName, s);
+    await Promise.all([c.emit(message), c.emit(message), c.emit(message)]);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
@@ -189,21 +189,21 @@ describe('stomp queue transport test', function () {
 
     const s = sinon.stub().returns(Promise.resolve());
 
-    c.subscribe('/topic/durable', s, 'test-durable', true);
-    c.emit(message);
+    await c.subscribe('/topic/durable', s, 'test-durable', true);
+    await c.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
     expect(s.calledOnce).to.be.true;
     c.unsubscribe('/topic/durable');
 
-    c.emit(message);
+    await c.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
     expect(s.calledOnce).to.be.true;
 
-    c.subscribe('/topic/durable', s, 'test-durable', true);
+    await c.subscribe('/topic/durable', s, 'test-durable', true);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
@@ -226,12 +226,10 @@ describe('stomp queue transport test', function () {
     const s1 = sinon.stub().returns(Promise.resolve());
     const s2 = sinon.stub().returns(Promise.resolve());
 
-    c1.subscribe(TestJobChannelName, s1);
-    c2.subscribe(TestJobChannelName, s2);
+    await c1.subscribe(TestJobChannelName, s1);
+    await c2.subscribe(TestJobChannelName, s2);
 
-    for (let i = 0; i < 500; i++) {
-      c1.emit(message);
-    }
+    await Promise.all(Array.from({ length: 500 }, () => c1.emit(message)));
 
     await wait(QUEUE_WAIT_TIME_MS * 2);
 
@@ -254,12 +252,12 @@ describe('stomp queue transport test', function () {
     const s1 = sinon.stub().returns(Promise.resolve());
     const s2 = sinon.stub().returns(Promise.resolve());
 
-    c1.subscribe(TestEventChannelName, s1);
-    c2.subscribe(TestEventChannelName, s2);
+    await c1.subscribe(TestEventChannelName, s1);
+    await c2.subscribe(TestEventChannelName, s2);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
-    c1.emit(message);
+    await c1.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
@@ -281,11 +279,9 @@ describe('stomp queue transport test', function () {
 
     const s1 = sinon.stub().returns(Promise.resolve());
 
-    c1.subscribe('/queue/routed', s1);
+    await c1.subscribe('/queue/routed', s1);
 
-    for (let i = 0; i < 500; i++) {
-      c1.emit(message);
-    }
+    await Promise.all(Array.from({ length: 500 }, () => c1.emit(message)));
 
     await wait(QUEUE_WAIT_TIME_MS * 2);
 
@@ -306,10 +302,8 @@ describe('stomp queue transport test', function () {
 
     const s = sinon.stub().returns(Promise.resolve());
 
-    c.subscribe('/topic/routed', s);
-    c.emit(message);
-    c.emit(message);
-    c.emit(message);
+    await c.subscribe('/topic/routed', s);
+    await Promise.all([c.emit(message), c.emit(message), c.emit(message)]);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
@@ -330,14 +324,13 @@ describe('stomp queue transport test', function () {
 
     const s = sinon.stub().returns(Promise.resolve());
 
-    c.subscribe(TestEventChannelName, s);
-    c.emit(message);
-    c.emit(message);
+    await c.subscribe(TestEventChannelName, s);
+    await Promise.all([c.emit(message), c.emit(message)]);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
     c.unsubscribe(TestEventChannelName);
-    c.emit(message);
+    await c.emit(message);
     await wait(QUEUE_WAIT_TIME_MS);
 
     expect(s.calledTwice).to.be.true;
@@ -357,8 +350,8 @@ describe('stomp queue transport test', function () {
       Priority: 0
     };
 
-    c.subscribe(TestEventChannelName, s);
-    c.emit(message);
+    await c.subscribe(TestEventChannelName, s);
+    await c.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS);
 
@@ -369,10 +362,95 @@ describe('stomp queue transport test', function () {
     expect(s.calledOnce).to.be.true;
   });
 
+  it('Should resubscribe and deliver after reconnect', async () => {
+    const c = await q();
+    const s = sinon.stub().returns(Promise.resolve());
+
+    await c.subscribe(TestEventChannelName, s);
+    await wait(QUEUE_WAIT_TIME_MS);
+
+    // force a socket drop - stompjs will auto-reconnect ( reconnectDelay 5s )
+    // and our onConnect handler must replay the tracked subscription
+    (c as any).Client.forceDisconnect();
+
+    // wait for reconnect ( 5s delay ) + resubscribe
+    await wait(QUEUE_WAIT_TIME_MS * 8);
+
+    await c.emit({
+      CreatedAt: DateTime.now(),
+      Name: 'TestEvent',
+      Type: QueueMessageType.Event,
+      Foo: 'far',
+      Persistent: false,
+      Priority: 0,
+    } as any);
+
+    await wait(QUEUE_WAIT_TIME_MS * 2);
+
+    expect(s.called).to.be.true;
+  });
+
   it('Should not block queue after job error', async () => {
+    const sourceChannel = `/queue/src-${DateTime.now().toMillis()}`;
+    const dlqChannel = `/queue/dlq-${DateTime.now().toMillis()}`;
 
-    
+    const c = await q({ defaultQueueChannel: sourceChannel, defaultQueueDeadLetterChannel: dlqChannel });
 
+    // source handler always fails
+    const failing = sinon.stub().returns(Promise.reject(new Error('boom')));
+    // dead-letter handler should receive the failed message
+    const dlqHandler = sinon.stub().returns(Promise.resolve());
+
+    await c.subscribe(sourceChannel, failing);
+    await c.subscribe(dlqChannel, dlqHandler);
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestFailingJob',
+      Type: QueueMessageType.Job,
+      Foo: 'bar',
+      Persistent: false,
+      Priority: 0,
+    };
+
+    await c.emit(message as any);
+
+    await wait(QUEUE_WAIT_TIME_MS * 3);
+
+    // the failing handler ran and the message was routed to the dead-letter queue,
+    // so the source queue is not blocked by infinite redelivery
+    expect(failing.called).to.be.true;
+    expect(dlqHandler.calledOnce).to.be.true;
+  });
+
+  it('Should retry a failing job RetryCount times then dead-letter it', async () => {
+    const sourceChannel = `/queue/retry-src-${DateTime.now().toMillis()}`;
+    const dlqChannel = `/queue/retry-dlq-${DateTime.now().toMillis()}`;
+
+    const c = await q({ defaultQueueChannel: sourceChannel, defaultQueueDeadLetterChannel: dlqChannel });
+
+    const failing = sinon.stub().returns(Promise.reject(new Error('boom')));
+    const dlqHandler = sinon.stub().returns(Promise.resolve());
+
+    await c.subscribe(sourceChannel, failing);
+    await c.subscribe(dlqChannel, dlqHandler);
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestRetryingJob',
+      Type: QueueMessageType.Job,
+      RetryCount: 2,
+      Persistent: false,
+      Priority: 0,
+    };
+
+    await c.emit(message as any);
+
+    await wait(QUEUE_WAIT_TIME_MS * 4);
+
+    // initial attempt + 2 retries = 3 executions, then routed to the dead-letter queue
+    expect(failing.callCount).to.eq(3);
+    expect(dlqHandler.calledOnce).to.be.true;
   });
 
   it('Should execute 10 times', async () => {
@@ -391,8 +469,8 @@ describe('stomp queue transport test', function () {
       Priority: 0
     };
 
-    c.subscribe(TestEventChannelName, s);
-    c.emit(message);
+    await c.subscribe(TestEventChannelName, s);
+    await c.emit(message);
 
     await wait(QUEUE_WAIT_TIME_MS);
 

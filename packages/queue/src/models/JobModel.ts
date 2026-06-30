@@ -18,9 +18,15 @@ export class JobModel<T> extends ModelBase {
   @Json()
   public Result: T;
 
-  public Status: 'error' | 'success' | 'created' | 'executing';
+  public Status: 'error' | 'success' | 'created' | 'executing' | 'retrying' | 'dead';
 
   public Progress: number;
+
+  /**
+   * Number of times job execution has been attempted. Incremented on every failed run.
+   * Once it exceeds the job's RetryCount the job is marked as `dead`.
+   */
+  public Attempt: number;
 
   public Connection: string;
 

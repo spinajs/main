@@ -12,6 +12,7 @@ export * from './interfaces.js';
 export * from './decorators.js';
 export * from './models/JobModel.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
+export * from './migrations/Queue_2026_06_30_00_00_00.js';
 export * from './fp.js';
 
 @Injectable(QueueService)
@@ -50,6 +51,7 @@ export class DefaultQueueService extends QueueService {
         jModel.Name = event.Name;
         jModel.Status = 'created';
         jModel.Progress = 0;
+        jModel.Attempt = 0;
         jModel.Connection = c;
 
         await jModel.insert();
@@ -137,10 +139,20 @@ export class DefaultQueueService extends QueueService {
               } catch (err) {
                 this.Log.error(err, `Cannot execute job ${event.name}`);
 
+                // record the failed attempt and mark the job retrying / dead so the
+                // transport can apply its retry-then-dead-letter policy ( re-thrown below ).
+                jModel.Attempt = (jModel.Attempt ?? 0) + 1;
+                const maxRetries = (ev as QueueJob).RetryCount ?? 0;
+                jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
                 jModel.Result = {
                   message: err.message,
                 };
-                jModel.Status = 'error';
+
+                await jModel.update();
+
+                // propagate so the transport sees the failure and can retry / dead-letter.
+                // ( previously the error was swallowed and the message silently acked )
+                throw err;
               }
 
               await jModel.update();

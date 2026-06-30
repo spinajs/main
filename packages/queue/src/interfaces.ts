@@ -250,8 +250,36 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    */
   public abstract subscribe(channel: string, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
 
-  public abstract unsubscribe(event: Constructor<QueueMessage>): void;
-  public abstract unsubscribe(channel: string): void;
+  public abstract unsubscribe(event: Constructor<QueueMessage>, removeDurable?: boolean): void;
+  public abstract unsubscribe(channel: string, removeDurable?: boolean): void;
+
+  /**
+   *
+   * Gets dead-letter channel for message from routing table or connection default if non is set.
+   * Used by transports to redirect messages that failed processing so they don't block the queue.
+   *
+   * @param event - event/job to check
+   * @returns the dead-letter channel, or undefined if none is configured
+   */
+  public getDeadLetterChannelForMessage(event: IQueueMessage | Constructor<QueueMessage>): string | undefined {
+    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
+    const rOption = this.Routing[eName];
+
+    // a single route option may carry its own dead-letter channel
+    if (rOption && !_.isString(rOption) && !_.isArray(rOption) && rOption.deadLetterChannel) {
+      return rOption.deadLetterChannel;
+    }
+
+    // multiple routes - use the first one that declares a dead-letter channel
+    if (_.isArray(rOption)) {
+      const withDlq = rOption.find((x) => !_.isString(x) && (x as IMessageRoutingOption).deadLetterChannel) as IMessageRoutingOption | undefined;
+      if (withDlq) {
+        return withDlq.deadLetterChannel;
+      }
+    }
+
+    return this.Options.defaultQueueDeadLetterChannel;
+  }
 
   /**
    *
@@ -348,6 +376,52 @@ export interface IQueueConnectionOptions {
    * and for unblocking source queue
    */
   defaultQueueDeadLetterChannel?: string;
+
+  /**
+   * Delay in milliseconds before the transport tries to reconnect after a dropped connection.
+   */
+  reconnectDelay?: number;
+
+  /**
+   * Incoming heartbeat interval in milliseconds ( 0 to disable ).
+   */
+  heartbeatIncoming?: number;
+
+  /**
+   * Outgoing heartbeat interval in milliseconds ( 0 to disable ).
+   */
+  heartbeatOutgoing?: number;
+
+  /**
+   * How long ( ms ) to wait for the initial connection before giving up.
+   */
+  connectionTimeout?: number;
+
+  /**
+   * How long ( ms ) to wait for a broker delivery receipt when emitting a message.
+   */
+  receiptTimeout?: number;
+
+  /**
+   * Base delay ( ms ) for retry backoff when a job fails and is rescheduled.
+   * Transports may apply exponential backoff based on this value. 0 means retry immediately.
+   */
+  retryDelay?: number;
+
+  /**
+   * Optional DI service name resolving to an {@link IQueueCredentialsProvider}.
+   * When set, the transport asks it for credentials right before each ( re )connect,
+   * allowing rotating secrets / token based authentication.
+   */
+  credentialProvider?: string;
+}
+
+/**
+ * Provides connection credentials on demand ( e.g. rotating secrets, short lived tokens ).
+ * Resolved from DI by the name set in {@link IQueueConnectionOptions.credentialProvider}.
+ */
+export interface IQueueCredentialsProvider {
+  getCredentials(options: IQueueConnectionOptions): Promise<{ login?: string; passcode?: string }>;
 }
 
 export interface IMessageOptions {
