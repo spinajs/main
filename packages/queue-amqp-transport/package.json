@@ -1,15 +1,14 @@
 {
-  "name": "@spinajs/jobs-amqp-transport",
+  "name": "@spinajs/queue-amqp-transport",
   "version": "2.0.481",
-  "description": "jobs rabbit mq support, it sends & reads messages from ampq compatible server",
-  
-    "main": "lib/cjs/index.js",
+  "description": "spinajs queue transport based on AMQP 0-9-1 ( RabbitMQ ). Sends & reads queue messages ( jobs & events ) from an amqp compatible broker.",
+  "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+    ".": {
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
   },
   "type": "module",
   "private": false,
@@ -29,19 +28,19 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "files": [
     "lib/**/*"
   ],
-  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
   },
   "keywords": [
     "spinajs",
-    "http"
+    "queue",
+    "amqp",
+    "rabbitmq"
   ],
   "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
   "license": "MIT",
@@ -50,21 +49,17 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@types/luxon": "^2.3.1",
-    "@types/node": "^16.11.11",
-    "@types/nodemailer": "^6.4.4",
-    "@types/pug": "^2.0.4"
+    "@types/amqplib": "^0.10.8",
+    "@types/luxon": "^3.6.1",
+    "@types/node": "^18.11.18"
   },
   "dependencies": {
     "@spinajs/configuration": "^2.0.481",
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
     "@spinajs/log": "^2.0.481",
-    "luxon": "^2.3.0",
-    "nodemailer": "^6.7.7",
-    "pug": "^3.0.0",
-    "randomstring": "^1.1.5",
-    "tempfile": "3.0.0"
+    "@spinajs/queue": "^2.0.481",
+    "amqplib": "^0.10.9"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
