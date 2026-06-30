@@ -1,7 +1,7 @@
 {
   "name": "@spinajs/queue-stomp-transport",
   "version": "2.0.481",
-  "description": "simple job transport based on sqlite. Reads & writes jobs to execute in local sqlite database. used for testing & simple projects",
+  "description": "STOMP-over-WebSocket queue transport for SpinaJS. Publishes & consumes jobs/events on a STOMP broker (e.g. ActiveMQ) with reconnect, durable subscriptions and dead-letter routing.",
   
     "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
