@@ -53,6 +53,14 @@ export abstract class QueueService extends AsyncService {
   public abstract stopConsuming(event: Constructor<QueueMessage>): Promise<void>;
   public abstract get(connection?: string): QueueClient;
 
+  /**
+   * Re-emits a message that was previously moved to the dead letter store and removes
+   * the dead letter entry. Used to replay jobs that exhausted their retry policy.
+   *
+   * @param id - dead letter entry id
+   */
+  public abstract requeueDeadLetter(id: number): Promise<void>;
+
   protected getConnectionsForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
     const eventName = ((event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name) as string;
     const option: string | IMessageRoutingOption | string[] | IMessageRoutingOption[] = (this.Configuration.routing as any)[eventName] ?? this.Configuration.default;
@@ -72,7 +80,7 @@ export abstract class QueueService extends AsyncService {
         }),
       );
     } else {
-      return [option.connection!];
+      return [option.connection ?? this.Configuration.default];
     }
   }
 }
@@ -348,6 +356,37 @@ export interface IQueueConnectionOptions {
    * and for unblocking source queue
    */
   defaultQueueDeadLetterChannel?: string;
+
+  /**
+   * Job retry policy for this connection. Applied in-process when a job's `execute`
+   * throws. Per-job `RetryCount` ( if set ) overrides `maxRetries`.
+   *
+   * When `maxRetries` is 0 ( default ) jobs are not retried - failing jobs go straight
+   * to the dead letter store.
+   */
+  retry?: IQueueRetryOptions;
+}
+
+export interface IQueueRetryOptions {
+  /**
+   * Maximum number of retries before a job is dead-lettered. Default 0 ( no retry ).
+   */
+  maxRetries?: number;
+
+  /**
+   * Base delay between retries in milliseconds. Default 1000.
+   */
+  delay?: number;
+
+  /**
+   * How the delay grows across attempts. Default 'Exponential'.
+   */
+  backoff?: 'Constant' | 'Linear' | 'Exponential';
+
+  /**
+   * Upper bound for the computed delay in milliseconds. Default 30000.
+   */
+  maxDelay?: number;
 }
 
 export interface IMessageOptions {

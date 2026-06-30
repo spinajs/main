@@ -18,11 +18,21 @@ export class JobModel<T> extends ModelBase {
   @Json()
   public Result: T;
 
-  public Status: 'error' | 'success' | 'created' | 'executing';
+  public Status: 'error' | 'success' | 'created' | 'executing' | 'retrying' | 'dead-letter';
 
   public Progress: number;
 
   public Connection: string;
+
+  /**
+   * Number of retry attempts performed so far ( 0 on first execution ).
+   */
+  public RetryCount: number;
+
+  /**
+   * Last error message when the job failed or was retried.
+   */
+  public LastError: string;
 
   @CreatedAt()
   public CreatedAt: DateTime;
@@ -32,4 +42,7 @@ export class JobModel<T> extends ModelBase {
 
   @DT()
   public FinishedAt: DateTime;
+
+  @DT()
+  public DeadLetteredAt: DateTime;
 }
