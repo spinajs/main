@@ -423,6 +423,36 @@ describe('stomp queue transport test', function () {
     expect(dlqHandler.calledOnce).to.be.true;
   });
 
+  it('Should retry a failing job RetryCount times then dead-letter it', async () => {
+    const sourceChannel = `/queue/retry-src-${DateTime.now().toMillis()}`;
+    const dlqChannel = `/queue/retry-dlq-${DateTime.now().toMillis()}`;
+
+    const c = await q({ defaultQueueChannel: sourceChannel, defaultQueueDeadLetterChannel: dlqChannel });
+
+    const failing = sinon.stub().returns(Promise.reject(new Error('boom')));
+    const dlqHandler = sinon.stub().returns(Promise.resolve());
+
+    await c.subscribe(sourceChannel, failing);
+    await c.subscribe(dlqChannel, dlqHandler);
+
+    const message = {
+      CreatedAt: DateTime.now(),
+      Name: 'TestRetryingJob',
+      Type: QueueMessageType.Job,
+      RetryCount: 2,
+      Persistent: false,
+      Priority: 0,
+    };
+
+    await c.emit(message as any);
+
+    await wait(QUEUE_WAIT_TIME_MS * 4);
+
+    // initial attempt + 2 retries = 3 executions, then routed to the dead-letter queue
+    expect(failing.callCount).to.eq(3);
+    expect(dlqHandler.calledOnce).to.be.true;
+  });
+
   it('Should execute 10 times', async () => {
     const c = await q();
     const s = sinon.stub().returns(Promise.resolve());

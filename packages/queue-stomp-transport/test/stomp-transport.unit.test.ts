@@ -28,11 +28,15 @@ class FakeStompClient {
   public onStompError: (frame?: any) => void = () => undefined;
   public onWebSocketError: (err?: any) => void = () => undefined;
   public onWebSocketClose: (evt?: any) => void = () => undefined;
+  public onUnhandledMessage: (m?: any) => void = () => undefined;
+  public beforeConnect: () => void | Promise<void> = () => undefined;
   public debug: (s: string) => void = () => undefined;
+  public connectHeaders: any = {};
 
   // captured interactions
   public published: Array<{ destination: string; body: string; headers: any }> = [];
   public subscriptions: Array<{ destination: string; callback: (m: any) => void; headers: any; id: string; unsubscribe: sinon.SinonStub }> = [];
+  public unsubscribed: Array<{ id: string; headers: any }> = [];
   public receiptWatchers = new Map<string, () => void>();
 
   // when false, broker never confirms publishes ( to test receipt timeout )
@@ -43,6 +47,10 @@ class FakeStompClient {
   public activate() {
     this.active = true;
     // connection is driven explicitly from tests via simulateConnect()
+  }
+
+  public unsubscribe(id: string, headers?: any) {
+    this.unsubscribed.push({ id, headers: headers ?? {} });
   }
 
   public async deactivate() {
@@ -74,6 +82,8 @@ class FakeStompClient {
   // ---- test helpers ----
 
   public simulateConnect() {
+    // mirror stompjs: beforeConnect runs before the connection is announced
+    void this.beforeConnect();
     this.connected = true;
     this.active = true;
     this.onConnect({ headers: {}, body: '' });
@@ -112,6 +122,8 @@ class ConnectionConf extends FrameworkConfiguration {
       queue: {
         routing: {
           TestEventDurable: '/topic/durable',
+          // job whose failures dead-letter to a per-route channel
+          RoutedJob: { channel: '/queue/routed-src', deadLetterChannel: '/queue/routed-dlq' },
         },
       },
       logger: {
@@ -152,12 +164,17 @@ function qMessage(extra: Partial<IQueueMessage> = {}): IQueueMessage {
   } as IQueueMessage;
 }
 
-function brokerMessage(body: unknown) {
+function brokerMessage(body: unknown, headers: Record<string, string> = {}) {
   return {
     body: typeof body === 'string' ? body : JSON.stringify(body),
+    headers,
     ack: sinon.stub(),
     nack: sinon.stub(),
   };
+}
+
+function jobMessage(extra: Partial<IQueueMessage> = {}): IQueueMessage {
+  return qMessage({ Name: 'TestJob', Type: QueueMessageType.Job, ...extra });
 }
 
 const tick = () => new Promise<void>((res) => setTimeout(res, 5));
@@ -346,12 +363,26 @@ describe('stomp queue transport - unit', function () {
       expect(msg.nack.called).to.be.false;
     });
 
-    it('nacks a failed message when no dead-letter channel is configured', async () => {
+    it('drops ( acks ) a failed EVENT - events are not retried or dead-lettered', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      await c.subscribe('/topic/evt', sinon.stub().rejects(new Error('boom')));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/topic/evt')!;
+      const msg = brokerMessage(qMessage({ Type: QueueMessageType.Event }));
+      sub.callback(msg);
+      await tick();
+
+      expect(msg.ack.calledOnce).to.be.true;
+      expect(msg.nack.called).to.be.false;
+      expect(c.fake.published.some((p) => p.destination === '/queue/dlq')).to.be.false;
+    });
+
+    it('nacks a failed JOB when no dead-letter channel is configured', async () => {
       const c = await connected();
       await c.subscribe('/queue/fail', sinon.stub().rejects(new Error('boom')));
 
       const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/fail')!;
-      const msg = brokerMessage(qMessage());
+      const msg = brokerMessage(jobMessage()); // RetryCount undefined -> 0 -> straight to DLQ logic
       sub.callback(msg);
       await tick();
 
@@ -359,12 +390,12 @@ describe('stomp queue transport - unit', function () {
       expect(msg.ack.called).to.be.false;
     });
 
-    it('routes a failed message to the dead-letter channel and acks the original', async () => {
+    it('dead-letters a failed JOB ( RetryCount 0 ) and acks the original', async () => {
       const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
       await c.subscribe('/queue/fail', sinon.stub().rejects(new Error('boom')));
 
       const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/fail')!;
-      const msg = brokerMessage(qMessage({ Name: 'FailingJob' }));
+      const msg = brokerMessage(jobMessage({ Name: 'FailingJob' }));
       sub.callback(msg);
       await tick();
 
@@ -375,6 +406,20 @@ describe('stomp queue transport - unit', function () {
       expect(dlq, 'message should be published to dead-letter channel').to.exist;
       expect(dlq!.headers['x-original-destination']).to.eq('/queue/fail');
       expect(dlq!.headers['x-error']).to.eq('boom');
+    });
+
+    it('prefers the per-route deadLetterChannel over the connection default', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/conn-dlq' });
+      await c.subscribe('/queue/routed-src', sinon.stub().rejects(new Error('boom')));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/routed-src')!;
+      // Name 'RoutedJob' maps in routing to deadLetterChannel '/queue/routed-dlq'
+      const msg = brokerMessage(jobMessage({ Name: 'RoutedJob' }));
+      sub.callback(msg);
+      await tick();
+
+      expect(c.fake.published.some((p) => p.destination === '/queue/routed-dlq')).to.be.true;
+      expect(c.fake.published.some((p) => p.destination === '/queue/conn-dlq')).to.be.false;
     });
 
     it('dead-letters a message with an unparseable body instead of leaving it unacked', async () => {
@@ -388,6 +433,94 @@ describe('stomp queue transport - unit', function () {
 
       expect(msg.ack.calledOnce).to.be.true;
       expect(c.fake.published.some((p) => p.destination === '/queue/dlq')).to.be.true;
+    });
+  });
+
+  describe('job retry ( RetryCount )', () => {
+    it('reschedules a failed job to the same channel with an incremented retry header', async () => {
+      const c = await connected();
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/job')!;
+      const msg = brokerMessage(jobMessage({ RetryCount: 2 } as any)); // attempt 0
+      sub.callback(msg);
+      await tick();
+
+      expect(msg.ack.calledOnce).to.be.true; // original acked, retry republished
+      const retry = c.fake.published.find((p) => p.destination === '/queue/job');
+      expect(retry, 'job should be re-published to the same channel').to.exist;
+      expect(retry!.headers['x-retry-count']).to.eq('1');
+    });
+
+    it('applies exponential backoff via AMQ_SCHEDULED_DELAY when retryDelay is set', async () => {
+      const c = await connected({ retryDelay: 100 });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/job')!;
+      // already retried once -> next attempt is 2 -> delay = 100 * 2^(2-1) = 200
+      const msg = brokerMessage(jobMessage({ RetryCount: 3 } as any), { 'x-retry-count': '1' });
+      sub.callback(msg);
+      await tick();
+
+      const retry = c.fake.published.find((p) => p.destination === '/queue/job');
+      expect(retry!.headers['x-retry-count']).to.eq('2');
+      expect(retry!.headers.AMQ_SCHEDULED_DELAY).to.eq('200');
+    });
+
+    it('dead-letters the job once retries are exhausted', async () => {
+      const c = await connected({ defaultQueueDeadLetterChannel: '/queue/dlq' });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/job')!;
+      // attempt already at the limit -> no more retries -> DLQ
+      const msg = brokerMessage(jobMessage({ RetryCount: 2 } as any), { 'x-retry-count': '2' });
+      sub.callback(msg);
+      await tick();
+
+      expect(msg.ack.calledOnce).to.be.true;
+      const dlq = c.fake.published.find((p) => p.destination === '/queue/dlq');
+      expect(dlq).to.exist;
+      expect(dlq!.headers['x-retry-count']).to.eq('2');
+      // not re-published to the source channel
+      expect(c.fake.published.some((p) => p.destination === '/queue/job')).to.be.false;
+    });
+  });
+
+  describe('publish headers ( content-type / correlation-id )', () => {
+    it('sets content-type application/json on every publish', async () => {
+      const c = await connected();
+      await c.emit(qMessage());
+      expect(c.fake.published[0].headers['content-type']).to.eq('application/json');
+    });
+
+    it('sets correlation-id to the JobId for jobs, and omits it for events', async () => {
+      const c = await connected();
+
+      await c.emit(jobMessage({ JobId: 'job-123' } as any));
+      await c.emit(qMessage()); // event, no JobId
+
+      const job = c.fake.published.find((p) => p.headers['correlation-id']);
+      expect(job!.headers['correlation-id']).to.eq('job-123');
+
+      const evt = c.fake.published.find((p) => p.destination === '/topic/default');
+      expect(evt!.headers['correlation-id']).to.be.undefined;
+    });
+  });
+
+  describe('CreatedAt fidelity', () => {
+    it('rehydrates a string CreatedAt into a luxon DateTime before the handler runs', async () => {
+      const c = await connected();
+      const handler = sinon.stub().resolves();
+      await c.subscribe('/queue/dt', handler);
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/dt')!;
+      // serialize a message ( CreatedAt becomes an ISO string on the wire )
+      const msg = brokerMessage(JSON.stringify(qMessage()));
+      sub.callback(msg);
+      await tick();
+
+      const received = handler.firstCall.args[0];
+      expect(DateTime.isDateTime(received.CreatedAt)).to.be.true;
     });
   });
 
@@ -412,6 +545,68 @@ describe('stomp queue transport - unit', function () {
       c.fake.simulateConnect();
 
       expect(c.fake.subscriptions.filter((s) => s.destination === '/queue/x')).to.have.length(1);
+    });
+
+    it('removes the broker-side durable subscription when removeDurable is set', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/durable', sinon.stub().resolves(), 'sub-1', true);
+
+      c.unsubscribe('/topic/durable', true);
+
+      expect(c.fake.unsubscribed).to.have.length(1);
+      expect(c.fake.unsubscribed[0].id).to.eq('sub-1');
+      expect(c.fake.unsubscribed[0].headers['activemq.subscriptionName']).to.eq('sub-1');
+      expect(c.subs.has('/topic/durable')).to.be.false;
+    });
+  });
+
+  describe('readiness', () => {
+    it('Connected reflects the live connection state', async () => {
+      const c = new TestableStompClient(options());
+      const p = c.resolve();
+      expect(c.Connected).to.be.false;
+      c.fake.simulateConnect();
+      await p;
+      expect(c.Connected).to.be.true;
+    });
+
+    it('whenReady resolves on ( re )connect and immediately when already connected', async () => {
+      const c = new TestableStompClient(options());
+
+      const readyP = c.whenReady();
+      const resolvedEarly = c.resolve();
+      c.fake.simulateConnect();
+      await resolvedEarly;
+      await expect(readyP).to.be.fulfilled;
+
+      // already connected -> resolves immediately
+      await expect(c.whenReady()).to.be.fulfilled;
+    });
+  });
+
+  describe('credentials / unhandled messages', () => {
+    it('refreshes credentials via the configured provider before connecting', async () => {
+      DI.register(
+        class {
+          public getCredentials() {
+            return Promise.resolve({ login: 'dynamic-user', passcode: 'dynamic-pass' });
+          }
+        },
+      ).as('TestCredProvider');
+
+      const c = new TestableStompClient(options({ credentialProvider: 'TestCredProvider' }));
+      const p = c.resolve();
+      c.fake.simulateConnect();
+      await p;
+      await tick();
+
+      expect(c.fake.connectHeaders.login).to.eq('dynamic-user');
+      expect(c.fake.connectHeaders.passcode).to.eq('dynamic-pass');
+    });
+
+    it('logs unhandled messages without throwing', async () => {
+      const c = await connected();
+      expect(() => c.fake.onUnhandledMessage({ headers: { destination: '/topic/stray' }, body: 'hi' })).to.not.throw();
     });
   });
 

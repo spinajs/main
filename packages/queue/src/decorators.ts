@@ -1,5 +1,4 @@
 export interface IEventOption {
-
   /**
    * Should event survive consumer restart ?
    */

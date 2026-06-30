@@ -3,8 +3,5 @@ import { _chain } from '@spinajs/util';
 import { _resolve } from '@spinajs/di';
 
 export function _ev(event: IQueueMessage | QueueEvent | QueueJob): () => Promise<void> {
-  return () => _chain(
-    _resolve(QueueService),
-    (service: QueueService) => service.emit(event)
-  );
+  return () => _chain(_resolve(QueueService), (service: QueueService) => service.emit(event));
 }
