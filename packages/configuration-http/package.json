@@ -8,10 +8,10 @@
   "main": "./lib/cjs/index.js",
   "module": "./lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+    ".": {
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
   },
   "type": "module",
   "private": false,
@@ -41,13 +41,34 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "bugs": {
     "url": "https://github.com/spinajs/main/issues"
   },
+  "keywords": [
+    "spinajs",
+    "configuration"
+  ],
+  "devDependencies": {
+    "@spinajs/fs": "^2.0.481",
+    "@spinajs/orm-sqlite": "^2.0.481",
+    "@types/lodash": "^4.14.191",
+    "@types/luxon": "^3.2.0"
+  },
   "dependencies": {
-    "@spinajs/di": "^2.0.481"
+    "@spinajs/configuration": "^2.0.481",
+    "@spinajs/configuration-common": "^2.0.481",
+    "@spinajs/configuration-db-source": "^2.0.481",
+    "@spinajs/di": "^2.0.481",
+    "@spinajs/exceptions": "^2.0.481",
+    "@spinajs/http": "^2.0.481",
+    "@spinajs/log": "^2.0.481",
+    "@spinajs/orm": "^2.0.481",
+    "@spinajs/rbac": "^2.0.481",
+    "@spinajs/rbac-http": "^2.0.481",
+    "@spinajs/validation": "^2.0.481",
+    "lodash": "^4.17.21",
+    "luxon": "^3.6.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
