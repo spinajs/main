@@ -2,7 +2,7 @@ import { UnexpectedServerError, InvalidArgument, ConnectionNotFound } from '@spi
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces.js';
-import { JobModel } from './models/JobModel.js';
+import { JobModel, JobStatus, JOB_TERMINAL_STATUSES } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
@@ -13,7 +13,13 @@ export * from './decorators.js';
 export * from './models/JobModel.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
 export * from './migrations/Queue_2026_06_30_00_00_00.js';
+export * from './migrations/Queue_2026_07_02_00_00_00.js';
 export * from './fp.js';
+
+/** Minimum progress delta ( % ) that triggers a throttled progress DB write. */
+const PROGRESS_MIN_DELTA = 5;
+/** Minimum time ( ms ) between throttled progress DB writes. */
+const PROGRESS_MIN_INTERVAL_MS = 1000;
 
 @Injectable(QueueService)
 export class DefaultQueueService extends QueueService {
@@ -23,7 +29,19 @@ export class DefaultQueueService extends QueueService {
   @AutoinjectService('queue.connections', QueueClient)
   protected Connections: Map<string, QueueClient>;
 
+  protected RetentionTimer?: ReturnType<typeof setInterval>;
+
+  public async resolve() {
+    await super.resolve();
+    this.startRetention();
+  }
+
   public async dispose() {
+    if (this.RetentionTimer) {
+      clearInterval(this.RetentionTimer);
+      this.RetentionTimer = undefined;
+    }
+
     this.Connections.forEach(async (val) => {
       try {
         await val.dispose();
@@ -33,6 +51,53 @@ export class DefaultQueueService extends QueueService {
     });
 
     this.Connections.clear();
+  }
+
+  /**
+   * Starts the periodic job-retention purge when configured. No-op if retention is disabled.
+   */
+  protected startRetention() {
+    const retention = this.Configuration.retention;
+    if (!retention?.enabled || !retention.maxAge) {
+      return;
+    }
+
+    const interval = retention.interval ?? 60 * 60 * 1000;
+
+    this.RetentionTimer = setInterval(() => {
+      const cutoff = DateTime.now().minus({ milliseconds: retention.maxAge });
+      this.purgeJobs(cutoff, retention.statuses)
+        .then((n) => {
+          if (n > 0) {
+            this.Log.info(`Retention purge removed ${n} job(s) older than ${cutoff.toISO()}`);
+          }
+        })
+        .catch((err) => this.Log.error(err, 'Job retention purge failed'));
+    }, interval);
+
+    // don't keep the process alive just for the purge timer
+    (this.RetentionTimer as { unref?: () => void }).unref?.();
+
+    this.Log.info(`Job retention enabled: purging jobs older than ${retention.maxAge}ms every ${interval}ms`);
+  }
+
+  /**
+   * Deletes terminal ( or given ) jobs created before `olderThan`. The set is selected with the
+   * JobModel query scopes ( status + date ), then removed by id.
+   */
+  public async purgeJobs(olderThan: DateTime, statuses?: string[]): Promise<number> {
+    const rows = await JobModel.query()
+      .columns(['Id'])
+      .withStatus((statuses as JobStatus[]) ?? JOB_TERMINAL_STATUSES)
+      .olderThan(olderThan);
+
+    const ids = rows.map((r) => r.Id);
+    if (ids.length === 0) {
+      return 0;
+    }
+
+    await JobModel.destroy(ids);
+    return ids.length;
   }
 
   public async emit(event: IQueueMessage | QueueEvent | QueueJob) {
@@ -52,6 +117,7 @@ export class DefaultQueueService extends QueueService {
         jModel.Status = 'created';
         jModel.Progress = 0;
         jModel.Attempt = 0;
+        jModel.MaxAttempts = (event as QueueJob).RetryCount ?? 0;
         jModel.Connection = c;
 
         await jModel.insert();
@@ -133,6 +199,11 @@ export class DefaultQueueService extends QueueService {
               jModel.Status = 'executing';
               jModel.ExecutedAt = DateTime.now();
 
+              // throttle progress persistence: skip writes smaller than the threshold and
+              // closer together than the min interval, so a chatty job doesn't hammer the DB.
+              let lastProgress = 0;
+              let lastProgressAt = 0;
+
               try {
                 // update executing state
                 await jModel.update();
@@ -150,12 +221,11 @@ export class DefaultQueueService extends QueueService {
 
                 // record the failed attempt and mark the job retrying / dead so the
                 // transport can apply its retry-then-dead-letter policy ( re-thrown below ).
+                // the error goes to LastError - Result is reserved for the successful output.
                 jModel.Attempt = (jModel.Attempt ?? 0) + 1;
                 const maxRetries = (ev as QueueJob).RetryCount ?? 0;
                 jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
-                jModel.Result = {
-                  message: err.message,
-                };
+                jModel.LastError = err instanceof Error ? err.message : String(err);
 
                 await jModel.update();
 
@@ -167,6 +237,17 @@ export class DefaultQueueService extends QueueService {
               await jModel.update();
 
               async function onProgress(p: number) {
+                const now = DateTime.now().toMillis();
+                const isFinal = p >= 100;
+
+                // always persist the final 100%; otherwise throttle by delta + time
+                if (!isFinal && p - lastProgress < PROGRESS_MIN_DELTA && now - lastProgressAt < PROGRESS_MIN_INTERVAL_MS) {
+                  jModel.Progress = p;
+                  return;
+                }
+
+                lastProgress = p;
+                lastProgressAt = now;
                 jModel.Progress = p;
                 await jModel.update();
 

@@ -4,6 +4,8 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
+import { v4 as uuidv4 } from 'uuid';
+import { DateTime } from 'luxon';
 import { QueueJob, QueueEvent, Job, Event, QueueService, JobModel, QueueClient, IQueueMessage, QueueMessage } from './../src/index.js';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
@@ -68,8 +70,39 @@ class SampleEvent extends QueueEvent {
   public Bar: string;
 }
 
+@Job()
+class FailingJob extends QueueJob {
+  public async execute() {
+    throw new Error('kaboom');
+  }
+}
+
+@Job()
+class ProgressJob extends QueueJob {
+  public async execute(progress: (p: number) => Promise<void>) {
+    for (let p = 1; p <= 100; p++) {
+      await progress(p);
+    }
+    return 'done';
+  }
+}
+
 async function q() {
   return DI.resolve(QueueService);
+}
+
+/** Inserts a queue_jobs row directly, for retention/purge tests. */
+async function seedJob(status: string): Promise<JobModel> {
+  const m = new JobModel();
+  m.JobId = uuidv4();
+  m.Name = 'Seed';
+  m.Status = status as any;
+  m.Progress = 0;
+  m.Attempt = 0;
+  m.MaxAttempts = 0;
+  m.Connection = 'memory';
+  await m.insert();
+  return m;
 }
 
 describe('queue core - dedup & persistence', function () {
@@ -125,5 +158,59 @@ describe('queue core - dedup & persistence', function () {
     await cb(delivered);
 
     expect(spy.calledOnce, 'duplicate deliveries must not re-execute the job').to.be.true;
+  });
+
+  it('stores MaxAttempts ( job RetryCount ) at dispatch', async () => {
+    await q();
+    await SampleJob.emit({ Foo: 'x', RetryCount: 4 } as any);
+
+    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
+    expect(model.MaxAttempts).to.eq(4);
+  });
+
+  it('records failures in LastError ( not Result ) and marks the job dead', async () => {
+    const queue = await q();
+    await queue.consume(FailingJob);
+
+    // consume rethrows on failure, so emit rejects; the JobModel is updated before the throw
+    await expect(FailingJob.emit({} as any)).to.be.rejectedWith('kaboom');
+
+    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
+    expect(model.Status).to.eq('dead'); // RetryCount 0 -> attempt 1 > 0 -> dead
+    expect(model.LastError).to.contain('kaboom');
+    expect(model.Result, 'result must not hold the error').to.be.null;
+  });
+
+  it('throttles progress DB writes', async () => {
+    const queue = await q();
+    const updateSpy = sinon.spy(JobModel.prototype, 'update');
+
+    await queue.consume(ProgressJob);
+    await ProgressJob.emit({} as any);
+
+    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
+    expect(model.Progress).to.eq(100); // final always persisted
+    expect(model.Status).to.eq('success');
+    // 100 progress callbacks must not translate into 100 writes
+    expect(updateSpy.callCount, 'progress writes should be throttled').to.be.lessThan(40);
+  });
+
+  it('purges terminal jobs older than a cutoff via query scopes', async () => {
+    const queue = await q();
+
+    await seedJob('success');
+    await seedJob('dead');
+    await seedJob('created'); // active - must survive
+
+    // nothing is older than a past cutoff
+    expect(await queue.purgeJobs(DateTime.now().minus({ days: 1 }))).to.eq(0);
+
+    // future cutoff -> all rows are "older"; only terminal ones are purged
+    const removed = await queue.purgeJobs(DateTime.now().plus({ days: 1 }));
+    expect(removed).to.eq(2);
+
+    const remaining = await JobModel.all();
+    expect(remaining).to.have.lengthOf(1);
+    expect(remaining[0].Status).to.eq('created');
   });
 });

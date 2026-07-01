@@ -53,6 +53,16 @@ export abstract class QueueService extends AsyncService {
   public abstract stopConsuming(event: Constructor<QueueMessage>): Promise<void>;
   public abstract get(connection?: string): QueueClient;
 
+  /**
+   * Deletes tracked jobs ( {@link JobModel} rows ) created before `olderThan` in one of `statuses`.
+   * Used by the built-in retention purge and available for manual cleanup.
+   *
+   * @param olderThan - delete jobs created before this moment
+   * @param statuses - which statuses to purge ( defaults to terminal: success / error / dead )
+   * @returns number of deleted rows
+   */
+  public abstract purgeJobs(olderThan: DateTime, statuses?: string[]): Promise<number>;
+
   protected getConnectionsForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
     const eventName = ((event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name) as string;
     const option: string | IMessageRoutingOption | string[] | IMessageRoutingOption[] = ((this.Configuration.routing ?? {}) as any)[eventName] ?? this.Configuration.default;
@@ -352,6 +362,34 @@ export interface IQueueConfiguration {
    * Defaults to `true`.
    */
   deduplicate?: boolean;
+
+  /**
+   * Automatic cleanup of old tracked jobs ( {@link JobModel} rows ) so the table doesn't
+   * grow unbounded. Disabled by default - opt in to avoid silently deleting data.
+   */
+  retention?: IQueueRetentionOptions;
+}
+
+export interface IQueueRetentionOptions {
+  /**
+   * Turn the periodic purge on. Default `false`.
+   */
+  enabled?: boolean;
+
+  /**
+   * Age in milliseconds after which a purged job is deleted ( based on CreatedAt ).
+   */
+  maxAge: number;
+
+  /**
+   * Which statuses to purge. Defaults to terminal statuses ( success / error / dead ).
+   */
+  statuses?: string[];
+
+  /**
+   * How often ( ms ) to run the purge. Default 1 hour.
+   */
+  interval?: number;
 }
 
 export interface IMessageRoutingOption {
