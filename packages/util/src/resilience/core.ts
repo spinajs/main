@@ -52,7 +52,17 @@ export type ShouldHandlePredicate<T> = (outcome: Outcome<T>) => boolean | Promis
  */
 export type ShouldHandle<T> = PredicateBuilder<T> | ShouldHandlePredicate<T>;
 
-export type BackoffType = 'Constant' | 'Linear' | 'Exponential';
+/**
+ * How the retry delay grows across attempts.
+ */
+export enum BackoffType {
+  /** Same delay on every attempt. */
+  Constant = 'Constant',
+  /** Delay grows linearly: base * attempt. */
+  Linear = 'Linear',
+  /** Delay grows exponentially: base * 2^(attempt-1). */
+  Exponential = 'Exponential',
+}
 
 /**
  * Fluent builder describing which errors / results a strategy should react to.
@@ -226,13 +236,13 @@ export function _backoff(opts: { attempt: number; baseDelay: TimeSpan; type: Bac
   let ms: number;
 
   switch (opts.type) {
-    case 'Linear':
+    case BackoffType.Linear:
       ms = base * opts.attempt;
       break;
-    case 'Exponential':
+    case BackoffType.Exponential:
       ms = base * Math.pow(2, opts.attempt - 1);
       break;
-    case 'Constant':
+    case BackoffType.Constant:
     default:
       ms = base;
       break;

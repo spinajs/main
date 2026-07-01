@@ -6,6 +6,7 @@ import { IOFail } from '@spinajs/exceptions';
 import {
   ResiliencePipelineBuilder,
   PredicateBuilder,
+  BackoffType,
   TimeoutRejectedException,
   BrokenCircuitException,
   IsolatedCircuitException,
@@ -106,6 +107,31 @@ describe('resilience', () => {
         const res = await withFakeTime(clock, () => pipeline.execute(() => action()));
         expect(res).to.eq(42);
         expect(action.callCount).to.eq(2);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('honors BackoffType.Exponential enum for growing delays', async () => {
+      const clock = sinon.useFakeTimers();
+      try {
+        const delays: number[] = [];
+        const action = sinon.stub().rejects(new IOFail('x'));
+        const pipeline = new ResiliencePipelineBuilder<string>()
+          .addRetry({
+            MaxRetryAttempts: 3,
+            Delay: 100,
+            BackoffType: BackoffType.Exponential,
+            OnRetry: ({ RetryDelay }) => {
+              delays.push(RetryDelay.totalMilliseconds);
+            },
+          })
+          .build();
+
+        await withFakeTime(clock, () => expect(pipeline.execute(() => action())).to.be.rejected);
+
+        // exponential: 100, 200, 400
+        expect(delays).to.deep.equal([100, 200, 400]);
       } finally {
         clock.restore();
       }

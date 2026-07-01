@@ -33,7 +33,7 @@ export interface RetryStrategyOptions<T> {
   Delay?: TimeSpanLike;
 
   /**
-   * How the delay grows across attempts. Default 'Constant'.
+   * How the delay grows across attempts. Default {@link BackoffType.Constant}.
    */
   BackoffType?: BackoffType;
 
@@ -65,7 +65,7 @@ export interface RetryStrategyOptions<T> {
 export function retryStrategy<T>(options: RetryStrategyOptions<T> = {}): ResilienceStrategy<T> {
   const maxAttempts = options.MaxRetryAttempts ?? 3;
   const baseDelay = _toTimeSpan(options.Delay, TimeSpan.fromSeconds(2));
-  const backoffType = options.BackoffType ?? 'Constant';
+  const backoffType = options.BackoffType ?? BackoffType.Constant;
   const useJitter = options.UseJitter ?? false;
   const maxDelay = options.MaxDelay ? _toTimeSpan(options.MaxDelay, TimeSpan.MAX_VALUE) : undefined;
   const shouldHandle = _resolveShouldHandle(options.ShouldHandle);

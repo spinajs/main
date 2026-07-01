@@ -47,7 +47,7 @@ export class ResiliencePipeline<T> {
  * @example
  * const pipeline = new ResiliencePipelineBuilder<Buffer>()
  *   .addTimeout(TimeSpan.fromSeconds(10))
- *   .addRetry({ MaxRetryAttempts: 3, BackoffType: 'Exponential', UseJitter: true })
+ *   .addRetry({ MaxRetryAttempts: 3, BackoffType: BackoffType.Exponential, UseJitter: true })
  *   .build();
  * await pipeline.execute(() => downloadAsync());
  */
