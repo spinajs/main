@@ -56,6 +56,7 @@
     { "path": "packages/orm-threading/tsconfig.mjs.json" },
     { "path": "packages/configuration-aws-secretmanager-protocol/tsconfig.mjs.json" },
     { "path": "packages/configuration-fs-protocol/tsconfig.mjs.json"},
+    { "path": "packages/configuration-http/tsconfig.mjs.json"},
     { "path": "packages/http-socket/tsconfig.mjs.json"}
 
 

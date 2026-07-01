@@ -7,5 +7,17 @@
     "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../di/tsconfig.mjs.json" }]
+  "references": [
+    { "path": "../configuration/tsconfig.mjs.json" },
+    { "path": "../configuration-common/tsconfig.mjs.json" },
+    { "path": "../configuration-db-source/tsconfig.mjs.json" },
+    { "path": "../di/tsconfig.mjs.json" },
+    { "path": "../exceptions/tsconfig.mjs.json" },
+    { "path": "../http/tsconfig.mjs.json" },
+    { "path": "../log/tsconfig.mjs.json" },
+    { "path": "../orm/tsconfig.mjs.json" },
+    { "path": "../rbac/tsconfig.mjs.json" },
+    { "path": "../rbac-http/tsconfig.mjs.json" },
+    { "path": "../validation/tsconfig.mjs.json" }
+  ]
 }
