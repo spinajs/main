@@ -1,7 +1,7 @@
 import { DI, Bootstrapper } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm } from '@spinajs/orm';
+import { Orm, extractModelDescriptor } from '@spinajs/orm';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { AuthorizedPolicy, RbacPolicy, ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/rbac-http';
@@ -11,6 +11,7 @@ import 'mocha';
 
 import { TestConfiguration, FakePolicy, req, seed } from './common.js';
 import { ConfigurationController } from '../src/controllers/Configuration.js';
+import { ConfigurationHttpBootstrapper } from '../src/bootstrap.js';
 import configurationHttpConfig from '../src/config/configuration-http.js';
 
 const JSON_HEADERS = { Accept: 'application/json' };
@@ -19,7 +20,16 @@ describe('configuration-http api', function () {
   this.timeout(25000);
 
   before(async () => {
+    // The exception -> http response map ( __http_error_map__ ) is built by the
+    // @HandleException decorators at module import time and stored in the DI
+    // cache. clearCache() below would wipe it, and the decorators only run once,
+    // so thrown-exception mapping ( eg. FromModel's OrmNotFoundException -> 404 )
+    // would silently fall back to 500. Capture it and restore it after the reset.
+    const errorMap = DI.get('__http_error_map__');
     DI.clearCache();
+    if (errorMap) {
+      DI.RootContainer.Cache.add('__http_error_map__', errorMap);
+    }
 
     const fsBootstrapper = await DI.resolve(FsBootsrapper);
     fsBootstrapper.bootstrap();
@@ -69,7 +79,7 @@ describe('configuration-http api', function () {
     it('lists all entries', async () => {
       const res = await req().get('configuration').set(JSON_HEADERS);
       expect(res).to.have.status(200);
-      expect(res.body).to.be.an('array').with.lengthOf(7);
+      expect(res.body).to.be.an('array').with.lengthOf(9);
       expect(res.body.map((e: any) => e.Slug)).to.include.members(['app.name', 'mail.from', 'app.maxUsers']);
     });
 
@@ -118,25 +128,52 @@ describe('configuration-http api', function () {
       expect(res.body.Value).to.equal('50');
     });
 
-    it('stores a boolean as canonical 1/0', async () => {
+    it('stores a boolean as canonical true/false', async () => {
       const res = await req().patch('configuration/app.debug').set(JSON_HEADERS).send({ Value: true });
       expect(res).to.have.status(200);
-      expect(res.body.Value).to.equal('1');
+      expect(res.body.Value).to.equal('true');
 
       const get = await req().get('configuration/app.debug').set(JSON_HEADERS);
-      expect(get.body.Value).to.equal('1');
+      expect(get.body.Value).to.equal('true');
     });
 
-    it('updates a date value in canonical format', async () => {
-      const res = await req().patch('configuration/app.startDate').set(JSON_HEADERS).send({ Value: '15-06-2021' });
+    it('updates a date value in canonical ISO format', async () => {
+      const res = await req().patch('configuration/app.startDate').set(JSON_HEADERS).send({ Value: '2021-06-15' });
       expect(res).to.have.status(200);
-      expect(res.body.Value).to.equal('15-06-2021');
+      expect(res.body.Value).to.equal('2021-06-15');
     });
 
     it('accepts an allowed oneOf value', async () => {
       const res = await req().patch('configuration/app.theme').set(JSON_HEADERS).send({ Value: 'light' });
       expect(res).to.have.status(200);
       expect(res.body.Value).to.equal('light');
+    });
+
+    it('accepts a manyOf subset and stores it canonically', async () => {
+      const res = await req().patch('configuration/app.features').set(JSON_HEADERS).send({ Value: ['a', 'c'] });
+      expect(res).to.have.status(200);
+      expect(JSON.parse(res.body.Value)).to.deep.equal(['a', 'c']);
+    });
+
+    it('accepts a float value within bounds', async () => {
+      const res = await req().patch('configuration/app.ratio').set(JSON_HEADERS).send({ Value: 0.75 });
+      expect(res).to.have.status(200);
+      expect(res.body.Value).to.equal('0.75');
+    });
+
+    it('accepts a datetime-range and stores it joined by ;', async () => {
+      const res = await req()
+        .patch('configuration/app.window')
+        .set(JSON_HEADERS)
+        .send({ Value: ['2021-01-01T00:00:00.000+00:00', '2021-06-01T00:00:00.000+00:00'] });
+      expect(res).to.have.status(200);
+      expect((res.body.Value as string).split(';')).to.have.lengthOf(2);
+    });
+
+    it('validates the Default value too', async () => {
+      const res = await req().patch('configuration/app.maxUsers').set(JSON_HEADERS).send({ Value: 50, Default: 5 });
+      expect(res).to.have.status(200);
+      expect(res.body.Default).to.equal('5');
     });
 
     it('can toggle the Watch flag', async () => {
@@ -160,9 +197,44 @@ describe('configuration-http api', function () {
       expect(res).to.have.status(400);
     });
 
+    it('rejects a manyOf value outside the allowed set', async () => {
+      const res = await req().patch('configuration/app.features').set(JSON_HEADERS).send({ Value: ['a', 'z'] });
+      expect(res).to.have.status(400);
+    });
+
+    it('rejects a non-array manyOf value', async () => {
+      const res = await req().patch('configuration/app.features').set(JSON_HEADERS).send({ Value: 'a' });
+      expect(res).to.have.status(400);
+    });
+
+    it('rejects an out-of-range float', async () => {
+      const res = await req().patch('configuration/app.ratio').set(JSON_HEADERS).send({ Value: 5 });
+      expect(res).to.have.status(400);
+    });
+
+    it('rejects an invalid Default value', async () => {
+      const res = await req().patch('configuration/app.maxUsers').set(JSON_HEADERS).send({ Value: 50, Default: 999 });
+      expect(res).to.have.status(400);
+    });
+
     it('returns 404 when updating an unknown slug', async () => {
       const res = await req().patch('configuration/does.not.exist').set(JSON_HEADERS).send({ Value: 'x' });
       expect(res).to.have.status(404);
+    });
+  });
+
+  describe('model-level RBAC', () => {
+    // the `configuration` resource is bound to the DbConfig model, so the query
+    // middleware denies a role without the grant even though the route policy is
+    // faked ( see FakePolicy / the x-test-role header in test/common.ts )
+    it('forbids reading configuration for a non-admin role', async () => {
+      const res = await req().get('configuration').set(JSON_HEADERS).set('x-test-role', 'user');
+      expect(res).to.have.status(403);
+    });
+
+    it('forbids updating configuration for a non-admin role', async () => {
+      const res = await req().patch('configuration/app.name').set(JSON_HEADERS).set('x-test-role', 'user').send({ Value: 'nope' });
+      expect(res).to.have.status(403);
     });
   });
 });
@@ -177,10 +249,28 @@ describe('configuration-http rbac wiring', () => {
     expect(descriptor.Routes.get('update').Permission).to.deep.equal(['updateAny']);
   });
 
-  it('ships a configuration role that admin extends', () => {
+  it('grants configuration management only through an admin sub-role', () => {
     const grants = (configurationHttpConfig as any).rbac.grants;
-    expect(grants.configuration.configuration).to.have.property('read:any');
-    expect(grants.configuration.configuration).to.have.property('update:any');
-    expect(grants.admin.$extend).to.include('configuration');
+
+    // dedicated admin sub-role holds the actual configuration resource grants
+    expect(grants['admin.configuration'].configuration).to.have.property('read:any');
+    expect(grants['admin.configuration'].configuration).to.have.property('update:any');
+
+    // admin ( and system, which extends admin in @spinajs/rbac ) inherits it
+    expect(grants.admin.$extend).to.include('admin.configuration');
+
+    // no other role defined by this module gets configuration access - it is
+    // admin-only ( guest / user roles come from the base rbac config, ungranted )
+    const rolesWithConfig = Object.keys(grants).filter((role) => (grants[role] as Record<string, unknown>).configuration !== undefined);
+    expect(rolesWithConfig).to.deep.equal(['admin.configuration']);
+  });
+
+  it('binds the DbConfig model to the configuration RBAC resource', () => {
+    // @Model('configuration') on DbConfig only names the db table; the bootstrapper
+    // declares the RBAC resource so the model-permission middleware enforces
+    // `configuration` grants on every DbConfig query.
+    new ConfigurationHttpBootstrapper().bootstrap();
+    const descriptor = extractModelDescriptor(DbConfig) as { RbacResource?: string };
+    expect(descriptor?.RbacResource).to.equal('configuration');
   });
 });

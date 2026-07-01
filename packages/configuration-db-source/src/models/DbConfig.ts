@@ -3,10 +3,12 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
 /* eslint-disable prettier/prettier */
-import { Connection, Primary, Model, ModelBase } from '@spinajs/orm';
+import { Connection, Primary, Model, ModelBase, Json } from '@spinajs/orm';
 import _ from 'lodash';
 import { DateTime } from 'luxon';
-import { ConfigurationEntryType, IConfigurationEntryMeta } from '../types.js';
+// type-only: @Json on Meta + emitDecoratorMetadata would otherwise retain this
+// interface as a runtime value import and break ESM loading.
+import type { ConfigurationEntryType, IConfigurationEntryMeta } from '../types.js';
 import { DbConfigValue } from '../converter.js';
 
 @Connection('default')
@@ -28,6 +30,9 @@ export class DbConfig<T = unknown> extends ModelBase {
 
   public Description?: string;
 
+  // stored as JSON text - the converter parses it to an object on read and
+  // stringifies it on write ( so exposeOptions.meta objects persist correctly )
+  @Json()
   public Meta?: IConfigurationEntryMeta;
 
   public Required!: boolean;

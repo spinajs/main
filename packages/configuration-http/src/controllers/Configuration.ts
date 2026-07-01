@@ -1,16 +1,18 @@
-import { BadRequestResponse, BaseController, BasePath, Body, Get, NotFound, Ok, Param, Patch, Policy, Query } from '@spinajs/http';
+import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Patch, Policy, Query } from '@spinajs/http';
 import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { Autoinject } from '@spinajs/di';
+import { DataValidator } from '@spinajs/validation';
+import { FromModel } from '@spinajs/orm-http';
 import { DbConfig } from '@spinajs/configuration-db-source';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
-import { coerceValue } from '../validation.js';
+import { valueSchema } from '../validation.js';
 
 /**
  * Serializes an entry for the api. `DbConfig.dehydrate()` emits only the declared
- * columns (honoring the model hide mechanism) with values in their canonical
- * string form ( ints as "10", booleans as "1"/"0", dates as "dd-MM-yyyy" etc. ) -
- * the same representation they round-trip through on update. Meta is taken from
- * the model where the @Json converter has already parsed it into an object.
+ * columns with Value / Default in their canonical stored form ( numbers as "10",
+ * booleans as "true"/"false", dates / times as ISO 8601 etc. ) produced by the
+ * DbConfigValueConverter, and Meta already parsed into an object by its @Json
+ * converter - the same representation they round-trip through on update.
  */
 function present(entry: DbConfig) {
   const out = entry.dehydrate() as Record<string, unknown>;
@@ -36,6 +38,9 @@ function present(entry: DbConfig) {
 @Policy(AuthorizedPolicy)
 @Resource('configuration')
 export class ConfigurationController extends BaseController {
+  @Autoinject()
+  protected Validator!: DataValidator;
+
   /**
    * List configuration entries
    * Returns all database stored configuration entries, optionally filtered by group.
@@ -64,12 +69,7 @@ export class ConfigurationController extends BaseController {
    */
   @Get(':slug')
   @Permission(['readAny'])
-  public async get(@Param() slug: string) {
-    const entry = await DbConfig.where('Slug', slug).first();
-    if (!entry) {
-      return new NotFound(`configuration entry "${slug}" not found`);
-    }
-
+  public async get(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig) {
     return new Ok(present(entry));
   }
 
@@ -88,34 +88,30 @@ export class ConfigurationController extends BaseController {
    */
   @Patch(':slug')
   @Permission(['updateAny'])
-  public async update(@Param() slug: string, @Body() data: UpdateConfigDto) {
-    const entry = await DbConfig.where('Slug', slug).first();
-    if (!entry) {
-      return new NotFound(`configuration entry "${slug}" not found`);
+  public async update(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @Body() data: UpdateConfigDto) {
+    // Build the value schema from the entry Type + Meta ( entry.Meta is already an
+    // object here, parsed by its @Json converter on load ) and validate the
+    // incoming value(s) against it. Validation can only happen here - not on the
+    // request DTO - because the entry Type isn't known until after this lookup.
+    const schema = valueSchema(entry.Type, entry.Meta);
+
+    const valueError = this.validateValue(schema, 'Value', data.Value);
+    if (valueError) {
+      return valueError;
     }
 
-    // entry.Meta is already an object here ( parsed by the @Json converter on load )
-    const meta = entry.Meta;
-
-    // validate & coerce into the typed representation, then serialize to the db
-    // string form. model.update() persists via toSql (not the custom dehydrate),
-    // so we assign the already serialized value before saving.
-    try {
-      entry.Value = coerceValue(entry.Type, meta, data.Value);
-      if (data.Default !== undefined) {
-        entry.Default = coerceValue(entry.Type, meta, data.Default);
-      }
-    } catch (err) {
-      if (err instanceof InvalidArgument) {
-        return new BadRequestResponse({ error: { message: err.message } });
-      }
-      throw err;
-    }
-
-    const serialized = entry.dehydrate();
-    entry.Value = serialized.Value;
     if (data.Default !== undefined) {
-      entry.Default = serialized.Default;
+      const defaultError = this.validateValue(schema, 'Default', data.Default);
+      if (defaultError) {
+        return defaultError;
+      }
+    }
+
+    // Assign the raw, validated value(s). The DbConfigValueConverter does all the
+    // type-based coercion into the canonical stored form on update().
+    entry.Value = data.Value as typeof entry.Value;
+    if (data.Default !== undefined) {
+      entry.Default = data.Default as typeof entry.Default;
     }
 
     if (data.Watch !== undefined) {
@@ -125,5 +121,28 @@ export class ConfigurationController extends BaseController {
     await entry.update();
 
     return new Ok(present(entry));
+  }
+
+  /**
+   * Validates a single value against the entry value schema, returning a 400
+   * response on failure or `null` when it passes.
+   *
+   * The value is wrapped in an object ( `{ [field]: value }` ) so it is always a
+   * non-null object for the validator - a bare `null` / scalar would otherwise
+   * confuse `tryValidate`'s schema-vs-data overload resolution.
+   */
+  private validateValue(valueSchema: Record<string, unknown>, field: string, value: unknown): BadRequestResponse | null {
+    const [isValid, errors] = this.Validator.tryValidate(
+      { type: 'object', properties: { [field]: valueSchema }, required: [field] },
+      { [field]: value },
+    );
+
+    if (isValid) {
+      return null;
+    }
+
+    const message = (errors ?? []).map((e) => `${field}${e.instancePath ? e.instancePath.replace(`/${field}`, '') : ''} ${e.message ?? 'is invalid'}`.trim()).join('; ') || `invalid value for ${field}`;
+
+    return new BadRequestResponse({ error: { message } });
   }
 }

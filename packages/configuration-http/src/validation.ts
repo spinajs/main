@@ -1,166 +1,77 @@
-import { InvalidArgument } from '@spinajs/exceptions';
 import { ConfigurationEntryType, IConfigurationEntryMeta } from '@spinajs/configuration-db-source';
-import { DateTime } from 'luxon';
-import _ from 'lodash';
+
+/** A plain JSON Schema fragment. */
+type JsonSchema = Record<string, unknown>;
 
 /**
- * Parses a single incoming value into the in-memory representation expected by
- * the `DbConfig` model for a given temporal type. Accepts ISO strings as well as
- * the canonical formats used by the model when it serializes back to the db.
+ * Base JSON Schema per configuration `Type`. These shapes are constant - the
+ * per-entry `Meta` ( bounds / allowed values ) is folded on top at request time
+ * by {@link valueSchema}.
+ *
+ * Validation only - it asserts the incoming value is acceptable. Coercion into
+ * the typed / canonical stored form is the converter's job ( see
+ * DbConfigValueConverter ), so eg. a `date` is just a `format: date` string
+ * here, not a luxon DateTime.
  */
-function toDateTime(type: ConfigurationEntryType, raw: unknown): DateTime {
-  if (raw instanceof DateTime) {
-    return raw;
-  }
-
-  if (typeof raw !== 'string') {
-    throw new InvalidArgument(`value for type "${type}" must be a string`);
-  }
-
-  let dt = DateTime.fromISO(raw);
-  if (!dt.isValid) {
-    switch (type) {
-      case 'date':
-      case 'date-range':
-        dt = DateTime.fromFormat(raw, 'dd-MM-yyyy');
-        break;
-      case 'time':
-      case 'time-range':
-        dt = DateTime.fromFormat(raw, 'HH:mm:ss');
-        break;
-      default:
-        break;
-    }
-  }
-
-  if (!dt.isValid) {
-    throw new InvalidArgument(`value "${raw}" is not a valid ${type}`);
-  }
-
-  return dt;
-}
-
-function checkDateBounds(value: DateTime, meta?: IConfigurationEntryMeta) {
-  if (!meta) {
-    return;
-  }
-
-  if (meta.minDate && value < DateTime.fromISO(meta.minDate as unknown as string)) {
-    throw new InvalidArgument(`value is before allowed minimum date`);
-  }
-
-  if (meta.maxDate && value > DateTime.fromISO(meta.maxDate as unknown as string)) {
-    throw new InvalidArgument(`value is after allowed maximum date`);
-  }
-}
-
-function checkNumberBounds(value: number, meta?: IConfigurationEntryMeta) {
-  if (!meta) {
-    return;
-  }
-
-  if (meta.min !== undefined && value < meta.min) {
-    throw new InvalidArgument(`value ${value} is lower than allowed minimum ${meta.min}`);
-  }
-
-  if (meta.max !== undefined && value > meta.max) {
-    throw new InvalidArgument(`value ${value} is greater than allowed maximum ${meta.max}`);
-  }
-}
+export const VALUE_SCHEMAS: Record<ConfigurationEntryType, JsonSchema> = {
+  string: { type: 'string' },
+  file: { type: 'string' },
+  oneOf: { type: 'string' },
+  manyOf: { type: 'array', uniqueItems: true, items: { type: 'string' } },
+  number: { type: 'integer' },
+  float: { type: 'number' },
+  range: { type: 'number' },
+  // a real boolean or the canonical / numeric string forms the converter understands
+  boolean: { anyOf: [{ type: 'boolean' }, { type: 'string', enum: ['0', '1', 'true', 'false'] }] },
+  date: { type: 'string', format: 'date' },
+  time: { type: 'string', format: 'time' },
+  datetime: { type: 'string', format: 'date-time' },
+  'date-range': { type: 'array', items: { type: 'string', format: 'date' } },
+  'time-range': { type: 'array', items: { type: 'string', format: 'time' } },
+  'datetime-range': { type: 'array', items: { type: 'string', format: 'date-time' } },
+  json: {},
+};
 
 /**
- * Validates and coerces a value coming from the HTTP layer into the typed
- * representation that the `DbConfig` model expects for the given configuration
- * `Type` and `Meta` constraints. Throws `InvalidArgument` ( mapped to HTTP 400 )
- * on any violation.
+ * Resolves the value schema for an entry: the constant base schema for its
+ * `Type` with the entry `Meta` constraints applied.
+ *
+ * The constraints target the schema "leaf" - the `items` schema for array types
+ * ( manyOf / *-range ), otherwise the schema itself - so allowed values and
+ * bounds land on the element being validated regardless of arity.
+ *
+ * Fed to `DataValidator` ( ajv ) in the controller, after the entry - and so its
+ * Type / Meta - has been loaded from the db. It can't live on the request DTO
+ * schema, which is validated before that lookup when the type is still unknown.
  */
-export function coerceValue(type: ConfigurationEntryType, meta: IConfigurationEntryMeta | undefined, raw: unknown): unknown {
-  switch (type) {
-    case 'string':
-    case 'file':
-      if (typeof raw !== 'string') {
-        throw new InvalidArgument(`value for type "${type}" must be a string`);
-      }
-      return raw;
+export function valueSchema(type: ConfigurationEntryType, meta?: IConfigurationEntryMeta): JsonSchema {
+  const schema = structuredClone(VALUE_SCHEMAS[type]);
 
-    case 'int': {
-      const n = Number(raw);
-      if (!_.isFinite(n) || !Number.isInteger(n)) {
-        throw new InvalidArgument(`value "${raw as string}" is not an integer`);
-      }
-      checkNumberBounds(n, meta);
-      return n;
-    }
-
-    case 'float':
-    case 'range': {
-      const n = Number(raw);
-      if (!_.isFinite(n)) {
-        throw new InvalidArgument(`value "${raw as string}" is not a number`);
-      }
-      checkNumberBounds(n, meta);
-      return n;
-    }
-
-    case 'boolean':
-      if (typeof raw === 'boolean') {
-        return raw;
-      }
-      if (raw === '1' || raw === 'true') {
-        return true;
-      }
-      if (raw === '0' || raw === 'false') {
-        return false;
-      }
-      throw new InvalidArgument(`value "${raw as string}" is not a boolean`);
-
-    case 'oneOf': {
-      if (typeof raw !== 'string') {
-        throw new InvalidArgument(`value for type "oneOf" must be a string`);
-      }
-      if (meta?.oneOf && !meta.oneOf.includes(raw)) {
-        throw new InvalidArgument(`value "${raw}" is not one of [${meta.oneOf.join(', ')}]`);
-      }
-      return raw;
-    }
-
-    case 'manyOf': {
-      if (!_.isArray(raw)) {
-        throw new InvalidArgument(`value for type "manyOf" must be an array`);
-      }
-      if (meta?.manyOf) {
-        const invalid = raw.filter((x) => !meta.manyOf!.includes(x as string));
-        if (invalid.length > 0) {
-          throw new InvalidArgument(`values [${invalid.join(', ')}] are not allowed, expected subset of [${meta.manyOf.join(', ')}]`);
-        }
-      }
-      return raw;
-    }
-
-    case 'date':
-    case 'time':
-    case 'datetime': {
-      const dt = toDateTime(type, raw);
-      checkDateBounds(dt, meta);
-      return dt;
-    }
-
-    case 'date-range':
-    case 'time-range':
-    case 'datetime-range': {
-      if (!_.isArray(raw)) {
-        throw new InvalidArgument(`value for type "${type}" must be an array`);
-      }
-      return raw.map((x) => {
-        const dt = toDateTime(type, x);
-        checkDateBounds(dt, meta);
-        return dt;
-      });
-    }
-
-    case 'json':
-    default:
-      // json is stored as-is and serialized by the model
-      return raw;
+  if (!meta) {
+    return schema;
   }
+
+  const leaf = (schema.items as JsonSchema) ?? schema;
+
+  // oneOf / manyOf both restrict the string element to an allowed set
+  const allowed = meta.oneOf ?? meta.manyOf;
+  if (allowed) {
+    leaf.enum = allowed;
+  }
+  if (meta.min !== undefined) {
+    leaf.minimum = meta.min;
+  }
+  if (meta.max !== undefined) {
+    leaf.maximum = meta.max;
+  }
+  // minDate / maxDate are ISO strings in the JSON Meta; ajv-formats
+  // formatMinimum / formatMaximum compare date / time / date-time formats
+  if (meta.minDate !== undefined) {
+    leaf.formatMinimum = meta.minDate;
+  }
+  if (meta.maxDate !== undefined) {
+    leaf.formatMaximum = meta.maxDate;
+  }
+
+  return schema;
 }

@@ -14,11 +14,13 @@ const configurationHttp = {
   rbac: {
     grants: {
       /**
-       * Dedicated role that grants full management over configuration entries.
-       * Extend this role ( or `admin` below ) to give an account access to the
-       * configuration HTTP api.
+       * Dedicated admin sub-role granting full management over configuration
+       * entries. Mirrors the `admin.users` sub-role in @spinajs/rbac: only the
+       * `admin` role ( and `system`, which extends admin ) inherits it below, so
+       * the configuration HTTP api is an admin-only capability. The resource
+       * itself is named `configuration` ( see @Resource in the controller ).
        */
-      configuration: {
+      'admin.configuration': {
         configuration: {
           'read:any': ['*'],
           'update:any': ['*'],
@@ -26,11 +28,12 @@ const configurationHttp = {
       },
 
       /**
-       * Admin inherits configuration management. Merge strategy concatenates
-       * `$extend` arrays so this does not overwrite existing admin grants.
+       * Admin inherits configuration management. The config merge concatenates
+       * `$extend` arrays, so this is additive - it does not overwrite the base
+       * admin grants ( eg. `admin.users` ).
        */
       admin: {
-        $extend: ['configuration'],
+        $extend: ['admin.configuration'],
       },
     },
   },
