@@ -121,6 +121,15 @@ export class DefaultQueueService extends QueueService {
             if (ev instanceof QueueJob) {
               let jobResult = null;
               const jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+
+              // idempotency: messaging is at-least-once, so the same job can be redelivered
+              // ( consumer crash, broker failover ). Skip if it already reached a terminal state.
+              if (this.Configuration.deduplicate !== false && (jModel.Status === 'success' || jModel.Status === 'dead')) {
+                // return normally ( no throw ) so the transport acks and drops the duplicate
+                this.Log.warn(`Job ${event.name}:${jModel.JobId} already ${jModel.Status}, skipping duplicate delivery`);
+                return;
+              }
+
               jModel.Status = 'executing';
               jModel.ExecutedAt = DateTime.now();
 

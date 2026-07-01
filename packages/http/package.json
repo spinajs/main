@@ -6,6 +6,7 @@
   "module": "lib/mjs/index.js",
   "exports": {
     ".": {
+      "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
     }
@@ -54,7 +55,7 @@
     "@types/cookie-signature": "^1.1.0",
     "@types/cors": "^2.8.13",
     "@types/express": "^5.0.1",
-    "@types/formidable":"^3.4.6",
+    "@types/formidable": "^3.4.6",
     "@types/luxon": "^3.6.1",
     "@types/node": "^22.14.1",
     "@types/pug": "^2.0.6",

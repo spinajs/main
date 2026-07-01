@@ -55,7 +55,7 @@ export abstract class QueueService extends AsyncService {
 
   protected getConnectionsForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
     const eventName = ((event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name) as string;
-    const option: string | IMessageRoutingOption | string[] | IMessageRoutingOption[] = (this.Configuration.routing as any)[eventName] ?? this.Configuration.default;
+    const option: string | IMessageRoutingOption | string[] | IMessageRoutingOption[] = ((this.Configuration.routing ?? {}) as any)[eventName] ?? this.Configuration.default;
 
     if (_.isString(option)) {
       return [this.Configuration.default];
@@ -190,6 +190,9 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
     const queue = await DI.resolve(QueueService);
 
     const message = {
+      // jobs must not be lost by default - persist unless the caller opts out.
+      // ( val / options below can still override this )
+      Persistent: true,
       ...val,
       Type: QueueMessageType.Job,
       CreatedAt: val.CreatedAt ?? DateTime.now(),
@@ -227,9 +230,14 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
 
   /**
    *
-   * Dispatches event to queue
+   * Dispatches a message to the broker.
    *
-   * @param event - event to dispatch
+   * Delivery-guarantee contract: the returned promise MUST resolve only once the broker has
+   * taken custody of the message ( AMQP publisher confirm / STOMP RECEIPT frame ), so callers
+   * emitting persistent Jobs get an at-least-once guarantee. Fire-and-forget publishing is only
+   * acceptable for non-persistent Events.
+   *
+   * @param event - message to dispatch
    */
   public abstract emit(event: IQueueMessage): Promise<void>;
 
@@ -263,7 +271,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    */
   public getDeadLetterChannelForMessage(event: IQueueMessage | Constructor<QueueMessage>): string | undefined {
     const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
-    const rOption = this.Routing[eName];
+    const rOption = this.Routing?.[eName];
 
     // a single route option may carry its own dead-letter channel
     if (rOption && !_.isString(rOption) && !_.isArray(rOption) && rOption.deadLetterChannel) {
@@ -291,7 +299,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     const options = Reflect.getMetadata('queue:options', event);
     const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
     const isJob = (event as IQueueMessage).Type ? (event as IQueueMessage).Type === QueueMessageType.Job : options ? options.type === 'job' : false;
-    const rOption = this.Routing[eName];
+    const rOption = this.Routing?.[eName];
 
     if (!rOption) {
       this.Log.warn(`No routing for event ${eName} found, using default channel`);
@@ -335,6 +343,15 @@ export interface IQueueConfiguration {
    */
   routing?: IQueueMessageRoutingOptions;
   connections: IQueueConnectionOptions[];
+
+  /**
+   * Skip re-executing a job whose {@link JobModel} is already in a terminal state
+   * ( `success` or `dead` ). Messaging is at-least-once, so duplicates happen on
+   * consumer crash and on broker failover - dedup keeps jobs idempotent.
+   *
+   * Defaults to `true`.
+   */
+  deduplicate?: boolean;
 }
 
 export interface IMessageRoutingOption {
