@@ -9,8 +9,10 @@ import { FileHasher } from './interfaces.js';
 export class DefaultFileHasher extends FileHasher {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public __checkInstance__(creationOptions: any): boolean {
+    // hasher is resolved with the algorithm passed as a bare string constructor arg
+    // ( eg. DI.resolve(FileHasher, ['md5']) ), so compare against creationOptions[0] directly.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    const requestedAlgo = creationOptions?.[0]?.alghoritm ?? 'sha256';
+    const requestedAlgo = creationOptions?.[0] ?? 'sha256';
     return this.Alghoritm === requestedAlgo;
   }
 

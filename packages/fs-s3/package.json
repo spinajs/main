@@ -59,7 +59,7 @@
     "@spinajs/configuration": "^2.0.481",
     "@spinajs/di": "^2.0.481",
     "@spinajs/fs": "^2.0.481",
-    "@spinajs/log": "^2.0.481",
+    "@spinajs/log-common": "^2.0.481",
     "@aws-sdk/client-s3":"^3.821.0",
     "@aws-sdk/cloudfront-signer": "^3.821.0",
     "@aws-sdk/lib-storage": "^3.821.0",

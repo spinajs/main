@@ -278,4 +278,133 @@ describe('fs local tests', function () {
     const exist = await result.fs.exists(result.asFilePath());
     expect(exist).to.be.true;
   });
+
+  it('should append to file relative to base path', async () => {
+    const _f = await f();
+    await _f.write('append.txt', 'hello', 'utf-8');
+    await _f.append('append.txt', ' world', 'utf-8');
+
+    // must resolve under provider base path, not process.cwd()
+    const ex = await _f.exists('append.txt');
+    expect(ex).to.be.true;
+
+    const content = await _f.read('append.txt', 'utf-8');
+    expect(content).to.eq('hello world');
+  });
+
+  it('should create file when appending to non existing file', async () => {
+    const _f = await f();
+    await _f.append('append-new.txt', 'created via append', 'utf-8');
+
+    const content = await _f.read('append-new.txt', 'utf-8');
+    expect(content).to.eq('created via append');
+  });
+
+  it('dirExists should be true for a directory and false for a file', async () => {
+    const _f = await f();
+
+    const dirOk = await _f.dirExists('dir_zip');
+    const fileIsNotDir = await _f.dirExists('test.txt');
+    const missing = await _f.dirExists('nope');
+
+    expect(dirOk).to.be.true;
+    expect(fileIsNotDir).to.be.false;
+    expect(missing).to.be.false;
+  });
+
+  it('isDir should distinguish files from directories', async () => {
+    const _f = await f();
+
+    expect(await _f.isDir('dir_zip')).to.be.true;
+    expect(await _f.isDir('test.txt')).to.be.false;
+  });
+
+  it('should rename a file', async () => {
+    const _f = await f();
+    await _f.write('rename-src.txt', 'data', 'utf-8');
+    await _f.rename('rename-src.txt', 'rename-dst.txt');
+
+    expect(await _f.exists('rename-src.txt')).to.be.false;
+    expect(await _f.exists('rename-dst.txt')).to.be.true;
+  });
+
+  it('download should return local path for existing file', async () => {
+    const _f = await f();
+    const p = await _f.download('test.txt');
+    expect(p).to.eq(_f.resolvePath('test.txt'));
+  });
+
+  it('download should reject when file does not exist', async () => {
+    const _f = await f();
+    await expect(_f.download('does-not-exist.txt')).to.be.rejectedWith(IOFail);
+  });
+
+  it('should upload a single local file', async () => {
+    const _f = await f();
+    const src = _f.resolvePath('test.txt');
+    await _f.upload(src, 'uploaded.txt');
+
+    expect(await _f.exists('uploaded.txt')).to.be.true;
+    expect(await _f.read('uploaded.txt', 'utf-8')).to.eq('hello world');
+  });
+
+  it('should read a file via read stream', async () => {
+    const _f = await f();
+    const stream = await _f.readStream('test.txt', 'utf-8');
+
+    const content: string = await new Promise((resolve, reject) => {
+      let acc = '';
+      stream.on('data', (chunk) => (acc += chunk.toString()));
+      stream.on('end', () => resolve(acc));
+      stream.on('error', reject);
+    });
+
+    expect(content).to.eq('hello world');
+  });
+
+  it('should write a file via write stream', async () => {
+    const _f = await f();
+    const stream = await _f.writeStream('ws.txt', 'utf-8');
+
+    await new Promise<void>((resolve, reject) => {
+      stream.on('finish', () => resolve());
+      stream.on('error', reject);
+      stream.end('stream content');
+    });
+
+    expect(await _f.read('ws.txt', 'utf-8')).to.eq('stream content');
+  });
+
+  it('should hash file through the fs facade', async () => {
+    const _f = await f();
+    const hash = await _f.hash('test.txt');
+    expect(hash).to.eq('b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9');
+  });
+
+  it('tmppath should point inside base path and be unique', async () => {
+    const _f = await f();
+    const a = _f.tmppath();
+    const b = _f.tmppath();
+
+    expect(a).to.not.eq(b);
+    expect(a.startsWith(_f.resolvePath(''))).to.be.true;
+  });
+
+  it('resolvePath is idempotent for absolute paths inside base path', async () => {
+    const _f = await f();
+    const abs = _f.resolvePath('test.txt');
+    expect(_f.resolvePath(abs)).to.eq(abs);
+  });
+
+  it('resolvePath must not treat sibling directories as already resolved', async () => {
+    const _f = await f();
+    const _f2 = await f2();
+
+    // absolute path that lives in the OTHER provider's base dir (a sibling of
+    // this provider's base dir sharing a name prefix, eg. files vs files-2)
+    const siblingAbs = _f2.resolvePath('a.txt');
+    const resolved = _f.resolvePath(siblingAbs);
+
+    expect(resolved).to.not.eq(siblingAbs);
+  });
 });

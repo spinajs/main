@@ -37,6 +37,15 @@ describe('fs temp tests', function () {
     sinon.restore();
   });
 
+  it('should NOT arm cleanup timer when cleanup is disabled', async () => {
+    const withCleanup = await tmp();
+    const noCleanup = await DI.resolve<fs>('__file_provider__', ['fs-temp-nc']);
+
+    // white-box: the interval handle is only set when cleanup is enabled
+    expect((withCleanup as any).cleanupTimer).to.not.be.undefined;
+    expect((noCleanup as any).cleanupTimer).to.be.undefined;
+  });
+
   it('should create temporary file', async () => {
     const t = await tmp();
     await t.write('tmp.txt', 'hello temp');

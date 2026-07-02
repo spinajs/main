@@ -51,7 +51,19 @@ describe('fs hasher tests', function () {
         expect(result).to.eq("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
     });
 
-    it("Should hash with algo from options", async () =>{ 
+    it("Should hash with algo from options", async () => {
+        // resolve default (sha256) first so a sha256 instance exists in the container
+        const sha = await DI.resolve<FileHasher>(FileHasher);
+        const shaResult = await sha.hash(dir("sample-files/test.txt"));
+        expect(shaResult).to.eq("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
 
+        // requesting a different algorithm must resolve a distinct instance and hash accordingly,
+        // not reuse the cached sha256 hasher
+        const md5 = await DI.resolve<FileHasher>(FileHasher, ['md5']);
+        const md5Result = await md5.hash(dir("sample-files/test.txt"));
+
+        expect(md5).to.not.eq(sha);
+        // md5 of 'hello world'
+        expect(md5Result).to.eq("5eb63bbbe01eeed093cb22bb8f5acdc3");
     });
 });

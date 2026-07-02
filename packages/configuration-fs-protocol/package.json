@@ -52,6 +52,7 @@
   "dependencies": {
     "@spinajs/configuration-common": "^2.0.481",
     "@spinajs/di": "^2.0.481",
+    "@spinajs/fs": "^2.0.481",
     "@spinajs/internal-logger": "^2.0.481",
     "@aws-sdk/client-secrets-manager": "^3.709.0"
   },

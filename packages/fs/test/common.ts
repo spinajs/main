@@ -66,6 +66,14 @@ export class TestConfiguration extends FrameworkConfiguration {
             cleanupInterval: 15 * 1000,
             maxFileAge: 5,
           },
+          {
+            service: 'fsNativeTemp',
+            name: 'fs-temp-nc',
+            basePath: dir('./temp-nc'),
+            cleanup: false,
+            cleanupInterval: 15 * 1000,
+            maxFileAge: 5,
+          },
         ],
       },
     };

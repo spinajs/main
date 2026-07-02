@@ -5,7 +5,7 @@ import { rm, stat, readdir, rename, mkdir, access, open, appendFile } from 'node
 import { DateTime } from 'luxon';
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IFsLocalOptions, IStat, IZipResult } from './interfaces.js';
-import { basename, join } from 'path';
+import { basename, isAbsolute, join, relative } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
 import archiver from 'archiver';
 import unzipper from 'unzipper';
@@ -109,7 +109,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   /**
    * Write to file string or buffer
    */
-  public async write(path: string, data: string | Uint8Array, encoding: BufferEncoding) {
+  public async write(path: string, data: string | Uint8Array, encoding?: BufferEncoding) {
     let fHandle: FileHandle = null as any;
 
     try {
@@ -126,7 +126,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
-    await appendFile(path, data, encoding);
+    await appendFile(this.resolvePath(path), data, encoding);
   }
 
   public writeStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding) {
@@ -155,7 +155,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async dirExists(path: string) {
-    return this.exists(this.resolvePath(path));
+    return this.isDir(path);
   }
 
   /**
@@ -351,7 +351,19 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public resolvePath(path: string) {
-    if (!this.Options.basePath || path.startsWith(this.Options.basePath)) return path;
+    if (!this.Options.basePath) return path;
+
+    // if path is already an absolute path located inside basePath, return it as-is.
+    // using path.relative instead of startsWith avoids false positives on sibling
+    // directories (eg. basePath `/data/files` and path `/data/files-2/x`) and is
+    // separator-safe across platforms.
+    if (isAbsolute(path)) {
+      const rel = relative(this.Options.basePath, path);
+      if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
+        return path;
+      }
+    }
+
     return join(this.Options.basePath, path);
   }
 }

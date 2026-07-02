@@ -32,13 +32,13 @@ export function _fs(fileSystem: string | fs): () => fs | undefined {
  * @returns absolute path to zipped file
  */
 export function _zip(srcPath: string[], dstName: string, srcFs?: string | fs) {
-  return _chain(_use(_fs(srcFs!), 'zipFS'), ({ zipFS }: { zipFS: fs }) => {
+  return _chain(_use(_fs(srcFs ?? 'fs-temp'), 'zipFS'), ({ zipFS }: { zipFS: fs }) => {
     return zipFS.zip(srcPath, zipFS, dstName);
   });
 }
 
 export function _unzip(srcPath: string, dstName: string, srcFs?: string | fs) {
-  return _chain(_use(_fs(srcFs!), 'zipFS'), ({ zipFS }: { zipFS: fs }) => {
+  return _chain(_use(_fs(srcFs ?? 'fs-temp'), 'zipFS'), ({ zipFS }: { zipFS: fs }) => {
     return zipFS.unzip(srcPath, dstName, zipFS);
   });
 }

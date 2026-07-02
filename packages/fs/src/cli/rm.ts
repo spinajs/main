@@ -6,7 +6,7 @@ interface EmailOptions {
   path : string;
 }
 
-@Command('fs-stat', 'Deletes file from given filesystem')
+@Command('fs-rm', 'Deletes file from given filesystem')
 @Option('-n, --name [name]', true, 'Name of filesystem to use')
 @Option('-p, --path [path]', true, 'Path to file ( relative to selected fs base dir )')
 

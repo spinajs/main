@@ -257,8 +257,12 @@ export class fsS3 extends fs {
      */
     const fLocal = await this.download(path);
 
-    await this.TempFs.append(fLocal, data, encoding);
-    await this.upload(fLocal, path);
+    try {
+      await this.TempFs.append(fLocal, data, encoding);
+      await this.upload(fLocal, path);
+    } finally {
+      await this.TempFs.rm(fLocal);
+    }
   }
 
   public async metadata(path: string): Promise<IFileInfo> {
@@ -413,7 +417,11 @@ export class fsS3 extends fs {
     // copy using it
     if (dstFs) {
       const file = await this.download(path);
-      await dstFs.upload(file, dest);
+      try {
+        await dstFs.upload(file, dest);
+      } finally {
+        await this.TempFs.rm(file);
+      }
     } else {
       // we copy file in s3 by copying it to another location
       const command = new CopyObjectCommand({

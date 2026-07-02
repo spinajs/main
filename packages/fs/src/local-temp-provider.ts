@@ -38,6 +38,7 @@ export class fsNativeTemp extends fsNative<IFsLocalTempOptions> {
       this.Logger.info(
         `Cleanup for temporary files system ${this.Options.name} set to false. Check configuration file if you want to automatically clenaup temporary files.`,
       );
+      return;
     }
 
     this.Logger.info(

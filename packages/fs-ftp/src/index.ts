@@ -163,13 +163,14 @@ export class fsFTP extends fs {
    * @param data
    * @param encoding
    */
-  public async append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
-    const size = await this.FtpClient.size(path);
+  public async append(dstPath: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
+    await this._restoreRootDir();
+    await this._ensureDir(dstPath);
 
-    await this._ensureDir(path);
-    await this.FtpClient.uploadFrom(Readable.from(data, { encoding }), path, {
-      localStart: size,
-    });
+    // use the FTP APPE command ( appendFrom ) so data is appended to the existing
+    // remote file. After _ensureDir the working dir is the file's parent, so the
+    // remote target must be the basename.
+    await this.FtpClient.appendFrom(Readable.from(data, { encoding }), path.basename(dstPath));
   }
 
   public async upload(srcPath: string, destPath?: string) {
@@ -180,7 +181,10 @@ export class fsFTP extends fs {
     }
     
     await this._ensureDir(destPath!);
-    await this.FtpClient.uploadFrom(srcPath, path.basename(srcPath));
+
+    // upload under the destination file name, not the source name. _ensureDir has
+    // already switched into destPath's parent directory, so pass the destination basename.
+    await this.FtpClient.uploadFrom(srcPath, path.basename(destPath!));
   }
 
   /**
@@ -287,8 +291,9 @@ export class fsFTP extends fs {
    * @param path - dir to remove
    */
   public async rm(p: string) {
-    this.FtpClient.cd(path.dirname(p));
-    this.FtpClient.remove(path.basename(p));
+    await this._restoreRootDir();
+    await this._setWorkingDir(p);
+    await this.FtpClient.remove(path.basename(p));
   }
 
   /**

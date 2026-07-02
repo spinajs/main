@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 
 import { Injectable } from '@spinajs/di';
-import { Log, Logger } from '@spinajs/log';
+import { Log, Logger } from '@spinajs/log-common';
 import { IOFail } from '@spinajs/exceptions';
 import { existsSync } from 'fs';
 import { FileInfoService, IFileInfo } from './interfaces.js';
