@@ -6,8 +6,13 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import '@spinajs/templates-pug';
 import { dir, TestConfiguration } from './common.js';
-import { FileHasher, FsBootsrapper, fsService } from '../src/index.js';
+import { DefaultFileHasher, FileHasher, FsBootsrapper, fsService } from '../src/index.js';
 import { IOFail } from '@spinajs/exceptions';
+import { Readable } from 'stream';
+
+const SHA256_HELLO_WORLD = 'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9';
+const MD5_HELLO_WORLD = '5eb63bbbe01eeed093cb22bb8f5acdc3';
+const SHA1_HELLO_WORLD = '2aae6c35c94fcfb415dbe95f408b9ce91ee846ed';
 
 
 
@@ -63,6 +68,60 @@ describe('fs hasher tests', function () {
 
         expect(md5).to.not.eq(sha);
         // md5 of 'hello world'
-        expect(md5Result).to.eq("5eb63bbbe01eeed093cb22bb8f5acdc3");
+        expect(md5Result).to.eq(MD5_HELLO_WORLD);
+    });
+
+    it('should hash a file with a base64 output encoding', async () => {
+        const hasher = await DI.resolve<FileHasher>(FileHasher);
+        const result = await hasher.hash(dir('sample-files/test.txt'), 'base64');
+
+        const expected = Buffer.from(SHA256_HELLO_WORLD, 'hex').toString('base64');
+        expect(result).to.eq(expected);
+    });
+
+    it('hashData hashes an in-memory string', async () => {
+        const hasher = await DI.resolve<FileHasher>(FileHasher);
+        const result = await hasher.hashData('hello world');
+        expect(result).to.eq(SHA256_HELLO_WORLD);
+    });
+
+    it('hashData hashes an in-memory Buffer', async () => {
+        const hasher = await DI.resolve<FileHasher>(FileHasher);
+        const result = await hasher.hashData(Buffer.from('hello world', 'utf-8'));
+        expect(result).to.eq(SHA256_HELLO_WORLD);
+    });
+
+    it('hashData respects the output encoding', async () => {
+        const hasher = await DI.resolve<FileHasher>(FileHasher);
+        const result = await hasher.hashData('hello world', 'base64');
+        expect(result).to.eq(Buffer.from(SHA256_HELLO_WORLD, 'hex').toString('base64'));
+    });
+
+    it('hashStream hashes the content of a readable stream', async () => {
+        const hasher = await DI.resolve<FileHasher>(FileHasher);
+        const result = await hasher.hashStream(Readable.from(['hello ', 'world']));
+        expect(result).to.eq(SHA256_HELLO_WORLD);
+    });
+
+    it('should reject with IOFail for an unsupported algorithm', async () => {
+        const hasher = await DI.resolve<FileHasher>(FileHasher, ['not-a-real-algo']);
+        await expect(hasher.hash(dir('sample-files/test.txt'))).to.be.rejectedWith(IOFail, 'Unsupported hash algorithm');
+        await expect(hasher.hashData('x')).to.be.rejectedWith(IOFail, 'Unsupported hash algorithm');
+    });
+
+    it('should use the default algorithm configured in fs.hasher.defaultAlgorithm', async () => {
+        const config = DI.get(Configuration) as any;
+        // @Config getter calls config.get(path, defaultValue) - match by path only, delegate the rest
+        const original = config.get.bind(config);
+        sinon.stub(config, 'get').callsFake((path: string, def?: unknown) =>
+            path === 'fs.hasher.defaultAlgorithm' ? 'sha1' : original(path, def),
+        );
+
+        // constructed directly to bypass the per-instance cache and read config at build time
+        const hasher = new DefaultFileHasher();
+        expect(hasher.Algorithm).to.eq('sha1');
+
+        const result = await hasher.hash(dir('sample-files/test.txt'));
+        expect(result).to.eq(SHA1_HELLO_WORLD);
     });
 });

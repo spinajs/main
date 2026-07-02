@@ -5,6 +5,7 @@ import { ReadStream, WriteStream } from 'fs';
 import { DateTime } from 'luxon';
 import { PassThrough } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
+import type { BinaryToTextEncoding } from 'node:crypto';
 
 /**
  * Class for handling fs URI eg. fs://fs-temp/path/to/file
@@ -418,8 +419,30 @@ export abstract class FileInfoService {
 }
 
 /**
- * File hasher, to create unique hash for file
+ * File hasher, to create unique hash for a file, raw data or a stream.
  */
 export abstract class FileHasher {
-  public abstract hash(pathToFile: string): Promise<string>;
+  /**
+   * Hashes the content of a file.
+   *
+   * @param pathToFile absolute path to the file
+   * @param encoding digest output encoding ( default 'hex' )
+   */
+  public abstract hash(pathToFile: string, encoding?: BinaryToTextEncoding): Promise<string>;
+
+  /**
+   * Hashes raw in-memory data.
+   *
+   * @param data string or Buffer to hash
+   * @param encoding digest output encoding ( default 'hex' )
+   */
+  public abstract hashData(data: string | Uint8Array, encoding?: BinaryToTextEncoding): Promise<string>;
+
+  /**
+   * Hashes the content of a readable stream.
+   *
+   * @param stream readable stream to consume
+   * @param encoding digest output encoding ( default 'hex' )
+   */
+  public abstract hashStream(stream: NodeJS.ReadableStream, encoding?: BinaryToTextEncoding): Promise<string>;
 }
