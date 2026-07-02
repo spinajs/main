@@ -5,7 +5,7 @@ import { Client } from 'basic-ftp';
 import path from 'path';
 import { IOFail, MethodNotImplemented } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
-import { Readable } from 'stream';
+import { PassThrough, Readable } from 'stream';
 
 interface IFtpConfig {
   host: string;
@@ -140,13 +140,26 @@ export class fsFTP extends fs {
   }
 
   /**
+   * Returns a readable stream with the remote file content.
    *
-   * @param path
-   * @param _encoding
-   * @returns
+   * NOTE: basic-ftp runs one command at a time on a single connection - do not
+   * issue other operations on this provider until the stream is fully consumed.
    */
-  public async readStream(_path: string, _encoding?: BufferEncoding): Promise<any> {
-    throw new MethodNotImplemented('fs ftp does not support reading streams');
+  public async readStream(p: string, encoding?: BufferEncoding): Promise<any> {
+    const pass = new PassThrough();
+
+    if (encoding) {
+      pass.setEncoding(encoding);
+    }
+
+    await this._restoreRootDir();
+    await this._setWorkingDir(p);
+
+    this.FtpClient.downloadTo(pass, path.basename(p)).catch((err) => {
+      pass.destroy(err instanceof Error ? err : new IOFail(`Cannot read stream from ${p}`, err));
+    });
+
+    return pass;
   }
 
   /**
@@ -347,12 +360,52 @@ export class fsFTP extends fs {
     return files.map((f) => f.name);
   }
 
-  public async unzip(_path: string, _destPath?: string, _dstFs?: fs): Promise<string> {
-    throw new IOFail('Method not implemented, you should download zipped to local fs first, then unzip it');
+  /**
+   * Downloads the zip to the local temp fs and extracts it there.
+   * Destination fs must be a local-path filesystem ( defaults to the temp fs ) -
+   * extracting directly onto the ftp server is not supported.
+   */
+  public async unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
+    const local = await this.download(srcPath);
+
+    try {
+      return await this.TempFs.unzip(local, destPath, dstFs ?? this.TempFs);
+    } finally {
+      try {
+        await this.TempFs.rm(local);
+      } catch {
+        /* best effort cleanup */
+      }
+    }
   }
 
-  public async zip(_path: string, _dstFs?: fs, _dstFile?: string): Promise<IZipResult> {
-    throw new IOFail('Method not implemented, you should zip files locally, then upload it');
+  /**
+   * Downloads given remote files to the local temp fs and zips them there.
+   * Result is created on dstFs ( defaults to the temp fs ). Entry names are the
+   * remote path basenames.
+   */
+  public async zip(p: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
+    const paths = Array.isArray(p) ? p : [p];
+    const downloaded: [string, string][] = [];
+
+    try {
+      for (const entry of paths) {
+        const remote = Array.isArray(entry) ? entry[0] : entry;
+        const entryName = Array.isArray(entry) ? entry[1] : entry;
+        const local = await this.download(remote);
+        downloaded.push([local, entryName]);
+      }
+
+      return await this.TempFs.zip(downloaded, dstFs ?? this.TempFs, dstFile);
+    } finally {
+      for (const [local] of downloaded) {
+        try {
+          await this.TempFs.rm(local);
+        } catch {
+          /* best effort cleanup */
+        }
+      }
+    }
   }
 
   public resolvePath(_path: string): string {

@@ -4,17 +4,23 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { FsBootsrapper } from '@spinajs/fs';
 import '@spinajs/templates-pug';
+import { spawn } from 'node:child_process';
 import { dir, TestConfiguration } from './common.js';
-import { FileInfoService, fsService } from '../src/index.js';
+import { FileInfoService, FsBootsrapper, fsService, resolveExifToolPath } from '../src/index.js';
 
+function exiftoolAvailable(binary: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        const p = spawn(binary, ['-ver']);
+        p.on('error', () => resolve(false));
+        p.on('close', (code) => resolve(code === 0));
+    });
+}
 
-
-describe('fs temp tests', function () {
+describe('fs fileinfo tests', function () {
     this.timeout(15000);
 
-    before(async () => {
+    before(async function () {
         const bootstrapper = DI.resolve(FsBootsrapper);
         bootstrapper.bootstrap();
 
@@ -23,6 +29,13 @@ describe('fs temp tests', function () {
 
         await DI.resolve(fsService);
 
+        // vendored exiftool should make these tests runnable everywhere. If the
+        // binary is still not resolvable, skip on windows only - on linux ( CI )
+        // run and fail loudly so a broken exiftool setup is not silently ignored.
+        const available = await exiftoolAvailable(await resolveExifToolPath());
+        if (!available && process.platform === 'win32') {
+            this.skip();
+        }
     });
 
     after(async () => {

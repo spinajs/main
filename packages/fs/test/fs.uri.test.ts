@@ -41,6 +41,16 @@ describe('fs URI & static facade', function () {
     expect(() => new URI('not-a-valid-uri')).to.throw(InvalidArgument);
   });
 
+  it('rejects sloppy schemes previously accepted by the regex', () => {
+    expect(() => new URI('fsss://test/file.txt')).to.throw(InvalidArgument);
+  });
+
+  it('parses fs://name without a path as empty path', () => {
+    const uri = new URI('fs://test');
+    expect(uri.Fs.Name).to.eq('test');
+    expect(uri.Path).to.eq('');
+  });
+
   it('throws when filesystem is not registered', () => {
     // the DI provider factory rejects the unknown name before URI's own guard runs
     expect(() => new URI('fs://does-not-exist/file.txt')).to.throw(/not registered/);

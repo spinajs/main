@@ -1,6 +1,7 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
-import { constants, createReadStream, createWriteStream, existsSync, readFile, readFileSync, ReadStream } from 'fs';
+import { constants, createReadStream, createWriteStream, existsSync, readFile, readFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { rm, stat, readdir, rename, mkdir, access, open, appendFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
@@ -53,12 +54,14 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
 
     if ((await this.exists(basePath)) === false) {
       this.Logger.warn(
-        `Base path ${this.Options.basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
+        `Base path ${basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
       );
 
-      await mkdir(this.Options.basePath!, { recursive: true });
+      // use the computed base path - Options.basePath may be undefined when the
+      // env / cwd fallback was taken
+      await mkdir(basePath, { recursive: true });
 
-      this.Logger.success(`Base path ${this.Options.basePath} created`);
+      this.Logger.success(`Base path ${basePath} created`);
     }
   }
 
@@ -92,7 +95,9 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    */
   public async read(path: string, encoding?: BufferEncoding) {
     return new Promise<string | Buffer>((resolve, reject) => {
-      readFile(this.resolvePath(path), { encoding: encoding ?? 'binary' }, (err, data) => {
+      // no encoding -> raw Buffer. Defaulting to 'binary' ( latin1 ) would return
+      // a string and corrupt binary data for callers expecting a Buffer.
+      readFile(this.resolvePath(path), { encoding: encoding ?? null }, (err, data) => {
         if (err) {
           reject(err);
         } else {
@@ -103,7 +108,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public readStream(path: string, encoding?: BufferEncoding) {
-    return Promise.resolve(createReadStream(this.resolvePath(path), { encoding: encoding ?? 'binary' }));
+    return Promise.resolve(createReadStream(this.resolvePath(path), encoding ? { encoding } : {}));
   }
 
   /**
@@ -130,11 +135,13 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public writeStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding) {
-    const stream = createWriteStream(this.resolvePath(path), {
-      encoding: (typeof rStream === 'string' ? rStream : encoding) ?? 'binary',
-    });
+    const enc = typeof rStream === 'string' ? rStream : encoding;
+    const stream = createWriteStream(this.resolvePath(path), enc ? { encoding: enc } : {});
 
-    if (rStream instanceof ReadStream) {
+    // pipe ANY readable stream, not only fs.ReadStream instances - the contract accepts
+    // NodeJS.ReadableStream ( PassThrough, http/s3 bodies etc. ), instanceof would
+    // silently skip those and stall the caller
+    if (rStream && typeof rStream !== 'string' && typeof rStream.pipe === 'function') {
       rStream.pipe(stream);
     }
 
@@ -233,7 +240,9 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     return {
       IsDirectory: result.isDirectory(),
       IsFile: result.isFile(),
-      CreationTime: DateTime.fromJSDate(result.ctime),
+      // birthtime is the actual creation time; ctime is inode CHANGE time and
+      // would reset file age on chmod / rename ( breaks temp fs cleanup ageing )
+      CreationTime: DateTime.fromJSDate(result.birthtime),
       ModifiedTime: DateTime.fromJSDate(result.mtime),
       AccessTime: DateTime.fromJSDate(result.atime),
       Size: result.size,
@@ -241,7 +250,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public tmppath(): string {
-    return join(this.Options.basePath!, super.tmpname());
+    return join(this.Options.basePath ?? tmpdir(), super.tmpname());
   }
 
   /**
@@ -324,18 +333,26 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
       });
 
       wStream.on('close', () => {
+        // resolve the zip path against the DESTINATION fs. Raw fs calls below must not
+        // depend on process.cwd() - outFile is relative to the destination fs base path.
+        // Remote destinations may not support path resolving - fall back to the raw name.
+        let zipPath = outFile;
+        try {
+          zipPath = fs.resolvePath(outFile);
+        } catch {
+          /* keep outFile as-is */
+        }
+
         const result = {
           fs,
           asFilePath: () => {
-            return outFile;
+            return zipPath;
           },
           asStream: (encoding?: BufferEncoding) => {
-            return createReadStream(outFile, {
-              encoding: encoding ?? 'binary',
-            });
+            return createReadStream(zipPath, encoding ? { encoding } : {});
           },
           asBase64: () => {
-            return readFileSync(outFile, { encoding: 'base64' });
+            return readFileSync(zipPath, { encoding: 'base64' });
           },
 
           unlink: async () => {

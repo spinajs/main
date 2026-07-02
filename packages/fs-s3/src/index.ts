@@ -18,8 +18,9 @@ import { Config } from '@spinajs/configuration';
 import path, { basename } from 'path';
 import { InvalidArgument, InvalidOperation, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
 import { createReadStream, existsSync } from 'fs';
+import crypto from 'crypto';
 import { DateTime } from 'luxon';
-import { Readable } from 'stream';
+import { PassThrough, Readable } from 'stream';
 import iconv from 'iconv-lite';
 import { S3UrlSigner, IS3Config } from './interfaces.js';
 
@@ -229,6 +230,19 @@ export class fsS3 extends fs {
    * Write to file string or buffer
    */
   public async write(path: string, data: string | Uint8Array, encoding?: BufferEncoding) {
+    // store the same hash metadata as upload() does - otherwise hash() throws
+    // for files created via write()
+    const shaHash = crypto.createHash('sha256');
+    const md5Hash = crypto.createHash('md5');
+
+    if (typeof data === 'string') {
+      shaHash.update(data, encoding ?? 'utf8');
+      md5Hash.update(data, encoding ?? 'utf8');
+    } else {
+      shaHash.update(data);
+      md5Hash.update(data);
+    }
+
     const upload = new Upload({
       client: this.S3,
       params: {
@@ -236,6 +250,10 @@ export class fsS3 extends fs {
         Key: path,
         Body: data,
         ContentEncoding: encoding,
+        Metadata: {
+          hash: shaHash.digest('hex'),
+          md5: md5Hash.digest('hex'),
+        },
       },
     });
 
@@ -368,14 +386,48 @@ export class fsS3 extends fs {
 
   /**
    *
-   * Returns writable stream for given path
+   * Returns writable stream for given path. Data written to the returned stream
+   * is uploaded to s3 via multipart streaming upload ( @aws-sdk/lib-storage ).
    *
-   * @param path file path ( relative to base path of provider)
-   * @param rStream readable stream, must be provided beforehand
+   * NOTE: the upload finishes shortly AFTER the stream is ended - the 'close' event
+   * on the returned stream is emitted when the s3 upload has completed.
+   *
+   * @param path file path ( s3 object key )
+   * @param rStream optional readable stream that will be piped into the upload
    * @param encoding optional stream encoding
    */
-  public async writeStream(_path: string, _encoding?: BufferEncoding | NodeJS.ReadableStream, _enc?: BufferEncoding): Promise<any> {
-    throw new IOFail('Method not implemented, s3 does not support writable streams');
+  public async writeStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding): Promise<any> {
+    const enc = typeof rStream === 'string' ? rStream : encoding;
+
+    // do not auto-emit close on end - we emit it manually when the s3 upload
+    // is fully finalized, so callers waiting for 'close' see completed uploads
+    const pass = new PassThrough({ emitClose: false });
+
+    const upload = new Upload({
+      client: this.S3,
+      params: {
+        Bucket: this.Options.bucket,
+        Key: path,
+        Body: pass,
+        ContentEncoding: enc,
+      },
+    });
+
+    upload
+      .done()
+      .then(() => {
+        this.Logger.trace(`Stream upload to ${path} finished, bucket: ${this.Options.bucket}`);
+        pass.emit('close');
+      })
+      .catch((err) => {
+        pass.destroy(new IOFail(`Cannot write stream to ${path}, bucket ${this.Options.bucket}`, err));
+      });
+
+    if (rStream && typeof rStream !== 'string' && typeof rStream.pipe === 'function') {
+      rStream.pipe(pass);
+    }
+
+    return pass;
   }
 
   /**
@@ -544,12 +596,52 @@ export class fsS3 extends fs {
     return (result.Contents?.map((x) => x.Key) ?? []) as string[];
   }
 
-  public async unzip(_path: string, _destPath?: string, _dstFs?: fs): Promise<string> {
-    throw new IOFail('Method not implemented, you should download zipped to local fs first, then unzip it');
+  /**
+   * Downloads the zip to the local temp fs and extracts it there.
+   * Destination fs must be a local-path filesystem ( defaults to the temp fs ) -
+   * extracting directly onto s3 is not supported.
+   */
+  public async unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
+    const local = await this.download(srcPath);
+
+    try {
+      return await this.TempFs.unzip(local, destPath, dstFs ?? this.TempFs);
+    } finally {
+      try {
+        await this.TempFs.rm(local);
+      } catch {
+        /* best effort cleanup */
+      }
+    }
   }
 
-  public async zip(_path: string, _dstFs?: fs, _dstFile?: string): Promise<IZipResult> {
-    throw new IOFail('Method not implemented, you should zip files locally, then upload it');
+  /**
+   * Downloads given s3 objects to the local temp fs and zips them there.
+   * Result is created on dstFs ( defaults to the temp fs ). Entry names are the
+   * object key basenames.
+   */
+  public async zip(path: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
+    const paths = Array.isArray(path) ? path : [path];
+    const downloaded: [string, string][] = [];
+
+    try {
+      for (const p of paths) {
+        const remote = Array.isArray(p) ? p[0] : p;
+        const entryName = Array.isArray(p) ? p[1] : p;
+        const local = await this.download(remote);
+        downloaded.push([local, entryName]);
+      }
+
+      return await this.TempFs.zip(downloaded, dstFs ?? this.TempFs, dstFile);
+    } finally {
+      for (const [local] of downloaded) {
+        try {
+          await this.TempFs.rm(local);
+        } catch {
+          /* best effort cleanup */
+        }
+      }
+    }
   }
 
   public resolvePath(_path: string): string {

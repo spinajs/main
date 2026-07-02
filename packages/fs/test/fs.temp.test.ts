@@ -4,10 +4,9 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { FsBootsrapper } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
-import { fs, fsService } from '../src/index.js';
+import { fs, FsBootsrapper, fsService } from '../src/index.js';
 import { sleep } from '@spinajs/threading';
 
 async function tmp() {

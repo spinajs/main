@@ -14,21 +14,20 @@ export class URI {
   public Path: string;
 
   constructor(uri: string) {
-    const reg = /^(fs+:\/\/)+(.+)$/;
-
-    if (!reg.test(uri)) {
-      throw new InvalidArgument(`URI ${uri} is not valid`);
-    }
-
+    // strict scheme - previous pattern /(fs+:\/\/)+/ accepted eg. fsss:// and fs://fs://
+    const reg = /^fs:\/\/(.+)$/;
     const e = reg.exec(uri);
 
-    if(!e || e.length < 3){
+    if (!e) {
       throw new InvalidArgument(`URI ${uri} is not valid`);
     }
 
-    const match = e[2];
-    const fsName = match.substring(0, match.indexOf('/'));
-    this.Path = match.substring(match.indexOf('/') + 1);
+    const match = e[1];
+    const slash = match.indexOf('/');
+
+    // fs://name ( no path ) -> whole match is the fs name, path is empty
+    const fsName = slash === -1 ? match : match.substring(0, slash);
+    this.Path = slash === -1 ? '' : match.substring(slash + 1);
     this.Fs = DI.resolve<fs>('__file_provider__', [fsName]);
 
     if (!this.Fs) {
@@ -131,7 +130,7 @@ export interface IZipResult {
   asFilePath(): string;
 
   // return as stream to zipped content
-  asStream(): ReadStream;
+  asStream(encoding?: BufferEncoding): ReadStream;
 
   // return base64 representation of zipped content
   asBase64(): string;

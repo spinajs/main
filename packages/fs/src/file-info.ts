@@ -1,3 +1,4 @@
+/// <reference path="./typings/exiftool.d.ts" />
 import { spawn } from "node:child_process";
 
 import { Injectable } from '@spinajs/di';
@@ -48,10 +49,37 @@ function _fInfoInit(): IFileInfo {
   }
 }
 
+/**
+ * Resolves path to the exiftool binary.
+ *
+ * Prefers the vendored binary shipped with the `exiftool-vendored` platform
+ * packages ( no system installation required ), falls back to `exiftool`
+ * available on PATH.
+ */
+export async function resolveExifToolPath(): Promise<string> {
+  try {
+    const mod = process.platform === 'win32' ? await import('exiftool-vendored.exe') : await import('exiftool-vendored.pl');
+    const binaryPath = (mod.default ?? mod) as unknown as string;
+
+    if (typeof binaryPath === 'string' && existsSync(binaryPath)) {
+      return binaryPath;
+    }
+  } catch {
+    /* vendored package not installed for this platform - fall back to PATH */
+  }
+
+  return 'exiftool';
+}
+
 @Injectable(FileInfoService)
 export class DefaultFileInfo extends FileInfoService {
   @Logger('fs')
   protected Log!: Log;
+
+  /**
+   * resolved exiftool binary path, cached after first use
+   */
+  protected ExifToolPath: string;
 
   public async getInfo(pathToFile: string): Promise<IFileInfo> {
     if (!existsSync(pathToFile)) {
@@ -76,8 +104,13 @@ export class DefaultFileInfo extends FileInfoService {
   }
 
   protected async spawnExifProcess(file: string): Promise<string> {
+    if (!this.ExifToolPath) {
+      this.ExifToolPath = await resolveExifToolPath();
+      this.Log.trace(`Using exiftool binary: ${this.ExifToolPath}`);
+    }
+
     return new Promise((resolve, reject) => {
-      const process = spawn("exiftool", [file, "-n"]);
+      const process = spawn(this.ExifToolPath, [file, "-n"]);
       let stdOutBuffer = "";
       let stdErrBuffer = "";
 

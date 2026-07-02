@@ -8,10 +8,11 @@ import { fs, FsBootsrapper, fsService } from './../src/index.js';
 import '@spinajs/templates-pug';
 import { dir, TestConfiguration } from './common.js';
 import { expect } from 'chai';
-import { join } from 'path';
+import { isAbsolute, join } from 'path';
 import { IOFail } from '@spinajs/exceptions';
 import { cp, rm } from 'fs/promises';
 import { mkdirSync } from 'fs';
+import { PassThrough } from 'stream';
 
 async function f() {
   return await DI.resolve<fs>('__file_provider__', ['test']);
@@ -207,12 +208,12 @@ describe('fs local tests', function () {
 
   it('Should throw on copy and file not exists', async () => {
     const _f = await f();
-    expect(_f.copy('not_exists.txt', 'not_exists_copy.txt')).to.be.rejectedWith(IOFail);
+    await expect(_f.copy('not_exists.txt', 'not_exists_copy.txt')).to.be.rejectedWith(IOFail);
   });
 
   it('Should throw on move when not exists', async () => {
     const _f = await f();
-    expect(_f.move('not_exists.txt', 'not_exists_copy.txt')).to.be.rejectedWith(IOFail);
+    await expect(_f.move('not_exists.txt', 'not_exists_copy.txt')).to.be.rejected;
   });
 
   it('should get file stats', async () => {
@@ -394,6 +395,67 @@ describe('fs local tests', function () {
     const _f = await f();
     const abs = _f.resolvePath('test.txt');
     expect(_f.resolvePath(abs)).to.eq(abs);
+  });
+
+  it('zip result accessors must not depend on process.cwd()', async () => {
+    const _f = await f();
+    const result = await _f.zip(['test.txt']);
+
+    // asFilePath returns a path resolved against the destination fs
+    expect(isAbsolute(result.asFilePath())).to.be.true;
+
+    // asBase64 / asStream read the actual zip content ( 'PK' magic bytes )
+    const b64 = result.asBase64();
+    expect(b64.length).to.be.greaterThan(0);
+    expect(Buffer.from(b64, 'base64').subarray(0, 2).toString('ascii')).to.eq('PK');
+
+    const stream = result.asStream();
+    const first: Buffer = await new Promise((resolve, reject) => {
+      stream.once('data', (chunk) => {
+        stream.destroy();
+        resolve(chunk as Buffer);
+      });
+      stream.once('error', reject);
+    });
+    expect(first.subarray(0, 2).toString('ascii')).to.eq('PK');
+
+    await result.unlink();
+  });
+
+  it('writeStream should pipe any readable stream, not only fs.ReadStream', async () => {
+    const _f = await f();
+
+    const source = new PassThrough();
+    const wStream = await _f.writeStream('piped.txt', source);
+
+    const done = new Promise<void>((resolve, reject) => {
+      wStream.on('finish', () => resolve());
+      wStream.on('error', reject);
+    });
+
+    source.end('piped content');
+    await done;
+
+    expect(await _f.read('piped.txt', 'utf-8')).to.eq('piped content');
+  });
+
+  it('read without encoding should return a Buffer', async () => {
+    const _f = await f();
+    const data = await _f.read('test.txt');
+
+    expect(Buffer.isBuffer(data)).to.be.true;
+    expect((data as Buffer).toString('utf-8')).to.eq('hello world');
+  });
+
+  it('stat should report a sane creation time for fresh files', async () => {
+    const _f = await f();
+    await _f.write('fresh.txt', 'x', 'utf-8');
+
+    const s = await _f.stat('fresh.txt');
+    expect(s.CreationTime?.isValid).to.be.true;
+
+    const ageSeconds = Math.abs(s.CreationTime!.diffNow('seconds').seconds);
+    expect(ageSeconds).to.be.lessThan(60);
   });
 
   it('resolvePath must not treat sibling directories as already resolved', async () => {

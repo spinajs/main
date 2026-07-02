@@ -4,10 +4,9 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { FsBootsrapper } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 import { dir, TestConfiguration } from './common.js';
-import { FileHasher, fsService } from '../src/index.js';
+import { FileHasher, FsBootsrapper, fsService } from '../src/index.js';
 import { IOFail } from '@spinajs/exceptions';
 
 
