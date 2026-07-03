@@ -352,13 +352,32 @@ export class fsS3 extends fs {
         Key: dPath,
         Body: rStream,
 
-        // convert all metadata values to string, and back to object with key-value pair of strings
+        // IFileInfo now carries every raw exiftool tag; storing all of them would
+        // exceed s3's 2KB user-metadata limit, so persist only a bounded, stable
+        // subset ( plus the content hashes ). Undefined fields are skipped.
         Metadata: Object.fromEntries(
           Object.entries({
-            ...fInfo,
+            FileSize: fInfo.FileSize,
+            MimeType: fInfo.MimeType,
+            Encoding: fInfo.Encoding,
+            Width: fInfo.Width,
+            Height: fInfo.Height,
+            Duration: fInfo.Duration,
+            FrameCount: fInfo.FrameCount,
+            FrameRate: fInfo.FrameRate,
+            AudioChannels: fInfo.AudioChannels,
+            Bitrate: fInfo.Bitrate,
+            Codec: fInfo.Codec,
+            WordCount: fInfo.WordCount,
+            LineCount: fInfo.LineCount,
+            AccessDate: fInfo.AccessDate,
+            CreationDate: fInfo.CreationDate,
+            ModificationDate: fInfo.ModificationDate,
             hash: shaHash,
             md5: hash,
-          }).map(([key, value]) => [key, String(value)]),
+          })
+            .filter(([, value]) => value !== undefined && value !== null)
+            .map(([key, value]) => [key, String(value)]),
         ),
       },
     });

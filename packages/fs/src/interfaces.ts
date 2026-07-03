@@ -69,6 +69,11 @@ export interface IFileInfo {
   FrameCount?: number;
   FrameRate?: number;
 
+  /**
+   * Number of audio channels ( eg. 2 for stereo )
+   */
+  AudioChannels?: number;
+
   Bitrate?: number;
   Codec?: string;
 
@@ -85,6 +90,13 @@ export interface IFileInfo {
    * Raw unprocessed data obtained from file info
    */
   Raw?: {};
+
+  /**
+   * All other extracted tags are promoted here generically ( PascalCased tag
+   * name -> value ). The well-known fields above are typed aliases over the
+   * same data; everything the analyzer emits is also available in {@link Raw}.
+   */
+  [key: string]: unknown;
 }
 
 export interface IFsLocalOptions {
@@ -415,7 +427,20 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
  * Eg. movie resolution, image, codec etc. if possible
  */
 export abstract class FileInfoService {
+  /**
+   * Extracts file information from a file on disk.
+   *
+   * @param pathToFile absolute path to the file
+   */
   public abstract getInfo(pathToFile: string): Promise<IFileInfo>;
+
+  /**
+   * Extracts file information from a readable stream ( content is fed to the
+   * analyzer via stdin, so no temporary file is needed ).
+   *
+   * @param stream readable stream with the file content
+   */
+  public abstract getInfoFromStream(stream: NodeJS.ReadableStream): Promise<IFileInfo>;
 }
 
 /**
