@@ -252,11 +252,15 @@ export class FrameworkConfiguration extends Configuration {
       });
     };
 
-    // omit system config prop couse dir dynamic loading
-    this.Config = {
+    // omit system config prop couse dir dynamic loading.
+    // NOTE: the root object must be wrapped by proxyFunc AFTER merging - spreading
+    // a proxied object would enumerate through the proxy get trap and eagerly
+    // dereference ( and inline ) every root-level ConfigVar, breaking their laziness.
+    // mapObject returns a plain object, so spreading it copies raw ConfigVar refs.
+    this.Config = proxyFunc({
       system: { ...(this.Config.system as {}) },
-      ...proxyFunc(mapObject(_.omit(this.Config, ['system']), proxyFunc)),
-    };
+      ...mapObject(_.omit(this.Config, ['system']), proxyFunc),
+    });
   }
 
   protected async loadProtocolVars() {

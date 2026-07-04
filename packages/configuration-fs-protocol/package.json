@@ -46,6 +46,7 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "devDependencies": {
+    "@spinajs/log": "^2.0.481",
     "@types/lodash": "^4.14.191",
     "@types/luxon": "^3.2.0"
   },

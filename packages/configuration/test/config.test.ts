@@ -44,7 +44,7 @@ export class TestValProtocol extends ConfigVarProtocol {
     return 'test://';
   }
 
-  public getVar(_path: string, _config: any): Promise<unknown> {
+  public getVar(_path: string, _config: any): Promise<any> {
     return Promise.resolve('sample-val-proto');
   }
 }
@@ -55,10 +55,34 @@ export class Test2ValProtocol extends ConfigVarProtocol {
     return 'test2://';
   }
 
-  public getVar(_path: string, _config: any): Promise<unknown> {
+  public getVar(_path: string, _config: any): Promise<any> {
     return Promise.resolve(
       new ConfigVar(() => {
         return 'test2-val';
+      }),
+    );
+  }
+}
+
+/**
+ * Protocol used to verify ROOT-level ConfigVar laziness. Value / call count are
+ * controllable so tests can simulate a value that is not ready yet ( null ) and
+ * becomes available later ( eg. fs providers registered after configuration ).
+ */
+@Injectable(ConfigVarProtocol)
+export class LazyRootProtocol extends ConfigVarProtocol {
+  public static Calls = 0;
+  public static Value: string | null = 'lazy-root-val';
+
+  public get Protocol() {
+    return 'lazyroot://';
+  }
+
+  public getVar(_path: string, _config: any): Promise<any> {
+    return Promise.resolve(
+      new ConfigVar(() => {
+        LazyRootProtocol.Calls++;
+        return LazyRootProtocol.Value;
       }),
     );
   }
@@ -84,6 +108,32 @@ describe('Configuration tests', () => {
     const config = await cfgNoApp();
     const test = config.get('protocol.test');
     expect(test).to.be.eq('sample-val-proto');
+  });
+
+  it('ROOT-level protocol vars stay lazy and retry until ready ( regression )', async () => {
+    // simulate "value not ready during configuration bootstrap" ( eg. fs-path://
+    // before fsService registered providers )
+    LazyRootProtocol.Calls = 0;
+    LazyRootProtocol.Value = null;
+
+    const config = await cfgNoApp();
+
+    // not ready yet - lazy value resolves to null, must NOT throw
+    expect(config.get('rootLazy')).to.eq(null);
+
+    // becomes available later ( ConfigVar caches only truthy values -> retried ).
+    // Before the root-proxy fix the spread in load() inlined the dereferenced
+    // value once and the ConfigVar was lost - this stayed null forever.
+    LazyRootProtocol.Value = 'ready-now';
+    expect(config.get('rootLazy')).to.eq('ready-now');
+    expect(LazyRootProtocol.Calls).to.be.greaterThan(1);
+
+    // and truthy result is cached - no further lazy calls
+    const calls = LazyRootProtocol.Calls;
+    expect(config.get('rootLazy')).to.eq('ready-now');
+    expect(LazyRootProtocol.Calls).to.eq(calls);
+
+    LazyRootProtocol.Value = 'lazy-root-val';
   });
 
   it('Should load vars from conf protocol - lazy value', async () => {
@@ -306,7 +356,7 @@ describe('Configuration tests', () => {
     expect(instance.Services.get('serv1')).to.be.not.null;
     expect(instance.Services.get('serv2')).to.be.not.null;
 
-    expect(instance.Services.get('serv1').constructor.name).to.eq('Serv1');
-    expect(instance.Services.get('serv2').constructor.name).to.eq('Serv2');
+    expect(instance.Services.get('serv1')!.constructor.name).to.eq('Serv1');
+    expect(instance.Services.get('serv2')!.constructor.name).to.eq('Serv2');
   });
 });

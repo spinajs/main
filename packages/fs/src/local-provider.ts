@@ -1,12 +1,12 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
-import { constants, createReadStream, createWriteStream, existsSync, readFile, readFileSync } from 'fs';
+import { constants, createReadStream, createWriteStream, existsSync, readFileSync, Stats } from 'fs';
 import { tmpdir } from 'os';
-import { rm, stat, readdir, rename, mkdir, access, open, appendFile } from 'node:fs/promises';
+import { rm, stat, readdir, rename, mkdir, access, open, appendFile, readFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IFsLocalOptions, IStat, IZipResult } from './interfaces.js';
-import { basename, isAbsolute, join, relative } from 'path';
+import { basename, dirname, isAbsolute, join, parse, relative, resolve as pathResolve } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
 import archiver from 'archiver';
 import unzipper from 'unzipper';
@@ -20,7 +20,9 @@ import { toArray } from '@spinajs/util';
  * It allows to wrap other libs eg. aws s3, ftp
  * and inject it into code without changing logic that use them.
  *
- * TODO: map errors to some kind of common errors shared with other implementations
+ * All failures are surfaced as IOFail ( the original error is preserved as the
+ * inner cause ). When basePath is set, all paths are sandboxed to it - resolved
+ * paths escaping basePath ( eg. via `..` ) throw IOFail.
  */
 @Injectable('fs')
 @PerInstanceCheck()
@@ -45,14 +47,20 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async resolve() {
-
     await super.resolve();
+
+    // canonicalize configured base path once - a relative basePath would otherwise
+    // resolve against cwd at every call ( and self-join in checks below )
+    if (this.Options.basePath) {
+      this.Options.basePath = pathResolve(this.Options.basePath);
+    }
 
     const basePath = this.Options.basePath ?? process.env.WORKSPACE_ROOT_PATH ?? process.cwd();
 
     this.Logger.info(`Initializing file provider ${this.Options.name} with base path ${basePath}`);
 
-    if ((await this.exists(basePath)) === false) {
+    // check the raw path - this.exists() would resolve it against basePath again
+    if (!existsSync(basePath)) {
       this.Logger.warn(
         `Base path ${basePath} for file provider ${this.Options.name} not exists, trying to create base folder`,
       );
@@ -87,51 +95,76 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     }
 
     const dPath = this.resolvePath(destPath ?? basename(srcPath));
-    await cp(srcPath, dPath, { force: true, recursive: true });
+
+    try {
+      // cp creates missing destination parent directories itself
+      await cp(srcPath, dPath, { force: true, recursive: true });
+    } catch (err) {
+      throw new IOFail(`Cannot upload ${srcPath} to ${dPath}`, err);
+    }
   }
 
   /**
    * read all content of file
    */
   public async read(path: string, encoding?: BufferEncoding) {
-    return new Promise<string | Buffer>((resolve, reject) => {
+    const p = this.resolvePath(path);
+
+    try {
       // no encoding -> raw Buffer. Defaulting to 'binary' ( latin1 ) would return
       // a string and corrupt binary data for callers expecting a Buffer.
-      readFile(this.resolvePath(path), { encoding: encoding ?? null }, (err, data) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(data);
-        }
-      });
-    });
+      return await readFile(p, { encoding: encoding ?? null });
+    } catch (err) {
+      throw new IOFail(`Cannot read file ${path}`, err);
+    }
   }
 
-  public readStream(path: string, encoding?: BufferEncoding) {
-    return Promise.resolve(createReadStream(this.resolvePath(path), encoding ? { encoding } : {}));
+  public async readStream(path: string, encoding?: BufferEncoding) {
+    const p = this.resolvePath(path);
+
+    // fail fast with a consistent error - otherwise the error surfaces asynchronously
+    // on the returned stream. NOTE: runtime read failures are still stream errors.
+    if (!(await this.exists(path))) {
+      throw new IOFail(`Cannot read file ${path}, file does not exists`);
+    }
+
+    return createReadStream(p, encoding ? { encoding } : {});
   }
 
   /**
    * Write to file string or buffer
    */
   public async write(path: string, data: string | Uint8Array, encoding?: BufferEncoding) {
-    let fHandle: FileHandle = null as any;
+    const p = this.resolvePath(path);
+
+    let fHandle: FileHandle;
+    try {
+      fHandle = await open(p, 'w');
+    } catch (err) {
+      throw new IOFail(`Cannot open file ${path} for writing`, err);
+    }
 
     try {
-      fHandle = await open(this.resolvePath(path), 'w');
       await fHandle.writeFile(data, { encoding });
+
+      // flush to disk so data is durable before success is reported
+      await fHandle.sync();
     } catch (err) {
       throw new IOFail(`Cannot write to file ${path}`, err);
     } finally {
-      if (fHandle) {
-        await fHandle.sync();
-        await fHandle.close();
-      }
+      // close must ALWAYS run and must never mask the original error
+      await fHandle.close().catch(() => {});
     }
   }
 
   public async append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {
-    await appendFile(this.resolvePath(path), data, encoding);
+    const p = this.resolvePath(path);
+
+    try {
+      await appendFile(p, data, encoding);
+    } catch (err) {
+      throw new IOFail(`Cannot append to file ${path}`, err);
+    }
   }
 
   public writeStream(path: string, rStream?: BufferEncoding | NodeJS.ReadableStream, encoding?: BufferEncoding) {
@@ -142,6 +175,9 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     // NodeJS.ReadableStream ( PassThrough, http/s3 bodies etc. ), instanceof would
     // silently skip those and stall the caller
     if (rStream && typeof rStream !== 'string' && typeof rStream.pipe === 'function') {
+      // pipe() does NOT forward errors - without this, a failing source leaves the
+      // write stream open forever and the caller waiting for 'close' hangs
+      rStream.on('error', (err) => stream.destroy(err instanceof Error ? err : new IOFail(String(err))));
       rStream.pipe(stream);
     }
 
@@ -181,10 +217,15 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
       await dstFs.upload(sPath, dest);
     } else {
       const dPath = this.resolvePath(dest);
-      await cp(sPath, dPath, {
-        recursive: true,
-        force: true,
-      });
+
+      try {
+        await cp(sPath, dPath, {
+          recursive: true,
+          force: true,
+        });
+      } catch (err) {
+        throw new IOFail(`Cannot copy ${path} to ${dest}`, err);
+      }
     }
   }
 
@@ -197,9 +238,27 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     if (dstFs) {
       await dstFs.upload(oPath, newPath);
       await this.rm(oldPath);
-    } else {
-      const nPath = this.resolvePath(newPath);
-      await rename(oPath, nPath);
+      return;
+    }
+
+    const nPath = this.resolvePath(newPath);
+
+    // rename does not create missing destination directories - align with copy
+    // ( cp creates them ). Failures here are ignored, rename reports the real error.
+    await mkdir(dirname(nPath), { recursive: true }).catch(() => {});
+
+    try {
+      await this._rename(oPath, nPath);
+    } catch (err) {
+      // rename cannot cross devices / mounts ( eg. C: -> D:, docker volumes ) -
+      // fall back to copy + delete
+      if ((err as NodeJS.ErrnoException)?.code === 'EXDEV') {
+        await cp(oPath, nPath, { recursive: true, force: true });
+        await this.rm(oldPath);
+        return;
+      }
+
+      throw new IOFail(`Cannot move ${oldPath} to ${newPath}`, err);
     }
   }
 
@@ -207,7 +266,22 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * Change name of a file
    */
   public async rename(oldPath: string, newPath: string) {
-    await rename(this.resolvePath(oldPath), this.resolvePath(newPath));
+    const oPath = this.resolvePath(oldPath);
+    const nPath = this.resolvePath(newPath);
+
+    try {
+      await this._rename(oPath, nPath);
+    } catch (err) {
+      throw new IOFail(`Cannot rename ${oldPath} to ${newPath}`, err);
+    }
+  }
+
+  /**
+   * Native rename seam - extracted so move/rename logic ( eg. EXDEV fallback )
+   * can be tested without a real cross-device setup.
+   */
+  protected _rename(oldPath: string, newPath: string): Promise<void> {
+    return rename(oldPath, newPath);
   }
 
   /**
@@ -228,21 +302,43 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * @param path - directory to create
    */
   public async mkdir(path: string) {
-    await mkdir(this.resolvePath(path), { recursive: true });
+    const p = this.resolvePath(path);
+
+    try {
+      await mkdir(p, { recursive: true });
+    } catch (err) {
+      throw new IOFail(`Cannot create directory ${path}`, err);
+    }
   }
 
   /**
    * Returns file statistics, not all fields may be accesible
    */
   public async stat(path: string): Promise<IStat> {
-    const result = await stat(this.resolvePath(path));
+    const p = this.resolvePath(path);
+
+    try {
+      return this.toStatEntry(await stat(p));
+    } catch (err) {
+      throw err instanceof IOFail ? err : new IOFail(`Cannot stat ${path}`, err);
+    }
+  }
+
+  /**
+   * Maps native fs.Stats onto IStat.
+   *
+   * birthtime is the creation time; ctime is inode CHANGE time and would reset
+   * file age on chmod / rename ( breaks temp fs cleanup ageing ). Defensive:
+   * some filesystems report epoch 0 when birthtime is unsupported - fall back
+   * to mtime so age-based logic does not treat files as infinitely old.
+   */
+  protected toStatEntry(result: Stats): IStat {
+    const birth = result.birthtime && result.birthtime.getTime() > 0 ? result.birthtime : result.mtime;
 
     return {
       IsDirectory: result.isDirectory(),
       IsFile: result.isFile(),
-      // birthtime is the actual creation time; ctime is inode CHANGE time and
-      // would reset file age on chmod / rename ( breaks temp fs cleanup ageing )
-      CreationTime: DateTime.fromJSDate(result.birthtime),
+      CreationTime: DateTime.fromJSDate(birth),
       ModifiedTime: DateTime.fromJSDate(result.mtime),
       AccessTime: DateTime.fromJSDate(result.atime),
       Size: result.size,
@@ -259,21 +355,39 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
    * @param path - path to directory
    */
   public async list(path: string) {
-    return await readdir(this.resolvePath(path));
+    const p = this.resolvePath(path);
+
+    try {
+      return await readdir(p);
+    } catch (err) {
+      throw new IOFail(`Cannot list directory ${path}`, err);
+    }
   }
 
   public async unzip(path: string, destPath?: string, dstFs?: fs) {
+    const srcPath = this.resolvePath(path);
+
+    if (!(await this.exists(path))) {
+      throw new IOFail(`Cannot unzip, file ${path} does not exists`);
+    }
+
     const dFs = dstFs ?? this;
     const dst = dFs.resolvePath(destPath ?? dFs.tmpname());
 
     return new Promise<string>((resolve, reject) => {
-      createReadStream(this.resolvePath(path)).pipe(
+      const rStream = createReadStream(srcPath);
+
+      // without this handler a source read error is an unhandled stream 'error'
+      // event and CRASHES the process instead of rejecting
+      rStream.on('error', (err) => reject(new IOFail(`Cannot read zip file ${path}`, err)));
+
+      rStream.pipe(
         unzipper
           .Extract({
             path: dst,
           })
           .on('close', () => resolve(dst))
-          .on('error', reject),
+          .on('error', (err) => reject(new IOFail(`Cannot unzip file ${path}`, err))),
       );
     });
   }
@@ -289,6 +403,21 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
 
   public async zip(path: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
     const paths = toArray(path as any);
+
+    // pre-validate all source paths so a missing entry is a clear upfront error,
+    // not a silently incomplete archive
+    const missing: string[] = [];
+    for (const p of paths) {
+      const src = Array.isArray(p) ? p[0] : p;
+      if (!(await this.exists(src))) {
+        missing.push(src);
+      }
+    }
+
+    if (missing.length > 0) {
+      throw new IOFail(`Cannot zip, source path(s) not found: ${missing.join(', ')}`);
+    }
+
     const fs = dstFs ?? (await DI.resolve<fs>('__file_provider__', ['fs-temp']));
     const outFile = dstFile ?? `${fs.tmpname()}.zip`;
     const wStream = await fs.writeStream(outFile);
@@ -363,24 +492,46 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
         resolve(result);
       });
 
-      archive.finalize();
+      // finalize() also reports failures via its returned promise - catch it so a
+      // failure is not an unhandled rejection on top of the 'error' event
+      archive.finalize().catch((err) => reject(new IOFail('Archiving error', err)));
     });
   }
 
   public resolvePath(path: string) {
     if (!this.Options.basePath) return path;
 
-    // if path is already an absolute path located inside basePath, return it as-is.
-    // using path.relative instead of startsWith avoids false positives on sibling
-    // directories (eg. basePath `/data/files` and path `/data/files-2/x`) and is
-    // separator-safe across platforms.
+    const base = this.Options.basePath;
+
     if (isAbsolute(path)) {
-      const rel = relative(this.Options.basePath, path);
+      // absolute path already inside basePath is returned as-is. Using
+      // path.relative instead of startsWith avoids false positives on sibling
+      // directories (eg. basePath `/data/files` and path `/data/files-2/x`)
+      // and is separator-safe across platforms.
+      const rel = relative(base, path);
       if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
         return path;
       }
+
+      // fully-qualified paths ( drive letter / UNC on windows ) outside the
+      // sandbox are rejected. Rooted-but-driveless paths ( `/x`, `\x` ) are the
+      // established "fs root" idiom ( eg. list('/') ) and fall through to be
+      // resolved relative to basePath, exactly like join() always treated them.
+      const root = parse(path).root;
+      if (root !== '/' && root !== '\\') {
+        throw new IOFail(`Path ${path} is outside of filesystem base path ( ${base} ), fs: ${this.Options.name}`);
+      }
     }
 
-    return join(this.Options.basePath, path);
+    // join normalizes `..` segments - verify the result still lives inside basePath
+    // so relative paths cannot escape the sandbox ( eg. ../../etc/passwd )
+    const joined = join(base, path);
+    const rel = relative(base, joined);
+
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      throw new IOFail(`Path ${path} escapes filesystem base path ( ${base} ), fs: ${this.Options.name}`);
+    }
+
+    return joined;
   }
 }

@@ -213,7 +213,7 @@ describe('fs local tests', function () {
 
   it('Should throw on move when not exists', async () => {
     const _f = await f();
-    await expect(_f.move('not_exists.txt', 'not_exists_copy.txt')).to.be.rejected;
+    await expect(_f.move('not_exists.txt', 'not_exists_copy.txt')).to.be.rejectedWith(IOFail);
   });
 
   it('should get file stats', async () => {
@@ -463,10 +463,124 @@ describe('fs local tests', function () {
     const _f2 = await f2();
 
     // absolute path that lives in the OTHER provider's base dir (a sibling of
-    // this provider's base dir sharing a name prefix, eg. files vs files-2)
+    // this provider's base dir sharing a name prefix, eg. files vs files-2).
+    // With sandboxing it must be rejected, not silently joined.
     const siblingAbs = _f2.resolvePath('a.txt');
-    const resolved = _f.resolvePath(siblingAbs);
+    expect(() => _f.resolvePath(siblingAbs)).to.throw(IOFail);
+  });
 
-    expect(resolved).to.not.eq(siblingAbs);
+  it('resolvePath rejects relative paths escaping base path', async () => {
+    const _f = await f();
+
+    expect(() => _f.resolvePath('../escape.txt')).to.throw(IOFail);
+    expect(() => _f.resolvePath('a/../../escape.txt')).to.throw(IOFail);
+    expect(() => _f.resolvePath('..')).to.throw(IOFail);
+  });
+
+  it('resolvePath allows paths inside base, including harmless dots', async () => {
+    const _f = await f();
+
+    expect(_f.resolvePath('.')).to.eq(_f.resolvePath(''));
+    expect(_f.resolvePath('a/../b.txt')).to.eq(_f.resolvePath('b.txt'));
+  });
+
+  it('exists returns false for paths escaping base path', async () => {
+    const _f = await f();
+    expect(await _f.exists('../fs.local.test.ts')).to.be.false;
+  });
+
+  it('read/stat/list on missing paths reject with IOFail', async () => {
+    const _f = await f();
+
+    await expect(_f.read('missing.txt', 'utf-8')).to.be.rejectedWith(IOFail);
+    await expect(_f.stat('missing.txt')).to.be.rejectedWith(IOFail);
+    await expect(_f.list('missing-dir')).to.be.rejectedWith(IOFail);
+    await expect(_f.readStream('missing.txt')).to.be.rejectedWith(IOFail);
+    await expect(_f.rename('missing.txt', 'x.txt')).to.be.rejectedWith(IOFail);
+  });
+
+  it('unzip rejects with IOFail when source zip does not exist ( no crash )', async () => {
+    const _f = await f();
+    await expect(_f.unzip('no-such.zip', 'out-dir')).to.be.rejectedWith(IOFail);
+  });
+
+  it('unzip rejects with IOFail on a corrupt zip', async () => {
+    const _f = await f();
+    await _f.write('corrupt.zip', 'this is not a zip file', 'utf-8');
+    await expect(_f.unzip('corrupt.zip', 'corrupt-out')).to.be.rejectedWith(IOFail);
+  });
+
+  it('zip pre-validates source paths and rejects listing the missing ones', async () => {
+    const _f = await f();
+    await expect(_f.zip(['test.txt', 'nope-1.txt', 'nope-2.txt'])).to.be.rejectedWith(IOFail, /nope-1\.txt.*nope-2\.txt/);
+  });
+
+  it('writeStream propagates source stream errors instead of hanging', async () => {
+    const _f = await f();
+
+    const source = new PassThrough();
+    const wStream = await _f.writeStream('stream-err.txt', source);
+
+    const failure = new Promise<Error>((resolve) => wStream.on('error', resolve));
+    source.emit('error', new Error('source blew up'));
+
+    const err = await failure;
+    expect(err.message).to.contain('source blew up');
+  });
+
+  it('move falls back to copy+delete on EXDEV ( cross device )', async () => {
+    const _f = await f();
+    await _f.write('exdev-src.txt', 'cross device', 'utf-8');
+
+    // simulate a cross-device rename failure
+    const stub = sinon.stub(_f as any, '_rename').rejects(Object.assign(new Error('cross-device'), { code: 'EXDEV' }));
+
+    try {
+      await _f.move('exdev-src.txt', 'exdev-dst.txt');
+    } finally {
+      stub.restore();
+    }
+
+    expect(await _f.exists('exdev-src.txt')).to.be.false;
+    expect(await _f.read('exdev-dst.txt', 'utf-8')).to.eq('cross device');
+  });
+
+  it('move creates missing destination directories', async () => {
+    const _f = await f();
+    await _f.write('move-nested-src.txt', 'nested', 'utf-8');
+
+    await _f.move('move-nested-src.txt', 'nested/deep/move-dst.txt');
+
+    expect(await _f.read('nested/deep/move-dst.txt', 'utf-8')).to.eq('nested');
+  });
+
+  it('stat mapper falls back to mtime when birthtime is unsupported ( epoch 0 )', async () => {
+    const _f = await f();
+    const mtime = new Date('2024-06-01T12:00:00Z');
+
+    const entry = (_f as any).toStatEntry({
+      isDirectory: () => false,
+      isFile: () => true,
+      birthtime: new Date(0),
+      mtime,
+      atime: mtime,
+      size: 42,
+    });
+
+    expect(entry.CreationTime.toJSDate().getTime()).to.eq(mtime.getTime());
+    expect(entry.Size).to.eq(42);
+  });
+
+  it('resolve() canonicalizes a relative base path', async () => {
+    const { fsNative } = await import('../src/local-provider.js');
+    const provider = new fsNative({ name: 'rel-base-test', basePath: 'test/rel-base-tmp' });
+
+    try {
+      await provider.resolve();
+      expect(isAbsolute(provider.Options.basePath!)).to.be.true;
+      expect(await provider.isDir(provider.Options.basePath!)).to.be.true;
+    } finally {
+      await rm(provider.Options.basePath!, { recursive: true, force: true });
+    }
   });
 });
