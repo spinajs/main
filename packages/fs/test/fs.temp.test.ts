@@ -40,9 +40,9 @@ describe('fs temp tests', function () {
     const withCleanup = await tmp();
     const noCleanup = await DI.resolve<fs>('__file_provider__', ['fs-temp-nc']);
 
-    // white-box: the interval handle is only set when cleanup is enabled
-    expect((withCleanup as any).cleanupTimer).to.not.be.undefined;
-    expect((noCleanup as any).cleanupTimer).to.be.undefined;
+    // white-box: strategy timer handle is only armed when cleanup is enabled
+    expect((withCleanup as any).CleanupStrategy.cleanupTimer).to.not.be.null;
+    expect((noCleanup as any).CleanupStrategy.cleanupTimer).to.be.null;
   });
 
   it('should create temporary file', async () => {

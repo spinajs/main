@@ -57,6 +57,7 @@
     "@spinajs/log-common": "2.0.481",
     "@spinajs/util": "2.0.481",
     "archiver": "^5.3.1",
+    "cron": "^2.2.0",
     "exiftool-vendored": "^36.0.0",
     "file-type": "^20.5.0",
     "lodash": "^4.17.21",
@@ -66,6 +67,7 @@
   },
   "devDependencies": {
     "@types/archiver": "^5.3.1",
+    "@types/cron": "^2.0.0",
     "@types/luxon": "^3.6.1",
     "@types/unzipper": "^0.10.11",
     "@types/uuid": "^9.0.0"
