@@ -79,9 +79,14 @@ class SignerTestConfiguration extends FrameworkConfiguration {
             basePath: dir('./files'),
           },
           {
-            service: 'fsNativeTemp',
-            name: 'fs-temp-s3',
+            service: 'fsNative',
+            name: 'fs-temp-s3-local',
             basePath: dir('./temp'),
+          },
+          {
+            service: 'fsTemp',
+            name: 'fs-temp-s3',
+            provider: 'fs-temp-s3-local',
             cleanup: true,
             cleanupInterval: 30,
             maxFileAge: 60,
