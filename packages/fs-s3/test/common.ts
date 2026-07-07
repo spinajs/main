@@ -61,9 +61,14 @@ export class TestConfiguration extends FrameworkConfiguration {
             bucket: 'spinajs-test-bucket',
           },
           {
-            service: 'fsNativeTemp',
-            name: 'fs-temp-s3',
+            service: 'fsNative',
+            name: 'fs-temp-s3-local',
             basePath: dir('./temp'),
+          },
+          {
+            service: 'fsTemp',
+            name: 'fs-temp-s3',
+            provider: 'fs-temp-s3-local',
             cleanup: true,
             cleanupInterval: 30,
             maxFileAge: 60,
