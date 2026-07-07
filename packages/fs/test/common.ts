@@ -58,21 +58,33 @@ export class TestConfiguration extends FrameworkConfiguration {
             name: 'test-2',
             basePath: dir('./files-2'),
           },
+          // fsTemp deliberately listed BEFORE its backend - exercises
+          // dependency-aware provider creation in fsService
           {
-            service: 'fsNativeTemp',
+            service: 'fsTemp',
             name: 'fs-temp',
-            basePath: dir('./temp'),
+            provider: 'fs-temp-local',
             cleanup: true,
             cleanupInterval: 15 * 1000,
             maxFileAge: 5,
           },
           {
-            service: 'fsNativeTemp',
+            service: 'fsNative',
+            name: 'fs-temp-local',
+            basePath: dir('./temp'),
+          },
+          {
+            service: 'fsTemp',
             name: 'fs-temp-nc',
-            basePath: dir('./temp-nc'),
+            provider: 'fs-temp-nc-local',
             cleanup: false,
             cleanupInterval: 15 * 1000,
             maxFileAge: 5,
+          },
+          {
+            service: 'fsNative',
+            name: 'fs-temp-nc-local',
+            basePath: dir('./temp-nc'),
           },
         ],
       },

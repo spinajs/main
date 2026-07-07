@@ -40,6 +40,12 @@ export class URI {
 export interface IProviderConfiguration {
   name: string;
   service: string;
+
+  /**
+   * Name of another configured fs provider this one depends on ( eg. fsTemp backend ).
+   * fsService creates referenced providers first, regardless of config order.
+   */
+  provider?: string;
 }
 export interface IFsConfiguration {
   defaultProvider: string;
@@ -114,23 +120,50 @@ export interface IFsLocalOptions {
   name: string;
 }
 
-export interface IFsLocalTempOptions extends IFsLocalOptions {
+export interface ITempOptions {
   /**
    * Should cleanup of old temp files be enabled
    */
-  cleanup: boolean;
+  cleanup?: boolean;
 
   /**
-   * Cleanup interval in seconds
+   * Cleanup interval in milliseconds, used by interval-based cleanup strategies.
    * Default is 10 minutes
    */
-  cleanupInterval: number;
+  cleanupInterval?: number;
 
   /**
-   * Max temp file age in seconds. Older thant this will be deleted.
+   * Max temp file age in seconds. Older than this will be deleted.
    * Default is 1 hour
    */
-  maxFileAge: number;
+  maxFileAge?: number;
+
+  /**
+   * Class name of TempCleanupStrategy implementation to use.
+   * Default is MaxAgeTempCleanupStrategy
+   */
+  cleanupStrategy?: string;
+
+  /**
+   * Cron expression used by CronTempCleanupStrategy ( 6-field with seconds supported,
+   * eg. '0 0 * * * *' = hourly ). Required when that strategy is selected.
+   * Ignored by interval-based strategies.
+   */
+  cleanupCronExpression?: string;
+}
+
+export interface IFsTempOptions extends ITempOptions {
+  /**
+   * Instance name of this filesystem. Used to share fs instances.
+   */
+  name: string;
+
+  /**
+   * Name of registered fs provider used as temp file storage.
+   * Any configured fs can serve as backend ( local, s3, ftp, ... ).
+   * Creation fails if provider with this name is not registered.
+   */
+  provider: string;
 }
 
 export interface IZipResult {
