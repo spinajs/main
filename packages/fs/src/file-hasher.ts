@@ -98,13 +98,30 @@ export class DefaultFileHasher extends FileHasher {
       throw new IOFail(`File ${pathToFile} not exists`);
     }
 
+    return this.digestStream(
+      fs.createReadStream(pathToFile),
+      encoding,
+      (err) => new IOFail(`Cannot read file ${pathToFile} for hashing`, err),
+    );
+  }
+
+  /**
+   * Consumes a readable stream through a fresh hasher and resolves with the
+   * digest. Stream errors are wrapped by `wrapError` so file and raw-stream
+   * callers surface their own context.
+   */
+  protected digestStream(
+    stream: NodeJS.ReadableStream,
+    encoding: BinaryToTextEncoding,
+    wrapError: (err: Error) => IOFail,
+  ): Promise<string> {
     const hasher = this.createHasher();
 
     return new Promise((resolve, reject) => {
-      fs.createReadStream(pathToFile)
+      stream
         .on('data', (data) => hasher.update(data))
         .on('end', () => resolve(hasher.digest(encoding)))
-        .on('error', (err) => reject(new IOFail(`Cannot read file ${pathToFile} for hashing`, err)));
+        .on('error', (err) => reject(wrapError(err)));
     });
   }
 
@@ -131,13 +148,6 @@ export class DefaultFileHasher extends FileHasher {
    * @throws {IOFail} when the configured algorithm is unsupported or the stream errors
    */
   public async hashStream(stream: NodeJS.ReadableStream, encoding: BinaryToTextEncoding = 'hex'): Promise<string> {
-    const hasher = this.createHasher();
-
-    return new Promise((resolve, reject) => {
-      stream
-        .on('data', (data) => hasher.update(data))
-        .on('end', () => resolve(hasher.digest(encoding)))
-        .on('error', (err) => reject(new IOFail(`Error while hashing stream`, err)));
-    });
+    return this.digestStream(stream, encoding, (err) => new IOFail(`Error while hashing stream`, err));
   }
 }

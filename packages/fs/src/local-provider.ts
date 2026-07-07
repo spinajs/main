@@ -402,21 +402,9 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
   }
 
   public async zip(path: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
-    const paths = toArray(path as any);
+    const paths = toArray(path as any) as (string | string[])[];
 
-    // pre-validate all source paths so a missing entry is a clear upfront error,
-    // not a silently incomplete archive
-    const missing: string[] = [];
-    for (const p of paths) {
-      const src = Array.isArray(p) ? p[0] : p;
-      if (!(await this.exists(src))) {
-        missing.push(src);
-      }
-    }
-
-    if (missing.length > 0) {
-      throw new IOFail(`Cannot zip, source path(s) not found: ${missing.join(', ')}`);
-    }
+    await this.assertSourcesExist(paths);
 
     const fs = dstFs ?? (await DI.resolve<fs>('__file_provider__', ['fs-temp']));
     const outFile = dstFile ?? `${fs.tmpname()}.zip`;
@@ -426,16 +414,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     // pipe archive data to the file
     archive.pipe(wStream);
 
-    for (const p of paths) {
-      if (!Array.isArray(p)) {
-        if (await this.isDir(p)) {
-          archive.directory(this.resolvePath(p), false);
-          continue;
-        }
-      }
-
-      archive.file(this.resolvePath(Array.isArray(p) ? p[0] : p), { name: basename(Array.isArray(p) ? p[1] : p) });
-    }
+    await this.addZipEntries(archive, paths);
 
     archive.on('entry', (entry) => {
       this.Logger.trace(`Archiving file ${entry.name}, size: ${entry.stats?.size} into ${outFile}, fs: ${fs.Name}`);
@@ -462,40 +441,86 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
       });
 
       wStream.on('close', () => {
-        // resolve the zip path against the DESTINATION fs. Raw fs calls below must not
-        // depend on process.cwd() - outFile is relative to the destination fs base path.
-        // Remote destinations may not support path resolving - fall back to the raw name.
-        let zipPath = outFile;
-        try {
-          zipPath = fs.resolvePath(outFile);
-        } catch {
-          /* keep outFile as-is */
-        }
-
-        const result = {
-          fs,
-          asFilePath: () => {
-            return zipPath;
-          },
-          asStream: (encoding?: BufferEncoding) => {
-            return createReadStream(zipPath, encoding ? { encoding } : {});
-          },
-          asBase64: () => {
-            return readFileSync(zipPath, { encoding: 'base64' });
-          },
-
-          unlink: async () => {
-            return await fs.rm(outFile);
-          },
-        };
-
-        resolve(result);
+        resolve(this.buildZipResult(fs, outFile));
       });
 
       // finalize() also reports failures via its returned promise - catch it so a
       // failure is not an unhandled rejection on top of the 'error' event
       archive.finalize().catch((err) => reject(new IOFail('Archiving error', err)));
     });
+  }
+
+  /**
+   * Source path of a zip entry. Entries are either a plain path or a
+   * [ sourcePath, entryName ] tuple.
+   */
+  protected zipEntrySource(entry: string | string[]): string {
+    return Array.isArray(entry) ? entry[0] : entry;
+  }
+
+  /**
+   * Name a zip entry is stored under. Defaults to the source path when no
+   * explicit entry name is given.
+   */
+  protected zipEntryName(entry: string | string[]): string {
+    return Array.isArray(entry) ? entry[1] : entry;
+  }
+
+  /**
+   * Fails fast with a single clear error listing every missing source, so a
+   * missing entry never yields a silently incomplete archive.
+   */
+  protected async assertSourcesExist(paths: (string | string[])[]): Promise<void> {
+    const missing: string[] = [];
+    for (const p of paths) {
+      const src = this.zipEntrySource(p);
+      if (!(await this.exists(src))) {
+        missing.push(src);
+      }
+    }
+
+    if (missing.length > 0) {
+      throw new IOFail(`Cannot zip, source path(s) not found: ${missing.join(', ')}`);
+    }
+  }
+
+  /**
+   * Adds every source to the archive - a plain-path directory is added
+   * recursively, everything else as a single file stored under its entry name.
+   */
+  protected async addZipEntries(archive: ReturnType<typeof archiver>, paths: (string | string[])[]): Promise<void> {
+    for (const p of paths) {
+      if (!Array.isArray(p) && (await this.isDir(p))) {
+        archive.directory(this.resolvePath(p), false);
+        continue;
+      }
+
+      archive.file(this.resolvePath(this.zipEntrySource(p)), { name: basename(this.zipEntryName(p)) });
+    }
+  }
+
+  /**
+   * Builds the {@link IZipResult} accessor object for a finished archive.
+   *
+   * The zip path is resolved against the DESTINATION fs ( outFile is relative
+   * to its base path ). Remote destinations may not support path resolving -
+   * fall back to the raw name so the accessors still work.
+   */
+  protected buildZipResult(fs: fs, outFile: string): IZipResult {
+    let zipPath = outFile;
+    try {
+      zipPath = fs.resolvePath(outFile);
+    } catch {
+      /* keep outFile as-is */
+    }
+
+    return {
+      fs,
+      asFilePath: () => zipPath,
+      asStream: (encoding?: BufferEncoding) => createReadStream(zipPath, encoding ? { encoding } : {}),
+      asBase64: () => readFileSync(zipPath, { encoding: 'base64' }),
+      unlink: async () => await fs.rm(outFile),
+    };
   }
 
   public resolvePath(path: string) {
