@@ -34,8 +34,9 @@ export interface IPuppeteerRendererOptions {
   debug?: {
 
     /**
-     * If true, browser will remain open after rendering for inspection
-     * Use it with headless: false in args to see the browser window ( puppetter.launch args )
+     * Controls whether the browser is closed after rendering.
+     * Defaults to closing. Set to `false` to keep the browser open after rendering
+     * for inspection ( use with headless: false in args to see the browser window ).
      */
     close?: boolean;
   }
@@ -50,9 +51,56 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
   @LazyInject()
   protected TemplatingService: Templates;
 
+  /**
+   * Pooled browser instance, launched lazily and reused across renders.
+   * Closed only on dispose(). One instance per options-set (see @PerInstanceCheck on subclasses).
+   */
+  protected pooledBrowser: Browser | null = null;
+
+  /**
+   * In-flight launch, shared by concurrent first-renders so we only ever launch one browser.
+   */
+  private browserLaunchPromise: Promise<Browser> | null = null;
+
+  /**
+   * Returns the pooled browser, launching it on first use and relaunching
+   * if it has crashed/disconnected. Concurrent callers share one launch.
+   */
+  protected async getBrowser(): Promise<Browser> {
+    if (this.pooledBrowser?.connected) {
+      return this.pooledBrowser;
+    }
+
+    // drop a disconnected/crashed browser so we relaunch a fresh one
+    this.pooledBrowser = null;
+
+    if (!this.browserLaunchPromise) {
+      const launchOptions: LaunchOptions = {
+        ...(this.Options?.args || {}),
+        ...(this.Options?.executablePath && {
+          executablePath: this.Options.executablePath,
+        }),
+      };
+
+      this.browserLaunchPromise = puppeteer
+        .launch(launchOptions)
+        .then((b) => (this.pooledBrowser = b))
+        // reset so a failed launch is retried on the next call
+        .finally(() => (this.browserLaunchPromise = null));
+    }
+
+    return this.browserLaunchPromise;
+  }
+
   public async renderToFile(template: string, model: any, filePath: string, language?: string): Promise<void> {
     let server: http.Server = null as any;
-    let browser: Browser = null as any;
+    let page: Page = null as any;
+
+    // When debug.close === false the page is intentionally kept open for
+    // inspection, so timeouts must not be armed (the watchdog would close it).
+    // The browser itself is pooled and only closed on dispose().
+    const keepPageOpen = this.Options?.debug?.close === false;
+
     try {
       this.Log.timeStart(`puppeteer-template-rendering-${filePath}`);
       this.Log.trace(`Rendering template ${template} to file ${filePath}`);
@@ -79,33 +127,25 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
         language,
       );
 
-      const launchOptions: LaunchOptions = {
-        ...(this.Options?.args || {}),
-        ...(this.Options?.executablePath && {
-          executablePath: this.Options.executablePath,
-        }),
-      };
-
-      browser = await puppeteer.launch(launchOptions);
-      const page = await browser.newPage();
+      // reuse the pooled browser; open a fresh page per render
+      const browser = await this.getBrowser();
+      page = await browser.newPage();
 
       // Skip timeouts in debug mode
-      if (!this.Options?.debug?.close) {
+      if (!keepPageOpen) {
         page.setDefaultNavigationTimeout(this.Options?.navigationTimeout || 30000); // Default 30s
         page.setDefaultTimeout(this.Options?.renderTimeout || 30000); // Default 30s
       }
 
-      // Set up render timeout (skip in debug mode)
+      // Set up render timeout (skip in debug mode). On timeout close only the
+      // page - the pooled browser may be serving other concurrent renders.
       let renderTimeout: NodeJS.Timeout | undefined;
-      if (!this.Options?.debug?.close) {
+      if (!keepPageOpen) {
         const timeoutMs = this.Options?.renderTimeout || 30000;
-        renderTimeout = setTimeout(async () => {
-          this.Log.warn(`Render timeout (${timeoutMs}ms) - forcing cleanup`);
-          try {
-            if (page) await page.close().catch(() => { });
-            if (browser) await this.forceCloseBrowser(browser);
-          } catch (err) {
-            this.Log.error('Error during timeout cleanup:', err);
+        renderTimeout = setTimeout(() => {
+          this.Log.warn(`Render timeout (${timeoutMs}ms) - closing page`);
+          if (page) {
+            page.close().catch(() => { /* page may already be closing */ });
           }
         }, timeoutMs);
       }
@@ -149,17 +189,31 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
         this.Log.warn(`Rendering template ${template} to file ${filePath} took too long.`);
       }
 
-      // Skip browser cleanup if debug.close is false (keep browser open for inspection)
-      if (browser && (!this.Options || this.Options.debug?.close !== false)) {
-        await this.safeBrowserCleanup(browser);
-      } else if (browser) {
-        this.Log.info('Browser kept open for debugging (debug.close=false)');
+      // Close the page (not the pooled browser). Skip if debug.close is false
+      // so the rendered page can be inspected.
+      if (page && !keepPageOpen) {
+        await page.close().catch((err) => this.Log.warn(`Error closing page: ${err.message}`));
+      } else if (page) {
+        this.Log.info('Page kept open for debugging (debug.close=false)');
       }
 
       if (server) {
         await this.safeServerCleanup(server);
       }
     }
+  }
+
+  /**
+   * Close the pooled browser when the service is disposed (e.g. DI.dispose() at shutdown).
+   * Callers that render one-shot (CLI, single email) should dispose so the process can exit.
+   */
+  public async dispose(): Promise<void> {
+    if (this.pooledBrowser) {
+      await this.safeBrowserCleanup(this.pooledBrowser);
+      this.pooledBrowser = null;
+    }
+
+    await super.dispose();
   }
 
   /**
@@ -175,6 +229,41 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
   protected async compile(_path: string) { }
 
   protected async runLocalServer(basePath: string): Promise<http.Server> {
+    const range = this.Options?.static?.portRange;
+    const hasRange = !!range && range.length > 0;
+
+    // With an OS-assigned port (0) a free port is guaranteed, so a single
+    // attempt suffices. With a configured range a random pick can collide, so
+    // retry on EADDRINUSE with a different port.
+    const maxAttempts = hasRange ? 10 : 1;
+    let lastErr: any;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const port = hasRange ? _.random(range![0], range![1]) : 0;
+
+      try {
+        return await this.listenOnce(basePath, port);
+      } catch (err: any) {
+        lastErr = err;
+
+        if (err?.code === 'EADDRINUSE' && hasRange) {
+          this.Log.trace(`Puppeteer image server port ${port} in use, retrying (${attempt + 1}/${maxAttempts})`);
+          continue;
+        }
+
+        throw err;
+      }
+    }
+
+    this.Log.error(lastErr, `Puppeteer image server cannot start - no free port in range after ${maxAttempts} attempts`);
+    throw lastErr;
+  }
+
+  /**
+   * Single attempt to start the static server on the given port (0 = OS-assigned).
+   * Bound to loopback so the served template dir is not network-exposed.
+   */
+  protected listenOnce(basePath: string, port: number): Promise<http.Server> {
     const self = this;
     const app = Express();
     app.use(cors());
@@ -182,26 +271,16 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
 
     return new Promise((resolve, reject) => {
       const server = app
-        // if no port is provided express will choose random port to start (available)
-        // if not, we will get random from range in config
-        .listen(
-          !this.Options?.static?.portRange || this.Options.static.portRange.length === 0
-            ? 0
-            : _.random(this.Options.static.portRange[0], this.Options.static.portRange[1])
-        )
+        .listen(port, '127.0.0.1')
         .on('listening', function () {
           self.Log.trace(`Puppeteer image server started on port ${(this.address() as AddressInfo).port}`);
           self.Log.trace(`Puppeteer static file dir at ${basePath}`);
           resolve(this);
         })
         .on('error', (err: any) => {
-          self.Log.error(err, `Puppeteer image server cannot start`);
-
-          // Clean up the failed server
+          // Clean up the failed server, then reject so the caller can retry.
           if (server) {
-            server.close(() => {
-              reject(err);
-            });
+            server.close(() => reject(err));
           } else {
             reject(err);
           }
@@ -293,7 +372,10 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
       console: (message: any) => this.Log.trace(`${message.type().substr(0, 3).toUpperCase()} ${message.text()}`),
       pageerror: ({ message }: any) => this.Log.error(message),
       response: (response: any) => this.Log.trace(`${response.status()} ${response.url()}`),
-      requestfailed: (request: any) => this.Log.error(`${request.failure().errorText} ${request.url()}`)
+      requestfailed: (request: any) => {
+        const failure = request.failure();
+        this.Log.error(`${failure ? failure.errorText : 'request failed'} ${request.url()}`);
+      }
     };
 
     // Add listeners

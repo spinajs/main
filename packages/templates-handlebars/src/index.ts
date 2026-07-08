@@ -52,7 +52,7 @@ export class HandlebarsRenderer extends TemplateRenderer {
 
   public async render(templateName: string, model: unknown, language?: string): Promise<string> {
     this.Log.trace(`Rendering template ${templateName}`);
-    this.Log.timeStart(`HandlebarTemplate${templateName}`);
+    this.Log.timeStart(`HandlebarsTemplate.render.${templateName}`);
 
     if (!templateName) {
       throw new InvalidArgument('template parameter cannot be null or empty');
@@ -69,18 +69,22 @@ export class HandlebarsRenderer extends TemplateRenderer {
     const tLang = lang ?? defaultLanguage();
 
     const content = fTemplate!(
-      _.merge(model ?? {}, {
+      _.merge({}, model ?? {}, {
         lang: tLang,
       }),
     );
 
-    const time = this.Log.timeEnd(`HandlebarTemplate-${templateName}`);
+    const time = this.Log.timeEnd(`HandlebarsTemplate.render.${templateName}`);
     this.Log.trace(`Rendering template ${templateName} ended, (${time} ms)`);
 
     return Promise.resolve(content);
   }
 
   protected async compile(path: string): Promise<void> {
+    if (!fs.existsSync(path)) {
+      throw new IOFail(`Template file ${path} does not exist`);
+    }
+
     const tContent = fs.readFileSync(path, 'utf-8');
 
     if (tContent.length === 0) {

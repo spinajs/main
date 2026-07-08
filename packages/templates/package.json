@@ -1,7 +1,7 @@
 {
   "name": "@spinajs/templates",
   "version": "2.0.481",
-  "description": "templates support eg. html file generation",
+  "description": "Core template rendering service and renderer registry for @spinajs.",
   
     "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",

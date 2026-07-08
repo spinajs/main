@@ -1,6 +1,9 @@
 import { expect } from 'chai';
 import * as textHelpers from '../../src/helpers/text.js';
 
+// Mimics the options object Handlebars appends as the final argument to every helper call.
+const OPT: any = { hash: {}, data: { root: {} }, loc: {}, name: 'helper' };
+
 describe('Text Helpers', () => {
   describe('Case Conversion', () => {
     it('should convert to uppercase', () => {
@@ -120,6 +123,34 @@ describe('Text Helpers', () => {
 
     it('should join array', () => {
       expect(textHelpers.join(['a', 'b', 'c'], ', ')).to.equal('a, b, c');
+    });
+  });
+
+  // Handlebars appends its options object as the last arg; helpers with a trailing
+  // optional-default param must fall back to the default instead of using that object.
+  describe('Handlebars options-arg guards', () => {
+    it('truncate uses default suffix when suffix arg is the options object', () => {
+      expect(textHelpers.truncate('Hello World', 5, OPT)).to.equal('Hello...');
+    });
+
+    it('truncateWords uses default suffix when suffix arg is the options object', () => {
+      expect(textHelpers.truncateWords('The quick brown fox', 2, OPT)).to.equal('The quick...');
+    });
+
+    it('join uses default separator when separator arg is the options object', () => {
+      expect(textHelpers.join(['a', 'b', 'c'], OPT)).to.equal('a, b, c');
+    });
+
+    it('padLeft uses default space char when char arg is the options object', () => {
+      expect(textHelpers.padLeft('5', 3, OPT)).to.equal('  5');
+    });
+
+    it('padRight uses default space char when char arg is the options object', () => {
+      expect(textHelpers.padRight('5', 3, OPT)).to.equal('5  ');
+    });
+
+    it('substring ignores the options object as end index', () => {
+      expect(textHelpers.substring('hello world', 6, OPT)).to.equal('world');
     });
   });
 });

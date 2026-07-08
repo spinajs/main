@@ -63,7 +63,7 @@ export class PugRenderer extends TemplateRenderer {
     const tLang = lang ?? defaultLanguage();
 
     const content = fTemplate!(
-      _.merge(model ?? {}, {
+      _.merge({}, model ?? {}, {
         __: __translate(tLang),
         __n: __translateNumber(tLang),
         __l: __translateL,
@@ -78,11 +78,15 @@ export class PugRenderer extends TemplateRenderer {
   }
 
   protected async compile(path: string) {
+    if (!fs.existsSync(path)) {
+      throw new IOFail(`Template file ${path} does not exist`);
+    }
+
     const tCompiled = pugTemplate.compileFile(path, this.Options);
     const pNormalized = normalize(path);
 
     if (!tCompiled) {
-      throw new IOFail(`Cannot compile handlebars template ${pNormalized} from path ${path}`);
+      throw new IOFail(`Cannot compile pug template ${pNormalized} from path ${path}`);
     }
 
     this.Templates.set(pNormalized, tCompiled);

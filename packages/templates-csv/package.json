@@ -1,7 +1,7 @@
 {
-  "name": "@spinajs/templates-cvs",
+  "name": "@spinajs/templates-csv",
   "version": "2.0.481",
-  "description": "templates support for pug files eg. html file generation",
+  "description": "CSV template renderer for @spinajs/templates (json2csv-based)",
   
     "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -58,7 +58,6 @@
   "dependencies": {
     "@spinajs/configuration": "^2.0.481",
     "@spinajs/di": "^2.0.481",
-    "@spinajs/exceptions": "^2.0.481",
     "@spinajs/log": "^2.0.481",
     "@spinajs/templates": "^2.0.481",
     "@json2csv/node": "^6.1.2"

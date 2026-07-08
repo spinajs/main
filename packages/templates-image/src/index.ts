@@ -18,7 +18,7 @@ export class ImageRenderer extends PuppeteerRenderer implements IInstanceCheck {
   }
 
   public get Extension() {
-    return '.png';
+    return `.${this.screenshotOptions?.type ?? 'png'}`;
   }
 
   constructor(protected screenshotOptions: ScreenshotOptions) {

@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import { AsyncParser } from '@json2csv/node';
 import { TemplateRenderer } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
@@ -33,7 +34,13 @@ export class Csv extends TemplateRenderer {
 
     try {
       const csv = await this.render(_template, model, language);
-      fs.writeFileSync(csv, csv, 'utf8');
+      const dir = path.dirname(filePath);
+
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      fs.writeFileSync(filePath, csv, 'utf8');
     } catch (err) {
       this.Log.error(err, `Error rendering template ${_template} to file ${filePath}`);
       throw err;

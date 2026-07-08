@@ -1,28 +1,17 @@
 import { NotSupported, IOFail } from '@spinajs/exceptions';
-import _ from 'lodash';
 import { TemplateRenderer } from '@spinajs/templates';
-import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import { Renderer } from 'xlsx-renderer';
 import * as fs from 'fs';
 
 @Injectable(TemplateRenderer)
 export class XlsxRenderer extends TemplateRenderer {
-  protected Templates: Map<string, string> = new Map<string, string>();
-
-  @Config('templates.xlsx')
-  protected Options: any;
-
   public get Type() {
     return 'xlsx';
   }
 
   public get Extension() {
     return '.xlsx';
-  }
-
-  public async resolve(): Promise<void> {
-    await super.resolve();
   }
 
   public async renderToFile(template: string, model: unknown, filePath: string, _language?: string): Promise<void> {

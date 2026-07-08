@@ -6,6 +6,7 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
+  "ts-node": { "transpileOnly": true },
   "include": ["src/**/*", "./types"],
   "references": [
     { "path": "../configuration/tsconfig.json" },
