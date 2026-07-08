@@ -93,6 +93,66 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
   }
 
   public async renderToFile(template: string, model: any, filePath: string, language?: string): Promise<void> {
+    const templateBasePath = dirname(template);
+
+    await this.renderContentToFile(filePath, { assetBasePath: templateBasePath }, async (page, httpPort) => {
+      const compiledTemplate = await this.TemplatingService.render(
+        join(templateBasePath, basename(template, this.Extension)) + '.pug',
+        {
+          // add template temporary server port so templates can reference local images
+          __http_template_port__: httpPort,
+          // for convenience add full url to local http server
+          __http_template_address__: `http://localhost:${httpPort}`,
+          ...model,
+        },
+        language,
+      );
+
+      await page.setContent(compiledTemplate);
+    });
+  }
+
+  /**
+   * Render a raw HTML string to a file (image/pdf per the concrete renderer).
+   * Intended for CI (e.g. screenshot comparison) where HTML is already produced.
+   *
+   * @param html - the HTML content to render
+   * @param filePath - output file path
+   * @param options.assetBasePath - directory served over the local http server so
+   *   relative asset URLs in the HTML resolve (defaults to the output file's dir)
+   * @param options.viewport - fixed viewport for deterministic captures
+   */
+  public async renderHtmlToFile(
+    html: string,
+    filePath: string,
+    options?: {
+      assetBasePath?: string;
+      viewport?: { width: number; height: number; deviceScaleFactor?: number };
+    },
+  ): Promise<void> {
+    await this.renderContentToFile(
+      filePath,
+      { assetBasePath: options?.assetBasePath ?? dirname(filePath) },
+      async (page, httpPort) => {
+        if (options?.viewport) {
+          await page.setViewport(options.viewport);
+        }
+        // inject a <base href> so relative asset URLs resolve via the local server
+        await page.setContent(this.injectBaseHref(html, `http://127.0.0.1:${httpPort}/`));
+      },
+    );
+  }
+
+  /**
+   * Shared render orchestration: local static server + pooled browser + page +
+   * timeout watchdog + cleanup. `prepare` populates the page content (template-compiled
+   * HTML, or raw HTML). The pooled browser survives; only the page is closed.
+   */
+  protected async renderContentToFile(
+    filePath: string,
+    opts: { assetBasePath?: string },
+    prepare: (page: Page, httpPort: number) => Promise<void>,
+  ): Promise<void> {
     let server: http.Server = null as any;
     let page: Page = null as any;
 
@@ -103,29 +163,12 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
 
     try {
       this.Log.timeStart(`puppeteer-template-rendering-${filePath}`);
-      this.Log.trace(`Rendering template ${template} to file ${filePath}`);
+      this.Log.trace(`Rendering to file ${filePath}`);
 
-      const templateBasePath = dirname(template);
-
-      // fire up local http server for serving images etc
-      // becouse chromium prevents from reading local files when not
-      // rendering file with file:// protocol for security reasons
-      server = await this.runLocalServer(templateBasePath);
+      // fire up local http server for serving images etc, because chromium
+      // prevents reading local files when not using the file:// protocol
+      server = await this.runLocalServer(opts.assetBasePath ?? process.cwd());
       const httpPort = (server.address() as AddressInfo).port;
-
-      const compiledTemplate = await this.TemplatingService.render(
-        join(templateBasePath, basename(template, this.Extension)) + '.pug',
-        {
-          // add template temporary server port
-          // so we can use it to render images in template
-          __http_template_port__: httpPort,
-
-          // for convinience add full url to local http server
-          __http_template_address__: `http://localhost:${httpPort}`,
-          ...model,
-        },
-        language,
-      );
 
       // reuse the pooled browser; open a fresh page per render
       const browser = await this.getBrowser();
@@ -155,8 +198,8 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
 
       try {
         await page.setBypassCSP(true);
-        await page.setContent(compiledTemplate);
-        
+        await prepare(page, httpPort);
+
         // Call abstract method to perform specific rendering (PDF or image)
         await this.performRender(page, filePath);
 
@@ -175,18 +218,18 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
           clearTimeout(renderTimeout);
           renderTimeout = undefined;
         }
-        this.Log.error(renderError, `Error during rendering for template ${template}`);
+        this.Log.error(renderError, `Error during rendering for ${filePath}`);
         throw renderError;
       }
     } catch (err) {
-      this.Log.error(err, `Error rendering template ${template} to file ${filePath}`);
+      this.Log.error(err, `Error rendering to file ${filePath}`);
       throw err;
     } finally {
       const duration = this.Log.timeEnd(`puppeteer-template-rendering-${filePath}`);
-      this.Log.trace(`Ended rendering template ${template} to file ${filePath}, took: ${duration}ms`);
+      this.Log.trace(`Ended rendering to file ${filePath}, took: ${duration}ms`);
 
       if (this.Options && duration > this.Options.renderDurationWarning) {
-        this.Log.warn(`Rendering template ${template} to file ${filePath} took too long.`);
+        this.Log.warn(`Rendering to file ${filePath} took too long.`);
       }
 
       // Close the page (not the pooled browser). Skip if debug.close is false
@@ -201,6 +244,23 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
         await this.safeServerCleanup(server);
       }
     }
+  }
+
+  /**
+   * Insert a <base href> into the HTML <head> so relative asset URLs resolve
+   * against the local static server. No-op if the HTML already declares a <base>.
+   */
+  protected injectBaseHref(html: string, baseUrl: string): string {
+    if (/<base\s/i.test(html)) {
+      return html;
+    }
+    if (/<head[^>]*>/i.test(html)) {
+      return html.replace(/<head([^>]*)>/i, `<head$1><base href="${baseUrl}">`);
+    }
+    if (/<html[^>]*>/i.test(html)) {
+      return html.replace(/<html([^>]*)>/i, `<html$1><head><base href="${baseUrl}"></head>`);
+    }
+    return `<base href="${baseUrl}">${html}`;
   }
 
   /**

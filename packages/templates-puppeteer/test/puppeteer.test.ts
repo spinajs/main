@@ -144,6 +144,32 @@ describe('PuppeteerRenderer engine', function () {
     expect(browser.connected).to.eq(false);
   });
 
+  it('should render a raw HTML string to a file', async () => {
+    const r = await renderer();
+    const out = dir('templates/raw-html.png');
+    outputs.push(out);
+
+    await r.renderHtmlToFile('<h1>hello from raw html</h1>', out);
+
+    expect(fs.existsSync(out)).to.eq(true);
+    expect(fs.statSync(out).size).to.be.greaterThan(0);
+  });
+
+  it('should honor an explicit viewport for raw HTML', async () => {
+    const r = await renderer();
+    const out = dir('templates/viewport.png');
+    outputs.push(out);
+
+    await r.renderHtmlToFile('<h1>viewport</h1>', out, {
+      viewport: { width: 400, height: 300, deviceScaleFactor: 1 },
+    });
+
+    // PNG stores width/height as big-endian uint32 at byte offsets 16 and 20
+    const buf = fs.readFileSync(out);
+    expect(buf.readUInt32BE(16)).to.eq(400);
+    expect(buf.readUInt32BE(20)).to.eq(300);
+  });
+
   it('should reject when the template does not exist', async () => {
     const r = await renderer();
     await expect(
