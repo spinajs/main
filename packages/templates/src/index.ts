@@ -5,6 +5,8 @@ import { TemplateRenderer } from './interfaces.js';
 import { extname } from 'path';
 import { Intl } from '@spinajs/intl';
 export * from './interfaces.js';
+export * from './CompiledTemplateRenderer.js';
+export * from './cli/renderHelpers.js';
 
 /**
  * Inject INTL module for language support. We does nothing but to initialize module for use in templates.
@@ -22,62 +24,65 @@ export class Templates extends AsyncService {
   }
 
   public async compileToFile(template: string, renderer: string, model: unknown, filePath: string, language?: string): Promise<void> {
-    const engine = this.Renderers.find((x) => x.Type === renderer);
-    if (!engine) {
-      throw new InvalidOperation(`No renderer for ${renderer}`);
-    }
-
-    return await engine.renderToFile(template, model, filePath, language);
+    return await this.engineByType(renderer).renderToFile(template, model, filePath, language);
   }
 
   /**
-   * 
+   *
    * Renders template with given model and language. Returns compiled content
-   * 
-   * @param template 
-   * @param renderer 
-   * @param model 
-   * @param language 
-   * @returns 
+   *
+   * @param template
+   * @param renderer
+   * @param model
+   * @param language
+   * @returns
    */
   public async compile(template: string, renderer: string, model: unknown, language?: string): Promise<string> {
-    const engine = this.Renderers.find((x) => x.Type === renderer);
-    if (!engine) {
-      throw new InvalidOperation(`No renderer for ${renderer}`);
-    }
-
-    return await engine.render(template, model, language);
+    return await this.engineByType(renderer).render(template, model, language);
   }
 
   /**
-   * 
+   *
    * Renders template with given model and language. Returns compiled content
    * It detects automatically renderer based on file extension
-   * 
-   * @param template 
-   * @param model 
-   * @param language 
-   * @returns 
+   *
+   * @param template
+   * @param model
+   * @param language
+   * @returns
    */
   public async render(template: string, model: unknown, language?: string): Promise<string> {
-    const extension = extname(template);
-    const renderer = this.Renderers.find((x) => x.Extension === extension);
-
-    if (!renderer) {
-      throw new InvalidOperation(`No renderer for file ${template} with extension ${extension}`);
-    }
-
-    return await renderer.render(template, model, language);
+    return await this.engineByExtension(template).render(template, model, language);
   }
 
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
+    return await this.engineByExtension(template).renderToFile(template, model, filePath, language);
+  }
+
+  /**
+   * Finds the renderer registered under the given renderer type (e.g. `handlebars`,
+   * `pdf`), throwing if none is registered.
+   */
+  private engineByType(renderer: string): TemplateRenderer {
+    const engine = this.Renderers.find((x) => x.Type === renderer);
+    if (!engine) {
+      throw new InvalidOperation(`No renderer for ${renderer}`);
+    }
+
+    return engine;
+  }
+
+  /**
+   * Finds the renderer matching the template file's extension, throwing if none
+   * is registered for that extension.
+   */
+  private engineByExtension(template: string): TemplateRenderer {
     const extension = extname(template);
     const renderer = this.Renderers.find((x) => x.Extension === extension);
-
     if (!renderer) {
       throw new InvalidOperation(`No renderer for file ${template} with extension ${extension}`);
     }
 
-    return await renderer.renderToFile(template, model, filePath, language);
+    return renderer;
   }
 }

@@ -1,9 +1,8 @@
 import { ImageRenderer } from './../index.js';
-import { Templates } from '@spinajs/templates';
+import { ensureParentDir, resolveInputHtml } from '@spinajs/templates';
 import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import * as path from 'path';
-import * as fs from 'fs';
 import { Logger, Log } from '@spinajs/log-common';
 
 interface RenderImageOptions {
@@ -38,12 +37,9 @@ export class RenderImageCommand extends CliCommand {
     try {
       this.Log.trace(`Rendering ${input} to image ${options.output}, options: ${JSON.stringify(options)}`);
 
-      const html = await this.resolveHtml(input, options);
+      const html = await resolveInputHtml(input, options);
 
-      const outDir = path.dirname(options.output);
-      if (!fs.existsSync(outDir)) {
-        fs.mkdirSync(outDir, { recursive: true });
-      }
+      ensureParentDir(options.output);
 
       await renderer.renderHtmlToFile(html, options.output, {
         assetBasePath: path.dirname(path.resolve(input)),
@@ -58,28 +54,6 @@ export class RenderImageCommand extends CliCommand {
       // one-shot CLI: close the pooled browser so the process can exit
       await renderer.dispose();
     }
-  }
-
-  /**
-   * Raw-HTML mode reads the file as-is; template mode renders it through the
-   * text renderer (pug/handlebars/...) selected by the input file extension.
-   */
-  private async resolveHtml(input: string, options: RenderImageOptions): Promise<string> {
-    if (options.template) {
-      let model = {};
-      if (options.model && fs.existsSync(options.model)) {
-        model = JSON.parse(fs.readFileSync(options.model, { encoding: 'utf-8' }));
-      }
-
-      const templates = await DI.resolve(Templates);
-      return templates.render(input, model, options.lang);
-    }
-
-    if (!fs.existsSync(input)) {
-      throw new Error(`Input HTML file ${input} does not exist`);
-    }
-
-    return fs.readFileSync(input, { encoding: 'utf-8' });
   }
 
   private resolveViewport(options: RenderImageOptions) {

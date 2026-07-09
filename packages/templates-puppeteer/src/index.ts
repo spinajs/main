@@ -42,6 +42,18 @@ export interface IPuppeteerRendererOptions {
   }
 }
 
+/** Default navigation/render timeout when none is configured (ms). */
+const DEFAULT_RENDER_TIMEOUT_MS = 30000;
+/** How long to wait for the local static server to start before giving up (ms). */
+const SERVER_STARTUP_TIMEOUT_MS = 10000;
+/** How long to wait for the local static server to close before forcing it (ms). */
+const SERVER_CLOSE_TIMEOUT_MS = 5000;
+
+/** Watchdog canceller used when timeouts are disabled (debug mode). */
+const noop = () => {
+  /* nothing to cancel */
+};
+
 export abstract class PuppeteerRenderer extends TemplateRenderer {
   protected abstract Options: IPuppeteerRendererOptions;
 
@@ -153,6 +165,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
     opts: { assetBasePath?: string },
     prepare: (page: Page, httpPort: number) => Promise<void>,
   ): Promise<void> {
+    const timerLabel = `puppeteer-template-rendering-${filePath}`;
     let server: http.Server = null as any;
     let page: Page = null as any;
 
@@ -162,7 +175,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
     const keepPageOpen = this.Options?.debug?.close === false;
 
     try {
-      this.Log.timeStart(`puppeteer-template-rendering-${filePath}`);
+      this.Log.timeStart(timerLabel);
       this.Log.trace(`Rendering to file ${filePath}`);
 
       // fire up local http server for serving images etc, because chromium
@@ -174,68 +187,40 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
       const browser = await this.getBrowser();
       page = await browser.newPage();
 
-      // Skip timeouts in debug mode
+      // In debug mode neither timeouts nor the watchdog are armed, so the page
+      // can be inspected indefinitely.
+      const cancelWatchdog = keepPageOpen ? noop : this.armRenderWatchdog(page);
       if (!keepPageOpen) {
-        page.setDefaultNavigationTimeout(this.Options?.navigationTimeout || 30000); // Default 30s
-        page.setDefaultTimeout(this.Options?.renderTimeout || 30000); // Default 30s
+        this.configurePageTimeouts(page);
       }
 
-      // Set up render timeout (skip in debug mode). On timeout close only the
-      // page - the pooled browser may be serving other concurrent renders.
-      let renderTimeout: NodeJS.Timeout | undefined;
-      if (!keepPageOpen) {
-        const timeoutMs = this.Options?.renderTimeout || 30000;
-        renderTimeout = setTimeout(() => {
-          this.Log.warn(`Render timeout (${timeoutMs}ms) - closing page`);
-          if (page) {
-            page.close().catch(() => { /* page may already be closing */ });
-          }
-        }, timeoutMs);
-      }
-
-      // Add event listeners with explicit cleanup tracking
-      const eventCleanup = this.addPageEventListeners(page);
+      const removeListeners = this.addPageEventListeners(page);
 
       try {
         await page.setBypassCSP(true);
         await prepare(page, httpPort);
 
-        // Call abstract method to perform specific rendering (PDF or image)
+        // perform the concrete rendering (PDF or image)
         await this.performRender(page, filePath);
-
-        // Clear timeout on successful completion
-        if (renderTimeout) {
-          clearTimeout(renderTimeout);
-          renderTimeout = undefined;
-        }
-
-        // Clean up event listeners
-        eventCleanup();
-
       } catch (renderError) {
-        // Clear timeout on error
-        if (renderTimeout) {
-          clearTimeout(renderTimeout);
-          renderTimeout = undefined;
-        }
         this.Log.error(renderError, `Error during rendering for ${filePath}`);
         throw renderError;
+      } finally {
+        cancelWatchdog();
+        removeListeners();
       }
     } catch (err) {
       this.Log.error(err, `Error rendering to file ${filePath}`);
       throw err;
     } finally {
-      const duration = this.Log.timeEnd(`puppeteer-template-rendering-${filePath}`);
+      const duration = this.Log.timeEnd(timerLabel);
       this.Log.trace(`Ended rendering to file ${filePath}, took: ${duration}ms`);
-
-      if (this.Options && duration > this.Options.renderDurationWarning) {
-        this.Log.warn(`Rendering to file ${filePath} took too long.`);
-      }
+      this.warnIfSlow(filePath, duration);
 
       // Close the page (not the pooled browser). Skip if debug.close is false
       // so the rendered page can be inspected.
       if (page && !keepPageOpen) {
-        await page.close().catch((err) => this.Log.warn(`Error closing page: ${err.message}`));
+        await this.closePage(page);
       } else if (page) {
         this.Log.info('Page kept open for debugging (debug.close=false)');
       }
@@ -244,6 +229,39 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
         await this.safeServerCleanup(server);
       }
     }
+  }
+
+  /** Apply the configured (or default) navigation and render timeouts to a page. */
+  protected configurePageTimeouts(page: Page): void {
+    page.setDefaultNavigationTimeout(this.Options?.navigationTimeout || DEFAULT_RENDER_TIMEOUT_MS);
+    page.setDefaultTimeout(this.Options?.renderTimeout || DEFAULT_RENDER_TIMEOUT_MS);
+  }
+
+  /**
+   * Arm a watchdog that closes the page if a render exceeds the configured
+   * timeout - only the page is closed, the pooled browser may be serving other
+   * concurrent renders. Returns a function that cancels the watchdog.
+   */
+  protected armRenderWatchdog(page: Page): () => void {
+    const timeoutMs = this.Options?.renderTimeout || DEFAULT_RENDER_TIMEOUT_MS;
+    const handle = setTimeout(() => {
+      this.Log.warn(`Render timeout (${timeoutMs}ms) - closing page`);
+      page.close().catch(() => { /* page may already be closing */ });
+    }, timeoutMs);
+
+    return () => clearTimeout(handle);
+  }
+
+  /** Warn if a render took longer than the configured warning threshold. */
+  protected warnIfSlow(filePath: string, duration: number): void {
+    if (this.Options && duration > this.Options.renderDurationWarning) {
+      this.Log.warn(`Rendering to file ${filePath} took too long.`);
+    }
+  }
+
+  /** Close a page, downgrading any close error to a warning (best-effort cleanup). */
+  protected async closePage(page: Page): Promise<void> {
+    await page.close().catch((err) => this.Log.warn(`Error closing page: ${err.message}`));
   }
 
   /**
@@ -284,9 +302,6 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
   public async render(_templateName: string, _model: unknown, _language?: string): Promise<string> {
     throw new NotSupported('cannot render puppeteer template to string');
   }
-
-  // no compilation at start
-  protected async compile(_path: string) { }
 
   protected async runLocalServer(basePath: string): Promise<http.Server> {
     const range = this.Options?.static?.portRange;
@@ -352,7 +367,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
           server.close();
           reject(new Error('Server startup timeout'));
         }
-      }, 10000);
+      }, SERVER_STARTUP_TIMEOUT_MS);
     });
   }
 
@@ -402,7 +417,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('Server close timeout'));
-        }, 5000);
+        }, SERVER_CLOSE_TIMEOUT_MS);
 
         server.close((err) => {
           clearTimeout(timeout);

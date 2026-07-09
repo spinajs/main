@@ -59,6 +59,4 @@ export class Csv extends TemplateRenderer {
     // todo: maybe use writable stream in future for large data sets
     return await parser.parse(model.data).promise();
   }
-
-  protected async compile(_path: string) { }
 }

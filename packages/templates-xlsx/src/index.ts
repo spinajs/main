@@ -34,8 +34,4 @@ export class XlsxRenderer extends TemplateRenderer {
   public async render(_templateName: string, _model: unknown, _language?: string): Promise<string> {
     return Promise.reject(new NotSupported('Cannot render xlsx to memory'));
   }
-
-  protected compile(_path: string): Promise<void> {
-    return Promise.resolve();
-  }
 }

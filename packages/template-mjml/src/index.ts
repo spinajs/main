@@ -59,6 +59,4 @@ export class MjmlRenderer extends TemplateRenderer {
 
     fs.writeFileSync(filePath, content);
   }
-
-  protected async compile(_templateName: string, _path: string): Promise<void> {}
 }
