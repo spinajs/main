@@ -1,19 +1,20 @@
-import { Browser, Page, default as puppeteer, LaunchOptions } from 'puppeteer';
+import { Page, LaunchOptions, ConsoleMessage, HTTPRequest, HTTPResponse } from 'puppeteer';
 import { NotSupported } from '@spinajs/exceptions';
 import { TemplateRenderer, Templates, IRenderOptions, RenderPhase, RenderProgressCallback } from '@spinajs/templates';
-import { LazyInject } from '@spinajs/di';
+import { IInstanceCheck, LazyInject } from '@spinajs/di';
 import { basename, dirname, join } from 'path';
 import { Log, Logger } from '@spinajs/log';
-import Express from 'express';
 import * as http from 'http';
-import cors from 'cors';
 
 import '@spinajs/templates-pug';
-import _ from 'lodash';
 import { AddressInfo } from 'net';
 import { RenderProgressReporter } from './progress.js';
+import { LocalAssetServer } from './asset-server.js';
+import { BrowserPool } from './browser-pool.js';
 
 export * from './progress.js';
+export * from './asset-server.js';
+export * from './browser-pool.js';
 
 export interface IPuppeteerRendererOptions {
   static: {
@@ -47,18 +48,31 @@ export interface IPuppeteerRendererOptions {
 
 /** Default navigation/render timeout when none is configured (ms). */
 const DEFAULT_RENDER_TIMEOUT_MS = 30000;
-/** How long to wait for the local static server to start before giving up (ms). */
-const SERVER_STARTUP_TIMEOUT_MS = 10000;
-/** How long to wait for the local static server to close before forcing it (ms). */
-const SERVER_CLOSE_TIMEOUT_MS = 5000;
 
 /** Watchdog canceller used when timeouts are disabled (debug mode). */
 const noop = () => {
   /* nothing to cancel */
 };
 
-export abstract class PuppeteerRenderer extends TemplateRenderer {
+export abstract class PuppeteerRenderer extends TemplateRenderer implements IInstanceCheck {
   protected abstract Options: IPuppeteerRendererOptions;
+
+  /**
+   * Per-instance options that give this renderer its identity for the DI
+   * @PerInstanceCheck pooling (see subclasses). Renderers that are not pooled
+   * per-instance inherit the `undefined` default.
+   */
+  protected get instanceOptions(): unknown {
+    return undefined;
+  }
+
+  /**
+   * DI @PerInstanceCheck hook: an existing instance is reused only when it was
+   * created with the same options.
+   */
+  public __checkInstance__(creationOptions: any): boolean {
+    return JSON.stringify(this.instanceOptions) === JSON.stringify(creationOptions);
+  }
 
   @Logger('puppeteer-templates')
   protected Log: Log;
@@ -66,45 +80,29 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
   @LazyInject()
   protected TemplatingService: Templates;
 
-  /**
-   * Pooled browser instance, launched lazily and reused across renders.
-   * Closed only on dispose(). One instance per options-set (see @PerInstanceCheck on subclasses).
-   */
-  protected pooledBrowser: Browser | null = null;
+  private _assetServer?: LocalAssetServer;
+  private _browserPool?: BrowserPool;
+
+  /** Local static server used so Chromium can load relative asset URLs. Lazily created. */
+  protected get assetServer(): LocalAssetServer {
+    return (this._assetServer ??= new LocalAssetServer(this.Log, () => this.Options?.static?.portRange));
+  }
 
   /**
-   * In-flight launch, shared by concurrent first-renders so we only ever launch one browser.
+   * Pooled browser, launched lazily and reused across renders, closed on dispose().
+   * One pool per options-set (see @PerInstanceCheck on subclasses). Lazily created.
    */
-  private browserLaunchPromise: Promise<Browser> | null = null;
+  protected get browserPool(): BrowserPool {
+    return (this._browserPool ??= new BrowserPool(this.Log, () => this.buildLaunchOptions()));
+  }
 
-  /**
-   * Returns the pooled browser, launching it on first use and relaunching
-   * if it has crashed/disconnected. Concurrent callers share one launch.
-   */
-  protected async getBrowser(): Promise<Browser> {
-    if (this.pooledBrowser?.connected) {
-      return this.pooledBrowser;
-    }
-
-    // drop a disconnected/crashed browser so we relaunch a fresh one
-    this.pooledBrowser = null;
-
-    if (!this.browserLaunchPromise) {
-      const launchOptions: LaunchOptions = {
-        ...(this.Options?.args || {}),
-        ...(this.Options?.executablePath && {
-          executablePath: this.Options.executablePath,
-        }),
-      };
-
-      this.browserLaunchPromise = puppeteer
-        .launch(launchOptions)
-        .then((b) => (this.pooledBrowser = b))
-        // reset so a failed launch is retried on the next call
-        .finally(() => (this.browserLaunchPromise = null));
-    }
-
-    return this.browserLaunchPromise;
+  private buildLaunchOptions(): LaunchOptions {
+    return {
+      ...(this.Options?.args || {}),
+      ...(this.Options?.executablePath && {
+        executablePath: this.Options.executablePath,
+      }),
+    };
   }
 
   public async renderToFile(template: string, model: any, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {
@@ -190,11 +188,11 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
 
       // fire up local http server for serving images etc, because chromium
       // prevents reading local files when not using the file:// protocol
-      server = await this.runLocalServer(opts.assetBasePath ?? process.cwd());
+      server = await this.assetServer.serve(opts.assetBasePath ?? process.cwd());
       const httpPort = (server.address() as AddressInfo).port;
 
       // reuse the pooled browser; open a fresh page per render
-      const browser = await this.getBrowser();
+      const browser = await this.browserPool.acquire();
       page = await browser.newPage();
       progress.attach(page);
 
@@ -246,15 +244,20 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
       }
 
       if (server) {
-        await this.safeServerCleanup(server);
+        await this.assetServer.close(server);
       }
     }
+  }
+
+  /** Effective render timeout: configured value, else the default. */
+  protected get renderTimeoutMs(): number {
+    return this.Options?.renderTimeout || DEFAULT_RENDER_TIMEOUT_MS;
   }
 
   /** Apply the configured (or default) navigation and render timeouts to a page. */
   protected configurePageTimeouts(page: Page): void {
     page.setDefaultNavigationTimeout(this.Options?.navigationTimeout || DEFAULT_RENDER_TIMEOUT_MS);
-    page.setDefaultTimeout(this.Options?.renderTimeout || DEFAULT_RENDER_TIMEOUT_MS);
+    page.setDefaultTimeout(this.renderTimeoutMs);
   }
 
   /**
@@ -263,7 +266,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
    * concurrent renders. Returns a function that cancels the watchdog.
    */
   protected armRenderWatchdog(page: Page): () => void {
-    const timeoutMs = this.Options?.renderTimeout || DEFAULT_RENDER_TIMEOUT_MS;
+    const timeoutMs = this.renderTimeoutMs;
     const handle = setTimeout(() => {
       this.Log.warn(`Render timeout (${timeoutMs}ms) - closing page`);
       page.close().catch(() => { /* page may already be closing */ });
@@ -306,9 +309,8 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
    * Callers that render one-shot (CLI, single email) should dispose so the process can exit.
    */
   public async dispose(): Promise<void> {
-    if (this.pooledBrowser) {
-      await this.safeBrowserCleanup(this.pooledBrowser);
-      this.pooledBrowser = null;
+    if (this._browserPool) {
+      await this._browserPool.dispose();
     }
 
     await super.dispose();
@@ -323,151 +325,15 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
     throw new NotSupported('cannot render puppeteer template to string');
   }
 
-  protected async runLocalServer(basePath: string): Promise<http.Server> {
-    const range = this.Options?.static?.portRange;
-    const hasRange = !!range && range.length > 0;
-
-    // With an OS-assigned port (0) a free port is guaranteed, so a single
-    // attempt suffices. With a configured range a random pick can collide, so
-    // retry on EADDRINUSE with a different port.
-    const maxAttempts = hasRange ? 10 : 1;
-    let lastErr: any;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const port = hasRange ? _.random(range![0], range![1]) : 0;
-
-      try {
-        return await this.listenOnce(basePath, port);
-      } catch (err: any) {
-        lastErr = err;
-
-        if (err?.code === 'EADDRINUSE' && hasRange) {
-          this.Log.trace(`Puppeteer image server port ${port} in use, retrying (${attempt + 1}/${maxAttempts})`);
-          continue;
-        }
-
-        throw err;
-      }
-    }
-
-    this.Log.error(lastErr, `Puppeteer image server cannot start - no free port in range after ${maxAttempts} attempts`);
-    throw lastErr;
-  }
-
-  /**
-   * Single attempt to start the static server on the given port (0 = OS-assigned).
-   * Bound to loopback so the served template dir is not network-exposed.
-   */
-  protected listenOnce(basePath: string, port: number): Promise<http.Server> {
-    const self = this;
-    const app = Express();
-    app.use(cors());
-    app.use(Express.static(basePath));
-
-    return new Promise((resolve, reject) => {
-      const server = app
-        .listen(port, '127.0.0.1')
-        .on('listening', function () {
-          self.Log.trace(`Puppeteer image server started on port ${(this.address() as AddressInfo).port}`);
-          self.Log.trace(`Puppeteer static file dir at ${basePath}`);
-          resolve(this);
-        })
-        .on('error', (err: any) => {
-          // Clean up the failed server, then reject so the caller can retry.
-          if (server) {
-            server.close(() => reject(err));
-          } else {
-            reject(err);
-          }
-        });
-
-      // Set a timeout for server startup
-      setTimeout(() => {
-        if (!server.listening) {
-          server.close();
-          reject(new Error('Server startup timeout'));
-        }
-      }, SERVER_STARTUP_TIMEOUT_MS);
-    });
-  }
-
-  /**
-   * Enhanced browser cleanup with error handling
-   */
-  protected async safeBrowserCleanup(browser: Browser): Promise<void> {
-    try {
-      // First try to close all pages
-      const pages = await browser.pages();
-      await Promise.allSettled(pages.map(page => page.close()));
-
-      // Then close the browser normally
-      await browser.close();
-    } catch (err) {
-      this.Log.warn(`Error during normal browser cleanup: ${err.message}`);
-
-      // Force kill if normal close fails
-      try {
-        await this.forceCloseBrowser(browser);
-      } catch (killErr) {
-        this.Log.error(`Failed to force kill browser: ${killErr.message}`);
-      }
-    }
-  }
-
-  /**
-   * Force close browser with process termination
-   */
-  protected async forceCloseBrowser(browser: Browser): Promise<void> {
-    try {
-      const process = browser.process();
-      if (process) {
-        process.kill('SIGKILL');
-        this.Log.warn('Browser process force killed');
-      }
-    } catch (err) {
-      this.Log.error(`Error force killing browser process: ${err.message}`);
-    }
-  }
-
-  /**
-   * Enhanced server cleanup with timeout
-   */
-  protected async safeServerCleanup(server: http.Server): Promise<void> {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Server close timeout'));
-        }, SERVER_CLOSE_TIMEOUT_MS);
-
-        server.close((err) => {
-          clearTimeout(timeout);
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-    } catch (err) {
-      this.Log.warn(`Error closing server: ${err.message}`);
-
-      // Force close connections if available
-      try {
-        if ('closeAllConnections' in server) {
-          (server as any).closeAllConnections();
-        }
-      } catch (forceErr) {
-        this.Log.error(`Error force closing server connections: ${forceErr.message}`);
-      }
-    }
-  }
-
   /**
    * Add page event listeners with cleanup function
    */
-  protected addPageEventListeners(page: any): () => void {
+  protected addPageEventListeners(page: Page): () => void {
     const listeners = {
-      console: (message: any) => this.Log.trace(`${message.type().substr(0, 3).toUpperCase()} ${message.text()}`),
-      pageerror: ({ message }: any) => this.Log.error(message),
-      response: (response: any) => this.Log.trace(`${response.status()} ${response.url()}`),
-      requestfailed: (request: any) => {
+      console: (message: ConsoleMessage) => this.Log.trace(`${message.type().slice(0, 3).toUpperCase()} ${message.text()}`),
+      pageerror: (error: Error) => this.Log.error(error.message),
+      response: (response: HTTPResponse) => this.Log.trace(`${response.status()} ${response.url()}`),
+      requestfailed: (request: HTTPRequest) => {
         const failure = request.failure();
         this.Log.error(`${failure ? failure.errorText : 'request failed'} ${request.url()}`);
       }
@@ -482,10 +348,10 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
     // Return cleanup function
     return () => {
       try {
-        page.removeListener('console', listeners.console);
-        page.removeListener('pageerror', listeners.pageerror);
-        page.removeListener('response', listeners.response);
-        page.removeListener('requestfailed', listeners.requestfailed);
+        page.off('console', listeners.console);
+        page.off('pageerror', listeners.pageerror);
+        page.off('response', listeners.response);
+        page.off('requestfailed', listeners.requestfailed);
       } catch (err) {
         this.Log.warn(`Error removing page listeners: ${err.message}`);
       }

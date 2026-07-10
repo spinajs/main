@@ -119,11 +119,11 @@ describe('PuppeteerRenderer engine', function () {
     outputs.push(out1, out2);
 
     await r.renderToFile(dir('templates/template.png'), { hello: 'world' }, out1);
-    const firstBrowser = (r as any).pooledBrowser;
+    const firstBrowser = (r as any).browserPool.browser;
     expect(firstBrowser, 'browser should be pooled after first render').to.not.be.null;
 
     await r.renderToFile(dir('templates/template.png'), { hello: 'world' }, out2);
-    const secondBrowser = (r as any).pooledBrowser;
+    const secondBrowser = (r as any).browserPool.browser;
 
     expect(secondBrowser).to.equal(firstBrowser); // same instance -> reused, not relaunched
     expect(secondBrowser.connected).to.eq(true);
@@ -135,12 +135,12 @@ describe('PuppeteerRenderer engine', function () {
     outputs.push(out);
 
     await r.renderToFile(dir('templates/template.png'), { hello: 'world' }, out);
-    const browser = (r as any).pooledBrowser;
+    const browser = (r as any).browserPool.browser;
     expect(browser).to.not.be.null;
 
     await r.dispose();
 
-    expect((r as any).pooledBrowser).to.be.null;
+    expect((r as any).browserPool.browser).to.be.null;
     expect(browser.connected).to.eq(false);
   });
 

@@ -1,16 +1,7 @@
 import { DI } from '@spinajs/di';
 import * as fs from 'fs';
-import * as path from 'path';
 import { Templates } from '../index.js';
 import { IRenderProgress, RenderPhase, RenderProgressCallback } from '../progress.js';
-
-/** Ensure the parent directory of `filePath` exists, creating it recursively if needed. */
-export function ensureParentDir(filePath: string): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
 
 /** Load an optional JSON model file, returning an empty object when no readable file is given. */
 export function loadJsonModel(modelPath?: string): Record<string, unknown> {

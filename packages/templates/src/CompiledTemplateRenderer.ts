@@ -1,9 +1,9 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import { guessLanguage, defaultLanguage } from '@spinajs/intl';
 import * as fs from 'fs';
-import * as path from 'path';
 import { normalize } from 'path';
 import { TemplateRenderer } from './interfaces.js';
+import { ensureParentDir } from './io.js';
 
 /**
  * A compiled template delegate: takes a locals/context object and returns the
@@ -28,12 +28,7 @@ export abstract class CompiledTemplateRenderer<TDelegate extends CompiledTemplat
 
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
     const content = await this.render(template, model, language);
-    const dir = path.dirname(filePath);
-
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
+    ensureParentDir(filePath);
     fs.writeFileSync(filePath, content);
   }
 

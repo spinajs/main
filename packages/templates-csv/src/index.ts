@@ -1,7 +1,7 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import { AsyncParser } from '@json2csv/node';
-import { TemplateRenderer } from '@spinajs/templates';
+import { TemplateRenderer, ensureParentDir } from '@spinajs/templates';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
@@ -34,12 +34,7 @@ export class Csv extends TemplateRenderer {
 
     try {
       const csv = await this.render(_template, model, language);
-      const dir = path.dirname(filePath);
-
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
+      ensureParentDir(filePath);
       fs.writeFileSync(filePath, csv, 'utf8');
     } catch (err) {
       this.Log.error(err, `Error rendering template ${_template} to file ${filePath}`);
@@ -51,6 +46,11 @@ export class Csv extends TemplateRenderer {
   }
 
   public async render(_templateName: string, model: IJsonToCsvOptions, _language?: string): Promise<string> {
+    // fail fast with a clear message rather than an opaque TypeError from the parser
+    if (!model || !Array.isArray(model.fields) || model.data == null) {
+      throw new InvalidArgument('csv render model requires { fields: string[], data }');
+    }
+
     const parser = new AsyncParser({
       fields: model.fields,
       ...this.Options

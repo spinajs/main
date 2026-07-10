@@ -85,4 +85,13 @@ describe('templates-csv', () => {
     expect(written).to.contain('1,2');
     expect(written).to.contain('3,4');
   });
+
+  it('should fail fast with a clear error for a malformed model', async () => {
+    const t = await tp();
+
+    // crash-early precondition: an opaque parser TypeError becomes a clear message
+    await expect(t.render('data.csv', undefined as any)).to.be.rejectedWith(/csv render model requires/);
+    await expect(t.render('data.csv', { fields: ['a'] } as any)).to.be.rejectedWith(/csv render model requires/);
+    await expect(t.render('data.csv', { data: [] } as any)).to.be.rejectedWith(/csv render model requires/);
+  });
 });

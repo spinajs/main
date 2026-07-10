@@ -7,6 +7,7 @@ import { extname } from 'path';
 import { Intl } from '@spinajs/intl';
 export * from './interfaces.js';
 export * from './progress.js';
+export * from './io.js';
 export * from './CompiledTemplateRenderer.js';
 export * from './cli/renderHelpers.js';
 
