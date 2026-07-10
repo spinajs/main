@@ -48,7 +48,12 @@ export abstract class QueueService extends AsyncService {
   @Config('queue')
   protected Configuration: IQueueConfiguration;
 
-  public abstract emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<void>;
+  /**
+   * Emit a message. For jobs the generated JobId is returned so the caller can
+   * correlate the job with its progress/status (e.g. via queue-http-progress).
+   * Returns undefined for non-job messages.
+   */
+  public abstract emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<string | undefined>;
   public abstract consume<T extends QueueMessage>(event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
   public abstract stopConsuming(event: Constructor<QueueMessage>): Promise<void>;
   public abstract get(connection?: string): QueueClient;
@@ -170,6 +175,24 @@ export abstract class QueueEvent extends QueueMessage {
  *
  * Job results are preserved
  */
+/**
+ * Optional richer progress metadata a job may report alongside the numeric
+ * percentage - persisted to the job model and exposed by queue-http-progress.
+ */
+export interface IJobProgressMeta {
+  /** Short phase label, e.g. `loading`, `rendering`. */
+  phase?: string;
+  /** Human-facing status message. */
+  message?: string;
+}
+
+/**
+ * Progress reporter passed to {@link QueueJob.execute}. Call with a 0-100
+ * percentage; the optional `meta` carries a phase label / message. Jobs that
+ * only report a percentage can ignore `meta`.
+ */
+export type JobProgressCallback = (p: number, meta?: IJobProgressMeta) => Promise<void>;
+
 export abstract class QueueJob extends QueueMessage implements IQueueJob {
   public JobId: string;
 
@@ -184,9 +207,13 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
     this.Type = QueueMessageType.Job;
   }
 
-  public abstract execute(progress: (p: number) => Promise<void>): Promise<unknown>;
+  public abstract execute(progress: JobProgressCallback): Promise<unknown>;
 
-  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, options?: IMessageOptions): Promise<void> {
+  /**
+   * Emit (enqueue) this job. Returns the generated JobId so the caller can track
+   * the job's progress / status (e.g. via queue-http-progress `:jobId/status`).
+   */
+  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, options?: IMessageOptions): Promise<string | undefined> {
     const queue = await DI.resolve(QueueService);
 
     const message = {
@@ -198,7 +225,7 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
     } as IQueueMessage;
 
     // partial of queue job always is queue message
-    await queue.emit(message);
+    return queue.emit(message);
   }
 }
 

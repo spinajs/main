@@ -8,13 +8,13 @@ export class JobsController extends BaseController {
     @Get(':jobId/status')
     public async getStatus(@Param('jobId') jobId: string): Promise<Ok> {
         const row = await JobModel.select().where('JobId', jobId).firstOrFail();
-        
-        const ctx = row.Result ?? {};
+
         const response: IJobStatusResponse = {
             jobId: row.JobId,
             progress: row.Progress,
             status: row.Status,
-            message: (ctx as any)?.Result,
+            phase: row.Phase ?? undefined,
+            message: row.Message ?? undefined,
             createdAt: row.CreatedAt,
         };
 

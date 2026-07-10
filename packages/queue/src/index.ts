@@ -1,7 +1,7 @@
 import { UnexpectedServerError, InvalidArgument, ConnectionNotFound } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces.js';
+import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, isJob } from './interfaces.js';
 import { JobModel } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
@@ -13,6 +13,7 @@ export * from './decorators.js';
 export * from './models/JobModel.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
 export * from './migrations/Queue_2026_06_30_00_00_00.js';
+export * from './migrations/Queue_2026_07_10_00_00_00.js';
 export * from './fp.js';
 
 @Injectable(QueueService)
@@ -35,8 +36,9 @@ export class DefaultQueueService extends QueueService {
     this.Connections.clear();
   }
 
-  public async emit(event: IQueueMessage | QueueEvent | QueueJob) {
+  public async emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<string | undefined> {
     const connections = this.getConnectionsForMessage(event);
+    let jobId: string | undefined;
 
     for (let c of connections) {
       const connection = this.Connections.get(c);
@@ -57,12 +59,16 @@ export class DefaultQueueService extends QueueService {
         await jModel.insert();
 
         event.JobId = jModel.JobId;
+        jobId = jModel.JobId;
       }
 
       await connection.emit(event);
 
       this.Log.trace(`Emitted message ${event.Name}, type: ${event.Type} to connection ${c}`);
     }
+
+    // for jobs this is the id the caller uses to track progress / status
+    return jobId;
   }
 
   public async stopConsuming(event: Constructor<QueueMessage>) {
@@ -157,8 +163,14 @@ export class DefaultQueueService extends QueueService {
 
               await jModel.update();
 
-              async function onProgress(p: number) {
+              async function onProgress(p: number, meta?: IJobProgressMeta) {
                 jModel.Progress = p;
+                if (meta?.phase !== undefined) {
+                  jModel.Phase = meta.phase;
+                }
+                if (meta?.message !== undefined) {
+                  jModel.Message = meta.message;
+                }
                 await jModel.update();
 
                 self.Log.trace(`Job ${event.name}:${jModel.JobId} progress: ${p}%`);
