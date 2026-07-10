@@ -1,5 +1,5 @@
 import { PdfRenderer } from './../index.js';
-import { ensureParentDir, resolveInputHtml } from '@spinajs/templates';
+import { cliProgressReporter, ensureParentDir, resolveInputHtml } from '@spinajs/templates';
 import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import { PaperFormat } from 'puppeteer';
@@ -41,6 +41,7 @@ export class RenderPdfCommand extends CliCommand {
 
       await renderer.renderHtmlToFile(html, options.output, {
         assetBasePath: path.dirname(path.resolve(input)),
+        onProgress: cliProgressReporter(),
       });
 
       this.Log.success(`Rendered ${input} to pdf ${options.output}`);

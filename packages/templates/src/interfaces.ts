@@ -1,6 +1,7 @@
 import { IMappableService } from '@spinajs/di';
 import { AsyncService } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
+import { IRenderOptions } from './progress.js';
 
 export abstract class TemplateRenderer extends AsyncService implements IMappableService {
   @Logger('renderer')
@@ -15,8 +16,8 @@ export abstract class TemplateRenderer extends AsyncService implements IMappable
     return this.Extension;
   }
 
-  public abstract render(templatePath: string, model: unknown, language?: string): Promise<string>;
-  public abstract renderToFile(templatePath: string, model: unknown, filePath: string, language?: string): Promise<void>;
+  public abstract render(templatePath: string, model: unknown, language?: string, options?: IRenderOptions): Promise<string>;
+  public abstract renderToFile(templatePath: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void>;
 
   /**
    * Precompiles a template at the given path. Called lazily by engines that cache

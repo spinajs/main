@@ -2,9 +2,11 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { AsyncService, Inject, Autoinject } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { TemplateRenderer } from './interfaces.js';
+import { IRenderOptions } from './progress.js';
 import { extname } from 'path';
 import { Intl } from '@spinajs/intl';
 export * from './interfaces.js';
+export * from './progress.js';
 export * from './CompiledTemplateRenderer.js';
 export * from './cli/renderHelpers.js';
 
@@ -23,8 +25,8 @@ export class Templates extends AsyncService {
     return this.Renderers.find((x) => x.Extension === extname)!;
   }
 
-  public async compileToFile(template: string, renderer: string, model: unknown, filePath: string, language?: string): Promise<void> {
-    return await this.engineByType(renderer).renderToFile(template, model, filePath, language);
+  public async compileToFile(template: string, renderer: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {
+    return await this.engineByType(renderer).renderToFile(template, model, filePath, language, options);
   }
 
   /**
@@ -35,10 +37,11 @@ export class Templates extends AsyncService {
    * @param renderer
    * @param model
    * @param language
+   * @param options - optional render options (e.g. progress reporting)
    * @returns
    */
-  public async compile(template: string, renderer: string, model: unknown, language?: string): Promise<string> {
-    return await this.engineByType(renderer).render(template, model, language);
+  public async compile(template: string, renderer: string, model: unknown, language?: string, options?: IRenderOptions): Promise<string> {
+    return await this.engineByType(renderer).render(template, model, language, options);
   }
 
   /**
@@ -49,14 +52,15 @@ export class Templates extends AsyncService {
    * @param template
    * @param model
    * @param language
+   * @param options - optional render options (e.g. progress reporting)
    * @returns
    */
-  public async render(template: string, model: unknown, language?: string): Promise<string> {
-    return await this.engineByExtension(template).render(template, model, language);
+  public async render(template: string, model: unknown, language?: string, options?: IRenderOptions): Promise<string> {
+    return await this.engineByExtension(template).render(template, model, language, options);
   }
 
-  public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
-    return await this.engineByExtension(template).renderToFile(template, model, filePath, language);
+  public async renderToFile(template: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {
+    return await this.engineByExtension(template).renderToFile(template, model, filePath, language, options);
   }
 
   /**

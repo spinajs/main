@@ -1,5 +1,5 @@
 import { ImageRenderer } from './../index.js';
-import { ensureParentDir, resolveInputHtml } from '@spinajs/templates';
+import { cliProgressReporter, ensureParentDir, resolveInputHtml } from '@spinajs/templates';
 import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import * as path from 'path';
@@ -44,6 +44,7 @@ export class RenderImageCommand extends CliCommand {
       await renderer.renderHtmlToFile(html, options.output, {
         assetBasePath: path.dirname(path.resolve(input)),
         viewport: this.resolveViewport(options),
+        onProgress: cliProgressReporter(),
       });
 
       this.Log.success(`Rendered ${input} to image ${options.output}`);

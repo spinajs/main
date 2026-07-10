@@ -1,4 +1,4 @@
-import { Templates, TemplateRenderer } from '@spinajs/templates';
+import { Templates, TemplateRenderer, IRenderProgress, RenderPhase } from '@spinajs/templates';
 import { Configuration, FrameworkConfiguration, Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import { Page } from 'puppeteer';
@@ -175,5 +175,62 @@ describe('PuppeteerRenderer engine', function () {
     await expect(
       r.renderToFile(dir('templates/does-not-exist.png'), { hello: 'world' }, dir('templates/nope.png')),
     ).to.be.rejected;
+  });
+
+  it('should report progress through phases with resource counts', async () => {
+    const r = await renderer();
+    const out = dir('templates/progress.png');
+    outputs.push(out);
+
+    const events: IRenderProgress[] = [];
+    // three local images -> three real requests to the temporary static server
+    const html = '<html><head></head><body><img src="img1.png"><img src="img2.png"><img src="img3.png"></body></html>';
+
+    await r.renderHtmlToFile(html, out, {
+      assetBasePath: dir('templates'),
+      onProgress: (p) => {
+        events.push({ ...p });
+      },
+    });
+
+    expect(events.length, 'progress should be reported').to.be.greaterThan(0);
+
+    // phases only ever move forward
+    const order = [RenderPhase.Starting, RenderPhase.Preparing, RenderPhase.Loading, RenderPhase.Rendering, RenderPhase.Done];
+    const indices = events.map((e) => order.indexOf(e.phase)).filter((i) => i >= 0);
+    for (let i = 1; i < indices.length; i++) {
+      expect(indices[i], 'phase must not go backwards').to.be.gte(indices[i - 1]);
+    }
+
+    // percent is monotonic non-decreasing and ends at 100
+    for (let i = 1; i < events.length; i++) {
+      expect(events[i].percent, 'percent must not regress').to.be.gte(events[i - 1].percent);
+    }
+
+    const last = events[events.length - 1];
+    expect(last.phase).to.eq(RenderPhase.Done);
+    expect(last.percent).to.eq(100);
+
+    // the loading phase was observed and the three images were tracked
+    expect(events.some((e) => e.phase === RenderPhase.Loading), 'a loading phase was reported').to.eq(true);
+    expect(last.resourcesLoaded, 'the three images were counted').to.be.gte(3);
+  });
+
+  it('should report a Failed phase when the render fails', async () => {
+    const r = await renderer();
+    const out = dir('templates/progress-fail.png');
+    outputs.push(out);
+
+    const events: IRenderProgress[] = [];
+    await expect(
+      r.renderToFile(dir('templates/does-not-exist.png'), { hello: 'world' }, out, undefined, {
+        onProgress: (p) => {
+          events.push({ ...p });
+        },
+      }),
+    ).to.be.rejected;
+
+    expect(events.length).to.be.greaterThan(0);
+    expect(events[events.length - 1].phase).to.eq(RenderPhase.Failed);
   });
 });

@@ -1,6 +1,6 @@
 import { Browser, Page, default as puppeteer, LaunchOptions } from 'puppeteer';
 import { NotSupported } from '@spinajs/exceptions';
-import { TemplateRenderer, Templates } from '@spinajs/templates';
+import { TemplateRenderer, Templates, IRenderOptions, RenderPhase, RenderProgressCallback } from '@spinajs/templates';
 import { LazyInject } from '@spinajs/di';
 import { basename, dirname, join } from 'path';
 import { Log, Logger } from '@spinajs/log';
@@ -11,6 +11,9 @@ import cors from 'cors';
 import '@spinajs/templates-pug';
 import _ from 'lodash';
 import { AddressInfo } from 'net';
+import { RenderProgressReporter } from './progress.js';
+
+export * from './progress.js';
 
 export interface IPuppeteerRendererOptions {
   static: {
@@ -104,10 +107,10 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
     return this.browserLaunchPromise;
   }
 
-  public async renderToFile(template: string, model: any, filePath: string, language?: string): Promise<void> {
+  public async renderToFile(template: string, model: any, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {
     const templateBasePath = dirname(template);
 
-    await this.renderContentToFile(filePath, { assetBasePath: templateBasePath }, async (page, httpPort) => {
+    await this.renderContentToFile(filePath, { assetBasePath: templateBasePath, onProgress: options?.onProgress }, async (page, httpPort, markLoading) => {
       const compiledTemplate = await this.TemplatingService.render(
         join(templateBasePath, basename(template, this.Extension)) + '.pug',
         {
@@ -120,6 +123,8 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
         language,
       );
 
+      // template is compiled; resource loading starts with setContent
+      markLoading();
       await page.setContent(compiledTemplate);
     });
   }
@@ -140,15 +145,18 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
     options?: {
       assetBasePath?: string;
       viewport?: { width: number; height: number; deviceScaleFactor?: number };
+      onProgress?: RenderProgressCallback;
     },
   ): Promise<void> {
     await this.renderContentToFile(
       filePath,
-      { assetBasePath: options?.assetBasePath ?? dirname(filePath) },
-      async (page, httpPort) => {
+      { assetBasePath: options?.assetBasePath ?? dirname(filePath), onProgress: options?.onProgress },
+      async (page, httpPort, markLoading) => {
         if (options?.viewport) {
           await page.setViewport(options.viewport);
         }
+        // resource loading starts with setContent
+        markLoading();
         // inject a <base href> so relative asset URLs resolve via the local server
         await page.setContent(this.injectBaseHref(html, `http://127.0.0.1:${httpPort}/`));
       },
@@ -162,10 +170,11 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
    */
   protected async renderContentToFile(
     filePath: string,
-    opts: { assetBasePath?: string },
-    prepare: (page: Page, httpPort: number) => Promise<void>,
+    opts: { assetBasePath?: string; onProgress?: RenderProgressCallback },
+    prepare: (page: Page, httpPort: number, markLoading: () => void) => Promise<void>,
   ): Promise<void> {
     const timerLabel = `puppeteer-template-rendering-${filePath}`;
+    const progress = new RenderProgressReporter(filePath, opts.onProgress);
     let server: http.Server = null as any;
     let page: Page = null as any;
 
@@ -177,6 +186,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
     try {
       this.Log.timeStart(timerLabel);
       this.Log.trace(`Rendering to file ${filePath}`);
+      progress.phase(RenderPhase.Starting);
 
       // fire up local http server for serving images etc, because chromium
       // prevents reading local files when not using the file:// protocol
@@ -186,6 +196,7 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
       // reuse the pooled browser; open a fresh page per render
       const browser = await this.getBrowser();
       page = await browser.newPage();
+      progress.attach(page);
 
       // In debug mode neither timeouts nor the watchdog are armed, so the page
       // can be inspected indefinitely.
@@ -197,11 +208,17 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
       const removeListeners = this.addPageEventListeners(page);
 
       try {
+        progress.phase(RenderPhase.Preparing);
         await page.setBypassCSP(true);
-        await prepare(page, httpPort);
+        // prepare compiles/builds the HTML then calls markLoading() right before
+        // setContent, so template-compile time is separated from resource loading.
+        await prepare(page, httpPort, () => progress.phase(RenderPhase.Loading));
 
         // perform the concrete rendering (PDF or image)
+        progress.phase(RenderPhase.Rendering);
         await this.performRender(page, filePath);
+
+        progress.phase(RenderPhase.Done);
       } catch (renderError) {
         this.Log.error(renderError, `Error during rendering for ${filePath}`);
         throw renderError;
@@ -210,9 +227,12 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
         removeListeners();
       }
     } catch (err) {
+      progress.phase(RenderPhase.Failed, err?.message);
       this.Log.error(err, `Error rendering to file ${filePath}`);
       throw err;
     } finally {
+      progress.dispose();
+
       const duration = this.Log.timeEnd(timerLabel);
       this.Log.trace(`Ended rendering to file ${filePath}, took: ${duration}ms`);
       this.warnIfSlow(filePath, duration);
