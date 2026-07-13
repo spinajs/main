@@ -35,7 +35,6 @@
     "@spinajs/configuration-common": "^2.0.481",
     "@spinajs/di": "^2.0.481",
     "@spinajs/log-common": "^2.0.481",
-    "chalk": "^4.1.2",
     "lodash": "^4.17.21"
   },
   "scripts": {

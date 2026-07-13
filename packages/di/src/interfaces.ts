@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { ResolveType } from './enums.js';
 import { Class, Factory, InferClassOrFactory, InferTypedArray, ResolveResult, ResolveArrayResult } from './types.js';
-import { EventEmitter } from 'events';
+import { EventEmitter } from './events.js';
 import { TypedArray } from './array.js';
 import { Registry } from './registry.js';
 import { ContainerCache } from './container-cache.js';

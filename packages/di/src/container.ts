@@ -6,9 +6,7 @@ import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isFactory, isTypedArray, isPromise } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service } from './interfaces.js';
 import { Class, Factory } from './types.js';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-import { EventEmitter } from 'events';
+import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
 import { Registry } from './registry.js';
 import { ContainerCache } from './container-cache.js';

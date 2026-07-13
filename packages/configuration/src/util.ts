@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/unbound-method */
-import { ConfigVar } from '@spinajs/configuration-common';
 import * as fs from 'fs';
-import _ from 'lodash';
 import { dirname, join, resolve } from 'path';
+
+// pure helpers live in util-common ( browser-safe ); re-export for compat
+export { merge, mergeArrays, mapObject, pickString, pickObjects } from './util-common.js';
 
 /**
  * Hack to inform ts that jasmine var is declared to skip syntax error
@@ -37,25 +38,6 @@ export function findBasePath(path: string): string | null {
   return findBasePath(resolve(path, '..'));
 }
 
-export function merge(to: unknown, from: unknown): unknown {
-  _.mergeWith(to, from, (src, dest) => {
-    if (_.isArray(src) && _.isArray(dest)) {
-      const tmp = src.concat(dest);
-      return _.uniqWith(tmp, _.isEqual);
-    } else if (!src) {
-      return dest;
-    }
-  });
-
-  return to;
-}
-
-export function mergeArrays(target: unknown[], source: unknown[]): unknown {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
-
 // clean require cache config
 // http://stackoverflow.com/questions/9210542/node-js-require-cache-possible-to-invalidate
 export function uncache(file: string) {
@@ -68,44 +50,4 @@ export function filterDirs(dir: string) {
     return true;
   }
   return false;
-}
-
-export function pickString(obj: { [key: string]: any }): [string, string][] {
-  return Object.keys(obj)
-    .filter((k) => typeof obj[k] === 'string')
-    .map((k) => {
-      return [k, obj[k]];
-    });
-}
-
-export function pickObjects(obj: { [key: string]: any }): [string, any][] {
-  return Object.keys(obj)
-    .filter((k) => (typeof obj[k] === 'object' || Array.isArray(obj[k])) && obj[k] !== null)
-    .map((k) => {
-      return [k, obj[k]];
-    });
-}
-
-/**
- * recursively maps object values
- *
- * @param obj
- * @param fn
- * @returns
- */
-export function mapObject(obj: any, fn: (obj: any) => any) {
-  if (!_.isPlainObject(obj)) return obj;
-  return Object.keys(obj).reduce((acc: any, key: string) => {
-    const value = obj[key];
-    if (Array.isArray(value)) {
-      // only descend into plain objects - class instances (eg. luxon DateTime)
-      // must be passed through untouched or they lose their prototype/methods
-      acc[key] = value.map((x) => (_.isPlainObject(x) ? fn(mapObject(x, fn)) : x));
-    } else if (_.isPlainObject(value) && !(value instanceof ConfigVar)) {
-      acc[key] = fn(mapObject(value, fn));
-    } else {
-      acc[key] = value;
-    }
-    return acc;
-  }, {});
 }

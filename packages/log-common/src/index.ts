@@ -1,6 +1,6 @@
 import { Autoinject, Container, DI, SyncService } from "@spinajs/di";
 import _ from "lodash";
-import * as util from "util";
+import { format } from "./format.js";
 
 export enum LogLevel {
   Security = 999,
@@ -211,7 +211,7 @@ export interface ILogTargetDesc {
 
 export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
   const sMsg = err instanceof Error || !err ? (message as string) : err;
-  const tMsg = args.length !== 0 ? util.format(sMsg, ...args) : sMsg;
+  const tMsg = args.length !== 0 ? format(sMsg, ...args) : sMsg;
   const lName = logger ?? message;
 
   return {
