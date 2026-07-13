@@ -25,29 +25,82 @@ const CONFIGURATION_SCHEMA = {
           enabled: {
             type: "boolean",
           },
-          path: {
-            type: "string",
-          },
-          archivePath: {
-            type: "string",
-          },
-          maxSize: {
-            type: "integer",
-            minimum: 10000,
-          },
-          compress: {
-            type: "boolean",
-          },
-          rotate: {
-            type: "string",
-          },
-          maxArchiveFiles: {
-            type: "integer",
-            minimum: 1,
-          },
-          bufferSize: {
-            type: "integer",
-            minimum: 1000,
+          // FileTarget options ( nested under `options` )
+          options: {
+            type: "object",
+            properties: {
+              path: {
+                description:
+                  "Active log path, relative to the `fs` provider base path. Variables allowed.",
+                type: "string",
+              },
+              archivePath: {
+                description:
+                  "Archive directory, relative to the `archiveFs` provider base path. Variables allowed.",
+                type: "string",
+              },
+              fs: {
+                description:
+                  "Registered @spinajs/fs provider for the active log. Defaults to 'fs-log-default'.",
+                type: "string",
+              },
+              archiveFs: {
+                description:
+                  "Registered @spinajs/fs provider archives are moved to. Defaults to `fs`.",
+                type: "string",
+              },
+              archiveStrategy: {
+                description:
+                  "LogArchiveStrategy class name deciding WHEN to rotate. Default 'SizeLogArchiveStrategy'.",
+                type: "string",
+              },
+              retentionStrategies: {
+                description:
+                  "LogRetentionStrategy class names applied in order after rotation. Default ['CountLogRetentionStrategy'].",
+                type: "array",
+                items: {
+                  type: "string",
+                },
+              },
+              maxSize: {
+                description: "Max active log size in bytes before rotation.",
+                type: "integer",
+                minimum: 1,
+              },
+              compress: {
+                description: "Zip the archived file when moved to the archive.",
+                type: "boolean",
+              },
+              rotate: {
+                description:
+                  "Cron expression for CronLogArchiveStrategy ( 6-field with seconds ).",
+                type: "string",
+              },
+              maxBufferSize: {
+                description: "Max buffered messages before a flush.",
+                type: "integer",
+                minimum: 1,
+              },
+              maxArchiveFiles: {
+                description:
+                  "How many archives to keep ( CountLogRetentionStrategy ). Oldest are deleted.",
+                type: "integer",
+                minimum: 1,
+              },
+              maxAge: {
+                description:
+                  "Max archive age in seconds ( AgeLogRetentionStrategy ).",
+                type: "integer",
+                minimum: 1,
+              },
+              archiveInterval: {
+                description:
+                  "Interval in seconds SizeLogArchiveStrategy checks the active log size.",
+                type: "integer",
+                minimum: 1,
+              },
+            },
+            required: ["path"],
           },
         },
         required: ["name", "type"],
