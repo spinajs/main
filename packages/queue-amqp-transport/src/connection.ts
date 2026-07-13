@@ -1,8 +1,9 @@
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
-import amqp, { Channel, ChannelModel, ConsumeMessage, Options } from 'amqplib';
+import { IQueueMessage, IQueueJob, IQueueConnectionOptions, QueueClient, QueueMessage, QueueMessageType } from '@spinajs/queue';
+import amqp, { Channel, ChannelModel, ConfirmChannel, ConsumeMessage, Options } from 'amqplib';
 import _ from 'lodash';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder } from '@spinajs/util';
 
 /**
  * Default prefix that marks a channel as a topic ( pub-sub / fanout exchange ).
@@ -12,19 +13,27 @@ import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
  */
 const DEFAULT_TOPIC_PREFIX = '/topic/';
 
-interface ISubscription {
-  consumerTag: string;
+/** Header carrying the retry attempt count across redeliveries. */
+const RETRY_COUNT_HEADER = 'x-retry-count';
 
-  /**
-   * Name of the broker queue the consumer is attached to.
-   * For topics this is the ( possibly server generated ) queue bound to the fanout exchange.
-   */
-  queue: string;
-
-  /**
-   * Was the subscription created as durable.
-   */
+/**
+ * Everything needed to re-establish a subscription after a reconnect. amqplib consumers do not
+ * survive a dropped connection, so we keep descriptors and replay them on every (re)connect.
+ */
+interface ISubscriptionDescriptor {
+  channel: string;
+  callback: (e: IQueueMessage) => Promise<void>;
+  subscriptionId?: string;
   durable: boolean;
+  /** Runtime state - refreshed on every (re)connect. */
+  consumerTag?: string;
+  queue?: string;
+}
+
+interface IPendingEmit {
+  message: IQueueMessage;
+  resolve: () => void;
+  reject: (err: unknown) => void;
 }
 
 @PerInstanceCheck()
@@ -32,15 +41,30 @@ interface ISubscription {
 export class AmqpQueueClient extends QueueClient {
   protected Connection: ChannelModel;
 
-  protected Channel: Channel;
+  /** Confirm channel used for publishing so emit() resolves only after a broker ack. */
+  protected PublishChannel: ConfirmChannel;
 
-  protected Subscriptions = new Map<string, ISubscription>();
+  /** Separate channel for consumers so publisher back-pressure cannot stall consumer acks. */
+  protected ConsumeChannel: Channel;
 
-  // destinations already declared on the broker, so we assert each one only once
-  // instead of on every publish ( assert is a network round-trip ).
+  protected Subscriptions = new Map<string, ISubscriptionDescriptor>();
+
+  // destinations already declared on the broker, so we assert each one only once per connection
+  // ( assert is a network round-trip ). Cleared on reconnect because channels are recreated.
   protected AssertedQueues = new Set<string>();
-
   protected AssertedExchanges = new Set<string>();
+  protected AssertedRetryQueues = new Set<string>();
+
+  /** Messages emitted while disconnected - flushed on (re)connect. */
+  protected PendingEmits: IPendingEmit[] = [];
+
+  protected Connected = false;
+  protected Disposing = false;
+  protected ReconnectTimer?: ReturnType<typeof setTimeout>;
+
+  /** Publisher-side resilience: time-bound + retry each publish so transient broker hiccups
+   * don't lose an emit. Safe against the resulting duplicates because consumers dedupe by JobId. */
+  protected EmitPipeline: ResiliencePipeline<void> = this.buildEmitPipeline();
 
   public get ClientId() {
     return this.Options.clientId ?? this.Options.name;
@@ -50,12 +74,71 @@ export class AmqpQueueClient extends QueueClient {
     return (this.Options.options?.topicPrefix as string) ?? DEFAULT_TOPIC_PREFIX;
   }
 
+  protected get ReconnectDelay() {
+    return this.Options.reconnectDelay ?? 5000;
+  }
+
+  protected get Prefetch() {
+    return (this.Options.options?.prefetch as number) ?? 1;
+  }
+
+  public get IsConnected() {
+    return this.Connected;
+  }
+
   constructor(options: IQueueConnectionOptions) {
     super(options);
   }
 
   public async resolve() {
+    await this.connect();
+  }
+
+  /**
+   * Creates the underlying amqplib connection. Isolated as a seam so tests can inject a fake
+   * broker without a real server ( mirrors the STOMP transport's createClient seam ).
+   */
+  protected createConnection(url: string | Options.Connect, socketOptions: Record<string, unknown>): Promise<ChannelModel> {
+    return amqp.connect(url as any, socketOptions);
+  }
+
+  public async dispose() {
+    this.Log.info(`Disposing queue connection ${this.Options.name} ...`);
+
+    this.Disposing = true;
+    if (this.ReconnectTimer) {
+      clearTimeout(this.ReconnectTimer);
+      this.ReconnectTimer = undefined;
+    }
+
+    await this.closeChannel(this.PublishChannel);
+    await this.closeChannel(this.ConsumeChannel);
+
+    try {
+      if (this.Connection) {
+        await this.Connection.close();
+      }
+    } catch (err) {
+      this.Log.warn(`Error while closing AMQP connection for ${this.Options.name}: ${err?.message}`);
+    }
+
+    this.Connected = false;
+    this.Subscriptions.clear();
+
+    this.Log.success(`AMQP connection ${this.Options.name} disposed`);
+  }
+
+  /**
+   * Establishes the connection + channels, then replays subscriptions and flushes buffered emits.
+   * Called on initial resolve and on every reconnect.
+   */
+  protected async connect() {
     this.Log.info(`Connecting to AMQP queue at ${this.Options.host ?? 'localhost'} with client-id: ${this.ClientId} ...`);
+
+    // channels are recreated - forget what the previous ( dead ) channels had asserted
+    this.AssertedQueues.clear();
+    this.AssertedExchanges.clear();
+    this.AssertedRetryQueues.clear();
 
     try {
       // when host is a full url ( eg. amqp://user:pass@host/vhost ) use it as is,
@@ -72,9 +155,8 @@ export class AmqpQueueClient extends QueueClient {
               vhost: this.Options.options?.vhost ?? '/',
             };
 
-      this.Connection = await amqp.connect(url as any, {
+      this.Connection = await this.createConnection(url, {
         clientProperties: { connection_name: this.ClientId },
-        // allow caller provided socket options ( heartbeat, tls etc. )
         ...this.Options.options,
       });
     } catch (err) {
@@ -86,69 +168,62 @@ export class AmqpQueueClient extends QueueClient {
     });
 
     this.Connection.on('close', () => {
-      this.Log.warn(`AMQP connection closed, client-id: ${this.ClientId}, name: ${this.Options.name}`);
+      this.onConnectionLost();
     });
 
-    this.Channel = await this.Connection.createChannel();
+    // confirm channel for publishing ( emit() waits for the broker ack ), plain channel for consuming
+    this.PublishChannel = await this.Connection.createConfirmChannel();
+    this.ConsumeChannel = await this.Connection.createChannel();
 
     // limit in-flight unacked messages per consumer. Defaults to 1 ( fair dispatch, mirrors STOMP
-    // `activemq.prefetchSize: 1` so a busy consumer does not hog the queue ). Raise via options.prefetch
-    // to trade fairness for throughput on work queues.
-    await this.Channel.prefetch(this.Options.options?.prefetch ?? 1);
+    // `activemq.prefetchSize: 1` ). Raise via options.prefetch to trade fairness for throughput.
+    await this.ConsumeChannel.prefetch(this.Prefetch);
 
+    this.Connected = true;
     this.Log.success(`Connected to AMQP broker, client-id: ${this.ClientId}`);
+
+    await this.replaySubscriptions();
+    await this.flushPendingEmits();
   }
 
-  public async dispose() {
-    this.Log.info(`Disposing queue connection ${this.Options.name} ...`);
-
-    try {
-      if (this.Channel) {
-        await this.Channel.close();
-      }
-    } catch (err) {
-      this.Log.warn(`Error while closing AMQP channel for ${this.Options.name}: ${err?.message}`);
+  /**
+   * Handles an unexpected connection drop by scheduling a reconnect ( unless we are disposing ).
+   */
+  protected onConnectionLost() {
+    if (this.Disposing || !this.Connected) {
+      return;
     }
 
-    try {
-      if (this.Connection) {
-        await this.Connection.close();
-      }
-    } catch (err) {
-      this.Log.warn(`Error while closing AMQP connection for ${this.Options.name}: ${err?.message}`);
+    this.Connected = false;
+    this.Log.warn(`AMQP connection ${this.Options.name} lost, scheduling reconnect in ${this.ReconnectDelay}ms`);
+    this.scheduleReconnect();
+  }
+
+  protected scheduleReconnect() {
+    if (this.ReconnectTimer || this.Disposing) {
+      return;
     }
 
-    this.Subscriptions.clear();
-
-    this.Log.success(`AMQP connection ${this.Options.name} disposed`);
+    this.ReconnectTimer = setTimeout(() => {
+      this.ReconnectTimer = undefined;
+      this.connect().catch((err) => {
+        this.Log.error(`AMQP reconnect for ${this.Options.name} failed: ${err?.message}. Retrying in ${this.ReconnectDelay}ms`);
+        this.scheduleReconnect();
+      });
+    }, this.ReconnectDelay);
   }
 
   public async emit(message: IQueueMessage) {
     this.warnOnUnsupportedScheduling(message);
 
-    const channels = this.getChannelForMessage(message);
-    const buffer = Buffer.from(JSON.stringify(message));
-
-    const publishOptions: Options.Publish = {
-      persistent: !!message.Persistent,
-      contentType: 'application/json',
-    };
-
-    if (message.Priority) {
-      publishOptions.priority = message.Priority;
+    // buffer while disconnected so callers can emit during a reconnect window
+    if (!this.Connected) {
+      return new Promise<void>((resolve, reject) => {
+        this.PendingEmits.push({ message, resolve, reject });
+      });
     }
 
-    for (const c of channels) {
-      if (this.isTopic(c)) {
-        await this.assertExchange(c);
-        this.Channel.publish(c, '', buffer, publishOptions);
-      } else {
-        await this.assertQueue(c);
-        this.Channel.sendToQueue(c, buffer, publishOptions);
-      }
-
-      this.Log.trace(`Published ${message.Type} Name: ${message.Name} to channel ${c} ( ${this.Options.name} )`);
-    }
+    return this.publishMessage(message);
   }
 
   public async subscribe(channelOrMessage: string | Constructor<QueueMessage>, callback: (e: IQueueMessage) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void> {
@@ -160,46 +235,14 @@ export class AmqpQueueClient extends QueueClient {
         continue;
       }
 
-      const queue = await this.assertSubscriptionQueue(c, subscriptionId, durable);
+      const descriptor: ISubscriptionDescriptor = { channel: c, callback, subscriptionId, durable: !!durable };
+      this.Subscriptions.set(c, descriptor);
 
-      const { consumerTag } = await this.Channel.consume(
-        queue,
-        (msg: ConsumeMessage | null) => {
-          // null is delivered when the consumer is cancelled by the broker
-          if (!msg) {
-            return;
-          }
-
-          let qMessage: IQueueMessage;
-          try {
-            qMessage = JSON.parse(msg.content.toString()) as IQueueMessage;
-          } catch (err) {
-            this.Log.error(`Cannot parse incoming message on channel ${c}, dropping it: ${err?.message}`);
-            // malformed message, do not requeue
-            this.Channel.nack(msg, false, false);
-            return;
-          }
-
-          callback(qMessage)
-            .then(() => {
-              this.Channel.ack(msg);
-            })
-            .catch((err) => {
-              this.Log.error(err, `Error while processing message on channel ${c}`);
-              // do not requeue to avoid poison-message loops; dead-lettering is configured on the broker
-              this.Channel.nack(msg, false, false);
-            });
-        },
-        { noAck: false },
-      );
-
-      this.Subscriptions.set(c, { consumerTag, queue, durable: !!durable });
-
-      this.Log.success(`Channel ${c}, durable: ${durable ? 'true' : 'false'} subscribed and ready to receive messages !`);
+      await this.startConsumer(descriptor);
     }
   }
 
-  public unsubscribe(channelOrMessage: string | Constructor<QueueMessage>): void {
+  public unsubscribe(channelOrMessage: string | Constructor<QueueMessage>, _removeDurable?: boolean): void {
     const channels = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
 
     for (const c of channels) {
@@ -211,29 +254,238 @@ export class AmqpQueueClient extends QueueClient {
       this.Subscriptions.delete(c);
 
       // cancel only the consumer. For durable subscriptions the bound queue is left in place
-      // so messages keep accumulating while no consumer is attached ( same semantics as STOMP durable subs ).
-      this.Channel.cancel(sub.consumerTag).catch((err) => {
-        this.Log.warn(`Error while cancelling consumer for channel ${c}: ${err?.message}`);
+      // so messages keep accumulating while no consumer is attached ( same semantics as STOMP ).
+      if (sub.consumerTag) {
+        this.ConsumeChannel.cancel(sub.consumerTag).catch((err) => {
+          this.Log.warn(`Error while cancelling consumer for channel ${c}: ${err?.message}`);
+        });
+      }
+    }
+  }
+
+  /**
+   * Re-establishes every known subscription. Called after a (re)connect.
+   */
+  protected async replaySubscriptions() {
+    for (const descriptor of this.Subscriptions.values()) {
+      await this.startConsumer(descriptor);
+    }
+  }
+
+  /**
+   * Declares the queue for a subscription and starts consuming, wiring ack/nack + retry/dead-letter.
+   */
+  protected async startConsumer(descriptor: ISubscriptionDescriptor) {
+    const c = descriptor.channel;
+    const queue = await this.assertSubscriptionQueue(c, descriptor.subscriptionId, descriptor.durable);
+    descriptor.queue = queue;
+
+    const { consumerTag } = await this.ConsumeChannel.consume(
+      queue,
+      (msg: ConsumeMessage | null) => {
+        // null is delivered when the consumer is cancelled by the broker
+        if (!msg) {
+          return;
+        }
+
+        let qMessage: IQueueMessage;
+        try {
+          qMessage = JSON.parse(msg.content.toString()) as IQueueMessage;
+        } catch (err) {
+          this.Log.error(`Cannot parse incoming message on channel ${c}, dead-lettering it: ${err?.message}`);
+          this.deadLetterRaw(msg, this.Options.defaultQueueDeadLetterChannel, c, (err as Error)?.message ?? String(err));
+          return;
+        }
+
+        descriptor
+          .callback(qMessage)
+          .then(() => this.ConsumeChannel.ack(msg))
+          .catch((err) => this.handleFailedMessage(msg, qMessage, c, err));
+      },
+      { noAck: false },
+    );
+
+    descriptor.consumerTag = consumerTag;
+    this.Log.success(`Channel ${c}, durable: ${descriptor.durable ? 'true' : 'false'} subscribed and ready to receive messages !`);
+  }
+
+  /**
+   * Handles a message whose consumer callback rejected.
+   *
+   * Events are fire-and-forget - logged and acked ( dropped ). Jobs are retried up to their
+   * RetryCount by re-publishing to a TTL "retry" queue that dead-letters back to the work queue
+   * after an exponential delay, then dead-lettered once retries are exhausted.
+   */
+  protected handleFailedMessage(msg: ConsumeMessage, qMessage: IQueueMessage, channel: string, err: unknown) {
+    const reason = (err as Error)?.message ?? String(err);
+
+    // events are not retried or tracked - drop them
+    if (qMessage.Type !== QueueMessageType.Job || this.isTopic(channel)) {
+      this.Log.warn(`Handler failed on channel ${channel}, dropping message ${qMessage.Name}. ${reason}`);
+      this.ConsumeChannel.ack(msg);
+      return;
+    }
+
+    const maxRetries = (qMessage as IQueueJob).RetryCount ?? 0;
+    const attempt = Number(msg.properties.headers?.[RETRY_COUNT_HEADER] ?? 0);
+
+    if (attempt < maxRetries) {
+      this.retryJob(msg, qMessage, channel, attempt + 1, reason).catch((retryErr) => {
+        this.Log.error(`Failed to reschedule job ${qMessage.Name} on ${channel}, nacking instead: ${(retryErr as Error).message}`);
+        this.ConsumeChannel.nack(msg, false, false);
       });
+      return;
+    }
+
+    // retries exhausted - route to the dead-letter queue
+    this.deadLetterRaw(msg, this.getDeadLetterChannelForMessage(qMessage), channel, reason, attempt);
+  }
+
+  /**
+   * Republishes a failed job to a per-delay TTL retry queue that dead-letters back to the work
+   * queue after the delay, giving broker-side ( crash-safe ) exponential backoff. Then acks original.
+   */
+  protected async retryJob(msg: ConsumeMessage, qMessage: IQueueMessage, workQueue: string, nextAttempt: number, reason: string) {
+    const delay = this.retryBackoff(nextAttempt);
+    const retryQueue = await this.assertRetryQueue(workQueue, delay);
+
+    this.ConsumeChannel.sendToQueue(retryQueue, msg.content, {
+      persistent: true,
+      contentType: 'application/json',
+      priority: msg.properties.priority,
+      headers: { ...msg.properties.headers, [RETRY_COUNT_HEADER]: nextAttempt },
+    });
+
+    this.ConsumeChannel.ack(msg);
+    this.Log.warn(`Job ${qMessage.Name} failed on ${workQueue}, retry ${nextAttempt}/${(qMessage as IQueueJob).RetryCount} scheduled in ${delay}ms. ${reason}`);
+  }
+
+  /**
+   * Publishes a failed/unparseable message to the dead-letter queue and acks the original to
+   * unblock the source queue. When no dead-letter queue is configured the message is dropped
+   * ( acked ) with a warning - we never nack-loop a poison message forever.
+   */
+  protected deadLetterRaw(msg: ConsumeMessage, dlq: string | undefined, channel: string, reason: string, attempt?: number) {
+    if (!dlq) {
+      this.Log.warn(`Message failed on channel ${channel}, no dead-letter queue configured - dropping. ${reason}`);
+      this.ConsumeChannel.ack(msg);
+      return;
+    }
+
+    this.assertQueue(this.ConsumeChannel, dlq)
+      .then(() => {
+        this.ConsumeChannel.sendToQueue(dlq, msg.content, {
+          persistent: true,
+          contentType: 'application/json',
+          headers: { ...msg.properties.headers, 'x-error': reason, ...(attempt !== undefined ? { [RETRY_COUNT_HEADER]: attempt } : {}) },
+        });
+        this.ConsumeChannel.ack(msg);
+        this.Log.warn(`Message failed on channel ${channel}, routed to dead-letter ${dlq}. ${reason}`);
+      })
+      .catch((dlqErr) => {
+        this.Log.error(`Failed to route message to dead-letter ${dlq}, nacking instead: ${(dlqErr as Error).message}`);
+        this.ConsumeChannel.nack(msg, false, false);
+      });
+  }
+
+  /**
+   * Exponential backoff ( ms ) for the given retry attempt, based on `Options.retryDelay`.
+   * Returns 0 ( immediate redelivery ) when no base delay is configured.
+   */
+  protected retryBackoff(attempt: number): number {
+    const base = this.Options.retryDelay ?? 0;
+    return base > 0 ? base * 2 ** (attempt - 1) : 0;
+  }
+
+  /**
+   * Publisher-side resilience pipeline: bounds each publish by a timeout and retries transient
+   * failures / nacks with exponential backoff. Consumer dedup ( by JobId ) makes the resulting
+   * rare duplicates harmless.
+   */
+  protected buildEmitPipeline(): ResiliencePipeline<void> {
+    const attempts = (this.Options.options?.emitRetries as number) ?? 3;
+    const timeout = this.Options.receiptTimeout ?? 5000;
+    const base = this.Options.retryDelay && this.Options.retryDelay > 0 ? this.Options.retryDelay : 200;
+
+    return new ResiliencePipelineBuilder<void>()
+      .addRetry({ MaxRetryAttempts: attempts, Delay: base, MaxDelay: 30000, BackoffType: BackoffType.Exponential, UseJitter: true })
+      .addTimeout(timeout)
+      .build();
+  }
+
+  protected async publishMessage(message: IQueueMessage): Promise<void> {
+    const channels = this.getChannelForMessage(message);
+    const buffer = Buffer.from(JSON.stringify(message));
+
+    const publishOptions: Options.Publish = {
+      persistent: !!message.Persistent,
+      contentType: 'application/json',
+    };
+
+    if ((message as IQueueJob).JobId) {
+      publishOptions.correlationId = (message as IQueueJob).JobId;
+    }
+
+    if (message.Priority) {
+      publishOptions.priority = message.Priority;
+    }
+
+    for (const c of channels) {
+      await this.EmitPipeline.execute(() => this.publishToChannel(c, buffer, publishOptions));
+      this.Log.trace(`Published ${message.Type} Name: ${message.Name} to channel ${c} ( ${this.Options.name} )`);
+    }
+  }
+
+  /** Asserts the destination ( once ) and publishes a single message on the confirm channel. */
+  protected async publishToChannel(channel: string, buffer: Buffer, options: Options.Publish): Promise<void> {
+    if (this.isTopic(channel)) {
+      await this.assertExchange(this.PublishChannel, channel);
+      await this.publishWithConfirm(channel, '', buffer, options);
+    } else {
+      await this.assertQueue(this.PublishChannel, channel);
+      await this.publishWithConfirm('', channel, buffer, options);
+    }
+  }
+
+  /**
+   * Publishes on the confirm channel and resolves only once the broker acks the message.
+   */
+  protected publishWithConfirm(exchange: string, routingKey: string, content: Buffer, options: Options.Publish): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.PublishChannel.publish(exchange, routingKey, content, options, (err) => {
+        if (err) {
+          reject(err instanceof Error ? err : new UnexpectedServerError(`Broker nacked message on ${exchange || routingKey}`, err));
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  protected async flushPendingEmits() {
+    if (this.PendingEmits.length === 0) {
+      return;
+    }
+
+    const pending = this.PendingEmits;
+    this.PendingEmits = [];
+
+    this.Log.info(`Flushing ${pending.length} buffered message(s) for queue ${this.Options.name}`);
+
+    for (const p of pending) {
+      this.publishMessage(p.message).then(p.resolve).catch(p.reject);
     }
   }
 
   /**
    * Declares ( and for topics binds ) the broker queue a subscription should consume from.
-   *
-   * - work queue ( job ): durable queue named after the channel, shared by all consumers.
-   * - topic ( event ): fanout exchange + a queue bound to it.
-   *     - durable subscription: stable, durable, named ( subscriptionId ) queue that survives reconnects.
-   *     - transient subscription: exclusive, auto-deleted, server-named queue.
-   *
-   * @returns name of the queue to consume from
    */
   protected async assertSubscriptionQueue(channel: string, subscriptionId?: string, durable?: boolean): Promise<string> {
     if (!this.isTopic(channel)) {
-      return this.assertQueue(channel);
+      return this.assertQueue(this.ConsumeChannel, channel);
     }
 
-    await this.assertExchange(channel);
+    await this.assertExchange(this.ConsumeChannel, channel);
 
     let queueName: string;
 
@@ -242,26 +494,25 @@ export class AmqpQueueClient extends QueueClient {
         throw new InvalidArgument(`subscriptionId cannot be empty if using durable subscriptions`);
       }
 
-      const q = await this.Channel.assertQueue(subscriptionId, { durable: true, exclusive: false, autoDelete: false });
+      const q = await this.ConsumeChannel.assertQueue(subscriptionId, { durable: true, exclusive: false, autoDelete: false });
       queueName = q.queue;
     } else {
       // server-named, exclusive, auto-deleted queue ( unique per subscriber )
-      const q = await this.Channel.assertQueue(subscriptionId ?? '', { durable: false, exclusive: !subscriptionId, autoDelete: true });
+      const q = await this.ConsumeChannel.assertQueue(subscriptionId ?? '', { durable: false, exclusive: !subscriptionId, autoDelete: true });
       queueName = q.queue;
     }
 
-    await this.Channel.bindQueue(queueName, channel, '');
+    await this.ConsumeChannel.bindQueue(queueName, channel, '');
 
     return queueName;
   }
 
   /**
-   * Declares a durable work queue, asserting it on the broker only once.
-   * @returns the queue name
+   * Declares a durable work queue, asserting it on the broker only once per connection.
    */
-  protected async assertQueue(name: string): Promise<string> {
+  protected async assertQueue(channel: Channel | ConfirmChannel, name: string): Promise<string> {
     if (!this.AssertedQueues.has(name)) {
-      await this.Channel.assertQueue(name, { durable: true });
+      await channel.assertQueue(name, { durable: true });
       this.AssertedQueues.add(name);
     }
 
@@ -269,17 +520,49 @@ export class AmqpQueueClient extends QueueClient {
   }
 
   /**
-   * Declares a durable fanout exchange, asserting it on the broker only once.
+   * Declares a durable fanout exchange, asserting it on the broker only once per connection.
    */
-  protected async assertExchange(name: string): Promise<void> {
+  protected async assertExchange(channel: Channel | ConfirmChannel, name: string): Promise<void> {
     if (!this.AssertedExchanges.has(name)) {
-      await this.Channel.assertExchange(name, 'fanout', { durable: true });
+      await channel.assertExchange(name, 'fanout', { durable: true });
       this.AssertedExchanges.add(name);
     }
   }
 
+  /**
+   * Declares a durable TTL retry queue that dead-letters expired messages back to `workQueue`
+   * ( via the default exchange, routing key = queue name ). One queue per distinct delay.
+   */
+  protected async assertRetryQueue(workQueue: string, delay: number): Promise<string> {
+    const name = `${workQueue}.retry.${delay}`;
+
+    if (!this.AssertedRetryQueues.has(name)) {
+      await this.ConsumeChannel.assertQueue(name, {
+        durable: true,
+        arguments: {
+          'x-message-ttl': delay,
+          'x-dead-letter-exchange': '',
+          'x-dead-letter-routing-key': workQueue,
+        },
+      });
+      this.AssertedRetryQueues.add(name);
+    }
+
+    return name;
+  }
+
   protected isTopic(channel: string): boolean {
     return channel.startsWith(this.TopicPrefix);
+  }
+
+  protected async closeChannel(channel?: Channel | ConfirmChannel) {
+    try {
+      if (channel) {
+        await channel.close();
+      }
+    } catch (err) {
+      this.Log.warn(`Error while closing AMQP channel for ${this.Options.name}: ${err?.message}`);
+    }
   }
 
   protected warnOnUnsupportedScheduling(message: IQueueMessage) {

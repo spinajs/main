@@ -7,6 +7,7 @@
   "module": "lib/mjs/index.js",
   "exports": {
       ".": {
+          "types": "./lib/mjs/index.d.ts",
           "import": "./lib/mjs/index.js",
           "require": "./lib/cjs/index.js"
       }
@@ -59,6 +60,7 @@
     "@spinajs/exceptions": "^2.0.481",
     "@spinajs/log": "^2.0.481",
     "@spinajs/orm": "^2.0.481",
+    "@spinajs/util": "^2.0.481",
      "luxon": "^3.6.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
