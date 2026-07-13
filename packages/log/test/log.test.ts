@@ -12,6 +12,8 @@ import { TestLevel } from "./targets/TestLevel.js";
 import { BlackHoleTarget } from "./../src/targets/BlackHoleTarget.js";
 import { TestTarget } from "./targets/TestTarget.js";
 import { LogLevel, Log } from "../src/index.js";
+import { FrameworkLogger } from "../src/log.js";
+import { InvalidOption } from "@spinajs/exceptions";
 
 
 
@@ -29,6 +31,64 @@ export class CustomVariable extends ConfigVariable {
 function logger(name?: string) {
   return DI.resolve(Log, [name ?? "TestLogger"]);
 }
+
+describe("matchRulesToLogger", () => {
+  // drive matchRulesToLogger() directly, without full DI/config resolution
+  function match(name: string, rules: Array<{ name: any; level: string; target: string }>): string[] {
+    const log: any = new FrameworkLogger(name);
+    log.Options = { targets: [], rules };
+    log.matchRulesToLogger();
+    return (log.Rules as Array<{ name: string }>).map((r) => r.name);
+  }
+
+  it("matches the '*' wildcard", () => {
+    expect(match("anything", [{ name: "*", level: "trace", target: "T" }])).to.deep.eq(["*"]);
+  });
+
+  it("matches a 'prefix*' wildcard", () => {
+    const rules = [{ name: "http*", level: "trace", target: "T" }];
+    expect(match("http-server", rules)).to.deep.eq(["http*"]);
+    expect(match("db", rules)).to.deep.eq([]);
+  });
+
+  it("matches an 'a.b.*' wildcard", () => {
+    const rules = [{ name: "a.b.*", level: "trace", target: "T" }];
+    expect(match("a.b.c", rules)).to.deep.eq(["a.b.*"]);
+    expect(match("a.x.c", rules)).to.deep.eq([]);
+  });
+
+  it("matches an exact name", () => {
+    const rules = [
+      { name: "exact", level: "trace", target: "T" },
+      { name: "other", level: "trace", target: "T" },
+    ];
+    expect(match("exact", rules)).to.deep.eq(["exact"]);
+  });
+
+  it("prefers specific rules over the wildcard when both match", () => {
+    const rules = [
+      { name: "*", level: "trace", target: "All" },
+      { name: "http*", level: "info", target: "Http" },
+    ];
+    // the wildcard is dropped in favour of the specific rule
+    expect(match("http-server", rules)).to.deep.eq(["http*"]);
+    // but a name only the wildcard matches still gets the wildcard
+    expect(match("db", rules)).to.deep.eq(["*"]);
+  });
+
+  it("keeps every matching specific rule", () => {
+    const rules = [
+      { name: "http*", level: "trace", target: "A" },
+      { name: "http-server", level: "info", target: "B" },
+      { name: "*", level: "trace", target: "All" },
+    ];
+    expect(match("http-server", rules)).to.have.members(["http*", "http-server"]);
+  });
+
+  it("throws InvalidOption on a non-string rule name", () => {
+    expect(() => match("x", [{ name: 123 as any, level: "trace", target: "T" }])).to.throw(InvalidOption);
+  });
+});
 
 describe("logger tests", function () {
   this.timeout(15000);
@@ -231,7 +291,7 @@ describe("logger tests", function () {
       .and.satisfy((msg: string) => msg.includes("ERROR hello world err Error: error message"));
   });
 
-  it('Should format message with one argunt', () =>{ 
+  it('Should format message with one argunt', () =>{
     const spy = sinon.spy(TestTarget.prototype, "sink");
     const log = logger("test-format");
 

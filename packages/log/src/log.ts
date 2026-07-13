@@ -151,9 +151,12 @@ export class FrameworkLogger extends Log {
 
   protected matchRulesToLogger() {
     const matchingRules = this.Options.rules.filter((r) => {
-      const g = GlobToRegExp(r.name);
+      if (typeof r.name !== "string") {
+        throw new InvalidOption(`Log rule name must be a string, got ${typeof r.name}`);
+      }
 
-      // BUG: g.test throws vscode err ?
+      // eslint-disable-next-line security/detect-non-literal-regexp
+      const g = GlobToRegExp(r.name);
       return g.test(this.Name);
     });
 
