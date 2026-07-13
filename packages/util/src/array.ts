@@ -10,3 +10,59 @@ type ArrayItemType<T> = T extends (infer U)[] ? U : T;
 export const toArray = <T>(val: ArrayItemType<T> | ArrayItemType<T>[]): ArrayItemType<T>[] => {
   return global.Array.isArray(val) ? val : val ? [val] : [];
 };
+
+/**
+ * Splits an array into consecutive chunks of at most `size` elements.
+ *
+ * @param arr - source array ( not mutated )
+ * @param size - max chunk length ( must be >= 1 )
+ * @returns array of chunks; empty when `arr` is empty
+ * @example
+ * chunk([1, 2, 3, 4, 5], 2); // [[1, 2], [3, 4], [5]]
+ */
+export const chunk = <T>(arr: T[], size: number): T[][] => {
+  if (size < 1) {
+    throw new Error('chunk size must be >= 1');
+  }
+
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
+};
+
+/**
+ * Returns a new array with duplicate values removed, preserving first-seen order.
+ * Equality is by `Set` semantics ( `SameValueZero` ).
+ *
+ * @param arr - source array ( not mutated )
+ * @example
+ * unique([1, 1, 2, 3, 2]); // [1, 2, 3]
+ */
+export const unique = <T>(arr: T[]): T[] => Array.from(new Set(arr));
+
+/**
+ * Groups array elements into a `Map` keyed by the result of `keyFn`, preserving
+ * insertion order within each group.
+ *
+ * @param arr - source array
+ * @param keyFn - maps an element ( and its index ) to a group key
+ * @returns a `Map` from key to the elements sharing it
+ * @example
+ * groupBy([1, 2, 3, 4], n => (n % 2 ? 'odd' : 'even'));
+ * // Map { 'odd' => [1, 3], 'even' => [2, 4] }
+ */
+export const groupBy = <T, K>(arr: T[], keyFn: (item: T, index: number) => K): Map<K, T[]> => {
+  const out = new Map<K, T[]>();
+  arr.forEach((item, index) => {
+    const key = keyFn(item, index);
+    const bucket = out.get(key);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      out.set(key, [item]);
+    }
+  });
+  return out;
+};

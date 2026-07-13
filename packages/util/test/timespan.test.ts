@@ -553,24 +553,24 @@ describe('TimeSpan', () => {
   describe('Parse Method', () => {
     it('should parse TimeSpan instance', () => {
       const original = TimeSpan.fromHours(2);
-      const parsed = TimeSpan.parse(original);
+      const parsed = TimeSpan.parse(original)!;
       expect(parsed).to.equal(original);
     });
 
     it('should parse number as milliseconds', () => {
-      const parsed = TimeSpan.parse(5000);
+      const parsed = TimeSpan.parse(5000)!;
       expect(parsed.totalMilliseconds).to.equal(5000);
     });
 
     it('should parse Date object', () => {
       const date = new Date(Date.now() - 5000);
-      const parsed = TimeSpan.parse(date);
+      const parsed = TimeSpan.parse(date)!;
       expect(parsed.totalMilliseconds).to.be.approximately(5000, 100);
     });
 
     it('should return null for falsy values', () => {
-      expect(TimeSpan.parse(null)).to.be.null;
-      expect(TimeSpan.parse(undefined)).to.be.null;
+      expect(TimeSpan.parse(null as any)).to.be.null;
+      expect(TimeSpan.parse(undefined as any)).to.be.null;
       expect(TimeSpan.parse(0)).to.not.be.null; // 0 is valid
     });
 
@@ -581,8 +581,8 @@ describe('TimeSpan', () => {
         minutes: 30,
         seconds: 45,
         milliseconds: 123
-      });
-      
+      })!;
+
       expect(parsed.days).to.equal(1);
       expect(parsed.hours).to.equal(2);
       expect(parsed.minutes).to.equal(30);
@@ -591,14 +591,14 @@ describe('TimeSpan', () => {
     });
 
     it('should parse string format hh:mm:ss', () => {
-      const parsed = TimeSpan.parse('02:30:45');
+      const parsed = TimeSpan.parse('02:30:45')!;
       expect(parsed.hours).to.equal(2);
       expect(parsed.minutes).to.equal(30);
       expect(parsed.seconds).to.equal(45);
     });
 
     it('should parse string format d.hh:mm:ss', () => {
-      const parsed = TimeSpan.parse('1.02:30:45');
+      const parsed = TimeSpan.parse('1.02:30:45')!;
       expect(parsed.days).to.equal(1);
       expect(parsed.hours).to.equal(2);
       expect(parsed.minutes).to.equal(30);
@@ -606,7 +606,7 @@ describe('TimeSpan', () => {
     });
 
     it('should parse string format hh:mm:ss.fff', () => {
-      const parsed = TimeSpan.parse('02:30:45.123');
+      const parsed = TimeSpan.parse('02:30:45.123')!;
       expect(parsed.hours).to.equal(2);
       expect(parsed.minutes).to.equal(30);
       expect(parsed.seconds).to.equal(45);
@@ -614,7 +614,7 @@ describe('TimeSpan', () => {
     });
 
     it('should parse string format d.hh:mm:ss.fff', () => {
-      const parsed = TimeSpan.parse('1.02:30:45.123');
+      const parsed = TimeSpan.parse('1.02:30:45.123')!;
       expect(parsed.days).to.equal(1);
       expect(parsed.hours).to.equal(2);
       expect(parsed.minutes).to.equal(30);
@@ -623,18 +623,26 @@ describe('TimeSpan', () => {
     });
 
     it('should throw error for invalid string format', () => {
+      // a single token ( no ':' ) cannot be a "[d.]hh:mm[:ss[.fff]]" span
       expect(() => TimeSpan.parse('invalid')).to.throw('Invalid TimeSpan format');
-      expect(() => TimeSpan.parse('12:34')).to.throw('Invalid TimeSpan format');
+      expect(() => TimeSpan.parse('12')).to.throw('Invalid TimeSpan format');
+    });
+
+    it('should parse the two-token hh:mm format', () => {
+      const parsed = TimeSpan.parse('12:34')!;
+      expect(parsed.hours).to.equal(12);
+      expect(parsed.minutes).to.equal(34);
+      expect(parsed.seconds).to.equal(0);
     });
 
     it('should handle milliseconds with different lengths', () => {
-      const parsed1 = TimeSpan.parse('12:34:56.1');
+      const parsed1 = TimeSpan.parse('12:34:56.1')!;
       expect(parsed1.milliseconds).to.equal(100);
 
-      const parsed2 = TimeSpan.parse('12:34:56.12');
+      const parsed2 = TimeSpan.parse('12:34:56.12')!;
       expect(parsed2.milliseconds).to.equal(120);
 
-      const parsed3 = TimeSpan.parse('12:34:56.1234');
+      const parsed3 = TimeSpan.parse('12:34:56.1234')!;
       expect(parsed3.milliseconds).to.equal(123);
     });
   });
@@ -642,25 +650,25 @@ describe('TimeSpan', () => {
   describe('Round-trip String Conversion', () => {
     it('should parse and toString consistently (simple)', () => {
       const original = '02:30:45';
-      const parsed = TimeSpan.parse(original);
+      const parsed = TimeSpan.parse(original)!;
       expect(parsed.toString()).to.equal(original);
     });
 
     it('should parse and toString consistently (with days)', () => {
       const original = '1.02:30:45';
-      const parsed = TimeSpan.parse(original);
+      const parsed = TimeSpan.parse(original)!;
       expect(parsed.toString()).to.equal(original);
     });
 
     it('should parse and toString consistently (with milliseconds)', () => {
       const original = '02:30:45.123';
-      const parsed = TimeSpan.parse(original);
+      const parsed = TimeSpan.parse(original)!;
       expect(parsed.toString()).to.equal(original);
     });
 
     it('should parse and toString consistently (complete)', () => {
       const original = '1.02:30:45.123';
-      const parsed = TimeSpan.parse(original);
+      const parsed = TimeSpan.parse(original)!;
       expect(parsed.toString()).to.equal(original);
     });
   });
@@ -935,6 +943,15 @@ describe('TimeSpan', () => {
         
         expect(tsFromDate.totalDays).to.be.approximately(tsFromDateTime.totalDays, 0.001);
       });
+    });
+  });
+
+  describe('Static TIMEZONE_OFFSET', () => {
+    it('returns a TimeSpan matching the local UTC offset', () => {
+      const offset = TimeSpan.TIMEZONE_OFFSET;
+      expect(offset).to.be.instanceOf(TimeSpan);
+      // JS getTimezoneOffset() is in minutes and inverted vs. the usual sign convention
+      expect(offset.totalMinutes).to.equal(-new Date().getTimezoneOffset());
     });
   });
 });
