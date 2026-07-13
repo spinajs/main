@@ -75,8 +75,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     // we do this, becouse buffer can not be filled
     // and we could wait unknown amount of time before messages are written to file
     this.FlushTimer = setInterval(() => {
-      // do not flush, if we already writting to file
-      if (this.Status !== FileTargetStatus.IDLE && this.ArchiveStatus !== FileTargetStatus.IDLE) {
+      // do not flush, if we already writting to file or archiving
+      if (this.Status !== FileTargetStatus.IDLE || this.ArchiveStatus !== FileTargetStatus.IDLE) {
         return;
       }
 
@@ -90,8 +90,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
     // every 3 minutes try to archive log files
     this.ArchiveTimer = setInterval(() => {
-      // do not archive if we already doing it
-      if (this.Status !== FileTargetStatus.IDLE && this.ArchiveStatus !== FileTargetStatus.IDLE) {
+      // do not archive if we already writting or archiving
+      if (this.Status !== FileTargetStatus.IDLE || this.ArchiveStatus !== FileTargetStatus.IDLE) {
         return;
       }
 
@@ -106,29 +106,47 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     super.resolve();
   }
 
-  protected flush() {
+  protected flush(): Promise<void> {
     if (this.WriteBuffer.length === 0) {
       this.Status = FileTargetStatus.IDLE;
-      return;
+      return Promise.resolve();
     }
 
     this.Status = FileTargetStatus.WRITTING;
+
+    // snapshot the batch we are about to write and clear the shared buffer so that
+    // concurrent write() calls append to a fresh buffer while this batch is in flight.
+    const batch = this.WriteBuffer;
+    this.WriteBuffer = [];
 
     // we calculate log path every time to allow for
     // dynamic path creation eg. based on timestamp
     const logFileName = format({ logger: this.Options.name }, path.basename(this.Options.options.path));
     const logPath = path.join(this.LogDirPath, logFileName);
 
-    fs.appendFile(logPath, this.WriteBuffer.join(EOL) + EOL, (err) => {
-      // log error message to others if applicable eg. console
-      if (err) {
-        this.Log.error(err, `Cannot write log messages to file target at path ${logPath}`);
-      }
+    return new Promise<void>((resolve) => {
+      fs.appendFile(logPath, batch.join(EOL) + EOL, (err) => {
+        // log error message to others if applicable eg. console
+        if (err) {
+          // mark target as errored
+          this.HasError = true;
+          this.Error = err;
 
-      this.Log.trace(`Wrote buffered messages to log file at path ${logPath}, buffer size: ${this.Options.options.maxBufferSize}`);
+          this.Log.error(err, `Cannot write log messages to file target at path ${logPath}`);
 
-      this.WriteBuffer = [];
-      this.Status = FileTargetStatus.IDLE;
+          // restore the batch ( in front of anything queued meanwhile ) so nothing is lost
+          this.WriteBuffer = [...batch, ...this.WriteBuffer];
+        } else {
+          // clear any previous error state on a successful write
+          this.HasError = false;
+          this.Error = null;
+
+          this.Log.trace(`Wrote buffered messages to log file at path ${logPath}, buffer size: ${this.Options.options.maxBufferSize}`);
+        }
+
+        this.Status = FileTargetStatus.IDLE;
+        resolve();
+      });
     });
   }
 
@@ -141,7 +159,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
     // write all messages from buffer
     this.WriteBuffer = [...this.WriteBuffer, ...this.Buffer];
-    this.flush();
+    this.Buffer = [];
+    await this.flush();
   }
 
   public async write(data: ILogEntry) {
@@ -199,7 +218,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
       for (let i = 0; i < aFiles.length - this.Options.options.maxArchiveFiles; i++) {
         fs.unlink(aFiles[i].name, (err) => {
           if (err) {
-            this.Log.error(err, `Cannot delete archived file at path ${aFiles[i - 1].name}`);
+            this.Log.error(err, `Cannot delete archived file at path ${aFiles[i].name}`);
           } else {
             this.Log.info(`Deleted archived file at path ${aFiles[i].name}`);
           }
@@ -214,10 +233,21 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
     if (filesToArchive.length === 0) {
       this.ArchiveStatus = FileTargetStatus.IDLE;
+      return;
     }
 
+    // track how many per-file archive operations have settled so that we only
+    // release ArchiveStatus back to IDLE once every file is done ( on any path ).
+    let pending = filesToArchive.length;
+    const settle = () => {
+      pending -= 1;
+      if (pending <= 0) {
+        this.ArchiveStatus = FileTargetStatus.IDLE;
+      }
+    };
+
     for (let i = 0; i < filesToArchive.length; i++) {
-      const { name, ext } = path.parse(path.basename(lFiles[i].name));
+      const { name, ext } = path.parse(path.basename(filesToArchive[i].name));
 
       // get number of files with same name, eg. during a day, multiple log files can be produced
       const lArchiFiles = glob.sync(path.join(this.ArchiveDirPath, `archived_${name}*{${ext},.gzip}`).replace(/\\/g, "/"));
@@ -236,9 +266,10 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
       const archPath = path.join(this.ArchiveDirPath, `archived_${name}_${(fIndex ?? 0) + 1}${ext}`);
 
-      fs.rename(lFiles[i].name, archPath, (err) => {
+      fs.rename(filesToArchive[i].name, archPath, (err) => {
         if (err) {
           this.Log.error(err, `Cannot move log file ${name} to archive at path ${archPath}`);
+          settle();
           return;
         }
 
@@ -257,6 +288,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
                 return;
               });
 
+              settle();
               return;
             }
 
@@ -268,10 +300,10 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
               }
             });
 
-            this.ArchiveStatus = FileTargetStatus.IDLE;
+            settle();
           });
         } else {
-          this.ArchiveStatus = FileTargetStatus.IDLE;
+          settle();
         }
       });
     }

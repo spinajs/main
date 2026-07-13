@@ -12,6 +12,7 @@ import { DI } from "@spinajs/di";
 import { dir, TestConfiguration } from "./conf.js";
 import { FileTarget, Log, LogBotstrapper } from "../src/index.js";
 import fs from "fs";
+import glob from "glob";
 
 function logger(name?: string) {
   DI.resolve(LogBotstrapper).bootstrap();
@@ -312,5 +313,156 @@ describe("file target tests", function () {
     await wait(1000);
 
     expect(appendFile.args[0][0]).to.contain(`log_file-vars_${DateTime.now().toFormat("dd_MM_yyyy")}.txt`);
+  });
+
+  it("Should not lose or duplicate messages when appendFile callbacks are delayed", async () => {
+    // delay every appendFile callback so multiple flush ticks overlap with in-flight writes
+    const pending: Array<() => void> = [];
+    const appendFile = sinon.stub(fs, "appendFile").callsFake((...cbArgs: any[]) => {
+      const cb = cbArgs[cbArgs.length - 1] as (err: any) => void;
+      pending.push(() => cb(null));
+    });
+
+    const log = logger("big-buffer");
+    const count = 3000; // > maxBufferSize (1000)
+
+    for (let i = 0; i < count; i++) {
+      log.info(`[${i}]`);
+    }
+
+    // let a few flush/write ticks happen while callbacks are still pending
+    await wait(1500);
+    for (let i = 0; i < count; i++) {
+      log.info(`[${count + i}]`);
+    }
+    await wait(1500);
+
+    // now settle all pending appendFile callbacks
+    pending.forEach((fn) => fn());
+    await wait(1500);
+
+    // collect everything that was handed to appendFile
+    const written = appendFile.args.map((a) => a[1] as unknown as string).join("");
+    const seen = new Set<number>();
+    const reg = /\[(\d+)\]/gm;
+    let m: RegExpExecArray | null;
+    let total = 0;
+    while ((m = reg.exec(written)) !== null) {
+      const num = parseInt(m[1]);
+      expect(seen.has(num), `duplicate entry ${num}`).to.be.false;
+      seen.add(num);
+      total++;
+    }
+
+    expect(total).to.eq(2 * count);
+    for (let i = 0; i < 2 * count; i++) {
+      expect(seen.has(i), `missing entry ${i}`).to.be.true;
+    }
+  });
+
+  it("Should not lose messages when appendFile fails once then succeeds", async () => {
+    let call = 0;
+    const appendFile = sinon.stub(fs, "appendFile").callsFake((...cbArgs: any[]) => {
+      const cb = cbArgs[cbArgs.length - 1] as (err: any) => void;
+      call++;
+      // fail the first write, succeed afterwards
+      cb(call === 1 ? new Error("disk full") : null);
+    });
+
+    const log = logger("big-buffer");
+    const count = 2000;
+    for (let i = 0; i < count; i++) {
+      log.info(`[${i}]`);
+    }
+
+    await wait(3000);
+
+    const written = appendFile.args.map((a) => a[1] as unknown as string).join("");
+    const seen = new Set<number>();
+    const reg = /\[(\d+)\]/gm;
+    let m: RegExpExecArray | null;
+    while ((m = reg.exec(written)) !== null) {
+      seen.add(parseInt(m[1]));
+    }
+
+    for (let i = 0; i < count; i++) {
+      expect(seen.has(i), `missing entry ${i}`).to.be.true;
+    }
+  });
+
+  // The archive() glob path is timing/environment sensitive when exercised through
+  // the real timers, so these two drive archive() directly with a controlled set of
+  // "files" ( glob + fs stubbed ) to deterministically test the state machine and
+  // the index-correctness fix.
+
+  // helper: build a FileTarget and stub glob/fs so archive() sees the given log files
+  function stubArchiveEnv(logFiles: Array<{ name: string; size: number }>) {
+    // aFiles glob (archived_*) -> empty, lFiles glob (*.txt) -> our files
+    sinon.stub(glob, "sync").callsFake((pattern: string) => {
+      if (pattern.includes("archived_")) {
+        return [];
+      }
+      return logFiles.map((f) => f.name);
+    });
+    sinon.stub(fs, "statSync").callsFake(((p: string) => {
+      const f = logFiles.find((x) => x.name === p);
+      return { size: f ? f.size : 0, mtime: new Date() } as any;
+    }) as any);
+  }
+
+  it("Should return ArchiveStatus to IDLE after a rename error (no PENDING deadlock)", async () => {
+    logger("file-archive");
+    const target = DI.get(FileTarget)! as any;
+
+    // three log files, all above maxSize (1000) so all are candidates
+    stubArchiveEnv([
+      { name: "/logs/log_a.txt", size: 5000 },
+      { name: "/logs/log_b.txt", size: 5000 },
+      { name: "/logs/log_c.txt", size: 5000 },
+    ]);
+
+    // every rename fails
+    const rename = sinon.stub(fs, "rename").callsFake((...cbArgs: any[]) => {
+      const cb = cbArgs[cbArgs.length - 1] as (err: any) => void;
+      cb(new Error("rename failed"));
+    });
+
+    target.ArchiveStatus = 1; // PENDING
+    target.archive();
+
+    // give the rename callbacks a tick to settle
+    await wait(50);
+
+    expect(rename.callCount).to.eq(3);
+    // 2 === IDLE ; without the fix this would stay PENDING (1)
+    expect(target.ArchiveStatus).to.eq(2);
+  });
+
+  it("Should archive exactly the filtered files using the correct index", async () => {
+    logger("file-archive");
+    const target = DI.get(FileTarget)! as any;
+
+    // maxSize is 1000; only the big file exceeds it. With >=2 files the filter also
+    // keeps all-but-last, so a & b are archived, c ( last, small ) is not.
+    stubArchiveEnv([
+      { name: "/logs/log_a.txt", size: 5000 },
+      { name: "/logs/log_b.txt", size: 10 },
+      { name: "/logs/log_c.txt", size: 10 },
+    ]);
+
+    const renamed: string[] = [];
+    sinon.stub(fs, "rename").callsFake((...cbArgs: any[]) => {
+      renamed.push(cbArgs[0] as string);
+      const cb = cbArgs[cbArgs.length - 1] as (err: any) => void;
+      cb(null);
+    });
+
+    target.ArchiveStatus = 1; // PENDING
+    target.archive();
+    await wait(50);
+
+    // a (big) and b (all-but-last) are archived; c (last, small) is left in place
+    expect(renamed).to.have.members(["/logs/log_a.txt", "/logs/log_b.txt"]);
+    expect(renamed).to.not.include("/logs/log_c.txt");
   });
 });
