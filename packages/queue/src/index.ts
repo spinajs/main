@@ -146,6 +146,7 @@ export class DefaultQueueService extends QueueService {
                 jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
                 jModel.Result = {
                   message: err.message,
+                  ...(err.inner !== undefined && err.inner !== null && { errors: err.inner }),
                 };
 
                 await jModel.update();
