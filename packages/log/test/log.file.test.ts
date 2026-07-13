@@ -51,11 +51,22 @@ describe("file target tests", function () {
   this.timeout(30000);
 
   before(async () => {
+    // fully reset DI so a prior suite ( eg. archive ) that registered its own
+    // Configuration + fs providers cannot leak into this one. clearCache alone
+    // leaves the fsService singleton resolved, so its providers are never
+    // re-registered - uncache it explicitly.
     DI.clearCache();
+    DI.uncache(Configuration);
+    DI.uncache("__file_provider_instance__");
     DI.resolve(FsBootsrapper).bootstrap();
     DI.register(TestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
+    const cfg = await DI.resolve<any>(Configuration);
+    // run a FRESH fsService ( not the possibly-cached singleton from a prior
+    // suite ) with this suite's fs config so its providers ( logs / archive ) are
+    // registered into the __file_provider_instance__ map
+    const svc = new fsService();
+    Object.defineProperty(svc, "Config", { value: cfg.get("fs"), configurable: true });
+    await svc.resolve();
   });
 
   beforeEach(async () => {

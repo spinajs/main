@@ -32,20 +32,30 @@ describe("log archive subsystem", function () {
   // fixed provider names + fixed base dirs, created once. Each test cleans the
   // dir CONTENTS ( not the providers ) so there is no cross-test file bleed and
   // no stale-basePath provider caching.
-  const activeName = "active";
-  const archiveName = "archive";
+  // distinct provider names ( fs providers are cached by name across the shared
+  // DI for the whole test process ) so this suite never collides with the file
+  // target suite's providers when npm test runs everything in one process
+  const activeName = "arch-suite-active";
+  const archiveName = "arch-suite-store";
   let ws: ReturnType<typeof makeWorkspace>;
 
   before(async () => {
     ws = makeWorkspace();
+    // full reset so a prior suite's Configuration cannot leak in
     DI.clearCache();
+    DI.uncache(Configuration);
+    DI.uncache("__file_provider_instance__");
 
     const bootstrapper = DI.resolve(FsBootsrapper);
     bootstrapper.bootstrap();
 
     DI.register(makeConfig(ws.activeBase, ws.archiveBase, activeName, archiveName)).as(Configuration);
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
+    const cfg = await DI.resolve<any>(Configuration);
+    // run a FRESH fsService ( not the possibly-cached singleton from a prior
+    // suite ) so THIS suite's providers are registered into the provider map
+    const svc = new fsService();
+    Object.defineProperty(svc, "Config", { value: cfg.get("fs"), configurable: true });
+    await svc.resolve();
   });
 
   beforeEach(async () => {
