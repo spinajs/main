@@ -188,6 +188,12 @@ export interface IFileTargetOptions extends ICommonTargetOptions {
      * active log needs rotating. Default is 60 seconds.
      */
     archiveInterval: number;
+
+    /**
+     * Periodic flush tick in milliseconds. A partially filled buffer is flushed
+     * at least this often so messages are not held indefinitely. Default 1000ms.
+     */
+    flushInterval?: number;
   };
 }
 

@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { ILogArchiveContext } from "../../src/archive/index.js";
+import { LOG_FILE_DEFAULTS } from "../../src/config/log.js";
 import type { IFileTargetOptions } from "@spinajs/log-common";
 
 /**
@@ -53,15 +54,13 @@ export function makeWorkspace() {
  * Default target options for tests, overridable per case.
  */
 export function makeOptions(overrides: Partial<IFileTargetOptions["options"]> = {}): IFileTargetOptions["options"] {
+  // start from the same canonical defaults the package ships ( logger.file ),
+  // so tests exercise the real default values from a single source
   return {
+    ...LOG_FILE_DEFAULTS,
     path: "app.log",
     archivePath: "",
-    maxSize: 1024 * 1024,
-    compress: false,
     rotate: "",
-    maxBufferSize: 100,
-    maxArchiveFiles: 5,
-    archiveInterval: 60,
     ...overrides,
   } as IFileTargetOptions["options"];
 }

@@ -41,16 +41,12 @@ export class LogArchiveService extends AsyncService {
    * Wires strategies for the given context and starts the rotation schedule.
    */
   public async start(ctx: ILogArchiveContext): Promise<void> {
-    this.ArchiveStrategy = this.resolveStrategy(
-      LogArchiveStrategy,
-      ctx.options.archiveStrategy ?? "SizeLogArchiveStrategy"
-    );
+    // archiveStrategy / retentionStrategies are populated from the logger.file
+    // config defaults ( see FileTarget.resolve ), so no inline fallback here -
+    // the config is the single source of truth for what runs.
+    this.ArchiveStrategy = this.resolveStrategy(LogArchiveStrategy, ctx.options.archiveStrategy as string);
 
-    const retentionNames =
-      ctx.options.retentionStrategies && ctx.options.retentionStrategies.length > 0
-        ? ctx.options.retentionStrategies
-        : ["CountLogRetentionStrategy"];
-
+    const retentionNames = ctx.options.retentionStrategies ?? [];
     this.RetentionStrategies = retentionNames.map((n) => this.resolveStrategy(LogRetentionStrategy, n));
 
     this.ArchiveStrategy.start(ctx);

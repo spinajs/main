@@ -41,15 +41,20 @@ export class FrameworkLogger extends Log {
       throw new Error(`Configuration module is not avaible. Please resolve configuration module before any logging can occur`);
     }
 
-    this.Options = config.get<ILogOptions>("logger", {
-      targets: [
+    // read the logger config and default per-subkey - the `logger` key always
+    // exists now ( the package ships logger.file defaults ), so a whole-object
+    // fallback would never apply. targets / rules still fall back individually.
+    const configured = config.get<Partial<ILogOptions>>("logger", {});
+    this.Options = {
+      ...configured,
+      targets: configured.targets ?? [
         {
           name: "Console",
           type: "ConsoleTarget",
         },
       ],
-      rules: [{ name: "*", level: "trace", target: "Console" }],
-    });
+      rules: configured.rules ?? [{ name: "*", level: "trace", target: "Console" }],
+    } as ILogOptions;
 
     // make unique targets
     // some modules may add same logger so we have multiple console loggers etc.

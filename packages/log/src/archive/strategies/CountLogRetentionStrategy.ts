@@ -4,19 +4,14 @@ import { ILogArchiveContext } from "../context.js";
 import { listArchives } from "./util.js";
 
 /**
- * Default number of archives to keep when `maxArchiveFiles` is not configured.
- */
-const DEFAULT_MAX_ARCHIVE_FILES = 5;
-
-/**
- * Keeps the newest N archives ( `maxArchiveFiles` ) and deletes the oldest,
- * ordered by modification time.
+ * Keeps the newest N archives ( `maxArchiveFiles`, from the logger.file config
+ * defaults ) and deletes the oldest, ordered by modification time.
  */
 @Injectable(LogRetentionStrategy)
 @NewInstance()
 export class CountLogRetentionStrategy extends LogRetentionStrategy {
   public async prune(ctx: ILogArchiveContext): Promise<void> {
-    const keep = ctx.options.maxArchiveFiles ?? DEFAULT_MAX_ARCHIVE_FILES;
+    const keep = ctx.options.maxArchiveFiles;
 
     // newest last ( ascending by ModifiedTime )
     const archives = await listArchives(ctx);

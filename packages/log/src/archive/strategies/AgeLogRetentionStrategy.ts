@@ -5,19 +5,15 @@ import { ILogArchiveContext } from "../context.js";
 import { listArchives } from "./util.js";
 
 /**
- * Default archive age limit in seconds ( 7 days ) when `maxAge` is not set.
- */
-const DEFAULT_MAX_AGE = 7 * 24 * 60 * 60;
-
-/**
- * Deletes archives older than `maxAge` seconds. Age is taken from the archive
- * modification time.
+ * Deletes archives older than `maxAge` seconds ( from the logger.file config
+ * defaults ). Age is taken from the archive modification time.
  */
 @Injectable(LogRetentionStrategy)
 @NewInstance()
 export class AgeLogRetentionStrategy extends LogRetentionStrategy {
   public async prune(ctx: ILogArchiveContext): Promise<void> {
-    const maxAge = ctx.options.maxAge ?? DEFAULT_MAX_AGE;
+    // maxAge is always populated from the config defaults ( see logger.file )
+    const maxAge = ctx.options.maxAge as number;
     const now = DateTime.now();
 
     const archives = await listArchives(ctx);

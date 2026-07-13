@@ -3,14 +3,9 @@ import { LogArchiveStrategy } from "../archive-strategy.js";
 import { ILogArchiveContext } from "../context.js";
 
 /**
- * Default rotation interval in seconds. The active log size is checked this
- * often, and the file is rotated once it exceeds `maxSize`.
- */
-const DEFAULT_ARCHIVE_INTERVAL = 60;
-
-/**
- * Rotates the active log file when its size exceeds `maxSize`, checked on a
- * fixed interval ( `archiveInterval` seconds, default 60s ).
+ * Rotates the active log file when its size exceeds `maxSize`, checked every
+ * `archiveInterval` seconds ( both resolved from the logger.file config
+ * defaults, overridable per target ).
  */
 @Injectable(LogArchiveStrategy)
 @NewInstance()
@@ -21,7 +16,7 @@ export class SizeLogArchiveStrategy extends LogArchiveStrategy {
     // never leak a previous timer on repeated start
     this.stop();
 
-    const interval = (ctx.options.archiveInterval ?? DEFAULT_ARCHIVE_INTERVAL) * 1000;
+    const interval = ctx.options.archiveInterval * 1000;
 
     this.timer = setInterval(() => {
       void this.check(ctx);

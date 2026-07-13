@@ -1,6 +1,6 @@
 import { EOL } from "os";
 import { posix } from "path";
-import { format } from "@spinajs/configuration";
+import { Configuration, format } from "@spinajs/configuration";
 import { InvalidOption } from "@spinajs/exceptions";
 import { DI, IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
 import { fs } from "@spinajs/fs";
@@ -8,12 +8,7 @@ import { IFileTargetOptions, Logger, Log, ILogEntry, LogTarget } from "@spinajs/
 
 import { LogArchiveService } from "../archive/LogArchiveService.js";
 import { ILogArchiveContext } from "../archive/context.js";
-
-/**
- * Default fs provider used for the active log file when `fs` option is omitted.
- * Registered automatically by the log package ( base path = process.cwd() ).
- */
-const DEFAULT_FS = "fs-log-default";
+import { LOG_FILE_DEFAULTS } from "../config/log.js";
 
 /**
  * Writes log messages to a file through the @spinajs/fs abstraction.
@@ -78,18 +73,14 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
   }
 
   public resolve(): void {
-    this.Options.options = Object.assign(
-      {
-        compress: false,
-        maxSize: 1024 * 1024,
-        maxArchiveFiles: 5,
-        maxBufferSize: 100,
-        archiveInterval: 60,
-        archiveStrategy: "SizeLogArchiveStrategy",
-        retentionStrategies: ["CountLogRetentionStrategy"],
-      },
-      this.Options.options
-    );
+    // Defaults come from the shipped `logger.file` config ( discoverable and
+    // user-overridable like every other spinajs package ). LOG_FILE_DEFAULTS is
+    // the same object the config ships and is used as a last-resort fallback for
+    // environments where the config file was not discovered ( eg. some tests ).
+    // Merge order ( lowest to highest ): constant < config < per-target options.
+    const cfg = DI.get(Configuration);
+    const fileDefaults = cfg ? cfg.get<Partial<IFileTargetOptions["options"]>>("logger.file", {}) : {};
+    this.Options.options = Object.assign({}, LOG_FILE_DEFAULTS, fileDefaults, this.Options.options);
 
     if (!this.Options.options.path) {
       throw new InvalidOption(`FileTarget ${this.Options.name} requires a 'path' option`);
@@ -107,7 +98,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     // periodic flush so a partially filled buffer is not held indefinitely
     this.FlushTimer = setInterval(() => {
       void this.flush();
-    }, 1000);
+    }, this.Options.options.flushInterval);
 
     super.resolve();
   }
@@ -119,7 +110,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
   protected async init(): Promise<void> {
     const o = this.Options.options;
 
-    this.Fs = DI.resolve<fs>("__file_provider__", [o.fs ?? DEFAULT_FS]);
+    // o.fs is always populated from LOG_FILE_DEFAULTS ( see resolve() )
+    this.Fs = DI.resolve<fs>("__file_provider__", [o.fs]);
     this.ArchiveFs = o.archiveFs ? DI.resolve<fs>("__file_provider__", [o.archiveFs]) : this.Fs;
 
     // path is relative to the fs provider base path; ensure its directory exists

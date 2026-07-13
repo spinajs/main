@@ -99,12 +99,23 @@ const CONFIGURATION_SCHEMA = {
                 type: "integer",
                 minimum: 1,
               },
+              flushInterval: {
+                description:
+                  "Periodic flush tick in milliseconds for a partially filled buffer.",
+                type: "integer",
+                minimum: 1,
+              },
             },
             required: ["path"],
           },
         },
         required: ["name", "type"],
       },
+    },
+    file: {
+      description:
+        "Default FileTarget options ( buffer / rotation / retention tunables ) merged UNDER every file target's own `options`. Shipped by @spinajs/log ( see logger.file defaults ) and overridable by user config.",
+      type: "object",
     },
     rules: {
       description: "Log rules, what log should be write where",
