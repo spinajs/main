@@ -5,8 +5,21 @@ import {
 } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 import { LogLevel } from "./../index.js";
-import chalk from "chalk";
 import { format } from "@spinajs/configuration";
+
+/**
+ * Minimal, dependency-free ANSI colour helpers ( replaces chalk ).
+ * Console target is Node-only, so raw escape codes are fine.
+ */
+const ANSI_RESET = "\x1b[0m";
+const ansi = (open: string) => (text: string) => `${open}${text}${ANSI_RESET}`;
+const gray = ansi("\x1b[90m");
+const white = ansi("\x1b[37m");
+const whiteBgGreen = ansi("\x1b[37m\x1b[42m");
+const yellow = ansi("\x1b[33m");
+const red = ansi("\x1b[31m");
+const whiteBgRed = ansi("\x1b[37m\x1b[41m");
+const yellowBgRed = ansi("\x1b[33m\x1b[41m");
 
 export const DEFAULT_THEME = {
   security: ["red", "bgBrightWhite"],
@@ -39,14 +52,14 @@ export class ColoredConsoleTarget extends LogTarget<IColoredConsoleTargetOptions
   };
 
   public async resolve() {
-    this.theme[LogLevel.Trace] = chalk.gray;
-    this.theme[LogLevel.Debug] = chalk.gray;
-    this.theme[LogLevel.Info] = chalk.white;
-    this.theme[LogLevel.Success] = chalk.white.bgGreen;
-    this.theme[LogLevel.Warn] = chalk.yellow;
-    this.theme[LogLevel.Error] = chalk.red;
-    this.theme[LogLevel.Fatal] = chalk.white.bgRed;
-    this.theme[LogLevel.Security] = chalk.yellow.bgRed;
+    this.theme[LogLevel.Trace] = gray;
+    this.theme[LogLevel.Debug] = gray;
+    this.theme[LogLevel.Info] = white;
+    this.theme[LogLevel.Success] = whiteBgGreen;
+    this.theme[LogLevel.Warn] = yellow;
+    this.theme[LogLevel.Error] = red;
+    this.theme[LogLevel.Fatal] = whiteBgRed;
+    this.theme[LogLevel.Security] = yellowBgRed;
 
     super.resolve();
   }
