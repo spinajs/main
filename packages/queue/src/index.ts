@@ -1,8 +1,8 @@
 import { UnexpectedServerError, InvalidArgument, ConnectionNotFound } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, isJob } from './interfaces.js';
-import { JobModel, JobStatus, JOB_TERMINAL_STATUSES } from './models/JobModel.js';
+import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob } from './interfaces.js';
+import { JobModel } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
@@ -11,16 +11,16 @@ export * from './BlackHoleQueueClient.js';
 export * from './interfaces.js';
 export * from './decorators.js';
 export * from './models/JobModel.js';
+export * from './services/JobRetentionService.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
 export * from './migrations/Queue_2026_06_30_00_00_00.js';
 export * from './migrations/Queue_2026_07_02_00_00_00.js';
 export * from './migrations/Queue_2026_07_10_00_00_00.js';
 export * from './fp.js';
 
-/** Minimum progress delta ( % ) that triggers a throttled progress DB write. */
-const PROGRESS_MIN_DELTA = 5;
-/** Minimum time ( ms ) between throttled progress DB writes. */
-const PROGRESS_MIN_INTERVAL_MS = 1000;
+/** Fallback progress-throttle values used when `queue.progress` is not configured. */
+const DEFAULT_PROGRESS_MIN_DELTA = 5;
+const DEFAULT_PROGRESS_MIN_INTERVAL_MS = 1000;
 
 @Injectable(QueueService)
 export class DefaultQueueService extends QueueService {
@@ -30,17 +30,21 @@ export class DefaultQueueService extends QueueService {
   @AutoinjectService('queue.connections', QueueClient)
   protected Connections: Map<string, QueueClient>;
 
-  protected RetentionTimer?: ReturnType<typeof setInterval>;
-
-  public async resolve() {
-    await super.resolve();
-    this.startRetention();
-  }
+  /**
+   * Config-selected retention service that periodically purges old tracked jobs.
+   * Started / stopped by DI on injection / disposal. May be undefined if retention
+   * is not configured.
+   */
+  @AutoinjectService('queue.retention', JobRetentionService)
+  protected Retention?: JobRetentionService;
 
   public async dispose() {
-    if (this.RetentionTimer) {
-      clearInterval(this.RetentionTimer);
-      this.RetentionTimer = undefined;
+    if (this.Retention) {
+      try {
+        await this.Retention.dispose();
+      } catch (err) {
+        this.Log.error(err, 'Cannot dispose job retention service');
+      }
     }
 
     this.Connections.forEach(async (val) => {
@@ -52,53 +56,6 @@ export class DefaultQueueService extends QueueService {
     });
 
     this.Connections.clear();
-  }
-
-  /**
-   * Starts the periodic job-retention purge when configured. No-op if retention is disabled.
-   */
-  protected startRetention() {
-    const retention = this.Configuration.retention;
-    if (!retention?.enabled || !retention.maxAge) {
-      return;
-    }
-
-    const interval = retention.interval ?? 60 * 60 * 1000;
-
-    this.RetentionTimer = setInterval(() => {
-      const cutoff = DateTime.now().minus({ milliseconds: retention.maxAge });
-      this.purgeJobs(cutoff, retention.statuses)
-        .then((n) => {
-          if (n > 0) {
-            this.Log.info(`Retention purge removed ${n} job(s) older than ${cutoff.toISO()}`);
-          }
-        })
-        .catch((err) => this.Log.error(err, 'Job retention purge failed'));
-    }, interval);
-
-    // don't keep the process alive just for the purge timer
-    (this.RetentionTimer as { unref?: () => void }).unref?.();
-
-    this.Log.info(`Job retention enabled: purging jobs older than ${retention.maxAge}ms every ${interval}ms`);
-  }
-
-  /**
-   * Deletes terminal ( or given ) jobs created before `olderThan`. The set is selected with the
-   * JobModel query scopes ( status + date ), then removed by id.
-   */
-  public async purgeJobs(olderThan: DateTime, statuses?: string[]): Promise<number> {
-    const rows = await JobModel.query()
-      .columns(['Id'])
-      .withStatus((statuses as JobStatus[]) ?? JOB_TERMINAL_STATUSES)
-      .olderThan(olderThan);
-
-    const ids = rows.map((r) => r.Id);
-    if (ids.length === 0) {
-      return 0;
-    }
-
-    await JobModel.destroy(ids);
-    return ids.length;
   }
 
   public async emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<string | undefined> {
@@ -209,6 +166,8 @@ export class DefaultQueueService extends QueueService {
               // closer together than the min interval, so a chatty job doesn't hammer the DB.
               let lastProgress = 0;
               let lastProgressAt = 0;
+              const minProgressDelta = this.Configuration.progress?.minDelta ?? DEFAULT_PROGRESS_MIN_DELTA;
+              const minProgressInterval = this.Configuration.progress?.minInterval ?? DEFAULT_PROGRESS_MIN_INTERVAL_MS;
 
               try {
                 // update executing state
@@ -256,7 +215,7 @@ export class DefaultQueueService extends QueueService {
                 }
 
                 // always persist the final 100% or a meta change; otherwise throttle by delta + time
-                if (!isFinal && !hasMeta && p - lastProgress < PROGRESS_MIN_DELTA && now - lastProgressAt < PROGRESS_MIN_INTERVAL_MS) {
+                if (!isFinal && !hasMeta && p - lastProgress < minProgressDelta && now - lastProgressAt < minProgressInterval) {
                   jModel.Progress = p;
                   return;
                 }

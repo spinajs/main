@@ -58,16 +58,6 @@ export abstract class QueueService extends AsyncService {
   public abstract stopConsuming(event: Constructor<QueueMessage>): Promise<void>;
   public abstract get(connection?: string): QueueClient;
 
-  /**
-   * Deletes tracked jobs ( {@link JobModel} rows ) created before `olderThan` in one of `statuses`.
-   * Used by the built-in retention purge and available for manual cleanup.
-   *
-   * @param olderThan - delete jobs created before this moment
-   * @param statuses - which statuses to purge ( defaults to terminal: success / error / dead )
-   * @returns number of deleted rows
-   */
-  public abstract purgeJobs(olderThan: DateTime, statuses?: string[]): Promise<number>;
-
   protected getConnectionsForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
     const eventName = ((event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name) as string;
     const option: string | IMessageRoutingOption | string[] | IMessageRoutingOption[] = ((this.Configuration.routing ?? {}) as any)[eventName] ?? this.Configuration.default;
@@ -395,9 +385,33 @@ export interface IQueueConfiguration {
    * grow unbounded. Disabled by default - opt in to avoid silently deleting data.
    */
   retention?: IQueueRetentionOptions;
+
+  /**
+   * Throttling of job progress persistence, so a chatty job that reports progress
+   * frequently doesn't hammer the DB with a write per callback.
+   */
+  progress?: IQueueProgressOptions;
+}
+
+export interface IQueueProgressOptions {
+  /**
+   * Minimum progress delta ( % ) between throttled DB writes. Default `5`.
+   */
+  minDelta?: number;
+
+  /**
+   * Minimum time ( ms ) between throttled DB writes. Default `1000`.
+   */
+  minInterval?: number;
 }
 
 export interface IQueueRetentionOptions {
+  /**
+   * DI service name of the {@link JobRetentionService} implementation that runs the purge.
+   * Selected via {@link AutoinjectService}; defaults to `DefaultJobRetentionService`.
+   */
+  service: string;
+
   /**
    * Turn the periodic purge on. Default `false`.
    */
@@ -406,7 +420,7 @@ export interface IQueueRetentionOptions {
   /**
    * Age in milliseconds after which a purged job is deleted ( based on CreatedAt ).
    */
-  maxAge: number;
+  maxAge?: number;
 
   /**
    * Which statuses to purge. Defaults to terminal statuses ( success / error / dead ).
@@ -417,6 +431,33 @@ export interface IQueueRetentionOptions {
    * How often ( ms ) to run the purge. Default 1 hour.
    */
   interval?: number;
+}
+
+/**
+ * Runs the periodic cleanup of tracked jobs ( {@link JobModel} rows ) so the table doesn't grow
+ * unbounded. The concrete implementation is selected by config ( `queue.retention.service` ) and
+ * injected into the {@link QueueService} via {@link AutoinjectService}. Because it is an
+ * {@link AsyncService}, DI runs `resolve()` on injection ( where the periodic purge is started )
+ * and `dispose()` on teardown ( where it is stopped ).
+ */
+export abstract class JobRetentionService extends AsyncService implements IMappableService {
+  constructor(public Options: IQueueRetentionOptions) {
+    super();
+  }
+
+  public get ServiceName(): string {
+    return this.Options.service;
+  }
+
+  /**
+   * Deletes tracked jobs ( {@link JobModel} rows ) created before `olderThan` in one of `statuses`.
+   * Used by the periodic purge and available for manual cleanup.
+   *
+   * @param olderThan - delete jobs created before this moment
+   * @param statuses - which statuses to purge ( defaults to terminal: success / error / dead )
+   * @returns number of deleted rows
+   */
+  public abstract purgeJobs(olderThan: DateTime, statuses?: string[]): Promise<number>;
 }
 
 export interface IMessageRoutingOption {

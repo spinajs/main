@@ -6,7 +6,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { v4 as uuidv4 } from 'uuid';
 import { DateTime } from 'luxon';
-import { QueueJob, QueueEvent, Job, Event, QueueService, JobModel, QueueClient, IQueueMessage, QueueMessage } from './../src/index.js';
+import { QueueJob, QueueEvent, Job, Event, QueueService, JobModel, JobRetentionService, QueueClient, IQueueMessage, QueueMessage } from './../src/index.js';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
@@ -51,6 +51,7 @@ class ConnectionConf extends FrameworkConfiguration {
       queue: {
         default: 'memory',
         connections: [{ service: 'InMemoryQueueClient', name: 'memory', defaultQueueChannel: '/queue/test', defaultTopicChannel: '/topic/test' }],
+        retention: { service: 'DefaultJobRetentionService', enabled: false },
       },
       logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
     };
@@ -196,17 +197,17 @@ describe('queue core - dedup & persistence', function () {
   });
 
   it('purges terminal jobs older than a cutoff via query scopes', async () => {
-    const queue = await q();
+    const retention = await DI.resolve(JobRetentionService);
 
     await seedJob('success');
     await seedJob('dead');
     await seedJob('created'); // active - must survive
 
     // nothing is older than a past cutoff
-    expect(await queue.purgeJobs(DateTime.now().minus({ days: 1 }))).to.eq(0);
+    expect(await retention.purgeJobs(DateTime.now().minus({ days: 1 }))).to.eq(0);
 
     // future cutoff -> all rows are "older"; only terminal ones are purged
-    const removed = await queue.purgeJobs(DateTime.now().plus({ days: 1 }));
+    const removed = await retention.purgeJobs(DateTime.now().plus({ days: 1 }));
     expect(removed).to.eq(2);
 
     const remaining = await JobModel.all();
