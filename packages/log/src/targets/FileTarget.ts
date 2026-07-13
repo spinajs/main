@@ -1,311 +1,253 @@
-/* eslint-disable security/detect-object-injection */
 import { EOL } from "os";
-import fs from "fs";
-import * as path from "path";
-import glob from "glob";
-import * as zlib from "zlib";
-import { pipeline } from "stream";
+import { posix } from "path";
 import { format } from "@spinajs/configuration";
 import { InvalidOption } from "@spinajs/exceptions";
-import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
+import { DI, IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
+import { fs } from "@spinajs/fs";
 import { IFileTargetOptions, Logger, Log, ILogEntry, LogTarget } from "@spinajs/log-common";
 
-import _ from "lodash";
+import { LogArchiveService } from "../archive/LogArchiveService.js";
+import { ILogArchiveContext } from "../archive/context.js";
 
-enum FileTargetStatus {
-  WRITTING,
-  PENDING,
-  IDLE,
-}
+/**
+ * Default fs provider used for the active log file when `fs` option is omitted.
+ * Registered automatically by the log package ( base path = process.cwd() ).
+ */
+const DEFAULT_FS = "fs-log-default";
 
-// we mark per instance check becouse we can have multiple file targes
-// for different files/paths/logs but we dont want to create every time writer for same.
+/**
+ * Writes log messages to a file through the @spinajs/fs abstraction.
+ *
+ * Messages are buffered in memory and flushed as a single batched append,
+ * either when the buffer reaches `maxBufferSize` or on a periodic flush tick.
+ * Rotation / archiving / retention is delegated to {@link LogArchiveService}.
+ *
+ * A single async write-lock ( a promise-chain mutex ) serializes every flush
+ * and every rotation, so a rename can never race an in-flight append.
+ *
+ * PerInstanceCheck: multiple file targets can point at different files, but two
+ * targets with the same name share one writer.
+ */
 @PerInstanceCheck()
 @Injectable("FileTarget")
 export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstanceCheck {
   @Logger("LogFileTarget")
   protected Log: Log;
 
-  public LogDirPath: string;
-  public ArchiveDirPath: string;
+  /**
+   * fs provider holding the active log file.
+   */
+  protected Fs: fs;
 
-  protected WriteStream: fs.WriteStream;
+  /**
+   * fs provider archives are moved to ( defaults to `Fs` ).
+   */
+  protected ArchiveFs: fs;
+
+  /**
+   * Directory ( relative to ArchiveFs ) archives are stored in.
+   */
+  protected ArchiveDir = "";
+
+  protected ArchiveService: LogArchiveService;
+  protected Context: ILogArchiveContext;
+
+  /**
+   * In-memory buffer of formatted, not-yet-written messages.
+   */
   protected Buffer: string[] = [];
-  protected WriteBuffer: string[] = [];
 
-  protected ArchiveTimer: NodeJS.Timeout;
-  protected FlushTimer: NodeJS.Timeout;
+  protected FlushTimer: NodeJS.Timeout | null = null;
 
-  protected Status: FileTargetStatus = FileTargetStatus.IDLE;
-  protected ArchiveStatus: FileTargetStatus = FileTargetStatus.IDLE;
+  /**
+   * Async initialization ( fs resolution + mkdir + archive start ). write()
+   * and flush() await this so nothing touches the fs before it is ready.
+   */
+  protected Ready: Promise<void>;
+
+  /**
+   * Promise-chain mutex tail. Every critical section ( flush, rotation ) chains
+   * onto this so they run strictly one at a time.
+   */
+  protected WriteLock: Promise<unknown> = Promise.resolve();
+
+  protected Disposed = false;
 
   __checkInstance__(creationOptions: IFileTargetOptions[]): boolean {
     return this.Options.name === creationOptions[0].name;
   }
 
-  public resolve() {
+  public resolve(): void {
     this.Options.options = Object.assign(
       {
-        compress: true,
+        compress: false,
         maxSize: 1024 * 1024,
         maxArchiveFiles: 5,
-        archiveInterval: 3 * 60,
+        maxBufferSize: 100,
+        archiveInterval: 60,
+        archiveStrategy: "SizeLogArchiveStrategy",
+        retentionStrategies: ["CountLogRetentionStrategy"],
       },
       this.Options.options
     );
 
-    this.LogDirPath = path.dirname(path.resolve(format(null, this.Options.options.path)));
-    this.ArchiveDirPath = this.Options.options.archivePath ? path.resolve(format(null, this.Options.options.archivePath)) : this.LogDirPath;
-
-    if (!this.LogDirPath) {
-      throw new InvalidOption("Missing LogDirPath log option");
+    if (!this.Options.options.path) {
+      throw new InvalidOption(`FileTarget ${this.Options.name} requires a 'path' option`);
     }
 
-    if (!fs.existsSync(this.LogDirPath)) {
-      fs.mkdirSync(this.LogDirPath, { recursive: true });
-    }
+    // start async init - fs resolution and dir creation cannot run in a sync
+    // SyncService.resolve, so writes buffer until Ready settles
+    this.Ready = this.init();
+    this.Ready.catch((err) => {
+      this.HasError = true;
+      this.Error = err;
+      this.Log.error(err as Error, `Cannot initialize file target ${this.Options.name}`);
+    });
 
-    if (this.ArchiveDirPath) {
-      if (!fs.existsSync(this.ArchiveDirPath)) {
-        fs.mkdirSync(this.ArchiveDirPath, { recursive: true });
-      }
-    }
-
-    // flush all buffered messages at least once per second
-    // we do this, becouse buffer can not be filled
-    // and we could wait unknown amount of time before messages are written to file
+    // periodic flush so a partially filled buffer is not held indefinitely
     this.FlushTimer = setInterval(() => {
-      // do not flush, if we already writting to file or archiving
-      if (this.Status !== FileTargetStatus.IDLE || this.ArchiveStatus !== FileTargetStatus.IDLE) {
-        return;
-      }
-
-      this.WriteBuffer = [...this.WriteBuffer, ...this.Buffer];
-      this.Buffer = [];
-
-      setImmediate(() => {
-        this.flush();
-      });
+      void this.flush();
     }, 1000);
-
-    // every 3 minutes try to archive log files
-    this.ArchiveTimer = setInterval(() => {
-      // do not archive if we already writting or archiving
-      if (this.Status !== FileTargetStatus.IDLE || this.ArchiveStatus !== FileTargetStatus.IDLE) {
-        return;
-      }
-
-      this.ArchiveStatus = FileTargetStatus.PENDING;
-
-      // at end of nodejs event loop
-      setImmediate(() => {
-        this.archive();
-      });
-    }, this.Options.options.archiveInterval * 1000);
 
     super.resolve();
   }
 
-  protected flush(): Promise<void> {
-    if (this.WriteBuffer.length === 0) {
-      this.Status = FileTargetStatus.IDLE;
-      return Promise.resolve();
+  /**
+   * Resolves fs providers, ensures directories exist, builds the archive
+   * context and starts the archive service.
+   */
+  protected async init(): Promise<void> {
+    const o = this.Options.options;
+
+    this.Fs = DI.resolve<fs>("__file_provider__", [o.fs ?? DEFAULT_FS]);
+    this.ArchiveFs = o.archiveFs ? DI.resolve<fs>("__file_provider__", [o.archiveFs]) : this.Fs;
+
+    // path is relative to the fs provider base path; ensure its directory exists
+    const logDir = posix.dirname(this.activePath());
+    if (logDir && logDir !== ".") {
+      await this.Fs.mkdir(logDir);
     }
 
-    this.Status = FileTargetStatus.WRITTING;
-
-    // snapshot the batch we are about to write and clear the shared buffer so that
-    // concurrent write() calls append to a fresh buffer while this batch is in flight.
-    const batch = this.WriteBuffer;
-    this.WriteBuffer = [];
-
-    // we calculate log path every time to allow for
-    // dynamic path creation eg. based on timestamp
-    const logFileName = format({ logger: this.Options.name }, path.basename(this.Options.options.path));
-    const logPath = path.join(this.LogDirPath, logFileName);
-
-    return new Promise<void>((resolve) => {
-      fs.appendFile(logPath, batch.join(EOL) + EOL, (err) => {
-        // log error message to others if applicable eg. console
-        if (err) {
-          // mark target as errored
-          this.HasError = true;
-          this.Error = err;
-
-          this.Log.error(err, `Cannot write log messages to file target at path ${logPath}`);
-
-          // restore the batch ( in front of anything queued meanwhile ) so nothing is lost
-          this.WriteBuffer = [...batch, ...this.WriteBuffer];
-        } else {
-          // clear any previous error state on a successful write
-          this.HasError = false;
-          this.Error = null;
-
-          this.Log.trace(`Wrote buffered messages to log file at path ${logPath}, buffer size: ${this.Options.options.maxBufferSize}`);
-        }
-
-        this.Status = FileTargetStatus.IDLE;
-        resolve();
-      });
-    });
-  }
-
-  public async dispose() {
-    // stop archiving
-    clearInterval(this.ArchiveTimer);
-
-    // stop flush timer
-    clearInterval(this.FlushTimer);
-
-    // write all messages from buffer
-    this.WriteBuffer = [...this.WriteBuffer, ...this.Buffer];
-    this.Buffer = [];
-    await this.flush();
-  }
-
-  public async write(data: ILogEntry) {
-    if (!this.Options.enabled) {
-      return;
+    // archivePath ( when set ) is a directory relative to the archive fs; when
+    // not set, archives live in the same directory as the active log
+    this.ArchiveDir = o.archivePath ? this.normalize(format(null, o.archivePath)) : logDir === "." ? "" : logDir;
+    if (this.ArchiveDir) {
+      await this.ArchiveFs.mkdir(this.ArchiveDir);
     }
 
-    const lEntry = format(data.Variables, this.Options.layout);
-
-    this.Buffer.push(lEntry);
-
-    // if we already writting, skip buffer check & write to file
-    // wait until write is finished
-    if (this.Status !== FileTargetStatus.IDLE || this.ArchiveStatus !== FileTargetStatus.IDLE) {
-      return;
-    }
-
-    if (this.Buffer.length >= this.Options.options.maxBufferSize) {
-      this.Status = FileTargetStatus.PENDING;
-      this.WriteBuffer = [...this.WriteBuffer, ...this.Buffer];
-      this.Buffer = [];
-
-      // write at end of nodejs event loop all buffered messages at once
-      setImmediate(() => {
-        this.flush();
-      });
-    }
-  }
-
-  protected archive() {
-    const { ext } = path.parse(path.basename(this.Options.options.path));
-
-    const aFiles = glob
-      .sync(path.join(this.ArchiveDirPath, `archived_*{${ext},.gzip}`).replace(/\\/g, "/"))
-      .map((f: string) => {
-        return {
-          name: f,
-          stat: fs.statSync(f),
-        };
-      })
-      .sort((a, b) => a.stat.mtime.getTime() - b.stat.mtime.getTime());
-
-    const lFiles = glob
-      .sync(path.join(this.LogDirPath, `*${ext}`).replace(/\\/g, "/"))
-      .map((f: string) => {
-        return {
-          name: f,
-          stat: fs.statSync(f),
-        };
-      })
-      .sort((a, b) => a.stat.mtime.getTime() - b.stat.mtime.getTime());
-
-    // clear archived files above limit
-    if (aFiles.length > this.Options.options.maxArchiveFiles) {
-      for (let i = 0; i < aFiles.length - this.Options.options.maxArchiveFiles; i++) {
-        fs.unlink(aFiles[i].name, (err) => {
-          if (err) {
-            this.Log.error(err, `Cannot delete archived file at path ${aFiles[i].name}`);
-          } else {
-            this.Log.info(`Deleted archived file at path ${aFiles[i].name}`);
-          }
-        });
-      }
-    }
-
-    // now move log files that are above limited file size or old
-    const filesToArchive = lFiles.filter((x) => {
-      return x.stat.size > this.Options.options.maxSize || lFiles.indexOf(x) <= lFiles.length - 2;
-    });
-
-    if (filesToArchive.length === 0) {
-      this.ArchiveStatus = FileTargetStatus.IDLE;
-      return;
-    }
-
-    // track how many per-file archive operations have settled so that we only
-    // release ArchiveStatus back to IDLE once every file is done ( on any path ).
-    let pending = filesToArchive.length;
-    const settle = () => {
-      pending -= 1;
-      if (pending <= 0) {
-        this.ArchiveStatus = FileTargetStatus.IDLE;
-      }
+    this.Context = {
+      fs: this.Fs,
+      archiveFs: this.ArchiveFs,
+      activePath: this.activePath(),
+      archiveDir: this.ArchiveDir,
+      options: o,
+      logger: this.Log,
+      rotate: () => this.ArchiveService.rotate(this.Context),
+      withWriteLock: <T>(fn: () => Promise<T>) => this.withWriteLock(fn),
     };
 
-    for (let i = 0; i < filesToArchive.length; i++) {
-      const { name, ext } = path.parse(path.basename(filesToArchive[i].name));
+    this.ArchiveService = await DI.resolve(LogArchiveService);
+    await this.ArchiveService.start(this.Context);
+  }
 
-      // get number of files with same name, eg. during a day, multiple log files can be produced
-      const lArchiFiles = glob.sync(path.join(this.ArchiveDirPath, `archived_${name}*{${ext},.gzip}`).replace(/\\/g, "/"));
-
-      const fIndex = _.max(
-        lArchiFiles.map((f) => {
-          const result = [...f.matchAll(/(\d+)(\.txt|\.gzip)/gm)];
-
-          if (result && result.length > 0) {
-            return parseInt(result[0][1] as unknown as string);
-          }
-
-          return 0;
-        })
-      );
-
-      const archPath = path.join(this.ArchiveDirPath, `archived_${name}_${(fIndex ?? 0) + 1}${ext}`);
-
-      fs.rename(filesToArchive[i].name, archPath, (err) => {
-        if (err) {
-          this.Log.error(err, `Cannot move log file ${name} to archive at path ${archPath}`);
-          settle();
-          return;
-        }
-
-        if (this.Options.options.compress) {
-          this.Log.trace(`Compressing archive log at path ${archPath}`);
-
-          const zippedPath = path.join(this.ArchiveDirPath, `archived_${name}_${lArchiFiles.length + 1}${ext}.gzip`);
-          const zip = zlib.createGzip();
-          const read = fs.createReadStream(archPath);
-          const write = fs.createWriteStream(zippedPath);
-
-          pipeline(read, zip, write, (err) => {
-            if (err) {
-              this.Log.error(err, `Cannot compress archived file at path ${archPath}`);
-              fs.unlink(zippedPath, () => {
-                return;
-              });
-
-              settle();
-              return;
-            }
-
-            this.Log.info(`Succesyfully compressed archive log at path ${zippedPath}`);
-
-            fs.unlink(archPath, (err) => {
-              if (err) {
-                this.Log.error(err, `Cannot delete archived log after compression at path ${archPath}`);
-              }
-            });
-
-            settle();
-          });
-        } else {
-          settle();
-        }
-      });
+  public async write(data: ILogEntry): Promise<void> {
+    if (!this.Options.enabled || this.Disposed) {
+      return;
     }
+
+    const entry = format(data.Variables, this.Options.layout);
+    this.Buffer.push(entry);
+
+    if (this.Buffer.length >= this.Options.options.maxBufferSize) {
+      await this.flush();
+    }
+  }
+
+  /**
+   * Flushes the current buffer as one batched append, guarded by the
+   * write-lock. On failure the batch is PREPENDED back so nothing is lost.
+   */
+  protected async flush(): Promise<void> {
+    if (this.Buffer.length === 0) {
+      return;
+    }
+
+    await this.Ready.catch(() => {
+      /* init failed - error already recorded, skip flushing */
+    });
+
+    if (!this.Fs) {
+      return;
+    }
+
+    await this.withWriteLock(async () => {
+      if (this.Buffer.length === 0) {
+        return;
+      }
+
+      // snapshot the batch and clear the shared buffer so concurrent write()s
+      // append to a fresh buffer while this batch is in flight
+      const batch = this.Buffer;
+      this.Buffer = [];
+
+      const path = this.activePath();
+
+      try {
+        await this.Fs.append(path, batch.join(EOL) + EOL);
+        this.HasError = false;
+        this.Error = null;
+      } catch (err) {
+        this.HasError = true;
+        this.Error = err;
+        this.Log.error(err as Error, `Cannot write log messages to file target at path ${path}`);
+
+        // restore the batch in front of anything queued meanwhile - never drop
+        this.Buffer = [...batch, ...this.Buffer];
+      }
+    });
+  }
+
+  public async dispose(): Promise<void> {
+    this.Disposed = true;
+
+    if (this.FlushTimer) {
+      clearInterval(this.FlushTimer);
+      this.FlushTimer = null;
+    }
+
+    // final flush of anything buffered
+    await this.flush();
+
+    this.ArchiveService?.stop();
+  }
+
+  /**
+   * Runs `fn` under the shared write-lock. Flush and rotation both go through
+   * here, so a rename can never overlap an append.
+   */
+  protected withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.WriteLock.then(() => fn());
+    // keep the chain alive on failure so the lock never deadlocks
+    this.WriteLock = run.catch(() => {});
+    return run;
+  }
+
+  /**
+   * Active log path relative to the fs provider base path. Recomputed each call
+   * so dynamic ( eg. date-based ) paths work.
+   */
+  protected activePath(): string {
+    const p = format({ logger: this.Options.name }, this.Options.options.path);
+    return this.normalize(p);
+  }
+
+  /**
+   * Normalizes a configured path to forward slashes and strips a leading
+   * separator. Paths are interpreted relative to the fs provider base path -
+   * the provider itself sandboxes and resolves them, so we only canonicalize
+   * separators here.
+   */
+  protected normalize(p: string): string {
+    return p.replace(/\\/g, "/").replace(/^\/+/, "");
   }
 }
