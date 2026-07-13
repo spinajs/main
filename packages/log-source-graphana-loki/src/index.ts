@@ -5,13 +5,18 @@ import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
 import { Log, ILogEntry, LogTarget, ICommonTargetOptions, Logger } from "@spinajs/log";
 
 
-import axios, { Axios } from "axios";
+import axios, { AxiosInstance } from "axios";
 import _ from "lodash";
 
 export interface IGraphanaOptions extends ICommonTargetOptions {
 
   interval: number;
   bufferSize: number;
+  /**
+   * Hard cap on the number of entries retained for retry. When a flush fails and the
+   * retained + newly buffered entries exceed this, the oldest are dropped.
+   */
+  maxBufferSize: number;
   timeout: number;
   host: string;
   auth: {
@@ -52,7 +57,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
   protected Status: TargetStatus = TargetStatus.IDLE;
 
   protected FlushTimer: NodeJS.Timeout;
-  protected AxiosInstance: Axios;
+  protected AxiosInstance: AxiosInstance;
 
   constructor(options: IGraphanaOptions) {
     super(options);
@@ -61,6 +66,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       {
         interval: 3000,
         bufferSize: 10,
+        maxBufferSize: 1000,
         timeout: 1000,
       },
       this.Options
@@ -94,6 +100,8 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
         this.flush();
       });
     }, this.Options.interval ?? 3000);
+
+    super.resolve();
   }
 
   public write(data: ILogEntry): void {
@@ -131,13 +139,13 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
     this.Entries = [];
 
     // write all messages from buffer
-    this.flush();
+    await this.flush();
   }
 
-  protected flush() {
+  protected flush(): Promise<unknown> {
     if (this.WriteEntries.length === 0) {
       this.Status = TargetStatus.IDLE;
-      return;
+      return Promise.resolve();
     }
 
     const streams: Map<string, Stream> = new Map<string, Stream>();
@@ -168,16 +176,34 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       stream.values.push(valFor(x));
     });
 
-    this.AxiosInstance.post("/loki/api/v1/push", { streams: [...streams.values()] })
+    return this.AxiosInstance.post("/loki/api/v1/push", { streams: [...streams.values()] })
       .then(() => {
         this.Status = TargetStatus.IDLE;
         this.Log.trace(`Wrote buffered messages to graphana target at url ${this.Options.host}, ${this.WriteEntries.length} messages.`);
+
+        // successful write -> clear any previous error state
+        this.HasError = false;
+        this.Error = null;
+
         this.WriteEntries = [];
       })
-      .catch((err) => {
+      .catch((err: Error) => {
+        // mark target as errored
+        this.HasError = true;
+        this.Error = err;
+
         // log error message to others if applicable eg. console
         this.Log.error(err, `Cannot write log messages to  graphana target`);
         this.Status = TargetStatus.IDLE;
+
+        // keep WriteEntries for retry, but never let the retry buffer grow without
+        // bound: cap at maxBufferSize by dropping the oldest entries.
+        const cap = this.Options.maxBufferSize;
+        if (this.WriteEntries.length > cap) {
+          const dropped = this.WriteEntries.length - cap;
+          this.WriteEntries = this.WriteEntries.slice(this.WriteEntries.length - cap);
+          this.Log.warn(`Graphana loki retry buffer exceeded ${cap} entries, dropped ${dropped} oldest entries.`);
+        }
       });
   }
 }
