@@ -48,7 +48,9 @@ function writeLogEntry(entry: ILogEntry, logName: string) {
 
         return;
       })
-      .catch(null);
+      .catch((err) => {
+        console.error(`Couldnt write to logger ${logName}, reason: ${err as string}`);
+      });
   }
 }
 
@@ -121,14 +123,17 @@ export class InternalLogger extends Bootstrapper {
     if (err instanceof Error) {
       InternalLogger.write(err, message, level, name, {}, ...args);
     } else {
-      InternalLogger.write(null as any, err, level, message, {}, [name, ...args]);
+      // Non-Error branch: `err` carries the format string. createLogMessageObject
+      // handles err-as-string ( sMsg = err ), so the logger name must stay in the
+      // `name` slot and the message ( plus any format args ) flows through `...args`.
+      InternalLogger.write(err, null as any, level, name, {}, ...(message !== undefined ? [message, ...args] : args));
     }
   }
 
   public static trace(message: string, name: string, ...args: any[]): void;
   public static trace(err: Error, message: string, name: string, ...args: any[]): void;
   public static trace(err: Error | string, message: string | any[], name: string, ...args: any[]): void {
-    InternalLogger.write(err, message, LogLevel.Trace, name, {}, ...args);
+    InternalLogger._write(err, message as string, name, LogLevel.Trace, ...args);
   }
 
   public static debug(message: string, name: string, ...args: any[]): void;

@@ -92,4 +92,45 @@ describe("@spinajs/internal-logger", () => {
 
     expect(spy.callCount).to.eq(4);
   });
+
+  it("should plumb logger name and formatted message correctly ( non-Error overloads )", async () => {
+    const spy = sinon.spy(BlackHoleTarget.prototype, "write");
+
+    // buffered before Configuration resolves
+    InternalLogger.debug("hello %s", "world", "myLogger");
+    InternalLogger.trace("hello %s", "world", "myLogger");
+
+    const bootstrappers = DI.resolve(InternalLogger);
+    bootstrappers.bootstrap();
+
+    await DI.resolve(Configuration);
+
+    expect(spy.callCount).to.eq(2);
+
+    const debugVars = (spy.args[0] as any)[0].Variables;
+    const traceVars = (spy.args[1] as any)[0].Variables;
+
+    expect(debugVars.logger).to.eq("myLogger");
+    expect(debugVars.message).to.eq("hello world");
+    expect(traceVars.logger).to.eq("myLogger");
+    expect(traceVars.message).to.eq("hello world");
+
+    // no logger should be named after the message text
+    expect(spy.args.some((a: any) => a[0].Variables.logger === "hello world")).to.be.false;
+  });
+
+  it("should carry error on the Error overload", async () => {
+    const spy = sinon.spy(BlackHoleTarget.prototype, "write");
+    const bootstrappers = DI.resolve(InternalLogger);
+    bootstrappers.bootstrap();
+    await DI.resolve(Configuration);
+
+    const err = new Error("boom");
+    InternalLogger.error(err, "something failed", "myLogger");
+
+    const vars = (spy.args[0] as any)[0].Variables;
+    expect(vars.error).to.eq(err);
+    expect(vars.logger).to.eq("myLogger");
+    expect(vars.message).to.eq("something failed");
+  });
 });
