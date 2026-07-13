@@ -37,7 +37,7 @@ export class LogBotstrapper extends Bootstrapper {
     // mocha errors in console
     if (!process.env.TESTING) {
       process.removeListener("uncaughtException", uncaughtExceptionHandler);
-      process.removeListener("unhandledRejection", uncaughtExceptionHandler);
+      process.removeListener("unhandledRejection", unhandledRejection);
 
       process.on("uncaughtException", uncaughtExceptionHandler);
       process.on("unhandledRejection", unhandledRejection);
