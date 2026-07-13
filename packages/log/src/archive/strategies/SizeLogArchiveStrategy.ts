@@ -48,8 +48,9 @@ export class SizeLogArchiveStrategy extends LogArchiveStrategy {
       const stat = await ctx.fs.stat(ctx.activePath);
       const maxSize = ctx.options.maxSize;
 
-      if ((stat.Size ?? 0) > maxSize) {
-        this.Logger.trace(`Active log ${ctx.activePath} size ${stat.Size} exceeds ${maxSize}, rotating`);
+      const size = stat.Size ?? 0;
+      if (size > maxSize) {
+        this.Logger.trace(`Active log ${ctx.activePath} size ${size} exceeds ${maxSize}, rotating`);
         await this.triggerRotation(ctx);
       }
     } catch (err) {

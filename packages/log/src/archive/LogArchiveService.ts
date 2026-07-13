@@ -149,6 +149,8 @@ export class LogArchiveService extends AsyncService {
     }
 
     const prefix = `${ARCHIVE_PREFIX}${name}_`;
+    // prefix is escaped via escapeRegExp before interpolation
+    // eslint-disable-next-line security/detect-non-literal-regexp
     const seqReg = new RegExp(`^${escapeRegExp(prefix)}(\\d+)`);
 
     let max = 0;
@@ -181,11 +183,12 @@ export class LogArchiveService extends AsyncService {
    */
   protected resolveStrategy<T>(base: Class<T>, className: string): T {
     const types = DI.RootContainer.Registry.getTypes(base);
-    const type = types.find((x) => (x as Function).name === className);
+    const type = types.find((x) => (x as { name: string }).name === className);
 
     if (!type) {
+      const baseName = (base as { name: string }).name;
       throw new ResolveException(
-        `Log archive strategy ${className} ( ${base.name} ) not registered, make sure it is imported and registered in DI container`
+        `Log archive strategy ${className} ( ${baseName} ) not registered, make sure it is imported and registered in DI container`
       );
     }
 

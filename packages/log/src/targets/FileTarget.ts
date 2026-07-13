@@ -228,7 +228,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
   protected withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.WriteLock.then(() => fn());
     // keep the chain alive on failure so the lock never deadlocks
-    this.WriteLock = run.catch(() => {});
+    this.WriteLock = run.catch(() => undefined);
     return run;
   }
 
