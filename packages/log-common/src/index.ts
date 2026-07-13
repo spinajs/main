@@ -103,58 +103,89 @@ export interface IColoredConsoleTargetOptions extends ICommonTargetOptions {
 export interface IFileTargetOptions extends ICommonTargetOptions {
   options: {
     /**
-     * path whre log is stored. It is allowed to use variables to create path eg. date / time etc.
+     * path where the active log is stored ( relative to the `fs` provider base
+     * path ). Variables are allowed to build the path eg. date / time etc.
      */
     path: string;
 
     /**
-     * Archive path for logs eg. when size is exceeded. Is is allowed to use variables eg. date / time etc.
+     * Directory ( relative to the `archiveFs` provider base path ) rotated /
+     * archived files are stored in. Variables are allowed.
      *
-     * Default is none. When not set archive files are stored in same folder as logs.
+     * When not set archives are stored in the same directory as the active log.
      */
     archivePath: string;
 
     /**
-     * Maximum log file size, if exceeded it is moved to archive, and new log file is created
-     *
-     * Default is 1mb
+     * Name of the registered `@spinajs/fs` provider that stores the ACTIVE log
+     * file. Defaults to `fs-log-default` ( registered automatically, base path
+     * = process.cwd() ).
+     */
+    fs?: string;
+
+    /**
+     * Name of the registered `@spinajs/fs` provider archives are moved to.
+     * Defaults to the same provider as `fs`.
+     */
+    archiveFs?: string;
+
+    /**
+     * Class name of the LogArchiveStrategy that decides WHEN to rotate.
+     * Default is `SizeLogArchiveStrategy` ( interval size check ). Use
+     * `CronLogArchiveStrategy` together with `rotate` for scheduled rotation.
+     */
+    archiveStrategy?: string;
+
+    /**
+     * List of LogRetentionStrategy class names applied in order after each
+     * rotation. Compose eg. count + age. Default is [`CountLogRetentionStrategy`].
+     */
+    retentionStrategies?: string[];
+
+    /**
+     * Maximum active log file size in bytes. When exceeded the file is rotated
+     * to the archive by `SizeLogArchiveStrategy`. Default is 1mb.
      */
     maxSize: number;
 
     /**
-     * Should compress log file when moved to archive
+     * Compress ( zip ) the archived file when moved to the archive.
      *
-     * Default is false
+     * Default is false.
      */
     compress: boolean;
 
     /**
-     * Should rotate log file eg. new  file every new day.
-     * You should use cron like definition eg. at 1am every day: 0 1 * * *
-     * When rotate event occurs, old file is moved to archive, and new one is created
+     * Cron expression used by `CronLogArchiveStrategy` to rotate the log
+     * ( 6-field with seconds supported, eg. '0 0 1 * * *' = 1am daily ).
+     * Required when that strategy is selected.
      *
-     * Default is not set
+     * Default is not set.
      */
     rotate: string;
 
     /**
-     * Max internal message buffer size before writting to file
-     * If bigger the number - less writes to disk.
-     *
-     * Set it big when logging very frequently to avoid disk writes
-     * Defaults to 100 messages
+     * Max internal message buffer size before writing to file. Higher means
+     * fewer disk writes. Defaults to 100 messages.
      */
     maxBufferSize: number;
 
     /**
-     * How mutch archive files should be preserved before deletion. Default is 0
-     * Eg. to store max 5 archive files, set it to 5. Oldest by modification time are deleted.
+     * How many archive files to keep before deletion, used by
+     * `CountLogRetentionStrategy`. Oldest by modification time are deleted.
+     * Default is 5.
      */
     maxArchiveFiles: number;
 
     /**
-     * Log archive interval at whitch process should check if log files need archiving, in seconds.
-     * Default is 3 minutes
+     * Max archive age in seconds, used by `AgeLogRetentionStrategy`. Archives
+     * older than this are deleted. Default is 7 days.
+     */
+    maxAge?: number;
+
+    /**
+     * Interval in seconds at which `SizeLogArchiveStrategy` checks whether the
+     * active log needs rotating. Default is 60 seconds.
      */
     archiveInterval: number;
   };
