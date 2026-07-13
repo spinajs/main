@@ -1,12 +1,13 @@
 import { Config, InvalidConfiguration } from '@spinajs/configuration';
-import { AsyncService, ResolveException } from '@spinajs/di';
+import { AsyncService, ResolveException, sortByDependencies } from '@spinajs/di';
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { fs, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
 import { Log, Logger } from '@spinajs/log-common';
 
 export * from './interfaces.js';
 export * from './local-provider.js';
-export * from './local-temp-provider.js';
+export * from './temp-provider.js';
+export * from './temp-cleanup-strategy.js';
 export * from './decorators.js';
 export * from './file-hasher.js';
 export * from './file-info.js';
@@ -37,7 +38,17 @@ export class fsService extends AsyncService {
     });
 
     const rProviders = DI.RootContainer.Registry.getTypes(fs);
-    const list = Array.from(providers, ([name, value]) => ({ name, value }));
+
+    // order provider creation so that providers referencing other providers
+    // ( eg. fsTemp backend via `provider` option ) are created after their dependency,
+    // regardless of config order. Fails fast on missing / self / circular reference.
+    const ordered = sortByDependencies(
+      Array.from(providers.values()),
+      (p) => p.name,
+      (p) => p.provider,
+    );
+
+    const list = ordered.map((value) => ({ name: value.name, value }));
 
     for (const cProvider of list) {
       const type = rProviders.find((x: any) => x.name === cProvider.value.service);

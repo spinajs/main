@@ -67,7 +67,8 @@ describe('PDF Templates Memory Management Tests', () => {
       }
     }
     testFiles = [];
-    DI.clearCache();
+    // dispose so the pooled browser is closed between tests (clearCache does not dispose)
+    await DI.dispose();
   });
 
   describe('Browser Instance Memory Management', () => {

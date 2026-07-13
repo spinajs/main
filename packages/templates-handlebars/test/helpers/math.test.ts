@@ -1,6 +1,9 @@
 import { expect } from 'chai';
 import * as mathHelpers from '../../src/helpers/math.js';
 
+// Mimics the options object Handlebars appends as the final argument to every helper call.
+const OPT: any = { hash: {}, data: { root: {} }, loc: {}, name: 'helper' };
+
 describe('Math Helpers', () => {
   describe('Basic Operations', () => {
     it('should add numbers', () => {
@@ -120,6 +123,24 @@ describe('Math Helpers', () => {
       const result = mathHelpers.currency(1234.56, 'USD');
       expect(result).to.include('1,234.56');
       expect(result).to.match(/\$|USD/);
+    });
+  });
+
+  // Handlebars appends its options object as the last arg; helpers with a trailing
+  // optional-default param must fall back to the default instead of using that object.
+  describe('Handlebars options-arg guards', () => {
+    it('formatNumber uses default locale when locale arg is the options object', () => {
+      expect(mathHelpers.formatNumber(1234567, OPT)).to.equal('1,234,567');
+    });
+
+    it('currency uses default currency/locale when they are the options object', () => {
+      const result = mathHelpers.currency(1234.56, OPT);
+      expect(result).to.include('1,234.56');
+      expect(result).to.match(/\$|USD/);
+    });
+
+    it('toInt uses default radix when radix arg is the options object', () => {
+      expect(mathHelpers.toInt('42', OPT)).to.equal(42);
     });
   });
 });

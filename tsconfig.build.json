@@ -33,6 +33,7 @@
     { "path": "packages/queue/tsconfig.mjs.json" },
     { "path": "packages/queue-orm-transport/tsconfig.mjs.json" },
     { "path": "packages/queue-stomp-transport/tsconfig.mjs.json" },
+    { "path": "packages/queue-templates-pdf/tsconfig.mjs.json" },
     { "path": "packages/rbac/tsconfig.mjs.json" },
     { "path": "packages/rbac-http/tsconfig.mjs.json" },
     { "path": "packages/rbac-http-user/tsconfig.mjs.json" },

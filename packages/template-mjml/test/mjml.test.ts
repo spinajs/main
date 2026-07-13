@@ -60,6 +60,9 @@ describe('templates', () => {
   it('should render mjml', async () => {
     const t = await tp();
     const result = await t.render(dir('templates/simple.mjml'), { hello: 'world' });
-    expect(result).to.eq('hello world');
+
+    // mjml compiles the .mjml through handlebars ({{hello}} -> "world") then to responsive HTML
+    expect(result).to.match(/<html/i);
+    expect(result).to.contain('world');
   });
 });

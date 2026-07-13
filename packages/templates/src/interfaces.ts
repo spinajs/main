@@ -1,17 +1,11 @@
 import { IMappableService } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
 import { AsyncService } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
-import _ from 'lodash';
+import { IRenderOptions } from './progress.js';
 
 export abstract class TemplateRenderer extends AsyncService implements IMappableService {
   @Logger('renderer')
   protected Log: Log;
-
-  @Config('system.dirs.templates', { defaultValue: [] })
-  protected TemplatePaths: string[];
-
-  protected TemplateFiles: Map<string, string[]> = new Map<string, string[]>();
 
   public abstract get Type(): string;
 
@@ -22,14 +16,17 @@ export abstract class TemplateRenderer extends AsyncService implements IMappable
     return this.Extension;
   }
 
-  public abstract render(templatePath: string, model: unknown, language?: string): Promise<string>;
-  public abstract renderToFile(templatePath: string, model: unknown, filePath: string, language?: string): Promise<void>;
+  public abstract render(templatePath: string, model: unknown, language?: string, options?: IRenderOptions): Promise<string>;
+  public abstract renderToFile(templatePath: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void>;
 
   /**
-   * Function used for precompiling templates at load time. Not all template engines can support it, leave it empty if so.
+   * Precompiles a template at the given path. Called lazily by engines that cache
+   * compiled templates (pug, handlebars). Engines with no compile step (csv, xlsx,
+   * puppeteer, mjml) inherit this no-op default.
    *
-   * @param templateName - template name
-   * @param path - template full path
+   * @param path - full path to the template file
    */
-  protected abstract compile(templateName: string, path: string): Promise<void>;
+  protected compile(_path: string): Promise<void> {
+    return Promise.resolve();
+  }
 }

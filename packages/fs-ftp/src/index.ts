@@ -5,7 +5,7 @@ import { Client } from 'basic-ftp';
 import path from 'path';
 import { IOFail, MethodNotImplemented } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
-import { Readable } from 'stream';
+import { PassThrough, Readable } from 'stream';
 
 interface IFtpConfig {
   host: string;
@@ -140,13 +140,26 @@ export class fsFTP extends fs {
   }
 
   /**
+   * Returns a readable stream with the remote file content.
    *
-   * @param path
-   * @param _encoding
-   * @returns
+   * NOTE: basic-ftp runs one command at a time on a single connection - do not
+   * issue other operations on this provider until the stream is fully consumed.
    */
-  public async readStream(_path: string, _encoding?: BufferEncoding): Promise<any> {
-    throw new MethodNotImplemented('fs ftp does not support reading streams');
+  public async readStream(p: string, encoding?: BufferEncoding): Promise<any> {
+    const pass = new PassThrough();
+
+    if (encoding) {
+      pass.setEncoding(encoding);
+    }
+
+    await this._restoreRootDir();
+    await this._setWorkingDir(p);
+
+    this.FtpClient.downloadTo(pass, path.basename(p)).catch((err) => {
+      pass.destroy(err instanceof Error ? err : new IOFail(`Cannot read stream from ${p}`, err));
+    });
+
+    return pass;
   }
 
   /**
@@ -163,13 +176,14 @@ export class fsFTP extends fs {
    * @param data
    * @param encoding
    */
-  public async append(path: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
-    const size = await this.FtpClient.size(path);
+  public async append(dstPath: string, data: string | Buffer, encoding?: BufferEncoding): Promise<void> {
+    await this._restoreRootDir();
+    await this._ensureDir(dstPath);
 
-    await this._ensureDir(path);
-    await this.FtpClient.uploadFrom(Readable.from(data, { encoding }), path, {
-      localStart: size,
-    });
+    // use the FTP APPE command ( appendFrom ) so data is appended to the existing
+    // remote file. After _ensureDir the working dir is the file's parent, so the
+    // remote target must be the basename.
+    await this.FtpClient.appendFrom(Readable.from(data, { encoding }), path.basename(dstPath));
   }
 
   public async upload(srcPath: string, destPath?: string) {
@@ -180,7 +194,10 @@ export class fsFTP extends fs {
     }
     
     await this._ensureDir(destPath!);
-    await this.FtpClient.uploadFrom(srcPath, path.basename(srcPath));
+
+    // upload under the destination file name, not the source name. _ensureDir has
+    // already switched into destPath's parent directory, so pass the destination basename.
+    await this.FtpClient.uploadFrom(srcPath, path.basename(destPath!));
   }
 
   /**
@@ -287,8 +304,9 @@ export class fsFTP extends fs {
    * @param path - dir to remove
    */
   public async rm(p: string) {
-    this.FtpClient.cd(path.dirname(p));
-    this.FtpClient.remove(path.basename(p));
+    await this._restoreRootDir();
+    await this._setWorkingDir(p);
+    await this.FtpClient.remove(path.basename(p));
   }
 
   /**
@@ -342,12 +360,52 @@ export class fsFTP extends fs {
     return files.map((f) => f.name);
   }
 
-  public async unzip(_path: string, _destPath?: string, _dstFs?: fs): Promise<string> {
-    throw new IOFail('Method not implemented, you should download zipped to local fs first, then unzip it');
+  /**
+   * Downloads the zip to the local temp fs and extracts it there.
+   * Destination fs must be a local-path filesystem ( defaults to the temp fs ) -
+   * extracting directly onto the ftp server is not supported.
+   */
+  public async unzip(srcPath: string, destPath?: string, dstFs?: fs): Promise<string> {
+    const local = await this.download(srcPath);
+
+    try {
+      return await this.TempFs.unzip(local, destPath, dstFs ?? this.TempFs);
+    } finally {
+      try {
+        await this.TempFs.rm(local);
+      } catch {
+        /* best effort cleanup */
+      }
+    }
   }
 
-  public async zip(_path: string, _dstFs?: fs, _dstFile?: string): Promise<IZipResult> {
-    throw new IOFail('Method not implemented, you should zip files locally, then upload it');
+  /**
+   * Downloads given remote files to the local temp fs and zips them there.
+   * Result is created on dstFs ( defaults to the temp fs ). Entry names are the
+   * remote path basenames.
+   */
+  public async zip(p: string | (string | string[])[], dstFs?: fs, dstFile?: string): Promise<IZipResult> {
+    const paths = Array.isArray(p) ? p : [p];
+    const downloaded: [string, string][] = [];
+
+    try {
+      for (const entry of paths) {
+        const remote = Array.isArray(entry) ? entry[0] : entry;
+        const entryName = Array.isArray(entry) ? entry[1] : entry;
+        const local = await this.download(remote);
+        downloaded.push([local, entryName]);
+      }
+
+      return await this.TempFs.zip(downloaded, dstFs ?? this.TempFs, dstFile);
+    } finally {
+      for (const [local] of downloaded) {
+        try {
+          await this.TempFs.rm(local);
+        } catch {
+          /* best effort cleanup */
+        }
+      }
+    }
   }
 
   public resolvePath(_path: string): string {

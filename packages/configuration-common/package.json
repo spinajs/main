@@ -8,9 +8,13 @@
   "main": "./lib/cjs/index.js",
   "module": "./lib/mjs/index.js",
   "exports": {
-      ".": {
+      "node": {
           "import": "./lib/mjs/index.js",
           "require": "./lib/cjs/index.js"
+      },
+      "browser": {
+          "import": "./lib/mjs/index.browser.js",
+          "require": "./lib/cjs/index.browser.js"
       }
   },
   "type": "module",

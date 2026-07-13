@@ -1,3 +1,5 @@
+import { isHbOptions } from './options.js';
+
 /**
  * Addition
  * Usage: {{add 5 3}} → 8
@@ -87,6 +89,7 @@ export function toFixed(value: any, decimals: number): string {
  * Usage: {{toInt 3.7}} → 3
  */
 export function toInt(value: any, radix: number = 10): number {
+  if (isHbOptions(radix)) radix = 10;
   return parseInt(String(value), radix) || 0;
 }
 
@@ -186,6 +189,7 @@ export function percentage(value: any, total: any): number {
  * Usage: {{formatNumber 1234567}} → "1,234,567"
  */
 export function formatNumber(value: any, locale: string = 'en-US'): string {
+  if (isHbOptions(locale)) locale = 'en-US';
   return (Number(value) || 0).toLocaleString(locale);
 }
 
@@ -194,6 +198,8 @@ export function formatNumber(value: any, locale: string = 'en-US'): string {
  * Usage: {{currency 1234.56 "USD"}} → "$1,234.56"
  */
 export function currency(value: any, currencyCode: string = 'USD', locale: string = 'en-US'): string {
+  if (isHbOptions(currencyCode)) currencyCode = 'USD';
+  if (isHbOptions(locale)) locale = 'en-US';
   return (Number(value) || 0).toLocaleString(locale, {
     style: 'currency',
     currency: currencyCode,

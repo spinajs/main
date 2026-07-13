@@ -50,6 +50,38 @@ describe('JobsController', function () {
             expect(queryBuilder.where.calledWith('JobId', 'abc-123')).to.be.true;
         });
 
+        it('should surface progress phase and message when present', async () => {
+            const queryBuilder = {
+                where: sinon.stub().returnsThis(),
+                firstOrFail: sinon.stub().resolves({
+                    ...mockJobRow,
+                    Phase: 'loading',
+                    Message: 'Loading resources (12 done)',
+                }),
+            };
+            sinon.stub(JobModel, 'select').returns(queryBuilder as any);
+
+            const result = await controller.getStatus('abc-123');
+            const response = (result as any).responseData as IJobStatusResponse;
+
+            expect(response.phase).to.equal('loading');
+            expect(response.message).to.equal('Loading resources (12 done)');
+        });
+
+        it('should leave phase/message undefined when absent', async () => {
+            const queryBuilder = {
+                where: sinon.stub().returnsThis(),
+                firstOrFail: sinon.stub().resolves(mockJobRow),
+            };
+            sinon.stub(JobModel, 'select').returns(queryBuilder as any);
+
+            const result = await controller.getStatus('abc-123');
+            const response = (result as any).responseData as IJobStatusResponse;
+
+            expect(response.phase).to.equal(undefined);
+            expect(response.message).to.equal(undefined);
+        });
+
         it('should throw when job does not exist', async () => {
             const queryBuilder = {
                 where: sinon.stub().returnsThis(),

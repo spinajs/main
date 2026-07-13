@@ -1,7 +1,7 @@
 {
   "name": "@spinajs/templates-pug",
   "version": "2.0.481",
-  "description": "templates support for pug files eg. html file generation",
+  "description": "Pug template renderer for @spinajs/templates.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {

@@ -23,6 +23,17 @@ export class JobModel<T> extends ModelBase {
   public Progress: number;
 
   /**
+   * Optional human-facing progress phase (e.g. `loading`, `rendering`), set by
+   * jobs that report richer progress than a bare percentage. Nullable.
+   */
+  public Phase: string;
+
+  /**
+   * Optional human-facing progress message accompanying {@link Phase}. Nullable.
+   */
+  public Message: string;
+
+  /**
    * Number of times job execution has been attempted. Incremented on every failed run.
    * Once it exceeds the job's RetryCount the job is marked as `dead`.
    */
