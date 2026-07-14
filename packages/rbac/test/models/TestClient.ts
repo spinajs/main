@@ -16,6 +16,8 @@ export class TestClient extends ModelBase {
 
   public type: number;
 
+  public Name: string;
+
   public static rbac(this: SelectQueryBuilder<TestClient>, _user?: User) {
     this.whereIn('type', [1, 2]);
   }

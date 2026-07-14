@@ -141,6 +141,37 @@ describe('Orm rbac test', function () {
       );
     });
 
+    it('should combine rbac constraint with user whereOnJoin OR group in JOIN ON clause', async () => {
+      const store = DI.resolve(AsyncLocalStorage);
+      await store.run(
+        {
+          User: new User({
+            Id: 1,
+            Role: ['normal'],
+          }),
+        },
+        async () => {
+          const result = TestCampaign.where('Id', '>', 0)
+            .populate('Client', function () {
+              this.whereOnJoin(function () {
+                this.where(function () {
+                  this.where('Name', 'Orange').orWhere('Name', 'T-Mobile');
+                });
+              });
+            })
+            .toDB() as ICompilerOutput;
+
+          // rbac constraint AND the user OR group both land in the JOIN ON clause
+          expect(result.expression).to.match(/ON .*`\$Client\$`\.`type` IN \(\?,\?\) AND \( `\$Client\$`\.`Name` = \? OR `\$Client\$`\.`Name` = \? \)/);
+
+          // parent WHERE stays clean of relation conditions
+          const wherePart = result.expression!.split('WHERE')[1];
+          expect(wherePart).to.not.contain('type');
+          expect(wherePart).to.not.contain('Name');
+        },
+      );
+    });
+
     it('should not drop campaigns whose client type is filtered out', async () => {
       // end-to-end: campaign with disallowed client type must stay in results with Client = null
       await TestClient.insert(new TestClient({ Id: 1, type: 1 }));

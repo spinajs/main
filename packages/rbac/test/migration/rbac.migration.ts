@@ -26,6 +26,7 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
     await connection.schema().createTable('test_client', (table) => {
       table.int('Id').primaryKey().autoIncrement();
       table.int('type');
+      table.string('Name', 64);
     });
   }
 
