@@ -267,6 +267,8 @@ export class SqlJoinStatement extends JoinStatement {
       }
     }
 
+    // whereOnJoin() conditions from a populated relation - appended to ON
+    // so the outer join semantics are preserved
     if (this._options.onStatements) {
       const parts: string[] = [];
       this._options.onStatements

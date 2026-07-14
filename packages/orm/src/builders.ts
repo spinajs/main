@@ -948,6 +948,8 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
+  // conditions added in callback are join-scoped: emitted in relation JOIN ON clause
+  // instead of parent WHERE when populated; on a root query act as normal WHERE
   public whereOnJoin(callback: WhereFunction<T>): this {
     const start = this._statements.length;
     callback.call(this);

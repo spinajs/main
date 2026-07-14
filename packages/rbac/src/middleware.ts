@@ -106,6 +106,8 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
               this.Log.trace(`Resource ${resource}:own permission granted for ${storage.User.Role}, scope: ${storage.PermissionScope}`);
 
               const user = storage.User;
+              // 'join' scope: :own constraints go to the relation LEFT JOIN ON clause
+              // instead of parent WHERE ( on root queries whereOnJoin acts as plain WHERE )
               const joinScoped = descriptor.RbacRelationScope === 'join';
 
               if (rbacFunc) {

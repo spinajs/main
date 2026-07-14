@@ -2,6 +2,8 @@ import { extractDecoratorDescriptor, extractDecoratorPropertyDescriptor } from '
 import { IRbacModelDescriptor } from './interfaces.js';
 
 export interface IOrmResourceOptions {
+  // where :own constraints land when model is populated as relation: 'where' ( default )
+  // filters parent rows, 'join' constrains the LEFT JOIN ON clause ( parent rows are kept )
   relationScope?: 'where' | 'join';
 }
 

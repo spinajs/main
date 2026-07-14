@@ -966,6 +966,7 @@ export interface IWhereBuilder<T> {
   whereInSet(column: string, val: unknown[]): this;
   whereNotInSet(column: string, val: unknown[]): this;
 
+  // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE
   whereOnJoin(callback: WhereFunction<T>): this;
 
   clearWhere(): this;
@@ -1476,6 +1477,8 @@ export interface IJoinStatementOptions<R = ModelBase> {
    */
   queryCallback?: (this: ISelectQueryBuilder<R>) => void;
 
+  // prebuilt statements appended to the JOIN ON clause ( AND-joined ) - used by relations
+  // to keep whereOnJoin() conditions out of the parent query WHERE
   onStatements?: IQueryStatement[];
 }
 

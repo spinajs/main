@@ -17,6 +17,8 @@ export interface IQueryStatementResult {
 export interface IQueryStatement {
   TableAlias: string;
 
+  // set by whereOnJoin() - statement is emitted in the relation JOIN ON clause
+  // instead of parent query WHERE ( does not survive clone() )
   OnJoin?: boolean;
 
   build(): IQueryStatementResult;
