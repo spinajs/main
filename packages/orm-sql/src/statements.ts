@@ -29,13 +29,11 @@ export class SqlRawStatement extends RawQueryStatement {
 
 @NewInstance()
 export class SqlLazyQueryStatement extends LazyQueryStatement {
-
   public clone(): SqlLazyQueryStatement {
     return new SqlLazyQueryStatement(this.callback, this.context);
   }
 
   build(): IQueryStatementResult {
-
     const context = (this.context as SelectQueryBuilder).clone();
     context.setAlias((this.context as SelectQueryBuilder).TableAlias);
 
@@ -47,9 +45,8 @@ export class SqlLazyQueryStatement extends LazyQueryStatement {
     return {
       Bindings: result.flatMap((x) => x.Bindings),
       Statements: result.flatMap((x) => x.Statements),
-    }
+    };
   }
-
 }
 
 @NewInstance()
@@ -115,14 +112,8 @@ export class SqlGroupByStatement extends GroupByStatement {
 
 @NewInstance()
 export class SqlWhereStatement extends WhereStatement {
-
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_builder?: T): SqlWhereStatement {
-    return new SqlWhereStatement(
-      this._column,
-      this._operator,
-      this._value,
-      this._builder,
-    );
+    return new SqlWhereStatement(this._column, this._operator, this._value, this._builder);
   }
 
   public build(): IQueryStatementResult {
@@ -159,14 +150,7 @@ export class SqlWhereStatement extends WhereStatement {
           }
         }
 
-        val = converter
-          ? converter.toDB(
-            this._value,
-            null as any,
-            (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any,
-            null,
-          )
-          : this._value;
+        val = converter ? converter.toDB(this._value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, null) : this._value;
       }
     }
 
@@ -183,7 +167,7 @@ export class SqlJoinStatement extends JoinStatement {
     return new SqlJoinStatement({
       ...this._options,
       builder: (parent as SelectQueryBuilder) ?? this._options.builder,
-    })
+    });
   }
 
   public build(): IQueryStatementResult {
@@ -227,7 +211,6 @@ export class SqlJoinStatement extends JoinStatement {
     let sourceTable = sourceModel ? sourceModel.TableName : this._options.builder ? this._options.builder.Table : null;
     let joinTable = joinModel ? joinModel.TableName : this._options.joinTable;
 
-
     if (this._whereBuilder) {
       this._whereBuilder.setAlias(joinTableAlias);
     }
@@ -258,8 +241,6 @@ export class SqlJoinStatement extends JoinStatement {
       }
     }
 
-
-
     const primaryKey = sourceTableAlias ? `\`${sourceTableAlias}\`.${this._options.sourceTablePrimaryKey}` : `\`${sourceTable}\`.${this._options.sourceTablePrimaryKey}`;
     const foreignKey = joinTableAlias ? `\`${joinTableAlias}\`.${this._options.joinTableForeignKey}` : `\`${joinTable}\`.${this._options.joinTableForeignKey}`;
 
@@ -283,6 +264,23 @@ export class SqlJoinStatement extends JoinStatement {
 
       if (parts.length > 0) {
         onExpression += ` AND ${parts.join(` ${this._whereBuilder.Op.toUpperCase()} `)}`;
+      }
+    }
+
+    if (this._options.onStatements) {
+      const parts: string[] = [];
+      this._options.onStatements
+        .filter((x: WhereStatement) => !x.IsAggregate)
+        .forEach((x: WhereStatement) => {
+          const r = x.build();
+          parts.push(...r.Statements);
+          if (Array.isArray(r.Bindings)) {
+            onBindings.push(...r.Bindings);
+          }
+        });
+
+      if (parts.length > 0) {
+        onExpression += ` AND ${parts.join(' AND ')}`;
       }
     }
 
@@ -424,7 +422,6 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
 @NewInstance()
 export class SqlWhereQueryStatement extends WhereQueryStatement {
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent?: T): IQueryStatement {
-
     // TODO: fix this any cast !
     return new SqlWhereQueryStatement(this._builder.clone(_parent as any));
   }
@@ -443,9 +440,7 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
 @NewInstance()
 export class SqlExistsQueryStatement extends ExistsQueryStatement {
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent?: T): IQueryStatement {
-
-
-    // TODO: this look wrong to clone _builder, 
+    // TODO: this look wrong to clone _builder,
     // it could be shared between statements
     // and cloning it every time could lead to unexpected results
     // eg. modifying cloned builder will not behave as expected

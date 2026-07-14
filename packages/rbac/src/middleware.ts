@@ -104,9 +104,17 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
               return;
             } else if (canOwn) {
               this.Log.trace(`Resource ${resource}:own permission granted for ${storage.User.Role}, scope: ${storage.PermissionScope}`);
+
+              const user = storage.User;
+              const joinScoped = descriptor.RbacRelationScope === 'join';
+
               if (rbacFunc) {
                 this.Log.trace(`Applying custom rbac func for ${resource}`);
-                rbacFunc.call(builder, storage.User);
+                if (joinScoped) {
+                  builder.whereOnJoin(() => rbacFunc.call(builder, user));
+                } else {
+                  rbacFunc.call(builder, user);
+                }
               } else if (descriptor.OwnerField) {
                 this.Log.trace(`Applying owner field restriction for ${resource}`);
                 builder.andWhere(descriptor.OwnerField, storage.User.PrimaryKeyValue);

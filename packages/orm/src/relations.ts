@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { InvalidOperation } from '@spinajs/exceptions';
 import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder } from './interfaces.js';
+import type { IQueryStatement } from './statements.js';
 import { NewInstance, DI, Constructor, Inject, Container } from '@spinajs/di';
 
 import { BelongsToPopulateDataMiddleware, BelongsToRelationRecursiveMiddleware, BelongsToRelationResultTransformMiddleware, DiscriminationMapMiddleware, HasManyRelationMiddleware, HasManyToManyRelationMiddleware, QueryRelationMiddleware, VirtualRelationMiddleware } from './middlewares.js';
@@ -140,6 +141,8 @@ export class BelongsToRelation extends NativeOrmRelation {
       this._query.setAlias(`${this._separator}${this._description.SourceModel!.name}${this._separator}`);
     }
 
+    const onStatements = this._relationQuery.Statements.filter((s) => s.OnJoin);
+
     this._query.leftJoin({
       joinTable: this._targetModelDescriptor.TableName,
       joinTableAlias: this.Alias,
@@ -147,12 +150,14 @@ export class BelongsToRelation extends NativeOrmRelation {
       joinTableDatabase: this._targetModelDescriptor.Driver?.Options.Database,
       joinTableForeignKey: this._description.PrimaryKey,
       joinTableDriver: this._targetModelDescriptor.Driver!,
+      onStatements: onStatements.length ? onStatements : undefined,
     } as any)
 
     this._relationQuery.Relations.forEach((r) => r.compile());
 
     // todo: fix this cast
-    (this._query as any).mergeBuilder(this._relationQuery);
+    (this._query as any).mergeBuilder(this._relationQuery, false);
+    (this._query as any).mergeStatements(this._relationQuery, (s: IQueryStatement) => !s.OnJoin);
 
     this._query.middleware(new BelongsToPopulateDataMiddleware(this._description, this));
     if (!this.parentRelation || !(this.parentRelation instanceof BelongsToRelation)) {

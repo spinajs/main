@@ -1,16 +1,22 @@
 import { extractDecoratorDescriptor, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
 import { IRbacModelDescriptor } from './interfaces.js';
 
+export interface IOrmResourceOptions {
+  relationScope?: 'where' | 'join';
+}
+
 /**
  * Assign resource name for given model ( RBAC ).
  * NOTE: this decorator is optional, if model does not have resource assigned
  *       model name will be used as default
  *
  * @param name - table name in database that is referred by this model
+ * @param options - additional rbac options eg. relation scope for :own constraints
  */
-export function OrmResource(resourceName?: string) {
+export function OrmResource(resourceName?: string, options?: IOrmResourceOptions) {
   return extractDecoratorDescriptor((model: IRbacModelDescriptor) => {
     model.RbacResource = resourceName ?? model.Name;
+    model.RbacRelationScope = options?.relationScope ?? 'where';
   });
 }
 

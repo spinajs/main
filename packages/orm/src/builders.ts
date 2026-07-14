@@ -948,6 +948,15 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
+  public whereOnJoin(callback: WhereFunction<T>): this {
+    const start = this._statements.length;
+    callback.call(this);
+    for (let i = start; i < this._statements.length; i++) {
+      this._statements[i].OnJoin = true;
+    }
+    return this;
+  }
+
   public whereInSet(column: string, val: any[]): this {
     this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this.TableAlias]));
     return this;

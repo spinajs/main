@@ -965,6 +965,9 @@ export interface IWhereBuilder<T> {
   whereNotBetween(column: string, val: unknown[]): this;
   whereInSet(column: string, val: unknown[]): this;
   whereNotInSet(column: string, val: unknown[]): this;
+
+  whereOnJoin(callback: WhereFunction<T>): this;
+
   clearWhere(): this;
 }
 
@@ -1465,13 +1468,15 @@ export interface IJoinStatementOptions<R = ModelBase> {
   callback?: ((this: IWhereBuilder<R>) => void) | Lazy<(this: ISelectQueryBuilder<R>) => void>;
 
   /**
-   * 
+   *
    * Optional callback to modify whole join query builder
-   * 
+   *
    * @param this callback context is select query builder for this join
-   * @returns 
+   * @returns
    */
   queryCallback?: (this: ISelectQueryBuilder<R>) => void;
+
+  onStatements?: IQueryStatement[];
 }
 
 export interface ITransaction {

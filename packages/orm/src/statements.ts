@@ -17,6 +17,8 @@ export interface IQueryStatementResult {
 export interface IQueryStatement {
   TableAlias: string;
 
+  OnJoin?: boolean;
+
   build(): IQueryStatementResult;
 
   clone(parent?: QueryBuilder | SelectQueryBuilder | WhereBuilder<any>): IQueryStatement;
@@ -25,12 +27,22 @@ export interface IQueryStatement {
 export abstract class QueryStatement implements IQueryStatement {
   protected _tableAlias: string | undefined;
 
+  protected _onJoin: boolean = false;
+
   public get TableAlias(): string {
     return this._tableAlias ?? '';
   }
 
   public set TableAlias(alias: string) {
     this._tableAlias = alias;
+  }
+
+  public get OnJoin(): boolean {
+    return this._onJoin;
+  }
+
+  public set OnJoin(onJoin: boolean) {
+    this._onJoin = onJoin;
   }
 
   constructor(tableAlias?: string | null) {
