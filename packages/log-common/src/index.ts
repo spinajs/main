@@ -2,6 +2,8 @@ import { Autoinject, Container, DI, SyncService } from "@spinajs/di";
 import _ from "lodash";
 import { format } from "./format.js";
 
+export * from "./serializers.js";
+
 export enum LogLevel {
   Security = 999,
 
