@@ -55,6 +55,7 @@
     "@spinajs/configuration-common": "^2.0.481",
     "@spinajs/di": "^2.0.481",
     "@spinajs/log": "^2.0.481",
+    "@spinajs/util": "^2.0.481",
     "axios": "^1.2.3",
     "lodash": "^4.17.21"
   }

@@ -7,6 +7,7 @@ import { Log, LogBotstrapper } from "@spinajs/log";
 import _ from "lodash";
 import axios from "axios";
 import { Configuration, FrameworkConfiguration } from "@spinajs/configuration";
+import { ResiliencePipelineBuilder } from "@spinajs/util";
 
 import { GraphanaLokiLogTarget } from "./../src/index.js";
 
@@ -240,6 +241,12 @@ describe("logger tests", function () {
     const target = buildTarget({ maxBufferSize: 50 });
     target.resolve();
     clearInterval(target.FlushTimer); // drive flush manually
+
+    // swap the inline retry pipeline for a no-retry passthrough so this test
+    // exercises the flush-level retry-buffer cap deterministically ( a network
+    // error like `boom` is retryable, so the real pipeline would sleep through
+    // several seconds of exponential backoff on every flush ).
+    target.RetryPipeline = new ResiliencePipelineBuilder().build();
 
     // stub the actual instance method used by flush()
     const post = sinon.stub(target.AxiosInstance, "post").callsFake(() => Promise.reject(new Error("boom")));
