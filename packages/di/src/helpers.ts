@@ -2,7 +2,8 @@ import { TypedArray } from './array.js';
 import { ResolveException } from './exceptions.js';
 import { AsyncService, SyncService } from './interfaces.js';
 import { Factory, Class } from './types.js';
-
+// re-exported from @spinajs/util to keep a single implementation across the framework
+export { isPromise } from '@spinajs/util';
 /**
  * Checks if value is constructable type.
  * Checks for [[Construct]] internal function in object.
@@ -49,9 +50,7 @@ export function isAsyncService(value: any): value is AsyncService {
   return value instanceof AsyncService;
 }
 
-export function isPromise(value: any): value is Promise<any> {
-  return value instanceof Promise;
-}
+
 
 export function isSyncService(value: any): value is SyncService {
   return value instanceof SyncService;

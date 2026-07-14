@@ -1,3 +1,4 @@
+import { capitalize as _capitalize, capitalizeWords as _capitalizeWords, truncateWords as _truncateWords } from '@spinajs/util';
 import { isHbOptions } from './options.js';
 
 /**
@@ -57,8 +58,7 @@ export function lowercase(str: string): string {
  * Usage: {{capitalize "hello world"}} → "Hello world"
  */
 export function capitalize(str: string): string {
-  const text = String(str || '');
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  return _capitalize(String(str || ''));
 }
 
 /**
@@ -66,10 +66,7 @@ export function capitalize(str: string): string {
  * Usage: {{capitalizeWords "hello world"}} → "Hello World"
  */
 export function capitalizeWords(str: string): string {
-  return String(str || '')
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
+  return _capitalizeWords(String(str || ''));
 }
 
 /**
@@ -90,9 +87,7 @@ export function truncate(str: string, length: number, suffix: string = '...'): s
  */
 export function truncateWords(str: string, count: number, suffix: string = '...'): string {
   if (isHbOptions(suffix)) suffix = '...';
-  const words = String(str || '').split(' ');
-  if (words.length <= count) return str;
-  return words.slice(0, count).join(' ') + suffix;
+  return _truncateWords(String(str || ''), count, suffix);
 }
 
 /**

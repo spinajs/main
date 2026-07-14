@@ -1,5 +1,6 @@
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
+import { sleep as _utilSleep } from '@spinajs/util';
 
 export * from "./mutex.js";
 
@@ -10,13 +11,7 @@ export * from "./mutex.js";
  * @param duration sleep duration in ms
  * @returns
  */
-export const sleep = (duration: number) => {
-  return new Promise<void>((resolve) => {
-    setTimeout(() => {
-      resolve();
-    }, duration);
-  });
-};
+export const sleep = (duration: number) => _utilSleep(duration);
 
 /**
  *

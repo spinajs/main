@@ -11,6 +11,7 @@ import {
   BrokenCircuitException,
   IsolatedCircuitException,
   RateLimiterRejectedException,
+  HedgingException,
   CircuitBreakerManualControl,
   TimeSpan,
 } from '../src/index.js';
@@ -355,6 +356,138 @@ describe('resilience', () => {
       } finally {
         clock.restore();
       }
+    });
+  });
+});
+
+describe('resilience - edge cases', () => {
+  describe('retry', () => {
+    it('clamps exponential backoff to MaxDelay', async () => {
+      const clock = sinon.useFakeTimers();
+      try {
+        const delays: number[] = [];
+        const action = sinon.stub().rejects(new IOFail('x'));
+        const pipeline = new ResiliencePipelineBuilder<string>()
+          .addRetry({
+            MaxRetryAttempts: 3,
+            Delay: 100,
+            BackoffType: BackoffType.Exponential,
+            MaxDelay: 250,
+            OnRetry: ({ RetryDelay }) => void delays.push(RetryDelay.totalMilliseconds),
+          })
+          .build();
+
+        await withFakeTime(clock, () => expect(pipeline.execute(() => action())).to.be.rejected);
+
+        // exponential 100, 200, 400 -> clamped to 100, 200, 250
+        expect(delays).to.deep.equal([100, 200, 250]);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('DelayGenerator overrides the computed backoff', async () => {
+      const clock = sinon.useFakeTimers();
+      try {
+        const delays: number[] = [];
+        const action = sinon.stub().rejects(new IOFail('x'));
+        const pipeline = new ResiliencePipelineBuilder<string>()
+          .addRetry({
+            MaxRetryAttempts: 2,
+            Delay: 999,
+            DelayGenerator: ({ AttemptNumber }) => AttemptNumber * 5,
+            OnRetry: ({ RetryDelay }) => void delays.push(RetryDelay.totalMilliseconds),
+          })
+          .build();
+
+        await withFakeTime(clock, () => expect(pipeline.execute(() => action())).to.be.rejected);
+        expect(delays).to.deep.equal([5, 10]);
+      } finally {
+        clock.restore();
+      }
+    });
+  });
+
+  describe('hedging', () => {
+    it('rethrows the underlying error when every attempt fails', async () => {
+      const clock = sinon.useFakeTimers();
+      try {
+        const action = sinon.stub().rejects(new IOFail('all failed'));
+        const pipeline = new ResiliencePipelineBuilder<string>().addHedging({ MaxHedgedAttempts: 2, Delay: 50 }).build();
+
+        await withFakeTime(clock, () => expect(pipeline.execute(() => action())).to.be.rejectedWith('all failed'));
+        // 1 original + 2 hedged
+        expect(action.callCount).to.eq(3);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('HedgingException is an Error subtype', () => {
+      expect(new HedgingException('x')).to.be.instanceOf(Error);
+    });
+  });
+
+  describe('concurrency limiter', () => {
+    it('rejects when the queue is full', async () => {
+      // permit 1, queue 1: 1 running + 1 queued is fine, the 3rd is rejected
+      const pipeline = new ResiliencePipelineBuilder<string>().addConcurrencyLimiter({ PermitLimit: 1, QueueLimit: 1 }).build();
+
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+
+      const first = pipeline.execute(() => gate.then(() => 'first')); // occupies the permit
+      const second = pipeline.execute(() => Promise.resolve('second')); // queued
+      const third = pipeline.execute(() => Promise.resolve('third')); // queue full -> reject
+
+      await expect(third).to.be.rejectedWith(RateLimiterRejectedException);
+
+      release();
+      expect(await first).to.eq('first');
+      expect(await second).to.eq('second');
+    });
+
+    it('accepts a bare number as the permit limit', async () => {
+      const pipeline = new ResiliencePipelineBuilder<string>().addConcurrencyLimiter(2).build();
+      expect(await pipeline.execute(() => Promise.resolve('ok'))).to.eq('ok');
+    });
+  });
+
+  describe('fallback', () => {
+    it('awaits an async FallbackAction', async () => {
+      const pipeline = new ResiliencePipelineBuilder<string>()
+        .addFallback({ FallbackAction: async () => 'recovered' })
+        .build();
+
+      const res = await pipeline.execute(() => Promise.reject(new IOFail('boom')));
+      expect(res).to.eq('recovered');
+    });
+  });
+
+  describe('PredicateBuilder', () => {
+    it('handleError matches by predicate', async () => {
+      const p = new PredicateBuilder<number>().handleError((e) => e instanceof IOFail).build();
+      expect(await p({ Error: new IOFail('x') })).to.be.true;
+      expect(await p({ Error: new Error('other') })).to.be.false;
+      expect(await p({ Result: 1 })).to.be.false;
+    });
+
+    it('handleResultValue matches a specific value', async () => {
+      const p = new PredicateBuilder<number>().handleResultValue(-1).build();
+      expect(await p({ Result: -1 })).to.be.true;
+      expect(await p({ Result: 5 })).to.be.false;
+    });
+
+    it('handle narrows by error type and optional predicate', async () => {
+      const p = new PredicateBuilder<number>().handle(IOFail, (e) => e.message === 'match').build();
+      expect(await p({ Error: new IOFail('match') })).to.be.true;
+      expect(await p({ Error: new IOFail('nope') })).to.be.false;
+    });
+
+    it('empty builder handles any error (Polly default)', async () => {
+      const p = new PredicateBuilder<number>().build();
+      expect(await p({ Error: new Error('any') })).to.be.true;
+      expect(await p({ Result: 1 })).to.be.false;
     });
   });
 });
