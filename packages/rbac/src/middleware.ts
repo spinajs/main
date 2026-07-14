@@ -117,7 +117,11 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
                 }
               } else if (descriptor.OwnerField) {
                 this.Log.trace(`Applying owner field restriction for ${resource}`);
-                builder.andWhere(descriptor.OwnerField, storage.User.PrimaryKeyValue);
+                if (joinScoped) {
+                  builder.whereOnJoin(() => builder.andWhere(descriptor.OwnerField, user.PrimaryKeyValue));
+                } else {
+                  builder.andWhere(descriptor.OwnerField, user.PrimaryKeyValue);
+                }
               } else {
                 this.Log.error(`Model ${descriptor.Name} does not have OwnerField set or static rbac function, cannot apply :own permission`); throw new OrmException(`Model ${descriptor.Name} does not have OwnerField set, cannot apply :own permission`);
               }
