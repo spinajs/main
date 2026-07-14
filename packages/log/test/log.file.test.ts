@@ -277,6 +277,40 @@ describe("file target tests", function () {
     }
   });
 
+  it("Should drop oldest and cap the buffer when appends fail persistently", async () => {
+    const log = logger("big-buffer");
+    const target = DI.get(FileTarget)! as any;
+    await target.Ready;
+
+    // shrink the hard cap for a fast, deterministic test
+    const cap = 50;
+    target.Options.options.maxQueueSize = cap;
+
+    // make every append fail so the batch is always prepended back -> buffer
+    // would grow unbounded without the cap. Fs providers are shared singletons,
+    // so restore the original append afterwards to avoid leaking into other tests.
+    const realFs = target.Fs as fs;
+    const origAppend = realFs.append.bind(realFs);
+    (realFs as any).append = async () => {
+      throw new Error("disk full");
+    };
+
+    try {
+      // push far more than the cap; each push runs enforceQueueCap()
+      for (let i = 0; i < cap * 10; i++) {
+        log.info(`[${i}]`);
+      }
+
+      // let flush timers run so the failure-path prepend + cap also exercises
+      await wait(1200);
+
+      expect(target.Buffer.length).to.be.at.most(cap);
+      expect(target.Overflowed).to.be.true;
+    } finally {
+      (realFs as any).append = origAppend;
+    }
+  });
+
   it("Should compress rotated archives into a zip", async () => {
     const log = logger("file-archive"); // compress: true, maxSize 1000
     for (let i = 0; i < 5000; i++) {

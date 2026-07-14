@@ -54,6 +54,13 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
   protected Entries: ILogEntry[] = [];
   protected WriteEntries: ILogEntry[] = [];
 
+  /**
+   * Set true when the primary Entries buffer overflows maxBufferSize, so the
+   * drop warning is emitted ONCE per overflow episode and reset when a flush
+   * succeeds and clears the buffers.
+   */
+  protected Overflowed = false;
+
   protected Status: TargetStatus = TargetStatus.IDLE;
 
   protected FlushTimer: NodeJS.Timeout;
@@ -113,6 +120,18 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
 
     data.Variables["n_timestamp"] = new Date().getTime() * 1000000;
     this.Entries.push(data);
+
+    // never let the primary buffer grow without bound: if the network is down
+    // and flushes never drain, cap at maxBufferSize by dropping the oldest.
+    if (this.Entries.length > this.Options.maxBufferSize) {
+      const dropped = this.Entries.length - this.Options.maxBufferSize;
+      this.Entries.splice(0, dropped);
+
+      if (!this.Overflowed) {
+        this.Overflowed = true;
+        this.Log.warn(`Graphana loki buffer exceeded ${this.Options.maxBufferSize} entries, dropped ${dropped} oldest entries.`);
+      }
+    }
 
     // if we already writting, skip buffer check & write to file
     // wait until write is finished
@@ -188,6 +207,8 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
         this.Error = null;
 
         this.WriteEntries = [];
+        // buffers drained successfully - allow the next overflow episode to warn again
+        this.Overflowed = false;
       })
       .catch((err: Error) => {
         // mark target as errored

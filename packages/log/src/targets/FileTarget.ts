@@ -52,6 +52,12 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
    */
   protected Buffer: string[] = [];
 
+  /**
+   * Set true when {@link enforceQueueCap} drops overflow, so the drop warning is
+   * emitted ONCE per overflow episode and reset when the buffer drains empty.
+   */
+  protected Overflowed = false;
+
   protected FlushTimer: NodeJS.Timeout | null = null;
 
   /**
@@ -151,6 +157,7 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
     const entry = format(data.Variables, this.Options.layout);
     this.Buffer.push(entry);
+    this.enforceQueueCap();
 
     if (this.Buffer.length >= this.Options.options.maxBufferSize) {
       await this.flush();
@@ -190,6 +197,10 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
         await this.Fs.append(path, batch.join(EOL) + EOL);
         this.HasError = false;
         this.Error = null;
+        // buffer drained successfully - allow the next overflow episode to warn again
+        if (this.Buffer.length === 0) {
+          this.Overflowed = false;
+        }
       } catch (err) {
         this.HasError = true;
         this.Error = err;
@@ -197,8 +208,32 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
 
         // restore the batch in front of anything queued meanwhile - never drop
         this.Buffer = [...batch, ...this.Buffer];
+        // prepending can push the buffer over the hard cap - trim the oldest
+        this.enforceQueueCap();
       }
     });
+  }
+
+  /**
+   * Enforces the hard `maxQueueSize` cap on {@link Buffer}. When the buffer
+   * exceeds the cap ( eg. the fs sink is persistently down and appends keep
+   * being prepended back ) the OLDEST overflow is dropped so memory stays
+   * bounded. A single warning is emitted per overflow episode ( throttled via
+   * {@link Overflowed}, reset when the buffer drains empty in flush() ).
+   */
+  protected enforceQueueCap(): void {
+    const cap = this.Options.options.maxQueueSize;
+    if (this.Buffer.length <= cap) {
+      return;
+    }
+
+    const dropped = this.Buffer.length - cap;
+    this.Buffer.splice(0, dropped);
+
+    if (!this.Overflowed) {
+      this.Overflowed = true;
+      this.Log.warn(`File target ${this.Options.name} buffer exceeded ${cap} messages, dropped ${dropped} oldest buffered messages.`);
+    }
   }
 
   public async dispose(): Promise<void> {

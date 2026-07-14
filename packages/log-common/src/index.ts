@@ -171,6 +171,14 @@ export interface IFileTargetOptions extends ICommonTargetOptions {
     maxBufferSize: number;
 
     /**
+     * Hard cap on the number of buffered messages held in memory. When exceeded
+     * ( eg. the fs sink is down and appends keep failing so the batch is
+     * prepended back ) the OLDEST buffered messages are dropped so memory stays
+     * bounded. Defaults to 100000.
+     */
+    maxQueueSize: number;
+
+    /**
      * How many archive files to keep before deletion, used by
      * `CountLogRetentionStrategy`. Oldest by modification time are deleted.
      * Default is 5.

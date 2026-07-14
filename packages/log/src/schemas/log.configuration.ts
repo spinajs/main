@@ -81,6 +81,12 @@ const CONFIGURATION_SCHEMA = {
                 type: "integer",
                 minimum: 1,
               },
+              maxQueueSize: {
+                description:
+                  "Hard cap on buffered messages; oldest are dropped past this so a down sink cannot OOM.",
+                type: "integer",
+                minimum: 1,
+              },
               maxArchiveFiles: {
                 description:
                   "How many archives to keep ( CountLogRetentionStrategy ). Oldest are deleted.",

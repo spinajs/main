@@ -37,6 +37,9 @@ export const LOG_FILE_DEFAULTS = {
   /** Flush the in-memory buffer after this many messages. */
   maxBufferSize: 100,
 
+  /** Hard cap on buffered messages; oldest are dropped past this so a down sink cannot OOM. */
+  maxQueueSize: 100000,
+
   /** Periodic flush tick in milliseconds, so a partial buffer is not held. */
   flushInterval: 1000,
 
