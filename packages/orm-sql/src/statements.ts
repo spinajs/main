@@ -280,6 +280,7 @@ export class SqlJoinStatement extends JoinStatement {
         });
 
       if (parts.length > 0) {
+        // Top-level statements are ALWAYS joined with AND
         onExpression += ` AND ${parts.join(' AND ')}`;
       }
     }

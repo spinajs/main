@@ -6,13 +6,15 @@ import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User } from '../s
 import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm } from '@spinajs/orm';
+import { ICompilerOutput, Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 
 import './migration/rbac.migration.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { ResourceModel } from './models/ResourceModel.js';
+import { TestCampaign } from './models/TestCampaign.js';
+import { TestClient } from './models/TestClient.js';
 
 chai.use(chaiAsPromised);
 
@@ -95,6 +97,80 @@ describe('Orm rbac test', function () {
       );
 
       expect(result).to.be.not.null;
+    });
+  });
+
+  describe('Rbac relationScope join', () => {
+    it('should emit rbac constraint in relation JOIN ON clause, not in parent WHERE', async () => {
+      const store = DI.resolve(AsyncLocalStorage);
+      await store.run(
+        {
+          User: new User({
+            Id: 1,
+            Role: ['normal'],
+          }),
+        },
+        async () => {
+          const result = TestCampaign.where('Id', '>', 0).populate('Client').toDB() as ICompilerOutput;
+
+          // constraint from TestClient.rbac() must land in the LEFT JOIN ON clause
+          expect(result.expression).to.match(/LEFT JOIN .*test_client.* ON .*`\$Client\$`\.`type` IN \(\?,\?\)/);
+
+          // and must NOT leak into the parent query WHERE
+          const wherePart = result.expression!.split('WHERE')[1];
+          expect(wherePart).to.not.contain('type');
+        },
+      );
+    });
+
+    it('should still filter in WHERE on a root query', async () => {
+      const store = DI.resolve(AsyncLocalStorage);
+      await store.run(
+        {
+          User: new User({
+            Id: 1,
+            Role: ['normal'],
+          }),
+        },
+        async () => {
+          const result = TestClient.where('Id', '>', 0).toDB() as ICompilerOutput;
+
+          expect(result.expression).to.not.contain('JOIN');
+          expect(result.expression).to.match(/WHERE .*`type` IN \(\?,\?\)/);
+        },
+      );
+    });
+
+    it('should not drop campaigns whose client type is filtered out', async () => {
+      // end-to-end: campaign with disallowed client type must stay in results with Client = null
+      await TestClient.insert(new TestClient({ Id: 1, type: 1 }));
+      await TestClient.insert(new TestClient({ Id: 2, type: 3 }));
+
+      await TestCampaign.insert(new TestCampaign({ Id: 1, client_id: 1 } as any));
+      await TestCampaign.insert(new TestCampaign({ Id: 2, client_id: 2 } as any));
+
+      const store = DI.resolve(AsyncLocalStorage);
+      await store.run(
+        {
+          User: new User({
+            Id: 1,
+            Role: ['normal'],
+          }),
+        },
+        async () => {
+          const campaigns = await TestCampaign.where('Id', '>', 0).populate('Client');
+
+          // both campaigns visible - LEFT JOIN stays a LEFT JOIN
+          expect(campaigns.length).to.equal(2);
+
+          const allowed = campaigns.find((c) => c.Id === 1);
+          const filtered = campaigns.find((c) => c.Id === 2);
+
+          // allowed client type populated, disallowed comes back empty
+          expect(allowed?.Client?.Value?.Id).to.equal(1);
+          expect(filtered?.Client?.Value).to.satisfy((v: unknown) => v === null || v === undefined);
+        },
+      );
     });
   });
 });

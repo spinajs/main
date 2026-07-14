@@ -812,6 +812,112 @@ describe('Relations query builder', () => {
   });
 });
 
+describe('whereOnJoin', () => {
+  beforeEach(async () => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(FakeSqliteDriver).as('sqlite');
+    await DI.resolve(Orm);
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  it('scopes populate condition to the relation JOIN ON clause', () => {
+    // condition marked with whereOnJoin on a populated BelongsTo relation must be
+    // emitted in the LEFT JOIN ON clause, not in the parent query WHERE - otherwise
+    // parent rows without a matching relation row are silently dropped
+    const result = RelationModel.where('Id', 1)
+      .populate('Relation', function () {
+        this.whereOnJoin(function () {
+          this.where('RelationProperty', 'foo');
+        });
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal(
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id AND `$Relation$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ?',
+    );
+
+    // ON binding must come before the WHERE binding (ON precedes WHERE in SQL)
+    expect(result.bindings).to.deep.equal(['foo', 1]);
+  });
+
+  it('behaves like normal WHERE on a root query', () => {
+    const result = RelationModel.where('Id', 1)
+      .whereOnJoin(function () {
+        this.where('Id', 5);
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('SELECT * FROM `RelationTable` WHERE `Id` = ? AND `Id` = ?');
+    expect(result.bindings).to.deep.equal([1, 5]);
+  });
+
+  it('does not change plain populate callback conditions (parent WHERE)', () => {
+    const result = RelationModel.where('Id', 1)
+      .populate('Relation', function () {
+        this.where('RelationProperty', 'foo');
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal(
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id WHERE `$RelationModel$`.`Id` = ? AND `$Relation$`.`RelationProperty` = ?',
+    );
+    expect(result.bindings).to.deep.equal([1, 'foo']);
+  });
+
+  it('splits tagged and untagged conditions between ON and WHERE', () => {
+    const result = RelationModel.where('Id', 1)
+      .populate('Relation', function () {
+        this.where('Id', 99);
+        this.whereOnJoin(function () {
+          this.where('RelationProperty', 'foo');
+        });
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal(
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id AND `$Relation$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ? AND `$Relation$`.`Id` = ?',
+    );
+    expect(result.bindings).to.deep.equal(['foo', 1, 99]);
+  });
+
+  it('supports complex conditions in ON via nested where group', () => {
+    // OR / grouped conditions go through a nested where callback - the whole group
+    // compiles as a single parenthesized statement inside the JOIN ON clause
+    const result = RelationModel.where('Id', 1)
+      .populate('Relation', function () {
+        this.whereOnJoin(function () {
+          this.where(function () {
+            this.where('RelationProperty', 'foo').orWhere('RelationProperty', 'bar');
+          });
+        });
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.contain('ON `$RelationModel$`.relation_id = `$Relation$`.Id AND ( `$Relation$`.`RelationProperty` = ? OR `$Relation$`.`RelationProperty` = ? ) WHERE');
+    expect(result.bindings).to.deep.equal(['foo', 'bar', 1]);
+  });
+
+  it('scopes nested populate condition to the nested JOIN', () => {
+    const result = RelationModel.where('Id', 1)
+      .populate('Relation', function () {
+        this.populate('Relation3', function () {
+          this.whereOnJoin(function () {
+            this.where('RelationProperty', 'bar');
+          });
+        });
+      })
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal(
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$`.relation3_id = `$Relation$.$Relation3$`.Id AND `$Relation$.$Relation3$`.`RelationProperty` = ? WHERE `$RelationModel$`.`Id` = ?',
+    );
+    expect(result.bindings).to.deep.equal(['bar', 1]);
+  });
+});
+
 describe('Select query builder', () => {
   beforeEach(async () => {
     DI.register(ConnectionConf).as(Configuration);
