@@ -12,4 +12,5 @@
 export * from "@spinajs/log-common";
 export * from "./targets/BlackHoleTarget.js";
 export * from "./targets/BrowserConsoleTarget.js";
+export * from "./targets/MemoryTarget.js";
 export * from "./log.js";
