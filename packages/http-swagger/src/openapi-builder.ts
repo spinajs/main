@@ -1,6 +1,7 @@
 import { Autoinject, ClassInfo, TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
+import { safeParse } from '@spinajs/util';
 import {
   IOpenApiDocument,
   IOpenApiOperation,
@@ -1027,10 +1028,7 @@ export class OpenApiBuilder {
    */
   private tryParseJson(value: string | undefined): any {
     if (!value) return undefined;
-    try {
-      return JSON.parse(value);
-    } catch {
-      return value;
-    }
+    // parse when valid JSON, otherwise fall back to the raw string
+    return safeParse(value, value);
   }
 }

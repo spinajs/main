@@ -2,6 +2,7 @@
 import { IRelationDescriptor, IModelDescriptor, RelationType, IBuilderMiddleware, ISelectQueryBuilder } from './interfaces.js';
 import { ModelBase } from './model.js';
 import _ from 'lodash';
+import { uniqueBy } from '@spinajs/util';
 import { ManyQueryRelationList, ManyToManyRelationList, OneToManyRelationList, SingleQueryRelation } from './relation-objects.js';
 import { BelongsToRelation, NativeOrmRelation } from './relations.js';
 import { DI } from '@spinajs/di';
@@ -265,7 +266,7 @@ export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
     //
     // Check hasmanytomany relation with multiple nested belongs to relation to see the bug
     return Promise.all(
-      _.uniqBy(middlewares, (x: { _description: { Name: string } }) => x._description.Name).map((x: any) => {
+      uniqueBy(middlewares, (x: { _description: { Name: string } }) => x._description.Name).map((x: any) => {
         return x.afterHydration(relData);
       }),
     );

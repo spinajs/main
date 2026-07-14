@@ -43,6 +43,28 @@ export const chunk = <T>(arr: T[], size: number): T[][] => {
 export const unique = <T>(arr: T[]): T[] => Array.from(new Set(arr));
 
 /**
+ * Returns a new array with duplicates removed by a derived key, preserving first-seen order.
+ * The key-based counterpart to {@link unique} ( equivalent to lodash `uniqBy` ).
+ *
+ * @param arr - source array ( not mutated )
+ * @param keyFn - maps an element to the key used for equality
+ * @example
+ * uniqueBy([{ id: 1 }, { id: 1 }, { id: 2 }], (o) => o.id); // [{ id: 1 }, { id: 2 }]
+ */
+export const uniqueBy = <T, K>(arr: T[], keyFn: (item: T) => K): T[] => {
+  const seen = new Set<K>();
+  const out: T[] = [];
+  for (const item of arr) {
+    const key = keyFn(item);
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(item);
+    }
+  }
+  return out;
+};
+
+/**
  * Groups array elements into a `Map` keyed by the result of `keyFn`, preserving
  * insertion order within each group.
  *

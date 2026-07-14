@@ -1,4 +1,5 @@
 import { InvalidArgument } from '@spinajs/exceptions';
+import { uniqueBy } from '@spinajs/util';
 import 'reflect-metadata';
 import { TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
@@ -641,7 +642,7 @@ export class Container extends EventEmitter implements IContainer {
     // and add them first
     const constructorInject = descriptor.inject.filter((x) => x.autoinjectKey === '');
     const rest = descriptor.inject.filter((x) => x.autoinjectKey !== '');
-    descriptor.inject = [...constructorInject, ..._.uniqBy(rest, (x) => x.autoinjectKey)];
+    descriptor.inject = [...constructorInject, ...uniqueBy(rest, (x) => x.autoinjectKey)];
 
     return descriptor;
   }

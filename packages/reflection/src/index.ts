@@ -5,7 +5,8 @@ import ts from 'typescript';
 import _ from 'lodash';
 import { Configuration } from '@spinajs/configuration-common';
 import { AsyncService, Class, ClassInfo, DI } from '@spinajs/di';
-import { InvalidArgument, Exception } from '@spinajs/exceptions';
+import { Exception } from '@spinajs/exceptions';
+import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 import { Log } from '@spinajs/log-common';
 
 export * from 'typescript-mix';
@@ -107,13 +108,8 @@ function _listOrResolveFromFiles(
   typeMatcher?: (fileName: string, type: string) => string,
 ) {
   return (target: any, propertyKey: string | symbol) => {
-    if (!filter) {
-      throw new InvalidArgument('filter parameter is null or empty');
-    }
-
-    if (!configPath) {
-      throw new InvalidArgument('configPath parameter is null or empty');
-    }
+    _check_arg(_is_string(), _non_empty())(filter, 'filter');
+    _check_arg(_is_string(), _non_empty())(configPath, 'configPath');
 
     let instances: Array<ClassInfo<any>> | Promise<Array<ClassInfo<any>>> | null = null;
 

@@ -14,6 +14,9 @@ toArray(null);           // []           (nil -> empty array)
 chunk([1, 2, 3, 4, 5], 2); // [[1, 2], [3, 4], [5]]
 unique([1, 1, 2, 3, 2]);   // [1, 2, 3]  (first-seen order)
 
+// dedupe by a derived key (the key-based counterpart of unique; ~ lodash uniqBy)
+uniqueBy([{ id: 1 }, { id: 1 }, { id: 2 }], (o) => o.id); // [{ id: 1 }, { id: 2 }]
+
 groupBy([1, 2, 3, 4], (n) => (n % 2 ? 'odd' : 'even'));
 // Map { 'odd' => [1, 3], 'even' => [2, 4] }
 ```
@@ -62,8 +65,10 @@ import { trimChar, capitalize, truncate, isNullOrWhitespace } from '@spinajs/uti
 
 trimChar('__x__', '_');          // 'x'   (trim a specific char from both ends)
 capitalize('hello');             // 'Hello'
+capitalizeWords('hello world');  // 'Hello World'  (each word, spacing preserved)
 truncate('the quick brown fox', 9);       // 'the quic…'
 truncate('the quick brown fox', 9, '...'); // 'the qu...'
+truncateWords('the quick brown fox', 2);  // 'the quick…'  (by word count)
 isNullOrWhitespace('   ');       // true   (null/undefined/empty/whitespace)
 ```
 

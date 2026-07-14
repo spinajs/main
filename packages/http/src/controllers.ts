@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { isPromise } from 'node:util/types';
+import { isPromise } from '@spinajs/util';
 
 import Express from 'express';
 
@@ -15,7 +15,7 @@ import { HttpServer } from './server.js';
 import { RouteArgs } from './route-args/index.js';
 import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
 import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
-import { tryGetHash } from '@spinajs/util';
+import { tryGetHash, uniqueBy } from '@spinajs/util';
 import { DefaultControllerCache } from './cache.js';
 import { __handle_response__ } from './response.js';
 import { __handle_error__ } from './error.js';
@@ -429,7 +429,7 @@ export class Controllers extends AsyncService {
     // ControllersCache.getCache() which expects a real on-disk source file.
     const fileByType = new Map<Class<BaseController>, ClassInfo<BaseController>>();
 
-    for (const ci of _.uniqBy(listed, c => c.name)) {
+    for (const ci of uniqueBy(listed, c => c.name)) {
       if (!ci.type){
         this.Log.warn(`Controller ${ci.name} in file ${ci.file} has no type. Make sure it is decorated with @injectable and has a public constructor without required parameters`);
         continue;

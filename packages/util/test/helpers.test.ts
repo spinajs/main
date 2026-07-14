@@ -6,6 +6,7 @@ import {
   toArray,
   chunk,
   unique,
+  uniqueBy,
   groupBy,
   // hash
   tryGetHash,
@@ -20,7 +21,9 @@ import {
   // string
   trimChar,
   capitalize,
+  capitalizeWords,
   truncate,
+  truncateWords,
   isNullOrWhitespace,
   // func
   Lazy,
@@ -58,6 +61,12 @@ describe('helpers', () => {
     it('unique removes duplicates preserving order', () => {
       expect(unique([1, 1, 2, 3, 2])).to.deep.eq([1, 2, 3]);
       expect(unique(['a', 'a', 'b'])).to.deep.eq(['a', 'b']);
+    });
+
+    it('uniqueBy dedupes by derived key, first-seen wins', () => {
+      const out = uniqueBy([{ id: 1, v: 'a' }, { id: 1, v: 'b' }, { id: 2, v: 'c' }], (o) => o.id);
+      expect(out).to.deep.eq([{ id: 1, v: 'a' }, { id: 2, v: 'c' }]);
+      expect(uniqueBy([], (x: number) => x)).to.deep.eq([]);
     });
 
     it('groupBy buckets by key', () => {
@@ -141,6 +150,18 @@ describe('helpers', () => {
       expect(capitalize('hello')).to.eq('Hello');
       expect(capitalize('')).to.eq('');
       expect(capitalize('aBC')).to.eq('ABC');
+    });
+
+    it('capitalizeWords capitalizes each word, preserving spacing', () => {
+      expect(capitalizeWords('hello brave world')).to.eq('Hello Brave World');
+      expect(capitalizeWords('  spaced   out ')).to.eq('  Spaced   Out ');
+      expect(capitalizeWords('')).to.eq('');
+    });
+
+    it('truncateWords keeps at most N words', () => {
+      expect(truncateWords('the quick brown fox jumps', 3)).to.eq('the quick brown…');
+      expect(truncateWords('one two', 5)).to.eq('one two');
+      expect(truncateWords('a b c', 2, '...')).to.eq('a b...');
     });
 
     it('truncate shortens and appends suffix', () => {

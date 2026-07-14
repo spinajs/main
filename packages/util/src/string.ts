@@ -21,6 +21,18 @@ export function capitalize(s: string): string {
 }
 
 /**
+ * Capitalizes the first character of every whitespace-separated word, preserving the
+ * original spacing.
+ *
+ * @param s - source string
+ * @example
+ * capitalizeWords('hello brave world'); // 'Hello Brave World'
+ */
+export function capitalizeWords(s: string): string {
+  return s.replace(/\S+/g, (word) => capitalize(word));
+}
+
+/**
  * Truncates a string to at most `length` characters, appending `suffix` ( default `…` )
  * when it was shortened. The suffix counts toward the final length.
  *
@@ -38,6 +50,24 @@ export function truncate(s: string, length: number, suffix = '…'): string {
     return suffix.slice(0, length);
   }
   return s.slice(0, length - suffix.length) + suffix;
+}
+
+/**
+ * Truncates a string to at most `count` whitespace-separated words, appending `suffix`
+ * ( default `…` ) when it was shortened.
+ *
+ * @param s - source string
+ * @param count - maximum number of words to keep
+ * @param suffix - marker appended when truncated ( default `…` )
+ * @example
+ * truncateWords('the quick brown fox jumps', 3); // 'the quick brown…'
+ */
+export function truncateWords(s: string, count: number, suffix = '…'): string {
+  const words = s.split(/\s+/).filter((w) => w.length > 0);
+  if (words.length <= count) {
+    return s;
+  }
+  return words.slice(0, count).join(' ') + suffix;
 }
 
 /**
