@@ -99,6 +99,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     this.FlushTimer = setInterval(() => {
       void this.flush();
     }, this.Options.options.flushInterval);
+    // a pending flush must never keep the process alive; the final flush still runs on dispose()
+    this.FlushTimer.unref?.();
 
     super.resolve();
   }

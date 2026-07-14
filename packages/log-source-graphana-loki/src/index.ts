@@ -100,6 +100,8 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
         this.flush();
       });
     }, this.Options.interval ?? 3000);
+    // a pending flush must never keep the process alive; the final flush still runs on dispose()
+    this.FlushTimer.unref?.();
 
     super.resolve();
   }
