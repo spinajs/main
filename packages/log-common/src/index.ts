@@ -3,6 +3,9 @@ import _ from "lodash";
 import { format } from "./format.js";
 
 export * from "./serializers.js";
+export * from "./filters/whenRepeated.js";
+
+import type { IWhenRepeatedOptions } from "./filters/whenRepeated.js";
 
 export enum LogLevel {
   Security = 999,
@@ -60,6 +63,13 @@ export interface ILogOptions {
   targets: ITargetsOption[];
   rules: ILogRule[];
   variables?: Record<string, unknown>;
+
+  /**
+   * Opt-in dedup filter that collapses identical repeated log entries. When set,
+   * every logger gets its OWN WhenRepeatedFilter instance ( independent state ).
+   * Default off.
+   */
+  whenRepeated?: IWhenRepeatedOptions;
 }
 
 export interface ICommonTargetOptions {

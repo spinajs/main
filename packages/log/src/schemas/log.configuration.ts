@@ -123,6 +123,25 @@ const CONFIGURATION_SCHEMA = {
         "Default FileTarget options ( buffer / rotation / retention tunables ) merged UNDER every file target's own `options`. Shipped by @spinajs/log ( see logger.file defaults ) and overridable by user config.",
       type: "object",
     },
+    whenRepeated: {
+      description:
+        "Opt-in dedup filter. Collapses identical repeated log entries within a timeout window into one, emitting a (xN) count when logging resumes. Off when absent; global for now.",
+      type: "object",
+      properties: {
+        timeout: {
+          description:
+            "Suppression window in SECONDS. Identical entries within this window are collapsed. Default 10.",
+          type: "integer",
+          minimum: 1,
+        },
+        maxKeys: {
+          description:
+            "Hard cap on tracked keys; the map self-prunes ( expired first, then oldest ) so memory stays bounded. Default 1024.",
+          type: "integer",
+          minimum: 1,
+        },
+      },
+    },
     rules: {
       description: "Log rules, what log should be write where",
       type: "array",

@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
 import { DI, IContainer, NewInstance } from "@spinajs/di";
-import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogTargetDesc, LogTarget, Log } from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogTargetDesc, LogTarget, Log, WhenRepeatedFilter } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
@@ -28,6 +28,9 @@ function wrapWrite(this: Log, level: LogLevel) {
  */
 @NewInstance()
 export class FrameworkLogger extends Log {
+  // per-logger dedup filter, only present when logger.whenRepeated is configured
+  protected RepeatFilter?: WhenRepeatedFilter;
+
   constructor(public Name: string, variables?: Record<string, unknown>, protected Parent?: Log) {
     super();
 
@@ -61,6 +64,15 @@ export class FrameworkLogger extends Log {
     this.Options.targets = _.uniqWith(this.Options.targets, (a, b) => {
       return a.name === b.name && a.type === b.type;
     });
+
+    // opt-in dedup. NOTE: this is currently GLOBAL - every logger reads the same
+    // `logger.whenRepeated` config key, so setting it enables dedup for ALL
+    // loggers ( each with its OWN independent per-logger filter state ). That is
+    // the intended minimal surface; per-rule granularity arrives with the full
+    // filter-pipeline phase.
+    if (this.Options.whenRepeated) {
+      this.RepeatFilter = new WhenRepeatedFilter(this.Options.whenRepeated);
+    }
 
     this.matchRulesToLogger();
     this.resolveLogTargets();
@@ -120,14 +132,25 @@ export class FrameworkLogger extends Log {
 
   public write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]> {
     if (entry.Variables.logger === this.Name) {
+      // opt-in dedup - collapse identical repeated entries. `filter` returns the
+      // ( possibly (xN)-annotated ) entry to emit, or null to suppress it.
+      let kept: ILogEntry = entry;
+      if (this.RepeatFilter) {
+        const filtered = this.RepeatFilter.filter(entry);
+        if (!filtered) {
+          return Promise.resolve([]);
+        }
+        kept = filtered;
+      }
+
       return Promise.allSettled(
 
-        this.Targets.filter((t) => entry.Level >= StrToLogLevel[t.rule.level]).map((t) => {
+        this.Targets.filter((t) => kept.Level >= StrToLogLevel[t.rule.level]).map((t) => {
           if (!t.instance) {
             throw new InvalidOperation(`Target ${t.rule.target} for rule ${t.rule.name} not exists`);
           }
 
-          return t.instance.write(entry);
+          return t.instance.write(kept);
         })
       );
     }
