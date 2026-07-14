@@ -141,6 +141,66 @@ export function serializeError(err: unknown): ISerializedError | undefined {
 }
 
 /**
+ * A serializer turns a raw log-variable value into a structured, log-friendly
+ * form. It receives the value stored under a given field name and returns its
+ * replacement. Returning `undefined` means "leave the original value alone"
+ * ( e.g. `serializeError` returns `undefined` for a non-Error ).
+ */
+export type LogSerializer = (value: unknown) => unknown;
+
+/**
+ * Registry of field-name -> serializer. Applied by {@link applySerializers} to
+ * every log entry's variables. Out of the box the SpinaJS `error` variable
+ * ( set by `createLogMessageObject` ) is serialized by {@link serializeError },
+ * so `error` becomes a plain `{ name, message, stack, code, signal }` record
+ * instead of an opaque `Error`.
+ */
+export const serializers = new Map<string, LogSerializer>([["error", serializeError as LogSerializer]]);
+
+/**
+ * Register ( or override ) the serializer used for a given log-variable field.
+ */
+export function registerSerializer(field: string, fn: LogSerializer): void {
+  serializers.set(field, fn);
+}
+
+/**
+ * Apply the registered serializers to a log entry's variables, MUTATING `vars`
+ * in place.
+ *
+ * For each registered `[field, fn]`:
+ *   - skip when `field` is absent or its value is `undefined` / `null`;
+ *   - run `fn` inside a try/catch:
+ *       - on success, overwrite `vars[field]` ONLY when the serializer returned
+ *         a defined value, so a serializer that returns `undefined` for an
+ *         unhandled value ( like `serializeError` on a non-Error ) leaves the
+ *         original untouched;
+ *       - on throw, replace the value with `{ serializerError: <message> }` so a
+ *         broken serializer degrades gracefully and NEVER crashes the caller.
+ */
+export function applySerializers(vars: Record<string, unknown>): void {
+  for (const [field, fn] of serializers) {
+    if (!(field in vars)) {
+      continue;
+    }
+
+    const value = vars[field];
+    if (value === undefined || value === null) {
+      continue;
+    }
+
+    try {
+      const s = fn(value);
+      if (s !== undefined) {
+        vars[field] = s;
+      }
+    } catch (e) {
+      vars[field] = { serializerError: (e as Error)?.message ?? String(e) };
+    }
+  }
+}
+
+/**
  * JSON-stringify any value without ever throwing.
  *
  * Three tiers:

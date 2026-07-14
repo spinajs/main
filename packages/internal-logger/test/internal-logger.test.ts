@@ -129,7 +129,12 @@ describe("@spinajs/internal-logger", () => {
     InternalLogger.error(err, "something failed", "myLogger");
 
     const vars = (spy.args[0] as any)[0].Variables;
-    expect(vars.error).to.eq(err);
+    // createLogMessageObject now applies the serializer registry, so `error`
+    // is the structured record ( { name, message, stack, ... } ) instead of the
+    // raw Error instance.
+    expect(vars.error).to.not.be.instanceOf(Error);
+    expect(vars.error).to.include({ name: "Error", message: "boom" });
+    expect(vars.error.stack).to.be.a("string").and.contain("boom");
     expect(vars.logger).to.eq("myLogger");
     expect(vars.message).to.eq("something failed");
   });

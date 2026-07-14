@@ -1,6 +1,6 @@
 import "mocha";
 import { expect } from "chai";
-import { serializeError, safeStringify } from "../src/serializers.js";
+import { serializeError, safeStringify, applySerializers, registerSerializer, serializers, LogSerializer } from "../src/serializers.js";
 
 describe("serializeError", () => {
   it("serializes a plain Error ( name / message / stack )", () => {
@@ -130,5 +130,83 @@ describe("safeStringify", () => {
       out = safeStringify(obj);
     }).to.not.throw();
     expect(out).to.be.a("string");
+  });
+});
+
+describe("applySerializers / registry", () => {
+  // Snapshot + restore the shared registry so custom registrations in one test
+  // never leak into another.
+  let snapshot: Array<[string, LogSerializer]>;
+  beforeEach(() => {
+    snapshot = [...serializers.entries()];
+  });
+  afterEach(() => {
+    serializers.clear();
+    for (const [k, v] of snapshot) {
+      serializers.set(k, v);
+    }
+  });
+
+  it("serializes an `error` Error field into the structured record ( default serializer )", () => {
+    const vars: Record<string, unknown> = { error: new Error("boom") };
+    applySerializers(vars);
+
+    expect(vars.error).to.be.an("object");
+    expect(vars.error).to.not.be.instanceOf(Error);
+    const e = vars.error as { name: string; message: string; stack?: string };
+    expect(e.name).to.equal("Error");
+    expect(e.message).to.equal("boom");
+    expect(e.stack).to.be.a("string").and.contain("boom");
+  });
+
+  it("leaves a non-Error `error` value untouched ( serializer returned undefined )", () => {
+    const original = { message: "not an error" };
+    const vars: Record<string, unknown> = { error: original };
+    applySerializers(vars);
+
+    // serializeError returns undefined for a non-Error -> original stays put.
+    expect(vars.error).to.equal(original);
+  });
+
+  it("skips absent and null/undefined fields", () => {
+    const vars: Record<string, unknown> = { error: null };
+    applySerializers(vars);
+    expect(vars.error).to.equal(null);
+
+    const empty: Record<string, unknown> = {};
+    applySerializers(empty);
+    expect(empty).to.not.have.property("error");
+  });
+
+  it("leaves unrelated fields untouched", () => {
+    const vars: Record<string, unknown> = { error: new Error("x"), message: "hello", logger: "lg" };
+    applySerializers(vars);
+    expect(vars.message).to.equal("hello");
+    expect(vars.logger).to.equal("lg");
+  });
+
+  it("degrades a throwing serializer to { serializerError } and does not throw", () => {
+    registerSerializer("boomField", () => {
+      throw new Error("serializer exploded");
+    });
+
+    const vars: Record<string, unknown> = { boomField: "anything" };
+    expect(() => applySerializers(vars)).to.not.throw();
+    expect(vars.boomField).to.deep.equal({ serializerError: "serializer exploded" });
+  });
+
+  it("registerSerializer overrides an existing field serializer", () => {
+    registerSerializer("error", () => "OVERRIDDEN");
+    const vars: Record<string, unknown> = { error: new Error("boom") };
+    applySerializers(vars);
+    expect(vars.error).to.equal("OVERRIDDEN");
+  });
+
+  it("does NOT overwrite when a custom serializer returns undefined", () => {
+    const original = { keep: true };
+    registerSerializer("custom", () => undefined);
+    const vars: Record<string, unknown> = { custom: original };
+    applySerializers(vars);
+    expect(vars.custom).to.equal(original);
   });
 });

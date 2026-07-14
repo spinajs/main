@@ -110,7 +110,7 @@ export class InternalLogger extends Bootstrapper {
         // if buffer is not empty it mean, that we cannot write to normal logger
 
         InternalLogger.LogBuffer.forEach((entry) => {
-          this.StdConsoleCallbackMap[entry.Level]((this.theme as any)[entry.Level](format(entry.Variables, "${datetime} ${level} ${message} ${error} (" + entry.Variables.logger + ")")));
+          this.StdConsoleCallbackMap[entry.Level]((this.theme as any)[entry.Level](format(entry.Variables, "${datetime} ${level} ${message} ${error:message} (" + entry.Variables.logger + ")")));
         });
         InternalLogger.LogBuffer = [];
       });

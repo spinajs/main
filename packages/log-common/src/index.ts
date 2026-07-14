@@ -1,6 +1,7 @@
 import { Autoinject, Container, DI, SyncService } from "@spinajs/di";
 import _ from "lodash";
 import { format } from "./format.js";
+import { applySerializers } from "./serializers.js";
 
 export * from "./serializers.js";
 export * from "./filters/whenRepeated.js";
@@ -271,15 +272,19 @@ export function createLogMessageObject(err: Error | string, message: string | an
   const tMsg = args.length !== 0 ? format(sMsg, ...args) : sMsg;
   const lName = logger ?? message;
 
+  const theVars = {
+    error: err instanceof Error ? err : undefined,
+    level: LogLevelStrings[`${level}`].toUpperCase(),
+    logger: lName,
+    message: tMsg,
+    ...variables,
+  };
+
+  applySerializers(theVars);
+
   return {
     Level: level,
-    Variables: {
-      error: err instanceof Error ? err : undefined,
-      level: LogLevelStrings[`${level}`].toUpperCase(),
-      logger: lName,
-      message: tMsg,
-      ...variables,
-    },
+    Variables: theVars,
   };
 }
 
