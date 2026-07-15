@@ -146,9 +146,9 @@ describe('Orm migrations', () => {
 
     await orm.migrateUp();
 
-    expect(spy1.calledBefore(spy2));
-    expect(spy1.calledOnce);
-    expect(spy2.calledOnce);
+    expect(spy1.calledBefore(spy2)).to.be.true;
+    expect(spy1.calledOnce).to.be.true;
+    expect(spy2.calledOnce).to.be.true;
   });
 
   it('Should run migration in proper order down', async () => {
@@ -160,9 +160,9 @@ describe('Orm migrations', () => {
 
     await orm.migrateDown();
 
-    expect(spy1.calledAfter(spy2));
-    expect(spy1.calledOnce);
-    expect(spy2.calledOnce);
+    expect(spy1.calledAfter(spy2)).to.be.true;
+    expect(spy1.calledOnce).to.be.true;
+    expect(spy2.calledOnce).to.be.true;
   });
 
   it('Should register migration programatically', async () => {

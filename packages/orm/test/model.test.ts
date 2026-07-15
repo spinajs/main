@@ -24,6 +24,7 @@ import { ModelWithScopeQueryScope } from './mocks/models/ModelWithScope.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators.js';
 import { ModelWithScope } from './mocks/models/ModelWithScope.js';
 import { DateTime } from 'luxon';
+import { UuidConverter } from '../src/converters.js';
 
 chai.use(chaiAsPromised);
 chai.use(chaiSubset);
@@ -422,6 +423,41 @@ describe('General model tests', () => {
     expect(result).instanceof(Model1);
   });
 
+  it('a query-produced model records a dirty prop exactly once', async () => {
+    await db();
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([
+          {
+            Id: 1,
+          },
+        ]);
+      }),
+    );
+
+    const model = await Model1.get(1);
+
+    // start from a clean dirty state, then mutate a single column
+    model.IsDirty = false;
+    model.Bar = 'changed';
+
+    expect((model as any).__dirty_props__.length).to.eq(1);
+  });
+
+  it('refresh clears dirty state', async () => {
+    await db();
+
+    const model = new Model1({ Id: 1 });
+    const fresh = new Model1({ Id: 999, Bar: 'refreshed' });
+    sinon.stub(model, 'fresh').resolves(fresh);
+
+    await model.refresh();
+
+    expect(model.IsDirty).to.be.false;
+    expect((model as any).__dirty_props__.length).to.eq(0);
+  });
+
   it('Find mixin should work', async () => {
     // @ts-ignore
     const orm = await db();
@@ -519,6 +555,36 @@ describe('General model tests', () => {
       }),
     );
     return expect(Model1.where({ Id: 1 }).firstOrThrow(new Error('Not found'))).to.be.rejectedWith(Error, 'Not found');
+  });
+
+  it('orThrow should throw the factory-built error on empty result', async () => {
+    await db();
+
+    sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([]);
+      }),
+    );
+
+    return expect(Model1.where({ Id: 1 }).orThrow(() => new Error('boom'))).to.be.rejectedWith(Error, 'boom');
+  });
+
+  it('orThrow should resolve when the result is not empty', async () => {
+    await db();
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([{ Id: 1 }]);
+      }),
+    );
+
+    const result = await Model1.where({ Id: 1 }).orThrow(() => new Error('boom'));
+    expect(result).to.be.not.null;
   });
 
   it('Should compare two models by primary key', async () => {
@@ -1195,6 +1261,18 @@ describe('Model discrimination tests', () => {
     expect(result[0]).instanceOf(ModelDiscBase);
     expect(result[1]).instanceOf(ModelDisc2);
     expect(result[2]).instanceOf(ModelDisc1);
+  });
+});
+
+describe('UuidConverter', () => {
+  it('fromDB returns null for null/undefined', () => {
+    expect(new UuidConverter().fromDB(null as any)).to.be.null;
+    expect(new UuidConverter().fromDB(undefined as any)).to.be.null;
+  });
+
+  it('fromDB returns hex string for a valid buffer', () => {
+    const buffer = Buffer.from('0102030405060708090a0b0c0d0e0f10', 'hex');
+    expect(new UuidConverter().fromDB(buffer)).to.eq('0102030405060708090a0b0c0d0e0f10');
   });
 });
 

@@ -45,6 +45,10 @@ export class UuidConverter extends ValueConverter {
   }
 
   public fromDB(value: Buffer) {
+    if (!value) {
+      return null;
+    }
+
     return value.toString('hex');
   }
 }
@@ -133,7 +137,7 @@ export class StandardModelToSqlConverter extends ModelToSqlConverter {
 
     for (const val of relArr) {
       if (val.Type === RelationType.One) {
-        if ((model as any)[val.Name].Value) {
+        if ((model as any)[val.Name]?.Value) {
           (obj as any)[val.ForeignKey] = (model as any)[val.Name].Value.PrimaryKeyValue;
         } else if ((model as any)[val.ForeignKey] != null) {
           // Fallback: when the BelongsTo SingleRelation has no Value (e.g. relation wasn't

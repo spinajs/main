@@ -47,6 +47,10 @@ export abstract class MetadataModel<T> extends ModelBase<MetadataModel<T>> {
       return 'datetime';
     }
 
+    if (val === null || val === undefined) {
+      return 'string';
+    }
+
     if (typeof val === 'object') {
       return 'json';
     }
@@ -81,7 +85,7 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
 
     const model = await this.Relation.TargetModel.where({
       Key: k,
-      user_id: this.Owner.PrimaryKeyValue,
+      [this.Relation.ForeignKey]: this.Owner.PrimaryKeyValue,
     }).first();
 
     if (_.isNil(model)) {

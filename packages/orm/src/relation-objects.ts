@@ -220,8 +220,9 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
   }
 
   public async remove() {
+    const val = this.Value;
     this.detach();
-    await this.Value!.destroy();
+    await val?.destroy();
     await this._owner.update();
   }
 

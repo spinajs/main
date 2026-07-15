@@ -304,7 +304,7 @@ export class LimitBuilder<T> implements ILimitBuilder<T> {
     const result = (await this) as any;
     if (result === undefined || (Array.isArray(result) && result.length === 0)) {
       if (typeof error === 'function') {
-        error = error(
+        throw error(
           (this as unknown as SelectQueryBuilder).toDB()
         );
       } else

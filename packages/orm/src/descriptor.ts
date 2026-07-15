@@ -91,5 +91,5 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor |
 
   const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
 
-  return metadata[target.name];
+  return metadata ? metadata[target.name] ?? null : null;
 }

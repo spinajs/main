@@ -12,6 +12,8 @@ import * as sinon from 'sinon';
 import { RelationModel3 } from './Models/RelationModel3.js';
 import { DateTime } from 'luxon';
 import { RelationModel2 } from './Models/RelationModel2.js';
+import { SqlSelectQueryCompiler } from '../src/compilers.js';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 function sqb() {
   const connection = db()!.Connections.get('sqlite')!;
@@ -1484,6 +1486,21 @@ describe('schema building', () => {
     const result = schqb().raw(rawQuery).toDB();
     expect(result.expression).to.equal('CREATE INDEX ? ON users (?)');
     expect(result.bindings).to.be.an('array').to.include.members(['idx_email', 'email']);
+  });
+
+  it('binary column emits BINARY(n) with closing paren', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.binary('foo', 16);
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result[0].expression).to.contain('`foo` BINARY(16)');
+  });
+
+  it('SqlQueryCompiler rejects a null builder', () => {
+    const container = db()!.Connections.get('sqlite')!.Container;
+    expect(() => new SqlSelectQueryCompiler(container, null as any)).to.throw(InvalidArgument);
   });
 });
 

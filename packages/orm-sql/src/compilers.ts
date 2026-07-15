@@ -32,7 +32,7 @@ export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQue
   constructor(protected _builder: T, protected _container: IContainer) {
     super();
 
-    if (_builder === null && _builder === undefined) {
+    if (_builder === null || _builder === undefined) {
       throw new InvalidArgument('builder cannot be null or undefined');
     }
   }
@@ -926,7 +926,7 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     double: (builder: ColumnQueryBuilder) => this._statementsMappings.float(builder),
     decimal: (builder: ColumnQueryBuilder) => this._statementsMappings.float(builder),
     enum: (builder: ColumnQueryBuilder) => `${builder.Type.toUpperCase()}(${builder.Args[0].map((a: any) => `'${a}'`).join(',')})`,
-    binary: (builder: ColumnQueryBuilder) => `BINARY(${builder.Args[0] ?? 255}`,
+    binary: (builder: ColumnQueryBuilder) => `BINARY(${builder.Args[0] ?? 255})`,
     smallint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     tinyint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     mediumint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),

@@ -841,6 +841,78 @@ describe('Orm relations tests', () => {
     expect(result.Owner.Value!.Owner instanceof SingleRelation).to.be.true;
   });
 
+  it('SingleRelation.remove should destroy the related model then detach', async () => {
+    await db();
+
+    sinon.stub(FakeSqliteDriver.prototype, '_execute_for_test').returns(
+      new Promise((res) => {
+        res([
+          {
+            Id: 1,
+            Property1: 'property1',
+            OwnerId: 2,
+            '$Owner$.Id': 2,
+            '$Owner$.Property2': 'property2',
+          },
+        ]);
+      }),
+    );
+
+    const result = await RelationModel1.where({ Id: 1 }).populate('Owner').first();
+    const rel = result.Owner as SingleRelation<RelationModel2>;
+
+    expect(rel.Value).to.be.not.null;
+
+    const destroyStub = sinon.stub(rel.Value!, 'destroy').resolves();
+    const updateStub = sinon.stub(result, 'update').resolves();
+
+    await rel.remove();
+
+    expect(destroyStub.calledOnce).to.be.true;
+    expect(updateStub.calledOnce).to.be.true;
+    expect(rel.Value).to.be.null;
+  });
+
+  it('extractModelDescriptor returns null for an undecorated class', async () => {
+    class Undecorated {}
+    expect(extractModelDescriptor(Undecorated)).to.be.null;
+  });
+
+  it('whereExist with callback on a belongsTo relation compiles without throwing', async () => {
+    await db();
+
+    const query = RelationModel1.where({ Id: 1 });
+
+    expect(() => {
+      query.whereExist('Owner', function () {
+        this.where('Property2', 'test');
+      });
+    }).to.not.throw();
+
+    expect(query.JoinStatements.length).to.be.greaterThan(0);
+  });
+
+  it('dehydrate does not crash when a One-relation property is null', async () => {
+    await db();
+
+    const model = new RelationModel1({ Id: 1 });
+    (model as any).Owner = null;
+
+    expect(() => model.dehydrateWithRelations()).to.not.throw();
+    expect(() => model.toSql()).to.not.throw();
+  });
+
+  it('DbPropertyHydrator hydrates a primary key of 0', async () => {
+    await db();
+
+    const hydrator = await DI.resolve(DbPropertyHydrator);
+    const model = new Model1();
+
+    hydrator.hydrate(model, { Id: 0 });
+
+    expect(model.Id).to.eq(0);
+  });
+
   it('OneToMany relation should be dehydrated', async () => {
     await db();
 

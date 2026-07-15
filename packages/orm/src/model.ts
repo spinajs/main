@@ -626,6 +626,8 @@ export class ModelBase<M = unknown> implements IModelBase {
     for (const c of this.ModelDescriptor!.Columns) {
       (this as any)[c.Name] = (model as any)[c.Name];
     }
+
+    this.IsDirty = false;
   }
 
   public toJSON() {
@@ -1173,8 +1175,7 @@ export const MODEL_STATIC_MIXINS = {
 };
 
 export const _modelProxyFactory = (_c: IContainer, model: Constructor<ModelBase>) => {
-  const mInstance = new model();
-  return new Proxy(mInstance, MODEL_PROXY_HANDLER);
+  return new model();
 };
 
 DI.register(_modelProxyFactory).as('__orm_model_factory__');
