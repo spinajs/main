@@ -224,6 +224,16 @@ export interface IServerTimingEntry {
 
 export interface IActionLocalStoregeContext {
   requestId: string;
+  /**
+   * W3C trace id shared across services for one distributed trace. Seeded by
+   * {@link RequestId} from an inbound `traceparent` header ( or freshly minted )
+   * and merged into every log line by the ambient log context.
+   */
+  traceId?: string;
+  /**
+   * W3C span id identifying this service's span within the trace.
+   */
+  spanId?: string;
   responseStart: Date;
   responseEnd: Date;
   responseTime: number;
