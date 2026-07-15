@@ -129,6 +129,11 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
   constructor(options: IGraphanaOptions) {
     super(options);
 
+    // Config-driven targets ( resolved through the logger config ) nest their
+    // settings under an `options` sub-object ( like FileTarget ), while direct
+    // construction passes them flat. Hoist any nested options onto this.Options
+    // at highest precedence so both forms resolve the same flat reads below.
+    const nested = ((options as any)?.options ?? {}) as Partial<IGraphanaOptions>;
     this.Options = Object.assign(
       {
         interval: 3000,
@@ -136,7 +141,8 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
         maxBufferSize: 1000,
         timeout: 1000,
       },
-      this.Options
+      this.Options,
+      nested
     );
   }
 
@@ -145,12 +151,20 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
   }
 
   public resolve(): void {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    // A Loki endpoint may be unauthenticated: only attach the Basic auth header
+    // when credentials are actually configured, so a config without `auth`
+    // doesn't throw on `auth.username`.
+    if (this.Options.auth?.username) {
+      headers.Authorization = `Basic ${Buffer.from(`${this.Options.auth.username}:${this.Options.auth.password}`).toString("base64")}`;
+    }
+
     this.AxiosInstance = axios.create({
       baseURL: this.Options.host,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Basic ${Buffer.from(`${this.Options.auth.username}:${this.Options.auth.password}`).toString("base64")}`,
-      },
+      headers,
       timeout: this.Options.timeout,
     });
 
