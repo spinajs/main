@@ -2,7 +2,7 @@
 /* eslint-disable security/detect-object-injection */
 import { format } from "@spinajs/configuration-common";
 import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
-import { Log, ILogEntry, LogTarget, ICommonTargetOptions, Logger } from "@spinajs/log";
+import { Log, ILogEntry, LogTarget, ICommonTargetOptions, Logger, BatchQueue } from "@spinajs/log";
 
 
 import axios, { AxiosError, AxiosInstance } from "axios";
@@ -97,12 +97,6 @@ interface Stream {
   values: unknown[];
 }
 
-enum TargetStatus {
-  WRITTING,
-  PENDING,
-  IDLE,
-}
-
 // we mark per instance check becouse we can have multiple file targes
 // for different files/paths/logs but we dont want to create every time writer for same.
 @PerInstanceCheck()
@@ -111,19 +105,19 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
   @Logger("LogLokiTarget")
   protected Log: Log;
 
-  protected Entries: ILogEntry[] = [];
-  protected WriteEntries: ILogEntry[] = [];
+  /**
+   * The single buffered-batch queue that owns accumulation, the flush timer and
+   * the maxQueue cap. The actual Loki push happens in `send`, wired as its
+   * `onFlush`.
+   */
+  protected Queue: BatchQueue<ILogEntry>;
 
   /**
-   * Set true when the primary Entries buffer overflows maxBufferSize, so the
-   * drop warning is emitted ONCE per overflow episode and reset when a flush
-   * succeeds and clears the buffers.
+   * Set true when the queue overflows maxBufferSize, so the drop warning is
+   * emitted ONCE per overflow episode and reset when a flush succeeds.
    */
   protected Overflowed = false;
 
-  protected Status: TargetStatus = TargetStatus.IDLE;
-
-  protected FlushTimer: NodeJS.Timeout;
   protected AxiosInstance: AxiosInstance;
 
   /**
@@ -178,21 +172,22 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       })
       .build();
 
-    this.FlushTimer = setInterval(() => {
-      // do not flush, if we already writting to file
-      if (this.Status !== TargetStatus.IDLE) {
-        return;
-      }
-
-      this.WriteEntries = [...this.WriteEntries, ...this.Entries];
-      this.Entries = [];
-
-      setImmediate(() => {
-        this.flush();
-      });
-    }, this.Options.interval ?? 3000);
-    // a pending flush must never keep the process alive; the final flush still runs on dispose()
-    this.FlushTimer.unref?.();
+    // one BatchQueue owns accumulation, the periodic flush timer and the
+    // maxQueue cap ( dropping the oldest ). The actual push happens in send().
+    this.Queue = new BatchQueue<ILogEntry>({
+      maxBatch: this.Options.bufferSize,
+      maxQueue: this.Options.maxBufferSize,
+      flushIntervalMs: this.Options.interval ?? 3000,
+      onFlush: (batch) => this.send(batch),
+      onOverflow: (dropped) => {
+        // emit the drop warning ONCE per overflow episode; reset on the next
+        // successful send() so a later episode warns again.
+        if (!this.Overflowed) {
+          this.Overflowed = true;
+          this.Log.warn(`Graphana loki buffer exceeded ${this.Options.maxBufferSize} entries, dropped ${dropped} oldest entries.`);
+        }
+      },
+    });
 
     super.resolve();
   }
@@ -203,65 +198,32 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
     }
 
     data.Variables["n_timestamp"] = new Date().getTime() * 1000000;
-    this.Entries.push(data);
 
-    // never let the primary buffer grow without bound: if the network is down
-    // and flushes never drain, cap at maxBufferSize by dropping the oldest.
-    if (this.Entries.length > this.Options.maxBufferSize) {
-      const dropped = this.Entries.length - this.Options.maxBufferSize;
-      this.Entries.splice(0, dropped);
-
-      if (!this.Overflowed) {
-        this.Overflowed = true;
-        this.Log.warn(`Graphana loki buffer exceeded ${this.Options.maxBufferSize} entries, dropped ${dropped} oldest entries.`);
-      }
-    }
-
-    // if we already writting, skip buffer check & write to file
-    // wait until write is finished
-    if (this.Status !== TargetStatus.IDLE) {
-      return;
-    }
-
-    if (this.Entries.length >= this.Options.bufferSize) {
-      this.Status = TargetStatus.PENDING;
-
-      this.WriteEntries = [...this.WriteEntries, ...this.Entries];
-      this.Entries = [];
-
-      // write at end of nodejs event loop all buffered messages at once
-      setImmediate(() => {
-        this.flush();
-      });
-    }
+    // fire-and-forget: Loki did not await the buffer write before either. A
+    // size-triggered flush ( when the batch fills ) runs in the background.
+    void this.Queue.enqueue(data);
   }
 
   public async dispose() {
-    // stop flush timer
-    clearInterval(this.FlushTimer);
-
-    this.WriteEntries = [...this.WriteEntries, ...this.Entries];
-    this.Entries = [];
-
-    // write all messages from buffer
-    await this.flush();
+    // stop the flush timer and perform a final best-effort flush.
+    await this.Queue.shutdown();
   }
 
-  protected flush(): Promise<unknown> {
-    if (this.WriteEntries.length === 0) {
-      this.Status = TargetStatus.IDLE;
-      return Promise.resolve();
-    }
-
+  /**
+   * Push a single batch to Loki. Wired as the queue's `onFlush`.
+   *
+   * MUST resolve ( never reject ) so shutdown()/forceFlush() cannot reject: on a
+   * retryable-exhausted failure the batch is requeued at the front, on a
+   * non-retryable error it is dropped and surfaced via HasError/Error.
+   */
+  protected async send(batch: ILogEntry[]): Promise<void> {
     const streams: Map<string, Stream> = new Map<string, Stream>();
     const keyFor = (x: ILogEntry) => {
       return [this.Options.labels.app, x.Variables.logger, x.Variables.level, ...Object.values(this.Options.labels)].join("-");
     };
     const valFor = (x: ILogEntry) => [(x.Variables["n_timestamp"] as any).toString(), format(x.Variables, this.Options.layout)];
 
-    this.Status = TargetStatus.WRITTING;
-
-    this.WriteEntries.forEach((x) => {
+    batch.forEach((x) => {
       const key = keyFor(x);
       const stream = streams.get(key);
 
@@ -282,49 +244,36 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
     });
 
     // wrap ONLY the push in the resilience pipeline: transient failures are
-    // retried inline with backoff ( Status stays WRITTING so the interval timer
-    // skips overlapping flushes ); we reach .then / .catch only after retries
-    // are exhausted or on a non-retryable error.
-    return this.RetryPipeline.execute(() => this.AxiosInstance.post("/loki/api/v1/push", { streams: [...streams.values()] }).then(() => undefined))
-      .then(() => {
-        this.Status = TargetStatus.IDLE;
-        this.Log.trace(`Wrote buffered messages to graphana target at url ${this.Options.host}, ${this.WriteEntries.length} messages.`);
+    // retried inline with backoff; we reach the catch only after retries are
+    // exhausted or immediately on a non-retryable error.
+    try {
+      await this.RetryPipeline.execute(() => this.AxiosInstance.post("/loki/api/v1/push", { streams: [...streams.values()] }).then(() => undefined));
 
-        // successful write -> clear any previous error state
-        this.HasError = false;
-        this.Error = null;
+      // successful write -> clear any previous error state
+      this.HasError = false;
+      this.Error = null;
+      // drained successfully - allow the next overflow episode to warn again
+      this.Overflowed = false;
 
-        this.WriteEntries = [];
-        // buffers drained successfully - allow the next overflow episode to warn again
-        this.Overflowed = false;
-      })
-      .catch((err: Error) => {
-        // reached only after retries are exhausted ( transient ) or immediately
-        // for a non-retryable error.
-        this.HasError = true;
-        this.Error = err;
-        this.Status = TargetStatus.IDLE;
+      this.Log.trace(`Wrote buffered messages to graphana target at url ${this.Options.host}, ${batch.length} messages.`);
+    } catch (err) {
+      // reached only after retries are exhausted ( transient ) or immediately
+      // for a non-retryable error.
+      this.HasError = true;
+      this.Error = err as Error;
 
-        if (!isRetryableLokiError(err)) {
-          // permanent error ( eg. 400 malformed, 401 bad auth ): retrying forever
-          // would only hide a config problem. Drop the batch and surface it.
-          const dropped = this.WriteEntries.length;
-          this.WriteEntries = [];
-          this.Log.error(err, `Cannot write log messages to graphana target - dropping ${dropped} entries because the error is non-retryable.`);
-          return;
-        }
-
-        // retryable but exhausted: keep WriteEntries for the next tick, but never
-        // let the retry buffer grow without bound: cap at maxBufferSize by
-        // dropping the oldest entries.
+      if (isRetryableLokiError(err)) {
+        // retryable but exhausted: put the batch back at the front so the next
+        // flush retries it. The queue enforces the maxQueue cap ( dropping the
+        // oldest + onOverflow ) so the retry buffer never grows without bound.
         this.Log.error(err, `Cannot write log messages to graphana target - retries exhausted, retaining entries for next flush.`);
+        this.Queue.requeueFront(batch);
+        return;
+      }
 
-        const cap = this.Options.maxBufferSize;
-        if (this.WriteEntries.length > cap) {
-          const dropped = this.WriteEntries.length - cap;
-          this.WriteEntries = this.WriteEntries.slice(this.WriteEntries.length - cap);
-          this.Log.warn(`Graphana loki retry buffer exceeded ${cap} entries, dropped ${dropped} oldest entries.`);
-        }
-      });
+      // permanent error ( eg. 400 malformed, 401 bad auth ): retrying forever
+      // would only hide a config problem. Drop the batch and surface it.
+      this.Log.error(err, `Cannot write log messages to graphana target - dropping ${batch.length} entries because the error is non-retryable.`);
+    }
   }
 }

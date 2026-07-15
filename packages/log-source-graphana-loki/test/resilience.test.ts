@@ -85,19 +85,19 @@ describe("loki non-retryable flush", () => {
   it("drops the batch and does not retry on a non-retryable error ( 401 )", async () => {
     const target = buildTarget();
     target.resolve();
-    clearInterval(target.FlushTimer); // drive flush manually
 
     const post = sinon.stub(target.AxiosInstance, "post").rejects({ response: { status: 401, headers: {} } });
 
-    target.WriteEntries.push(entry("dropped message 1"));
-    target.WriteEntries.push(entry("dropped message 2"));
+    // enqueue then force a flush ( the interval is effectively disabled )
+    target.Queue.enqueue(entry("dropped message 1"));
+    target.Queue.enqueue(entry("dropped message 2"));
 
-    await target.flush();
+    await target.Queue.flush();
 
     // (a) exactly one call - no retries for a permanent error
     expect(post.calledOnce).to.eq(true);
-    // (b) the batch was dropped, not retained
-    expect(target.WriteEntries.length).to.eq(0);
+    // (b) the batch was dropped, not requeued -> the queue drained
+    expect(target.Queue.size).to.eq(0);
     expect(target.HasError).to.eq(true);
   });
 });
