@@ -3,7 +3,6 @@ import { Constructor, AsyncService, Class, isPromise } from '@spinajs/di';
 import { fs, IFileInfo } from '@spinajs/fs';
 import formidable from 'formidable';
 import { CookieOptions } from 'express';
-import { httpResponse } from './responses.js';
 
 /**
  * Accept header enum
@@ -767,6 +766,7 @@ export abstract class Response<T = any> {
 
   public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {
     const response = await this.prepareResponse();
+    const { httpResponse } = await import('./responses.js');
     return await httpResponse(response, this._template, {
       ...this.options,
       StatusCode: this._errorCode,

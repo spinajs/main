@@ -5,7 +5,7 @@ import _ from 'lodash';
 import mime from 'mime';
 import { IFileResponseOptions, IResponseOptions, Response } from './../interfaces.js';
 import { fs } from '@spinajs/fs';
-import { _setCoockies, _setHeaders } from '../index.js';
+import { _setCoockies, _setHeaders } from '../responses.js';
 
 export class ZipResponse extends Response {
   /**

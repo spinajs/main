@@ -2,14 +2,6 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 
-// NOTE: the http `src` graph has a pre-existing circular dependency
-// ( interfaces -> responses -> index barrel -> response-methods -> interfaces )
-// that surfaces as "Cannot access 'Response' before initialization" whenever a
-// deep module is imported in isolation ( it reproduces for any middleware, e.g.
-// RealIp, on master ). Importing the barrel first initializes `Response` before
-// the response-method subclasses evaluate, so we side-effect import it up front
-// and only then import the middleware under test.
-import '../src/index.js';
 import { RequestId } from '../src/middlewares/RequestId.js';
 import { Request as sRequest } from '../src/interfaces.js';
 
