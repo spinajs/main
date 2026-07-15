@@ -16,18 +16,18 @@ import { DI } from "@spinajs/di";
  * `IActionLocalStoregeContext` — so log stays independent of http.
  */
 class LogContextImpl {
-  private als: AsyncLocalStorage<Record<string, unknown>> | null = null;
-
   /**
-   * Lazily resolve and cache the shared AsyncLocalStorage from DI. Resolved as a
-   * bare concrete class it is a shared singleton, so this is the very instance
-   * http drives per action.
+   * Resolve the shared AsyncLocalStorage from DI. Resolved as a bare concrete
+   * class it is a shared singleton, so this is the very instance http drives per
+   * action. We deliberately do NOT cache the reference: DI returns the same
+   * singleton on every call ( cheap lookup ), and NOT caching keeps LogContext
+   * consistent with the current DI instance even if the container is reset /
+   * re-registered ( a stale cached reference would silently diverge — e.g. after
+   * a `DI.clearCache()` the store written via a freshly-resolved instance would
+   * be invisible here ).
    */
   private storage(): AsyncLocalStorage<Record<string, unknown>> {
-    if (!this.als) {
-      this.als = DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<Record<string, unknown>>;
-    }
-    return this.als;
+    return DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<Record<string, unknown>>;
   }
 
   /**

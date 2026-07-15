@@ -7,25 +7,32 @@ import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, 
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
+import { captureCallsite } from "./callsite.js";
 import _ from "lodash";
 
 function wrapWrite(this: Log, level: LogLevel) {
   return (err: Error | string | object, message: string | any[], ...args: any[]) => {
+    // Zero-cost gating: only parse a caller frame ( which constructs an Error )
+    // when some target's layout references ${callsite}. Otherwise `vars` is just
+    // this.Variables and no Error is ever built - mirroring NLog's StackTraceUsage.
+    const extra = (this as FrameworkLogger).CaptureCallsite ? { callsite: captureCallsite() } : undefined;
+    const vars = extra ? { ...this.Variables, ...extra } : this.Variables;
+
     if (err instanceof Error) {
-      return this.write(createLogMessageObject(err, message, level, this.Name, this.Variables, ...args));
+      return this.write(createLogMessageObject(err, message, level, this.Name, vars, ...args));
     } else if (err !== null && typeof err === "object" && !Array.isArray(err)) {
       // merging-object form: `err` is a bag of structured fields, `message` is the
       // format string, the rest are printf args. Fields are spread into Variables
       // ( so a nested `error` key still runs the serializer ).
       const fields = err as Record<string, unknown>;
       const fmt = typeof message === "string" ? message : "";
-      return this.write(createLogMessageObject(null as any, fmt, level, this.Name, { ...this.Variables, ...fields }, ...args));
+      return this.write(createLogMessageObject(null as any, fmt, level, this.Name, { ...vars, ...fields }, ...args));
     } else {
       const sErr = err as string;
       if (message) {
-        return this.write(createLogMessageObject(sErr, null as any, level, this.Name, this.Variables, ...[message, ...args]));
+        return this.write(createLogMessageObject(sErr, null as any, level, this.Name, vars, ...[message, ...args]));
       } else {
-        return this.write(createLogMessageObject(sErr, null as any, level, this.Name, this.Variables, ...args));
+        return this.write(createLogMessageObject(sErr, null as any, level, this.Name, vars, ...args));
       }
     }
   };
@@ -38,6 +45,10 @@ function wrapWrite(this: Log, level: LogLevel) {
 export class FrameworkLogger extends Log {
   // per-logger dedup filter, only present when logger.whenRepeated is configured
   protected RepeatFilter?: WhenRepeatedFilter;
+
+  // Set in resolve() when some target's layout references ${callsite}. Gates the
+  // caller-frame capture in wrapWrite so logging stays zero-cost otherwise.
+  public CaptureCallsite = false;
 
   constructor(public Name: string, variables?: Record<string, unknown>, protected Parent?: Log) {
     super();
@@ -84,6 +95,10 @@ export class FrameworkLogger extends Log {
 
     this.matchRulesToLogger();
     this.resolveLogTargets();
+
+    // Gate ${callsite} capture: only turn it on when some resolved target's
+    // layout actually references it. When off, wrapWrite never builds an Error.
+    this.CaptureCallsite = this.Targets.some((t) => typeof t.instance?.Options?.layout === "string" && /\$\{callsite/.test(t.instance.Options.layout));
 
     super.resolve();
 
