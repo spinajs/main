@@ -177,6 +177,10 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     await this.Queue.forceFlush();
   }
 
+  public forceFlush(): Promise<void> {
+    return this.Queue ? this.Queue.forceFlush() : Promise.resolve();
+  }
+
   /**
    * Appends one batch as a single write, guarded by the write-lock ( the SAME
    * lock rotation uses, so a rename can never race an append ). On failure the

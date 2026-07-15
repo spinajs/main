@@ -279,6 +279,11 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncServ
   }
 
   public abstract write(data: ILogEntry): void;
+
+  /** Flush any buffered entries to the underlying sink. Default no-op; buffered targets override. */
+  public forceFlush(): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 export interface ILogTargetDesc {

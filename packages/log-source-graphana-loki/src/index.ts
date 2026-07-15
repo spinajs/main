@@ -204,6 +204,10 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
     void this.Queue.enqueue(data);
   }
 
+  public forceFlush(): Promise<void> {
+    return this.Queue ? this.Queue.forceFlush() : Promise.resolve();
+  }
+
   public async dispose() {
     // stop the flush timer and perform a final best-effort flush.
     await this.Queue.shutdown();

@@ -14,4 +14,6 @@ export * from "./targets/BlackHoleTarget.js";
 export * from "./targets/BrowserConsoleTarget.js";
 export * from "./targets/JsonTarget.js";
 export * from "./targets/MemoryTarget.js";
+export * from "./targets/wrappers/SplitGroupTarget.js";
+export * from "./targets/wrappers/AutoFlushTarget.js";
 export * from "./log.js";
