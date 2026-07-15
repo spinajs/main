@@ -108,8 +108,8 @@ describe("logger tests", function () {
     sinon.restore();
   });
 
-  after(() => {
-    process.exit();
+  after(async () => {
+    await Log.clearLoggers();
   });
 
   it("Should create logger", async () => {
@@ -159,28 +159,28 @@ describe("logger tests", function () {
 
     expect(spy.args[0][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("TRACE Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("TRACE Hello world (test-format)"));
     expect(spy.args[1][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("DEBUG Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("DEBUG Hello world (test-format)"));
     expect(spy.args[2][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("INFO Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("INFO Hello world (test-format)"));
     expect(spy.args[3][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("SUCCESS Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("SUCCESS Hello world (test-format)"));
     expect(spy.args[4][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("WARN Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("WARN Hello world (test-format)"));
     expect(spy.args[5][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("ERROR Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("ERROR Hello world (test-format)"));
     expect(spy.args[6][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("FATAL Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("FATAL Hello world (test-format)"));
     expect(spy.args[7][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("SECURITY Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("SECURITY Hello world (test-format)"));
   });
 
   it("Should not create new logger with same name", () => {
@@ -288,7 +288,7 @@ describe("logger tests", function () {
 
     expect(spy.args[0][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.includes("ERROR hello world err Error: error message"));
+      .and.satisfy((msg: string) => msg.includes("ERROR hello world err Exception: error message"));
   });
 
   it('Should format message with one argunt', () =>{
