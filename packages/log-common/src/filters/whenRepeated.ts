@@ -2,7 +2,7 @@
 // back to ../index.js. The filter compares `entry.Level` numerically and never
 // needs the `LogLevel` enum VALUES, so a type import is sufficient.
 import type { ILogEntry } from "../index.js";
-import { Injectable } from "@spinajs/di";
+import { Injectable, NewInstance } from "@spinajs/di";
 import { LogFilter, ILogFilterOptions } from "./filter.js";
 
 export interface IWhenRepeatedOptions extends Partial<ILogFilterOptions> {
@@ -39,6 +39,7 @@ interface IRepeatRecord {
  * flush on top.
  */
 @Injectable("WhenRepeatedFilter")
+@NewInstance()
 export class WhenRepeatedFilter extends LogFilter {
   protected timeoutMs: number;
   protected maxKeys: number;

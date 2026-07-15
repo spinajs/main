@@ -1,5 +1,5 @@
 import { ILogEntry, ILogFilterOptions, LogFilter } from "@spinajs/log-common";
-import { Injectable } from "@spinajs/di";
+import { Injectable, NewInstance } from "@spinajs/di";
 
 /**
  * Options for {@link RateLimitFilter}.
@@ -28,6 +28,7 @@ const GLOBAL_KEY = "__global__";
  * dropped on access ) so memory stays bounded. Clock is injectable for tests.
  */
 @Injectable("RateLimitFilter")
+@NewInstance()
 export class RateLimitFilter extends LogFilter {
   protected limit: number;
   protected intervalMs: number;

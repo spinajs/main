@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
 import { DI, IContainer, NewInstance } from "@spinajs/di";
-import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogTargetDesc, LogTarget, Log, LogFilter, ILogFilterOptions, readPersistedLevel } from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogRule, ITargetsOption, LogTarget, Log, LogFilter, ILogFilterOptions, readPersistedLevel } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
@@ -214,23 +214,48 @@ export class FrameworkLogger extends Log {
   }
 
   protected resolveLogTargets() {
-    this.Targets = this.Rules.map((r) => {
+    // BUG 2 fix: multiple matched rules can route to the SAME target. The old
+    // code built one descriptor PER (rule, target) pair, so write() dispatched
+    // to that target once per rule - duplicating output. Collapse to ONE
+    // descriptor per target definition, keeping the MOST PERMISSIVE ( lowest )
+    // rule level so the target receives an entry if ANY routing rule allows that
+    // level, exactly once ( write() filters via kept.Level >= rule.level ). We
+    // key by the target-config object ( a stable reference in Options.targets )
+    // rather than the resolved instance so this is correct regardless of the
+    // target's DI lifetime ( a @NewInstance target would otherwise still yield
+    // one fresh instance per rule and never collapse ). Each unique target is
+    // therefore resolved exactly ONCE.
+    const byTarget = new Map<ITargetsOption, ILogRule>();
+
+    for (const r of this.Rules) {
       const found = this.Options.targets.filter((t) => {
         return Array.isArray(r.target) ? r.target.includes(t.name) : r.target === t.name;
       });
 
-      if (!found) {
-        throw new InvalidOption(`No target matching rule ${r.name}`);
+      // BUG 3 fix: `found` is always an array, so the old `if (!found)` guard was
+      // dead and a rule pointing at a non-existent target was silently ignored.
+      // Fail fast when NONE of the rule's targets resolve. ( A partial match on
+      // an array target is tolerated - only a fully-unresolved rule throws. )
+      if (found.length === 0) {
+        const wanted = Array.isArray(r.target) ? r.target.join(", ") : r.target;
+        throw new InvalidOption(`No target matching rule ${r.name} ( wanted target(s): ${wanted} )`);
       }
 
-      return found.map((f) => {
-        return {
-          instance: DI.resolve<LogTarget<ICommonTargetOptions>>(f.type, [f]),
-          options: f,
-          rule: r,
-        };
-      });
-    }).reduce((prev: ILogTargetDesc[], curr: ILogTargetDesc[]) => prev.concat(...curr), []);
+      for (const f of found) {
+        const existing = byTarget.get(f);
+        if (!existing || StrToLogLevel[r.level] < StrToLogLevel[existing.level]) {
+          byTarget.set(f, r);
+        }
+      }
+    }
+
+    this.Targets = [...byTarget.entries()].map(([f, r]) => {
+      return {
+        instance: DI.resolve<LogTarget<ICommonTargetOptions>>(f.type, [f]),
+        options: f,
+        rule: r,
+      };
+    });
   }
 
   protected matchRulesToLogger() {

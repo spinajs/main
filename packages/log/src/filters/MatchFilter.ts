@@ -1,5 +1,5 @@
 import { ILogEntry, ILogFilterOptions, LogFilter } from "@spinajs/log-common";
-import { Injectable } from "@spinajs/di";
+import { Injectable, NewInstance } from "@spinajs/di";
 
 /**
  * Options for {@link MatchFilter}.
@@ -23,6 +23,7 @@ export interface IMatchFilterOptions extends ILogFilterOptions {
  * and warns ONCE so a bad config never silently swallows or drops everything.
  */
 @Injectable("MatchFilter")
+@NewInstance()
 export class MatchFilter extends LogFilter {
   protected regex: RegExp | null = null;
   protected field: string;

@@ -1,5 +1,5 @@
 import { ILogEntry, ILogFilterOptions, LogFilter, LogLevel, StrToLogLevel } from "@spinajs/log-common";
-import { Injectable } from "@spinajs/di";
+import { Injectable, NewInstance } from "@spinajs/di";
 
 type LevelName = keyof typeof StrToLogLevel;
 
@@ -19,6 +19,7 @@ export interface ILevelFilterOptions extends ILogFilterOptions {
  * Useful for routing eg. only warn..error to a given target via a filter.
  */
 @Injectable("LevelFilter")
+@NewInstance()
 export class LevelFilter extends LogFilter {
   protected min: LogLevel;
   protected max: LogLevel;
