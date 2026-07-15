@@ -297,7 +297,18 @@ export function createLogMessageObject(err: Error | string, message: string | an
   const tMsg = args.length !== 0 ? format(sMsg, ...args) : sMsg;
   const lName = logger ?? message;
 
+  // Ambient async-context fields ( lowest precedence, must never throw ). The
+  // computed core fields below and any explicit per-call / logger `variables`
+  // OVERRIDE these — ambient context only FILLS IN fields nobody else set.
+  let ctx: Record<string, unknown> = {};
+  try {
+    ctx = logContextProvider() ?? {};
+  } catch {
+    ctx = {};
+  }
+
   const theVars = {
+    ...ctx,
     error: err instanceof Error ? err : undefined,
     level: LogLevelStrings[`${level}`].toUpperCase(),
     logger: lName,
@@ -457,4 +468,23 @@ export function Logger(name: string, variables?: Record<string, unknown>) {
 }
 
 export type LogVariables = ILogStaticVariables & ILogVariable;
+
+/**
+ * Ambient log-context provider seam. A Node-side consumer ( @spinajs/log's
+ * LogContext ) registers a function returning the current async-context store;
+ * `createLogMessageObject` merges its result at LOWEST precedence so every log
+ * entry inherits ambient fields ( eg. requestId ) without threading them by hand.
+ *
+ * Kept here ( not in @spinajs/log ) so the seam is browser-safe: log-common must
+ * stay free of `node:async_hooks`. The default provider returns an empty object;
+ * the browser build wires a synchronous fallback instead.
+ */
+let logContextProvider: () => Record<string, unknown> = () => ({});
+
+/**
+ * Registers the ambient log-context provider. See {@link logContextProvider}.
+ */
+export function setLogContextProvider(fn: () => Record<string, unknown>): void {
+  logContextProvider = fn;
+}
 

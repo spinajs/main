@@ -1,6 +1,7 @@
 import { Configuration } from "@spinajs/configuration";
 import { Injectable, Bootstrapper, DI } from "@spinajs/di";
-import { Log } from "@spinajs/log-common";
+import { Log, setLogContextProvider } from "@spinajs/log-common";
+import { LogContext } from "./context.js";
 import CONFIGURATION_SCHEMA from "./schemas/log.configuration.js";
 
 const uncaughtExceptionHandler = (err: Error) => {
@@ -31,6 +32,12 @@ const unhandledRejection = (reason: Error, p: Promise<unknown>) => {
 export class LogBotstrapper extends Bootstrapper {
   public bootstrap(): void {
     DI.register(CONFIGURATION_SCHEMA).asValue("__configurationSchema__");
+
+    // Feed the ambient async-context store into every log entry ( merged at
+    // lowest precedence by createLogMessageObject ). LogContext resolves the
+    // same DI-singleton AsyncLocalStorage the http module runs per action, so
+    // logs inherit requestId / realIp / ... for free.
+    setLogContextProvider(() => LogContext.active());
 
     // check if we run tests,
     // hook for uncaughtException causes to not showing
