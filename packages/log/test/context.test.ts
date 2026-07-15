@@ -5,7 +5,7 @@ import { DI } from "@spinajs/di";
 import { Configuration, FrameworkConfiguration } from "@spinajs/configuration";
 import { join, normalize, resolve } from "path";
 import { Log } from "../src/index.js";
-import { LogContext } from "../src/context.js";
+import { LogContext, scalarContext } from "../src/context.js";
 import { setLogContextProvider } from "@spinajs/log-common";
 import { MemoryTarget } from "../src/targets/MemoryTarget.js";
 
@@ -47,7 +47,7 @@ describe("LogContext ambient async context", () => {
 
     // the LogBotstrapper is not run in this isolated suite, so wire the seam
     // ourselves exactly as bootstrap.ts does.
-    setLogContextProvider(() => LogContext.active());
+    setLogContextProvider(() => scalarContext(LogContext.active()));
   });
 
   beforeEach(async () => {
@@ -155,6 +155,54 @@ describe("LogContext ambient async context", () => {
     const records = sink().getRecords();
     expect(records.length).to.eq(1);
     expect(records[0].Variables.requestId).to.eq("explicit");
+  });
+
+  // ---- scalar projection: only primitive scalars reach log entries ----------
+  it("projects only scalar ambient fields into log entries; drops Date/array/object", () => {
+    const log = DI.resolve(Log, ["ctx-scalar"]);
+
+    LogContext.with({ requestId: "r", count: 3, ok: true, when: new Date(), tags: ["a"], obj: { x: 1 } }, () => {
+      log.info("m");
+    });
+
+    const records = sink().getRecords();
+    expect(records.length).to.eq(1);
+    const vars = records[0].Variables;
+    expect(vars.requestId).to.eq("r");
+    expect(vars.count).to.eq(3);
+    expect(vars.ok).to.eq(true);
+    expect(vars).to.not.have.property("when");
+    expect(vars).to.not.have.property("tags");
+    expect(vars).to.not.have.property("obj");
+  });
+
+  it("preserves a non-http scalar ( jobId ) — not an http-specific allowlist", () => {
+    const log = DI.resolve(Log, ["ctx-scalar-custom"]);
+
+    LogContext.with({ jobId: "job-42" }, () => {
+      log.info("m");
+    });
+
+    const records = sink().getRecords();
+    expect(records.length).to.eq(1);
+    expect(records[0].Variables.jobId).to.eq("job-42");
+  });
+
+  it("scalarContext filters by primitive type", () => {
+    const fn = () => 1;
+    const out = scalarContext({
+      s: "str",
+      n: 7,
+      b: false,
+      big: 10n,
+      when: new Date(),
+      arr: [1, 2],
+      obj: { a: 1 },
+      fn,
+      nul: null,
+      und: undefined,
+    });
+    expect(out).to.deep.eq({ s: "str", n: 7, b: false, big: 10n });
   });
 
   after(() => {

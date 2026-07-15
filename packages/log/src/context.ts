@@ -74,3 +74,21 @@ class LogContextImpl {
  * Shared ambient log context. See {@link LogContextImpl}.
  */
 export const LogContext = new LogContextImpl();
+
+/**
+ * Projects only primitive scalar values ( string / number / boolean / bigint )
+ * from an ambient-context object, dropping objects, arrays, Dates, functions,
+ * null and undefined. Ambient context is meant for correlation ids ( requestId,
+ * traceId, ... ) that belong on every log line; structured payloads should be
+ * passed explicitly per call ( log.info({ obj }, ... ) ), not via ambient context.
+ */
+export function scalarContext(ctx: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(ctx)) {
+    const t = typeof v;
+    if (t === "string" || t === "number" || t === "boolean" || t === "bigint") {
+      out[k] = v;
+    }
+  }
+  return out;
+}

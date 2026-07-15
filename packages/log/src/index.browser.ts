@@ -10,7 +10,7 @@
  * side-effect `import "@spinajs/log"` wires both log and configuration.
  */
 import { setLogContextProvider } from "@spinajs/log-common";
-import { LogContext } from "./context.browser.js";
+import { LogContext, scalarContext } from "./context.browser.js";
 
 export * from "@spinajs/log-common";
 export * from "./targets/BlackHoleTarget.js";
@@ -25,4 +25,4 @@ export * from "./traceparent.js";
 
 // The browser build has no Bootstrapper flow wiring the seam, so register the
 // synchronous fallback provider as an import side-effect.
-setLogContextProvider(() => LogContext.active());
+setLogContextProvider(() => scalarContext(LogContext.active()));
