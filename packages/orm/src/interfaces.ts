@@ -871,6 +871,7 @@ export interface IOrderByBuilder {
   orderByDescending(column: string): this;
   order(column: string, direction: SortOrder): this;
   getSort(): ISort | null;
+  getSorts(): ISort[];
 }
 
 export interface IColumnsBuilder {
@@ -1058,6 +1059,11 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   setTable(table: string, alias?: string): this;
   distinct(): this;
   clone(): this;
+
+  /**
+   * Includes soft-deleted rows (@SoftDelete models) that are excluded by default.
+   */
+  withDeleted(): this;
 
   /**
    * Returns true/false if query result exists in db

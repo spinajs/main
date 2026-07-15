@@ -66,12 +66,12 @@ export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
   }
 
   public compile(): ICompilerOutput {
-    const sort = this._builder.getSort();
+    const sorts = this._builder.getSorts();
     let stmt = '';
     const bindings: string[] = [];
 
-    if (sort) {
-      stmt = ` ORDER BY \`${sort.column}\` ${sort.order}`;
+    if (sorts.length > 0) {
+      stmt = ` ORDER BY ${sorts.map((s) => `\`${s.column}\` ${s.order}`).join(', ')}`;
     }
 
     return {

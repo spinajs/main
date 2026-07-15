@@ -3,7 +3,7 @@
 /* eslint-disable prettier/prettier */
 import { expect } from 'chai';
 import 'mocha';
-import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
+import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase, SortOrder } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
@@ -966,6 +966,16 @@ describe('Select query builder', () => {
   it('select with order by', () => {
     const result = sqb().select('*').from('users').orderByDescending('name').toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `name` DESC');
+  });
+
+  it('select with multiple order by columns', () => {
+    const result = sqb().select('*').from('users').orderBy('name').orderByDescending('age').toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `name` ASC, `age` DESC');
+  });
+
+  it('order() appends instead of overwriting', () => {
+    const result = sqb().select('*').from('users').order('name', SortOrder.ASC).order('age', SortOrder.DESC).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `name` ASC, `age` DESC');
   });
 
   it('select distinct', () => {

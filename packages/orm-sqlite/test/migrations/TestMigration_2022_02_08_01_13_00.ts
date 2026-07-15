@@ -114,6 +114,12 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.int("network_id");
     });
 
+    await connection.schema().createTable('soft_delete_test', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Val');
+      table.dateTime('DeletedAt');
+    });
+
     await connection.insert().into("SetData").values(
       [{
         Id: 1

@@ -336,13 +336,10 @@ export class LimitBuilder<T> implements ILimitBuilder<T> {
 
 @NewInstance()
 export class OrderByBuilder implements IOrderByBuilder {
-  protected _sort: ISort;
+  protected _sorts: ISort[];
 
   constructor() {
-    this._sort = {
-      column: '',
-      order: SortOrder.ASC,
-    };
+    this._sorts = [];
   }
 
   public order(column: string, direction: SortOrder) {
@@ -359,10 +356,10 @@ export class OrderByBuilder implements IOrderByBuilder {
       return this;
     }
 
-    this._sort = {
+    this._sorts.push({
       column,
       order: direction,
-    };
+    });
     return this;
   }
 
@@ -375,10 +372,10 @@ export class OrderByBuilder implements IOrderByBuilder {
       return this;
     }
 
-    this._sort = {
+    this._sorts.push({
       column,
       order: SortOrder.ASC,
-    };
+    });
     return this;
   }
 
@@ -391,15 +388,27 @@ export class OrderByBuilder implements IOrderByBuilder {
       return this;
     }
 
-    this._sort = {
+    this._sorts.push({
       column,
       order: SortOrder.DESC,
-    };
+    });
     return this;
   }
 
+  /**
+   * Returns the FIRST sort entry (or null) for backward compat with dialect
+   * packages that emit a single ORDER BY column. Use getSorts() for all entries.
+   */
   public getSort() {
-    return this._sort.column.trim() !== '' ? this._sort : null;
+    const sort = this._sorts.find((s) => s.column.trim() !== '');
+    return sort ?? null;
+  }
+
+  /**
+   * Returns all sort entries (multi-column ORDER BY), skipping empty columns.
+   */
+  public getSorts(): ISort[] {
+    return this._sorts.filter((s) => s.column.trim() !== '');
   }
 }
 
@@ -993,7 +1002,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
    * order by query props
    */
-  protected _sort: ISort;
+  protected _sorts: ISort[];
 
   /**
    * where query props
@@ -1040,10 +1049,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     this._boolean = WhereBoolean.AND;
 
-    this._sort = {
-      column: '',
-      order: SortOrder.NONE,
-    };
+    this._sorts = [];
 
     this._first = false;
     this._limit = {
@@ -1096,7 +1102,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
      */
 
     builder._limit = { ...this._limit };
-    builder._sort = { ...this._sort };
+    builder._sorts = this._sorts.map((s) => ({ ...s }));
     builder._boolean = this._boolean;
     builder._distinct = this._distinct;
     builder._table = this._table;
@@ -1222,10 +1228,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._columns = this._columns.concat(builder._columns);
     this._cteStatement = builder._cteStatement;
     this._distinct = builder._distinct;
-    this._sort = {
-      column: builder._sort.column !== '' ? builder._sort.column : this._sort.column,
-      order: builder._sort.order !== '' ? builder._sort.order : this._sort.order,
-    };
+    // Fold the merged builder's sorts into this query's sorts (multi-column
+    // ORDER BY). If the merged builder has no sorts, this keeps our own.
+    this._sorts = this._sorts.concat(builder._sorts.map((s) => ({ ...s })));
     // `includeStatements: false` is used by JoinStatement so that a join
     // callback's WHERE conditions are NOT folded into the main query's WHERE
     // (which silently turns a LEFT JOIN into an inner filter). The join emits
@@ -1245,6 +1250,25 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const stms = callback ? builder._statements.filter(callback) : builder._statements;
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._statements = this._statements.concat(stms);
+  }
+
+  /**
+   * Includes soft-deleted rows in the result set by removing the default
+   * `DeletedAt IS NULL` filter added by createQuery for @SoftDelete models.
+   */
+  public withDeleted(): this {
+    const descriptor = extractModelDescriptor(this._model);
+    const deletedAt = descriptor?.SoftDelete?.DeletedAt;
+
+    if (!deletedAt) {
+      return this;
+    }
+
+    this._statements = this._statements.filter((s) => {
+      return !(s instanceof WhereStatement && s.Column === deletedAt && s.Operator === SqlOperator.NULL);
+    });
+
+    return this;
   }
 
   public min(column: string, as?: string): this {
@@ -2482,6 +2506,17 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
 
   qr.middleware(new DiscriminationMapMiddleware(dsc));
   qr.setTable(dsc.TableName);
+
+  // Soft-delete read filtering: by default exclude rows that have been soft
+  // deleted (DeletedAt IS NOT NULL). SelectQueryBuilder.withDeleted() removes
+  // this default statement to include soft-deleted rows again.
+  // Guarded on the DeletedAt column actually being present in the model's
+  // reflected columns — a filter on a column the schema does not expose is
+  // impossible anyway, and the guard keeps queries working when table info
+  // has not (yet) surfaced the column.
+  if (qr instanceof SelectQueryBuilder && dsc.SoftDelete?.DeletedAt && dsc.Columns?.some((c) => c.Name === dsc.SoftDelete.DeletedAt)) {
+    (qr as unknown as SelectQueryBuilder).whereNull(dsc.SoftDelete.DeletedAt);
+  }
 
   if (driver.Options.Database) {
     qr.database(driver.Options.Database);
