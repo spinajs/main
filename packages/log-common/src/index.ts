@@ -5,6 +5,7 @@ import { applySerializers } from "./serializers.js";
 
 export * from "./serializers.js";
 export * from "./filters/whenRepeated.js";
+export * from "./BatchQueue.js";
 
 import type { IWhenRepeatedOptions } from "./filters/whenRepeated.js";
 
