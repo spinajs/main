@@ -357,34 +357,42 @@ export abstract class Log extends SyncService {
 
   public abstract trace(message: string, ...args: any[]): void;
   public abstract trace(err: Error, message: string, ...args: any[]): void;
+  public abstract trace(fields: object, message?: string, ...args: any[]): void;
   public abstract trace(err: Error | string, message: string | any[], ...args: any[]): void;
 
   public abstract debug(message: string, ...args: any[]): void;
   public abstract debug(err: Error, message: string, ...args: any[]): void;
+  public abstract debug(fields: object, message?: string, ...args: any[]): void;
   public abstract debug(err: Error | string, message: string | any[], ...args: any[]): void;
 
   public abstract info(message: string, ...args: any[]): void;
   public abstract info(err: Error, message: string, ...args: any[]): void;
+  public abstract info(fields: object, message?: string, ...args: any[]): void;
   public abstract info(err: Error | string, message: string | any[], ...args: any[]): void;
 
   public abstract warn(message: string, ...args: any[]): void;
   public abstract warn(err: Error, message: string, ...args: any[]): void;
+  public abstract warn(fields: object, message?: string, ...args: any[]): void;
   public abstract warn(err: Error | string, message: string | any[], ...args: any[]): void;
 
   public abstract error(message: string, ...args: any[]): void;
   public abstract error(err: Error, message: string, ...args: any[]): void;
+  public abstract error(fields: object, message?: string, ...args: any[]): void;
   public abstract error(err: Error | string, message: string | any[], ...args: any[]): void;
 
   public abstract fatal(message: string, ...args: any[]): void;
   public abstract fatal(err: Error, message: string, ...args: any[]): void;
+  public abstract fatal(fields: object, message?: string, ...args: any[]): void;
   public abstract fatal(err: Error | string, message: string | any[], ...args: any[]): void;
 
   public abstract security(message: string, ...args: any[]): void;
   public abstract security(err: Error, message: string, ...args: any[]): void;
+  public abstract security(fields: object, message?: string, ...args: any[]): void;
   public abstract security(err: Error | string, message: string | any[], ...args: any[]): void;
 
   public abstract success(message: string, ...args: any[]): void;
   public abstract success(err: Error, message: string, ...args: any[]): void;
+  public abstract success(fields: object, message?: string, ...args: any[]): void;
   public abstract success(err: Error | string, message: string | any[], ...args: any[]): void;
 
   public abstract write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;

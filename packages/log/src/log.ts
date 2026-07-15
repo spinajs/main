@@ -10,14 +10,22 @@ import { InternalLoggerProxy } from "@spinajs/internal-logger";
 import _ from "lodash";
 
 function wrapWrite(this: Log, level: LogLevel) {
-  return (err: Error | string, message: string | any[], ...args: any[]) => {
+  return (err: Error | string | object, message: string | any[], ...args: any[]) => {
     if (err instanceof Error) {
       return this.write(createLogMessageObject(err, message, level, this.Name, this.Variables, ...args));
+    } else if (err !== null && typeof err === "object" && !Array.isArray(err)) {
+      // merging-object form: `err` is a bag of structured fields, `message` is the
+      // format string, the rest are printf args. Fields are spread into Variables
+      // ( so a nested `error` key still runs the serializer ).
+      const fields = err as Record<string, unknown>;
+      const fmt = typeof message === "string" ? message : "";
+      return this.write(createLogMessageObject(null as any, fmt, level, this.Name, { ...this.Variables, ...fields }, ...args));
     } else {
+      const sErr = err as string;
       if (message) {
-        return this.write(createLogMessageObject(err, null as any, level, this.Name, this.Variables, ...[message, ...args]));
+        return this.write(createLogMessageObject(sErr, null as any, level, this.Name, this.Variables, ...[message, ...args]));
       } else {
-        return this.write(createLogMessageObject(err, null as any, level, this.Name, this.Variables, ...args));
+        return this.write(createLogMessageObject(sErr, null as any, level, this.Name, this.Variables, ...args));
       }
     }
   };
@@ -84,49 +92,57 @@ export class FrameworkLogger extends Log {
 
   public trace(message: string, ...args: any[]): void;
   public trace(err: Error, message: string, ...args: any[]): void;
-  public trace(err: Error | string, message: string | any[], ...args: any[]): void {
+  public trace(fields: object, message?: string, ...args: any[]): void;
+  public trace(err: Error | string | object, message?: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Trace])(err, message, ...args);
   }
 
   public debug(message: string, ...args: any[]): void;
   public debug(err: Error, message: string, ...args: any[]): void;
-  public debug(err: Error | string, message: string | any[], ...args: any[]): void {
+  public debug(fields: object, message?: string, ...args: any[]): void;
+  public debug(err: Error | string | object, message?: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Debug])(err, message, ...args);
   }
 
   public info(message: string, ...args: any[]): void;
   public info(err: Error, message: string, ...args: any[]): void;
-  public info(err: Error | string, message: string | any[], ...args: any[]): void {
+  public info(fields: object, message?: string, ...args: any[]): void;
+  public info(err: Error | string | object, message?: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Info])(err, message, ...args);
   }
 
   public warn(message: string, ...args: any[]): void;
   public warn(err: Error, message: string, ...args: any[]): void;
-  public warn(err: Error | string, message: string | any[], ...args: any[]): void {
+  public warn(fields: object, message?: string, ...args: any[]): void;
+  public warn(err: Error | string | object, message?: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Warn])(err, message, ...args);
   }
 
   public error(message: string, ...args: any[]): void;
   public error(err: Error, message: string, ...args: any[]): void;
-  public error(err: Error | string, message: string | any[], ...args: any[]): void {
+  public error(fields: object, message?: string, ...args: any[]): void;
+  public error(err: Error | string | object, message?: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Error])(err, message, ...args);
   }
 
   public fatal(message: string, ...args: any[]): void;
   public fatal(err: Error, message: string, ...args: any[]): void;
-  public fatal(err: Error | string, message: string | any[], ...args: any[]): void {
+  public fatal(fields: object, message?: string, ...args: any[]): void;
+  public fatal(err: Error | string | object, message?: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Fatal])(err, message, ...args);
   }
 
   public security(message: string, ...args: any[]): void;
   public security(err: Error, message: string, ...args: any[]): void;
-  public security(err: Error | string, message: string | any[], ...args: any[]): void {
+  public security(fields: object, message?: string, ...args: any[]): void;
+  public security(err: Error | string | object, message?: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Security])(err, message, ...args);
   }
 
   public success(message: string, ...args: any[]): void;
   public success(err: Error, message: string, ...args: any[]): void;
-  public success(err: Error | string, message: string | any[], ...args: any[]): void {
+  public success(fields: object, message?: string, ...args: any[]): void;
+  public success(err: Error | string | object, message?: string | any[], ...args: any[]): void {
     wrapWrite.apply(this, [LogLevel.Success])(err, message, ...args);
   }
 

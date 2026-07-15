@@ -119,6 +119,23 @@ describe("@spinajs/internal-logger", () => {
     expect(spy.args.some((a: any) => a[0].Variables.logger === "hello world")).to.be.false;
   });
 
+  it("should merge a fields object ( bunyan style ) into the log variables", async () => {
+    const spy = sinon.spy(BlackHoleTarget.prototype, "write");
+    const bootstrappers = DI.resolve(InternalLogger);
+    bootstrappers.bootstrap();
+    await DI.resolve(Configuration);
+
+    // merging-object form: fields object first, format string, then name.
+    InternalLogger.info({ reqId: "abc", sku: "A-1" }, "checkout %s", "myLogger", "started");
+
+    const vars = (spy.args[0] as any)[0].Variables;
+    expect(vars.reqId).to.eq("abc");
+    expect(vars.sku).to.eq("A-1");
+    expect(vars.message).to.eq("checkout started");
+    // the name must stay in the name slot, not be mistaken for a field
+    expect(vars.logger).to.eq("myLogger");
+  });
+
   it("should carry error on the Error overload", async () => {
     const spy = sinon.spy(BlackHoleTarget.prototype, "write");
     const bootstrappers = DI.resolve(InternalLogger);
