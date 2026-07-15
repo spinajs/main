@@ -6,3 +6,5 @@ export * from "./JsonTarget.js";
 export * from "./MemoryTarget.js";
 export * from "./wrappers/SplitGroupTarget.js";
 export * from "./wrappers/AutoFlushTarget.js";
+export * from "./wrappers/RetryingTarget.js";
+export * from "./wrappers/FallbackGroupTarget.js";

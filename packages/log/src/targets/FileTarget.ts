@@ -108,10 +108,15 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
       maxQueue: this.Options.options.maxQueueSize,
       flushIntervalMs: this.Options.options.flushInterval ?? LOG_FILE_DEFAULTS.flushInterval,
       onFlush: (batch) => this.append(batch),
-      onOverflow: (dropped) => {
+      onOverflow: (droppedItems) => {
+        // droppedItems here are already-formatted STRINGS, so we cannot
+        // reconstruct the original ILogEntry to route via OnDropped. File
+        // overflow stays warn-only ( count from droppedItems.length ). The
+        // drop-hook ( D ) targets the network-primary -> file-fallback case,
+        // not File-as-primary drops.
         if (!this.Overflowed) {
           this.Overflowed = true;
-          this.Log.warn(`File target ${this.Options.name} buffer exceeded ${this.Options.options.maxQueueSize} messages, dropped ${dropped} oldest buffered messages.`);
+          this.Log.warn(`File target ${this.Options.name} buffer exceeded ${this.Options.options.maxQueueSize} messages, dropped ${droppedItems.length} oldest buffered messages.`);
         }
       },
     });

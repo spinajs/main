@@ -75,13 +75,14 @@ describe("BatchQueue", () => {
     await queue.shutdown();
   });
 
-  it("drops OLDEST past maxQueue and calls onOverflow(dropped); size never exceeds maxQueue", async () => {
-    const dropped: number[] = [];
+  it("drops OLDEST past maxQueue and calls onOverflow(droppedItems); size never exceeds maxQueue", async () => {
+    // each overflow episode's dropped ITEMS array, captured in order.
+    const droppedBatches: number[][] = [];
     // maxBatch high so pushes don't auto-flush; we only exercise the cap.
     const { queue, batches } = makeQueue<number>({
       maxBatch: 1000,
       maxQueue: 3,
-      onOverflow: (n) => dropped.push(n),
+      onOverflow: (items) => droppedBatches.push(items),
     });
 
     for (let i = 1; i <= 5; i++) {
@@ -89,12 +90,40 @@ describe("BatchQueue", () => {
       expect(queue.size).to.be.at.most(3);
     }
 
-    // 5 pushed, cap 3 -> dropped two oldest ( 1 and 2 ), each drop reported.
-    expect(dropped).to.deep.eq([1, 1]);
+    // 5 pushed, cap 3 -> two overflow episodes, each dropping one OLDEST item:
+    // first drops [1] ( when 4th arrives ), then [2] ( when 5th arrives ). The
+    // callback receives the dropped ITEMS array, not just a count.
+    expect(droppedBatches).to.deep.eq([[1], [2]]);
+    // total dropped item count is derivable from the arrays.
+    expect(droppedBatches.reduce((n, b) => n + b.length, 0)).to.eq(2);
     expect(queue.size).to.eq(3);
 
     await queue.forceFlush();
     expect(batches[0]).to.deep.eq([3, 4, 5]);
+
+    await queue.shutdown();
+  });
+
+  it("onOverflow receives the SAME item objects that were dropped ( identity )", async () => {
+    const dropped: object[] = [];
+    const a = { id: "a" };
+    const b = { id: "b" };
+    const c = { id: "c" };
+
+    const { queue } = makeQueue<object>({
+      maxBatch: 1000,
+      maxQueue: 2,
+      onOverflow: (items) => dropped.push(...items),
+    });
+
+    await queue.enqueue(a);
+    await queue.enqueue(b);
+    await queue.enqueue(c); // over cap 2 -> drops oldest ( a )
+
+    expect(dropped).to.have.length(1);
+    // identity, not just deep-equality: the exact object is handed back so an
+    // owner can route it ( eg. to a fallback ) without reconstruction.
+    expect(dropped[0]).to.eq(a);
 
     await queue.shutdown();
   });

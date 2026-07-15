@@ -193,12 +193,18 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       maxQueue: this.Options.maxBufferSize,
       flushIntervalMs: this.Options.interval ?? 3000,
       onFlush: (batch) => this.send(batch),
-      onOverflow: (dropped) => {
+      onOverflow: (droppedItems) => {
         // emit the drop warning ONCE per overflow episode; reset on the next
         // successful send() so a later episode warns again.
         if (!this.Overflowed) {
           this.Overflowed = true;
-          this.Log.warn(`Graphana loki buffer exceeded ${this.Options.maxBufferSize} entries, dropped ${dropped} oldest entries.`);
+          this.Log.warn(`Graphana loki buffer exceeded ${this.Options.maxBufferSize} entries, dropped ${droppedItems.length} oldest entries.`);
+        }
+
+        // spill each dropped entry to the fallback ( if a wrapper wired one ) so
+        // a durable target catches exactly what overflow discarded.
+        for (const entry of droppedItems) {
+          this.OnDropped?.(entry);
         }
       },
     });
@@ -290,7 +296,13 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       }
 
       // permanent error ( eg. 400 malformed, 401 bad auth ): retrying forever
-      // would only hide a config problem. Drop the batch and surface it.
+      // would only hide a config problem. Drop the batch and surface it, but
+      // first spill each undelivered entry to the fallback ( if a wrapper wired
+      // one ) so a durable target catches exactly what was not delivered.
+      for (const entry of batch) {
+        this.OnDropped?.(entry);
+      }
+
       this.Log.error(err, `Cannot write log messages to graphana target - dropping ${batch.length} entries because the error is non-retryable.`);
     }
   }

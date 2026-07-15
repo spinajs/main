@@ -340,12 +340,19 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
       maxQueue: this.Options.maxBufferSize,
       flushIntervalMs: this.Options.interval ?? 3000,
       onFlush: (batch) => this.send(batch),
-      onOverflow: (dropped) => {
+      onOverflow: (droppedItems) => {
         // emit the drop warning ONCE per overflow episode; reset on the next
         // successful send() so a later episode warns again.
         if (!this.Overflowed) {
           this.Overflowed = true;
-          this.Log.warn(`OTLP buffer exceeded ${this.Options.maxBufferSize} records, dropped ${dropped} oldest records.`);
+          this.Log.warn(`OTLP buffer exceeded ${this.Options.maxBufferSize} records, dropped ${droppedItems.length} oldest records.`);
+        }
+
+        // spill each dropped entry to the fallback ( if a wrapper wired one ) so
+        // a durable target catches exactly what overflow discarded. Records wrap
+        // the entry, so unwrap to the ILogEntry.
+        for (const rec of droppedItems) {
+          this.OnDropped?.(rec.entry);
         }
       },
     });
@@ -417,7 +424,13 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
       }
 
       // permanent error ( eg. 400 malformed, 401 bad auth ): retrying forever
-      // would only hide a config problem. Drop the batch and surface it.
+      // would only hide a config problem. Drop the batch and surface it, but
+      // first spill each undelivered entry to the fallback ( if a wrapper wired
+      // one ) so a durable target catches exactly what was not delivered.
+      for (const rec of batch) {
+        this.OnDropped?.(rec.entry);
+      }
+
       this.Log.error(err, `Cannot export log records to OTLP target - dropping ${batch.length} records because the error is non-retryable.`);
     }
   }

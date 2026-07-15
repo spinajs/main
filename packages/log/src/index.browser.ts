@@ -19,6 +19,8 @@ export * from "./targets/JsonTarget.js";
 export * from "./targets/MemoryTarget.js";
 export * from "./targets/wrappers/SplitGroupTarget.js";
 export * from "./targets/wrappers/AutoFlushTarget.js";
+export * from "./targets/wrappers/RetryingTarget.js";
+export * from "./targets/wrappers/FallbackGroupTarget.js";
 export * from "./filters/index.js";
 export * from "./log.js";
 export * from "./context.browser.js";

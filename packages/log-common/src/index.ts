@@ -320,7 +320,28 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncServ
     }
   }
 
+  /**
+   * Write ( accept ) a single log entry.
+   *
+   * ## Rejection contract
+   *
+   * `write()` MAY reject to signal that the entry was NOT accepted / delivered.
+   * Self-healing targets ( File / Loki / OTLP ) RESOLVE because they own their
+   * reliability ( they buffer, requeue and retry internally ); wrappers like
+   * {@link RetryingTarget} / {@link FallbackGroupTarget} act on a rejection for
+   * targets that surface failure ( console / custom / strict ). A resolved
+   * write means "accepted for delivery", not necessarily "durably delivered".
+   */
   public abstract write(data: ILogEntry): void;
+
+  /**
+   * Drop-hook. Set by a wrapper ( eg. {@link FallbackGroupTarget} ) to receive
+   * entries this target GAVE UP on ( buffer overflow or a non-retryable delivery
+   * failure ), so a durable fallback can catch EXACTLY what was not delivered —
+   * no duplicates. `null` ( the default ) means nobody is listening and dropped
+   * entries are simply discarded, as before.
+   */
+  public OnDropped: ((entry: ILogEntry) => void) | null = null;
 
   /** Flush any buffered entries to the underlying sink. Default no-op; buffered targets override. */
   public forceFlush(): Promise<void> {

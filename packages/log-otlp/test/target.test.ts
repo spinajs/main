@@ -89,6 +89,35 @@ describe("OtlpLogTarget behavior", () => {
     expect(target.HasError).to.eq(true);
   });
 
+  it("invokes OnDropped for each entry on a non-retryable drop ( 401 )", async () => {
+    const target = buildTarget();
+    target.resolve();
+
+    // no-retry passthrough so the non-retryable error surfaces at once and the
+    // batch takes the drop path.
+    target.RetryPipeline = new ResiliencePipelineBuilder().build();
+
+    sinon.stub(target.AxiosInstance, "post").rejects({ response: { status: 401, headers: {} } });
+
+    const dropped: any[] = [];
+    target.OnDropped = (entry: any) => dropped.push(entry);
+
+    const e1 = entry("undelivered 1");
+    const e2 = entry("undelivered 2");
+    target.write(e1);
+    target.write(e2);
+
+    await target.Queue.flush();
+
+    // both undelivered entries reached the fallback hook, unwrapped to ILogEntry
+    expect(dropped).to.have.length(2);
+    expect(dropped[0]).to.eq(e1);
+    expect(dropped[1]).to.eq(e2);
+    // and the batch was still dropped ( not requeued )
+    expect(target.Queue.size).to.eq(0);
+    expect(target.HasError).to.eq(true);
+  });
+
   it("retains the batch for retry on a retryable error ( 503 )", async () => {
     const target = buildTarget();
     target.resolve();

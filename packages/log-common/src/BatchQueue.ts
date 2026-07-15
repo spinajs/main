@@ -15,7 +15,7 @@
  *
  *  1. **Overflow ( the ONLY silent drop ).** The buffer is hard-capped at
  *     `maxQueue`. When it grows past the cap the OLDEST items are dropped so
- *     memory stays bounded, and `onOverflow(dropped)` fires. This is the
+ *     memory stays bounded, and `onOverflow(droppedItems)` fires. This is the
  *     back-pressure release valve for a stuck/slow sink.
  *
  *  2. **Flush failure ( never a silent drop ).** `onFlush` may throw / reject.
@@ -54,8 +54,13 @@ export interface IBatchQueueOptions<T> {
   exportTimeoutMs?: number;
   /** Does the actual I/O for a batch. May throw/reject; the owner handles retry/requeue/drop. */
   onFlush: (items: T[]) => Promise<void>;
-  /** Called when the queue cap is exceeded and the oldest items are dropped. */
-  onOverflow?: (dropped: number) => void;
+  /**
+   * Called when the queue cap is exceeded and the oldest items are dropped.
+   * Receives the DROPPED ITEMS themselves ( oldest first ) so an owner can route
+   * exactly what was dropped to a fallback ( see LogTarget.OnDropped ). Use
+   * `droppedItems.length` when only the count matters.
+   */
+  onOverflow?: (droppedItems: T[]) => void;
 }
 
 export class BatchQueue<T> {
@@ -117,13 +122,13 @@ export class BatchQueue<T> {
 
   /**
    * Enforce the hard `maxQueue` cap by dropping the OLDEST items. Fires
-   * `onOverflow(dropped)` when anything is dropped.
+   * `onOverflow(droppedItems)` with the spliced-out items when anything is dropped.
    */
   private enforceCap(): void {
     if (this.buffer.length > this.options.maxQueue) {
-      const dropped = this.buffer.length - this.options.maxQueue;
-      this.buffer.splice(0, dropped);
-      this.options.onOverflow?.(dropped);
+      const dropCount = this.buffer.length - this.options.maxQueue;
+      const droppedItems = this.buffer.splice(0, dropCount);
+      this.options.onOverflow?.(droppedItems);
     }
   }
 

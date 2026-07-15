@@ -57,6 +57,7 @@
     "@spinajs/fs": "^2.0.481",
     "@spinajs/internal-logger": "^2.0.481",
     "@spinajs/log-common": "^2.0.481",
+    "@spinajs/util": "^2.0.481",
     "ajv": "^8.12.0",
     "cron": "^2.2.0",
     "glob-to-regexp": "^0.4.1",
