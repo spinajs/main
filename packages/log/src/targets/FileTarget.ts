@@ -4,7 +4,7 @@ import { Configuration, format } from "@spinajs/configuration";
 import { InvalidOption } from "@spinajs/exceptions";
 import { DI, IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
 import { fs } from "@spinajs/fs";
-import { IFileTargetOptions, Logger, Log, ILogEntry, LogTarget } from "@spinajs/log-common";
+import { IFileTargetOptions, Logger, Log, ILogEntry, LogTarget, BatchQueue } from "@spinajs/log-common";
 
 import { LogArchiveService } from "../archive/LogArchiveService.js";
 import { ILogArchiveContext } from "../archive/context.js";
@@ -48,17 +48,16 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
   protected Context: ILogArchiveContext;
 
   /**
-   * In-memory buffer of formatted, not-yet-written messages.
+   * Buffered-batch queue owning accumulation, the flush tick and the hard queue
+   * cap. It delegates the actual batched append to {@link append} via onFlush.
    */
-  protected Buffer: string[] = [];
+  protected Queue: BatchQueue<string>;
 
   /**
-   * Set true when {@link enforceQueueCap} drops overflow, so the drop warning is
-   * emitted ONCE per overflow episode and reset when the buffer drains empty.
+   * Set true when the queue drops overflow, so the drop warning is emitted ONCE
+   * per overflow episode and reset when a batch appends successfully.
    */
   protected Overflowed = false;
-
-  protected FlushTimer: NodeJS.Timeout | null = null;
 
   /**
    * Async initialization ( fs resolution + mkdir + archive start ). write()
@@ -101,12 +100,21 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
       this.Log.error(err as Error, `Cannot initialize file target ${this.Options.name}`);
     });
 
-    // periodic flush so a partially filled buffer is not held indefinitely
-    this.FlushTimer = setInterval(() => {
-      void this.flush();
-    }, this.Options.options.flushInterval);
-    // a pending flush must never keep the process alive; the final flush still runs on dispose()
-    this.FlushTimer.unref?.();
+    // BatchQueue owns accumulation, the periodic flush tick ( unref'd, so a
+    // pending flush never keeps the process alive ) and the hard queue cap. The
+    // batched append itself runs in append() under the write-lock.
+    this.Queue = new BatchQueue<string>({
+      maxBatch: this.Options.options.maxBufferSize,
+      maxQueue: this.Options.options.maxQueueSize,
+      flushIntervalMs: this.Options.options.flushInterval ?? LOG_FILE_DEFAULTS.flushInterval,
+      onFlush: (batch) => this.append(batch),
+      onOverflow: (dropped) => {
+        if (!this.Overflowed) {
+          this.Overflowed = true;
+          this.Log.warn(`File target ${this.Options.name} buffer exceeded ${this.Options.options.maxQueueSize} messages, dropped ${dropped} oldest buffered messages.`);
+        }
+      },
+    });
 
     super.resolve();
   }
@@ -156,96 +164,63 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     }
 
     const entry = format(data.Variables, this.Options.layout);
-    this.Buffer.push(entry);
-    this.enforceQueueCap();
-
-    if (this.Buffer.length >= this.Options.options.maxBufferSize) {
-      await this.flush();
-    }
+    // enqueue awaits the batched append when maxBatch ( = maxBufferSize ) is
+    // reached, preserving the old "await flush when full" back-pressure
+    await this.Queue.enqueue(entry);
   }
 
   /**
-   * Flushes the current buffer as one batched append, guarded by the
-   * write-lock. On failure the batch is PREPENDED back so nothing is lost.
+   * Flushes any buffered messages. Delegates to the queue's forceFlush so a
+   * caller ( eg. dispose or a test ) can await the drain.
    */
   protected async flush(): Promise<void> {
-    if (this.Buffer.length === 0) {
-      return;
-    }
+    await this.Queue.forceFlush();
+  }
 
+  /**
+   * Appends one batch as a single write, guarded by the write-lock ( the SAME
+   * lock rotation uses, so a rename can never race an append ). On failure the
+   * batch is requeued at the FRONT so nothing is lost ( never-drop, bounded by
+   * maxQueue ). This ALWAYS resolves ( never rejects ) so queue.shutdown() -
+   * driven by dispose() - never rejects.
+   */
+  protected async append(batch: string[]): Promise<void> {
     await this.Ready.catch(() => {
-      /* init failed - error already recorded, skip flushing */
+      /* init failed - error already recorded, skip appending */
     });
 
     if (!this.Fs) {
+      // init failed / fs unavailable - keep the batch for a later retry
+      this.Queue.requeueFront(batch);
       return;
     }
 
     await this.withWriteLock(async () => {
-      if (this.Buffer.length === 0) {
-        return;
-      }
-
-      // snapshot the batch and clear the shared buffer so concurrent write()s
-      // append to a fresh buffer while this batch is in flight
-      const batch = this.Buffer;
-      this.Buffer = [];
-
       const path = this.activePath();
 
       try {
         await this.Fs.append(path, batch.join(EOL) + EOL);
         this.HasError = false;
         this.Error = null;
-        // buffer drained successfully - allow the next overflow episode to warn again
-        if (this.Buffer.length === 0) {
-          this.Overflowed = false;
-        }
+        // batch appended successfully - allow the next overflow episode to warn again
+        this.Overflowed = false;
       } catch (err) {
         this.HasError = true;
         this.Error = err;
         this.Log.error(err as Error, `Cannot write log messages to file target at path ${path}`);
 
-        // restore the batch in front of anything queued meanwhile - never drop
-        this.Buffer = [...batch, ...this.Buffer];
-        // prepending can push the buffer over the hard cap - trim the oldest
-        this.enforceQueueCap();
+        // restore the batch in front of anything queued meanwhile - never drop.
+        // the queue caps at maxQueue, dropping the oldest if the sink stays down.
+        this.Queue.requeueFront(batch);
       }
     });
-  }
-
-  /**
-   * Enforces the hard `maxQueueSize` cap on {@link Buffer}. When the buffer
-   * exceeds the cap ( eg. the fs sink is persistently down and appends keep
-   * being prepended back ) the OLDEST overflow is dropped so memory stays
-   * bounded. A single warning is emitted per overflow episode ( throttled via
-   * {@link Overflowed}, reset when the buffer drains empty in flush() ).
-   */
-  protected enforceQueueCap(): void {
-    const cap = this.Options.options.maxQueueSize;
-    if (this.Buffer.length <= cap) {
-      return;
-    }
-
-    const dropped = this.Buffer.length - cap;
-    this.Buffer.splice(0, dropped);
-
-    if (!this.Overflowed) {
-      this.Overflowed = true;
-      this.Log.warn(`File target ${this.Options.name} buffer exceeded ${cap} messages, dropped ${dropped} oldest buffered messages.`);
-    }
   }
 
   public async dispose(): Promise<void> {
     this.Disposed = true;
 
-    if (this.FlushTimer) {
-      clearInterval(this.FlushTimer);
-      this.FlushTimer = null;
-    }
-
-    // final flush of anything buffered
-    await this.flush();
+    // stops the flush timer and performs a final flush of anything buffered
+    await this.Queue.shutdown();
 
     this.ArchiveService?.stop();
   }

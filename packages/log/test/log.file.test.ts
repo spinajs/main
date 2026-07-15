@@ -40,7 +40,7 @@ async function drain(target: any) {
   for (let i = 0; i < 100; i++) {
     await (target as any).Ready?.catch(() => {});
     await (target as any).WriteLock?.catch(() => {});
-    if ((target as any).Buffer.length === 0) {
+    if ((target as any).Queue.size === 0) {
       return;
     }
     await wait(50);
@@ -282,9 +282,10 @@ describe("file target tests", function () {
     const target = DI.get(FileTarget)! as any;
     await target.Ready;
 
-    // shrink the hard cap for a fast, deterministic test
+    // shrink the hard cap for a fast, deterministic test. The cap now lives on
+    // the BatchQueue ( captured at resolve ), so override it there.
     const cap = 50;
-    target.Options.options.maxQueueSize = cap;
+    target.Queue.options.maxQueue = cap;
 
     // make every append fail so the batch is always prepended back -> buffer
     // would grow unbounded without the cap. Fs providers are shared singletons,
@@ -296,7 +297,7 @@ describe("file target tests", function () {
     };
 
     try {
-      // push far more than the cap; each push runs enforceQueueCap()
+      // push far more than the cap; each enqueue enforces the queue cap
       for (let i = 0; i < cap * 10; i++) {
         log.info(`[${i}]`);
       }
@@ -304,7 +305,7 @@ describe("file target tests", function () {
       // let flush timers run so the failure-path prepend + cap also exercises
       await wait(1200);
 
-      expect(target.Buffer.length).to.be.at.most(cap);
+      expect(target.Queue.size).to.be.at.most(cap);
       expect(target.Overflowed).to.be.true;
     } finally {
       (realFs as any).append = origAppend;
