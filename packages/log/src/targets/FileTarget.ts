@@ -163,10 +163,20 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
       return;
     }
 
-    const entry = format(data.Variables, this.Options.layout);
+    const entry = this.formatEntry(data);
     // enqueue awaits the batched append when maxBatch ( = maxBufferSize ) is
     // reached, preserving the old "await flush when full" back-pressure
     await this.Queue.enqueue(entry);
+  }
+
+  /**
+   * Builds the single line appended for one entry. Overridable so subclasses can
+   * change ONLY the per-entry serialization while reusing the whole FileTarget
+   * pipeline ( batched append, write-lock, rotation, retention, zip ). The base
+   * renders the configured string `layout`.
+   */
+  protected formatEntry(data: ILogEntry): string {
+    return format(data.Variables, this.Options.layout);
   }
 
   /**

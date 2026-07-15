@@ -142,6 +142,33 @@ export class TestConfiguration extends FrameworkConfiguration {
               maxBufferSize: 1,
             },
           },
+          {
+            name: "json-file",
+            type: "JsonFileTarget",
+            options: {
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}.txt",
+              compress: true,
+              maxArchiveFiles: 2,
+              maxBufferSize: 1,
+              maxSize: 100 * 1000,
+            },
+          },
+          {
+            name: "json-file-archive",
+            type: "JsonFileTarget",
+            options: {
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}.txt",
+              compress: false,
+              maxArchiveFiles: 5,
+              maxBufferSize: 10,
+              maxSize: 1000,
+              archiveInterval: 1,
+            },
+          },
         ],
 
         rules: [
@@ -159,6 +186,8 @@ export class TestConfiguration extends FrameworkConfiguration {
           { name: "big-buffer", level: "trace", target: "big-buffer" },
           { name: "file-archive", level: "trace", target: "file-archive" },
           { name: "file-archive-no-compress", level: "trace", target: "file-archive-no-compress" },
+          { name: "json-file", level: "trace", target: "json-file" },
+          { name: "json-file-archive", level: "trace", target: "json-file-archive" },
         ],
       },
     }
