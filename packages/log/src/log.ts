@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
 import { DI, IContainer, NewInstance } from "@spinajs/di";
-import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogTargetDesc, LogTarget, Log, WhenRepeatedFilter } from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogTargetDesc, LogTarget, Log, WhenRepeatedFilter, readPersistedLevel } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
@@ -100,6 +100,17 @@ export class FrameworkLogger extends Log {
     // layout actually references it. When off, wrapWrite never builds an Error.
     this.CaptureCallsite = this.Targets.some((t) => typeof t.instance?.Options?.layout === "string" && /\$\{callsite/.test(t.instance.Options.layout));
 
+    // MinLevel = the lowest level any matched rule ( ie. any target ) accepts.
+    // A call below this level would be dropped by every target, so the per-method
+    // isEnabled() guard can short-circuit on it without changing output.
+    this.MinLevel = this.Rules.length ? Math.min(...this.Rules.map((r) => StrToLogLevel[r.level])) : LogLevel.Trace;
+
+    // Load any browser-persisted runtime override ( no-op / undefined on Node ).
+    const persisted = readPersistedLevel(this.Name);
+    if (persisted !== undefined) {
+      this.LevelOverride = persisted;
+    }
+
     super.resolve();
 
     Log.Loggers.set(this.Name, this);
@@ -109,6 +120,7 @@ export class FrameworkLogger extends Log {
   public trace(err: Error, message: string, ...args: any[]): void;
   public trace(fields: object, message?: string, ...args: any[]): void;
   public trace(err: Error | string | object, message?: string | any[], ...args: any[]): void {
+    if (!this.isEnabled(LogLevel.Trace)) return;
     wrapWrite.apply(this, [LogLevel.Trace])(err, message, ...args);
   }
 
@@ -116,6 +128,7 @@ export class FrameworkLogger extends Log {
   public debug(err: Error, message: string, ...args: any[]): void;
   public debug(fields: object, message?: string, ...args: any[]): void;
   public debug(err: Error | string | object, message?: string | any[], ...args: any[]): void {
+    if (!this.isEnabled(LogLevel.Debug)) return;
     wrapWrite.apply(this, [LogLevel.Debug])(err, message, ...args);
   }
 
@@ -123,6 +136,7 @@ export class FrameworkLogger extends Log {
   public info(err: Error, message: string, ...args: any[]): void;
   public info(fields: object, message?: string, ...args: any[]): void;
   public info(err: Error | string | object, message?: string | any[], ...args: any[]): void {
+    if (!this.isEnabled(LogLevel.Info)) return;
     wrapWrite.apply(this, [LogLevel.Info])(err, message, ...args);
   }
 
@@ -130,6 +144,7 @@ export class FrameworkLogger extends Log {
   public warn(err: Error, message: string, ...args: any[]): void;
   public warn(fields: object, message?: string, ...args: any[]): void;
   public warn(err: Error | string | object, message?: string | any[], ...args: any[]): void {
+    if (!this.isEnabled(LogLevel.Warn)) return;
     wrapWrite.apply(this, [LogLevel.Warn])(err, message, ...args);
   }
 
@@ -137,6 +152,7 @@ export class FrameworkLogger extends Log {
   public error(err: Error, message: string, ...args: any[]): void;
   public error(fields: object, message?: string, ...args: any[]): void;
   public error(err: Error | string | object, message?: string | any[], ...args: any[]): void {
+    if (!this.isEnabled(LogLevel.Error)) return;
     wrapWrite.apply(this, [LogLevel.Error])(err, message, ...args);
   }
 
@@ -144,6 +160,7 @@ export class FrameworkLogger extends Log {
   public fatal(err: Error, message: string, ...args: any[]): void;
   public fatal(fields: object, message?: string, ...args: any[]): void;
   public fatal(err: Error | string | object, message?: string | any[], ...args: any[]): void {
+    if (!this.isEnabled(LogLevel.Fatal)) return;
     wrapWrite.apply(this, [LogLevel.Fatal])(err, message, ...args);
   }
 
@@ -151,6 +168,7 @@ export class FrameworkLogger extends Log {
   public security(err: Error, message: string, ...args: any[]): void;
   public security(fields: object, message?: string, ...args: any[]): void;
   public security(err: Error | string | object, message?: string | any[], ...args: any[]): void {
+    if (!this.isEnabled(LogLevel.Security)) return;
     wrapWrite.apply(this, [LogLevel.Security])(err, message, ...args);
   }
 
@@ -158,6 +176,7 @@ export class FrameworkLogger extends Log {
   public success(err: Error, message: string, ...args: any[]): void;
   public success(fields: object, message?: string, ...args: any[]): void;
   public success(err: Error | string | object, message?: string | any[], ...args: any[]): void {
+    if (!this.isEnabled(LogLevel.Success)) return;
     wrapWrite.apply(this, [LogLevel.Success])(err, message, ...args);
   }
 

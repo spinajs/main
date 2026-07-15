@@ -2,10 +2,12 @@ import { Autoinject, Container, DI, SyncService } from "@spinajs/di";
 import _ from "lodash";
 import { format } from "./format.js";
 import { applySerializers } from "./serializers.js";
+import { persistLevel, clearPersistedLevel } from "./persistence.js";
 
 export * from "./serializers.js";
 export * from "./filters/whenRepeated.js";
 export * from "./BatchQueue.js";
+export * from "./persistence.js";
 
 import type { IWhenRepeatedOptions } from "./filters/whenRepeated.js";
 
@@ -37,6 +39,32 @@ export const StrToLogLevel = {
   fatal: LogLevel.Fatal,
   security: LogLevel.Security,
 };
+
+/**
+ * Sentinel level sitting one ABOVE {@link LogLevel.Security} ( SpinaJS's highest
+ * real level ). Used by `Log.disableAll()` as the runtime override so even a
+ * `security()` call is gated out - `isEnabled` compares numerically, so nothing
+ * ever reaches it.
+ */
+export const SILENT_LEVEL = LogLevel.Security + 1;
+
+/**
+ * Normalises a level given either as a {@link LogLevel} number or a level name
+ * ( "trace" | "debug" | ... ) to its numeric value. Single validation choke
+ * point: an unknown name throws a clear error. Numbers pass straight through
+ * ( so {@link SILENT_LEVEL } and other synthetic values are accepted ).
+ */
+export function normalizeLevel(level: LogLevel | string): LogLevel {
+  if (typeof level === "number") {
+    return level;
+  }
+
+  const resolved = (StrToLogLevel as Record<string, LogLevel>)[level];
+  if (resolved === undefined) {
+    throw new Error(`Invalid log level: ${level}`);
+  }
+  return resolved;
+}
 
 export const LogLevelStrings = {
   [LogLevel.Debug]: "debug",
@@ -342,6 +370,72 @@ export abstract class Log extends SyncService {
   protected Container: Container;
 
   protected Variables: Record<string, any> = {};
+
+  /**
+   * Lowest level any of this logger's targets accepts ( the MIN across its
+   * matched rules ). Set by FrameworkLogger.resolve(); default Trace = allow
+   * all. A call below this level would be dropped by every target anyway, so the
+   * per-method guard can safely short-circuit on it.
+   */
+  protected MinLevel: LogLevel = LogLevel.Trace;
+
+  /**
+   * Runtime level override ( loglevel-style ). `null` means "no override, use
+   * MinLevel". Set via setLevel/enableAll/disableAll, cleared via resetLevel.
+   */
+  protected LevelOverride: LogLevel | null = null;
+
+  /** Effective minimum level: the runtime override if set, otherwise MinLevel. */
+  public getLevel(): LogLevel {
+    return this.LevelOverride ?? this.MinLevel;
+  }
+
+  /** True when a call at `level` should be emitted given the effective level. */
+  protected isEnabled(level: LogLevel): boolean {
+    return level >= this.getLevel();
+  }
+
+  /**
+   * Set a runtime level override. Accepts a {@link LogLevel} or a level name.
+   * When `persist` ( default true ) the choice is stored so it survives a
+   * browser reload ( no-op on Node ).
+   */
+  public setLevel(level: LogLevel | keyof typeof StrToLogLevel, persist = true): void {
+    this.LevelOverride = normalizeLevel(level);
+    if (persist) {
+      persistLevel(this.Name, this.LevelOverride);
+    }
+  }
+
+  /**
+   * Set the override ONLY if nothing is currently applied ( loglevel semantics:
+   * a default must never clobber a user's explicit / persisted choice ). Never
+   * persists.
+   */
+  public setDefaultLevel(level: LogLevel | keyof typeof StrToLogLevel): void {
+    if (this.LevelOverride === null) {
+      this.LevelOverride = normalizeLevel(level);
+    }
+  }
+
+  /** Drop the runtime override ( back to MinLevel ) and clear any persisted value. */
+  public resetLevel(): void {
+    this.LevelOverride = null;
+    clearPersistedLevel(this.Name);
+  }
+
+  /** Enable every level ( Trace and up ). */
+  public enableAll(persist = true): void {
+    this.setLevel(LogLevel.Trace, persist);
+  }
+
+  /**
+   * Disable every level - even {@link LogLevel.Security} - by raising the
+   * override to {@link SILENT_LEVEL} ( one above Security ).
+   */
+  public disableAll(persist = true): void {
+    this.setLevel(SILENT_LEVEL, persist);
+  }
 
   public static clearLoggers() {
     return Promise.all([...Log.Loggers.values()].map((l) => l.dispose()))

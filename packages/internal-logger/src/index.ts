@@ -219,6 +219,15 @@ export class InternalLogger extends Bootstrapper {
   }
 }
 
+/**
+ * Bootstrap-time proxy used before the real logger / configuration is resolved.
+ *
+ * It inherits the concrete runtime level-control API from {@link Log }
+ * ( getLevel / setLevel / setDefaultLevel / resetLevel / enableAll / disableAll ).
+ * These are harmless here: the proxy keeps the default `MinLevel = Trace`, has no
+ * per-method isEnabled() guard, and forwards every call straight to
+ * `InternalLogger`, so `setLevel(...)` on the proxy simply has no gating effect.
+ */
 export class InternalLoggerProxy extends Log {
   public Targets: ILogTargetDesc[];
   protected Variables: Record<string, any> = {};
