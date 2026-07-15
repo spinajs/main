@@ -5,11 +5,13 @@ import { applySerializers } from "./serializers.js";
 import { persistLevel, clearPersistedLevel } from "./persistence.js";
 
 export * from "./serializers.js";
+export * from "./filters/filter.js";
 export * from "./filters/whenRepeated.js";
 export * from "./BatchQueue.js";
 export * from "./persistence.js";
 
 import type { IWhenRepeatedOptions } from "./filters/whenRepeated.js";
+import type { ILogFilterOptions } from "./filters/filter.js";
 
 export enum LogLevel {
   Security = 999,
@@ -117,8 +119,20 @@ export interface ILogOptions {
    * Opt-in dedup filter that collapses identical repeated log entries. When set,
    * every logger gets its OWN WhenRepeatedFilter instance ( independent state ).
    * Default off.
+   *
+   * @deprecated prefer `filters: [{ type: "WhenRepeatedFilter", ... }]`. Kept
+   * for backward compat - when set it is mapped to a prepended WhenRepeatedFilter.
    */
   whenRepeated?: IWhenRepeatedOptions;
+
+  /**
+   * Composable per-logger filter pipeline. Each entry is `{ type, ...opts }`
+   * where `type` is the DI string name of a {@link LogFilter } ( eg.
+   * "LevelFilter", "MatchFilter", "RateLimitFilter", "WhenRepeatedFilter" ).
+   * Filters run IN ORDER inside `write()`; any filter returning null drops the
+   * entry. Off ( empty ) by default.
+   */
+  filters?: ILogFilterOptions[];
 }
 
 export interface ICommonTargetOptions {

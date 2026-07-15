@@ -20,20 +20,20 @@ describe("WhenRepeatedFilter", () => {
     const f = new WhenRepeatedFilter({ timeout: 10 }, () => clock);
 
     const e = entry(LogLevel.Info, "app", "hello");
-    expect(f.filter(e)).to.eq(e);
+    expect(f.apply(e)).to.eq(e);
   });
 
   it("suppresses identical repeats within the window", () => {
     let clock = 0;
     const f = new WhenRepeatedFilter({ timeout: 10 }, () => clock);
 
-    expect(f.filter(entry(LogLevel.Info, "app", "hello"))).to.not.eq(null);
+    expect(f.apply(entry(LogLevel.Info, "app", "hello"))).to.not.eq(null);
 
     clock = 1000;
-    expect(f.filter(entry(LogLevel.Info, "app", "hello"))).to.eq(null);
+    expect(f.apply(entry(LogLevel.Info, "app", "hello"))).to.eq(null);
     clock = 2000;
-    expect(f.filter(entry(LogLevel.Info, "app", "hello"))).to.eq(null);
-    expect(f.filter(entry(LogLevel.Info, "app", "hello"))).to.eq(null);
+    expect(f.apply(entry(LogLevel.Info, "app", "hello"))).to.eq(null);
+    expect(f.apply(entry(LogLevel.Info, "app", "hello"))).to.eq(null);
   });
 
   it("after the window expires the next occurrence emits with (xN) and resets the count", () => {
@@ -41,27 +41,27 @@ describe("WhenRepeatedFilter", () => {
     const f = new WhenRepeatedFilter({ timeout: 10 }, () => clock);
 
     // first emit
-    f.filter(entry(LogLevel.Info, "app", "hello"));
+    f.apply(entry(LogLevel.Info, "app", "hello"));
     // 3 suppressed within the window
     clock = 1000;
-    f.filter(entry(LogLevel.Info, "app", "hello"));
-    f.filter(entry(LogLevel.Info, "app", "hello"));
-    f.filter(entry(LogLevel.Info, "app", "hello"));
+    f.apply(entry(LogLevel.Info, "app", "hello"));
+    f.apply(entry(LogLevel.Info, "app", "hello"));
+    f.apply(entry(LogLevel.Info, "app", "hello"));
 
     // advance past timeout*1000 ( 10s = 10000ms )
     clock = 11000;
     const e = entry(LogLevel.Info, "app", "hello");
-    const kept = f.filter(e);
+    const kept = f.apply(e);
     expect(kept).to.eq(e);
     expect(kept!.Variables.message).to.eq("hello (x3)");
 
     // count has reset - the next in-window repeat is suppressed again with no residual
     clock = 12000;
-    expect(f.filter(entry(LogLevel.Info, "app", "hello"))).to.eq(null);
+    expect(f.apply(entry(LogLevel.Info, "app", "hello"))).to.eq(null);
 
     clock = 22000;
     const e2 = entry(LogLevel.Info, "app", "hello");
-    const kept2 = f.filter(e2);
+    const kept2 = f.apply(e2);
     expect(kept2).to.eq(e2);
     expect(kept2!.Variables.message).to.eq("hello (x1)");
   });
@@ -77,13 +77,13 @@ describe("WhenRepeatedFilter", () => {
     // than the recorded one - which only differs if keyOf ignored level. Here we
     // verify same-key repeats suppress, and that a higher-level (different key)
     // emits on its own.
-    f.filter(entry(LogLevel.Info, "app", "hello"));
+    f.apply(entry(LogLevel.Info, "app", "hello"));
     clock = 1000;
-    expect(f.filter(entry(LogLevel.Info, "app", "hello"))).to.eq(null);
+    expect(f.apply(entry(LogLevel.Info, "app", "hello"))).to.eq(null);
 
     // higher level, same logger/message = different key = emits immediately
     const err = entry(LogLevel.Error, "app", "hello");
-    expect(f.filter(err)).to.eq(err);
+    expect(f.apply(err)).to.eq(err);
   });
 
   it("keeps the map bounded via maxKeys pruning", () => {
@@ -94,7 +94,7 @@ describe("WhenRepeatedFilter", () => {
     // records expire and get pruned first.
     for (let i = 0; i < 100; i++) {
       clock = i * 1000;
-      f.filter(entry(LogLevel.Info, "app", `msg-${i}`));
+      f.apply(entry(LogLevel.Info, "app", `msg-${i}`));
     }
 
     expect(f.records.size).to.be.at.most(4);

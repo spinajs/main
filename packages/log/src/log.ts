@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
 import { DI, IContainer, NewInstance } from "@spinajs/di";
-import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogTargetDesc, LogTarget, Log, WhenRepeatedFilter, readPersistedLevel } from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogTargetDesc, LogTarget, Log, LogFilter, ILogFilterOptions, readPersistedLevel } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
@@ -43,8 +43,10 @@ function wrapWrite(this: Log, level: LogLevel) {
  */
 @NewInstance()
 export class FrameworkLogger extends Log {
-  // per-logger dedup filter, only present when logger.whenRepeated is configured
-  protected RepeatFilter?: WhenRepeatedFilter;
+  // composable per-logger filter pipeline, resolved from logger.filters ( plus a
+  // prepended WhenRepeatedFilter for the legacy logger.whenRepeated option ).
+  // Applied IN ORDER in write(); a null from any filter drops the entry.
+  protected Filters: LogFilter[] = [];
 
   // Set in resolve() when some target's layout references ${callsite}. Gates the
   // caller-frame capture in wrapWrite so logging stays zero-cost otherwise.
@@ -84,14 +86,15 @@ export class FrameworkLogger extends Log {
       return a.name === b.name && a.type === b.type;
     });
 
-    // opt-in dedup. NOTE: this is currently GLOBAL - every logger reads the same
-    // `logger.whenRepeated` config key, so setting it enables dedup for ALL
-    // loggers ( each with its OWN independent per-logger filter state ). That is
-    // the intended minimal surface; per-rule granularity arrives with the full
-    // filter-pipeline phase.
-    if (this.Options.whenRepeated) {
-      this.RepeatFilter = new WhenRepeatedFilter(this.Options.whenRepeated);
-    }
+    // Composable filter pipeline. Each configured filter is resolved by its DI
+    // string name ( same mechanism as targets, see resolveLogTargets ) with its
+    // own config entry passed as options, and applied IN ORDER in write().
+    //
+    // BACKWARD COMPAT: the legacy `logger.whenRepeated` option is mapped to a
+    // WhenRepeatedFilter PREPENDED to the list so existing configs keep working.
+    const configuredFilters: ILogFilterOptions[] = this.Options.filters ?? [];
+    const filterSpecs: ILogFilterOptions[] = this.Options.whenRepeated ? [{ type: "WhenRepeatedFilter", ...this.Options.whenRepeated }, ...configuredFilters] : configuredFilters;
+    this.Filters = filterSpecs.map((f) => DI.resolve<LogFilter>(f.type, [f]));
 
     this.matchRulesToLogger();
     this.resolveLogTargets();
@@ -182,16 +185,19 @@ export class FrameworkLogger extends Log {
 
   public write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]> {
     if (entry.Variables.logger === this.Name) {
-      // opt-in dedup - collapse identical repeated entries. `filter` returns the
-      // ( possibly (xN)-annotated ) entry to emit, or null to suppress it.
-      let kept: ILogEntry = entry;
-      if (this.RepeatFilter) {
-        const filtered = this.RepeatFilter.filter(entry);
+      // Composable filter pipeline - run the entry through each configured filter
+      // IN ORDER. A filter returns the ( possibly modified ) entry to keep, or
+      // null to DROP it, in which case dispatch is skipped entirely. Runs AFTER
+      // the near-zero-cost level gate in the log methods so disabled levels never
+      // even reach the filters.
+      let filtered: ILogEntry | null = entry;
+      for (const f of this.Filters) {
+        filtered = f.apply(filtered);
         if (!filtered) {
           return Promise.resolve([]);
         }
-        kept = filtered;
       }
+      const kept: ILogEntry = filtered;
 
       return Promise.allSettled(
 

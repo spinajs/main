@@ -1,5 +1,6 @@
 export * from "@spinajs/log-common";
 export * from "./targets/index.js";
+export * from "./filters/index.js";
 export * from "./archive/index.js";
 export * from "./log.js";
 export * from "./callsite.js";

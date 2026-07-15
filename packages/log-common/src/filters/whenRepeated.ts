@@ -2,8 +2,10 @@
 // back to ../index.js. The filter compares `entry.Level` numerically and never
 // needs the `LogLevel` enum VALUES, so a type import is sufficient.
 import type { ILogEntry } from "../index.js";
+import { Injectable } from "@spinajs/di";
+import { LogFilter, ILogFilterOptions } from "./filter.js";
 
-export interface IWhenRepeatedOptions {
+export interface IWhenRepeatedOptions extends Partial<ILogFilterOptions> {
   /**
    * Suppression window in SECONDS. Identical entries logged within this window
    * ( from the first occurrence ) are collapsed into one. Default is 10.
@@ -36,12 +38,14 @@ interface IRepeatRecord {
  * dependency-free; the full filter pipeline in a later phase can layer a timed
  * flush on top.
  */
-export class WhenRepeatedFilter {
+@Injectable("WhenRepeatedFilter")
+export class WhenRepeatedFilter extends LogFilter {
   protected timeoutMs: number;
   protected maxKeys: number;
   protected records: Map<string, IRepeatRecord> = new Map();
 
   constructor(options?: IWhenRepeatedOptions, protected now: () => number = () => Date.now()) {
+    super(options as ILogFilterOptions);
     this.timeoutMs = (options?.timeout ?? 10) * 1000;
     this.maxKeys = options?.maxKeys ?? 1024;
   }
@@ -54,7 +58,7 @@ export class WhenRepeatedFilter {
    * Returns the entry to EMIT ( possibly with an injected suppressed-count ) or
    * `null` to SUPPRESS.
    */
-  public filter(entry: ILogEntry): ILogEntry | null {
+  public apply(entry: ILogEntry): ILogEntry | null {
     const key = this.keyOf(entry);
     const now = this.now();
     const record = this.records.get(key);

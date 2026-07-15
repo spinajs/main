@@ -142,6 +142,21 @@ const CONFIGURATION_SCHEMA = {
         },
       },
     },
+    filters: {
+      description:
+        "Composable per-logger filter pipeline. Each item is { type, ...opts } where `type` is the DI name of a LogFilter ( eg. LevelFilter, MatchFilter, RateLimitFilter, WhenRepeatedFilter ). Filters run in order in write(); any returning null drops the entry.",
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: {
+            description: "DI string name of the registered LogFilter.",
+            type: "string",
+          },
+        },
+        required: ["type"],
+      },
+    },
     rules: {
       description: "Log rules, what log should be write where",
       type: "array",
