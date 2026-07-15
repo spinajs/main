@@ -320,18 +320,37 @@ export const forwardRef = (fn: () => any): IForwardReference => ({
  */
 export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignKey?: string, primaryKey?: string) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const targetModelDesc = extractModelDescriptor(target);
-
-    model.Relations.set(propertyKey, {
+    const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Type: RelationType.One,
       SourceModel: target,
       TargetModelType: targetModel,
       TargetModel: undefined as any,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
-      PrimaryKey: primaryKey ?? targetModelDesc?.PrimaryKey ?? model.PrimaryKey,
+      // default PK must come from the TARGET model, not the source ( fixed below )
+      PrimaryKey: primaryKey ?? model.PrimaryKey,
       Recursive: false,
-    });
+    };
+
+    if (!primaryKey) {
+      if (typeof targetModel === 'string') {
+        // target resolved by name at runtime - read its PK lazily ( same pattern as HasManyToMany )
+        const getModel = function () {
+          return extractModelDescriptor(DI.get(Orm)!.Models.find((x) => x.name === targetModel)!.type);
+        };
+
+        Object.defineProperty(descriptor, 'PrimaryKey', {
+          get: function () {
+            return getModel()?.PrimaryKey ?? model.PrimaryKey;
+          },
+        });
+      } else {
+        const targetModelDesc = extractModelDescriptor(targetModel);
+        descriptor.PrimaryKey = targetModelDesc?.PrimaryKey ?? model.PrimaryKey;
+      }
+    }
+
+    model.Relations.set(propertyKey, descriptor);
   });
 }
 

@@ -33,7 +33,7 @@ function mockModel(columns: any[], relations: Array<any>, values: Record<string,
 }
 
 describe('Orm converters', () => {
-  it('Should convert uuid to & from db', async () => {
+  it('Should convert uuid to & from db preserving canonical dashed form ( B15b )', async () => {
     const u = '0db8f7f5-56cd-4801-ac23-ad6d78bfec3f';
     const converter = new UuidConverter();
     const uid = converter.toDB(u);
@@ -42,8 +42,23 @@ describe('Orm converters', () => {
     expect(uid instanceof Buffer).to.be.true;
     expect((uid as Buffer).length).to.eq(16);
 
+    // round-trip must be identity: fromDB rebuilds the dashed 36-char form
     const back = converter.fromDB(uid as Buffer);
-    expect(back === u.replace(/-/g, '')).to.be.true;
+    expect(back).to.eq(u);
+  });
+
+  it('uuid round-trip toDB(fromDB(x)) should be identity ( B15b )', () => {
+    const converter = new UuidConverter();
+    const original = converter.toDB('0db8f7f5-56cd-4801-ac23-ad6d78bfec3f') as Buffer;
+
+    // fromDB -> canonical string, toDB -> same 16-byte buffer
+    const roundTripped = converter.toDB(converter.fromDB(original) as string) as Buffer;
+    expect(Buffer.compare(roundTripped, original)).to.eq(0);
+  });
+
+  it('uuid fromDB(null) should return null ( B15a guard )', () => {
+    const converter = new UuidConverter();
+    expect(converter.fromDB(null as any)).to.be.null;
   });
 
   describe('StandardModelToSqlConverter foreign key handling', () => {

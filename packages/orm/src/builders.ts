@@ -830,11 +830,15 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       }
 
       if (sVal === null) {
-        return this.whereNull(c);
-      }
-
-      if (sVal === null) {
-        return o === SqlOperator.NOT_NULL ? this.whereNotNull(c) : this.whereNull(c);
+        const op = String(o).toLowerCase();
+        // where(col, '=', null) => IS NULL ; where(col, '!=' / '<>', null) => IS NOT NULL
+        if (op === SqlOperator.EQ) {
+          return this.whereNull(c);
+        }
+        if (op === SqlOperator.NOT || op === SqlOperator.NOT_2) {
+          return this.whereNotNull(c);
+        }
+        throw new InvalidArgument(`operator ${o} cannot be used with null value ( only =, !=, <> are allowed )`);
       }
 
       self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
@@ -859,9 +863,9 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     for (const key of Object.keys(obj).filter((x) => obj[x] !== undefined)) {
       const val = obj[key];
       if (Array.isArray(val)) {
-        if (val.length !== 0) {
-          this.whereIn(key, val);
-        }
+        // empty array => SQL `IN ()` semantics => match nothing (FALSE),
+        // never "no condition" (which would match everything)
+        this.whereIn(key, val);
       } else if (val === null) {
         this.whereNull(key);
       } else this.andWhere(key, SqlOperator.EQ, val);
@@ -886,6 +890,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereIn(column: string, val: any[]): this {
+    // `IN ()` matches nothing in SQL; compile an empty set to FALSE rather than
+    // emitting no condition (which would silently match every row).
+    if (Array.isArray(val) && val.length === 0) {
+      this.where(false);
+      return this;
+    }
     this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this]));
     return this;
   }
@@ -1980,10 +1990,11 @@ export class TableQueryBuilder extends QueryBuilder {
   public string: (name: string, length?: number) => ColumnQueryBuilder;
 
   /**
-   * Alias for string(name, 36 )
+   * Alias for binary(name, 16 ) - uuids are stored as 16-byte BINARY to match
+   * the UuidConverter ( which writes a dashed uuid as a 16-byte buffer ).
    */
   public uuid(name: string) {
-    return this.string(name, 36);
+    return this.binary(name, 16);
   }
 
   public float: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;

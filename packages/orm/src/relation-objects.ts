@@ -527,11 +527,17 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * Only dirty models are updated.
    */
   public async update() {
-    const dirty = this.filter((x) => x.IsDirty || x.PrimaryKeyValue === null);
-
+    // Assign foreign keys BEFORE computing the dirty set. A child re-parented to
+    // this owner needs its FK rewritten and persisted; if we snapshot `dirty`
+    // first, a previously-clean child keeps its old FK in the DB and a following
+    // sync() can delete it as "not belonging" to the new owner.
     this.forEach((d) => {
       (d as any)[this.Relation.ForeignKey] = this.Owner.PrimaryKeyValue;
     });
+
+    // Fresh models have an undefined PK ( setDefaults uses the column default ),
+    // so treat undefined as "needs insert" alongside null and the dirty flag.
+    const dirty = this.filter((x) => x.IsDirty || x.PrimaryKeyValue === null || x.PrimaryKeyValue === undefined);
 
     for (const f of dirty) {
       await f.insert(InsertBehaviour.InsertOrUpdate);

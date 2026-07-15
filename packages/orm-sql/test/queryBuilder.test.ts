@@ -13,6 +13,7 @@ import { RelationModel3 } from './Models/RelationModel3.js';
 import { DateTime } from 'luxon';
 import { RelationModel2 } from './Models/RelationModel2.js';
 import { SqlSelectQueryCompiler } from '../src/compilers.js';
+import { SqlDatetimeValueConverter } from '../src/converters.js';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 function sqb() {
@@ -320,7 +321,7 @@ describe('Where query builder', () => {
     expect(result.bindings).to.be.an('array').to.include('2023-01-29 00:00:00.000');
   });
 
-  it('where object should filter out undefined vals and empty arrays', () => {
+  it('where object should filter undefined vals but compile empty arrays to FALSE ( B4b )', () => {
     const result = sqb()
       .select('*')
       .from('users')
@@ -330,7 +331,34 @@ describe('Where query builder', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('SELECT * FROM `users`');
+    // empty array => `IN ()` => match nothing (FALSE), NOT "no condition"
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+  });
+
+  it('whereIn with empty array compiles to FALSE ( B4b )', () => {
+    const result = sqb().select('*').from('users').whereIn('id', []).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+  });
+
+  it('where(col, "=", null) compiles to IS NULL ( B6 )', () => {
+    const result = sqb().select('*').from('users').where('id', '=', null).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` IS NULL');
+  });
+
+  it('where(col, "!=", null) compiles to IS NOT NULL ( B6 )', () => {
+    const result = sqb().select('*').from('users').where('id', '!=', null).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` IS NOT NULL');
+  });
+
+  it('whereNot(col, null) compiles to IS NOT NULL ( B6 )', () => {
+    const result = sqb().select('*').from('users').whereNot('id', null).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` IS NOT NULL');
+  });
+
+  it('where(col, ">", null) throws ( B6 )', () => {
+    expect(() => {
+      sqb().select('*').from('users').where('id', '>', null).toDB();
+    }).to.throw(InvalidArgument);
   });
 
   it('where object with arrays', () => {
@@ -1498,9 +1526,31 @@ describe('schema building', () => {
     expect(result[0].expression).to.contain('`foo` BINARY(16)');
   });
 
+  it('uuid column emits BINARY(16) to match the UuidConverter ( B15b )', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.uuid('guid');
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result[0].expression).to.contain('`guid` BINARY(16)');
+  });
+
   it('SqlQueryCompiler rejects a null builder', () => {
     const container = db()!.Connections.get('sqlite')!.Container;
     expect(() => new SqlSelectQueryCompiler(container, null as any)).to.throw(InvalidArgument);
+  });
+});
+
+describe('SqlDatetimeValueConverter', () => {
+  it('toDB(undefined) should return null, not the epoch ( B16a )', () => {
+    const converter = new SqlDatetimeValueConverter();
+    expect(converter.toDB(undefined as any, null as any, null as any)).to.be.null;
+  });
+
+  it('toDB(null) should return null ( B16a )', () => {
+    const converter = new SqlDatetimeValueConverter();
+    expect(converter.toDB(null as any, null as any, null as any)).to.be.null;
   });
 });
 

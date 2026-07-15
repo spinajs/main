@@ -25,6 +25,7 @@ import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from '.
 import { ModelWithScope } from './mocks/models/ModelWithScope.js';
 import { DateTime } from 'luxon';
 import { UuidConverter } from '../src/converters.js';
+import { _update } from '../src/fp.js';
 
 chai.use(chaiAsPromised);
 chai.use(chaiSubset);
@@ -1135,6 +1136,54 @@ describe('General model tests', () => {
     expect(spy2.calledOnce).to.be.true;
     expect(spy3.calledOnce).to.be.true;
   });
+
+  it('static count() should return the numeric count ( B3 )', async () => {
+    // @ts-ignore
+    await db();
+
+    sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({ expression: '', bindings: [] });
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(Promise.resolve([{ count: 5 }]));
+
+    const c = await (RawModel as any).count();
+    expect(c).to.eq(5);
+  });
+
+  it('static count() should return 0 when there are no rows ( B3 )', async () => {
+    // @ts-ignore
+    await db();
+
+    sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({ expression: '', bindings: [] });
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(Promise.resolve([]));
+
+    const c = await (RawModel as any).count();
+    expect(c).to.eq(0);
+  });
+
+  it('static destroy() with no arguments should throw ( B4a )', async () => {
+    // @ts-ignore
+    await db();
+
+    expect(() => (RawModel as any).destroy()).to.throw(/primary keys/);
+  });
+
+  it('static destroy(null) should throw ( B4a )', async () => {
+    // @ts-ignore
+    await db();
+
+    expect(() => (RawModel as any).destroy(null)).to.throw(/primary keys/);
+  });
+
+  it('_update fp helper should resolve a clean ( no-op ) model instead of rejecting ( B11 )', async () => {
+    // @ts-ignore
+    await db();
+
+    const model = new RawModel();
+    model.PrimaryKeyValue = 1;
+    model.IsDirty = false;
+
+    const result = await _update()(model as any);
+    expect(result).to.eq(model);
+  });
 });
 
 describe('Model discrimination tests', () => {
@@ -1270,9 +1319,9 @@ describe('UuidConverter', () => {
     expect(new UuidConverter().fromDB(undefined as any)).to.be.null;
   });
 
-  it('fromDB returns hex string for a valid buffer', () => {
+  it('fromDB returns canonical dashed uuid for a valid buffer ( B15b )', () => {
     const buffer = Buffer.from('0102030405060708090a0b0c0d0e0f10', 'hex');
-    expect(new UuidConverter().fromDB(buffer)).to.eq('0102030405060708090a0b0c0d0e0f10');
+    expect(new UuidConverter().fromDB(buffer)).to.eq('01020304-0506-0708-090a-0b0c0d0e0f10');
   });
 });
 

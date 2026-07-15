@@ -155,14 +155,51 @@ describe('Orm migrations', () => {
     // @ts-ignore
     const orm = await db();
 
+    // seed migration table: both migrations are recorded so down() must fire for both
+    const exec = sinon.stub(FakeSqliteDriver.prototype, 'execute').resolves([{ Migration: 'recorded', CreatedAt: new Date() }]);
+
     const spy1 = sinon.spy(Migration1_2021_12_01_12_00_00.prototype, 'down');
     const spy2 = sinon.spy(Migration2_2021_12_02_12_00_00.prototype, 'down');
 
     await orm.migrateDown();
 
+    exec.restore();
+
     expect(spy1.calledAfter(spy2)).to.be.true;
     expect(spy1.calledOnce).to.be.true;
     expect(spy2.calledOnce).to.be.true;
+  });
+
+  it('Should NOT run down for migrations that are not recorded', async () => {
+    // @ts-ignore
+    const orm = await db();
+
+    // migration table empty (execute returns falsy row) => nothing recorded => down must NOT run
+    const spy1 = sinon.spy(Migration1_2021_12_01_12_00_00.prototype, 'down');
+    const spy2 = sinon.spy(Migration2_2021_12_02_12_00_00.prototype, 'down');
+
+    await orm.migrateDown();
+
+    expect(spy1.called).to.be.false;
+    expect(spy2.called).to.be.false;
+  });
+
+  it('Should NOT run up for migrations that are already recorded', async () => {
+    // @ts-ignore
+    const orm = await db();
+
+    // seed migration table: both migrations already recorded so up() must be skipped
+    const exec = sinon.stub(FakeSqliteDriver.prototype, 'execute').resolves([{ Migration: 'recorded', CreatedAt: new Date() }]);
+
+    const spy1 = sinon.spy(Migration1_2021_12_01_12_00_00.prototype, 'up');
+    const spy2 = sinon.spy(Migration2_2021_12_02_12_00_00.prototype, 'up');
+
+    await orm.migrateUp();
+
+    exec.restore();
+
+    expect(spy1.called).to.be.false;
+    expect(spy2.called).to.be.false;
   });
 
   it('Should register migration programatically', async () => {
