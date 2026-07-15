@@ -1,4 +1,4 @@
-import { ICommonTargetOptions, ILogEntry, LogTarget, safeStringify } from "@spinajs/log-common";
+import { ICommonTargetOptions, ILogEntry, LogLevelToSeverityNumber, LogTarget, safeStringify } from "@spinajs/log-common";
 import { Injectable, Singleton } from "@spinajs/di";
 
 /**
@@ -42,7 +42,7 @@ export class JsonTarget extends LogTarget<IJsonTargetOptions> {
     // message, a structured error ( from the serializer registry ), and any
     // merged fields. safeStringify / JSON.stringify naturally omit undefined
     // ( eg. error when absent ).
-    const record = { time: new Date().toISOString(), ...data.Variables };
+    const record = { time: new Date().toISOString(), severityNumber: LogLevelToSeverityNumber[data.Level], ...data.Variables };
     const line = safeStringify(record) + "\n";
 
     if (typeof process !== "undefined" && process.stdout && typeof process.stdout.write === "function") {

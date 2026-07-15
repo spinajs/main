@@ -70,6 +70,18 @@ describe("JsonTarget NDJSON output", () => {
     expect(parsed.message).to.eq("hello world");
   });
 
+  it("emits an OTel severityNumber derived from the level", async () => {
+    const errLog = DI.resolve(Log, ["json-severity-error"]);
+    await errLog.error(new Error("boom"));
+    expect(JSON.parse(written()).severityNumber).to.eq(17);
+
+    writeStub.resetHistory();
+
+    const infoLog = DI.resolve(Log, ["json-severity-info"]);
+    await infoLog.info("hi");
+    expect(JSON.parse(written()).severityNumber).to.eq(9);
+  });
+
   it("merging-object call carries merged fields", async () => {
     const log = DI.resolve(Log, ["json-merge"]);
     await log.info({ reqId: "abc" }, "checkout");

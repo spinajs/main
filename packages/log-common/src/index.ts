@@ -48,6 +48,25 @@ export const LogLevelStrings = {
   [LogLevel.Warn]: "warn",
 };
 
+/**
+ * Maps SpinaJS log levels onto the OpenTelemetry SeverityNumber scale ( 1..24 ),
+ * so structured logs can be severity-ranked/filtered by any OTel-aware backend
+ * ( Grafana, Datadog, Elastic, OTLP pipelines ). Anchored on the OTel bands:
+ * TRACE 1-4, DEBUG 5-8, INFO 9-12, WARN 13-16, ERROR 17-20, FATAL 21-24.
+ * Success sits in the INFO band ( above plain info ); Security is mapped to the
+ * top of the FATAL band as SpinaJS's highest severity.
+ */
+export const LogLevelToSeverityNumber: Record<LogLevel, number> = {
+  [LogLevel.Trace]: 1,
+  [LogLevel.Debug]: 5,
+  [LogLevel.Info]: 9,
+  [LogLevel.Success]: 11,
+  [LogLevel.Warn]: 13,
+  [LogLevel.Error]: 17,
+  [LogLevel.Fatal]: 21,
+  [LogLevel.Security]: 23,
+};
+
 export interface ILogRule {
   name: string;
   level: "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "security" | "success";
