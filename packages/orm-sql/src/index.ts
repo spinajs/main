@@ -4,7 +4,7 @@ import { SqlTableAliasCompiler, SqlTruncateTableQueryCompiler, SqlLimitQueryComp
 import { SqlDatetimeValueConverter, SqlSetConverter, SqlBooleanValueConverter, SqlTimeValueConverter } from './converters.js';
 import { ColumnQueryCompiler, TableCloneQueryCompiler, SetValueConverter, GroupByStatement, DateTimeWrapper, DateWrapper, OrmDriver, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, RecursiveQueryCompiler, ForeignKeyQueryCompiler, GroupByQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter, DropTableCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, RawSchemaQueryCompiler, DropViewCompiler } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlLazyQueryStatement, SqlInSetStatement } from './statements.js';
-import { Perf } from "@spinajs/log-common";
+import { Perf } from '@spinajs/log-common';
 
 export * from './compilers.js';
 export * from './statements.js';
@@ -15,20 +15,20 @@ export abstract class SqlDriver extends OrmDriver {
   public execute(builder: Builder<any>) {
     try {
       const compiled = builder.toDB();
-      const labels = { driver: String(this.Options.Driver ?? "unknown"), context: String(builder.QueryContext) };
+      const labels = { driver: String(this.Options.Driver ?? 'unknown'), context: String(builder.QueryContext) };
 
       if (Array.isArray(compiled)) {
         // TODO: rethink this cast
         return Promise.all(
           compiled.map((c) =>
-            Perf.measure("orm.query", () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
+            Perf.measure('orm.query', () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
               labels,
               fields: { sql: c.expression, bindings: c.bindings },
             }),
           ),
         ) as any;
       } else {
-        return Perf.measure("orm.query", () => this.executeOnDb(compiled.expression!, compiled.bindings!, builder.QueryContext), {
+        return Perf.measure('orm.query', () => this.executeOnDb(compiled.expression!, compiled.bindings!, builder.QueryContext), {
           labels,
           fields: { sql: compiled.expression, bindings: compiled.bindings },
         });

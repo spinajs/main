@@ -2,8 +2,7 @@ import "mocha";
 import { expect } from "chai";
 import { DI } from "@spinajs/di";
 import { Configuration, FrameworkConfiguration } from "@spinajs/configuration";
-import { Log, LogLevel, LogTarget, ICommonTargetOptions, ILogEntry, Perf, PerfSink } from "@spinajs/log";
-import { LogMetricSink } from "../src/perf/LogMetricSink.js";
+import { Log, LogLevel, LogTarget, ICommonTargetOptions, ILogEntry, Perf, PerfSink, LogMetricSink } from "@spinajs/log";
 
 const captured: ILogEntry[] = [];
 
@@ -25,6 +24,7 @@ class PerfTestConfig extends FrameworkConfiguration {
           thresholds: { "orm.query": 100, default: 0 },
           overThresholdLevel: "warn",
           underThresholdLevel: "trace",
+          logCounters: true,
         },
       },
     } as any;
@@ -72,5 +72,19 @@ describe("LogMetricSink", () => {
     Perf.refreshSinks();
     const sinks = DI.resolve(Array.ofType(PerfSink)) as PerfSink[];
     expect(sinks.some((s) => s instanceof LogMetricSink)).to.eq(true);
+  });
+
+  it("logs a counter metric at trace when logCounters is enabled", () => {
+    sink.collect({ name: "cache.size", kind: "counter", value: 2 });
+    expect(captured).to.have.length(1);
+    expect(captured[0].Level).to.eq(LogLevel.Trace);
+    expect(String(captured[0].Variables.message)).to.match(/cache\.size=2/);
+  });
+
+  it("logs a failed span at error", () => {
+    sink.collect({ name: "orm.query", kind: "span", durationMs: 5, error: new Error("boom"), fields: { error: new Error("boom") } });
+    expect(captured).to.have.length(1);
+    expect(captured[0].Level).to.eq(LogLevel.Error);
+    expect(String(captured[0].Variables.message)).to.match(/orm\.query failed/);
   });
 });

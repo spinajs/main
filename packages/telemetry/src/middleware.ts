@@ -72,7 +72,7 @@ export class TelemetryMiddleware extends ServerMiddleware {
   public async resolve(): Promise<void> {
     await super.resolve();
     // Ensure the prom PerfSink exists so the Perf facade discovers it.
-    DI.resolve(PromMetricSink);
+    void DI.resolve(PromMetricSink);
     Perf.refreshSinks();
   }
 

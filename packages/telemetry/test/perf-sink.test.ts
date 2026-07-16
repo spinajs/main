@@ -25,4 +25,14 @@ describe("PromMetricSink", () => {
     const text = await metrics.render();
     expect(text).to.match(/perf_events_total/);
   });
+
+  it("observes a per-request scope total into its own prom histogram via onScopeEnd", async () => {
+    const sink = DI.resolve(PromMetricSink) as PromMetricSink;
+    sink.onScopeEnd({ requestId: "r1", totalMs: 50, byName: { "orm.query": { count: 3, totalMs: 42, maxMs: 20 } } });
+
+    const metrics = DI.resolve(Metrics) as Metrics;
+    const text = await metrics.render();
+    expect(text).to.match(/perf_scope_total_ms/);
+    expect(text).to.match(/orm\.query|orm_query/);
+  });
 });

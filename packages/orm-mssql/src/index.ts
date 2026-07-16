@@ -27,41 +27,37 @@ export class MsSqlOrmDriver extends SqlDriver {
   public async executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     let finalQuery = stmt.replaceAll('`', '');
 
-    try {
-      // Check if we're inside a transaction context and use that request
-      const txContext = this.TransactionStorage.getStore();
-      const req = txContext?.request ?? this._connectionPool.request();
-      let idx = 0;
-      let i = 0;
+    // Check if we're inside a transaction context and use that request
+    const txContext = this.TransactionStorage.getStore();
+    const req = txContext?.request ?? this._connectionPool.request();
+    let idx = 0;
+    let i = 0;
 
-      /**
-       * Brute force replacement ? for @parameters
-       * MSSQL driver requires named parameters in query string
-       */
-      while ((idx = finalQuery.indexOf('?')) !== -1) {
-        finalQuery = finalQuery.substring(0, idx) + `@p${i}` + finalQuery.substring(idx + 1, finalQuery.length);
-        req.input(`p${i}`, params[i]);
-        i++;
-      }
+    /**
+     * Brute force replacement ? for @parameters
+     * MSSQL driver requires named parameters in query string
+     */
+    while ((idx = finalQuery.indexOf('?')) !== -1) {
+      finalQuery = finalQuery.substring(0, idx) + `@p${i}` + finalQuery.substring(idx + 1, finalQuery.length);
+      req.input(`p${i}`, params[i]);
+      i++;
+    }
 
-      const result = await req.query(finalQuery);
+    const result = await req.query(finalQuery);
 
-      switch (context) {
-        case QueryContext.Update:
-        case QueryContext.Delete:
-          return {
-            RowsAffected: result.rowsAffected[0],
-          };
-        case QueryContext.Insert:
-          return {
-            RowsAffected: result.rowsAffected[0],
-            LastInsertId: result.recordset[0].ID,
-          };
-        default:
-          return result.recordset;
-      }
-    } catch (err) {
-      throw err;
+    switch (context) {
+      case QueryContext.Update:
+      case QueryContext.Delete:
+        return {
+          RowsAffected: result.rowsAffected[0],
+        };
+      case QueryContext.Insert:
+        return {
+          RowsAffected: result.rowsAffected[0],
+          LastInsertId: result.recordset[0].ID,
+        };
+      default:
+        return result.recordset;
     }
   }
 

@@ -1,9 +1,9 @@
-import * as express from "express";
-import { Injectable } from "@spinajs/di";
-import { Config } from "@spinajs/configuration";
-import { Perf } from "@spinajs/log";
+import * as express from 'express';
+import { Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
+import { Perf } from '@spinajs/log';
 
-import { ServerMiddleware, Request as sRequest } from "../interfaces.js";
+import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
 
 /**
  * Emits one perf rollup per request ( eg. "orm.query x14 240ms" ). Creates the
@@ -17,7 +17,7 @@ import { ServerMiddleware, Request as sRequest } from "../interfaces.js";
  */
 @Injectable(ServerMiddleware)
 export class PerfRollup extends ServerMiddleware {
-  @Config("http.perf.enabled", { defaultValue: true })
+  @Config('http.perf.enabled', { defaultValue: true })
   protected Enabled!: boolean;
 
   constructor() {
@@ -31,7 +31,7 @@ export class PerfRollup extends ServerMiddleware {
     return (req, res, next) => {
       const startedAt = Date.now();
       req.storage.perf = { requestId: req.storage.requestId, byName: {} };
-      res.on("finish", () => {
+      res.on('finish', () => {
         Perf.flushScope(req.storage.perf, {
           labels: { method: req.method, route: (req.route as { path?: string })?.path ?? req.originalUrl, status: res.statusCode },
           totalMs: Date.now() - startedAt,
