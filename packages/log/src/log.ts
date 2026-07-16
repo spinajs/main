@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Configuration } from "@spinajs/configuration";
 import { DI, IContainer, NewInstance } from "@spinajs/di";
-import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogRule, ITargetsOption, LogTarget, Log, LogFilter, ILogFilterOptions, readPersistedLevel } from "@spinajs/log-common";
+import { ICommonTargetOptions, LogLevel, ILogOptions, ILogEntry, StrToLogLevel, createLogMessageObject, ILogRule, ITargetsOption, LogTarget, Log, LogFilter, ILogFilterOptions, ILogTargetDesc, readPersistedLevel } from "@spinajs/log-common";
 import GlobToRegExp from "glob-to-regexp";
 import { InvalidOperation, InvalidOption } from "@spinajs/exceptions";
 import { InternalLoggerProxy } from "@spinajs/internal-logger";
@@ -301,18 +301,117 @@ export class FrameworkLogger extends Log {
       }
     }
 
-    this.Targets = [...byTarget.entries()].map(([f, r]) => {
-      // Resolve this target's own filters ( same DI-by-name mechanism as the
-      // logger-level filters ). @NewInstance => independent state per logger.
-      const filters = f.filters ? f.filters.map((spec) => DI.resolve<LogFilter>(spec.type, [spec])) : undefined;
-      return {
-        instance: DI.resolve<LogTarget<ICommonTargetOptions>>(f.type, [f]),
-        options: f,
-        rule: r.rule,
-        ranges: r.ranges,
-        filters,
-      };
-    });
+    this.Targets = [...byTarget.entries()].map(([f, r]) => this.buildTargetDesc(f, r.ranges, r.rule));
+  }
+
+  /**
+   * Build one {@link ILogTargetDesc } from a target definition, its level
+   * WINDOWS and a representative rule. Shared by config-time
+   * {@link resolveLogTargets } and the runtime {@link addTarget } so both
+   * resolve the target instance and its per-target filters the SAME way:
+   * the target class is resolved by its DI string `type`, and each per-target
+   * filter spec is resolved by its DI string `type` ( @NewInstance => per-use
+   * state ).
+   */
+  protected buildTargetDesc(def: ITargetsOption, ranges: { min: LogLevel; max: LogLevel }[], rule: ILogRule): ILogTargetDesc {
+    return {
+      instance: DI.resolve<LogTarget<ICommonTargetOptions>>(def.type, [def]),
+      options: def,
+      rule,
+      ranges,
+      filters: (def.filters ?? []).map((spec) => DI.resolve<LogFilter>(spec.type, [spec])),
+    };
+  }
+
+  /**
+   * Recompute the two cheap gates that {@link write } / the per-method
+   * isEnabled() guard rely on, so they stay correct after the target set
+   * changes at runtime ( {@link addTarget } / {@link removeTarget } ):
+   *  - MinLevel  = lowest `min` across all attached targets' windows ( floor
+   *    Trace when there are none ), so a call below it is short-circuited.
+   *  - CaptureCallsite = true iff some attached target's layout references
+   *    ${callsite}, gating the caller-frame capture in wrapWrite.
+   */
+  protected recomputeGates(): void {
+    const mins = this.Targets.flatMap((t) => t.ranges.map((w) => w.min));
+    this.MinLevel = mins.length ? Math.min(...mins) : LogLevel.Trace;
+    this.CaptureCallsite = this.Targets.some((t) => typeof t.instance?.Options?.layout === "string" && /\$\{callsite/.test(t.instance.Options.layout));
+  }
+
+  /**
+   * Attach a sink to THIS logger AT RUNTIME, without touching config. Resolves
+   * the target ( and its per-target filters ) exactly as config-time routing
+   * does, then recomputes the MinLevel / ${callsite} gates so dispatch stays
+   * correct. Returns the resolved instance, or `undefined` when nothing was
+   * attached ( `def.enabled === false` ).
+   *
+   * A level WINDOW `[opts.level ?? "trace", opts.maxLevel ?? security]` is
+   * applied ( same semantics as a routing rule's window ). Adding a target
+   * whose name already exists REPLACES the existing descriptor(s) ( the old
+   * instance is flushed first ) so a name is never duplicated.
+   *
+   * `opts.filters` are APPENDED to any `def.filters` ( def first, opts last ).
+   */
+  public addTarget(def: ITargetsOption, opts?: { level?: keyof typeof StrToLogLevel; maxLevel?: keyof typeof StrToLogLevel; filters?: ILogFilterOptions[] }): LogTarget<ICommonTargetOptions> | undefined {
+    // Consistent with config-time skip: a disabled def is never instantiated.
+    if (def.enabled === false) {
+      return undefined;
+    }
+
+    const levelName = opts?.level ?? "trace";
+    if (!(levelName in StrToLogLevel)) {
+      throw new InvalidOption(`addTarget: invalid level '${levelName}'`);
+    }
+    if (opts?.maxLevel !== undefined && !(opts.maxLevel in StrToLogLevel)) {
+      throw new InvalidOption(`addTarget: invalid maxLevel '${opts.maxLevel}'`);
+    }
+
+    const window = {
+      min: StrToLogLevel[levelName],
+      max: opts?.maxLevel ? StrToLogLevel[opts.maxLevel] : LogLevel.Security,
+    };
+
+    // Merge opts.filters AFTER def.filters ( def first, opts appended ).
+    const mergedDef: ITargetsOption = opts?.filters && opts.filters.length ? { ...def, filters: [...(def.filters ?? []), ...opts.filters] } : def;
+
+    // REPLACE any existing same-named descriptor(s) - flush them first so no
+    // buffered entry is lost, then drop them ( do NOT dispose; the instance may
+    // be DI-owned / shared ).
+    const stale = this.Targets.filter((t) => t.options?.name === def.name);
+    for (const t of stale) {
+      void t.instance.forceFlush();
+    }
+    this.Targets = this.Targets.filter((t) => t.options?.name !== def.name);
+
+    // Synthesize a representative rule mirroring the window for back-compat /
+    // the "no target" error path.
+    const rule: ILogRule = { name: this.Name, level: levelName, maxLevel: opts?.maxLevel, target: def.name };
+
+    const desc = this.buildTargetDesc(mergedDef, [window], rule);
+    this.Targets.push(desc);
+
+    this.recomputeGates();
+
+    return desc.instance;
+  }
+
+  /**
+   * Detach a runtime sink by its target `name`. Each matching descriptor's
+   * instance is force-flushed ( to drain buffered entries ) BEFORE removal - it
+   * is NOT disposed, since the instance may be shared / DI-owned. Recomputes the
+   * gates afterwards. No-op when no target with that name is attached.
+   */
+  public async removeTarget(name: string): Promise<void> {
+    const matched = this.Targets.filter((t) => t.options?.name === name);
+    if (matched.length === 0) {
+      return;
+    }
+
+    await Promise.allSettled(matched.map((t) => t.instance.forceFlush()));
+
+    this.Targets = this.Targets.filter((t) => t.options?.name !== name);
+
+    this.recomputeGates();
   }
 
   protected matchRulesToLogger() {

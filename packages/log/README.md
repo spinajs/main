@@ -195,6 +195,30 @@ A **target** is where messages go. Each configured target has a `name`
 > `options` object**. Loki and OTLP accept either. Each example below uses the
 > form that target expects.
 
+> **Runtime targets (attach/detach a sink).** Besides config, you can attach or
+> detach a target on a specific logger **at runtime** (bunyan `addStream` style):
+>
+> ```js
+> const log = DI.resolve(Log, ["my-logger"]);
+>
+> // attach – resolves the target ( honoring enabled:false ) and returns the instance
+> const mem = log.addTarget(
+>   { name: "Live", type: "MemoryTarget" },
+>   { level: "warn" } // optional level window [level, maxLevel ?? security] + filters
+> );
+>
+> // detach – flushes buffered entries, then removes it ( does NOT dispose it )
+> await log.removeTarget("Live");
+> ```
+>
+> `addTarget(def, opts?)` returns the resolved target instance (or `undefined`
+> when `def.enabled === false`). `opts` accepts `level` / `maxLevel` (the level
+> window) and `filters` (appended after `def.filters`). Adding a target whose
+> `name` already exists **replaces** the previous one (flushed first), so a name
+> is never duplicated, and the `MinLevel` / `${callsite}` gates are recomputed.
+> `removeTarget(name)` force-flushes each matching target **before** detaching so
+> no buffered entry is lost; it is a no-op when no target has that name.
+
 | `type` | Class | Package | Writes to |
 | --- | --- | --- | --- |
 | `ConsoleTarget` | `ColoredConsoleTarget` / `BrowserConsoleTarget` | `@spinajs/log` | stdout/stderr (ANSI colors on Node; devtools styling in the browser) |

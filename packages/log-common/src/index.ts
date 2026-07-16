@@ -638,6 +638,30 @@ export abstract class Log extends SyncService {
   public abstract success(err: Error | string, message: string | any[], ...args: any[]): void;
 
   public abstract write(entry: ILogEntry): Promise<PromiseSettledResult<void>[]>;
+
+  /**
+   * Attach a sink to THIS logger AT RUNTIME ( bunyan `addStream` style ),
+   * without going through config. Returns the resolved target instance, or
+   * `undefined` when nothing was attached ( eg. `def.enabled === false` ).
+   *
+   * Default is a safe no-op ( returns `undefined` ) so `Log`-typed references
+   * and bootstrap proxies compile; {@link FrameworkLogger } overrides it with
+   * the real target-descriptor build + gate recompute.
+   */
+  public addTarget(_def: ITargetsOption, _opts?: { level?: keyof typeof StrToLogLevel; maxLevel?: keyof typeof StrToLogLevel; filters?: ILogFilterOptions[] }): LogTarget<ICommonTargetOptions> | undefined {
+    return undefined;
+  }
+
+  /**
+   * Detach a runtime sink by its target `name`, flushing its buffered entries
+   * first ( it is NOT disposed - the instance may be DI-owned / shared ).
+   * No-op when no target with that name is attached.
+   *
+   * Default resolves immediately; {@link FrameworkLogger } overrides it.
+   */
+  public removeTarget(_name: string): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 /**
