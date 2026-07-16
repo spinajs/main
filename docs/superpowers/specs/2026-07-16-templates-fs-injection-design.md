@@ -71,8 +71,14 @@ renderer:
 
 | Helper | Returns | Bare path | `fs://` URI | Used by |
 |---|---|---|---|---|
-| `resolveContent(template)` | source as string | read local | `fs.read()` | handlebars, mjml |
+| `resolveContent(template)` | source as string | read local | `fs.read()` | handlebars |
 | `resolveLocalPath(template)` | local path | itself | `fs.download()` | pug |
+
+**MJML requires no source change.** `MjmlRenderer.render()` delegates to
+`this.Templates.compile(templateName, 'handlebars', ...)` and its own `compile()` is an
+empty no-op (`template-mjml/src/index.ts`) — handlebars performs all reading and caching on
+its behalf. MJML therefore inherits `fs://` addressing and cache modes for free. It gets an
+end-to-end test, not an edit.
 
 A **bare path reads from local disk exactly as today**, not through the default `fs`
 provider. Routing bare paths through the default provider would be more uniform, but that
@@ -118,14 +124,20 @@ actually changed.
 `revalidate` works identically for local templates with no S3-specific code in `templates`.
 
 Token preference:
-1. A provider-supplied opaque token via `IStat.AdditionalData`, when present.
+1. A provider-supplied opaque token: a new optional `IStat.Version?: string`, when present.
 2. Fall back to `ModifiedTime` + `Size`.
 
-`fs-s3.stat()` will populate `AdditionalData` with the ETag — currently `result.ETag` is
-discarded and `AdditionalData` is never set. ETag is the stronger token: mtime+size misses
-an edit preserving both. `templates` never learns what an ETag is; it compares an opaque
-value for equality. (For multipart uploads an ETag is not the content MD5 — it carries a
-`-N` suffix. Irrelevant here: we need a change token, not a checksum.)
+`fs-s3.stat()` will populate `Version` with the ETag — currently `result.ETag` is discarded.
+ETag is the stronger token: mtime+size misses an edit preserving both. `templates` never
+learns what an ETag is; it compares an opaque `Version` for equality. (For multipart uploads
+an ETag is not the content MD5 — it carries a `-N` suffix. Irrelevant here: we need a change
+token, not a checksum.)
+
+**`Version` rather than the existing `AdditionalData`**: `AdditionalData` is typed `unknown`,
+so consuming it would mean an unchecked cast in `templates` plus a well-known key name shared
+by convention between two packages — which is the coupling this field is supposed to avoid. A
+typed optional `Version` on `IStat` is additive, self-documenting, and keeps `AdditionalData`
+free for genuinely provider-specific payloads.
 
 `revalidate` is what the Lambda uses, with `fs://email-templates/*.mjml`.
 
@@ -142,15 +154,34 @@ The abstract `fs` class (`fs/src/interfaces.ts:219`) and the local providers gai
 optional extension argument. `fsS3.download()` uses it so the temp file keeps the key's
 extension. Additive — existing callers are unaffected.
 
-### Dead config removal
+### Dead config removal and the `system.dirs.cli` bug
 
-Both live in the code being rewritten and are dead or wrong:
+Three items, all in the code being rewritten. The first two are dead; the third is a live
+bug and the only one that changes behavior.
+
+**Dead — remove:**
 
 - `TemplatePaths` / `@Config('system.dirs.templates')` (`templates/src/interfaces.ts:11-12`)
   is referenced nowhere in the monorepo. It is a `protected` field on an abstract class,
   so nothing outside can read it.
-- `templates/src/config/templates.ts:6-9` points `system.dirs.templates` at
-  `node_modules/@spinajs/rbac/lib/...` — a copy-paste bug.
+- `TemplateFiles` (`templates/src/interfaces.ts:14`) is likewise declared and never read.
+- The `system.dirs.templates` key in `templates/src/config/templates.ts` — nothing consumes
+  it once `TemplatePaths` is gone.
+
+**Live bug — fix:** the same config file also declares `system.dirs.cli`, and that key *is*
+consumed: `@spinajs/cli` discovers commands by scanning it
+(`cli/src/index.ts:36`, `@ResolveFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')`). The
+`templates` package ships a real command, `template-render` (`templates/src/cli/render.ts`),
+but its `dir()` helper points the scanner at `node_modules/@spinajs/rbac/lib/{cjs,mjs}/cli`
+— and `rbac` is not a dependency of `templates`. The command has therefore never been
+discoverable.
+
+Fix `dir()` to resolve against `@spinajs/templates` and keep the `cli` key. This is safe for
+`rbac`: `rbac/src/config/rbac.ts` declares the same key for its own directory, so nothing
+relied on templates' config to load rbac's commands.
+
+**This changes behavior**: `template-render` starts appearing in the CLI. That is the
+intended behavior of code already in the repo, not a new feature.
 
 ## Error handling
 
@@ -165,9 +196,15 @@ Both live in the code being rewritten and are dead or wrong:
 | Package | Tests |
 |---|---|
 | `fs` | `tmppath(ext)` returns the extension; `tmppath()` behavior unchanged. |
-| `fs-s3` | `download()` returns a path whose extension matches the key; `stat()` surfaces the ETag in `AdditionalData`. Mocked S3 client. |
-| `templates` | Bare paths still render (regression). `fs://` renders through a provider. `normalize` does not corrupt URIs. One test per mode: `cache` does not recompile after the source changes; `revalidate` does; `always` recompiles every render. A fake in-memory `fs` provider registered in DI keeps these fast and S3-free. |
-| end-to-end | One MJML template rendered through a fake remote provider — the Lambda's actual path. |
+| `fs-s3` | `download()` returns a path whose extension matches the key; `stat()` surfaces the ETag as `Version`. Runs against localstack via the package's existing `test/docker-compose.yml`, per the current `fs-s3` suite. |
+| `templates` | Bare paths still render (regression). `fs://` renders through a provider. `normalize` does not corrupt URIs. One test per mode: `cache` does not recompile after the source changes; `revalidate` does; `always` recompiles every render. Uses a stub renderer defined in the test file (the package has no renderer of its own, and depending on one would invert the dependency) plus an `fsNative` provider addressed by `fs://` URI — no S3 and no docker. |
+| `templates-handlebars`, `templates-pug` | Existing suites must keep passing (bare-path regression). Add: render via `fs://`. |
+| end-to-end | One MJML template rendered via `fs://` — the Lambda's actual path, and proof MJML inherits the behavior without a source change. |
+
+Note: `templates/test/templates.test.ts` exists but is **empty** — the package currently has
+no tests. Its harness (chai + a `FrameworkConfiguration` subclass + `DI.clearCache()` in
+`beforeEach`) follows the pattern in `templates-handlebars/test/templates.test.ts`. Test deps
+(`chai`, `ts-mocha`, `sinon`) are hoisted at the repo root; `templates` needs no new devDeps.
 
 ## Consumer configuration
 
