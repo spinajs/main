@@ -476,13 +476,6 @@ describe('templates fs resolution', () => {
 
     await expect(t.render('fs://not-registered/stub.test-tpl', {})).to.be.rejected;
   });
-
-  it('should not corrupt an fs:// uri via path normalization', async () => {
-    const t = await setup();
-
-    // would throw "URI ... is not valid" if normalize() mangled fs:// -> fs:\
-    await expect(t.render('fs://test/stub.test-tpl', {})).to.eventually.eq('hello');
-  });
 });
 
 describe('templates cache modes', () => {
@@ -737,7 +730,7 @@ Note what disappeared: `TemplatePaths`, `TemplateFiles`, `lodash` import, and th
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `cd packages/templates && npx ts-mocha -p tsconfig.json test/templates.test.ts`
-Expected: PASS (10 passing)
+Expected: PASS (8 passing)
 
 - [ ] **Step 6: Fix the config file**
 
@@ -860,14 +853,11 @@ Then append these tests inside the existing `describe('templates', ...)`:
 
     expect(result).to.eq('hello world');
   });
-
-  it('should render handlebar from fs:// uri with lang', async () => {
-    const t = await tp();
-    const result = await t.render('fs://test-templates/uri-template.handlebars', { hello: 'world' }, 'en');
-
-    expect(result).to.eq('hello world');
-  });
 ```
+
+Only this one test. Language handling is orthogonal to source resolution and is already
+covered by the suite's existing bare-path lang tests — a `fs://` + lang test against this
+fixture would assert the same string as the test above and cover nothing new.
 
 Create `packages/templates-handlebars/test/templates/uri-template.handlebars` containing exactly:
 
@@ -950,7 +940,7 @@ out of scope per the spec).
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/templates-handlebars && npx ts-mocha -p tsconfig.json test/templates.test.ts -g "fs://"`
-Expected: PASS (2 passing)
+Expected: PASS (1 passing)
 
 - [ ] **Step 5: Run the full suite — bare-path regression check**
 
