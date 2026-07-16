@@ -7,4 +7,5 @@ export * from "./callsite.js";
 export * from "./bootstrap.js";
 export * from "./context.js";
 export * from "./perf.js";
+export * from "./perf/LogMetricSink.js";
 export * from "./traceparent.js";

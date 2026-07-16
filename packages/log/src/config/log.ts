@@ -72,6 +72,13 @@ const log = {
   },
   logger: {
     file: LOG_FILE_DEFAULTS,
+    perf: {
+      enabled: true,
+      thresholds: { "orm.query": 200, "http.request": 1000, default: 0 },
+      overThresholdLevel: "warn",
+      underThresholdLevel: "trace",
+      logCounters: false,
+    },
   },
 };
 

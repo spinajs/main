@@ -138,6 +138,20 @@ const CONFIGURATION_SCHEMA = {
         "Default FileTarget options ( buffer / rotation / retention tunables ) merged UNDER every file target's own `options`. Shipped by @spinajs/log ( see logger.file defaults ) and overridable by user config.",
       type: "object",
     },
+    perf: {
+      description: "Performance-instrumentation ( Perf facade ) options for the default LogMetricSink.",
+      type: "object",
+      properties: {
+        enabled: { type: "boolean" },
+        thresholds: {
+          description: "Per-metric-name slow threshold in ms. A name not present falls back to `default`; 0 means never slow.",
+          type: "object",
+        },
+        overThresholdLevel: { type: "string", enum: ["trace", "debug", "info", "warn", "error"] },
+        underThresholdLevel: { type: "string", enum: ["trace", "debug", "info", "warn", "error"] },
+        logCounters: { type: "boolean" },
+      },
+    },
     whenRepeated: {
       description:
         "Opt-in dedup filter. Collapses identical repeated log entries within a timeout window into one, emitting a (xN) count when logging resumes. Off when absent; global for now.",
