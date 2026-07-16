@@ -8,4 +8,5 @@ export * from "./bootstrap.js";
 export * from "./context.js";
 export * from "./perf.js";
 export * from "./perf/LogMetricSink.js";
+export * from "./perf/measure.js";
 export * from "./traceparent.js";
