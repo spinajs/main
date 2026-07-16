@@ -61,6 +61,7 @@
     "@spinajs/configuration": "^2.0.481",
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
+    "@spinajs/fs": "^2.0.481",
     "@spinajs/intl": "^2.0.481",
     "@spinajs/log": "^2.0.481",
     "tempfile": "4.0.0"
