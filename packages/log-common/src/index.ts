@@ -11,7 +11,7 @@ export * from "./BatchQueue.js";
 export * from "./persistence.js";
 
 import type { IWhenRepeatedOptions } from "./filters/whenRepeated.js";
-import type { ILogFilterOptions } from "./filters/filter.js";
+import type { ILogFilterOptions, LogFilter } from "./filters/filter.js";
 
 export enum LogLevel {
   Security = 999,
@@ -104,6 +104,15 @@ export interface ILogRule {
   target: string | string[];
 
   /**
+   * Optional UPPER bound of the level window this rule routes ( inclusive ).
+   * `level` is the lower bound; when `maxLevel` is set the rule only routes
+   * entries whose level is in `[level, maxLevel]` ( eg. `level:"warn"` +
+   * `maxLevel:"error"` routes warn/error but NOT fatal/security ). Defaults to
+   * the highest level ( security ) so a plain min-only rule keeps working.
+   */
+  maxLevel?: ILogRule["level"];
+
+  /**
    * Stop evaluating further rules for a logger once this matching rule is applied
    * ( NLog-style ). Earlier matched rules and this one still apply.
    */
@@ -122,6 +131,16 @@ export interface ITargetsOption {
    * referencing a target NAME that does not exist still throws. Default `true`.
    */
   enabled?: boolean;
+
+  /**
+   * Per-target filter pipeline, applied ONLY when writing to THIS target ( in
+   * addition to the logger-level `filters` ). Each entry is `{ type, ...opts }`
+   * where `type` is the DI string name of a {@link LogFilter }. Filters run IN
+   * ORDER for this target; any returning null drops the entry for this target
+   * only. Because filters may MUTATE the entry, the dispatcher clones the entry
+   * per target before running them so mutation never bleeds across targets.
+   */
+  filters?: ILogFilterOptions[];
 }
 
 export interface ILogOptions {
@@ -366,7 +385,28 @@ export abstract class LogTarget<T extends ICommonTargetOptions> extends SyncServ
 export interface ILogTargetDesc {
   instance: LogTarget<ICommonTargetOptions>;
   options?: ITargetsOption;
+
+  /**
+   * Representative rule for this target ( the one with the LOWEST min level ).
+   * Kept for the "no target" error message and back-compat; actual dispatch uses
+   * {@link ranges }, not this rule's single level.
+   */
   rule: ILogRule;
+
+  /**
+   * Union of level WINDOWS routing to this target. Several rules can route to the
+   * same target with DIFFERENT `[level, maxLevel]` windows; dispatch tests
+   * membership in ANY of them. A plain min-only rule yields `[min, Security]`, so
+   * behavior is unchanged for existing configs.
+   */
+  ranges: { min: LogLevel; max: LogLevel }[];
+
+  /**
+   * Resolved per-target filters ( from the target def's `filters` ), applied in
+   * `write()` after the logger-level pipeline, for THIS target only. `@NewInstance`
+   * so each logger's use of the target gets its own filter instances / state.
+   */
+  filters?: LogFilter[];
 }
 
 export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {

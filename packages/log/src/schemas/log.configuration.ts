@@ -25,6 +25,21 @@ const CONFIGURATION_SCHEMA = {
           enabled: {
             type: "boolean",
           },
+          filters: {
+            description:
+              "Per-target filter pipeline, applied only when writing to THIS target ( after the logger-level filters ). Each item is { type, ...opts } where `type` is the DI name of a LogFilter. Any returning null drops the entry for this target only.",
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                type: {
+                  description: "DI string name of the registered LogFilter.",
+                  type: "string",
+                },
+              },
+              required: ["type"],
+            },
+          },
           // FileTarget options ( nested under `options` )
           options: {
             type: "object",
@@ -169,6 +184,21 @@ const CONFIGURATION_SCHEMA = {
             type: "string",
           },
           level: {
+            type: "string",
+            enum: [
+              "trace",
+              "debug",
+              "warn",
+              "info",
+              "error",
+              "fatal",
+              "security",
+              "success",
+            ],
+          },
+          maxLevel: {
+            description:
+              "Optional INCLUSIVE upper bound of the level window this rule routes. With `level` as the lower bound, only entries in [level, maxLevel] are routed. Defaults to the highest level ( security ).",
             type: "string",
             enum: [
               "trace",

@@ -167,6 +167,20 @@ A **target** is where messages go. Each configured target has a `name`
 (referenced by rules) and a `type` (the DI key). Common options
 (`ICommonTargetOptions`): `name`, `type`, `enabled` (default `true`), `layout`.
 
+> **Per-target filters.** A target definition may carry its own `filters` list
+> (same shape as `logger.filters`). These run **only** when writing to that
+> target, **after** the logger-level pipeline, and drop/mutate the entry for
+> **that target only** — the entry is cloned per target first, so a mutating
+> filter (e.g. `WhenRepeatedFilter`'s `(xN)`) never bleeds into other targets:
+>
+> ```js
+> targets: [
+>   { name: "Audit", type: "FileTarget",
+>     filters: [{ type: "MatchFilter", pattern: "secret", mode: "drop" }] },
+>   { name: "Console", type: "ConsoleTarget" }, // still sees everything
+> ]
+> ```
+
 > **`enabled: false` targets are never instantiated.** A target definition
 > marked `enabled: false` is skipped at resolve time — its class is never
 > constructed, so a disabled `FileTarget` never opens its file, starts its flush
@@ -389,6 +403,28 @@ A **rule** binds a logger-name pattern to a minimum `level` and one or more
 { name: "http/*/controller", level: "info", target: ["Console", "File"] }
 ```
 
+### Level windows (`maxLevel`)
+
+`level` is the **lower** bound. Add an optional `maxLevel` to route only a level
+**window** `[level, maxLevel]` (inclusive) — e.g. warn/error but **not**
+fatal/security:
+
+```js
+{ name: "*", level: "warn", maxLevel: "error", target: "Ops" }
+```
+
+Without `maxLevel` the upper bound defaults to the highest level (`security`), so
+a plain min-only rule is unchanged.
+
+Several rules may route to the **same** target with **different** windows; the
+target then accepts the **union** of those windows. So two rules `info..info` and
+`error..error` to one target deliver `info` and `error` but **not** a `warn`
+between them.
+
+> `maxLevel` does **not** lower the per-logger `MinLevel` fast-gate: a call above
+> every window still builds the entry and is then filtered out per target — the
+> gate only tracks the lowest `level` across rules.
+
 Name matching uses glob semantics:
 
 - `*` — any logger name.
@@ -452,6 +488,11 @@ logger: {
 Filters run **after** the near-zero-cost level gate, so disabled levels never
 reach them. The legacy `logger.whenRepeated` option still works (mapped to a
 prepended `WhenRepeatedFilter`).
+
+The same filter list can also be attached **per target** (`targets[].filters`) to
+filter for one sink only — see [Targets](#targets-sinks). Per-target filters run
+**after** the logger-level pipeline on a per-target clone, so a filter that mutates
+the entry there never affects other targets.
 
 ## Structured logging
 

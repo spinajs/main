@@ -213,13 +213,30 @@ export class FrameworkLogger extends Log {
       const kept: ILogEntry = filtered;
 
       return Promise.allSettled(
+        // WINDOW membership: dispatch to a target when the entry's level falls in
+        // ANY of the target's `ranges` ( a min-only rule yields [min, Security],
+        // so this is unchanged for existing configs ).
+        this.Targets.filter((t) => t.ranges.some((w) => kept.Level >= w.min && kept.Level <= w.max)).map((t) => {
+          // PER-TARGET filters run AFTER the logger-level pipeline, for this
+          // target ONLY. A filter may MUTATE the entry ( eg. WhenRepeated's (xN) ),
+          // so isolate a per-target clone BEFORE applying them - only when this
+          // target actually has filters - so mutation never bleeds into others.
+          let e: ILogEntry | null = kept;
+          if (t.filters && t.filters.length) {
+            e = { Level: kept.Level, Variables: { ...kept.Variables } };
+            for (const tf of t.filters) {
+              e = tf.apply(e);
+              if (!e) break;
+            }
+          }
+          // a target filter dropped it for THIS target only
+          if (!e) return Promise.resolve();
 
-        this.Targets.filter((t) => kept.Level >= StrToLogLevel[t.rule.level]).map((t) => {
           if (!t.instance) {
             throw new InvalidOperation(`Target ${t.rule.target} for rule ${t.rule.name} not exists`);
           }
 
-          return t.instance.write(kept);
+          return t.instance.write(e);
         })
       );
     }
@@ -238,7 +255,13 @@ export class FrameworkLogger extends Log {
     // target's DI lifetime ( a @NewInstance target would otherwise still yield
     // one fresh instance per rule and never collapse ). Each unique target is
     // therefore resolved exactly ONCE.
-    const byTarget = new Map<ITargetsOption, ILogRule>();
+    //
+    // WINDOWS: a rule now carries a level WINDOW `[level, maxLevel ?? Security]`
+    // and several rules can route to the SAME target with DIFFERENT windows, so
+    // one min-level is not enough. We collect ALL windows per target ( their
+    // UNION ) into `ranges`, and keep the representative `rule` as the one with
+    // the LOWEST min ( used for the "no target" error and back-compat ).
+    const byTarget = new Map<ITargetsOption, { rule: ILogRule; ranges: { min: LogLevel; max: LogLevel }[] }>();
 
     for (const r of this.Rules) {
       const wantedNames = Array.isArray(r.target) ? r.target : [r.target];
@@ -259,19 +282,35 @@ export class FrameworkLogger extends Log {
         return wantedNames.includes(t.name) && t.enabled !== false;
       });
 
+      const window = {
+        min: StrToLogLevel[r.level],
+        max: r.maxLevel ? StrToLogLevel[r.maxLevel] : LogLevel.Security,
+      };
+
       for (const f of found) {
         const existing = byTarget.get(f);
-        if (!existing || StrToLogLevel[r.level] < StrToLogLevel[existing.level]) {
-          byTarget.set(f, r);
+        if (!existing) {
+          byTarget.set(f, { rule: r, ranges: [window] });
+        } else {
+          existing.ranges.push(window);
+          // keep the representative rule as the one with the LOWEST min level
+          if (window.min < StrToLogLevel[existing.rule.level]) {
+            existing.rule = r;
+          }
         }
       }
     }
 
     this.Targets = [...byTarget.entries()].map(([f, r]) => {
+      // Resolve this target's own filters ( same DI-by-name mechanism as the
+      // logger-level filters ). @NewInstance => independent state per logger.
+      const filters = f.filters ? f.filters.map((spec) => DI.resolve<LogFilter>(spec.type, [spec])) : undefined;
       return {
         instance: DI.resolve<LogTarget<ICommonTargetOptions>>(f.type, [f]),
         options: f,
-        rule: r,
+        rule: r.rule,
+        ranges: r.ranges,
+        filters,
       };
     });
   }
@@ -294,6 +333,11 @@ export class FrameworkLogger extends Log {
       // programmatic / default rule paths too.
       if (!(r.level in StrToLogLevel)) {
         throw new InvalidOption(`Log rule ${r.name} has invalid level '${r.level}'`);
+      }
+      // Same guard for the optional upper bound: an invalid maxLevel would make
+      // StrToLogLevel[maxLevel] === undefined and poison the window test.
+      if (r.maxLevel !== undefined && !(r.maxLevel in StrToLogLevel)) {
+        throw new InvalidOption(`Log rule ${r.name} has invalid maxLevel '${r.maxLevel}'`);
       }
       if (globFor(r.name).test(this.Name)) {
         matched.push(r);
