@@ -1,12 +1,13 @@
 import * as express from 'express';
 import { DI, Injectable } from '@spinajs/di';
-import { Logger, Log } from '@spinajs/log';
+import { Logger, Log, Perf } from '@spinajs/log';
 import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
 
 import { Counter, Gauge, Histogram } from 'prom-client';
 import { Metrics, MetricMap } from './metrics.js';
 import { RequestStats } from './requestStats.js';
 import { Timeline } from './timeline.js';
+import { PromMetricSink } from './PromMetricSink.js';
 
 /**
  * Default metric-name prefix for the HTTP telemetry metrics.
@@ -66,6 +67,13 @@ export class TelemetryMiddleware extends ServerMiddleware {
     // Needs req.storage ( ReqStorage = -2 ) and sits alongside RequestId /
     // AccessLog ( Order 2 ).
     this.Order = 2;
+  }
+
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    // Ensure the prom PerfSink exists so the Perf facade discovers it.
+    DI.resolve(PromMetricSink);
+    Perf.refreshSinks();
   }
 
   /**
