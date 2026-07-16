@@ -7,7 +7,6 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable prettier/prettier */
 
-import { LogLevel } from '@spinajs/log-common';
 export * from './compilers.js';
 
 import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, ITransaction } from '@spinajs/orm';
@@ -32,14 +31,7 @@ export class SqliteServerResponseMapper extends ServerResponseMapper {
 @Injectable('orm-driver-sqlite')
 @NewInstance()
 export class SqliteOrmDriver extends SqlDriver {
-  protected executionId = 0;
-
   protected Db: sqlite3.Database;
-
-  private getNextExecutionId(): number {
-    this.executionId = (this.executionId + 1) % Number.MAX_SAFE_INTEGER;
-    return this.executionId;
-  }
 
   public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
@@ -48,9 +40,6 @@ export class SqliteOrmDriver extends SqlDriver {
     if (!this.Db) {
       throw new Error('cannot execute sqlite statement, no db connection avaible');
     }
-
-    const tName = `query-${this.getNextExecutionId()}`;
-    this.Log.timeStart(`query-${tName}`);
 
     return new Promise((resolve, reject) => {
       switch (queryContext) {
@@ -149,39 +138,7 @@ export class SqliteOrmDriver extends SqlDriver {
           });
           break;
       }
-    })
-      .then((val) => {
-        const tDiff = this.Log.timeEnd(`query-${tName}`);
-
-        void this.Log.write({
-          Level: LogLevel.Trace,
-          Variables: {
-            error: undefined,
-            message: `Executed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
-            logger: this.Log.Name,
-            level: 'TRACE',
-            duration: tDiff,
-          },
-        });
-
-        return val;
-      })
-      .catch((err) => {
-        const tDiff = this.Log.timeEnd(`query-${tName}`);
-
-        void this.Log.write({
-          Level: LogLevel.Error,
-          Variables: {
-            error: err,
-            message: `Failed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
-            logger: this.Log.Name,
-            level: 'Error',
-            duration: tDiff,
-          },
-        });
-
-        throw err;
-      });
+    });
   }
 
   public supportedFeatures(): ISupportedFeature {
