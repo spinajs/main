@@ -388,8 +388,33 @@ Name matching uses glob semantics:
 - `a.b.*` — dotted namespaces.
 - an exact name matches only itself.
 
-When both a wildcard rule and a more specific rule match a logger, the **specific
-rule wins** and the wildcard is dropped (all matching specific rules are kept).
+### Ordered, additive matching (`final`)
+
+Rules are evaluated **in config order**, and matching is **additive** (NLog-style):
+**every** rule whose pattern matches a logger applies, so a logger matched by both
+`*` and a specific rule routes to **both** (targets are de-duped downstream, so a
+target hit by two matching rules still receives each entry once).
+
+A matched rule marked `final: true` **stops** evaluation of any *later* rules; that
+final rule and all earlier matched rules still apply.
+
+```js
+rules: [
+  { name: "db.pool", level: "trace", target: "PoolDebug", final: true }, // stops here
+  { name: "*",       level: "info",  target: "Console" },                 // skipped for db.pool
+]
+```
+
+- `db.pool` matches the first rule, applies it, and stops — the later `*` is **not**
+  applied, so `db.pool` routes **only** to `PoolDebug`.
+- any other logger doesn't match `db.pool`, falls through, and routes to `Console`.
+
+> **Migration from the old behavior.** Previously a specific rule *dropped* the `*`
+> catch-all, so adding a rule for one logger silently **excluded** it from the
+> global console/file. Now the specific rule is **additive** — that logger reaches
+> both its own target **and** the catch-all. To restore the old "this logger goes
+> **only** here" behavior, mark its rule `final: true` and place it **before** the
+> `*` catch-all (as above).
 
 ## Filters
 

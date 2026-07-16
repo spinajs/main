@@ -10,6 +10,19 @@ import { InternalLoggerProxy } from "@spinajs/internal-logger";
 import { captureCallsite } from "./callsite.js";
 import _ from "lodash";
 
+// Module-level cache of compiled glob->RegExp so a rule pattern is compiled ONCE
+// process-wide, not once per (logger x rule) evaluation.
+const GLOB_CACHE = new Map<string, RegExp>();
+function globFor(pattern: string): RegExp {
+  let re = GLOB_CACHE.get(pattern);
+  if (!re) {
+    // eslint-disable-next-line security/detect-non-literal-regexp
+    re = GlobToRegExp(pattern);
+    GLOB_CACHE.set(pattern, re);
+  }
+  return re;
+}
+
 function wrapWrite(this: Log, level: LogLevel) {
   return (err: Error | string | object, message: string | any[], ...args: any[]) => {
     // Zero-cost gating: only parse a caller frame ( which constructs an Error )
@@ -259,23 +272,33 @@ export class FrameworkLogger extends Log {
   }
 
   protected matchRulesToLogger() {
-    const matchingRules = this.Options.rules.filter((r) => {
+    // NLog-style ordered, ADDITIVE evaluation. Walk the rules IN CONFIG ORDER
+    // and collect EVERY rule whose glob matches this logger ( so a logger matched
+    // by both `*` and a specific rule routes to BOTH - de-duped by target in
+    // resolveLogTargets ). A matched rule with `final: true` STOPS evaluation of
+    // any LATER rules ( that final rule and all earlier matched rules still apply
+    // ) - place a specific `final` rule before `*` to get this-rule-only routing.
+    const matched: ILogRule[] = [];
+    for (const r of this.Options.rules) {
       if (typeof r.name !== "string") {
         throw new InvalidOption(`Log rule name must be a string, got ${typeof r.name}`);
       }
+      // Guard: an invalid level would leave StrToLogLevel[level] === undefined,
+      // poisoning MinLevel ( Math.min(..., NaN) === NaN ) and the write() dispatch
+      // gate, silently killing the logger. Schema validates config; this guards
+      // programmatic / default rule paths too.
+      if (!(r.level in StrToLogLevel)) {
+        throw new InvalidOption(`Log rule ${r.name} has invalid level '${r.level}'`);
+      }
+      if (globFor(r.name).test(this.Name)) {
+        matched.push(r);
+        if (r.final) {
+          break;
+        }
+      }
+    }
 
-      // eslint-disable-next-line security/detect-non-literal-regexp
-      const g = GlobToRegExp(r.name);
-      return g.test(this.Name);
-    });
-
-    // Check if there are any specific (non-wildcard) rules
-    const hasSpecificRule = matchingRules.some((r) => r.name !== '*');
-
-    // If specific rules exist, exclude wildcard rules
-    this.Rules = hasSpecificRule 
-      ? matchingRules.filter((r) => r.name !== '*')
-      : matchingRules;
+    this.Rules = matched;
   }
 }
 

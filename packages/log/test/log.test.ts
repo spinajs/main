@@ -34,7 +34,7 @@ function logger(name?: string) {
 
 describe("matchRulesToLogger", () => {
   // drive matchRulesToLogger() directly, without full DI/config resolution
-  function match(name: string, rules: Array<{ name: any; level: string; target: string }>): string[] {
+  function match(name: string, rules: Array<{ name: any; level: string; target: string; final?: boolean }>): string[] {
     const log: any = new FrameworkLogger(name);
     log.Options = { targets: [], rules };
     log.matchRulesToLogger();
@@ -65,28 +65,53 @@ describe("matchRulesToLogger", () => {
     expect(match("exact", rules)).to.deep.eq(["exact"]);
   });
 
-  it("prefers specific rules over the wildcard when both match", () => {
+  it("is ADDITIVE: a logger matched by '*' and a specific rule keeps BOTH ( in config order )", () => {
     const rules = [
       { name: "*", level: "trace", target: "All" },
       { name: "http*", level: "info", target: "Http" },
     ];
-    // the wildcard is dropped in favour of the specific rule
-    expect(match("http-server", rules)).to.deep.eq(["http*"]);
-    // but a name only the wildcard matches still gets the wildcard
+    // headline footgun fix: the specific rule no longer DROPS the '*' catch-all
+    expect(match("http-server", rules)).to.deep.eq(["*", "http*"]);
+    // a name only the wildcard matches still gets the wildcard
     expect(match("db", rules)).to.deep.eq(["*"]);
   });
 
-  it("keeps every matching specific rule", () => {
+  it("keeps every matching rule additively ( no '*'-drop )", () => {
     const rules = [
       { name: "http*", level: "trace", target: "A" },
       { name: "http-server", level: "info", target: "B" },
       { name: "*", level: "trace", target: "All" },
     ];
-    expect(match("http-server", rules)).to.have.members(["http*", "http-server"]);
+    expect(match("http-server", rules)).to.deep.eq(["http*", "http-server", "*"]);
+  });
+
+  it("'final: true' stops evaluation of LATER rules ( restores this-rule-only )", () => {
+    const rules = [
+      { name: "db.pool", level: "trace", target: "X", final: true },
+      { name: "*", level: "trace", target: "Y" },
+    ];
+    // db.pool matches, applies, and STOPS - the later '*' is skipped
+    expect(match("db.pool", rules)).to.deep.eq(["db.pool"]);
+    // a NON-matching logger still falls through to the '*' catch-all
+    expect(match("other", rules)).to.deep.eq(["*"]);
+  });
+
+  it("rules BEFORE a final rule still apply; rules AFTER it are skipped", () => {
+    const rules = [
+      { name: "*", level: "trace", target: "A" },
+      { name: "db*", level: "trace", target: "B", final: true },
+      { name: "db.pool", level: "trace", target: "C" },
+    ];
+    // '*' and 'db*' apply ( db* is final ); 'db.pool' ( after the final ) is skipped
+    expect(match("db.pool", rules)).to.deep.eq(["*", "db*"]);
   });
 
   it("throws InvalidOption on a non-string rule name", () => {
     expect(() => match("x", [{ name: 123 as any, level: "trace", target: "T" }])).to.throw(InvalidOption);
+  });
+
+  it("throws InvalidOption on an invalid rule level", () => {
+    expect(() => match("x", [{ name: "*", level: "verbose" as any, target: "T" }])).to.throw(InvalidOption);
   });
 });
 

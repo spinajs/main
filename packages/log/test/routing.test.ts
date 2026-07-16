@@ -218,6 +218,118 @@ describe("routing - BUG 3 missing-target validation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Footgun fix: ordered ADDITIVE rule matching + the `final` flag.
+// A logger with its OWN specific rule now ALSO reaches the `*` catch-all target
+// ( the old "specific rule drops `*`" behavior silently excluded it ), unless a
+// `final: true` rule short-circuits later rules.
+// ---------------------------------------------------------------------------
+class AdditiveRulesConfiguration extends FrameworkConfiguration {
+  protected onLoad() {
+    return {
+      system: { dirs: { schemas: [dir("./../src/schemas")] } },
+      logger: {
+        targets: [
+          { name: "Catch", type: "RecTarget" }, // the `*` catch-all sink
+          { name: "Pool", type: "RecTarget" }, // db.pool's dedicated sink
+        ],
+        rules: [
+          // additive: db.pool matches BOTH `*` ( Catch ) and its own rule ( Pool )
+          { name: "*", level: "trace", target: "Catch" },
+          { name: "db.pool", level: "trace", target: "Pool" },
+          // final: db.final matches its own rule ( marked final, placed BEFORE the
+          // catch-all effect ) - but note `*` is EARLIER here so it still applies.
+        ],
+      },
+    };
+  }
+}
+
+describe("routing - additive rule matching ( footgun fix )", () => {
+  before(async () => {
+    DI.clearCache();
+    DI.register(AdditiveRulesConfiguration).as(Configuration);
+    await DI.resolve(Configuration);
+  });
+
+  beforeEach(async () => {
+    await Log.clearLoggers();
+  });
+
+  it("a logger with its OWN specific rule ALSO reaches the '*' catch-all target", async () => {
+    const log = DI.resolve(Log, ["db.pool"]);
+    const targets = targetsOf(log);
+    // additive: BOTH Catch ( from `*` ) and Pool ( from db.pool ) are routed to
+    expect(targets.length).to.eq(2);
+
+    await log.info("hello");
+    // proof: the entry landed in the catch-all sink too, not only the specific one
+    const records = targets.map((t) => t.instance.Records.length);
+    expect(records).to.deep.eq([1, 1]);
+  });
+
+  it("a logger matched ONLY by '*' reaches just the catch-all", async () => {
+    const log = DI.resolve(Log, ["unrelated"]);
+    const targets = targetsOf(log);
+    expect(targets.length).to.eq(1);
+
+    await log.info("hi");
+    expect(targets[0].instance.Records.length).to.eq(1);
+  });
+});
+
+// A `final: true` specific rule placed BEFORE the `*` catch-all short-circuits it,
+// restoring this-rule-only routing ( while non-matching loggers still fall through ).
+class FinalRuleConfiguration extends FrameworkConfiguration {
+  protected onLoad() {
+    return {
+      system: { dirs: { schemas: [dir("./../src/schemas")] } },
+      logger: {
+        targets: [
+          { name: "Catch", type: "RecTarget" },
+          { name: "Pool", type: "RecTarget" },
+        ],
+        rules: [
+          { name: "db.pool", level: "trace", target: "Pool", final: true },
+          { name: "*", level: "trace", target: "Catch" },
+        ],
+      },
+    };
+  }
+}
+
+describe("routing - `final` short-circuits later rules", () => {
+  before(async () => {
+    DI.clearCache();
+    DI.register(FinalRuleConfiguration).as(Configuration);
+    await DI.resolve(Configuration);
+  });
+
+  beforeEach(async () => {
+    await Log.clearLoggers();
+  });
+
+  it("a final specific rule before '*' routes ONLY to its own target", async () => {
+    const log = DI.resolve(Log, ["db.pool"]);
+    const targets = targetsOf(log);
+    // the final db.pool rule stops evaluation, so the later '*' ( Catch ) is skipped
+    expect(targets.length).to.eq(1);
+
+    await log.info("only-pool");
+    expect(targets[0].instance.Records.length).to.eq(1);
+    expect(targets[0].instance.Records[0].Variables.message).to.eq("only-pool");
+  });
+
+  it("a NON-matching logger still falls through to the '*' catch-all", async () => {
+    const log = DI.resolve(Log, ["other"]);
+    const targets = targetsOf(log);
+    expect(targets.length).to.eq(1);
+
+    await log.info("caught");
+    expect(targets[0].instance.Records.length).to.eq(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // BUG 1: filters are @NewInstance -> distinct instances + independent state.
 // ---------------------------------------------------------------------------
 describe("routing - BUG 1 filters are per-instance ( @NewInstance )", () => {

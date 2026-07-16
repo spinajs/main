@@ -102,6 +102,12 @@ export interface ILogRule {
   name: string;
   level: "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "security" | "success";
   target: string | string[];
+
+  /**
+   * Stop evaluating further rules for a logger once this matching rule is applied
+   * ( NLog-style ). Earlier matched rules and this one still apply.
+   */
+  final?: boolean;
 }
 
 export interface ITargetsOption {
