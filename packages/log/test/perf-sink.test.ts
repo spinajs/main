@@ -41,7 +41,7 @@ describe("LogMetricSink", () => {
     DI.register(CaptureTarget).as("CaptureTarget");
     DI.register(PerfTestConfig).as(Configuration);
     await DI.resolve(Configuration);
-    sink = DI.resolve(LogMetricSink);
+    sink = (DI.resolve(Array.ofType(PerfSink)) as PerfSink[]).find((s) => s instanceof LogMetricSink) as LogMetricSink;
   });
 
   afterEach(() => {
