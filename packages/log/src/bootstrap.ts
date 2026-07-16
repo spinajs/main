@@ -28,10 +28,26 @@ const unhandledRejection = (reason: Error, p: Promise<unknown>) => {
   }
 };
 
+// Guard so a double bootstrap ( eg. re-run in the same process ) does not
+// register the beforeExit drain twice.
+let beforeExitAttached = false;
+
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
   public bootstrap(): void {
     DI.register(CONFIGURATION_SCHEMA).asValue("__configurationSchema__");
+
+    // Best-effort teardown drain: on a CLEAN process exit, force-flush every
+    // logger's targets so buffered File / Loki / OTLP entries are written out.
+    // beforeExit does NOT run on hard exits ( process.exit / signals / crashes ),
+    // so this only catches clean drains. Node-only ( guard mirrors
+    // internal-logger ); do not double-register.
+    if (!beforeExitAttached && typeof process !== "undefined" && typeof process.on === "function") {
+      beforeExitAttached = true;
+      process.on("beforeExit", () => {
+        void Log.flushAll();
+      });
+    }
 
     // Feed the ambient async-context store into every log entry ( merged at
     // lowest precedence by createLogMessageObject ). LogContext resolves the

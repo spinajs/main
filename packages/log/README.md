@@ -167,6 +167,14 @@ A **target** is where messages go. Each configured target has a `name`
 (referenced by rules) and a `type` (the DI key). Common options
 (`ICommonTargetOptions`): `name`, `type`, `enabled` (default `true`), `layout`.
 
+> **`enabled: false` targets are never instantiated.** A target definition
+> marked `enabled: false` is skipped at resolve time — its class is never
+> constructed, so a disabled `FileTarget` never opens its file, starts its flush
+> timer, or spins up its archive service. A rule that references only disabled
+> targets is silently skipped (treated as intentionally not routed); a rule that
+> references a target **name that does not exist at all** still throws
+> `InvalidOption`.
+
 > **Config shape note:** some targets read their settings **flat** on the target
 > definition (Console `theme`/`layout`, `MemoryTarget.limit`, `JsonTarget.stream`),
 > while File/JSON-file and the wrapper targets read them **nested under an
@@ -585,6 +593,26 @@ module.exports = {
   },
 };
 ```
+
+## Flushing & shutdown
+
+Buffered targets (`FileTarget`, Loki, OTLP) hold entries in an in-memory
+`BatchQueue` and drain them on their own tick. To force a drain explicitly:
+
+- **`log.flush()`** — force-drains THIS logger's targets' buffers
+  (`Promise<void>`). It calls `forceFlush()` on each target; on a non-buffered
+  target that is a harmless no-op. `flush()` does **not** close or dispose the
+  target — handle and timer teardown remains the DI container's job.
+- **`Log.flushAll()`** — flushes every registered logger (best-effort; never
+  rejects). Static.
+- **`Log.clearLoggers()`** — flushes all loggers **before** disposing them, so
+  buffered entries are written out during teardown rather than relying on the DI
+  container disposing the target singletons.
+
+On a **clean** process exit the log bootstrapper registers a Node-only
+`beforeExit` hook that runs `Log.flushAll()`. This is best-effort: `beforeExit`
+does not fire on hard exits (`process.exit`, signals, crashes), so call
+`Log.flushAll()` / `Log.clearLoggers()` yourself in those paths.
 
 ## Extending
 

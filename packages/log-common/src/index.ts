@@ -114,6 +114,14 @@ export interface ITargetsOption {
   name: string;
   type: string;
   options?: ICommonTargetOptions;
+
+  /**
+   * When `false` the target is NOT instantiated at all ( its class is never
+   * constructed, so a disabled FileTarget never opens its file / starts timers ).
+   * A rule referencing only disabled targets is silently skipped; a rule
+   * referencing a target NAME that does not exist still throws. Default `true`.
+   */
+  enabled?: boolean;
 }
 
 export interface ILogOptions {
@@ -478,8 +486,31 @@ export abstract class Log extends SyncService {
     this.setLevel(SILENT_LEVEL, persist);
   }
 
+  /**
+   * Force-drain THIS logger's targets' buffers ( eg. File / Loki / OTLP batch
+   * queues ) so buffered entries are written out. Does NOT close / dispose the
+   * target - handle & timer teardown remains the DI container's job. Calling
+   * `forceFlush()` on a non-buffered target is a harmless no-op. Guarded so a
+   * logger that failed to resolve ( no `Targets` ) is a safe no-op.
+   */
+  public flush(): Promise<void> {
+    if (!this.Targets || this.Targets.length === 0) {
+      return Promise.resolve();
+    }
+    return Promise.allSettled(this.Targets.map((t) => t.instance.forceFlush())).then(() => undefined);
+  }
+
+  /** Flush every registered logger ( best-effort; never rejects ). */
+  public static flushAll(): Promise<void> {
+    return Promise.allSettled([...Log.Loggers.values()].map((l) => l.flush())).then(() => undefined);
+  }
+
   public static clearLoggers() {
-    return Promise.all([...Log.Loggers.values()].map((l) => l.dispose()))
+    // Flush buffered entries out BEFORE tearing loggers down so File / Loki /
+    // OTLP data is not lost when teardown does not go through DI container
+    // disposal of the target singletons.
+    return Log.flushAll()
+      .then(() => Promise.all([...Log.Loggers.values()].map((l) => l.dispose())))
       .then(() => {
         Log.Loggers.clear();
       })

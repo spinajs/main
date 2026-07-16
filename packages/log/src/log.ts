@@ -241,18 +241,23 @@ export class FrameworkLogger extends Log {
     const byTarget = new Map<ITargetsOption, ILogRule>();
 
     for (const r of this.Rules) {
-      const found = this.Options.targets.filter((t) => {
-        return Array.isArray(r.target) ? r.target.includes(t.name) : r.target === t.name;
-      });
+      const wantedNames = Array.isArray(r.target) ? r.target : [r.target];
 
-      // BUG 3 fix: `found` is always an array, so the old `if (!found)` guard was
-      // dead and a rule pointing at a non-existent target was silently ignored.
-      // Fail fast when NONE of the rule's targets resolve. ( A partial match on
-      // an array target is tolerated - only a fully-unresolved rule throws. )
-      if (found.length === 0) {
-        const wanted = Array.isArray(r.target) ? r.target.join(", ") : r.target;
-        throw new InvalidOption(`No target matching rule ${r.name} ( wanted target(s): ${wanted} )`);
+      // Resolve the rule's target NAMES to definitions. Distinguish two cases:
+      //  - a named target exists but is `enabled: false` -> intentionally not
+      //    routed, skip it silently ( and do NOT instantiate it below ).
+      //  - a name matches NO defined target at all -> misconfig ( BUG 3 ), throw.
+      // So `namedButMissing` = wanted names with no matching def AT ALL; disabled
+      // matches DO count as "the name exists" and are simply not collected.
+      const namedButMissing = wantedNames.filter((n) => !this.Options.targets.some((t) => t.name === n));
+      if (namedButMissing.length > 0) {
+        throw new InvalidOption(`No target matching rule ${r.name} ( wanted target(s): ${namedButMissing.join(", ")} )`);
       }
+
+      // EXCLUDE disabled targets before dedupe/resolve so they are never built.
+      const found = this.Options.targets.filter((t) => {
+        return wantedNames.includes(t.name) && t.enabled !== false;
+      });
 
       for (const f of found) {
         const existing = byTarget.get(f);
