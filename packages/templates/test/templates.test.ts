@@ -188,9 +188,13 @@ describe('templates cache modes', () => {
     const original = provider.stat.bind(provider);
     provider.stat = () => Promise.reject(new Error('transient failure'));
 
-    expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
-    expect(StubRenderer.CompileCount).to.eq(1);
-
-    provider.stat = original;
+    try {
+      expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+      expect(StubRenderer.CompileCount).to.eq(1);
+    } finally {
+      // must run even if an assertion throws, otherwise the patched stat leaks
+      // into every test that runs after this one
+      provider.stat = original;
+    }
   });
 });
