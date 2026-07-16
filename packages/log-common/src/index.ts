@@ -9,6 +9,7 @@ export * from "./filters/filter.js";
 export * from "./filters/whenRepeated.js";
 export * from "./BatchQueue.js";
 export * from "./persistence.js";
+export * from "./perf.js";
 
 import type { IWhenRepeatedOptions } from "./filters/whenRepeated.js";
 import type { ILogFilterOptions, LogFilter } from "./filters/filter.js";
