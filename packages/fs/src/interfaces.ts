@@ -53,6 +53,14 @@ export interface IStat {
   AccessTime?: DateTime;
   ModifiedTime?: DateTime;
   CreationTime?: DateTime;
+
+  /**
+   * Opaque, provider-supplied token that changes when the file content changes.
+   * Consumers must treat it as meaningless except for equality comparison.
+   * Providers that cannot supply one leave it undefined.
+   */
+  Version?: string;
+
   AdditionalData?: unknown;
 }
 
@@ -216,7 +224,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   public abstract mkdir(path: string): Promise<void>;
   public abstract stat(path: string): Promise<IStat>;
   public abstract list(path: string): Promise<string[]>;
-  public abstract tmppath(): string;
+  public abstract tmppath(ext?: string): string;
   public abstract append(path: string, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void>;
   /**
    *
@@ -246,8 +254,8 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    */
   public abstract isDir(path: string): Promise<boolean>;
 
-  public tmpname() {
-    return uuidv4();
+  public tmpname(ext?: string) {
+    return ext ? `${uuidv4()}${ext}` : uuidv4();
   }
 
   /**
@@ -361,13 +369,13 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
     return path.Fs.list(path.Path);
   }
 
-  public static tmppath(fs: string): string {
+  public static tmppath(fs: string, ext?: string): string {
     const f = DI.resolve<fs>('__file_provider__', [fs]);
     if (!f) {
       throw new IOFail(`Filesystem ${fs} not exists, check your configuration`);
     }
 
-    return f.tmppath();
+    return f.tmppath(ext);
   }
 
   public static append(path: URI, data: string | Uint8Array, encoding?: BufferEncoding): Promise<void> {

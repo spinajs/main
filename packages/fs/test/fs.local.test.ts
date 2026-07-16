@@ -8,7 +8,7 @@ import { fs, FsBootsrapper, fsService } from './../src/index.js';
 import '@spinajs/templates-pug';
 import { dir, TestConfiguration } from './common.js';
 import { expect } from 'chai';
-import { join } from 'path';
+import { extname, join } from 'path';
 import { IOFail } from '@spinajs/exceptions';
 import { cp, rm } from 'fs/promises';
 import { mkdirSync } from 'fs';
@@ -277,5 +277,23 @@ describe('fs local tests', function () {
     expect(result.fs.Name).to.eq('fs-temp');
     const exist = await result.fs.exists(result.asFilePath());
     expect(exist).to.be.true;
+  });
+
+  it('tmppath should append extension when given', async () => {
+    const provider = await f();
+
+    expect(provider.tmppath('.mjml').endsWith('.mjml')).to.be.true;
+  });
+
+  it('tmppath should not append extension when not given', async () => {
+    const provider = await f();
+
+    expect(extname(provider.tmppath())).to.eq('');
+  });
+
+  it('tmppath with extension should still be unique', async () => {
+    const provider = await f();
+
+    expect(provider.tmppath('.mjml')).to.not.eq(provider.tmppath('.mjml'));
   });
 });

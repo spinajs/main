@@ -240,8 +240,8 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     };
   }
 
-  public tmppath(): string {
-    return join(this.Options.basePath!, super.tmpname());
+  public tmppath(ext?: string): string {
+    return join(this.Options.basePath!, super.tmpname(ext));
   }
 
   /**
