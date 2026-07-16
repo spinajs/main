@@ -3,6 +3,7 @@ import { Constructor, AsyncService, Class, isPromise } from '@spinajs/di';
 import { fs, IFileInfo } from '@spinajs/fs';
 import formidable from 'formidable';
 import { CookieOptions } from 'express';
+import { IPerfScope } from '@spinajs/log';
 
 /**
  * Accept header enum
@@ -242,6 +243,11 @@ export interface IActionLocalStoregeContext {
    * `Server-Timing` response header when {@link ServerTiming} is enabled.
    */
   serverTiming?: IServerTimingEntry[];
+  /**
+   * Per-request perf accumulator ( query counts, span totals ) populated by the
+   * Perf facade during the action and flushed by {@link PerfRollup} at finish.
+   */
+  perf?: IPerfScope;
 }
 
 export interface IResponseHeader {
