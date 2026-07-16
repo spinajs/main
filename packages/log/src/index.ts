@@ -6,4 +6,5 @@ export * from "./log.js";
 export * from "./callsite.js";
 export * from "./bootstrap.js";
 export * from "./context.js";
+export * from "./perf.js";
 export * from "./traceparent.js";
