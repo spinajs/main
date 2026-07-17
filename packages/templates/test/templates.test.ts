@@ -89,11 +89,15 @@ let TemplatesInstance: Templates;
 let Renderer: StubRenderer;
 
 /**
- * Bootstrapped exactly once. `@Config` memoizes the Configuration *instance* in a
- * decorator closure that outlives DI.clearCache(), so re-registering a fresh
- * Configuration per test would leave the decorators reading the first instance
- * forever and every cache mode would silently read as the default. One container
- * for the suite keeps the decorators and the config we mutate in agreement.
+ * Bootstrapped exactly once, and the tests drive config through `Configuration.set(...)`
+ * on the instance below rather than re-registering a fresh Configuration per test.
+ *
+ * This used to be mandatory: `@Config` memoized the resolved Configuration *instance*
+ * in a decorator closure that outlived DI.clearCache(). That memoization has since been
+ * removed — `@Config` now resolves Configuration from the container on every access, so
+ * re-registering would in fact be picked up. The single-bootstrap shape is kept because
+ * it is still the convention here: it is cheaper than rebuilding the container per test
+ * and keeps the decorators and the config we mutate trivially in agreement.
  */
 before(async () => {
   DI.resolve(FsBootsrapper).bootstrap();

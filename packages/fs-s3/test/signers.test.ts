@@ -142,9 +142,10 @@ describe('URL signing – integration tests (fsS3)', function () {
     const bootstrapper = DI.resolve(FsBootsrapper);
     bootstrapper.bootstrap();
 
-    // Shared with fs-s3.test.ts on purpose – see the note in common.ts: `@Config`
-    // memoizes the Configuration instance for the whole process, so only the first
-    // registered Configuration subclass ever takes effect.
+    // Shared with fs-s3.test.ts on purpose – see the note in common.ts. This used to be
+    // forced by `@Config` memoizing the Configuration instance for the whole process;
+    // that memoization is gone, but one shared config per process remains the convention
+    // for this suite.
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
     await DI.resolve(fsService);

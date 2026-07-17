@@ -87,13 +87,18 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
 
           // ─── Providers used by signers.test.ts ───────────────────────
-          // They live here rather than in a second FrameworkConfiguration because
-          // `@Config` (packages/configuration/src/decorators.ts) memoizes the resolved
-          // Configuration *instance* in a decorator closure created once at class
-          // definition time, which outlives DI.clearCache(). Mocha runs every test file
-          // in one process, so whichever Configuration subclass is registered first wins
-          // for the whole run and a later DI.register(...).as(Configuration) silently
-          // does nothing. One shared config for the process is the only reliable shape.
+          // They live here, in this one config, rather than in a second
+          // FrameworkConfiguration, because Mocha runs every test file in one process and
+          // a single shared config for the process is the convention for this suite.
+          //
+          // This was once a hard requirement: `@Config`
+          // (packages/configuration/src/decorators.ts) memoized the resolved Configuration
+          // *instance* in a decorator closure created at class-definition time, which
+          // outlived DI.clearCache(), so whichever Configuration subclass was registered
+          // first silently won for the whole run. That memoization has been removed —
+          // `@Config` now resolves Configuration from the container on every access — so a
+          // later DI.register(...).as(Configuration) does take effect. Keeping everything
+          // in one config is still simpler than juggling per-file configs, so it stays.
 
           // S3 provider WITHOUT signer (for negative test)
           {
