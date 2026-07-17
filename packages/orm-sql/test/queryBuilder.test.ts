@@ -1399,6 +1399,19 @@ describe('schema building', () => {
     expect(result[0].expression).to.equal('ALTER TABLE `test` MODIFY `Id2` VARCHAR(255)');
   });
 
+  it('Should skip alter column that compiles to nothing', () => {
+    // a compiler whose hook returns null must produce no statement at all,
+    // not a dangling "ALTER TABLE `test`"
+    const result = schqb()
+      .alterTable('test', (table) => {
+        table.string('Id2', 255).modify();
+      })
+      .toDB();
+
+    expect(result.every((r) => (r.expression ?? '').trim().length > 0)).to.be.true;
+    expect(result.every((r) => !/^ALTER TABLE `\w+`\s*$/.test(r.expression ?? ''))).to.be.true;
+  });
+
   it('Should rename column', () => {
     const result = schqb()
       .alterTable('test', (table) => {
