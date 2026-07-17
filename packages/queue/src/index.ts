@@ -46,18 +46,7 @@ export class DefaultQueueService extends QueueService {
       }
 
       if (isJob(event)) {
-        const jModel = new JobModel();
-
-        jModel.JobId = uuidv4();
-        jModel.Name = event.Name;
-        jModel.Status = 'created';
-        jModel.Progress = 0;
-        jModel.Attempt = 0;
-        jModel.Connection = c;
-
-        await jModel.insert();
-
-        event.JobId = jModel.JobId;
+        event.JobId = event.JobId ?? uuidv4(); // generate only; consumer writes the row
       }
 
       await connection.emit(event);
@@ -121,7 +110,27 @@ export class DefaultQueueService extends QueueService {
              */
             if (ev instanceof QueueJob) {
               let jobResult = null;
-              const jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+
+              // Consumer owns the tracking row. First receipt inserts; a redelivery finds the
+              // row from the prior attempt. The queue_jobs.JobId unique index makes a rare
+              // concurrent double-receipt safe (second insert collides -> re-read).
+              let jModel = await JobModel.where({ JobId: ev.JobId }).first();
+              if (!jModel) {
+                jModel = new JobModel();
+                jModel.JobId = ev.JobId;
+                jModel.Name = ev.Name;
+                jModel.Connection = c;
+                jModel.Attempt = 0;
+                jModel.Progress = 0;
+
+                try {
+                  await jModel.insert();
+                } catch (e) {
+                  // concurrent first-receipt from another worker won the insert; re-read and continue.
+                  jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+                }
+              }
+
               jModel.Status = 'executing';
               jModel.ExecutedAt = DateTime.now();
 
