@@ -13,17 +13,11 @@ import { InternalLogger } from '@spinajs/internal-logger';
  */
 export function Config(path: string, options?: IConfigEntryOptions) {
   return (target: any, key: string): any => {
-    let config: Configuration;
-
     // register conf, so we can expose eg. in db if config is set
     DI.register({ path, options }).asValue('__configuration_property__');
 
     const getter = () => {
-      if (!config) {
-        config = DI.get(Configuration)!;
-      }
-
-      // try to return val
+      const config = DI.get(Configuration)!;
       return config.get(path, options ? options.defaultValue ?? undefined : undefined);
     };
 
