@@ -8,7 +8,6 @@ import { TemplateRenderer } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 import Handlebars from 'handlebars';
-import { normalize } from 'path';
 import * as helpers from './helpers/index.js';
 
 @Singleton()
@@ -16,8 +15,6 @@ import * as helpers from './helpers/index.js';
 export class HandlebarsRenderer extends TemplateRenderer {
   @Config('templates.handlebars')
   protected Options: any;
-
-  protected Templates: Map<string, HandlebarsTemplateDelegate<any>> = new Map<string, HandlebarsTemplateDelegate<any>>();
 
   public get Type() {
     return 'handlebars';
@@ -58,17 +55,26 @@ export class HandlebarsRenderer extends TemplateRenderer {
       throw new InvalidArgument('template parameter cannot be null or empty');
     }
 
-    let fTemplate = null;
-    if (!this.Templates.has(normalize(templateName))) {
-      await this.compile(normalize(templateName));
-    }
+    const fTemplate = await this.withCache(templateName, async () => {
+      const tContent = await this.resolveContent(templateName);
 
-    fTemplate = this.Templates.get(normalize(templateName));
+      if (tContent.length === 0) {
+        throw new IOFail(`Template file ${templateName} is empty`);
+      }
+
+      const tCompiled = Handlebars.compile(tContent, this.Options);
+
+      if (!tCompiled) {
+        throw new IOFail(`Cannot compile handlebars template from path ${templateName}`);
+      }
+
+      return tCompiled;
+    });
 
     const lang = language ? language : guessLanguage();
     const tLang = lang ?? defaultLanguage();
 
-    const content = fTemplate!(
+    const content = fTemplate(
       _.merge(model ?? {}, {
         lang: tLang,
       }),
@@ -77,22 +83,6 @@ export class HandlebarsRenderer extends TemplateRenderer {
     const time = this.Log.timeEnd(`HandlebarTemplate-${templateName}`);
     this.Log.trace(`Rendering template ${templateName} ended, (${time} ms)`);
 
-    return Promise.resolve(content);
-  }
-
-  protected async compile(path: string): Promise<void> {
-    const tContent = fs.readFileSync(path, 'utf-8');
-
-    if (tContent.length === 0) {
-      throw new IOFail(`Template file ${path} is empty`);
-    }
-
-    const tCompiled = Handlebars.compile(tContent, this.Options);
-
-    if (!tCompiled) {
-      throw new IOFail(`Cannot compile handlebars template from path ${path}`);
-    }
-
-    this.Templates.set(path, tCompiled);
+    return content;
   }
 }
