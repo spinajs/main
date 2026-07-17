@@ -64,8 +64,21 @@ class ConfigurationForTests extends FrameworkConfiguration {
       },
       templates: {},
       fs: {
-        defaultProvider: 'test',
-        providers: [{ service: 'fsNative', name: 'test', basePath: dir('./files') }],
+        // The default provider is deliberately rooted somewhere that does NOT
+        // hold the template. The bare-path regression test asserts that a plain
+        // path is read straight from disk and never routed through a provider -
+        // if the default provider were rooted at ./files, a misrouted absolute
+        // path would still resolve (fsNative.resolvePath returns paths that
+        // already start with its basePath untouched) and the test could not
+        // fail. Rooted elsewhere, a misroute join()s under the wrong base and
+        // ENOENTs, which is exactly the regression we want to catch.
+        // The fs:// tests address the 'test' provider by name, so they are
+        // unaffected by which provider is the default.
+        defaultProvider: 'default-elsewhere',
+        providers: [
+          { service: 'fsNative', name: 'test', basePath: dir('./files') },
+          { service: 'fsNative', name: 'default-elsewhere', basePath: dir('./files-2') },
+        ],
       },
     };
   }
