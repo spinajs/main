@@ -178,6 +178,36 @@ describe('templates cache modes', () => {
     expect(StubRenderer.CompileCount).to.eq(2);
   });
 
+  it('dev mode should imply always when no mode is configured', async () => {
+    const t = await setup();
+    Cfg.set('configuration.isDevelopment', true);
+
+    try {
+      await t.render('fs://test/stub.test-tpl', {});
+      await t.render('fs://test/stub.test-tpl', {});
+
+      expect(StubRenderer.CompileCount).to.eq(2);
+    } finally {
+      // must run even if an assertion throws, otherwise dev mode leaks into
+      // every test that runs after this one
+      Cfg.set('configuration.isDevelopment', false);
+    }
+  });
+
+  it('explicit mode should win over dev mode', async () => {
+    const t = await setup('cache');
+    Cfg.set('configuration.isDevelopment', true);
+
+    try {
+      expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+      await writeTemplate('changed');
+      expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+      expect(StubRenderer.CompileCount).to.eq(1);
+    } finally {
+      Cfg.set('configuration.isDevelopment', false);
+    }
+  });
+
   it('revalidate should serve the cached entry when stat fails', async () => {
     const t = await setup('revalidate');
 
