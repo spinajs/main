@@ -662,14 +662,24 @@ export class SqlAlterTableQueryCompiler extends AlterTableQueryCompiler {
 
     if (this.builder.Columns.length !== 0) {
       _outputs = _outputs.concat(
-        this.builder.Columns.map((c) => this.container.resolve(AlterColumnQueryCompiler, [c]).compile())
+        this.builder.Columns.map((c) => {
+          // keep the compiler instance around - it carries the dialect's answer to
+          // "is my expression already a complete statement ?" (see IsStandaloneStatement)
+          const compiler = this.container.resolve(AlterColumnQueryCompiler, [c]);
+          return { compiler, output: compiler.compile() };
+        })
           // a driver may legitimately skip an alteration by compiling it to nothing.
           // emitting it anyway would yield a dangling `ALTER TABLE \`x\`` - invalid SQL.
-          .filter((compiler) => (compiler.expression ?? '').trim().length !== 0)
-          .map((compiler) => {
+          .filter(({ output }) => (output.expression ?? '').trim().length !== 0)
+          .map(({ compiler, output }) => {
+            // some dialects cannot express an alteration as a suffix of `ALTER TABLE x`
+            // eg. MSSQL renames a column with `EXEC sp_rename '[t].[old]', 'new', 'COLUMN'`,
+            // which is a complete statement and must be emitted verbatim.
+            const standalone = (compiler as Partial<SqlAlterColumnQueryCompiler>).IsStandaloneStatement === true;
+
             return {
-              bindings: compiler.bindings,
-              expression: `${_table} ${compiler.expression}`,
+              bindings: output.bindings,
+              expression: standalone ? (output.expression as string) : `${_table} ${output.expression}`,
             };
           }),
       );
@@ -1040,7 +1050,22 @@ export class SqlAlterColumnQueryCompiler extends AlterColumnQueryCompiler {
    * to orm-sql's MySQL dialect.
    */
   protected _columnDefinition(): ICompilerOutput {
-    return this.container.resolve<ColumnQueryCompiler>(ColumnQueryCompiler, [this.builder as unknown as ColumnQueryBuilder]).compile();
+    return this.container.resolve<ColumnQueryCompiler>(ColumnQueryCompiler, [this.builder]).compile();
+  }
+
+  /**
+   * Whether the expression produced by `compile()` is already a complete, standalone
+   * statement. When true, SqlAlterTableQueryCompiler emits it verbatim instead of
+   * prefixing it with `ALTER TABLE <table> `.
+   *
+   * Needed by dialects whose alteration is not expressible as a suffix of ALTER TABLE,
+   * eg. MSSQL's `EXEC sp_rename '[t].[old]', 'new', 'COLUMN'`.
+   *
+   * It is read AFTER `compile()`, so a subclass may decide per `builder.AlterType`.
+   * Defaults to false - MySQL (this class) always emits a suffix.
+   */
+  public get IsStandaloneStatement(): boolean {
+    return false;
   }
 
   /**
