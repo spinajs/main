@@ -5,28 +5,18 @@
 
 ## Implementation status (2026-07-17)
 
-Everything below is implemented **except the `fs-s3` changes**, which are outstanding.
-`packages/fs-s3` is unchanged: `download()` still names its temp file from a bare uuid
-(`fs-s3/src/index.ts:173`), and `stat()` still discards `result.ETag`
-(`fs-s3/src/index.ts:479-502`). Those tests need localstack via docker, which was
-unavailable. Consequences until it lands:
+**Fully implemented**, `fs-s3` included. Verified against localstack: the `fs-s3` suite
+went 21 → 24 passing (its 9 `signers.test.ts` failures are pre-existing and unrelated —
+signer providers the test config never registers).
 
-- **`IStat.Version` is populated by no provider**, so the `if (s.Version)` branch in
-  `templates`' `tokenFromStat` is dead in production.
-- **`revalidate` silently degrades to `ModifiedTime` + `Size`** against S3. It works — one
-  `HeadObject`, body fetched only on change — but misses an overwrite that preserves both
-  timestamp and size. The ETag would not.
-- **The remote download-to-temp path has no test coverage**, because `fsNative.download()
-  ` returns the real path and never materialises a temp file.
-
-**This does NOT block rendering MJML templates from S3.** That path never calls
-`fsS3.download()` directly: `fsS3.read()` downloads, reads, and cleans up internally,
-returning a string, so the extensionless temp name never escapes it — and renderer
-dispatch already happened on the URI (`extname('fs://tpl/x.mjml')` is `.mjml`). The
-uuid-extension bug survives only on the legacy `email-smtp-transport` path, which calls
-`fs.download()` itself and passes the temp path to `render()` — explicitly a non-goal
-here. The plan document's claim that the fs-s3 task must land before the Lambda can use
-S3 templates is wrong.
+One correction to the Problem section below, established during the final review: the
+uuid-extension bug **never blocked rendering MJML templates from S3**. That path does not
+call `fsS3.download()` directly — `fsS3.read()` downloads, reads, and cleans up
+internally and returns a string, so the extensionless temp name never escaped it, and
+renderer dispatch already happened on the URI (`extname('fs://tpl/x.mjml')` is `.mjml`).
+The bug bit only the legacy `email-smtp-transport` path, which calls `fs.download()`
+itself and passes the temp path to `render()`. Fixing it was still worth doing — that
+path is real and now works — but it was never the gate it was described as.
 
 ## Problem
 

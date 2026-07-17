@@ -36,9 +36,8 @@ Task 1 (fs: tmppath(ext), IStat.Version)
 
 Task 2 is independent of Tasks 3-6 and may be done in parallel or deferred if docker is unavailable.
 
-**STATUS 2026-07-17: Tasks 1, 3-7 are done. Task 2 is NOT done** — docker was unavailable
-and its suite needs localstack. See the spec's "Implementation status" section for what
-that costs.
+**STATUS 2026-07-17: ALL TASKS DONE.** Task 2 landed last, once docker was available
+(fs-s3 suite verified against localstack: 21 → 24 passing).
 
 **Correction:** this section previously claimed Task 2 "MUST land before the
 `sn-step-schedules` Lambda project can use S3 templates." **That is wrong.** Rendering
