@@ -8,16 +8,10 @@ import { TemplateRenderer } from '@spinajs/templates';
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
-import { normalize } from 'path';
 @Injectable(TemplateRenderer)
-export class PugRenderer extends TemplateRenderer {  
+export class PugRenderer extends TemplateRenderer {
   @Config('templates.pug')
   protected Options: pugTemplate.Options;
-
-  protected Templates: Map<string, pugTemplate.compileTemplate> = new Map<string, pugTemplate.compileTemplate>();
-
-  @Config('configuration.isDevelopment')
-  protected devMode: boolean;
 
   constructor() {
     super();
@@ -50,19 +44,24 @@ export class PugRenderer extends TemplateRenderer {
       throw new InvalidArgument('template parameter cannot be null or empty');
     }
 
-    let fTemplate = null;
+    const fTemplate = await this.withCache(templateName, async () => {
+      // pug compiles from a path, not a string - it resolves include/extends
+      // against the local filesystem itself, so remote sources are materialised
+      // to temp storage first.
+      const tPath = await this.resolveLocalPath(templateName);
+      const tCompiled = pugTemplate.compileFile(tPath, this.Options);
 
-    // if in dev mode always compile template
-    // so we dont need to reload app manually
-    if (!this.Templates.has(normalize(templateName)) || this.devMode) {
-      await this.compile(normalize(templateName));
-    }
+      if (!tCompiled) {
+        throw new IOFail(`Cannot compile pug template ${templateName} from path ${tPath}`);
+      }
 
-    fTemplate = this.Templates.get(normalize(templateName));
+      return tCompiled;
+    });
+
     const lang = language ? language : guessLanguage();
     const tLang = lang ?? defaultLanguage();
 
-    const content = fTemplate!(
+    const content = fTemplate(
       _.merge(model ?? {}, {
         __: __translate(tLang),
         __n: __translateNumber(tLang),
@@ -74,17 +73,6 @@ export class PugRenderer extends TemplateRenderer {
     const time = this.Log.timeEnd(`PugTemplate.render.start.${templateName}`);
     this.Log.trace(`Rendering pug template ${templateName} ended, (${time} ms)`);
 
-    return Promise.resolve(content);
-  }
-
-  protected async compile(path: string) {
-    const tCompiled = pugTemplate.compileFile(path, this.Options);
-    const pNormalized = normalize(path);
-
-    if (!tCompiled) {
-      throw new IOFail(`Cannot compile handlebars template ${pNormalized} from path ${path}`);
-    }
-
-    this.Templates.set(pNormalized, tCompiled);
+    return content;
   }
 }
