@@ -148,6 +148,16 @@ set — that is `always` mode, implemented in one renderer only. `devMode` will 
 shared mode to `always`; an explicit `templates` config wins. Otherwise two mechanisms do
 one job.
 
+**This is a deliberate behavior change for handlebars and MJML**, which had no dev-mode
+behavior before: a consumer running `NODE_ENV=development` with no explicit
+`templates.cache.mode` now recompiles on every render where it previously cached forever.
+It is dev-only and performance-only, never correctness, and it generalises pug's existing
+live-reload to every renderer — edit a template, see it without restarting. Production
+consumers with no config are unaffected: they still get `cache`.
+
+The plan's "no config means no change" constraint is therefore scoped to production. The
+`isDevelopment` → `always` branch is covered by a test.
+
 ### `fs.tmppath(ext?)`
 
 The abstract `fs` class (`fs/src/interfaces.ts:219`) and the local providers gain an

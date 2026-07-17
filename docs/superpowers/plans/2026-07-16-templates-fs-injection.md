@@ -13,7 +13,8 @@
 ## Global Constraints
 
 - **No breaking changes.** A bare path passed to `render()` must behave exactly as it does today — read from local disk via `node:fs`, NOT routed through the default `fs` provider (the default provider may carry a `basePath` that would silently re-resolve callers' relative paths).
-- **Default cache mode is `cache`** — the current behavior. Existing consumers who set no config see no change.
+- **Default cache mode is `cache`** — the current behavior. Existing consumers who set no config see no change **in production**.
+- **Dev-mode exception, deliberate:** with `configuration.isDevelopment` set and no explicit `templates.cache.mode`, the mode defaults to `always`. A consumer running `NODE_ENV=development` with no config therefore recompiles every render where it previously cached forever. This is dev-only and performance-only, never correctness, and it generalises pug's existing `devMode` live-reload to every renderer. An explicit `templates.cache.mode` always wins.
 - **`templates` must not depend on any renderer package** (`templates-handlebars`, `templates-pug`, `template-mjml` all depend on `templates` — the reverse would be circular). Tests in `templates` use a stub renderer defined in the test file.
 - **`fs` must not depend on `templates`.** The dependency added in this plan is one-way: `templates` → `@spinajs/fs`.
 - **All new/changed public API is additive.** `tmppath(ext?)` and `IStat.Version?` are optional; existing callers compile unchanged.
