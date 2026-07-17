@@ -15,7 +15,7 @@ import {
 
 import { Upload } from '@aws-sdk/lib-storage';
 import { Config } from '@spinajs/configuration';
-import path, { basename } from 'path';
+import path, { basename, extname } from 'path';
 import { InvalidArgument, InvalidOperation, IOFail, MethodNotImplemented } from '@spinajs/exceptions';
 import { createReadStream, existsSync } from 'fs';
 import { DateTime } from 'luxon';
@@ -170,7 +170,7 @@ export class fsS3 extends fs {
    * @param path - file to download
    */
   public async download(path: string): Promise<string> {
-    const tmpName = this.TempFs.tmppath();
+    const tmpName = this.TempFs.tmppath(extname(path));
     const wStream = await this.TempFs.writeStream(tmpName);
 
     const command = new GetObjectCommand({
@@ -498,6 +498,10 @@ export class fsS3 extends fs {
       // no access time in s3s
       AccessTime: DateTime.min(),
       Size: result.ContentLength,
+
+      // ETag is an opaque change token. Note: for multipart uploads it is NOT the
+      // content MD5 (it carries a -N suffix) — only ever compare it for equality.
+      Version: result.ETag,
     };
   }
 
