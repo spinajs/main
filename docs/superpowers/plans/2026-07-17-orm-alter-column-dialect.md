@@ -298,77 +298,32 @@ migrations must restate constraints for MySQL's benefit."
 
 ---
 
-### Task 3: `orm-mssql` — ALTER COLUMN, sp_rename, no AFTER
+### Task 3: `orm-mssql` — DEFERRED (decision C, 2026-07-17)
 
-**Files:**
-- Modify: `packages/orm-mssql/src/compilers.ts` (near `MsSqlColumnQueryCompiler` at :198-205)
-- Modify: `packages/orm-mssql/src/index.ts` (registration, near :159-160)
-- Test: `packages/orm-mssql/test/` — **string assertions only; no server available**
+**Not implemented.** Investigation (agent, `orm-task-3-report.md`) found the `_rename()` hook
+cannot emit `EXEC sp_rename '<table>.<old>', ...` because the table name is unreachable at
+the column-compiler level: `AlterColumnQueryBuilder` (`orm/src/builders.ts:1790`) exposes
+`AlterType`/`AfterColumn`/`OldName` but **no `Table`**, and the compiler is resolved with the
+column only (`orm-sql/src/compilers.ts:668`). Task 1's `IsStandaloneStatement` escape skips
+the `ALTER TABLE x` prefix but supplies no table name.
 
-**Interfaces:**
-- Consumes: the hooks from Task 1.
-- Produces: `MsSqlAlterColumnQueryCompiler`, registered `.as(AlterColumnQueryCompiler)`.
+The correct fix — `MsSqlAlterTableQueryCompiler extends SqlAlterTableQueryCompiler` handling
+rename at the table level, where `Table` is available (no public-API change) — was scoped out:
+nothing in this repo runs MSSQL, MSSQL cannot be executed here (no server), and nothing in
+this plan needs MSSQL rename (Task 4 is a `MODIFY`). Building untestable rename machinery on
+spec was declined.
 
-- [ ] **Step 1: Write the failing test**
+**Known limitation left in place:** `orm-mssql` still inherits `orm-sql`'s alter compiler, so
+it emits MySQL `MODIFY`/`AFTER`/`RENAME COLUMN` + backticks, which MSSQL rejects. This is no
+worse than before this work — MSSQL's alter path has always been broken. When someone needs
+it: add `MsSqlAlterColumnQueryCompiler` (overriding `_modify` → `ALTER COLUMN`, `_add` →
+no `AFTER`) **and** `MsSqlAlterTableQueryCompiler` for rename, registered in
+`orm-mssql/src/index.ts`. The Task 1 hook seam supports the first; the second is the missing
+piece. Also note (pre-existing, separate): `MsSqlColumnQueryCompiler` emits `ENUM(...)` on the
+CREATE path too, which is not an MSSQL type.
 
-MSSQL's suite needs a live server, so it cannot run end-to-end here. Write **compiled-SQL string assertions** that resolve the compiler directly from a container with MSSQL's registrations, without connecting. Read `packages/orm-mssql/test/` first to see what is possible offline — if the whole suite requires a connection at import time, create a small standalone test file that builds a container manually rather than using the suite's bootstrap.
-
-Assert:
-- modify → `ALTER COLUMN [Status] ...`, NOT `MODIFY`
-- add → no `AFTER` clause
-- rename → `sp_rename`, NOT `RENAME COLUMN`
-
-**If you cannot construct a runnable offline test at all, STOP and report** — do not write a test that requires a server and claim it passes.
-
-- [ ] **Step 2: Run — verify it fails**
-
-Run the new test. Expected: FAIL, showing MySQL syntax (`MODIFY`, backticks).
-
-- [ ] **Step 3: Implement**
-
-```ts
-@NewInstance()
-@Inject(Container)
-export class MsSqlAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler {
-  protected _modify(definition: string): string | null {
-    return `ALTER COLUMN ${definition}`;
-  }
-
-  protected _add(definition: string): string | null {
-    // AFTER is MySQL-only
-    return `ADD ${definition}`;
-  }
-
-  protected _rename(): string | null {
-    return `EXEC sp_rename '${this.builder.Table}.${this.builder.OldName}', '${this.builder.Name}', 'COLUMN'`;
-  }
-}
-```
-
-Register in `packages/orm-mssql/src/index.ts` next to the existing registrations (~:159-160).
-
-**Known limits — document them in code comments, do not try to solve them here:**
-- MSSQL's `ALTER COLUMN` does not accept inline `DEFAULT`/`UNIQUE`; a default is a separate named constraint (`ALTER TABLE t ADD CONSTRAINT df_x DEFAULT 'v' FOR c`). Expressing that needs multiple statements, which the single-`ICompilerOutput` contract cannot carry. Out of scope.
-- `MsSqlColumnQueryCompiler` still emits `ENUM(...)` from the base mappings, which is not an MSSQL type — a **pre-existing** defect on the CREATE path too. Note it; do not fix it here.
-- The `_rename` sketch above assumes `builder.Table` exists — **verify against the real builder** and adapt.
-
-- [ ] **Step 4: Verify**
-
-Run the new test → PASS. Then `cd packages/orm-mssql && npm run build && npm run compile:cjs` → compiles clean.
-
-**Be explicit in your report: this branch was NOT executed against a real MSSQL server.**
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add packages/orm-mssql/src packages/orm-mssql/test
-git commit -m "fix(orm-mssql): emit T-SQL alter column syntax
-
-mssql got MySQL's MODIFY / AFTER / RENAME COLUMN, none of which it
-accepts. Emit ALTER COLUMN, drop AFTER, and use sp_rename. Verified by
-compiled-SQL assertion only - no mssql server was available to execute
-against."
-```
+`IsStandaloneStatement` (Task 1) is currently unused by any driver. It stays as the documented
+extension point for this future work — it is tested and harmless.
 
 ---
 
@@ -378,11 +333,13 @@ against."
 - Create: `packages/queue/src/migrations/Queue_2026_07_17_00_00_00.ts`
 
 **Interfaces:**
-- Consumes: a working alter path from Tasks 1-3.
+- Consumes: the working alter path from Tasks 1-2 (MySQL via orm-sql; sqlite no-op via orm-sqlite). Task 3 (MSSQL) is deferred and not needed here.
 
 **Context:** `queue_jobs.Status` was created as a 4-value enum (`Queue_2022_10_18_01_13_00.ts:12`) but `packages/queue/src/index.ts:146` writes `'retrying'`/`'dead'`, and `JobModel.ts:21` types all six. On MySQL this errors or coerces. **Never edit the 2022 migration — it is already applied in production.**
 
 - [ ] **Step 1: Write the migration**
+
+**The builder chain matters — an earlier draft got it wrong and it was confirmed not to typecheck.** `.default().value('created')` returns a `ColumnQueryBuilder`, which has **no `.modify()`** (that lives on `AlterColumnQueryBuilder`). So the inline chain `.notNull().default().value('created').modify()` is a **type error**. Call `.modify()` on the column builder itself, separate from the default:
 
 ```ts
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -402,7 +359,9 @@ import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 export class Queue_2026_07_17_00_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().alterTable('queue_jobs', (table) => {
-      table.enum('Status', ['error', 'success', 'created', 'executing', 'retrying', 'dead']).notNull().default().value('created').modify();
+      const status = table.enum('Status', ['error', 'success', 'created', 'executing', 'retrying', 'dead']).notNull();
+      status.default().value('created');
+      status.modify();
     });
   }
 
@@ -411,7 +370,7 @@ export class Queue_2026_07_17_00_00_00 extends OrmMigration {
 }
 ```
 
-**Verify the builder chain against the real API** (`orm/src/builders.ts` — `AlterColumnQueryBuilder`, `.modify()` at ~:1800, `.default().value()`). Match `Queue_2026_06_30_00_00_00.ts`'s idiom. If `.modify()` must come before `.default()`, adapt — the sketch is not authoritative.
+**Verify the exact chain against the real API** before trusting the above — read `orm/src/builders.ts` (`AlterColumnQueryBuilder` at :1790, `.modify()` at :1809, `ColumnQueryBuilder.default()` at :1759 returning `DefaultValueBuilder<ColumnQueryBuilder>`, `.value()` returning `ColumnQueryBuilder`). Confirm `table.enum(...)` returns something with both `.notNull()` and `.modify()` in scope; if the real type surface differs, adapt and report. Match `Queue_2026_06_30_00_00_00.ts`'s import/decorator idiom.
 
 - [ ] **Step 2: Verify it compiles to the right SQL per driver**
 
@@ -442,22 +401,24 @@ alteration is a logged no-op."
 
 - [ ] **Step 1: Baseline-diff every touched package**
 
-```bash
-cd packages/orm-sql && npm test        # expect 119/7 + new
-cd ../orm-sqlite && npm test           # expect 41/8 + new
-cd ../orm && npm test                  # expect 89/2, unchanged
-cd ../queue-http-progress && npm test  # expect 2 passing
+Baselines to match (this repo has ~34 pre-existing failures; matching the baseline IS success):
+
+```
+orm-sql        119/7 baseline -> expect 122/7 (Task 1 added 3 tests)
+orm-sqlite      41/8 baseline -> expect 52/8  (Task 2 added 11 tests)
+orm             89/2 -> unchanged (Task 1 changed a class it depends on)
+queue-http-progress  2 passing
 ```
 
-Report a table: package | baseline | now | delta | verdict.
+Task 4 adds the migration and its verification tests (likely in orm-sql / orm-sqlite suites — wherever they can execute). Re-establish each baseline yourself and report a table: package | baseline | now | delta | verdict.
 
 - [ ] **Step 2: Confirm no downstream breakage**
 
-Rebuild and compile every package you touched, plus `orm-mysql` (which inherits everything). Report anything that fails to compile.
+Rebuild + `compile:cjs` every package touched (`orm-sql`, `orm-sqlite`, `queue`), plus `orm-mysql` and `orm-mssql` (both inherit `orm-sql`'s alter compiler — mysql correctly, mssql still broken per the deferred Task 3). Report anything that fails to compile. **Task 3 (MSSQL) is deferred — do not expect orm-mssql source changes.**
 
 - [ ] **Step 3: Report honestly**
 
-State plainly: what was executed, what was only inspected (MSSQL, MySQL), and any pre-existing failure you left alone.
+State plainly: what was executed (sqlite, in-memory), what was only inspected (MySQL — no server; the compiled-string assertions run against orm-sql's compilers which ARE the MySQL dialect), that MSSQL was deferred entirely (still emits invalid alter SQL, no worse than before), and any pre-existing failure left alone.
 
 ---
 
