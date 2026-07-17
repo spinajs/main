@@ -75,3 +75,6 @@ npm-debug.log
 /packages/http/test/test2-files
 /packages/http/test/fs
 /packages/fs-s3/test/temp
+
+# superpowers SDD scratch (local only)
+.superpowers/
