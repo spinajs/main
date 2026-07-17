@@ -1400,6 +1400,28 @@ describe('schema building', () => {
     expect(result[0].expression).to.equal('ALTER TABLE `test` MODIFY `Id2` VARCHAR(255)');
   });
 
+  it('Should widen an enum column via MODIFY (queue Status migration)', () => {
+    // Mirrors @spinajs/queue's Queue_2026_07_17_00_00_00 migration exactly - it
+    // replicates the SAME alterTable(...) builder call the migration emits and
+    // compiles THAT (not the migration's up(), which needs a live DB). Proves the
+    // MySQL dialect widens the enum while restating NOT NULL + DEFAULT, which
+    // MySQL's MODIFY would otherwise drop.
+    const result = schqb()
+      .alterTable('queue_jobs', (table) => {
+        // `.default().value('created')` returns the column builder (no `.modify()`),
+        // so `.modify()` is called on the column itself, separately.
+        const status = table.enum('Status', ['error', 'success', 'created', 'executing', 'retrying', 'dead']).notNull();
+        status.default().value('created');
+        status.modify();
+      })
+      .toDB();
+
+    expect(result.length).to.eq(1);
+    expect(result[0].expression).to.equal(
+      "ALTER TABLE `queue_jobs` MODIFY `Status` ENUM('error','success','created','executing','retrying','dead') NOT NULL DEFAULT 'created'",
+    );
+  });
+
   it('Should skip alter column that compiles to nothing', () => {
     // a compiler whose hook returns null must produce no statement at all,
     // not a dangling "ALTER TABLE `test`"

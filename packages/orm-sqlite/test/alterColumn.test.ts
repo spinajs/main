@@ -100,6 +100,23 @@ describe('Sqlite alter column', function () {
     expect(result).to.be.empty;
   });
 
+  it('widening the queue Status enum is a no-op on sqlite (queue migration)', () => {
+    // Mirrors @spinajs/queue's Queue_2026_07_17_00_00_00 migration exactly - it
+    // replicates the SAME alterTable(...) builder call the migration emits and
+    // compiles THAT (not the migration's up(), which needs a live DB). sqlite
+    // renders enum as unconstrained TEXT and cannot MODIFY, so widening to the six
+    // states must emit nothing rather than invalid SQL.
+    const result = schqb()
+      .alterTable('queue_jobs', (table) => {
+        const c = table.enum('Status', ['error', 'success', 'created', 'executing', 'retrying', 'dead']).notNull();
+        c.default().value('created');
+        c.modify();
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result).to.be.empty;
+  });
+
   it('modify column warns, naming the column and what was skipped', () => {
     // the no-op is only defensible if it is loud: a silently skipped NOT NULL /
     // DEFAULT change would be a data-integrity surprise
