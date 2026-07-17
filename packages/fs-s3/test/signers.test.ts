@@ -3,91 +3,14 @@ import sinon from 'sinon';
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import { DI } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration';
 import { fs, FsBootsrapper, fsService } from '@spinajs/fs';
 import './../src/index.js';
-import { dir, TEST_RSA_PRIVATE_KEY } from './common.js';
+import { TestConfiguration, TEST_RSA_PRIVATE_KEY } from './common.js';
 import { S3BucketSigner } from './../src/s3BucketSigner.js';
 import { CloudFrontSigner } from './../src/cloudFrontSigner.js';
 import { fsS3 } from './../src/index.js';
 import { S3Client } from '@aws-sdk/client-s3';
-
-// ─── Test configuration with signer-enabled S3 providers ──────────────
-
-class SignerTestConfiguration extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    this.Config = {
-      logger: {
-        targets: [
-          {
-            name: 'Empty',
-            type: 'BlackHoleTarget',
-            layout: '${datetime} ${level} ${message} ${error} duration: ${duration} ms (${logger})',
-          },
-        ],
-        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-      },
-      fs: {
-        defaultProvider: 'test',
-        s3: {
-          config: {
-            forcePathStyle: true,
-            endpoint: 'http://localhost:4566',
-            credentials: {
-              secretAccessKey: 'test',
-              accessKeyId: 'test',
-            },
-            region: 'us-west-1',
-          },
-        },
-        providers: [
-          {
-            service: 'fsNative',
-            name: 'test',
-            basePath: dir('./files'),
-          },
-          {
-            service: 'fsNativeTemp',
-            name: 'fs-temp-s3',
-            basePath: dir('./temp'),
-            cleanup: true,
-            cleanupInterval: 30,
-            maxFileAge: 60,
-          },
-          // S3 provider WITHOUT signer (for negative test)
-          {
-            service: 'fsS3',
-            name: 'aws-no-signer',
-            bucket: 'spinajs-test-bucket',
-          },
-          // S3 provider WITH S3 presigned URL signer
-          {
-            service: 'fsS3',
-            name: 'aws-s3-signer',
-            bucket: 'spinajs-test-bucket',
-            signer: {
-              service: 'S3UrlSigner',
-            },
-          },
-          // S3 provider WITH CloudFront signer
-          {
-            service: 'fsS3',
-            name: 'aws-cf-signer',
-            bucket: 'spinajs-test-bucket',
-            signer: {
-              service: 'CloudFrontUrlSigner',
-              privateKey: TEST_RSA_PRIVATE_KEY,
-              publicKeyId: 'K2TESTPUBKEYID',
-              domain: 'https://d111111abcdef8.cloudfront.net',
-            },
-          },
-        ],
-      },
-    };
-  }
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -219,7 +142,10 @@ describe('URL signing – integration tests (fsS3)', function () {
     const bootstrapper = DI.resolve(FsBootsrapper);
     bootstrapper.bootstrap();
 
-    DI.register(SignerTestConfiguration).as(Configuration);
+    // Shared with fs-s3.test.ts on purpose – see the note in common.ts: `@Config`
+    // memoizes the Configuration instance for the whole process, so only the first
+    // registered Configuration subclass ever takes effect.
+    DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
     await DI.resolve(fsService);
   });

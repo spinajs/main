@@ -86,6 +86,44 @@ export class TestConfiguration extends FrameworkConfiguration {
             maxFileAge: 60,
           },
 
+          // ─── Providers used by signers.test.ts ───────────────────────
+          // They live here rather than in a second FrameworkConfiguration because
+          // `@Config` (packages/configuration/src/decorators.ts) memoizes the resolved
+          // Configuration *instance* in a decorator closure created once at class
+          // definition time, which outlives DI.clearCache(). Mocha runs every test file
+          // in one process, so whichever Configuration subclass is registered first wins
+          // for the whole run and a later DI.register(...).as(Configuration) silently
+          // does nothing. One shared config for the process is the only reliable shape.
+
+          // S3 provider WITHOUT signer (for negative test)
+          {
+            service: 'fsS3',
+            name: 'aws-no-signer',
+            bucket: 'spinajs-test-bucket',
+          },
+
+          // S3 provider WITH S3 presigned URL signer
+          {
+            service: 'fsS3',
+            name: 'aws-s3-signer',
+            bucket: 'spinajs-test-bucket',
+            signer: {
+              service: 'S3UrlSigner',
+            },
+          },
+
+          // S3 provider WITH CloudFront signer
+          {
+            service: 'fsS3',
+            name: 'aws-cf-signer',
+            bucket: 'spinajs-test-bucket',
+            signer: {
+              service: 'CloudFrontUrlSigner',
+              privateKey: TEST_RSA_PRIVATE_KEY,
+              publicKeyId: 'K2TESTPUBKEYID',
+              domain: 'https://d111111abcdef8.cloudfront.net',
+            },
+          },
         ],
       },
     };
