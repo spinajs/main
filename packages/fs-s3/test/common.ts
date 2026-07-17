@@ -1,5 +1,6 @@
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
+import { generateKeyPairSync } from 'crypto';
 import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import chaiHttp from 'chai-http';
@@ -18,6 +19,22 @@ chai.use(chaiThings);
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
+
+/**
+ * Freshly generated, throwaway RSA private key used only to exercise the CloudFront
+ * URL signer in tests. It is generated per test run, never leaves this process and the
+ * signatures it produces are never verified against a real CloudFront distribution.
+ *
+ * NEVER use a key like this in production.
+ *
+ * PKCS#1 (`-----BEGIN RSA PRIVATE KEY-----`) is what `@aws-sdk/cloudfront-signer`
+ * documents; PKCS#8 also parses, but we match the documented shape.
+ */
+export const TEST_RSA_PRIVATE_KEY = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+}).privateKey;
 
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -68,6 +85,7 @@ export class TestConfiguration extends FrameworkConfiguration {
             cleanupInterval: 30,
             maxFileAge: 60,
           },
+
         ],
       },
     };

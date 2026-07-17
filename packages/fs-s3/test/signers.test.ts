@@ -6,41 +6,11 @@ import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { fs, FsBootsrapper, fsService } from '@spinajs/fs';
 import './../src/index.js';
-import { dir } from './common.js';
+import { dir, TEST_RSA_PRIVATE_KEY } from './common.js';
 import { S3BucketSigner } from './../src/s3BucketSigner.js';
 import { CloudFrontSigner } from './../src/cloudFrontSigner.js';
 import { fsS3 } from './../src/index.js';
 import { S3Client } from '@aws-sdk/client-s3';
-
-// Minimal 2048-bit RSA private key for CloudFront signing tests.
-// This is a throwaway test key – never use in production.
-const TEST_RSA_PRIVATE_KEY = `-----BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEA2a2rwplBQLH8bH9BjaMO/IOVB+sm5XuBnJTMaF2akVGbs8gS
-V/Hl5JEdkp3W0bSAFihR3ilKhlCoA7BCLIAAG/WBwXdMdNO26bZSJzCOEM0J7BFN
-TXGKIqSIMYdC8gVmDsPi7gNGV7RFZ7OHSlPEd53CiPFNsPGHFNK3LW5MO6JMgz+K
-RNVGvmdsI9PjpWEjI7kMNqeCZWYdVMEvmLnhTCfhFkj3v5HHPOQ0zrMOPHdNJgLb
-VVa1HK21BX3W/cccVP99ZiSfhiSQy91iLT7pNI3vZKIYsBZJNI7rNtqz1pGKe4Oh
-YaFQsGLSjfWZWr9DBLRP6L3LKEfhbn8JxDhNFwIDAQABAoIBAF0cU86kpFg6MFOp
-q3ipRMCclPJ7YR4kVkycABzVPMCrJl0tVhgBzBHFB3kDlrae02Mvam54KkI2dxPX
-KvnuxA/Fd0n7CXNJmkHSN3LQN2DrmBKEhGpNPTBNbBj7NWsBaMMxLheNsk3KmGT+
-RAXlhNLfcobCd33sNWH3RGQmx31QRZV+JH7qOSCP5fhJpFPO0J/l0M7Fg7DPTTFT
-5SZGO5+XnPHlZd1bm93HZ7LdfkMdSuMi+CzmFCFan5WOLa5Y+LVpm5A18YVS/UF
-GV2exwJ+I+VXUcqFkaG6R6GY2SKLbR0dHzPXBeIhNpMBA+PY8cKkPeWtCfFOMTmH
-j7q7UEkCgYEA7+l6j/7kwNsEF+z1dc/igOhk5BKhFGi9gnFpF4QhGhF6oiU0iMi0
-MB3fWbRpmMEj+vJLsL1GAd4BrfqKPoL0tAcPrT0bqsMcdbXJC3reYhRFO0UeLYCr
-x/rskyFxP/sFRDSifHwn+KiDHMBX1FjqUqHU0EPi7YJcTRiEajjQKHkCgYEA6K4a
-YCqHdGjlMFGOxebnkV8VRpBMWpk1OFi2Dr1HqjJOFJp0IHi/w3FKxmrHTEIYMd1m
-i7UwAstRy8pUlV+rthAH4KCi7l/2OcsjSsNqNowRfnVPFEDy3fMZEI7JIqQ8V3cX
-Bj4Frt12V+xLz4QFPL9G9eTVbtA9O3RCpn2d10cCgYBCo+K00fIUjEbCPiH5cPz0
-XFa/VJxlai3tsR1P8btdHYswQtyBnB/R8b0yHPvVTXW75AleFmrRe/4DjvJP7M/K
-AVoIRlaGvJbf/MuFhGWo45t9z8v4Gc1hsrv6PxjGWWlIGSfhHBPXTYm/FOyR6n/y
-YDsJQANuOo1o+e3Lm/uf6QKBgAsB4f6JAFM2g6NeJVhpR3fT+gnmIoZ4tXSHIqMf
-TwKKRsHT2FmUfLChfCqbWD+MWWMfp8XdC2e5htLCDBv/WQHT6JjWNWz+2JMl5sDO
-Cv4wDAl1fJdJrJ8B3Vvsh3d/m4Vpp8YF+kfPbPuNxR8xYncaymIUx0hIAYJr/1VO
-h9k/AoGBAOs3XELyLKUDCKeYGfED0bXfsBnz5DIY/J8nn1LxGXoQs9c4t0bnNSqK
-ZOhF3p3Bu/G0fBHFxrHl/FM1e6JgGmSQfmPo66A1YjN6R+DRNdNULGkt2t6bA2bj
-lHBr3jtIRHHPpWuYPfuAkth5Fd8qJzSU7dRamKGpN/VBJUFxQNL1
------END RSA PRIVATE KEY-----`;
 
 // ─── Test configuration with signer-enabled S3 providers ──────────────
 
