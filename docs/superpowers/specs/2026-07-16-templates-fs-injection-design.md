@@ -3,6 +3,31 @@
 **Date:** 2026-07-16
 **Packages:** `templates`, `templates-handlebars`, `template-mjml`, `templates-pug`, `fs`, `fs-s3`
 
+## Implementation status (2026-07-17)
+
+Everything below is implemented **except the `fs-s3` changes**, which are outstanding.
+`packages/fs-s3` is unchanged: `download()` still names its temp file from a bare uuid
+(`fs-s3/src/index.ts:173`), and `stat()` still discards `result.ETag`
+(`fs-s3/src/index.ts:479-502`). Those tests need localstack via docker, which was
+unavailable. Consequences until it lands:
+
+- **`IStat.Version` is populated by no provider**, so the `if (s.Version)` branch in
+  `templates`' `tokenFromStat` is dead in production.
+- **`revalidate` silently degrades to `ModifiedTime` + `Size`** against S3. It works — one
+  `HeadObject`, body fetched only on change — but misses an overwrite that preserves both
+  timestamp and size. The ETag would not.
+- **The remote download-to-temp path has no test coverage**, because `fsNative.download()
+  ` returns the real path and never materialises a temp file.
+
+**This does NOT block rendering MJML templates from S3.** That path never calls
+`fsS3.download()` directly: `fsS3.read()` downloads, reads, and cleans up internally,
+returning a string, so the extensionless temp name never escapes it — and renderer
+dispatch already happened on the URI (`extname('fs://tpl/x.mjml')` is `.mjml`). The
+uuid-extension bug survives only on the legacy `email-smtp-transport` path, which calls
+`fs.download()` itself and passes the temp path to `render()` — explicitly a non-goal
+here. The plan document's claim that the fs-s3 task must land before the Lambda can use
+S3 templates is wrong.
+
 ## Problem
 
 The templating system reads template files with `node:fs` directly. `templates` does
@@ -43,6 +68,19 @@ templates stored in S3. That project is specced separately and depends on this o
 - **Changing `email` / `email-smtp-transport`.** They keep passing local temp paths,
   which keep working. Passing `fs://` URIs directly and dropping their own `download()`
   is a follow-up.
+- **The other five `TemplateRenderer` subclasses**: `templates-xlsx`, `templates-puppeteer`,
+  `templates-pdf`, `templates-image`, `templates-csv`. They keep reading via `node:fs` and
+  support **bare local paths only** — `fs://` addressing covers handlebars, pug, and mjml.
+  They are unaffected by this work (the base-class change only adds `protected` members;
+  the abstract surface is unchanged) and all still compile.
+
+  Be aware of how three of them fail if handed a URI anyway: `templates-puppeteer`,
+  `templates-pdf`, and `templates-image` do path arithmetic on the template string
+  (`dirname`/`basename`/`join`), so an `fs://` URI is mangled into a bogus local path and
+  surfaces a confusing `ENOENT` naming a path the caller never wrote. `templates-xlsx`
+  fails cleanly with `IOFail`; `templates-csv` ignores its template argument entirely.
+  Making the three throw `NotSupported` on a URI would turn a trap into a contract — a
+  small follow-up, not done here.
 
 ## Design
 

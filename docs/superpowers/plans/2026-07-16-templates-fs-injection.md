@@ -34,7 +34,19 @@ Task 1 (fs: tmppath(ext), IStat.Version)
           └─→ Task 5 (templates-pug)
 ```
 
-Task 2 is independent of Tasks 3-6 and may be done in parallel or deferred if docker is unavailable — but it MUST land before the `sn-step-schedules` Lambda project can use S3 templates.
+Task 2 is independent of Tasks 3-6 and may be done in parallel or deferred if docker is unavailable.
+
+**STATUS 2026-07-17: Tasks 1, 3-7 are done. Task 2 is NOT done** — docker was unavailable
+and its suite needs localstack. See the spec's "Implementation status" section for what
+that costs.
+
+**Correction:** this section previously claimed Task 2 "MUST land before the
+`sn-step-schedules` Lambda project can use S3 templates." **That is wrong.** Rendering
+MJML from S3 does not call `fsS3.download()` directly — `fsS3.read()` downloads, reads,
+and cleans up internally and returns a string, so the extensionless temp name never
+escapes it, and renderer dispatch already happened on the URI. Task 2 buys a stronger
+revalidation token (ETag vs mtime+size) and fixes the legacy `email-smtp-transport` path;
+it does not gate the Lambda.
 
 ---
 
