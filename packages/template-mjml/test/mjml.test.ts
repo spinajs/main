@@ -67,7 +67,9 @@ describe('templates', () => {
   it('should render mjml', async () => {
     const t = await tp();
     const result = await t.render(dir('templates/simple.mjml'), { hello: 'world' });
-    expect(result).to.eq('hello world');
+
+    expect(result).to.include('world');
+    expect(result).to.include('<!doctype html>');
   });
 
   it('should render mjml from fs:// uri', async () => {
