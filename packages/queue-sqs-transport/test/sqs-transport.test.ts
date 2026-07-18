@@ -318,13 +318,20 @@ describe('sqs queue transport', function () {
       expect(await countMessages(subQueueUrl)).to.be.at.least(1);
     });
 
-    it('dispose stops the poll loop promptly ( abortable long poll )', async () => {
-      // a 20s long poll - dispose must abort it and return in well under that
+    it('dispose stops the poll loop promptly ( abortable long poll ) and the loop actually exits', async () => {
+      // a 20s long poll - dispose must abort the in-flight ReceiveMessage so the
+      // detached loop actually winds down, not just so dispose() returns fast.
       client = await makeClient('sqs-sub-dispose', { waitTimeSeconds: 20 });
 
       await client.subscribe(subQueueUrl, async () => undefined);
 
-      // let the loop enter an in-flight ReceiveMessage
+      // grab the live descriptor BEFORE dispose clears the Subscriptions map so we
+      // can observe the loop's own exit flag afterwards.
+      const desc = (client as any).Subscriptions.get(subQueueUrl);
+      expect(desc, 'subscription descriptor missing').to.not.be.undefined;
+      expect(desc.exited, 'loop should still be running before dispose').to.be.false;
+
+      // let the loop enter an in-flight ( up to 20s ) ReceiveMessage
       await sleep(500);
 
       const start = Date.now();
@@ -333,6 +340,41 @@ describe('sqs queue transport', function () {
       const elapsed = Date.now() - start;
 
       expect(elapsed, `dispose took ${elapsed}ms - long poll was not aborted`).to.be.lessThan(5000);
+
+      // The discriminating assertion: the detached loop must have genuinely exited
+      // its blocking 20s ReceiveMessage. If the abort were removed / broken the loop
+      // would stay parked in that receive and `exited` would NOT flip within this
+      // bound ( well under the 20s WaitTimeSeconds ), failing the test.
+      await waitUntil(() => desc.exited === true, 5000, 50);
+      expect(desc.exited, 'poll loop did not exit after dispose - abort not wired').to.be.true;
+    });
+
+    it('survives a poison ( null / non-JSON ) message and keeps delivering ( Finding 1 )', async () => {
+      // null-body would parse to `null`, and a non-JSON body would throw in
+      // JSON.parse. Either one, if unguarded, throws in the detached loop -> an
+      // unhandled rejection that kills the worker. Proof of survival: a VALID
+      // message put after the poison ones is still delivered.
+      client = await makeClient('sqs-sub-poison', {});
+
+      const seen: any[] = [];
+      await client.subscribe(subQueueUrl, async (m) => {
+        seen.push(m);
+      });
+
+      // literal JSON null - JSON.parse succeeds and yields `null`
+      await putRaw(subQueueUrl, 'null');
+      // not JSON at all - JSON.parse throws a SyntaxError
+      await putRaw(subQueueUrl, 'this is not json {');
+
+      // give the loop a moment to chew through the poison messages
+      await sleep(1500);
+
+      // the loop must still be alive and able to deliver a subsequent good message
+      await putRaw(subQueueUrl, JSON.stringify({ Name: 'TestJob', Type: QueueMessageType.Job, CreatedAt: DateTime.now().toISO(), JobId: 'j-after-poison' }));
+
+      await waitUntil(() => seen.some((m) => m.JobId === 'j-after-poison'));
+
+      expect(seen.some((m) => m.JobId === 'j-after-poison'), 'valid message after poison was not delivered - the loop died on the poison message').to.be.true;
     });
   });
 });

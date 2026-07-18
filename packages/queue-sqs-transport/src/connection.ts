@@ -30,6 +30,12 @@ interface ISqsSubscriptionDescriptor {
   callback: (e: IQueueMessage) => Promise<void>;
   running: boolean;
   controller: AbortController;
+  /**
+   * Set to true by {@link pollLoop} right before it returns, regardless of how it
+   * exits ( normal stop, abort or a swallowed error ). Lets callers / tests
+   * observe that the detached loop has actually wound down.
+   */
+  exited: boolean;
 }
 
 @PerInstanceCheck()
@@ -101,6 +107,7 @@ export class SqsQueueClient extends QueueClient {
         callback,
         running: true,
         controller: new AbortController(),
+        exited: false,
       };
 
       this.Subscriptions.set(url, desc);
@@ -123,71 +130,112 @@ export class SqsQueueClient extends QueueClient {
   protected async pollLoop(desc: ISqsSubscriptionDescriptor): Promise<void> {
     const o = (this.Options.options ?? {}) as ISqsConnectionOptions;
 
-    while (desc.running) {
-      let res;
-
-      try {
-        res = await this.Sqs.send(
-          new ReceiveMessageCommand({
-            QueueUrl: desc.url,
-            WaitTimeSeconds: o.waitTimeSeconds ?? 20,
-            MaxNumberOfMessages: o.maxMessages ?? 1,
-            VisibilityTimeout: o.visibilityTimeout,
-          }),
-          { abortSignal: desc.controller.signal },
-        );
-      } catch (err) {
-        // aborted by unsubscribe / dispose - the in-flight long poll was cut short
-        if (!desc.running) {
-          break;
-        }
-
-        // transient receive error ( throttling, network blip ) - log and keep the
-        // loop alive, otherwise a single hiccup would silently stop consumption.
-        this.Log.warn(`SQS receive error on ${desc.url} ( ${this.Options.name} ): ${err}`);
-        continue;
-      }
-
-      for (const m of res?.Messages ?? []) {
-        // a concurrent unsubscribe / dispose may have flipped this mid-batch
-        if (!desc.running) {
-          break;
-        }
-
-        let parsed: IQueueMessage;
+    try {
+      while (desc.running) {
+        let res;
 
         try {
-          parsed = JSON.parse(m.Body!);
-        } catch (e) {
-          // poison message - we can't tell its Type so we can't route it. Leave it:
-          // SQS redelivery + the redrive policy will dead-letter it after maxReceiveCount,
-          // which is preferable to deleting evidence of a producer bug.
-          this.Log.error(`Unparseable SQS message on ${desc.url} ( ${this.Options.name} ), leaving for redelivery / DLQ: ${e}`);
+          res = await this.Sqs.send(
+            new ReceiveMessageCommand({
+              QueueUrl: desc.url,
+              WaitTimeSeconds: o.waitTimeSeconds ?? 20,
+              MaxNumberOfMessages: o.maxMessages ?? 1,
+              VisibilityTimeout: o.visibilityTimeout,
+            }),
+            { abortSignal: desc.controller.signal },
+          );
+        } catch (err) {
+          // aborted by unsubscribe / dispose - the in-flight long poll was cut short
+          if (!desc.running) {
+            break;
+          }
+
+          // transient receive error ( throttling, network blip ) - log and keep the
+          // loop alive, otherwise a single hiccup would silently stop consumption.
+          this.Log.warn(`SQS receive error on ${desc.url} ( ${this.Options.name} ): ${err}`);
           continue;
         }
 
-        // luxon DateTime serializes to an ISO string over the wire - rehydrate it
-        if (typeof (parsed.CreatedAt as unknown) === 'string') {
-          parsed.CreatedAt = DateTime.fromISO(parsed.CreatedAt as unknown as string);
-        }
+        for (const m of res?.Messages ?? []) {
+          // a concurrent unsubscribe / dispose may have flipped this mid-batch
+          if (!desc.running) {
+            break;
+          }
 
-        try {
-          await desc.callback(parsed);
-
-          // ACK: only delete once the handler has fully succeeded.
-          await this.Sqs.send(new DeleteMessageCommand({ QueueUrl: desc.url, ReceiptHandle: m.ReceiptHandle }));
-
-          this.Log.trace(`Processed and acked ${parsed.Type} Name: ${parsed.Name} from ${desc.url} ( ${this.Options.name} )`);
-        } catch (err) {
-          // NACK: do nothing. The message stays invisible only for the visibility
-          // timeout, after which SQS redelivers; the redrive policy dead-letters it
-          // once maxReceiveCount is hit. No manual retry / DLQ logic here.
-          this.Log.error(`Handler failed for ${parsed.Name} on ${desc.url}, leaving message for redelivery: ${err}`);
+          // Defense-in-depth: NOTHING a single message does may escape this loop as
+          // an unhandled rejection ( the loop runs detached - there is no caller to
+          // catch it, and an escaped throw would crash the worker / Node process ).
+          // Any per-message failure is logged and the loop moves on.
+          try {
+            await this.handleMessage(desc, m);
+          } catch (err) {
+            this.Log.error(`Unexpected error handling SQS message on ${desc.url} ( ${this.Options.name} ), skipping: ${err}`);
+          }
         }
       }
+    } catch (err) {
+      // last-resort guard: even the loop scaffolding ( e.g. an unexpected throw from
+      // the receive-error branch ) must not reject the detached promise.
+      this.Log.error(`SQS poll loop for ${desc.url} ( ${this.Options.name} ) crashed unexpectedly: ${err}`);
+    } finally {
+      desc.exited = true;
+      this.Log.trace(`SQS poll loop for ${desc.url} ( ${this.Options.name} ) stopped`);
+    }
+  }
+
+  /**
+   * Processes a single received SQS message: parse -> rehydrate -> handler -> ack.
+   * Guards against poison / non-object payloads so a bad message is skipped rather
+   * than crashing the loop. Keeps the ack/nack contract: delete on handler success,
+   * leave ( for redelivery / DLQ ) on handler failure.
+   */
+  protected async handleMessage(desc: ISqsSubscriptionDescriptor, m: { Body?: string; ReceiptHandle?: string }): Promise<void> {
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(m.Body!);
+    } catch (e) {
+      // poison message - we can't tell its Type so we can't route it. Leave it:
+      // SQS redelivery + the redrive policy will dead-letter it after maxReceiveCount,
+      // which is preferable to deleting evidence of a producer bug.
+      this.Log.error(`Unparseable SQS message on ${desc.url} ( ${this.Options.name} ), leaving for redelivery / DLQ: ${e}`);
+      return;
     }
 
-    this.Log.trace(`SQS poll loop for ${desc.url} ( ${this.Options.name} ) stopped`);
+    // JSON.parse happily yields non-object values ( null, numbers, strings,
+    // booleans ) that would blow up the CreatedAt / callback access below with a
+    // TypeError. Treat them as poison and skip so the loop stays alive.
+    if (!parsed || typeof parsed !== 'object') {
+      this.Log.error(`Non-object SQS message body on ${desc.url} ( ${this.Options.name} ), skipping`);
+      return;
+    }
+
+    const message = parsed as IQueueMessage;
+
+    // luxon DateTime serializes to an ISO string over the wire - rehydrate it
+    if (typeof (message.CreatedAt as unknown) === 'string') {
+      message.CreatedAt = DateTime.fromISO(message.CreatedAt as unknown as string);
+    }
+
+    try {
+      await desc.callback(message);
+    } catch (err) {
+      // NACK: do nothing. The message stays invisible only for the visibility
+      // timeout, after which SQS redelivers; the redrive policy dead-letters it
+      // once maxReceiveCount is hit. No manual retry / DLQ logic here.
+      this.Log.error(`Handler failed for ${message.Name} on ${desc.url}, leaving message for redelivery: ${err}`);
+      return;
+    }
+
+    // ACK: only delete once the handler has fully succeeded. A delete failure is
+    // non-fatal ( at-least-once: SQS will simply redeliver ) and is logged
+    // distinctly so it is never mistaken for a handler failure.
+    try {
+      await this.Sqs.send(new DeleteMessageCommand({ QueueUrl: desc.url, ReceiptHandle: m.ReceiptHandle }));
+      this.Log.trace(`Processed and acked ${message.Type} Name: ${message.Name} from ${desc.url} ( ${this.Options.name} )`);
+    } catch (err) {
+      this.Log.error(`ack/delete failed for message ${message.Name} on ${desc.url} ( ${this.Options.name} ), it will redeliver: ${err}`);
+    }
   }
 
   public unsubscribe(channelOrMessage: string | Constructor<QueueMessage>, _removeDurable?: boolean): void {
