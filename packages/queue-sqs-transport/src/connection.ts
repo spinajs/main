@@ -1,6 +1,8 @@
 import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
+import { DateTime } from 'luxon';
+import _ from 'lodash';
 
 /**
  * SQS specific connection options that can be passed through the generic
@@ -16,6 +18,20 @@ export interface ISqsConnectionOptions {
   credentials?: { accessKeyId: string; secretAccessKey: string };
 }
 
+/**
+ * Tracks a live subscription. Unlike STOMP there is no broker-side subscription
+ * object - a subscription here is a detached long-poll loop over one queue URL.
+ * The descriptor is the loop's control block: `running` gates the loop and the
+ * `AbortController` interrupts an in-flight ( up to WaitTimeSeconds ) ReceiveMessage
+ * so unsubscribe / dispose return promptly instead of blocking on the poll.
+ */
+interface ISqsSubscriptionDescriptor {
+  url: string;
+  callback: (e: IQueueMessage) => Promise<void>;
+  running: boolean;
+  controller: AbortController;
+}
+
 @PerInstanceCheck()
 @Injectable(QueueClient)
 export class SqsQueueClient extends QueueClient {
@@ -25,6 +41,11 @@ export class SqsQueueClient extends QueueClient {
    * and reused for every {@link emit}.
    */
   protected Sqs: SQSClient;
+
+  /**
+   * Active subscriptions keyed by queue URL. Each entry owns a detached poll loop.
+   */
+  protected Subscriptions = new Map<string, ISqsSubscriptionDescriptor>();
 
   constructor(options: IQueueConnectionOptions) {
     super(options);
@@ -64,15 +85,148 @@ export class SqsQueueClient extends QueueClient {
     );
   }
 
-  public async subscribe(_channelOrMessage: string | Constructor<QueueMessage>, _callback: (e: IQueueMessage) => Promise<void>, _subscriptionId?: string, _durable?: boolean): Promise<void> {
-    throw new Error('SqsQueueClient.subscribe not implemented');
+  public async subscribe(channelOrMessage: string | Constructor<QueueMessage>, callback: (e: IQueueMessage) => Promise<void>, _subscriptionId?: string, _durable?: boolean): Promise<void> {
+    // mirror STOMP's overload handling: a raw string is the queue URL itself,
+    // a message class is resolved through the routing table.
+    const urls = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
+
+    urls.forEach((url) => {
+      if (this.Subscriptions.has(url)) {
+        this.Log.warn(`SQS queue ${url} already subscribed !`);
+        return;
+      }
+
+      const desc: ISqsSubscriptionDescriptor = {
+        url,
+        callback,
+        running: true,
+        controller: new AbortController(),
+      };
+
+      this.Subscriptions.set(url, desc);
+
+      // detached loop - subscribe returns as soon as the poll loop is started,
+      // it is NOT awaited. Errors inside the loop must never escape ( there is no
+      // caller to catch them ), so pollLoop swallows/logs everything itself.
+      void this.pollLoop(desc);
+
+      this.Log.success(`SQS queue ${url} subscribed and polling for messages !`);
+    });
   }
 
-  public unsubscribe(_channelOrMessage: string | Constructor<QueueMessage>, _removeDurable?: boolean): void {
-    throw new Error('SqsQueueClient.unsubscribe not implemented');
+  /**
+   * Long-poll loop for a single subscription. Runs until `desc.running` is cleared
+   * ( by unsubscribe / dispose ). On success the message is acked by DeleteMessage;
+   * on handler failure the message is left untouched so the SQS visibility timeout
+   * redelivers it and the redrive policy dead-letters after maxReceiveCount.
+   */
+  protected async pollLoop(desc: ISqsSubscriptionDescriptor): Promise<void> {
+    const o = (this.Options.options ?? {}) as ISqsConnectionOptions;
+
+    while (desc.running) {
+      let res;
+
+      try {
+        res = await this.Sqs.send(
+          new ReceiveMessageCommand({
+            QueueUrl: desc.url,
+            WaitTimeSeconds: o.waitTimeSeconds ?? 20,
+            MaxNumberOfMessages: o.maxMessages ?? 1,
+            VisibilityTimeout: o.visibilityTimeout,
+          }),
+          { abortSignal: desc.controller.signal },
+        );
+      } catch (err) {
+        // aborted by unsubscribe / dispose - the in-flight long poll was cut short
+        if (!desc.running) {
+          break;
+        }
+
+        // transient receive error ( throttling, network blip ) - log and keep the
+        // loop alive, otherwise a single hiccup would silently stop consumption.
+        this.Log.warn(`SQS receive error on ${desc.url} ( ${this.Options.name} ): ${err}`);
+        continue;
+      }
+
+      for (const m of res?.Messages ?? []) {
+        // a concurrent unsubscribe / dispose may have flipped this mid-batch
+        if (!desc.running) {
+          break;
+        }
+
+        let parsed: IQueueMessage;
+
+        try {
+          parsed = JSON.parse(m.Body!);
+        } catch (e) {
+          // poison message - we can't tell its Type so we can't route it. Leave it:
+          // SQS redelivery + the redrive policy will dead-letter it after maxReceiveCount,
+          // which is preferable to deleting evidence of a producer bug.
+          this.Log.error(`Unparseable SQS message on ${desc.url} ( ${this.Options.name} ), leaving for redelivery / DLQ: ${e}`);
+          continue;
+        }
+
+        // luxon DateTime serializes to an ISO string over the wire - rehydrate it
+        if (typeof (parsed.CreatedAt as unknown) === 'string') {
+          parsed.CreatedAt = DateTime.fromISO(parsed.CreatedAt as unknown as string);
+        }
+
+        try {
+          await desc.callback(parsed);
+
+          // ACK: only delete once the handler has fully succeeded.
+          await this.Sqs.send(new DeleteMessageCommand({ QueueUrl: desc.url, ReceiptHandle: m.ReceiptHandle }));
+
+          this.Log.trace(`Processed and acked ${parsed.Type} Name: ${parsed.Name} from ${desc.url} ( ${this.Options.name} )`);
+        } catch (err) {
+          // NACK: do nothing. The message stays invisible only for the visibility
+          // timeout, after which SQS redelivers; the redrive policy dead-letters it
+          // once maxReceiveCount is hit. No manual retry / DLQ logic here.
+          this.Log.error(`Handler failed for ${parsed.Name} on ${desc.url}, leaving message for redelivery: ${err}`);
+        }
+      }
+    }
+
+    this.Log.trace(`SQS poll loop for ${desc.url} ( ${this.Options.name} ) stopped`);
+  }
+
+  public unsubscribe(channelOrMessage: string | Constructor<QueueMessage>, _removeDurable?: boolean): void {
+    const urls = _.isString(channelOrMessage) ? [channelOrMessage] : this.getChannelForMessage(channelOrMessage);
+
+    urls.forEach((url) => {
+      const desc = this.Subscriptions.get(url);
+
+      if (!desc) {
+        return;
+      }
+
+      this.stop(desc);
+      this.Subscriptions.delete(url);
+
+      this.Log.info(`Unsubscribed from SQS queue ${url} ( ${this.Options.name} )`);
+    });
   }
 
   public async dispose(): Promise<void> {
+    // stop every poll loop and interrupt any in-flight long poll so this returns
+    // promptly instead of waiting up to WaitTimeSeconds for the last receive.
+    for (const desc of this.Subscriptions.values()) {
+      this.stop(desc);
+    }
+
+    this.Subscriptions.clear();
+
     this.Sqs?.destroy();
+
+    this.Log.info(`SQS queue client ${this.Options.name} disposed`);
+  }
+
+  /**
+   * Stops a subscription's poll loop: clears the running flag and aborts any
+   * in-flight ReceiveMessage. The loop observes both and exits.
+   */
+  protected stop(desc: ISqsSubscriptionDescriptor): void {
+    desc.running = false;
+    desc.controller.abort();
   }
 }

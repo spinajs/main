@@ -3,7 +3,7 @@ import { DI } from '@spinajs/di';
 import { QueueMessageType } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 import { expect } from 'chai';
-import { CreateQueueCommand, DeleteQueueCommand, ReceiveMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
+import { CreateQueueCommand, DeleteQueueCommand, GetQueueAttributesCommand, ReceiveMessageCommand, SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { SqsQueueClient } from '../src/connection.js';
 import { TestConfiguration, SQS_ENDPOINT, SQS_REGION, SQS_CREDENTIALS } from './common.js';
 
@@ -43,6 +43,49 @@ async function receiveOne(url: string) {
   }
 
   return undefined;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Put a raw JSON string straight onto the queue with the harness client so the
+ * assertions exercise the transport's *consumer* path independently of its emit.
+ */
+async function putRaw(url: string, body: string) {
+  await raw.send(new SendMessageCommand({ QueueUrl: url, MessageBody: body }));
+}
+
+/**
+ * Total messages still on the queue - visible + in-flight ( invisible ) + delayed.
+ * Summing all three matters here because the subscriber under test is concurrently
+ * polling, so a surviving message flips between visible and not-visible.
+ */
+async function countMessages(url: string): Promise<number> {
+  const res = await raw.send(
+    new GetQueueAttributesCommand({
+      QueueUrl: url,
+      AttributeNames: ['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible', 'ApproximateNumberOfMessagesDelayed'],
+    }),
+  );
+
+  const a = res.Attributes ?? {};
+  return Number(a.ApproximateNumberOfMessages ?? 0) + Number(a.ApproximateNumberOfMessagesNotVisible ?? 0) + Number(a.ApproximateNumberOfMessagesDelayed ?? 0);
+}
+
+/**
+ * Poll `fn` ( sync or async predicate ) until it returns truthy or we time out.
+ */
+async function waitUntil(fn: () => boolean | Promise<boolean>, timeoutMs = 20000, intervalMs = 200): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await fn()) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error('waitUntil timed out');
+    }
+    await sleep(intervalMs);
+  }
 }
 
 describe('sqs queue transport', function () {
@@ -167,5 +210,129 @@ describe('sqs queue transport', function () {
         /* best effort cleanup */
       }
     }
+  });
+
+  describe('subscribe / unsubscribe / dispose', function () {
+    // each consumer test owns a fresh queue and its own client so the poll loops
+    // never read each other's messages; the client is always disposed in after().
+    let subQueueUrl: string;
+    let client: SqsQueueClient;
+
+    async function makeClient(name: string, options: Record<string, unknown>) {
+      return DI.resolve(SqsQueueClient, [
+        {
+          service: 'SqsQueueClient',
+          name,
+          defaultQueueChannel: subQueueUrl,
+          options: {
+            region: SQS_REGION,
+            endpoint: SQS_ENDPOINT,
+            credentials: SQS_CREDENTIALS,
+            // short long-poll so the loop cycles / tears down fast in tests
+            waitTimeSeconds: 1,
+            ...options,
+          },
+        },
+      ]);
+    }
+
+    beforeEach(async () => {
+      const name = `sqs-sub-test-${DateTime.now().toMillis()}-${Math.floor(Math.random() * 1e6)}`;
+      const created = await raw.send(new CreateQueueCommand({ QueueName: name }));
+      subQueueUrl = created.QueueUrl!;
+    });
+
+    afterEach(async () => {
+      if (client) {
+        await client.dispose();
+        client = undefined as any;
+      }
+      try {
+        await raw.send(new DeleteQueueCommand({ QueueUrl: subQueueUrl }));
+      } catch {
+        /* best effort cleanup */
+      }
+    });
+
+    it('delivers a message, rehydrates CreatedAt, and deletes it on success ( ack )', async () => {
+      client = await makeClient('sqs-sub-ack', {});
+
+      const seen: any[] = [];
+      await client.subscribe(subQueueUrl, async (m) => {
+        seen.push(m);
+      });
+
+      await putRaw(subQueueUrl, JSON.stringify({ Name: 'TestJob', Type: QueueMessageType.Job, CreatedAt: DateTime.now().toISO(), JobId: 'j-ack' }));
+
+      await waitUntil(() => seen.length === 1);
+
+      expect(seen[0].Name).to.equal('TestJob');
+      expect(seen[0].Type).to.equal(QueueMessageType.Job);
+      expect(seen[0].JobId).to.equal('j-ack');
+      // CreatedAt must be a rehydrated luxon DateTime, not the ISO string off the wire
+      expect(DateTime.isDateTime(seen[0].CreatedAt), 'CreatedAt was not rehydrated to a luxon DateTime').to.be.true;
+
+      // ACK proof: the message must be gone from the queue. This assertion fails
+      // if DeleteMessage did not run on success ( the message would still be there ).
+      await waitUntil(async () => (await countMessages(subQueueUrl)) === 0);
+      expect(await countMessages(subQueueUrl)).to.equal(0);
+    });
+
+    it('leaves the message on handler failure ( nack -> redelivery )', async () => {
+      // small visibility timeout so the left message reappears fast for the assertion
+      client = await makeClient('sqs-sub-nack', { visibilityTimeout: 2 });
+
+      let attempts = 0;
+      await client.subscribe(subQueueUrl, async () => {
+        attempts++;
+        throw new Error('boom');
+      });
+
+      await putRaw(subQueueUrl, JSON.stringify({ Name: 'TestJob', Type: QueueMessageType.Job, CreatedAt: DateTime.now().toISO(), JobId: 'j-nack' }));
+
+      // wait until the handler has actually run at least once ( proves delivery )
+      await waitUntil(() => attempts >= 1);
+
+      // NACK proof: after the visibility window elapses the message is STILL present.
+      // This assertion fails if the code wrongly deleted the message on handler error.
+      await sleep(3000);
+      expect(await countMessages(subQueueUrl), 'message was deleted on failure - should have been left for redelivery').to.be.at.least(1);
+    });
+
+    it('unsubscribe stops delivery to the callback', async () => {
+      client = await makeClient('sqs-sub-unsub', {});
+
+      const seen: any[] = [];
+      await client.subscribe(subQueueUrl, async (m) => {
+        seen.push(m);
+      });
+
+      client.unsubscribe(subQueueUrl);
+
+      await putRaw(subQueueUrl, JSON.stringify({ Name: 'TestJob', Type: QueueMessageType.Job, CreatedAt: DateTime.now().toISO(), JobId: 'j-unsub' }));
+
+      // give the ( now stopped ) loop ample time to NOT pick it up
+      await sleep(3000);
+      expect(seen.length, 'callback fired after unsubscribe').to.equal(0);
+      // the message is still on the queue since nobody consumed it
+      expect(await countMessages(subQueueUrl)).to.be.at.least(1);
+    });
+
+    it('dispose stops the poll loop promptly ( abortable long poll )', async () => {
+      // a 20s long poll - dispose must abort it and return in well under that
+      client = await makeClient('sqs-sub-dispose', { waitTimeSeconds: 20 });
+
+      await client.subscribe(subQueueUrl, async () => undefined);
+
+      // let the loop enter an in-flight ReceiveMessage
+      await sleep(500);
+
+      const start = Date.now();
+      await client.dispose();
+      client = undefined as any;
+      const elapsed = Date.now() - start;
+
+      expect(elapsed, `dispose took ${elapsed}ms - long poll was not aborted`).to.be.lessThan(5000);
+    });
   });
 });
