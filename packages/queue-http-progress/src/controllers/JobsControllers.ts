@@ -7,8 +7,12 @@ export class JobsController extends BaseController {
 
     @Get(':jobId/status')
     public async getStatus(@Param('jobId') jobId: string): Promise<Ok> {
-        const row = await JobModel.select().where('JobId', jobId).firstOrFail();
-        
+        const row = await JobModel.select().where('JobId', jobId).first();
+
+        if (!row) {
+            return new Ok({ jobId, status: 'queued', progress: 0, message: undefined, createdAt: undefined });
+        }
+
         const ctx = row.Result ?? {};
         const response: IJobStatusResponse = {
             jobId: row.JobId,
