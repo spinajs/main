@@ -16,6 +16,18 @@ export interface ISqsConnectionOptions {
   visibilityTimeout?: number;
   maxMessages?: number;
   credentials?: { accessKeyId: string; secretAccessKey: string };
+  /**
+   * Base delay ( ms ) the poll loop sleeps after a failed ReceiveMessage before
+   * retrying. Escalates ( doubles ) on consecutive failures up to
+   * {@link receiveErrorBackoffMaxMs} and resets after a successful receive.
+   * Prevents a persistent fault ( deleted queue, revoked credentials ) from
+   * hot-looping the receive-error branch. Defaults to 500ms.
+   */
+  receiveErrorBackoffMs?: number;
+  /**
+   * Cap ( ms ) for the escalating receive-error backoff. Defaults to 10000ms.
+   */
+  receiveErrorBackoffMaxMs?: number;
 }
 
 /**
@@ -130,6 +142,16 @@ export class SqsQueueClient extends QueueClient {
   protected async pollLoop(desc: ISqsSubscriptionDescriptor): Promise<void> {
     const o = (this.Options.options ?? {}) as ISqsConnectionOptions;
 
+    // Escalating backoff for the receive-error branch. Starts at the base delay,
+    // doubles on each consecutive failure up to the cap, and is reset to the base
+    // after any successful ReceiveMessage. Without this a persistent fault
+    // ( deleted queue, revoked credentials, permanently dead endpoint ) makes the
+    // SDK send throw immediately and the loop spins as a tight infinite loop,
+    // spamming logs and hammering the SQS API.
+    const baseBackoff = Math.max(0, o.receiveErrorBackoffMs ?? 500);
+    const maxBackoff = Math.max(baseBackoff, o.receiveErrorBackoffMaxMs ?? 10000);
+    let backoff = baseBackoff;
+
     try {
       while (desc.running) {
         let res;
@@ -144,15 +166,24 @@ export class SqsQueueClient extends QueueClient {
             }),
             { abortSignal: desc.controller.signal },
           );
+
+          // a successful receive clears the fault - drop back to the base delay so a
+          // transient blip doesn't leave the loop permanently slow.
+          backoff = baseBackoff;
         } catch (err) {
           // aborted by unsubscribe / dispose - the in-flight long poll was cut short
           if (!desc.running) {
             break;
           }
 
-          // transient receive error ( throttling, network blip ) - log and keep the
-          // loop alive, otherwise a single hiccup would silently stop consumption.
-          this.Log.warn(`SQS receive error on ${desc.url} ( ${this.Options.name} ): ${err}`);
+          // receive error ( throttling, network blip, or a persistent fault ) - log
+          // and keep the loop alive, otherwise a single hiccup would silently stop
+          // consumption. Back off before retrying so a *persistent* fault can't
+          // hot-loop the receive; the sleep is abortable so unsubscribe / dispose
+          // still tears the loop down promptly instead of waiting out the delay.
+          this.Log.warn(`SQS receive error on ${desc.url} ( ${this.Options.name} ), backing off ${backoff}ms: ${err}`);
+          await this.backoffSleep(backoff, desc.controller.signal);
+          backoff = Math.min(backoff * 2, maxBackoff);
           continue;
         }
 
@@ -267,6 +298,32 @@ export class SqsQueueClient extends QueueClient {
     this.Sqs?.destroy();
 
     this.Log.info(`SQS queue client ${this.Options.name} disposed`);
+  }
+
+  /**
+   * Abortable delay used by the receive-error backoff. Resolves after `ms`, or
+   * immediately if the descriptor's AbortController fires ( unsubscribe / dispose )
+   * so a disposed subscription never sits parked in a long backoff sleep. The
+   * loop re-checks `desc.running` right after, so an abort mid-sleep exits promptly.
+   */
+  protected backoffSleep(ms: number, signal: AbortSignal): Promise<void> {
+    if (ms <= 0 || signal.aborted) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   /**

@@ -376,5 +376,60 @@ describe('sqs queue transport', function () {
 
       expect(seen.some((m) => m.JobId === 'j-after-poison'), 'valid message after poison was not delivered - the loop died on the poison message').to.be.true;
     });
+
+    it('backs off on a persistent receive error instead of hot-looping, and dispose still tears down promptly ( Finding )', async () => {
+      // base/cap kept small so the test window is short but the escalation is still
+      // observable: 200 -> 400 -> 800 -> 1000 ( cap ).
+      client = await makeClient('sqs-sub-backoff', { receiveErrorBackoffMs: 200, receiveErrorBackoffMaxMs: 1000 });
+
+      // Force a PERSISTENT ReceiveMessage fault ( simulating a deleted queue /
+      // revoked credentials / dead endpoint ) by stubbing the SQS client's send so
+      // every receive rejects immediately - exactly the case that makes the naive
+      // `warn; continue;` branch spin as a tight infinite loop.
+      let receiveCalls = 0;
+      const realSend = (client as any).Sqs.send.bind((client as any).Sqs);
+      (client as any).Sqs.send = (command: any) => {
+        if (command instanceof ReceiveMessageCommand) {
+          receiveCalls++;
+          return Promise.reject(new Error('simulated persistent receive fault'));
+        }
+        return realSend(command);
+      };
+
+      await client.subscribe(subQueueUrl, async () => undefined);
+
+      const desc = (client as any).Subscriptions.get(subQueueUrl);
+      expect(desc, 'subscription descriptor missing').to.not.be.undefined;
+
+      // let the loop churn against the persistent fault for a fixed window
+      await sleep(1500);
+
+      // DISCRIMINATION: with the escalating backoff ( 200ms base, doubling, 1s cap )
+      // only a handful of receives fire in 1.5s ( ~4-5 ). WITHOUT the backoff the
+      // receive rejects synchronously and `continue` re-enters immediately, racking
+      // up hundreds/thousands of calls in the same window. 25 cleanly separates the
+      // two regimes.
+      const callsDuringBackoff = receiveCalls;
+      expect(callsDuringBackoff, `hot-loop detected: ${callsDuringBackoff} receive calls in 1.5s - backoff not applied`).to.be.lessThan(25);
+      expect(callsDuringBackoff, 'loop never attempted a receive').to.be.at.least(1);
+
+      // dispose WHILE the loop is sitting in ( or between ) backoff sleeps must still
+      // tear down promptly - the abortable sleep unblocks on abort and the loop exits.
+      const start = Date.now();
+      await client.dispose();
+      client = undefined as any;
+      const elapsed = Date.now() - start;
+
+      expect(elapsed, `dispose took ${elapsed}ms during backoff - sleep was not abortable`).to.be.lessThan(2000);
+
+      // the detached loop must genuinely wind down ( not stay parked in a backoff sleep ).
+      await waitUntil(() => desc.exited === true, 3000, 25);
+      expect(desc.exited, 'poll loop did not exit after dispose during backoff').to.be.true;
+
+      // and no further receives after dispose - the loop truly stopped.
+      const afterDispose = receiveCalls;
+      await sleep(600);
+      expect(receiveCalls, 'receive fired after dispose - loop did not stop').to.equal(afterDispose);
+    });
   });
 });
