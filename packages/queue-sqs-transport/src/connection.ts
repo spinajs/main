@@ -1,5 +1,4 @@
 import { IQueueMessage, IQueueConnectionOptions, QueueClient, QueueMessage } from '@spinajs/queue';
-import { InvalidOption } from '@spinajs/exceptions';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 
@@ -34,18 +33,18 @@ export class SqsQueueClient extends QueueClient {
   public async resolve(): Promise<void> {
     const o = (this.Options.options ?? {}) as ISqsConnectionOptions;
 
+    // SQS is HTTP based - there is no eager connection to establish and no
+    // connection-level destination to validate here. Destinations are resolved
+    // per-message at emit time via getChannelForMessage, which consults the
+    // global queue.routing table first and only then falls back to the
+    // connection defaults - so a routing-only connection ( no defaultQueueChannel /
+    // defaultTopicChannel ) is perfectly valid. resolve()'s only job is to build
+    // the SQSClient; region/endpoint/credentials are all optional for the SDK.
     this.Sqs = new SQSClient({
       region: o.region,
       endpoint: o.endpoint,
       credentials: o.credentials,
     });
-
-    // SQS is HTTP based - there is no eager connection to establish. We only
-    // make sure the transport has some way to resolve a destination queue URL,
-    // otherwise every emit would fail with an opaque AWS error.
-    if (!o.queueUrl && !this.Options.defaultQueueChannel && !this.Options.defaultTopicChannel) {
-      throw new InvalidOption(`SQS connection ${this.Options.name} needs options.queueUrl, defaultQueueChannel or defaultTopicChannel to resolve a destination queue URL`);
-    }
 
     this.Log.info(`SQS queue client ${this.Options.name} resolved ( region: ${o.region ?? '<default>'}, endpoint: ${o.endpoint ?? '<default>'} )`);
   }

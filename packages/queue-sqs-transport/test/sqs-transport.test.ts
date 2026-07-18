@@ -108,4 +108,64 @@ describe('sqs queue transport', function () {
 
     await client.dispose();
   });
+
+  it('routing-only connection ( no defaultQueueChannel ) resolves and emits via queue.routing', async () => {
+    // A dedicated queue so this case never reads the other test's messages.
+    const routingQueueName = `${QUEUE_NAME}-routing`;
+    const createdRouting = await raw.send(new CreateQueueCommand({ QueueName: routingQueueName }));
+    const routingQueueUrl = createdRouting.QueueUrl!;
+
+    // The destination comes *entirely* from the global queue.routing table
+    // ( getChannelForMessage reads this.Routing[message.Name] first ). The
+    // connection below deliberately has NO queueUrl / defaultQueueChannel /
+    // defaultTopicChannel - this is the routing-only shape the reviewer flagged.
+    const cfg = await DI.resolve(Configuration);
+    cfg.set(['queue', 'routing', 'TestJob'], routingQueueUrl);
+
+    try {
+      // resolve() must NOT throw even though no connection-level destination is set.
+      const client = await DI.resolve(SqsQueueClient, [
+        {
+          service: 'SqsQueueClient',
+          name: 'sqs-routing-only',
+          options: {
+            region: SQS_REGION,
+            endpoint: SQS_ENDPOINT,
+            credentials: SQS_CREDENTIALS,
+          },
+        },
+      ]);
+
+      await client.emit({
+        Name: 'TestJob',
+        Type: QueueMessageType.Job,
+        CreatedAt: DateTime.now(),
+        JobId: 'jid-routing',
+        RetryCount: 3,
+        Persistent: true,
+        Priority: 0,
+        Foo: 'routed',
+      } as any);
+
+      const msg = await receiveOne(routingQueueUrl);
+
+      expect(msg, 'no message received from the routing-table queue').to.not.be.undefined;
+
+      const body = JSON.parse(msg!.Body!);
+
+      expect(body.Name).to.equal('TestJob');
+      expect(body.Type).to.equal('JOB');
+      expect(body.JobId).to.equal('jid-routing');
+      expect(body.Foo).to.equal('routed');
+
+      await client.dispose();
+    } finally {
+      cfg.set(['queue', 'routing', 'TestJob'], undefined);
+      try {
+        await raw.send(new DeleteQueueCommand({ QueueUrl: routingQueueUrl }));
+      } catch {
+        /* best effort cleanup */
+      }
+    }
+  });
 });
