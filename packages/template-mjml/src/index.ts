@@ -1,8 +1,5 @@
-import { __translate, __translateNumber, __translateL, __translateH } from '@spinajs/intl';
 import * as fs from 'fs';
-import * as path from 'path';
-import _ from 'lodash';
-import { TemplateRenderer } from '@spinajs/templates';
+import { TemplateRenderer, ensureParentDir } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
 import { Injectable, LazyInject } from '@spinajs/di';
 import { Templates } from '@spinajs/templates';
@@ -11,18 +8,11 @@ import { MJMLParsingOptions } from 'mjml-core';
 
 @Injectable(TemplateRenderer)
 export class MjmlRenderer extends TemplateRenderer {
-  @Config('configuration.isDevelopment')
-  protected devMode: boolean;
-
   @LazyInject(Templates)
   protected Templates: Templates;
 
   @Config('templates.mjml')
   protected Options: MJMLParsingOptions;
-
-  constructor() {
-    super();
-  }
 
   public get Type() {
     return 'mjml';
@@ -51,14 +41,7 @@ export class MjmlRenderer extends TemplateRenderer {
 
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
     const content = await this.render(template, model, language);
-    const dir = path.dirname(filePath);
-
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
+    ensureParentDir(filePath);
     fs.writeFileSync(filePath, content);
   }
-
-  protected async compile(_templateName: string, _path: string): Promise<void> {}
 }

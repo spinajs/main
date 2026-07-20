@@ -164,4 +164,34 @@ describe('Date Helpers', () => {
       expect(result).to.be.at.most(7);
     });
   });
+
+  // Handlebars appends its options object as the last arg; helpers with a trailing
+  // optional-default param must fall back to the default instead of using that object.
+  describe('Handlebars options-arg guards', () => {
+    const OPT: any = { hash: {}, data: { root: {} }, loc: {}, name: 'helper' };
+
+    it('now returns a non-empty ISO string when called with only the options object', () => {
+      const result = dateHelpers.now(OPT);
+      expect(result).to.be.a('string');
+      expect(result.length).to.be.greaterThan(0);
+      expect(DateTime.fromISO(result).isValid).to.equal(true);
+    });
+
+    it('timestamp returns current millis when called with only the options object', () => {
+      const result = dateHelpers.timestamp(OPT);
+      expect(result).to.be.a('number');
+      expect(result).to.be.greaterThan(0);
+    });
+
+    it('unixTimestamp returns current seconds when called with only the options object', () => {
+      const result = dateHelpers.unixTimestamp(OPT);
+      expect(result).to.be.a('number');
+      expect(result).to.be.greaterThan(0);
+    });
+
+    it('dateDiff uses default unit (days) when unit arg is the options object', () => {
+      const result = dateHelpers.dateDiff('2020-01-01', '2020-01-10', OPT);
+      expect(result).to.equal(9);
+    });
+  });
 });

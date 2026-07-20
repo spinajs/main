@@ -5,14 +5,14 @@
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
   "license": "ISC",
-  
-    "main": "lib/cjs/index.js",
+  "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
   },
   "type": "module",
   "private": false,
@@ -22,7 +22,6 @@
   "files": [
     "lib/**/*"
   ],
-  
   "publishConfig": {
     "access": "public"
   },
@@ -43,7 +42,6 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "bugs": {
     "url": "https://github.com/spinajs/main/issues"
@@ -58,7 +56,7 @@
     "@spinajs/internal-logger": "^2.0.481",
     "@spinajs/orm": "^2.0.481",
     "lodash": "^4.17.21",
-     "luxon": "^3.6.1"
+    "luxon": "^3.6.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

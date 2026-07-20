@@ -1,5 +1,4 @@
 import { IMappableService } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
 import { AsyncService } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { fs, IStat, URI } from '@spinajs/fs';
@@ -46,8 +45,8 @@ export abstract class TemplateRenderer extends AsyncService implements IMappable
     return this.Extension;
   }
 
-  public abstract render(templatePath: string, model: unknown, language?: string): Promise<string>;
-  public abstract renderToFile(templatePath: string, model: unknown, filePath: string, language?: string): Promise<void>;
+  public abstract render(templatePath: string, model: unknown, language?: string, options?: IRenderOptions): Promise<string>;
+  public abstract renderToFile(templatePath: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void>;
 
   /**
    * Explicit config wins; otherwise dev mode implies always-recompile.

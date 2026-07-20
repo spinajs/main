@@ -1,14 +1,15 @@
 {
   "name": "@spinajs/templates-mjml",
   "version": "2.0.481",
-  "description": "templates support for mjlm - for generating responsive emails",
+  "description": "MJML template renderer for @spinajs/templates - generates responsive emails.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
   },
   "type": "module",
   "private": false,
@@ -28,12 +29,10 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "files": [
     "lib/**/*"
   ],
-  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -59,13 +58,11 @@
   "dependencies": {
     "@spinajs/configuration": "^2.0.481",
     "@spinajs/di": "^2.0.481",
-    "@spinajs/exceptions": "^2.0.481",
     "@spinajs/intl": "^2.0.481",
     "@spinajs/log": "^2.0.481",
     "@spinajs/templates": "^2.0.481",
     "@spinajs/templates-handlebars": "^2.0.481",
-    "mjml": "^4.15.3",
-    "tempfile": "4.0.0"
+    "mjml": "^4.15.3"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

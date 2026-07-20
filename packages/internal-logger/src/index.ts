@@ -6,7 +6,20 @@ import { Bootstrapper, DI, Injectable } from "@spinajs/di";
 import { Configuration, format } from "@spinajs/configuration-common";
 import { ILogEntry, LogLevel, createLogMessageObject, Log, ILogTargetDesc, LogVariables } from "@spinajs/log-common";
 import _ from "lodash";
-import chalk from "chalk";
+
+/**
+ * Minimal, dependency-free ANSI colour helpers ( replaces chalk ).
+ * This path is Node-only ( process `beforeExit` ), so raw escape codes are fine.
+ */
+const ANSI_RESET = "\x1b[0m";
+const ansi = (open: string) => (text: string) => `${open}${text}${ANSI_RESET}`;
+const gray = ansi("\x1b[90m");
+const white = ansi("\x1b[37m");
+const whiteBgGreen = ansi("\x1b[37m\x1b[42m");
+const yellow = ansi("\x1b[33m");
+const red = ansi("\x1b[31m");
+const whiteBgRed = ansi("\x1b[37m\x1b[41m");
+const yellowBgRed = ansi("\x1b[33m\x1b[41m");
 
 
 /**
@@ -78,24 +91,28 @@ export class InternalLogger extends Bootstrapper {
       });
     }
 
-    process.on("beforeExit", () => {
-      this.theme[LogLevel.Trace] = chalk.gray;
-      this.theme[LogLevel.Debug] = chalk.gray;
-      this.theme[LogLevel.Info] = chalk.white;
-      this.theme[LogLevel.Success] = chalk.white.bgGreen;
-      this.theme[LogLevel.Warn] = chalk.yellow;
-      this.theme[LogLevel.Error] = chalk.red;
-      this.theme[LogLevel.Fatal] = chalk.white.bgRed;
-      this.theme[LogLevel.Security] = chalk.yellow.bgRed;
+    // Node-only: flush any buffered messages to the console on exit.
+    // Guard so the browser ( no `process` ) never touches this path.
+    if (typeof process !== "undefined" && typeof process.on === "function") {
+      process.on("beforeExit", () => {
+        this.theme[LogLevel.Trace] = gray;
+        this.theme[LogLevel.Debug] = gray;
+        this.theme[LogLevel.Info] = white;
+        this.theme[LogLevel.Success] = whiteBgGreen;
+        this.theme[LogLevel.Warn] = yellow;
+        this.theme[LogLevel.Error] = red;
+        this.theme[LogLevel.Fatal] = whiteBgRed;
+        this.theme[LogLevel.Security] = yellowBgRed;
 
-      // when application is about to exit, write all messages to console
-      // if buffer is not empty it mean, that we cannot write to normal logger
+        // when application is about to exit, write all messages to console
+        // if buffer is not empty it mean, that we cannot write to normal logger
 
-      InternalLogger.LogBuffer.forEach((entry) => {
-        this.StdConsoleCallbackMap[entry.Level]((this.theme as any)[entry.Level](format(entry.Variables, "${datetime} ${level} ${message} ${error} (" + entry.Variables.logger + ")")));
+        InternalLogger.LogBuffer.forEach((entry) => {
+          this.StdConsoleCallbackMap[entry.Level]((this.theme as any)[entry.Level](format(entry.Variables, "${datetime} ${level} ${message} ${error} (" + entry.Variables.logger + ")")));
+        });
+        InternalLogger.LogBuffer = [];
       });
-      InternalLogger.LogBuffer = [];
-    });
+    }
   }
 
   protected static LogBuffer: ILogEntry[] = [];

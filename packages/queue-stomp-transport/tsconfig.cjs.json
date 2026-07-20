@@ -5,6 +5,27 @@
     "outDir": "./lib/cjs",
     "module": "commonjs"
   },
-  "include": ["src/**/*"],
-  "references": [{ "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../log/tsconfig.cjs.json" }, { "path": "../queue/tsconfig.cjs.json" }]
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../util/tsconfig.cjs.json"
+    },
+    {
+      "path": "../configuration/tsconfig.cjs.json"
+    },
+    {
+      "path": "../di/tsconfig.cjs.json"
+    },
+    {
+      "path": "../exceptions/tsconfig.cjs.json"
+    },
+    {
+      "path": "../log/tsconfig.cjs.json"
+    },
+    {
+      "path": "../queue/tsconfig.cjs.json"
+    }
+  ]
 }

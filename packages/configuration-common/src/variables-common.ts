@@ -1,0 +1,213 @@
+import { Injectable, DI } from '@spinajs/di';
+import { DateTime } from 'luxon';
+
+export abstract class ConfigVariable {
+  public abstract get Name(): string;
+  public abstract Value(option?: string): string;
+}
+
+@Injectable(ConfigVariable)
+export class DateTimeLogVariable extends ConfigVariable {
+  public get Name(): string {
+    return 'datetime';
+  }
+  public Value(option?: string): string {
+    return DateTime.now().toFormat(option ?? 'dd/MM/yyyy HH:mm:ss.SSS ZZ');
+  }
+}
+
+@Injectable(ConfigVariable)
+export class DateLogVariable extends ConfigVariable {
+  constructor(protected format?: string) {
+    super();
+  }
+
+  public get Name(): string {
+    return 'date';
+  }
+  public Value(option?: string): string {
+    return DateTime.now().toFormat(option ?? 'dd/MM/yyyy');
+  }
+}
+
+@Injectable(ConfigVariable)
+export class TimeLogVariable extends ConfigVariable {
+  constructor(protected format?: string) {
+    super();
+  }
+
+  public get Name(): string {
+    return 'time';
+  }
+  public Value(option?: string): string {
+    return DateTime.now().toFormat(option ?? 'HH:mm:ss.SSS');
+  }
+}
+
+@Injectable(ConfigVariable)
+export class TimestampVariable extends ConfigVariable {
+  public get Name(): string {
+    return 'timestamp';
+  }
+
+  /**
+   * @param option - 's' for unix seconds, otherwise milliseconds (default)
+   */
+  public Value(option?: string): string {
+    const millis = DateTime.now().toMillis();
+    return option === 's' ? String(Math.floor(millis / 1000)) : String(millis);
+  }
+}
+
+@Injectable(ConfigVariable)
+export class UtcDateTimeLogVariable extends ConfigVariable {
+  public get Name(): string {
+    return 'utcdatetime';
+  }
+  public Value(option?: string): string {
+    return DateTime.utc().toFormat(option ?? 'dd/MM/yyyy HH:mm:ss.SSS ZZ');
+  }
+}
+
+@Injectable(ConfigVariable)
+export class UtcDateLogVariable extends ConfigVariable {
+  public get Name(): string {
+    return 'utcdate';
+  }
+  public Value(option?: string): string {
+    return DateTime.utc().toFormat(option ?? 'dd/MM/yyyy');
+  }
+}
+
+@Injectable(ConfigVariable)
+export class UtcTimeLogVariable extends ConfigVariable {
+  public get Name(): string {
+    return 'utctime';
+  }
+  public Value(option?: string): string {
+    return DateTime.utc().toFormat(option ?? 'HH:mm:ss.SSS');
+  }
+}
+
+export interface IConfigVariable {
+  [key: string]: unknown | (() => unknown);
+}
+
+export interface IConfiguStatiVariables {
+  message?: string;
+}
+
+export type ConfVariables = IConfiguStatiVariables & IConfigVariable;
+
+/**
+ * Formats layout by filling vars from customVars prop
+ * eg `Hello world {datetime} {message}` will be formatted using values
+ * from customVars
+ *
+ * NOTE: field message in custom vars will be formatted too.
+ *
+ * @param customVars - additional custom vars to look for, if it contains message field, it will format it too
+ * @param layout - message layout
+ * @returns
+ */
+export function format(customVars: ConfVariables | null, layout: string): string {
+  if (customVars?.message) {
+    return _format(
+      {
+        ...customVars,
+        message: _format(customVars, customVars.message),
+      } as ConfVariables,
+      layout,
+    );
+  }
+
+  return _format(customVars as ConfVariables, layout);
+}
+
+/**
+ * This reg is safe, checked in RegexBuddy
+ */
+// eslint-disable-next-line security/detect-unsafe-regex
+const LayoutRegexp = /\$\{([^:\}]*)(:([^\}]*))?\}/gm;
+// eslint-disable-next-line security/detect-unsafe-regex
+const ConditionalRegexp = /\$\{\?([a-zA-Z0-9_]+)\}(.*?)\$\{\/\1\}/gs;
+const Vars: Map<string, ConfigVariable> = new Map<string, ConfigVariable>();
+
+/**
+ *
+ * Replace all occurences and escape random regexp patterns in target string
+ * Sometimes in passed string we had random patterns eg. $` and its stirng.replace special command that coused unwanted behaviour
+ *
+ * @param pattern
+ * @param str1
+ * @param str2
+ * @param ignore
+ * @returns
+ */
+function _replaceAll(pattern: string, str1: string, str2: string, ignore?: string) {
+  return pattern.replace(
+    new RegExp(str1.replace(/([\/\,\!\\\^\$\{\}\[\]\(\)\.\*\+\?\|\<\>\-\&])/g, '\\$&'), ignore ? 'gi' : 'g'),
+    typeof str2 == 'string' ? str2.replace(/\$/g, '$$$$') : str2,
+  );
+}
+
+function _format(vars: ConfVariables, txt: string) {
+  if (Vars.size === 0) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+    DI.resolve(Array.ofType(ConfigVariable)).forEach((v: ConfigVariable) => Vars.set(v.Name, v));
+  }
+
+  // Reset regex state before use (important for global regexes)
+  ConditionalRegexp.lastIndex = 0;
+
+  // First, process conditional blocks ${?variable}...${/variable}
+  // We need to evaluate the condition BEFORE replacing variables in the content
+  let result = txt.replace(ConditionalRegexp, (_, varName, content) => {
+    const value = vars?.[varName];
+    // Only render the content if the variable exists and is truthy
+    if (value !== undefined && value !== null && value !== '') {
+      // Return the content to be processed for variable substitution
+      return content;
+    }
+    return '';
+  });
+
+
+  LayoutRegexp.lastIndex = 0;
+
+  const varMatch = [...result.matchAll(LayoutRegexp)];
+  if (!varMatch) {
+    return result;
+  }
+
+  varMatch.forEach((v) => {
+    if (vars && vars[v[1]]) {
+      const fVar = vars[v[1]] as (format?: string) => string;
+      if (fVar instanceof Function) {
+        result = result.replace(v[0], fVar(v[3] ?? null));
+      }
+      else if (v[3]) {
+        if (typeof fVar[v[3]] === 'function') {
+          result = result.replace(v[0], (fVar[v[3]] as any)());
+          return;
+        }
+
+        // optional parameter eg. {object:property}
+        result = result.replace(v[0], fVar[v[3]] ?? '');
+      }
+      else {
+        result = _replaceAll(result, v[0], fVar);
+      }
+    } else {
+      const variable = Vars.get(v[1]);
+      if (variable) {
+        // optional parameter eg. {env:PORT}
+        result = result.replace(v[0], variable.Value(v[3] ?? null));
+      } else {
+        result = result.replace(v[0], '');
+      }
+    }
+  });
+
+  return result;
+}

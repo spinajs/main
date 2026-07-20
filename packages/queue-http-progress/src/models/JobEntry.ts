@@ -8,7 +8,7 @@ export interface IJobStatusResponse {
      * Derived from the single source of truth in `@spinajs/queue` so new job
      * states (e.g. `retrying` / `dead`) cannot drift out of sync again.
      */
-    status: JobModel<unknown>['Status'];
+    status: JobModel<unknown>['Status'] | 'queued';
     message?: string;
-    createdAt: DateTime;
+    createdAt?: DateTime;
 }

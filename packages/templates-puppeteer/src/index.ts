@@ -1,16 +1,20 @@
-import { Browser, Page, default as puppeteer, LaunchOptions } from 'puppeteer';
+import { Page, LaunchOptions, ConsoleMessage, HTTPRequest, HTTPResponse } from 'puppeteer';
 import { NotSupported } from '@spinajs/exceptions';
-import { TemplateRenderer, Templates } from '@spinajs/templates';
-import { LazyInject } from '@spinajs/di';
+import { TemplateRenderer, Templates, IRenderOptions, RenderPhase, RenderProgressCallback } from '@spinajs/templates';
+import { IInstanceCheck, LazyInject } from '@spinajs/di';
 import { basename, dirname, join } from 'path';
 import { Log, Logger } from '@spinajs/log';
-import Express from 'express';
 import * as http from 'http';
-import cors from 'cors';
 
 import '@spinajs/templates-pug';
-import _ from 'lodash';
 import { AddressInfo } from 'net';
+import { RenderProgressReporter } from './progress.js';
+import { LocalAssetServer } from './asset-server.js';
+import { BrowserPool } from './browser-pool.js';
+
+export * from './progress.js';
+export * from './asset-server.js';
+export * from './browser-pool.js';
 
 export interface IPuppeteerRendererOptions {
   static: {
@@ -34,15 +38,41 @@ export interface IPuppeteerRendererOptions {
   debug?: {
 
     /**
-     * If true, browser will remain open after rendering for inspection
-     * Use it with headless: false in args to see the browser window ( puppetter.launch args )
+     * Controls whether the browser is closed after rendering.
+     * Defaults to closing. Set to `false` to keep the browser open after rendering
+     * for inspection ( use with headless: false in args to see the browser window ).
      */
     close?: boolean;
   }
 }
 
-export abstract class PuppeteerRenderer extends TemplateRenderer {
+/** Default navigation/render timeout when none is configured (ms). */
+const DEFAULT_RENDER_TIMEOUT_MS = 30000;
+
+/** Watchdog canceller used when timeouts are disabled (debug mode). */
+const noop = () => {
+  /* nothing to cancel */
+};
+
+export abstract class PuppeteerRenderer extends TemplateRenderer implements IInstanceCheck {
   protected abstract Options: IPuppeteerRendererOptions;
+
+  /**
+   * Per-instance options that give this renderer its identity for the DI
+   * @PerInstanceCheck pooling (see subclasses). Renderers that are not pooled
+   * per-instance inherit the `undefined` default.
+   */
+  protected get instanceOptions(): unknown {
+    return undefined;
+  }
+
+  /**
+   * DI @PerInstanceCheck hook: an existing instance is reused only when it was
+   * created with the same options.
+   */
+  public __checkInstance__(creationOptions: any): boolean {
+    return JSON.stringify(this.instanceOptions) === JSON.stringify(creationOptions);
+  }
 
   @Logger('puppeteer-templates')
   protected Log: Log;
@@ -50,116 +80,240 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
   @LazyInject()
   protected TemplatingService: Templates;
 
-  public async renderToFile(template: string, model: any, filePath: string, language?: string): Promise<void> {
-    let server: http.Server = null as any;
-    let browser: Browser = null as any;
-    try {
-      this.Log.timeStart(`puppeteer-template-rendering-${filePath}`);
-      this.Log.trace(`Rendering template ${template} to file ${filePath}`);
+  private _assetServer?: LocalAssetServer;
+  private _browserPool?: BrowserPool;
 
-      const templateBasePath = dirname(template);
+  /** Local static server used so Chromium can load relative asset URLs. Lazily created. */
+  protected get assetServer(): LocalAssetServer {
+    return (this._assetServer ??= new LocalAssetServer(this.Log, () => this.Options?.static?.portRange));
+  }
 
-      // fire up local http server for serving images etc
-      // becouse chromium prevents from reading local files when not
-      // rendering file with file:// protocol for security reasons
-      server = await this.runLocalServer(templateBasePath);
-      const httpPort = (server.address() as AddressInfo).port;
+  /**
+   * Pooled browser, launched lazily and reused across renders, closed on dispose().
+   * One pool per options-set (see @PerInstanceCheck on subclasses). Lazily created.
+   */
+  protected get browserPool(): BrowserPool {
+    return (this._browserPool ??= new BrowserPool(this.Log, () => this.buildLaunchOptions()));
+  }
 
+  private buildLaunchOptions(): LaunchOptions {
+    return {
+      ...(this.Options?.args || {}),
+      ...(this.Options?.executablePath && {
+        executablePath: this.Options.executablePath,
+      }),
+    };
+  }
+
+  public async renderToFile(template: string, model: any, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {
+    const templateBasePath = dirname(template);
+
+    await this.renderContentToFile(filePath, { assetBasePath: templateBasePath, onProgress: options?.onProgress }, async (page, httpPort, markLoading) => {
       const compiledTemplate = await this.TemplatingService.render(
         join(templateBasePath, basename(template, this.Extension)) + '.pug',
         {
-          // add template temporary server port
-          // so we can use it to render images in template
+          // add template temporary server port so templates can reference local images
           __http_template_port__: httpPort,
-
-          // for convinience add full url to local http server
+          // for convenience add full url to local http server
           __http_template_address__: `http://localhost:${httpPort}`,
           ...model,
         },
         language,
       );
 
-      const launchOptions: LaunchOptions = {
-        ...(this.Options?.args || {}),
-        ...(this.Options?.executablePath && {
-          executablePath: this.Options.executablePath,
-        }),
-      };
+      // template is compiled; resource loading starts with setContent
+      markLoading();
+      await page.setContent(compiledTemplate);
+    });
+  }
 
-      browser = await puppeteer.launch(launchOptions);
-      const page = await browser.newPage();
+  /**
+   * Render a raw HTML string to a file (image/pdf per the concrete renderer).
+   * Intended for CI (e.g. screenshot comparison) where HTML is already produced.
+   *
+   * @param html - the HTML content to render
+   * @param filePath - output file path
+   * @param options.assetBasePath - directory served over the local http server so
+   *   relative asset URLs in the HTML resolve (defaults to the output file's dir)
+   * @param options.viewport - fixed viewport for deterministic captures
+   */
+  public async renderHtmlToFile(
+    html: string,
+    filePath: string,
+    options?: {
+      assetBasePath?: string;
+      viewport?: { width: number; height: number; deviceScaleFactor?: number };
+      onProgress?: RenderProgressCallback;
+    },
+  ): Promise<void> {
+    await this.renderContentToFile(
+      filePath,
+      { assetBasePath: options?.assetBasePath ?? dirname(filePath), onProgress: options?.onProgress },
+      async (page, httpPort, markLoading) => {
+        if (options?.viewport) {
+          await page.setViewport(options.viewport);
+        }
+        // resource loading starts with setContent
+        markLoading();
+        // inject a <base href> so relative asset URLs resolve via the local server
+        await page.setContent(this.injectBaseHref(html, `http://127.0.0.1:${httpPort}/`));
+      },
+    );
+  }
 
-      // Skip timeouts in debug mode
-      if (!this.Options?.debug?.close) {
-        page.setDefaultNavigationTimeout(this.Options?.navigationTimeout || 30000); // Default 30s
-        page.setDefaultTimeout(this.Options?.renderTimeout || 30000); // Default 30s
+  /**
+   * Shared render orchestration: local static server + pooled browser + page +
+   * timeout watchdog + cleanup. `prepare` populates the page content (template-compiled
+   * HTML, or raw HTML). The pooled browser survives; only the page is closed.
+   */
+  protected async renderContentToFile(
+    filePath: string,
+    opts: { assetBasePath?: string; onProgress?: RenderProgressCallback },
+    prepare: (page: Page, httpPort: number, markLoading: () => void) => Promise<void>,
+  ): Promise<void> {
+    const timerLabel = `puppeteer-template-rendering-${filePath}`;
+    const progress = new RenderProgressReporter(filePath, opts.onProgress);
+    let server: http.Server = null as any;
+    let page: Page = null as any;
+
+    // When debug.close === false the page is intentionally kept open for
+    // inspection, so timeouts must not be armed (the watchdog would close it).
+    // The browser itself is pooled and only closed on dispose().
+    const keepPageOpen = this.Options?.debug?.close === false;
+
+    try {
+      this.Log.timeStart(timerLabel);
+      this.Log.trace(`Rendering to file ${filePath}`);
+      progress.phase(RenderPhase.Starting);
+
+      // fire up local http server for serving images etc, because chromium
+      // prevents reading local files when not using the file:// protocol
+      server = await this.assetServer.serve(opts.assetBasePath ?? process.cwd());
+      const httpPort = (server.address() as AddressInfo).port;
+
+      // reuse the pooled browser; open a fresh page per render
+      const browser = await this.browserPool.acquire();
+      page = await browser.newPage();
+      progress.attach(page);
+
+      // In debug mode neither timeouts nor the watchdog are armed, so the page
+      // can be inspected indefinitely.
+      const cancelWatchdog = keepPageOpen ? noop : this.armRenderWatchdog(page);
+      if (!keepPageOpen) {
+        this.configurePageTimeouts(page);
       }
 
-      // Set up render timeout (skip in debug mode)
-      let renderTimeout: NodeJS.Timeout | undefined;
-      if (!this.Options?.debug?.close) {
-        const timeoutMs = this.Options?.renderTimeout || 30000;
-        renderTimeout = setTimeout(async () => {
-          this.Log.warn(`Render timeout (${timeoutMs}ms) - forcing cleanup`);
-          try {
-            if (page) await page.close().catch(() => { });
-            if (browser) await this.forceCloseBrowser(browser);
-          } catch (err) {
-            this.Log.error('Error during timeout cleanup:', err);
-          }
-        }, timeoutMs);
-      }
-
-      // Add event listeners with explicit cleanup tracking
-      const eventCleanup = this.addPageEventListeners(page);
+      const removeListeners = this.addPageEventListeners(page);
 
       try {
+        progress.phase(RenderPhase.Preparing);
         await page.setBypassCSP(true);
-        await page.setContent(compiledTemplate);
-        
-        // Call abstract method to perform specific rendering (PDF or image)
+        // prepare compiles/builds the HTML then calls markLoading() right before
+        // setContent, so template-compile time is separated from resource loading.
+        await prepare(page, httpPort, () => progress.phase(RenderPhase.Loading));
+
+        // perform the concrete rendering (PDF or image)
+        progress.phase(RenderPhase.Rendering);
         await this.performRender(page, filePath);
 
-        // Clear timeout on successful completion
-        if (renderTimeout) {
-          clearTimeout(renderTimeout);
-          renderTimeout = undefined;
-        }
-
-        // Clean up event listeners
-        eventCleanup();
-
+        progress.phase(RenderPhase.Done);
       } catch (renderError) {
-        // Clear timeout on error
-        if (renderTimeout) {
-          clearTimeout(renderTimeout);
-          renderTimeout = undefined;
-        }
-        this.Log.error(renderError, `Error during rendering for template ${template}`);
+        this.Log.error(renderError, `Error during rendering for ${filePath}`);
         throw renderError;
+      } finally {
+        cancelWatchdog();
+        removeListeners();
       }
     } catch (err) {
-      this.Log.error(err, `Error rendering template ${template} to file ${filePath}`);
+      progress.phase(RenderPhase.Failed, err?.message);
+      this.Log.error(err, `Error rendering to file ${filePath}`);
       throw err;
     } finally {
-      const duration = this.Log.timeEnd(`puppeteer-template-rendering-${filePath}`);
-      this.Log.trace(`Ended rendering template ${template} to file ${filePath}, took: ${duration}ms`);
+      progress.dispose();
 
-      if (this.Options && duration > this.Options.renderDurationWarning) {
-        this.Log.warn(`Rendering template ${template} to file ${filePath} took too long.`);
-      }
+      const duration = this.Log.timeEnd(timerLabel);
+      this.Log.trace(`Ended rendering to file ${filePath}, took: ${duration}ms`);
+      this.warnIfSlow(filePath, duration);
 
-      // Skip browser cleanup if debug.close is false (keep browser open for inspection)
-      if (browser && (!this.Options || this.Options.debug?.close !== false)) {
-        await this.safeBrowserCleanup(browser);
-      } else if (browser) {
-        this.Log.info('Browser kept open for debugging (debug.close=false)');
+      // Close the page (not the pooled browser). Skip if debug.close is false
+      // so the rendered page can be inspected.
+      if (page && !keepPageOpen) {
+        await this.closePage(page);
+      } else if (page) {
+        this.Log.info('Page kept open for debugging (debug.close=false)');
       }
 
       if (server) {
-        await this.safeServerCleanup(server);
+        await this.assetServer.close(server);
       }
     }
+  }
+
+  /** Effective render timeout: configured value, else the default. */
+  protected get renderTimeoutMs(): number {
+    return this.Options?.renderTimeout || DEFAULT_RENDER_TIMEOUT_MS;
+  }
+
+  /** Apply the configured (or default) navigation and render timeouts to a page. */
+  protected configurePageTimeouts(page: Page): void {
+    page.setDefaultNavigationTimeout(this.Options?.navigationTimeout || DEFAULT_RENDER_TIMEOUT_MS);
+    page.setDefaultTimeout(this.renderTimeoutMs);
+  }
+
+  /**
+   * Arm a watchdog that closes the page if a render exceeds the configured
+   * timeout - only the page is closed, the pooled browser may be serving other
+   * concurrent renders. Returns a function that cancels the watchdog.
+   */
+  protected armRenderWatchdog(page: Page): () => void {
+    const timeoutMs = this.renderTimeoutMs;
+    const handle = setTimeout(() => {
+      this.Log.warn(`Render timeout (${timeoutMs}ms) - closing page`);
+      page.close().catch(() => { /* page may already be closing */ });
+    }, timeoutMs);
+
+    return () => clearTimeout(handle);
+  }
+
+  /** Warn if a render took longer than the configured warning threshold. */
+  protected warnIfSlow(filePath: string, duration: number): void {
+    if (this.Options && duration > this.Options.renderDurationWarning) {
+      this.Log.warn(`Rendering to file ${filePath} took too long.`);
+    }
+  }
+
+  /** Close a page, downgrading any close error to a warning (best-effort cleanup). */
+  protected async closePage(page: Page): Promise<void> {
+    await page.close().catch((err) => this.Log.warn(`Error closing page: ${err.message}`));
+  }
+
+  /**
+   * Insert a <base href> into the HTML <head> so relative asset URLs resolve
+   * against the local static server. No-op if the HTML already declares a <base>.
+   */
+  protected injectBaseHref(html: string, baseUrl: string): string {
+    if (/<base\s/i.test(html)) {
+      return html;
+    }
+    if (/<head[^>]*>/i.test(html)) {
+      return html.replace(/<head([^>]*)>/i, `<head$1><base href="${baseUrl}">`);
+    }
+    if (/<html[^>]*>/i.test(html)) {
+      return html.replace(/<html([^>]*)>/i, `<html$1><head><base href="${baseUrl}"></head>`);
+    }
+    return `<base href="${baseUrl}">${html}`;
+  }
+
+  /**
+   * Close the pooled browser when the service is disposed (e.g. DI.dispose() at shutdown).
+   * Callers that render one-shot (CLI, single email) should dispose so the process can exit.
+   */
+  public async dispose(): Promise<void> {
+    if (this._browserPool) {
+      await this._browserPool.dispose();
+    }
+
+    await super.dispose();
   }
 
   /**
@@ -171,129 +325,18 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
     throw new NotSupported('cannot render puppeteer template to string');
   }
 
-  // no compilation at start
-  protected async compile(_path: string) { }
-
-  protected async runLocalServer(basePath: string): Promise<http.Server> {
-    const self = this;
-    const app = Express();
-    app.use(cors());
-    app.use(Express.static(basePath));
-
-    return new Promise((resolve, reject) => {
-      const server = app
-        // if no port is provided express will choose random port to start (available)
-        // if not, we will get random from range in config
-        .listen(
-          !this.Options?.static?.portRange || this.Options.static.portRange.length === 0
-            ? 0
-            : _.random(this.Options.static.portRange[0], this.Options.static.portRange[1])
-        )
-        .on('listening', function () {
-          self.Log.trace(`Puppeteer image server started on port ${(this.address() as AddressInfo).port}`);
-          self.Log.trace(`Puppeteer static file dir at ${basePath}`);
-          resolve(this);
-        })
-        .on('error', (err: any) => {
-          self.Log.error(err, `Puppeteer image server cannot start`);
-
-          // Clean up the failed server
-          if (server) {
-            server.close(() => {
-              reject(err);
-            });
-          } else {
-            reject(err);
-          }
-        });
-
-      // Set a timeout for server startup
-      setTimeout(() => {
-        if (!server.listening) {
-          server.close();
-          reject(new Error('Server startup timeout'));
-        }
-      }, 10000);
-    });
-  }
-
-  /**
-   * Enhanced browser cleanup with error handling
-   */
-  protected async safeBrowserCleanup(browser: Browser): Promise<void> {
-    try {
-      // First try to close all pages
-      const pages = await browser.pages();
-      await Promise.allSettled(pages.map(page => page.close()));
-
-      // Then close the browser normally
-      await browser.close();
-    } catch (err) {
-      this.Log.warn(`Error during normal browser cleanup: ${err.message}`);
-
-      // Force kill if normal close fails
-      try {
-        await this.forceCloseBrowser(browser);
-      } catch (killErr) {
-        this.Log.error(`Failed to force kill browser: ${killErr.message}`);
-      }
-    }
-  }
-
-  /**
-   * Force close browser with process termination
-   */
-  protected async forceCloseBrowser(browser: Browser): Promise<void> {
-    try {
-      const process = browser.process();
-      if (process) {
-        process.kill('SIGKILL');
-        this.Log.warn('Browser process force killed');
-      }
-    } catch (err) {
-      this.Log.error(`Error force killing browser process: ${err.message}`);
-    }
-  }
-
-  /**
-   * Enhanced server cleanup with timeout
-   */
-  protected async safeServerCleanup(server: http.Server): Promise<void> {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Server close timeout'));
-        }, 5000);
-
-        server.close((err) => {
-          clearTimeout(timeout);
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-    } catch (err) {
-      this.Log.warn(`Error closing server: ${err.message}`);
-
-      // Force close connections if available
-      try {
-        if ('closeAllConnections' in server) {
-          (server as any).closeAllConnections();
-        }
-      } catch (forceErr) {
-        this.Log.error(`Error force closing server connections: ${forceErr.message}`);
-      }
-    }
-  }
-
   /**
    * Add page event listeners with cleanup function
    */
-  protected addPageEventListeners(page: any): () => void {
+  protected addPageEventListeners(page: Page): () => void {
     const listeners = {
-      console: (message: any) => this.Log.trace(`${message.type().substr(0, 3).toUpperCase()} ${message.text()}`),
-      pageerror: ({ message }: any) => this.Log.error(message),
-      response: (response: any) => this.Log.trace(`${response.status()} ${response.url()}`),
-      requestfailed: (request: any) => this.Log.error(`${request.failure().errorText} ${request.url()}`)
+      console: (message: ConsoleMessage) => this.Log.trace(`${message.type().slice(0, 3).toUpperCase()} ${message.text()}`),
+      pageerror: (error: Error) => this.Log.error(error.message),
+      response: (response: HTTPResponse) => this.Log.trace(`${response.status()} ${response.url()}`),
+      requestfailed: (request: HTTPRequest) => {
+        const failure = request.failure();
+        this.Log.error(`${failure ? failure.errorText : 'request failed'} ${request.url()}`);
+      }
     };
 
     // Add listeners
@@ -305,10 +348,10 @@ export abstract class PuppeteerRenderer extends TemplateRenderer {
     // Return cleanup function
     return () => {
       try {
-        page.removeListener('console', listeners.console);
-        page.removeListener('pageerror', listeners.pageerror);
-        page.removeListener('response', listeners.response);
-        page.removeListener('requestfailed', listeners.requestfailed);
+        page.off('console', listeners.console);
+        page.off('pageerror', listeners.pageerror);
+        page.off('response', listeners.response);
+        page.off('requestfailed', listeners.requestfailed);
       } catch (err) {
         this.Log.warn(`Error removing page listeners: ${err.message}`);
       }

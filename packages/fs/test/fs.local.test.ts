@@ -12,6 +12,7 @@ import { extname, join } from 'path';
 import { IOFail } from '@spinajs/exceptions';
 import { cp, rm } from 'fs/promises';
 import { mkdirSync } from 'fs';
+import { PassThrough } from 'stream';
 
 async function f() {
   return await DI.resolve<fs>('__file_provider__', ['test']);
@@ -207,12 +208,12 @@ describe('fs local tests', function () {
 
   it('Should throw on copy and file not exists', async () => {
     const _f = await f();
-    expect(_f.copy('not_exists.txt', 'not_exists_copy.txt')).to.be.rejectedWith(IOFail);
+    await expect(_f.copy('not_exists.txt', 'not_exists_copy.txt')).to.be.rejectedWith(IOFail);
   });
 
   it('Should throw on move when not exists', async () => {
     const _f = await f();
-    expect(_f.move('not_exists.txt', 'not_exists_copy.txt')).to.be.rejectedWith(IOFail);
+    await expect(_f.move('not_exists.txt', 'not_exists_copy.txt')).to.be.rejectedWith(IOFail);
   });
 
   it('should get file stats', async () => {

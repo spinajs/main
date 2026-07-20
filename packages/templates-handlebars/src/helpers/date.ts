@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import { isHbOptions } from './options.js';
 
 /**
  * Formats a date according to the specified format string
@@ -35,6 +36,7 @@ export function formatDate(date: unknown, format: string): string {
  * Usage: {{now "dd/MM/yyyy HH:mm:ss"}}
  */
 export function now(format?: string): string {
+  if (isHbOptions(format)) format = undefined;
   const dt = DateTime.now();
   return format ? dt.toFormat(format) : dt.toISO()!;
 }
@@ -115,6 +117,7 @@ export function dateSubtract(date: unknown, amount: number, unit: string): strin
  * Returns number of units between dates
  */
 export function dateDiff(date1: unknown, date2: unknown, unit: string = 'days'): number {
+  if (isHbOptions(unit)) unit = 'days';
   let dt1: DateTime, dt2: DateTime;
 
   if (date1 instanceof Date) {
@@ -275,6 +278,7 @@ export function dateISO(date: unknown): string {
  * Usage: {{timestamp date}}
  */
 export function timestamp(date?: unknown): number {
+  if (isHbOptions(date)) date = undefined;
   if (!date) return DateTime.now().toMillis();
 
   if (date instanceof Date) {
@@ -303,6 +307,7 @@ export function unixTimestamp(date?: unknown): number {
  * Usage: {{fromTimestamp 1640000000000 "dd/MM/yyyy"}}
  */
 export function fromTimestamp(ts: number, format?: string): string {
+  if (isHbOptions(format)) format = undefined;
   const dt = DateTime.fromMillis(ts);
   return format ? dt.toFormat(format) : dt.toISO()!;
 }

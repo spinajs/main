@@ -6,6 +6,7 @@
   "module": "lib/mjs/index.js",
   "exports": {
     ".": {
+      "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
     }
@@ -61,7 +62,7 @@
     "@spinajs/util": "^2.0.481",
     "@spinajs/http": "^2.0.481",
     "lodash": "^4.17.21",
-     "luxon": "^3.6.1",
+    "luxon": "^3.6.1",
     "uuid": "^9.0.0",
     "socket.io": "^4.8.1"
   },

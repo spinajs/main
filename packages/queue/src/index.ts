@@ -1,7 +1,7 @@
 import { UnexpectedServerError, InvalidArgument, ConnectionNotFound } from '@spinajs/exceptions';
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { QueueClient, QueueJob, QueueEvent, IQueueMessage, QueueMessage, QueueService, isJob } from './interfaces.js';
+import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob } from './interfaces.js';
 import { JobModel } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
@@ -11,10 +11,15 @@ export * from './BlackHoleQueueClient.js';
 export * from './interfaces.js';
 export * from './decorators.js';
 export * from './models/JobModel.js';
+export * from './services/JobRetentionService.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
 export * from './migrations/Queue_2026_06_30_00_00_00.js';
 export * from './migrations/Queue_2026_07_17_00_00_00.js';
 export * from './fp.js';
+
+/** Fallback progress-throttle values used when `queue.progress` is not configured. */
+const DEFAULT_PROGRESS_MIN_DELTA = 5;
+const DEFAULT_PROGRESS_MIN_INTERVAL_MS = 1000;
 
 @Injectable(QueueService)
 export class DefaultQueueService extends QueueService {
@@ -24,7 +29,23 @@ export class DefaultQueueService extends QueueService {
   @AutoinjectService('queue.connections', QueueClient)
   protected Connections: Map<string, QueueClient>;
 
+  /**
+   * Config-selected retention service that periodically purges old tracked jobs.
+   * Started / stopped by DI on injection / disposal. May be undefined if retention
+   * is not configured.
+   */
+  @AutoinjectService('queue.retention', JobRetentionService)
+  protected Retention?: JobRetentionService;
+
   public async dispose() {
+    if (this.Retention) {
+      try {
+        await this.Retention.dispose();
+      } catch (err) {
+        this.Log.error(err, 'Cannot dispose job retention service');
+      }
+    }
+
     this.Connections.forEach(async (val) => {
       try {
         await val.dispose();
@@ -36,8 +57,9 @@ export class DefaultQueueService extends QueueService {
     this.Connections.clear();
   }
 
-  public async emit(event: IQueueMessage | QueueEvent | QueueJob) {
+  public async emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<string | undefined> {
     const connections = this.getConnectionsForMessage(event);
+    let jobId: string | undefined;
 
     for (let c of connections) {
       const connection = this.Connections.get(c);
@@ -46,24 +68,16 @@ export class DefaultQueueService extends QueueService {
       }
 
       if (isJob(event)) {
-        const jModel = new JobModel();
-
-        jModel.JobId = uuidv4();
-        jModel.Name = event.Name;
-        jModel.Status = 'created';
-        jModel.Progress = 0;
-        jModel.Attempt = 0;
-        jModel.Connection = c;
-
-        await jModel.insert();
-
-        event.JobId = jModel.JobId;
+        event.JobId = event.JobId ?? uuidv4(); // generate only; consumer writes the row
       }
 
       await connection.emit(event);
 
       this.Log.trace(`Emitted message ${event.Name}, type: ${event.Type} to connection ${c}`);
     }
+
+    // for jobs this is the id the caller uses to track progress / status
+    return jobId;
   }
 
   public async stopConsuming(event: Constructor<QueueMessage>) {
@@ -121,9 +135,36 @@ export class DefaultQueueService extends QueueService {
              */
             if (ev instanceof QueueJob) {
               let jobResult = null;
-              const jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+
+              // Consumer owns the tracking row. First receipt inserts; a redelivery finds the
+              // row from the prior attempt. The queue_jobs.JobId unique index makes a rare
+              // concurrent double-receipt safe (second insert collides -> re-read).
+              let jModel = await JobModel.where({ JobId: ev.JobId }).first();
+              if (!jModel) {
+                jModel = new JobModel();
+                jModel.JobId = ev.JobId;
+                jModel.Name = ev.Name;
+                jModel.Connection = c;
+                jModel.Attempt = 0;
+                jModel.Progress = 0;
+
+                try {
+                  await jModel.insert();
+                } catch (e) {
+                  // concurrent first-receipt from another worker won the insert; re-read and continue.
+                  jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+                }
+              }
+
               jModel.Status = 'executing';
               jModel.ExecutedAt = DateTime.now();
+
+              // throttle progress persistence: skip writes smaller than the threshold and
+              // closer together than the min interval, so a chatty job doesn't hammer the DB.
+              let lastProgress = 0;
+              let lastProgressAt = 0;
+              const minProgressDelta = this.Configuration.progress?.minDelta ?? DEFAULT_PROGRESS_MIN_DELTA;
+              const minProgressInterval = this.Configuration.progress?.minInterval ?? DEFAULT_PROGRESS_MIN_INTERVAL_MS;
 
               try {
                 // update executing state
@@ -142,12 +183,11 @@ export class DefaultQueueService extends QueueService {
 
                 // record the failed attempt and mark the job retrying / dead so the
                 // transport can apply its retry-then-dead-letter policy ( re-thrown below ).
+                // the error goes to LastError - Result is reserved for the successful output.
                 jModel.Attempt = (jModel.Attempt ?? 0) + 1;
                 const maxRetries = (ev as QueueJob).RetryCount ?? 0;
                 jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
-                jModel.Result = {
-                  message: err.message,
-                };
+                jModel.LastError = err instanceof Error ? err.message : String(err);
 
                 await jModel.update();
 
@@ -158,7 +198,27 @@ export class DefaultQueueService extends QueueService {
 
               await jModel.update();
 
-              async function onProgress(p: number) {
+              async function onProgress(p: number, meta?: IJobProgressMeta) {
+                const now = DateTime.now().toMillis();
+                const isFinal = p >= 100;
+                const hasMeta = meta?.phase !== undefined || meta?.message !== undefined;
+
+                // apply meta eagerly so a phase / message change is never lost to throttling
+                if (meta?.phase !== undefined) {
+                  jModel.Phase = meta.phase;
+                }
+                if (meta?.message !== undefined) {
+                  jModel.Message = meta.message;
+                }
+
+                // always persist the final 100% or a meta change; otherwise throttle by delta + time
+                if (!isFinal && !hasMeta && p - lastProgress < minProgressDelta && now - lastProgressAt < minProgressInterval) {
+                  jModel.Progress = p;
+                  return;
+                }
+
+                lastProgress = p;
+                lastProgressAt = now;
                 jModel.Progress = p;
                 await jModel.update();
 

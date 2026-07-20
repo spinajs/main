@@ -1,25 +1,35 @@
-// import { CliCommand, Command } from '@spinajs/cli';
-// import { Logger, Log } from '@spinajs/log-common';
-// import { fsService, fs } from '@spinajs/fs';
-// import { DI } from '@spinajs/di';
+import { CliCommand, Command } from '@spinajs/cli';
+import { Logger, Log } from '@spinajs/log-common';
+import { DI } from '@spinajs/di';
+import { fs, fsService } from '../index.js';
 
-// interface EmailOptions {
-//   name: string;
-//   path: string;
-// }
+/**
+ * Ensures fs providers are registered ( resolves fsService once if the app
+ * has not bootstrapped it yet ).
+ */
+export async function ensureProviders(): Promise<void> {
+  if (!DI.get('__file_provider_instance__')) {
+    await DI.resolve(fsService);
+  }
+}
 
-// @Command('fs:describe', 'Shows all registered filesystems and their configuration')
-// export class FsRmCommand extends CliCommand {
-//   @Logger('fs')
-//   protected Log: Log;
+@Command('fs-describe', 'Lists all registered filesystems and their provider type')
+export class FsDescribeCommand extends CliCommand {
+  @Logger('fs')
+  protected Log: Log;
 
-//   public async execute(_options: EmailOptions): Promise<void> {
-//     await DI.resolve(fsService);
-//     const fs = DI.resolve<Map<string, fs>>('__file_provider_instance__');
+  public async execute(): Promise<void> {
+    await ensureProviders();
 
-//     for (const n of fs.keys()) {
-//       // const f = fs.get(n);
-//       // this.Log.info(`Filesystem ${f.Name} is registered with configuration: ${f.}`);
-//     }
-//   }
-// }
+    const providers = DI.get<Map<string, fs>>('__file_provider_instance__');
+
+    if (!providers || providers.size === 0) {
+      this.Log.warn('No filesystems registered, check your fs configuration');
+      return;
+    }
+
+    for (const [name, provider] of providers) {
+      this.Log.info(`Filesystem '${name}' ( service: ${provider.constructor.name} )`);
+    }
+  }
+}

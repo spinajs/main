@@ -34,8 +34,9 @@ export class DtoSchemaProvider extends SchemaProvider {
     }
 
     const schema = schemas.get(typeName);
-    if(schema && typeof schema === 'object' && '$ref' in schema) {
-        return this.Validator.getSchema(schema.$ref)?.schema as Record<string, unknown> | undefined;
+    if (schema && typeof schema === 'object' && '$ref' in schema) {
+      // DataValidator.getSchema() already returns the unwrapped schema object
+      return this.Validator.getSchema(schema.$ref as string);
     }
 
     return schema;

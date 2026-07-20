@@ -116,7 +116,7 @@
     "@spinajs/session-provider-db": "file:packages\\session-provider-db",
     "@spinajs/session-provider-dynamodb": "file:packages\\session-provider-dynamodb",
     "@spinajs/templates": "file:packages\\templates",
-    "@spinajs/templates-cvs": "files:packages/templates-cvs",
+    "@spinajs/templates-csv": "file:packages\\templates-csv",
     "@spinajs/templates-handlebars": "file:packages\\templates-handlebars",
     "@spinajs/templates-mjml": "file:packages\\templates-mjml",
     "@spinajs/templates-pdf": "files:packages/templates-pdf",

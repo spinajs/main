@@ -3,6 +3,7 @@ import { IQueueMessage, IQueueJob, IQueueConnectionOptions, IQueueCredentialsPro
 import Stomp from '@stomp/stompjs';
 import _ from 'lodash';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder } from '@spinajs/util';
 import websocket from 'websocket';
 import { randomUUID } from 'crypto';
 import { DateTime } from 'luxon';
@@ -23,6 +24,12 @@ const DEFAULT_CONNECTION_TIMEOUT_MS = 10000;
 
 /**
  * Default reconnect / heartbeat timings used when not provided in connection options.
+ *
+ * NOTE on heartbeats: the default ( 4s ) suits brokers that support STOMP heartbeats over
+ * WebSocket ( eg. ActiveMQ ). RabbitMQ Web-STOMP / SockJS does NOT support heartbeats - when
+ * targeting it, set `heartbeatIncoming` and `heartbeatOutgoing` to 0 in the connection options,
+ * otherwise the connection will be dropped. We keep 4s as the default so dead-connection
+ * detection still works on brokers that do support it.
  */
 const DEFAULT_RECONNECT_DELAY_MS = 5000;
 const DEFAULT_HEARTBEAT_MS = 4000;
@@ -73,6 +80,10 @@ export class StompQueueClient extends QueueClient {
   protected ReadyWaiters: Array<() => void> = [];
 
   protected Disposing = false;
+
+  /** Publisher-side resilience: retry each receipt-confirmed publish with backoff so a transient
+   * broker hiccup / receipt timeout doesn't fail the emit. Duplicates are handled by consumer dedup. */
+  protected EmitPipeline: ResiliencePipeline<void> = this.buildEmitPipeline();
 
   public get ClientId() {
     return this.Options.clientId ?? this.Options.name;
@@ -399,6 +410,16 @@ export class StompQueueClient extends QueueClient {
         [RETRY_COUNT_HEADER]: `${nextAttempt}`,
       };
 
+      // preserve app-relevant delivery headers across the retry republish.
+      // NOTE: original AMQ_SCHEDULED_* are intentionally dropped - the backoff delay below
+      // replaces scheduling for the retry ( we don't want to re-run a cron on a retry ).
+      if (qMessage.Priority) {
+        headers.priority = `${qMessage.Priority}`;
+      }
+      if ((qMessage as IQueueJob).JobId) {
+        headers['correlation-id'] = (qMessage as IQueueJob).JobId!;
+      }
+
       if (delay > 0) {
         headers['AMQ_SCHEDULED_DELAY'] = `${delay}`;
       }
@@ -432,12 +453,15 @@ export class StompQueueClient extends QueueClient {
 
   /**
    * Publishes a failed message to the given dead-letter channel and acks the original
-   * to unblock the source queue. Falls back to nack when no dead-letter channel is set.
+   * to unblock the source queue. When no dead-letter channel is configured the message is
+   * dropped ( acked ) with a warning - we never nack-loop a poison message forever.
    */
   protected deadLetter(message: Stomp.IMessage, dlq: string | undefined, channel: string, reason: string, attempt?: number) {
     if (!dlq) {
-      this.Log.warn(`Message failed on channel ${channel}, no dead-letter channel configured - nacking. ${reason}`);
-      message.nack();
+      // retries are already exhausted here; nacking would just redeliver into another exhausted
+      // cycle forever. Drop it ( ack ) with a loud warning so the source queue is unblocked.
+      this.Log.warn(`Message failed on channel ${channel}, retries exhausted and no dead-letter channel configured - dropping. ${reason}`);
+      message.ack();
       return;
     }
 
@@ -470,6 +494,19 @@ export class StompQueueClient extends QueueClient {
   protected retryBackoff(attempt: number): number {
     const base = this.Options.retryDelay ?? 0;
     return base > 0 ? base * 2 ** (attempt - 1) : 0;
+  }
+
+  /**
+   * Publisher-side resilience pipeline used by emit(). Retries a failed / timed-out receipt
+   * publish with exponential backoff ( the per-attempt timeout lives in publishWithReceipt ).
+   */
+  protected buildEmitPipeline(): ResiliencePipeline<void> {
+    const attempts = (this.Options.options?.emitRetries as number) ?? 3;
+    const base = this.Options.retryDelay && this.Options.retryDelay > 0 ? this.Options.retryDelay : 200;
+
+    return new ResiliencePipelineBuilder<void>()
+      .addRetry({ MaxRetryAttempts: attempts, Delay: base, MaxDelay: 30000, BackoffType: BackoffType.Exponential, UseJitter: true })
+      .build();
   }
 
   /**
@@ -511,7 +548,7 @@ export class StompQueueClient extends QueueClient {
 
     const body = JSON.stringify(message);
 
-    return Promise.all(channels.map((c) => this.publishWithReceipt(c, body, headers, message))).then(() => undefined);
+    return Promise.all(channels.map((c) => this.EmitPipeline.execute(() => this.publishWithReceipt(c, body, headers, message)))).then(() => undefined);
   }
 
   /**

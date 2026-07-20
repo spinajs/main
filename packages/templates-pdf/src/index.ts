@@ -2,11 +2,11 @@ import { Page, PDFOptions } from 'puppeteer';
 import { PuppeteerRenderer, IPuppeteerRendererOptions } from '@spinajs/templates-puppeteer';
 import { TemplateRenderer } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
-import { IInstanceCheck, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Injectable, PerInstanceCheck } from '@spinajs/di';
 
 @Injectable(TemplateRenderer)
 @PerInstanceCheck()
-export class PdfRenderer extends PuppeteerRenderer implements IInstanceCheck {
+export class PdfRenderer extends PuppeteerRenderer {
   /**
    * General options from configuration
    */
@@ -25,8 +25,8 @@ export class PdfRenderer extends PuppeteerRenderer implements IInstanceCheck {
     super();
   }
 
-  __checkInstance__(creationOptions: any): boolean {
-    return JSON.stringify(this.pdfOptions) === JSON.stringify(creationOptions);
+  protected get instanceOptions() {
+    return this.pdfOptions;
   }
 
   protected async performRender(page: Page, filePath: string): Promise<void> {

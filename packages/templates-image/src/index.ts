@@ -2,11 +2,11 @@ import { Page, ScreenshotOptions } from 'puppeteer';
 import { PuppeteerRenderer, IPuppeteerRendererOptions } from '@spinajs/templates-puppeteer';
 import { TemplateRenderer } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
-import { IInstanceCheck, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Injectable, PerInstanceCheck } from '@spinajs/di';
 
 @Injectable(TemplateRenderer)
 @PerInstanceCheck()
-export class ImageRenderer extends PuppeteerRenderer implements IInstanceCheck {
+export class ImageRenderer extends PuppeteerRenderer {
   /**
    * General options from configuration
    */
@@ -18,15 +18,15 @@ export class ImageRenderer extends PuppeteerRenderer implements IInstanceCheck {
   }
 
   public get Extension() {
-    return '.png';
+    return `.${this.screenshotOptions?.type ?? 'png'}`;
   }
 
   constructor(protected screenshotOptions: ScreenshotOptions) {
     super();
   }
 
-  __checkInstance__(creationOptions: any): boolean {
-    return JSON.stringify(this.screenshotOptions) === JSON.stringify(creationOptions);
+  protected get instanceOptions() {
+    return this.screenshotOptions;
   }
 
   protected async performRender(page: Page, filePath: string): Promise<void> {

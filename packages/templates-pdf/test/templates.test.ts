@@ -65,6 +65,11 @@ describe('templates', function ()  {
     await DI.resolve(Configuration);
   });
 
+  afterEach(async () => {
+    // dispose so the pooled browser is closed and the process can exit
+    await DI.dispose();
+  });
+
   it('should render pdf', async () => {
     const t = await tp();
 
