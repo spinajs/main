@@ -19,7 +19,13 @@ import { DateTime } from 'luxon';
  *   - `date-range` / `time-range` / `datetime-range` -> DateTime[], ISO values joined by ';'
  *
  * All values are stored & read in canonical form (ISO dates/times, decimal
- * numbers, `true`/`false` booleans) - there is no legacy-format tolerance.
+ * numbers, `true`/`false` booleans).
+ *
+ * `toDB` is the single conversion point: it canonicalizes whatever shape the
+ * value happens to be in (an already-typed model value such as a luxon
+ * `DateTime`, or the loose JSON the http layer assigns straight from a request -
+ * ISO strings, numeric strings, `'1'`/`'0'` booleans). Callers therefore don't
+ * have to pre-coerce; they validate and hand the raw value over.
  */
 @Singleton()
 export class DbConfigValueConverter extends UniversalValueConverter {
@@ -33,18 +39,39 @@ export class DbConfigValueConverter extends UniversalValueConverter {
       case 'file':
         return value as string;
       case 'range':
-        return (value as number).toString();
+        return Number(value).toString();
       case 'manyOf':
         return JSON.stringify(value);
+      case 'boolean':
+        return this.toBool(value) ? 'true' : 'false';
+      case 'date':
+        return this.toDateTime(value).toISODate();
+      case 'time':
+        return this.toDateTime(value).toISOTime({ includeOffset: false });
+      case 'datetime':
+        return this.toDateTime(value).toISO();
       case 'date-range':
-        return (value as DateTime[]).map((x) => x.toISODate()).join(';');
+        return (value as unknown[]).map((x) => this.toDateTime(x).toISODate()).join(';');
       case 'time-range':
-        return (value as DateTime[]).map((x) => x.toISOTime({ includeOffset: false })).join(';');
+        return (value as unknown[]).map((x) => this.toDateTime(x).toISOTime({ includeOffset: false })).join(';');
       case 'datetime-range':
-        return (value as DateTime[]).map((x) => x.toISO()).join(';');
+        return (value as unknown[]).map((x) => this.toDateTime(x).toISO()).join(';');
       default:
         return super.toDB(value, model, column, options);
     }
+  }
+
+  /** Accepts an already-typed `DateTime` or an ISO string. */
+  private toDateTime(value: unknown): DateTime {
+    return DateTime.isDateTime(value) ? value : DateTime.fromISO(value as string);
+  }
+
+  /** Accepts a real boolean or the canonical / numeric string forms. */
+  private toBool(value: unknown): boolean {
+    if (typeof value === 'string') {
+      return value === '1' || value === 'true';
+    }
+    return Boolean(value);
   }
 
   public fromDB(value: any, raw: any, options: IUniversalConverterOptions): any {

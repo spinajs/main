@@ -4,12 +4,11 @@ import sinon from 'sinon';
 
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { fs, FsBootsrapper, IFsLocalOptions } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 import { FileSystem } from '../src/decorators.js';
 import { fsNative } from '../src/local-provider.js';
-import { fsService } from '../src/index.js';
+import { fs, FsBootsrapper, fsService, IFsLocalOptions } from '../src/index.js';
 
 @Injectable('fs')
 @PerInstanceCheck()

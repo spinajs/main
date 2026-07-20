@@ -6,7 +6,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import * as fs from 'fs';
-import '../../src/index.js';
+import '../src/index.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -79,7 +79,7 @@ describe('templates', () => {
 
   it('should render xlsx to file', async () => {
     const t = await tp();
-    await t.renderToFile('template.xlsx', { hello: 'world' }, dir('./templates/rendered_template.xlsx'));
+    await t.renderToFile(dir('templates/template.xlsx'), { hello: 'world' }, dir('./templates/rendered_template.xlsx'));
 
     const exists = fs.existsSync(dir('./templates/rendered_template.xlsx'));
     expect(exists).to.eq(true);

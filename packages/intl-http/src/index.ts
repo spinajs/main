@@ -1,6 +1,7 @@
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { _check_arg, _is_string, _between } from '@spinajs/util';
 import { ServerMiddleware, Request as sRequest, Route, Parameter, RouteArgs, IRouteCall, IRouteParameter } from '@spinajs/http';
 import * as express from 'express';
 
@@ -31,9 +32,7 @@ function _validate(param: unknown) {
   // lang param is optional
   if (param === null || param === undefined) return;
 
-  if (typeof param !== 'string') throw new InvalidArgument('lang parameter is not string');
-
-  if (param.length < 2 || param.length > 5) throw new InvalidArgument('lang parameter length is invalid');
+  _check_arg(_is_string(), _between(2, 5))(param, 'lang parameter');
 }
 
 @Injectable()

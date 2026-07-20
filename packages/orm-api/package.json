@@ -6,6 +6,7 @@
   "module": "lib/mjs/index.js",
   "exports": {
     ".": {
+      "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
     }
@@ -58,7 +59,7 @@
     "@spinajs/rbac": "^2.0.481",
     "@spinajs/rbac-http": "^2.0.481",
     "lodash": "^4.17.21",
-     "luxon": "^3.6.1"
+    "luxon": "^3.6.1"
   },
   "devDependencies": {
     "@spinajs/orm-sqlite": "^2.0.481"

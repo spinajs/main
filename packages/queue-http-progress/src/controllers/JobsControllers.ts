@@ -18,8 +18,13 @@ export class JobsController extends BaseController {
             jobId: row.JobId,
             progress: row.Progress,
             status: row.Status,
-            message: (ctx as any)?.Result,
+            phase: row.Phase ?? undefined,
+            message: row.Message ?? undefined,
+            error: failed ? row.LastError : undefined,
+            attempt: row.Attempt,
+            maxAttempts: row.MaxAttempts,
             createdAt: row.CreatedAt,
+            finishedAt: row.FinishedAt,
         };
 
         return new Ok(response);

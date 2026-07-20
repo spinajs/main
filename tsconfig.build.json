@@ -33,6 +33,7 @@
     { "path": "packages/queue/tsconfig.mjs.json" },
     { "path": "packages/queue-orm-transport/tsconfig.mjs.json" },
     { "path": "packages/queue-stomp-transport/tsconfig.mjs.json" },
+    { "path": "packages/queue-templates-pdf/tsconfig.mjs.json" },
     { "path": "packages/rbac/tsconfig.mjs.json" },
     { "path": "packages/rbac-http/tsconfig.mjs.json" },
     { "path": "packages/rbac-http-user/tsconfig.mjs.json" },
@@ -56,6 +57,7 @@
     { "path": "packages/orm-threading/tsconfig.mjs.json" },
     { "path": "packages/configuration-aws-secretmanager-protocol/tsconfig.mjs.json" },
     { "path": "packages/configuration-fs-protocol/tsconfig.mjs.json"},
+    { "path": "packages/configuration-http/tsconfig.mjs.json"},
     { "path": "packages/http-socket/tsconfig.mjs.json"}
 
 

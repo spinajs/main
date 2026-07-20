@@ -1,4 +1,5 @@
 import { InvalidArgument } from '@spinajs/exceptions';
+import { uniqueBy } from '@spinajs/util';
 import 'reflect-metadata';
 import { TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
@@ -6,9 +7,7 @@ import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isFactory, isTypedArray, isPromise } from './helpers.js';
 import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service } from './interfaces.js';
 import { Class, Factory } from './types.js';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-import { EventEmitter } from 'events';
+import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
 import { Registry } from './registry.js';
 import { ContainerCache } from './container-cache.js';
@@ -353,21 +352,28 @@ export class Container extends EventEmitter implements IContainer {
 
 
     /**
-     * Chain to the last registered type
+     * Chain to the last registered type - follow `last registered` links until
+     * they stabilize. Every @Injectable registers under itself, so X -> [ X ]
+     * is the common fixed point. Seen-set guards against registration cycles
+     * that would otherwise loop forever ( eg. A -> B -> C where C is self
+     * registered but never maps back to A ).
      */
-    let cType: Class<T>[] = this.Registry.getTypes(targetType);
-    while (cType && cType.length > 0) {
-      const t = this.Registry.getTypes(cType[cType.length - 1]);
-      if (t && t.length > 0) {
-        cType = t as Class<T>[];
-      }
-
-      if (cType[cType.length - 1] === targetType || !t || t.length === 0) {
+    let tType = targetType as Class<T>;
+    const seen = new Set<unknown>([tType]);
+    for (;;) {
+      const chained = this.Registry.getTypes(tType);
+      if (!chained || chained.length === 0) {
         break;
       }
-    }
 
-    const tType = cType ? cType[0] as Class<T> : targetType;
+      const next = chained[chained.length - 1] as Class<T>;
+      if (next === tType || seen.has(next)) {
+        break;
+      }
+
+      seen.add(next);
+      tType = next;
+    }
     const sName = getTypeName(sourceType);
     const descriptor = this.extractDescriptor(tType);
 
@@ -412,16 +418,30 @@ export class Container extends EventEmitter implements IContainer {
       ) as T;
     }
 
-    // Non-singleton path - resolve normally without caching
+    // Non-singleton path - resolve normally without caching.
+    // Cache is bypassed here, so emit di.resolved events ourselves -
+    // singleton path emits them from ContainerCache.getOrCreate
+    const emitResolved = (instance: unknown) => {
+      const targetName = getTypeName(tType);
+      this.emit(`di.resolved.${targetName}`, this, instance);
+
+      if (sName !== targetName) {
+        this.emit(`di.resolved.${sName}`, this, instance);
+      }
+
+      return instance;
+    };
+
     const deps = this.resolveDependencies(descriptor.inject);
 
     if (deps instanceof Promise) {
       return deps.then((resolvedDependencies) => {
-        return resolve(descriptor, tType, resolvedDependencies) as T;
+        const resInstance = resolve(descriptor, tType, resolvedDependencies);
+        return (isPromise(resInstance) ? resInstance.then(emitResolved) : emitResolved(resInstance)) as T;
       });
     } else {
       const resInstance = resolve(descriptor, tType, deps as IResolvedInjection[]);
-      return resInstance as T;
+      return (isPromise(resInstance) ? resInstance.then(emitResolved) : emitResolved(resInstance)) as T;
     }
   }
 
@@ -622,7 +642,7 @@ export class Container extends EventEmitter implements IContainer {
     // and add them first
     const constructorInject = descriptor.inject.filter((x) => x.autoinjectKey === '');
     const rest = descriptor.inject.filter((x) => x.autoinjectKey !== '');
-    descriptor.inject = [...constructorInject, ..._.uniqBy(rest, (x) => x.autoinjectKey)];
+    descriptor.inject = [...constructorInject, ...uniqueBy(rest, (x) => x.autoinjectKey)];
 
     return descriptor;
   }

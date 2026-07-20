@@ -1,10 +1,9 @@
-import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
-import { IOFail, InvalidArgument } from '@spinajs/exceptions';
+import { __translate, __translateNumber, __translateL, __translateH } from '@spinajs/intl';
+import { IOFail } from '@spinajs/exceptions';
 import * as fs from 'fs';
 import * as pugTemplate from 'pug';
-import * as path from 'path';
 import _ from 'lodash';
-import { TemplateRenderer } from '@spinajs/templates';
+import { CompiledTemplateRenderer, TemplateRenderer } from '@spinajs/templates';
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
@@ -25,15 +24,9 @@ export class PugRenderer extends TemplateRenderer {
     return '.pug';
   }
 
-  public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
-    const content = await this.render(template, model, language);
-    const dir = path.dirname(filePath);
-
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    fs.writeFileSync(filePath, content);
+  // in dev mode always recompile so template edits are picked up without a restart
+  protected shouldRecompile(): boolean {
+    return this.devMode;
   }
 
   public async render(templateName: string, model: unknown, language?: string): Promise<string> {

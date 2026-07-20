@@ -197,12 +197,37 @@ export function child(): IContainer {
   return RootContainer.child();
 }
 
+/**
+ * Injectable module loader seam. When a service is registered under
+ * `__module_loader__` it takes over dynamic module loading entirely. This is
+ * the browser / bundler escape hatch: no `require`, no bare dynamic import of a
+ * file path — a DI-provided loader decides how ( and whether ) to load a module.
+ */
+export interface IModuleLoader {
+  load(module: string): Promise<unknown>;
+}
+
 export async function __spinajs_require__(module: string): Promise<unknown> {
+  // DI seam first: if an explicit module loader is registered, delegate to it.
+  const loader = RootContainer.get<IModuleLoader>('__module_loader__');
+  if (loader) {
+    return loader.load(module);
+  }
+
   const isESM = RootContainer.get<{ mjs: boolean }>('__esmMode__');
   if (isESM && isESM.mjs) {
-    const result = await import(module.startsWith('file://') ? module : `file://${module}`);
+    // @vite-ignore keeps bundlers from trying to statically analyse / bundle
+    // a runtime file path ( never reached in the browser — no file sources ).
+    const result = await import(/* @vite-ignore */ module.startsWith('file://') ? module : `file://${module}`);
     return result.default ?? result;
   } else {
+    if (typeof require === 'undefined') {
+      throw new Error(
+        "@spinajs/di: CommonJS `require` is not available in this environment ( e.g. a bundled/browser build ). " +
+          "Register a module loader under '__module_loader__' ( DI.register(loader).asValue('__module_loader__') ) " +
+          'or enable ESM mode via DI.setESMModuleSupport().',
+      );
+    }
     return Promise.resolve(require(module));
   }
 }

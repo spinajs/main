@@ -48,14 +48,19 @@ export abstract class QueueService extends AsyncService {
   @Config('queue')
   protected Configuration: IQueueConfiguration;
 
-  public abstract emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<void>;
+  /**
+   * Emit a message. For jobs the generated JobId is returned so the caller can
+   * correlate the job with its progress/status (e.g. via queue-http-progress).
+   * Returns undefined for non-job messages.
+   */
+  public abstract emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<string | undefined>;
   public abstract consume<T extends QueueMessage>(event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
   public abstract stopConsuming(event: Constructor<QueueMessage>): Promise<void>;
   public abstract get(connection?: string): QueueClient;
 
   protected getConnectionsForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
     const eventName = ((event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name) as string;
-    const option: string | IMessageRoutingOption | string[] | IMessageRoutingOption[] = (this.Configuration.routing as any)[eventName] ?? this.Configuration.default;
+    const option: string | IMessageRoutingOption | string[] | IMessageRoutingOption[] = ((this.Configuration.routing ?? {}) as any)[eventName] ?? this.Configuration.default;
 
     if (_.isString(option)) {
       return [this.Configuration.default];
@@ -72,7 +77,7 @@ export abstract class QueueService extends AsyncService {
         }),
       );
     } else {
-      return [option.connection!];
+      return [option.connection ?? this.Configuration.default];
     }
   }
 }
@@ -170,6 +175,24 @@ export abstract class QueueEvent extends QueueMessage {
  *
  * Job results are preserved
  */
+/**
+ * Optional richer progress metadata a job may report alongside the numeric
+ * percentage - persisted to the job model and exposed by queue-http-progress.
+ */
+export interface IJobProgressMeta {
+  /** Short phase label, e.g. `loading`, `rendering`. */
+  phase?: string;
+  /** Human-facing status message. */
+  message?: string;
+}
+
+/**
+ * Progress reporter passed to {@link QueueJob.execute}. Call with a 0-100
+ * percentage; the optional `meta` carries a phase label / message. Jobs that
+ * only report a percentage can ignore `meta`.
+ */
+export type JobProgressCallback = (p: number, meta?: IJobProgressMeta) => Promise<void>;
+
 export abstract class QueueJob extends QueueMessage implements IQueueJob {
   public JobId: string;
 
@@ -184,12 +207,19 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
     this.Type = QueueMessageType.Job;
   }
 
-  public abstract execute(progress: (p: number) => Promise<void>): Promise<unknown>;
+  public abstract execute(progress: JobProgressCallback): Promise<unknown>;
 
-  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, options?: IMessageOptions): Promise<void> {
+  /**
+   * Emit (enqueue) this job. Returns the generated JobId so the caller can track
+   * the job's progress / status (e.g. via queue-http-progress `:jobId/status`).
+   */
+  public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, options?: IMessageOptions): Promise<string | undefined> {
     const queue = await DI.resolve(QueueService);
 
     const message = {
+      // jobs must not be lost by default - persist unless the caller opts out.
+      // ( val / options below can still override this )
+      Persistent: true,
       ...val,
       Type: QueueMessageType.Job,
       CreatedAt: val.CreatedAt ?? DateTime.now(),
@@ -198,7 +228,7 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
     } as IQueueMessage;
 
     // partial of queue job always is queue message
-    await queue.emit(message);
+    return queue.emit(message);
   }
 }
 
@@ -227,9 +257,14 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
 
   /**
    *
-   * Dispatches event to queue
+   * Dispatches a message to the broker.
    *
-   * @param event - event to dispatch
+   * Delivery-guarantee contract: the returned promise MUST resolve only once the broker has
+   * taken custody of the message ( AMQP publisher confirm / STOMP RECEIPT frame ), so callers
+   * emitting persistent Jobs get an at-least-once guarantee. Fire-and-forget publishing is only
+   * acceptable for non-persistent Events.
+   *
+   * @param event - message to dispatch
    */
   public abstract emit(event: IQueueMessage): Promise<void>;
 
@@ -263,7 +298,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    */
   public getDeadLetterChannelForMessage(event: IQueueMessage | Constructor<QueueMessage>): string | undefined {
     const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
-    const rOption = this.Routing[eName];
+    const rOption = this.Routing?.[eName];
 
     // a single route option may carry its own dead-letter channel
     if (rOption && !_.isString(rOption) && !_.isArray(rOption) && rOption.deadLetterChannel) {
@@ -291,7 +326,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     const options = Reflect.getMetadata('queue:options', event);
     const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
     const isJob = (event as IQueueMessage).Type ? (event as IQueueMessage).Type === QueueMessageType.Job : options ? options.type === 'job' : false;
-    const rOption = this.Routing[eName];
+    const rOption = this.Routing?.[eName];
 
     if (!rOption) {
       this.Log.warn(`No routing for event ${eName} found, using default channel`);
@@ -335,6 +370,94 @@ export interface IQueueConfiguration {
    */
   routing?: IQueueMessageRoutingOptions;
   connections: IQueueConnectionOptions[];
+
+  /**
+   * Skip re-executing a job whose {@link JobModel} is already in a terminal state
+   * ( `success` or `dead` ). Messaging is at-least-once, so duplicates happen on
+   * consumer crash and on broker failover - dedup keeps jobs idempotent.
+   *
+   * Defaults to `true`.
+   */
+  deduplicate?: boolean;
+
+  /**
+   * Automatic cleanup of old tracked jobs ( {@link JobModel} rows ) so the table doesn't
+   * grow unbounded. Disabled by default - opt in to avoid silently deleting data.
+   */
+  retention?: IQueueRetentionOptions;
+
+  /**
+   * Throttling of job progress persistence, so a chatty job that reports progress
+   * frequently doesn't hammer the DB with a write per callback.
+   */
+  progress?: IQueueProgressOptions;
+}
+
+export interface IQueueProgressOptions {
+  /**
+   * Minimum progress delta ( % ) between throttled DB writes. Default `5`.
+   */
+  minDelta?: number;
+
+  /**
+   * Minimum time ( ms ) between throttled DB writes. Default `1000`.
+   */
+  minInterval?: number;
+}
+
+export interface IQueueRetentionOptions {
+  /**
+   * DI service name of the {@link JobRetentionService} implementation that runs the purge.
+   * Selected via {@link AutoinjectService}; defaults to `DefaultJobRetentionService`.
+   */
+  service: string;
+
+  /**
+   * Turn the periodic purge on. Default `false`.
+   */
+  enabled?: boolean;
+
+  /**
+   * Age in milliseconds after which a purged job is deleted ( based on CreatedAt ).
+   */
+  maxAge?: number;
+
+  /**
+   * Which statuses to purge. Defaults to terminal statuses ( success / error / dead ).
+   */
+  statuses?: string[];
+
+  /**
+   * How often ( ms ) to run the purge. Default 1 hour.
+   */
+  interval?: number;
+}
+
+/**
+ * Runs the periodic cleanup of tracked jobs ( {@link JobModel} rows ) so the table doesn't grow
+ * unbounded. The concrete implementation is selected by config ( `queue.retention.service` ) and
+ * injected into the {@link QueueService} via {@link AutoinjectService}. Because it is an
+ * {@link AsyncService}, DI runs `resolve()` on injection ( where the periodic purge is started )
+ * and `dispose()` on teardown ( where it is stopped ).
+ */
+export abstract class JobRetentionService extends AsyncService implements IMappableService {
+  constructor(public Options: IQueueRetentionOptions) {
+    super();
+  }
+
+  public get ServiceName(): string {
+    return this.Options.service;
+  }
+
+  /**
+   * Deletes tracked jobs ( {@link JobModel} rows ) created before `olderThan` in one of `statuses`.
+   * Used by the periodic purge and available for manual cleanup.
+   *
+   * @param olderThan - delete jobs created before this moment
+   * @param statuses - which statuses to purge ( defaults to terminal: success / error / dead )
+   * @returns number of deleted rows
+   */
+  public abstract purgeJobs(olderThan: DateTime, statuses?: string[]): Promise<number>;
 }
 
 export interface IMessageRoutingOption {

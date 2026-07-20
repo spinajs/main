@@ -5,6 +5,7 @@ import { ReadStream, WriteStream } from 'fs';
 import { DateTime } from 'luxon';
 import { PassThrough } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
+import type { BinaryToTextEncoding } from 'node:crypto';
 
 /**
  * Class for handling fs URI eg. fs://fs-temp/path/to/file
@@ -14,21 +15,20 @@ export class URI {
   public Path: string;
 
   constructor(uri: string) {
-    const reg = /^(fs+:\/\/)+(.+)$/;
-
-    if (!reg.test(uri)) {
-      throw new InvalidArgument(`URI ${uri} is not valid`);
-    }
-
+    // strict scheme - previous pattern /(fs+:\/\/)+/ accepted eg. fsss:// and fs://fs://
+    const reg = /^fs:\/\/(.+)$/;
     const e = reg.exec(uri);
 
-    if(!e || e.length < 3){
+    if (!e) {
       throw new InvalidArgument(`URI ${uri} is not valid`);
     }
 
-    const match = e[2];
-    const fsName = match.substring(0, match.indexOf('/'));
-    this.Path = match.substring(match.indexOf('/') + 1);
+    const match = e[1];
+    const slash = match.indexOf('/');
+
+    // fs://name ( no path ) -> whole match is the fs name, path is empty
+    const fsName = slash === -1 ? match : match.substring(0, slash);
+    this.Path = slash === -1 ? '' : match.substring(slash + 1);
     this.Fs = DI.resolve<fs>('__file_provider__', [fsName]);
 
     if (!this.Fs) {
@@ -40,6 +40,12 @@ export class URI {
 export interface IProviderConfiguration {
   name: string;
   service: string;
+
+  /**
+   * Name of another configured fs provider this one depends on ( eg. fsTemp backend ).
+   * fsService creates referenced providers first, regardless of config order.
+   */
+  provider?: string;
 }
 export interface IFsConfiguration {
   defaultProvider: string;
@@ -77,6 +83,11 @@ export interface IFileInfo {
   FrameCount?: number;
   FrameRate?: number;
 
+  /**
+   * Number of audio channels ( eg. 2 for stereo )
+   */
+  AudioChannels?: number;
+
   Bitrate?: number;
   Codec?: string;
 
@@ -93,6 +104,13 @@ export interface IFileInfo {
    * Raw unprocessed data obtained from file info
    */
   Raw?: {};
+
+  /**
+   * All other extracted tags are promoted here generically ( PascalCased tag
+   * name -> value ). The well-known fields above are typed aliases over the
+   * same data; everything the analyzer emits is also available in {@link Raw}.
+   */
+  [key: string]: unknown;
 }
 
 export interface IFsLocalOptions {
@@ -110,23 +128,50 @@ export interface IFsLocalOptions {
   name: string;
 }
 
-export interface IFsLocalTempOptions extends IFsLocalOptions {
+export interface ITempOptions {
   /**
    * Should cleanup of old temp files be enabled
    */
-  cleanup: boolean;
+  cleanup?: boolean;
 
   /**
-   * Cleanup interval in seconds
+   * Cleanup interval in milliseconds, used by interval-based cleanup strategies.
    * Default is 10 minutes
    */
-  cleanupInterval: number;
+  cleanupInterval?: number;
 
   /**
-   * Max temp file age in seconds. Older thant this will be deleted.
+   * Max temp file age in seconds. Older than this will be deleted.
    * Default is 1 hour
    */
-  maxFileAge: number;
+  maxFileAge?: number;
+
+  /**
+   * Class name of TempCleanupStrategy implementation to use.
+   * Default is MaxAgeTempCleanupStrategy
+   */
+  cleanupStrategy?: string;
+
+  /**
+   * Cron expression used by CronTempCleanupStrategy ( 6-field with seconds supported,
+   * eg. '0 0 * * * *' = hourly ). Required when that strategy is selected.
+   * Ignored by interval-based strategies.
+   */
+  cleanupCronExpression?: string;
+}
+
+export interface IFsTempOptions extends ITempOptions {
+  /**
+   * Instance name of this filesystem. Used to share fs instances.
+   */
+  name: string;
+
+  /**
+   * Name of registered fs provider used as temp file storage.
+   * Any configured fs can serve as backend ( local, s3, ftp, ... ).
+   * Creation fails if provider with this name is not registered.
+   */
+  provider: string;
 }
 
 export interface IZipResult {
@@ -139,7 +184,7 @@ export interface IZipResult {
   asFilePath(): string;
 
   // return as stream to zipped content
-  asStream(): ReadStream;
+  asStream(encoding?: BufferEncoding): ReadStream;
 
   // return base64 representation of zipped content
   asBase64(): string;
@@ -423,12 +468,47 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
  * Eg. movie resolution, image, codec etc. if possible
  */
 export abstract class FileInfoService {
+  /**
+   * Extracts file information from a file on disk.
+   *
+   * @param pathToFile absolute path to the file
+   */
   public abstract getInfo(pathToFile: string): Promise<IFileInfo>;
+
+  /**
+   * Extracts file information from a readable stream ( content is fed to the
+   * analyzer via stdin, so no temporary file is needed ).
+   *
+   * @param stream readable stream with the file content
+   */
+  public abstract getInfoFromStream(stream: NodeJS.ReadableStream): Promise<IFileInfo>;
 }
 
 /**
- * File hasher, to create unique hash for file
+ * File hasher, to create unique hash for a file, raw data or a stream.
  */
 export abstract class FileHasher {
-  public abstract hash(pathToFile: string): Promise<string>;
+  /**
+   * Hashes the content of a file.
+   *
+   * @param pathToFile absolute path to the file
+   * @param encoding digest output encoding ( default 'hex' )
+   */
+  public abstract hash(pathToFile: string, encoding?: BinaryToTextEncoding): Promise<string>;
+
+  /**
+   * Hashes raw in-memory data.
+   *
+   * @param data string or Buffer to hash
+   * @param encoding digest output encoding ( default 'hex' )
+   */
+  public abstract hashData(data: string | Uint8Array, encoding?: BinaryToTextEncoding): Promise<string>;
+
+  /**
+   * Hashes the content of a readable stream.
+   *
+   * @param stream readable stream to consume
+   * @param encoding digest output encoding ( default 'hex' )
+   */
+  public abstract hashStream(stream: NodeJS.ReadableStream, encoding?: BinaryToTextEncoding): Promise<string>;
 }

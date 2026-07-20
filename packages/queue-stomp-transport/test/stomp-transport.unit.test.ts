@@ -377,7 +377,7 @@ describe('stomp queue transport - unit', function () {
       expect(c.fake.published.some((p) => p.destination === '/queue/dlq')).to.be.false;
     });
 
-    it('nacks a failed JOB when no dead-letter channel is configured', async () => {
+    it('drops ( acks ) a failed JOB when no dead-letter channel is configured', async () => {
       const c = await connected();
       await c.subscribe('/queue/fail', sinon.stub().rejects(new Error('boom')));
 
@@ -386,8 +386,9 @@ describe('stomp queue transport - unit', function () {
       sub.callback(msg);
       await tick();
 
-      expect(msg.nack.calledOnce).to.be.true;
-      expect(msg.ack.called).to.be.false;
+      // no DLQ + retries exhausted -> drop (ack) instead of nack-looping forever
+      expect(msg.ack.calledOnce).to.be.true;
+      expect(msg.nack.called).to.be.false;
     });
 
     it('dead-letters a failed JOB ( RetryCount 0 ) and acks the original', async () => {
@@ -465,6 +466,20 @@ describe('stomp queue transport - unit', function () {
       const retry = c.fake.published.find((p) => p.destination === '/queue/job');
       expect(retry!.headers['x-retry-count']).to.eq('2');
       expect(retry!.headers.AMQ_SCHEDULED_DELAY).to.eq('200');
+    });
+
+    it('preserves priority and correlation-id on the retry republish', async () => {
+      const c = await connected({ retryDelay: 100 });
+      await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/job')!;
+      const msg = brokerMessage(jobMessage({ RetryCount: 3, JobId: 'job-xyz', Priority: 7 } as any));
+      sub.callback(msg);
+      await tick();
+
+      const retry = c.fake.published.find((p) => p.destination === '/queue/job')!;
+      expect(retry.headers.priority).to.eq('7');
+      expect(retry.headers['correlation-id']).to.eq('job-xyz');
     });
 
     it('dead-letters the job once retries are exhausted', async () => {

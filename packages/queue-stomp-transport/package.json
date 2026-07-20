@@ -2,14 +2,14 @@
   "name": "@spinajs/queue-stomp-transport",
   "version": "2.0.481",
   "description": "STOMP-over-WebSocket queue transport for SpinaJS. Publishes & consumes jobs/events on a STOMP broker (e.g. ActiveMQ) with reconnect, durable subscriptions and dead-letter routing.",
-  
-    "main": "lib/cjs/index.js",
+  "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
   },
   "type": "module",
   "private": false,
@@ -29,12 +29,10 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "files": [
     "lib/**/*"
   ],
-  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -60,7 +58,8 @@
     "@spinajs/log": "^2.0.481",
     "@spinajs/queue": "^2.0.481",
     "@stomp/stompjs": "^6.1.2",
-    "websocket": "^1.0.34"
+    "websocket": "^1.0.34",
+    "@spinajs/util": "^2.0.481"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

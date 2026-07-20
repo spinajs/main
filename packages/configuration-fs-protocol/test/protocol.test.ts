@@ -11,6 +11,8 @@ import { join, normalize, resolve } from 'path';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '../src/index.js';
+// registers the Log implementation - fs providers log during resolve()
+import '@spinajs/log';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 
 const expect = chai.expect;
@@ -64,6 +66,32 @@ async function cfg() {
   return await DI.resolve(Configuration);
 }
 
+describe('fs protocol - var accessed before fs providers are registered', function () {
+  this.timeout(10000);
+
+  before(() => {
+    const bootstrapper = DI.resolve(FsBootsrapper);
+    bootstrapper.bootstrap();
+
+    DI.register(ConnectionConf).as(Configuration);
+  });
+
+  after(() => {
+    DI.uncache(Configuration);
+  });
+
+  it('returns null before fsService, real value after ( lazy retry )', async () => {
+    const c = await cfg();
+
+    // fs providers are not registered yet - early access must yield null, not throw
+    expect(c.get('test')).to.be.null;
+
+    // once fsService registers providers, the same var resolves on next access
+    await DI.resolve(fsService);
+    expect(c.get<string>('test')).to.eq(join(dir('./temp'), 'somepath'));
+  });
+});
+
 describe('fs protocol test', function () {
   this.timeout(10000);
 
@@ -87,11 +115,12 @@ describe('fs protocol test', function () {
     await DI.dispose();
   });
 
-  it('Should load aws value to configuration', async () => {
+  it('Should resolve fs-path vars at root, nested and in arrays', async () => {
     const c = await cfg();
-    expect(c.get<string>('test').endsWith('packages\\configuration-fs-protocol\\test\\temp')).to.be.true;
-    expect(c.get<string>('nested.fs.path').endsWith('packages\\configuration-fs-protocol\\test\\temp')).to.be.true;
-    expect((c.get<[0]>('nested.array.path')[0] as any).path.endsWith('packages\\configuration-fs-protocol\\test\\temp')).to.be.true;
 
+    // fs-path://fs-temp/<path> resolves to <fs-temp basePath>/<path>
+    expect(c.get<string>('test')).to.eq(join(dir('./temp'), 'somepath'));
+    expect(c.get<string>('nested.fs.path')).to.eq(join(dir('./temp'), 'somepath2'));
+    expect((c.get<any[]>('nested.array')[0] as any).path).to.eq(join(dir('./temp'), 'somepath3'));
   });
 });

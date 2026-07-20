@@ -1,3 +1,6 @@
+import { capitalize as _capitalize, capitalizeWords as _capitalizeWords, truncateWords as _truncateWords } from '@spinajs/util';
+import { isHbOptions } from './options.js';
+
 /**
  * Right-aligns text by padding with spaces on the left
  * Usage: {{__textRight "hello" 10}}
@@ -55,8 +58,7 @@ export function lowercase(str: string): string {
  * Usage: {{capitalize "hello world"}} → "Hello world"
  */
 export function capitalize(str: string): string {
-  const text = String(str || '');
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  return _capitalize(String(str || ''));
 }
 
 /**
@@ -64,10 +66,7 @@ export function capitalize(str: string): string {
  * Usage: {{capitalizeWords "hello world"}} → "Hello World"
  */
 export function capitalizeWords(str: string): string {
-  return String(str || '')
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
+  return _capitalizeWords(String(str || ''));
 }
 
 /**
@@ -76,6 +75,7 @@ export function capitalizeWords(str: string): string {
  * Usage: {{truncate "Hello World" 5 "…"}} → "Hello…"
  */
 export function truncate(str: string, length: number, suffix: string = '...'): string {
+  if (isHbOptions(suffix)) suffix = '...';
   const text = String(str || '');
   if (text.length <= length) return text;
   return text.substring(0, length) + suffix;
@@ -86,9 +86,8 @@ export function truncate(str: string, length: number, suffix: string = '...'): s
  * Usage: {{truncateWords "The quick brown fox" 2}} → "The quick..."
  */
 export function truncateWords(str: string, count: number, suffix: string = '...'): string {
-  const words = String(str || '').split(' ');
-  if (words.length <= count) return str;
-  return words.slice(0, count).join(' ') + suffix;
+  if (isHbOptions(suffix)) suffix = '...';
+  return _truncateWords(String(str || ''), count, suffix);
 }
 
 /**
@@ -152,6 +151,7 @@ export function split(str: string, separator: string): string[] {
  * Usage: {{join items ", "}}
  */
 export function join(arr: any[], separator: string = ', '): string {
+  if (isHbOptions(separator)) separator = ', ';
   if (!Array.isArray(arr)) return '';
   return arr.join(separator);
 }
@@ -161,6 +161,7 @@ export function join(arr: any[], separator: string = ', '): string {
  * Usage: {{substring "hello world" 0 5}} → "hello"
  */
 export function substring(str: string, start: number, end?: number): string {
+  if (isHbOptions(end)) end = undefined;
   return String(str || '').substring(start, end);
 }
 
@@ -178,6 +179,7 @@ export function length(str: string | any[]): number {
  * Usage: {{padLeft "5" 3 "0"}} → "005"
  */
 export function padLeft(str: string, length: number, char: string = ' '): string {
+  if (isHbOptions(char)) char = ' ';
   return String(str || '').padStart(length, char);
 }
 
@@ -186,6 +188,7 @@ export function padLeft(str: string, length: number, char: string = ' '): string
  * Usage: {{padRight "5" 3 "0"}} → "500"
  */
 export function padRight(str: string, length: number, char: string = ' '): string {
+  if (isHbOptions(char)) char = ' ';
   return String(str || '').padEnd(length, char);
 }
 

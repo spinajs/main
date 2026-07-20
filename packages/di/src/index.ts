@@ -1,3 +1,4 @@
+export * from './events.js';
 export * from './interfaces.js';
 export * from './array.js';
 export * from './decorators.js';

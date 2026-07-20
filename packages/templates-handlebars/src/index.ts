@@ -1,10 +1,7 @@
 import { IOFail } from '@spinajs/exceptions';
-import { guessLanguage, defaultLanguage } from '@spinajs/intl';
-import { InvalidArgument } from '@spinajs/exceptions';
 import * as fs from 'fs';
-import * as path from 'path';
 import _ from 'lodash';
-import { TemplateRenderer } from '@spinajs/templates';
+import { CompiledTemplateRenderer, TemplateRenderer } from '@spinajs/templates';
 import { Config } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 import Handlebars from 'handlebars';
@@ -12,7 +9,7 @@ import * as helpers from './helpers/index.js';
 
 @Singleton()
 @Injectable(TemplateRenderer)
-export class HandlebarsRenderer extends TemplateRenderer {
+export class HandlebarsRenderer extends CompiledTemplateRenderer<HandlebarsTemplateDelegate<any>> {
   @Config('templates.handlebars')
   protected Options: any;
 
@@ -36,15 +33,10 @@ export class HandlebarsRenderer extends TemplateRenderer {
     await super.resolve();
   }
 
-  public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
-    const content = await this.render(template, model, language);
-    const dir = path.dirname(filePath);
-
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    fs.writeFileSync(filePath, content);
+  protected buildContext(model: unknown, language: string): Record<string, unknown> {
+    return _.merge({}, model ?? {}, {
+      lang: language,
+    });
   }
 
   public async render(templateName: string, model: unknown, language?: string): Promise<string> {

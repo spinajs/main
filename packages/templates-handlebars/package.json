@@ -1,15 +1,15 @@
 {
   "name": "@spinajs/templates-handlebars",
   "version": "2.0.481",
-  "description": "templates support eg. html file generation",
-  
-    "main": "lib/cjs/index.js",
+  "description": "Handlebars template renderer for @spinajs/templates (with helpers).",
+  "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
   },
   "type": "module",
   "private": false,
@@ -29,12 +29,10 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "files": [
     "lib/**/*"
   ],
-  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -60,9 +58,10 @@
     "@spinajs/configuration": "^2.0.481",
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
+    "@spinajs/util": "^2.0.481",
     "@spinajs/intl": "^2.0.481",
     "@spinajs/log": "^2.0.481",
-    "@spinajs/templates":"^2.0.481",
+    "@spinajs/templates": "^2.0.481",
     "handlebars": "^4.7.7",
     "tempfile": "4.0.0"
   },

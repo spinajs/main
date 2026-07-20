@@ -4,10 +4,9 @@ import sinon from 'sinon';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { FsBootsrapper } from '@spinajs/fs';
 import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
-import { fs, fsService } from '../src/index.js';
+import { fs, FsBootsrapper, fsService } from '../src/index.js';
 import { sleep } from '@spinajs/threading';
 
 async function tmp() {
@@ -35,6 +34,15 @@ describe('fs temp tests', function () {
 
   afterEach(() => {
     sinon.restore();
+  });
+
+  it('should NOT arm cleanup timer when cleanup is disabled', async () => {
+    const withCleanup = await tmp();
+    const noCleanup = await DI.resolve<fs>('__file_provider__', ['fs-temp-nc']);
+
+    // white-box: strategy timer handle is only armed when cleanup is enabled
+    expect((withCleanup as any).CleanupStrategy.cleanupTimer).to.not.be.null;
+    expect((noCleanup as any).CleanupStrategy.cleanupTimer).to.be.null;
   });
 
   it('should create temporary file', async () => {

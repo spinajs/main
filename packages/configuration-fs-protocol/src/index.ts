@@ -26,13 +26,25 @@ export class ConfigurationFsPathProtocol extends ConfigVarProtocol {
 
       const fsName = args[1];
       const fPath = args[2];
-      const f = DI.resolve<fs>('__file_provider__', [fsName]);
 
-      if (f) {
-        return f.resolvePath(fPath);
+      // fs providers are registered by fsService AFTER configuration is resolved.
+      // When the var is dereferenced too early ( or the fs name is unknown ), warn
+      // and return null instead of throwing - ConfigVar caches only truthy values,
+      // so the lookup is retried on next access and resolves once fsService is up.
+      try {
+        const f = DI.resolve<fs>('__file_provider__', [fsName]);
+
+        if (f) {
+          return f.resolvePath(fPath);
+        }
+
+        InternalLogger.warn(`fs-path filesystem ${fsName} not exists, check your configuration file !`, 'Configuration');
+      } catch (err) {
+        InternalLogger.warn(
+          `Cannot resolve fs-path variable ${path} yet: ${(err as Error).message}. Returning null, value will be retried on next access.`,
+          'Configuration',
+        );
       }
-
-      InternalLogger.warn(`fs-path filesystem ${fsName} not exists, check your configuration file !`, 'Configuration');
 
       return null;
     });

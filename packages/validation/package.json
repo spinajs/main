@@ -6,6 +6,7 @@
   "module": "lib/mjs/index.js",
   "exports": {
     ".": {
+      "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
     }
@@ -55,6 +56,8 @@
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
     "@spinajs/log": "^2.0.481",
+    "@spinajs/log-common": "^2.0.481",
+    "glob": "^8.1.0",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5.1.0",

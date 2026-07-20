@@ -12,7 +12,7 @@ import type { OrmDriver } from './driver.js';
 import { ModelBase } from './model.js';
 import { BelongsToRelation, IOrmRelation, OneToManyRelation, ManyToManyRelation, BelongsToRecursiveRelation, QueryRelation, VirtualRelation } from './relations.js';
 import { DateTime } from 'luxon';
-import { Lazy } from '@spinajs/util';
+import { Lazy, isNullOrWhitespace, _check_arg, _positive } from '@spinajs/util';
 import { DiscriminationMapMiddleware } from './discrimination-middleware.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { ExistsRelationHandler } from './existsRelationHandlers.js';
@@ -226,7 +226,7 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
    *
    */
   public setTable(table: string, alias?: string) {
-    if (!table.trim()) {
+    if (isNullOrWhitespace(table)) {
       throw new InvalidArgument('table name is empty');
     }
 
@@ -268,9 +268,7 @@ export class LimitBuilder<T> implements ILimitBuilder<T> {
   }
 
   public take(count: number) {
-    if (count <= 0) {
-      throw new InvalidArgument(`take count cannot be negative number`);
-    }
+    _check_arg(_positive())(count, 'take count');
 
     this._limit.limit = count;
     return this;
@@ -1054,15 +1052,14 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   public setAlias(alias?: string) {
 
-    if (!alias || alias.trim() === '') {
-      alias = `${this._driver.Options.AliasSeparator}${this._table}${this._driver.Options.AliasSeparator}`;
-    }
+    // isNullOrWhitespace is not a type predicate; a false result guarantees a non-blank string
+    const resolvedAlias: string = isNullOrWhitespace(alias) ? `${this._driver.Options.AliasSeparator}${this._table}${this._driver.Options.AliasSeparator}` : (alias as string);
 
-    this._tableAlias = alias;
+    this._tableAlias = resolvedAlias;
 
-    this._columns.forEach((c) => (c.TableAlias = alias));
-    this._joinStatements.forEach((c) => (c.TableAlias = alias));
-    this._statements.forEach((c) => (c.TableAlias = alias));
+    this._columns.forEach((c) => (c.TableAlias = resolvedAlias));
+    this._joinStatements.forEach((c) => (c.TableAlias = resolvedAlias));
+    this._statements.forEach((c) => (c.TableAlias = resolvedAlias));
 
     return this;
   }

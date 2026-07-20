@@ -6,6 +6,7 @@
   "module": "lib/mjs/index.js",
   "exports": {
     ".": {
+      "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
     }
@@ -57,6 +58,7 @@
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
     "@spinajs/fs": "^2.0.481",
+    "@spinajs/http": "^2.0.481",
     "@spinajs/log-common": "^2.0.481",
     "@spinajs/reflection": "^2.0.481",
     "@spinajs/util": "^2.0.481",
@@ -64,7 +66,7 @@
     "@types/express": "^5.0.1",
     "formidable": "^3.5.4",
     "lodash": "^4.17.21",
-     "luxon": "^3.6.1",
+    "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

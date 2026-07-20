@@ -2,14 +2,14 @@
   "name": "@spinajs/rbac-http-user",
   "version": "2.0.481",
   "description": "HTTP API for basic user tasks ( login, logout, managing user account etc )",
-  
-    "main": "lib/cjs/index.js",
+  "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      ".": {
-          "import": "./lib/mjs/index.js",
-          "require": "./lib/cjs/index.js"
-      }
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
   },
   "type": "module",
   "private": false,
@@ -29,12 +29,10 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "files": [
     "lib/**/*"
   ],
-  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -60,7 +58,7 @@
     "@spinajs/rbac": "^2.0.481",
     "@spinajs/rbac-http": "^2.0.481",
     "otpauth": "9.4.0",
-     "luxon": "^3.6.1",
+    "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

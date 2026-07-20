@@ -1,11 +1,12 @@
 {
   "name": "@spinajs/templates-pdf",
   "version": "2.0.481",
-  "description": "Templates support for pdf files. It uses  as template engine and pdfkit as pdf generator.",
+  "description": "PDF template renderer for @spinajs/templates - renders pug templates to PDF via Puppeteer.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
     ".": {
+      "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
     }
