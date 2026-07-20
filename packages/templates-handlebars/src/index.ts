@@ -39,23 +39,42 @@ export class HandlebarsRenderer extends CompiledTemplateRenderer<HandlebarsTempl
     });
   }
 
-  protected async compile(path: string): Promise<void> {
-    if (!fs.existsSync(path)) {
-      throw new IOFail(`Template file ${path} does not exist`);
+  public async render(templateName: string, model: unknown, language?: string): Promise<string> {
+    this.Log.trace(`Rendering template ${templateName}`);
+    this.Log.timeStart(`HandlebarTemplate${templateName}`);
+
+    if (!templateName) {
+      throw new InvalidArgument('template parameter cannot be null or empty');
     }
 
-    const tContent = fs.readFileSync(path, 'utf-8');
+    const fTemplate = await this.withCache(templateName, async () => {
+      const tContent = await this.resolveContent(templateName);
 
-    if (tContent.length === 0) {
-      throw new IOFail(`Template file ${path} is empty`);
-    }
+      if (tContent.length === 0) {
+        throw new IOFail(`Template file ${templateName} is empty`);
+      }
 
-    const tCompiled = Handlebars.compile(tContent, this.Options);
+      const tCompiled = Handlebars.compile(tContent, this.Options);
 
-    if (!tCompiled) {
-      throw new IOFail(`Cannot compile handlebars template from path ${path}`);
-    }
+      if (!tCompiled) {
+        throw new IOFail(`Cannot compile handlebars template from path ${templateName}`);
+      }
 
-    this.Templates.set(path, tCompiled);
+      return tCompiled;
+    });
+
+    const lang = language ? language : guessLanguage();
+    const tLang = lang ?? defaultLanguage();
+
+    const content = fTemplate(
+      _.merge(model ?? {}, {
+        lang: tLang,
+      }),
+    );
+
+    const time = this.Log.timeEnd(`HandlebarTemplate-${templateName}`);
+    this.Log.trace(`Rendering template ${templateName} ended, (${time} ms)`);
+
+    return content;
   }
 }

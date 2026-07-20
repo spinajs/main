@@ -3,7 +3,8 @@
 /* eslint-disable prettier/prettier */
 import { expect } from 'chai';
 import 'mocha';
-import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
+import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase, AlterColumnQueryCompiler } from '@spinajs/orm';
+import { SqlAlterColumnQueryCompiler } from '../src/compilers.js';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
@@ -1399,6 +1400,41 @@ describe('schema building', () => {
     expect(result[0].expression).to.equal('ALTER TABLE `test` MODIFY `Id2` VARCHAR(255)');
   });
 
+  it('Should widen an enum column via MODIFY (queue Status migration)', () => {
+    // Mirrors @spinajs/queue's Queue_2026_07_17_00_00_00 migration exactly - it
+    // replicates the SAME alterTable(...) builder call the migration emits and
+    // compiles THAT (not the migration's up(), which needs a live DB). Proves the
+    // MySQL dialect widens the enum while restating NOT NULL + DEFAULT, which
+    // MySQL's MODIFY would otherwise drop.
+    const result = schqb()
+      .alterTable('queue_jobs', (table) => {
+        // `.default().value('created')` returns the column builder (no `.modify()`),
+        // so `.modify()` is called on the column itself, separately.
+        const status = table.enum('Status', ['error', 'success', 'created', 'executing', 'retrying', 'dead']).notNull();
+        status.default().value('created');
+        status.modify();
+      })
+      .toDB();
+
+    expect(result.length).to.eq(1);
+    expect(result[0].expression).to.equal(
+      "ALTER TABLE `queue_jobs` MODIFY `Status` ENUM('error','success','created','executing','retrying','dead') NOT NULL DEFAULT 'created'",
+    );
+  });
+
+  it('Should skip alter column that compiles to nothing', () => {
+    // a compiler whose hook returns null must produce no statement at all,
+    // not a dangling "ALTER TABLE `test`"
+    const result = schqb()
+      .alterTable('test', (table) => {
+        table.string('Id2', 255).modify();
+      })
+      .toDB();
+
+    expect(result.every((r) => (r.expression ?? '').trim().length > 0)).to.be.true;
+    expect(result.every((r) => !/^ALTER TABLE `\w+`\s*$/.test(r.expression ?? ''))).to.be.true;
+  });
+
   it('Should rename column', () => {
     const result = schqb()
       .alterTable('test', (table) => {
@@ -1408,6 +1444,56 @@ describe('schema building', () => {
 
     expect(result.length).to.eq(1);
     expect(result[0].expression).to.equal('ALTER TABLE `test` RENAME COLUMN `Id2` TO `Id3`');
+  });
+
+  it('Should emit no statement when alter column hook compiles to nothing', () => {
+    // a dialect may legitimately skip an alteration by returning null from its hook.
+    // the alter table compiler must drop it entirely - emitting it anyway would
+    // yield a dangling "ALTER TABLE `test`", which is invalid SQL.
+    class NullModifyAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler {
+      protected _modify(): string | null {
+        return null;
+      }
+    }
+
+    const connection = db()!.Connections.get('sqlite')!;
+    connection.Container.register(NullModifyAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
+
+    const result = connection.Container.resolve(SchemaQueryBuilder, [connection])
+      .alterTable('test', (table) => {
+        table.string('Id2', 255).modify();
+      })
+      .toDB();
+
+    expect(result.length).to.eq(0);
+    expect(result.map((r: ICompilerOutput) => r.expression)).to.not.include('ALTER TABLE `test` ');
+  });
+
+  it('Should emit a standalone alter column statement without the ALTER TABLE prefix', () => {
+    // some dialects cannot express an alteration as a suffix of `ALTER TABLE x`
+    // eg. MSSQL renames a column with a complete `EXEC sp_rename ...` statement.
+    class StandaloneRenameAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler {
+      protected _rename(): string | null {
+        return `EXEC sp_rename '[dbo].[test].[${this.builder.OldName}]', '${this.builder.Name}', 'COLUMN'`;
+      }
+
+      public get IsStandaloneStatement(): boolean {
+        return true;
+      }
+    }
+
+    const connection = db()!.Connections.get('sqlite')!;
+    connection.Container.register(StandaloneRenameAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
+
+    const result = connection.Container.resolve(SchemaQueryBuilder, [connection])
+      .alterTable('test', (table) => {
+        table.string('Id2').rename('Id3');
+      })
+      .toDB();
+
+    expect(result.length).to.eq(1);
+    expect(result[0].expression).to.equal(`EXEC sp_rename '[dbo].[test].[Id2]', 'Id3', 'COLUMN'`);
+    expect(result[0].expression).to.not.match(/ALTER TABLE/);
   });
 
   it('column types', () => {

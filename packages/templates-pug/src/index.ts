@@ -7,14 +7,14 @@ import { CompiledTemplateRenderer, TemplateRenderer } from '@spinajs/templates';
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
-import { normalize } from 'path';
 @Injectable(TemplateRenderer)
-export class PugRenderer extends CompiledTemplateRenderer<pugTemplate.compileTemplate> {
+export class PugRenderer extends TemplateRenderer {
   @Config('templates.pug')
   protected Options: pugTemplate.Options;
 
-  @Config('configuration.isDevelopment')
-  protected devMode: boolean;
+  constructor() {
+    super();
+  }
 
   public get Type() {
     return 'pug';
@@ -29,27 +29,43 @@ export class PugRenderer extends CompiledTemplateRenderer<pugTemplate.compileTem
     return this.devMode;
   }
 
-  protected buildContext(model: unknown, language: string): Record<string, unknown> {
-    return _.merge({}, model ?? {}, {
-      __: __translate(language),
-      __n: __translateNumber(language),
-      __l: __translateL,
-      __h: __translateH,
+  public async render(templateName: string, model: unknown, language?: string): Promise<string> {
+    this.Log.trace(`Rendering pug template ${templateName}`);
+    this.Log.timeStart(`PugTemplate.render.start.${templateName}`);
+
+    if (!templateName) {
+      throw new InvalidArgument('template parameter cannot be null or empty');
+    }
+
+    const fTemplate = await this.withCache(templateName, async () => {
+      // pug compiles from a path, not a string - it resolves include/extends
+      // against the local filesystem itself, so remote sources are materialised
+      // to temp storage first.
+      const tPath = await this.resolveLocalPath(templateName);
+      const tCompiled = pugTemplate.compileFile(tPath, this.Options);
+
+      if (!tCompiled) {
+        throw new IOFail(`Cannot compile pug template ${templateName} from path ${tPath}`);
+      }
+
+      return tCompiled;
     });
-  }
 
-  protected async compile(path: string) {
-    if (!fs.existsSync(path)) {
-      throw new IOFail(`Template file ${path} does not exist`);
-    }
+    const lang = language ? language : guessLanguage();
+    const tLang = lang ?? defaultLanguage();
 
-    const tCompiled = pugTemplate.compileFile(path, this.Options);
-    const pNormalized = normalize(path);
+    const content = fTemplate(
+      _.merge(model ?? {}, {
+        __: __translate(tLang),
+        __n: __translateNumber(tLang),
+        __l: __translateL,
+        __h: __translateH,
+      }),
+    );
 
-    if (!tCompiled) {
-      throw new IOFail(`Cannot compile pug template ${pNormalized} from path ${path}`);
-    }
+    const time = this.Log.timeEnd(`PugTemplate.render.start.${templateName}`);
+    this.Log.trace(`Rendering pug template ${templateName} ended, (${time} ms)`);
 
-    this.Templates.set(pNormalized, tCompiled);
+    return content;
   }
 }

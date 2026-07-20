@@ -10,6 +10,7 @@ import '@spinajs/templates-pug';
 import { TestConfiguration } from './common.js';
 import { fsS3 } from './../src/index.js';
 import { existsSync, statSync } from 'fs';
+import { extname } from 'path';
 import { expect } from 'chai';
 
 async function f() {
@@ -227,9 +228,43 @@ describe('fs s3 basic tests', function () {
 
   it('should return empty array when listing empty prefix', async () => {
     const f3 = await f();
-    
+
     const files = await f3.list('non-existent-prefix/');
     expect(files).to.be.an('array');
     expect(files.length).to.eq(0);
+  });
+
+  it('download should preserve file extension', async () => {
+    const s3 = await f();
+    const local = await fl();
+
+    await s3.upload(local.resolvePath('sample.mjml'), 'extension-test/sample.mjml');
+    const downloaded = await s3.download('extension-test/sample.mjml');
+
+    expect(extname(downloaded)).to.eq('.mjml');
+    expect(existsSync(downloaded)).to.be.true;
+  });
+
+  it('stat should expose ETag as Version', async () => {
+    const s3 = await f();
+    const local = await fl();
+
+    await s3.upload(local.resolvePath('sample.mjml'), 'version-test/sample.mjml');
+    const stat = await s3.stat('version-test/sample.mjml');
+
+    expect(stat.Version).to.be.a('string');
+    expect(stat.Version).to.have.length.greaterThan(0);
+  });
+
+  it('stat Version should change when content changes', async () => {
+    const s3 = await f();
+
+    await s3.write('version-change/f.txt', 'first content');
+    const first = await s3.stat('version-change/f.txt');
+
+    await s3.write('version-change/f.txt', 'second different content');
+    const second = await s3.stat('version-change/f.txt');
+
+    expect(first.Version).to.not.eq(second.Version);
   });
 });

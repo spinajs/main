@@ -48,6 +48,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
+    "@spinajs/fs": "^2.0.481",
     "@types/luxon": "^3.6.1",
     "@types/mocha": "10.0.1",
     "@types/node": "^22.14.1",
