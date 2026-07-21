@@ -143,11 +143,21 @@ export abstract class RouteArgs implements IRouteArgs {
       case 'String':
         return arg;
       case 'Number':
-        return arg ? Number(arg) : undefined;
+        // Only treat truly-absent values as undefined — `0` is a valid number
+        // and must not be coerced away (JSON body can carry a literal 0).
+        return arg === undefined || arg === null || arg === '' ? undefined : Number(arg);
       case 'BigInt':
-        return BigInt(arg);
+        try {
+          return BigInt(arg);
+        } catch (err) {
+          throw new InvalidArgument(`Argument '${param.Name}' is not a valid integer`, err);
+        }
       case 'Boolean':
-        return arg ? (arg === 1 ? true : (arg as string).toLowerCase() === 'true' ? true : false) : false;
+        // A JSON body can deliver a real boolean; return it as-is instead of
+        // calling String.toLowerCase on it (which threw). Query/param values
+        // arrive as strings and are matched case-insensitively.
+        if (typeof arg === 'boolean') return arg;
+        return arg ? arg === 1 || String(arg).toLowerCase() === 'true' : false;
       case 'Undefined':
         return undefined;
       case 'Null':

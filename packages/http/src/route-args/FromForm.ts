@@ -305,9 +305,18 @@ export class FromJsonFile extends FromFile {
       await promises.unlink(sourceFile);
     }
 
+    // A malformed uploaded JSON file is a client error (400), not an unhandled
+    // 500 out of the extractor.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content.toString());
+    } catch (err) {
+      throw new BadRequest(`Uploaded JSON file is invalid: ${(err as Error).message}`);
+    }
+
     return {
       ...data,
-      Args: JSON.parse(content.toString()),
+      Args: parsed,
     };
   }
 }
@@ -435,14 +444,19 @@ export class FromFormField extends FromFormBase {
       throw new BadRequest(`Form field ${param.Name} is required`);
     }
 
+    // By default a form field is delivered as an array; collapse to a single
+    // value when the route param isn't an array and only one value was sent,
+    // otherwise pass the whole values array (NOT `data`, the CallData wrapper).
+    const raw = field.length === 1 && param.RuntimeType.name !== 'Array' ? field[0] : field;
+
+    // Run through the standard hydration/validation path so a @FormField(schema)
+    // is actually enforced and the value is coerced to the declared runtime type
+    // (form fields always arrive as strings).
+    const result = await this.tryHydrateParam(raw, param, route!);
+
     return {
       ...data,
-
-      // by default form field is returned in array,
-      // we assume that if length is 1 we want single param
-      // when route param is not array. Otherwise pass the whole values array
-      // (NOT `data`, which is the internal CallData wrapper).
-      Args: field.length === 1 && param.RuntimeType.name !== 'Array' ? field[0] : field,
+      Args: result,
     };
   }
 }
