@@ -24,6 +24,15 @@ export class SwaggerService extends AsyncService {
   @Config('http.swagger')
   protected SwaggerConfig!: ISwaggerConfig;
 
+  /**
+   * The global route prefix the runtime prepends to every controller route
+   * (see BaseController route registration). Documented paths must include it
+   * or Swagger "Try it out" hits the wrong URL. Only used as a fallback when
+   * an explicit swagger.basePath isn't configured.
+   */
+  @Config('http.controllers.route.prefix', { defaultValue: '' })
+  protected RoutePrefix!: string;
+
   private _spec: IOpenApiDocument | null = null;
 
   public get IsEnabled(): boolean {
@@ -48,10 +57,17 @@ export class SwaggerService extends AsyncService {
    * Rebuild the OpenAPI specification from current controllers.
    */
   public async buildSpec(): Promise<IOpenApiDocument> {
-    const config = this.SwaggerConfig || {
+    const baseConfig = this.SwaggerConfig || {
       enabled: true,
       title: 'API Documentation',
       version: '1.0.0',
+    };
+
+    // Fall back to the runtime route prefix so documented paths match the
+    // actual mounted URLs when no explicit swagger.basePath is set.
+    const config = {
+      ...baseConfig,
+      basePath: baseConfig.basePath || this.RoutePrefix || '',
     };
 
     const builder = await DI.resolve(OpenApiBuilder, [config]);

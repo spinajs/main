@@ -25,6 +25,15 @@ export class RbacPolicy extends BasePolicy {
 
   public async execute(req: sRequest, action: IRoute, instance: IController) {
     const descriptor: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, instance);
+
+    // Guard BEFORE dereferencing: RbacPolicy applied to a route/controller with
+    // no ACL metadata (e.g. @Policy(RbacPolicy) without @Resource/@Permission)
+    // must produce the descriptive server error, not a raw TypeError 500 from
+    // reading `.Permission` / `.Routes` off undefined.
+    if (!descriptor) {
+      throw new ServerError(`no route permission or resources assigned`);
+    }
+
     let permission = descriptor.Permission ?? [];
 
     if (descriptor.Routes.has(String(action.Method))) {

@@ -11,8 +11,11 @@ export class SwaggerCacheCommand extends CliCommand {
   @Logger('http-swagger')
   protected Log!: Log;
 
+  // @ListFromFiles installs a getter returning a Promise, so this must be
+  // awaited before iterating — otherwise `for..of` over a Promise throws
+  // "is not iterable" and the command always crashes.
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
-  protected Controllers!: Array<ClassInfo<BaseController>>;
+  protected Controllers!: Promise<Array<ClassInfo<BaseController>>>;
 
   public async execute(): Promise<void> {
     await DI.resolve(fsService);
@@ -20,7 +23,8 @@ export class SwaggerCacheCommand extends CliCommand {
     this.Log.info('Generating Swagger documentation cache...');
     const cache = await DI.resolve(SwaggerDocCache);
 
-    for (const controller of this.Controllers) {
+    const controllers = await this.Controllers;
+    for (const controller of controllers) {
       this.Log.info(`Processing controller: ${controller.name}`);
       await cache.getCache(controller);
     }

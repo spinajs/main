@@ -21,7 +21,12 @@ function swaggerUiDist() {
     if (parent === dir) break;
     dir = parent;
   }
-  throw new Error('swagger-ui-dist package not found. Please install it as a dependency.');
+  // Not found (e.g. pnpm isolated layout or a bundled deploy). Do NOT throw at
+  // config-import time — that aborts the entire application boot over optional
+  // docs static assets. Return a best-effort path: the http static handler
+  // skips non-existent paths with a warning, and the Swagger UI falls back to
+  // its CDN URLs (see SwaggerController.getUI defaults).
+  return join(cwd(), 'node_modules', 'swagger-ui-dist');
 }
 
 function dir(path: string) {

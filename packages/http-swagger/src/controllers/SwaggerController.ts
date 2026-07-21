@@ -1,6 +1,6 @@
 import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { BaseController, BasePath, Get, Json, Ok, TemplateResponse } from '@spinajs/http';
+import { BaseController, BasePath, Get, Json, NotFound, TemplateResponse } from '@spinajs/http';
 import { SwaggerService } from '../swagger-service.js';
 import { ISwaggerUiConfig } from '../interfaces.js';
 
@@ -23,7 +23,7 @@ export class SwaggerController extends BaseController {
   @Get('swagger.json')
   public async getSpec() {
     if (!this.Swagger.IsEnabled) {
-      return new Json({ error: 'Swagger documentation is disabled' });
+      return new NotFound({ error: 'Swagger documentation is disabled' });
     }
 
     return new Json(await this.Swagger.getSpec());
@@ -36,7 +36,7 @@ export class SwaggerController extends BaseController {
   @Get('/')
   public async getUI() {
     if (!this.Swagger.IsEnabled) {
-      return new Ok({ error: 'Swagger documentation is disabled' });
+      return new NotFound({ error: 'Swagger documentation is disabled' });
     }
 
     const cfg: Partial<ISwaggerUiConfig> = this.UiConfig || {};

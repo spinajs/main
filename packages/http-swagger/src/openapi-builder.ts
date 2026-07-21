@@ -57,6 +57,19 @@ const BODY_PARAMS = new Set<string>([
 ]);
 
 /**
+ * Body params that are parsed from a multipart/form upload at runtime (see
+ * @spinajs/http FromForm route-args). Any of these on a route means the
+ * request body is multipart/form-data, not application/json.
+ */
+const MULTIPART_BODY_PARAMS = new Set<string>([
+  ParameterType.FromFile, 'FromFile',
+  ParameterType.FromForm, 'FromForm',
+  ParameterType.FormField, 'FromFormField',
+  ParameterType.FromCSV, 'FromCSV',
+  ParameterType.FromJSONFile, 'FromJSONFile',
+]);
+
+/**
  * Mapping from ParameterType to OpenAPI 'in' location
  */
 const PARAM_LOCATION_MAP: Record<string, 'query' | 'path' | 'header' | 'cookie'> = {
@@ -157,7 +170,11 @@ export class OpenApiBuilder {
     const descriptor = controller.instance?.Descriptor;
     if (!descriptor) return;
 
-    const basePath = descriptor.BasePath || '';
+    // Mirror the runtime BasePath resolution (BaseController.BasePath): when no
+    // @BasePath decorator is present the routes mount under the lowercased class
+    // name (e.g. UsersController -> /userscontroller/...). Documenting an empty
+    // basePath here produced wrong URLs for every undecorated controller.
+    const basePath = descriptor.BasePath || controller.instance!.constructor.name.toLowerCase();
     const controllerName = controller.name.replace(/Controller$/, '');
 
     // Register tag from class documentation or controller name
@@ -769,10 +786,9 @@ export class OpenApiBuilder {
     bodyParams: { param: IRouteParameter; doc?: { name: string; description?: string; type?: string } }[],
     _route: IRoute,
   ): IOpenApiRequestBody {
-    // Check if any param is a file upload
-    const hasFile = bodyParams.some(
-      (bp) => bp.param.Type === ParameterType.FromFile || bp.param.Type === 'FromFile',
-    );
+    // Any file/form-parsed param means the runtime expects multipart/form-data,
+    // not JSON (covers FromFile, FromForm, FormField, FromCSV, FromJSONFile).
+    const hasFile = bodyParams.some((bp) => MULTIPART_BODY_PARAMS.has(bp.param.Type as string));
 
     const contentType = hasFile ? 'multipart/form-data' : 'application/json';
 
