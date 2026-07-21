@@ -297,10 +297,14 @@ describe('http & controller tests', function () {
     expect(response.body.ip).to.eq('203.0.113.7');
   });
 
-  it('@RequestId returns the per-request id', async () => {
+  it('@RequestId returns the per-request id matching the response header', async () => {
     const response = await req().get('extra/rid').set('Accept', 'application/json').send();
     expect(response).to.have.status(200);
     expect(response.body.rid).to.be.a('string').and.not.empty;
+    // x-request-id / x-response-time headers must actually reach the client on
+    // a normal matched route (regression guard: after() middleware never runs).
+    expect(response.header['x-request-id']).to.eq(response.body.rid);
+    expect(response.header['x-response-time']).to.match(/^\d+$/);
   });
 
   it('@UserAgent returns the user-agent header', async () => {

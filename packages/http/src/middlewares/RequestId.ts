@@ -11,16 +11,19 @@ export class RequestId extends ServerMiddleware {
     this.Order = 1;
   }
 
-  public after(): (_req: sRequest, _res: express.Response, next: express.NextFunction) => void {
-    return (req: sRequest, res: express.Response, next: express.NextFunction) => {
-      res.header('x-request-id', req.storage.requestId);
-      next();
-    };
+  public after(): null {
+    // The x-request-id header is set in before() instead. ServerMiddleware
+    // after() handlers do NOT run for matched controller routes (the response
+    // is flushed inside the controllers router without calling next()), so
+    // setting the header here would silently drop it on every real response.
+    return null;
   }
 
   public before(): (req: sRequest, res: Response<any, Record<string, any>>, next: NextFunction) => void {
-    return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
+    return (req: sRequest, res: express.Response, next: express.NextFunction) => {
       req.storage.requestId = uuidv4();
+      // Set the header up-front, before any handler can flush the response.
+      res.header('x-request-id', req.storage.requestId);
       next();
     };
   }
