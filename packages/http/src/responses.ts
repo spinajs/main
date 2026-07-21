@@ -85,6 +85,10 @@ export function textResponse(model: any, options?: IResponseOptions) {
     if (model) {
       res.set('Content-Type', 'text/plain');
       res.send(JSON.stringify(model));
+    } else {
+      // Always terminate the response — otherwise a falsy body on this
+      // negotiation fallback path leaves the request hanging until timeout.
+      res.end();
     }
   };
 }

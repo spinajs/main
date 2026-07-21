@@ -194,7 +194,7 @@ export class HttpServer extends AsyncService {
         this.Log.info(`Server started at port ${this.HttpConfig.port}`);
         res();
       }).on('error', (err: any) => {
-        if (err.errno === 'EADDRINUSE') {
+        if (err.code === 'EADDRINUSE') {
           this.Log.error(`----- Port ${this.HttpConfig.port} is busy -----`);
         }
 

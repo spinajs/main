@@ -115,7 +115,9 @@ export class JsonFileResponse extends Response {
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
     const provider = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
     const tmpPath = provider.tmppath();
-    provider.write(tmpPath, JSON.stringify(this.data));
+    // Must await: sendFile below races the write otherwise and can hit the
+    // path before it exists, producing an intermittent ENOENT / 500.
+    await provider.write(tmpPath, JSON.stringify(this.data));
 
     return new Promise((resolve, reject) => {
       const encodedFilename = encodeURIComponent(this.filename);
