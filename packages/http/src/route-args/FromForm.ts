@@ -272,8 +272,11 @@ export class FromFile extends FromFormBase {
       throw err;
     }
 
+    // @Files() forces an array result via the asArray option; @File() infers it
+    // from the declared parameter type.
+    const asArray = param.RuntimeType.name === 'Array' || (param.Options as any)?.asArray === true;
     return Object.assign(result, {
-      Args: param.RuntimeType.name === 'Array' ? uFiles : uFiles[0],
+      Args: asArray ? uFiles : uFiles[0],
     });
   }
 }

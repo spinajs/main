@@ -88,7 +88,7 @@ describe('http & controller tests', function () {
 
   it('should load controllers from dir', async () => {
     const controllers = await ctr()?.Controllers;
-    expect(controllers?.length).to.eq(18);
+    expect(controllers?.length).to.eq(19);
   });
 
   it('should server static files', async () => {
@@ -289,5 +289,48 @@ describe('http & controller tests', function () {
     const response = await req().get('files/jsonFile').send();
     expect(response).to.have.status(200);
     expect(response.header['content-length']).to.be.not.null;
+  });
+
+  it('@Ip returns client ip', async () => {
+    const response = await req().get('extra/ip').set('Accept', 'application/json').set('X-Forwarded-For', '203.0.113.7, 10.0.0.1').send();
+    expect(response).to.have.status(200);
+    expect(response.body.ip).to.eq('203.0.113.7');
+  });
+
+  it('@RequestId returns the per-request id', async () => {
+    const response = await req().get('extra/rid').set('Accept', 'application/json').send();
+    expect(response).to.have.status(200);
+    expect(response.body.rid).to.be.a('string').and.not.empty;
+  });
+
+  it('@UserAgent returns the user-agent header', async () => {
+    const response = await req().get('extra/ua').set('Accept', 'application/json').set('User-Agent', 'spinajs-test/1').send();
+    expect(response).to.have.status(200);
+    expect(response.body.ua).to.eq('spinajs-test/1');
+  });
+
+  it('@Referer accepts referer/referrer spelling', async () => {
+    const response = await req().get('extra/ref').set('Accept', 'application/json').set('Referer', 'https://example.com/p').send();
+    expect(response).to.have.status(200);
+    expect(response.body.ref).to.eq('https://example.com/p');
+  });
+
+  it('@RawBody exposes the exact request bytes', async () => {
+    const payload = JSON.stringify({ a: 1, b: 'x' });
+    const response = await req().post('extra/raw').set('Content-Type', 'application/json').set('Accept', 'application/json').send(payload);
+    expect(response).to.have.status(200);
+    expect(response.body.isBuffer).to.eq(true);
+    expect(response.body.len).to.eq(Buffer.byteLength(payload));
+  });
+
+  it('@FromXml parses an XML body', async () => {
+    const response = await req().post('extra/xml').set('Content-Type', 'application/xml').set('Accept', 'application/json').send('<envelope><body><id>7</id></body></envelope>');
+    expect(response).to.have.status(200);
+    expect(response.body).to.deep.include({ envelope: { body: { id: 7 } } });
+  });
+
+  it('@FromXml rejects malformed XML with 400', async () => {
+    const response = await req().post('extra/xml').set('Content-Type', 'application/xml').set('Accept', 'application/json').send('<envelope><body></envelope>');
+    expect(response).to.have.status(400);
   });
 });

@@ -386,6 +386,61 @@ export function File(options?: IUploadOptions) {
 }
 
 /**
+ * Multiple uploaded files for a form field, always returned as an array
+ * (even when a single file is sent). Semantic alias over {@link File}.
+ *
+ * @param options - upload options
+ */
+export function Files(options?: IUploadOptions) {
+  return Route(Parameter(ParameterType.FromFile, null, { ...(options ?? {}), asArray: true }));
+}
+
+/**
+ * Client IP address (as resolved by the RealIp middleware).
+ */
+export function Ip() {
+  return Route(Parameter(ParameterType.Ip, null));
+}
+
+/**
+ * Per-request correlation id (matches the `x-request-id` response header).
+ */
+export function RequestId() {
+  return Route(Parameter(ParameterType.RequestId, null));
+}
+
+/**
+ * `User-Agent` request header.
+ */
+export function UserAgent() {
+  return Route(Parameter(ParameterType.UserAgent, null));
+}
+
+/**
+ * `Referer` (or `Referrer`) request header.
+ */
+export function Referer() {
+  return Route(Parameter(ParameterType.Referer, null));
+}
+
+/**
+ * Raw request body Buffer, for webhook signature verification. Captured for
+ * JSON requests via the express.json `verify` hook.
+ */
+export function RawBody() {
+  return Route(Parameter(ParameterType.RawBody, null));
+}
+
+/**
+ * Parses an XML request body into an object.
+ *
+ * @param options - fast-xml-parser options (optional)
+ */
+export function FromXml(options?: any) {
+  return Route(Parameter(ParameterType.FromXml, null, options));
+}
+
+/**
  * Data taken from cvs file that is uploaded. Actions receives parsed data
  *
  * @param options - upload options

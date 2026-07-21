@@ -208,6 +208,13 @@ export interface IUploadedFile<T = any> {
 
 export interface Request extends express.Request {
   storage: IActionLocalStoregeContext;
+
+  /**
+   * Raw request body bytes, captured by the express.json `verify` hook for
+   * JSON requests. Consumed by the {@link ParameterType.RawBody} route arg for
+   * webhook signature verification. Undefined for non-JSON requests.
+   */
+  rawBody?: Buffer;
 }
 
 /**
@@ -490,6 +497,36 @@ export enum ParameterType {
    * From http header
    */
   FromHeader = 'FromHeader',
+
+  /**
+   * Client IP resolved by the RealIp middleware (X-Forwarded-For aware)
+   */
+  Ip = 'IpRouteArgs',
+
+  /**
+   * Per-request id (matches the x-request-id response header)
+   */
+  RequestId = 'RequestIdRouteArgs',
+
+  /**
+   * User-Agent request header
+   */
+  UserAgent = 'UserAgentRouteArgs',
+
+  /**
+   * Referer / Referrer request header
+   */
+  Referer = 'RefererRouteArgs',
+
+  /**
+   * Raw request body Buffer (captured for JSON requests)
+   */
+  RawBody = 'RawBodyRouteArgs',
+
+  /**
+   * Parsed XML request body
+   */
+  FromXml = 'FromXmlRouteArgs',
 
   /**
    * Req from express
