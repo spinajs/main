@@ -11,7 +11,7 @@ import { ValidationFailed } from "@spinajs/validation";
 @NewInstance()
 export class FileValidationMiddleware extends FileUploadMiddleware {
     @Logger('http')
-    protected Log: Log;
+    protected Log!: Log;
 
     constructor(protected Rules: FileValidationRules) {
         super();
@@ -19,6 +19,12 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
 
 
     public async beforeUpload(file: IUploadedFile<any>, _paramOptions: IUploadOptions): Promise<any> {
+        // No rules configured -> nothing to validate (and guards against a
+        // TypeError if the middleware is resolved without an options object).
+        if (!this.Rules) {
+            return file;
+        }
+
         this.validateType(file);
         this.validateProportions(file);
         this.validateResolution(file);
@@ -172,16 +178,6 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
                 keyword: 'resolution',
                 params: { expected: this.Rules.resolution?.maxWidth, actual: file.Info!.Width },
                 message: `Image width must be lower than ${this.Rules.resolution?.maxWidth}px. Got: ${file.Info!.Width}px`
-            }]);
-        }
-
-        if (file.Info!.Height > this.Rules.resolution?.maxHeight!) {
-            throw new ValidationFailed('validation error', [{
-                instancePath: '/file/height',
-                schemaPath: '#/properties/file/resolution/height',
-                keyword: 'resolution',
-                params: { expected: this.Rules.resolution?.maxHeight, actual: file.Info!.Height },
-                message: `Image height must be lower than ${this.Rules.resolution?.maxHeight}px. Got: ${file.Info!.Height}px`
             }]);
         }
     }
