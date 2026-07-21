@@ -61,6 +61,22 @@ const parseForm = (req: express.Request, options: any) => {
   });
 };
 
+/**
+ * Collects settled upload results. All uploads are attempted (we use
+ * allSettled so one failure doesn't abort the rest), but any rejection is
+ * surfaced as an IOFail instead of being silently dropped — otherwise a failed
+ * upload would just vanish from the result with the client getting a 200 and
+ * fewer (or zero) files than it sent.
+ */
+function collectUploads(results: PromiseSettledResult<IUploadedFile>[]): IUploadedFile[] {
+  const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (rejected.length > 0) {
+    const reasons = rejected.map((r) => (r.reason as Error)?.message ?? String(r.reason)).join('; ');
+    throw new IOFail(`Failed to upload ${rejected.length} file(s): ${reasons}`);
+  }
+  return (results as PromiseFulfilledResult<IUploadedFile>[]).map((r) => r.value);
+}
+
 export abstract class FromFormBase extends RouteArgs {
   public FormData: FormData;
 
@@ -214,7 +230,7 @@ export class FromFile extends FromFormBase {
     if (uploadFs && this.DefaultUploadFs.Name !== uploadFs.Name) {
       const fu = DI.resolve<FormFileUploader>(ImmediateFileUploader, [{ sourceFs: this.DefaultUploadFs, deleteSource: true }]);
       const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
-      uFiles = pResults.filter((r) => r.status === 'fulfilled').map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
+      uFiles = collectUploads(pResults);
     }
 
     // if any uploader is set in options, use it to upload files 
@@ -225,7 +241,7 @@ export class FromFile extends FromFormBase {
 
       const fu = DI.resolve<FormFileUploader>(type, [options]);
       const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
-      uFiles = pResults.filter((r) => r.status === 'fulfilled').map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
+      uFiles = collectUploads(pResults);
     }
 
     return Object.assign(result, {
@@ -251,9 +267,13 @@ export class FromJsonFile extends FromFile {
     }
 
     const sourceFile = file.filepath;
-    const content = await promises.readFile(sourceFile, { encoding: param.Options.Encoding ?? 'utf-8', flag: 'r' });
+    // `param.Options` is undefined when @JsonFile() is used with no options, so
+    // guard every access. Accept both `Encoding` and the IUploadOptions
+    // `encoding` casing; default to utf-8 for JSON parsing.
+    const encoding = (param.Options?.Encoding ?? param.Options?.encoding ?? 'utf-8') as BufferEncoding;
+    const content = await promises.readFile(sourceFile, { encoding, flag: 'r' });
 
-    if (param.Options.DeleteFile) {
+    if (param.Options?.DeleteFile) {
       await promises.unlink(sourceFile);
     }
 
@@ -392,8 +412,9 @@ export class FromFormField extends FromFormBase {
 
       // by default form field is returned in array,
       // we assume that if length is 1 we want single param
-      // when route param is not array
-      Args: field.length === 1 && param.RuntimeType.name !== 'Array' ? field[0] : data,
+      // when route param is not array. Otherwise pass the whole values array
+      // (NOT `data`, which is the internal CallData wrapper).
+      Args: field.length === 1 && param.RuntimeType.name !== 'Array' ? field[0] : field,
     };
   }
 }

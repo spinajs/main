@@ -4,7 +4,7 @@ import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { ACL_CONTROLLER_DESCRIPTOR } from '../decorators.js';
 import { IRbacDescriptor } from '../interfaces.js';
 import { DI } from '@spinajs/di';
-import { PermissionType, User } from '@spinajs/rbac';
+import { User } from '@spinajs/rbac';
 
 /**
  * Checks if user is logged, authorized & have proper permissions
@@ -28,10 +28,19 @@ export class RbacPolicy extends BasePolicy {
     let permission = descriptor.Permission ?? [];
 
     if (descriptor.Routes.has(String(action.Method))) {
-      //req.storage.PermissionScope = descriptor.Routes.get(action.Method).Permission;
-      if (req.headers['x-permission-scope']) {
-        req.storage.PermissionScope = req.headers['x-permission-scope'] as PermissionType ?? null;
-      }
+      // SECURITY: PermissionScope must NEVER be taken from a client-supplied
+      // header. The ORM rbac query middleware uses PermissionScope to decide
+      // which own/any grant to enforce and, on a scope it does not recognise or
+      // that does not match the query type, it SKIPS row-level enforcement
+      // entirely. Letting the client set it therefore allowed any authenticated
+      // user holding only *Own grants to send `x-permission-scope: <anything>`
+      // and read/update/delete every row (owner-field WHERE restriction never
+      // applied). With no scope set, the middleware falls back to the correct
+      // query-derived scope (QUERY_TO_PERMISSION), which is the secure default.
+      //
+      // If a route ever needs an explicit scope it must be derived server-side
+      // from the route's declared permission, not from the request, e.g.:
+      //   req.storage.PermissionScope = descriptor.Routes.get(String(action.Method))!.Permission?.[0];
       permission = descriptor.Routes.get(String(action.Method))!.Permission ?? [];
     }
 
