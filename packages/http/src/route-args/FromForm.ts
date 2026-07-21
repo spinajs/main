@@ -77,6 +77,26 @@ function collectUploads(results: PromiseSettledResult<IUploadedFile>[]): IUpload
   return (results as PromiseFulfilledResult<IUploadedFile>[]).map((r) => r.value);
 }
 
+/**
+ * Best-effort removal of the intermediate formidable temp files. Used on the
+ * error path so a failed upload/validation doesn't leak files in the upload
+ * temp dir. Swallows per-file errors (a file may already have been moved or
+ * removed by a transform middleware).
+ */
+async function cleanupTempFiles(files: IUploadedFile[]): Promise<void> {
+  await Promise.allSettled(
+    files.map(async (f) => {
+      const p = f?.OriginalFile?.filepath;
+      if (!p) return;
+      try {
+        await promises.unlink(p);
+      } catch {
+        /* already gone / moved — nothing to clean */
+      }
+    }),
+  );
+}
+
 export abstract class FromFormBase extends RouteArgs {
   public FormData: FormData;
 
@@ -217,31 +237,39 @@ export class FromFile extends FromFormBase {
       return DI.resolve<FileUploadMiddleware>(service, [options]);
     });
 
-    for (const m of middlewares) {
-      for (const f of uplFiles) {
-        this.Log.trace(`Executing file middleware ${m.constructor.name} for file ${f.Name}`);
-        const result = await m.beforeUpload(f, uploadOptions);
-        // merge transform result
-        Object.assign(f, result);
+    try {
+      for (const m of middlewares) {
+        for (const f of uplFiles) {
+          this.Log.trace(`Executing file middleware ${m.constructor.name} for file ${f.Name}`);
+          const result = await m.beforeUpload(f, uploadOptions);
+          // merge transform result
+          Object.assign(f, result);
+        }
       }
-    }
 
-    // copy to target fs if different than default temp fs
-    if (uploadFs && this.DefaultUploadFs.Name !== uploadFs.Name) {
-      const fu = DI.resolve<FormFileUploader>(ImmediateFileUploader, [{ sourceFs: this.DefaultUploadFs, deleteSource: true }]);
-      const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
-      uFiles = collectUploads(pResults);
-    }
+      // copy to target fs if different than default temp fs
+      if (uploadFs && this.DefaultUploadFs.Name !== uploadFs.Name) {
+        const fu = DI.resolve<FormFileUploader>(ImmediateFileUploader, [{ sourceFs: this.DefaultUploadFs, deleteSource: true }]);
+        const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
+        uFiles = collectUploads(pResults);
+      }
 
-    // if any uploader is set in options, use it to upload files 
-    // additionaly
-    if (uploadOptions.uploader) {
-      const type = (uploadOptions.uploader as any).service ?? uploadOptions.uploader;
-      const options = (uploadOptions.uploader as any).options ?? {};
+      // if any uploader is set in options, use it to upload files
+      // additionaly
+      if (uploadOptions.uploader) {
+        const type = (uploadOptions.uploader as any).service ?? uploadOptions.uploader;
+        const options = (uploadOptions.uploader as any).options ?? {};
 
-      const fu = DI.resolve<FormFileUploader>(type, [options]);
-      const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
-      uFiles = collectUploads(pResults);
+        const fu = DI.resolve<FormFileUploader>(type, [options]);
+        const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
+        uFiles = collectUploads(pResults);
+      }
+    } catch (err) {
+      // A failed validation / middleware / upload would otherwise leave the
+      // intermediate formidable temp files in the upload temp dir forever.
+      // Best-effort clean them up before propagating the error.
+      await cleanupTempFiles(uplFiles);
+      throw err;
     }
 
     return Object.assign(result, {

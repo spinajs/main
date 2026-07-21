@@ -147,6 +147,14 @@ export interface FileValidationRules {
   }
   proportions?: FileProportions[];
   types?: FileTypeEnum[];
+
+  /**
+   * File size bounds in bytes. `min`/`max` are inclusive.
+   */
+  size?: {
+    min?: number;
+    max?: number;
+  };
 }
 
 export type UploadFileMiddlewareDescriptor = string | Class<FileUploadMiddleware> | { options: any; service: string | Class<FileUploadMiddleware> };
