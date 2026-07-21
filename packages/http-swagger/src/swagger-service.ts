@@ -35,6 +35,12 @@ export class SwaggerService extends AsyncService {
 
   private _spec: IOpenApiDocument | null = null;
 
+  /**
+   * In-flight build, shared so concurrent first requests don't each kick off a
+   * full (expensive) rebuild. Cleared once the build settles.
+   */
+  private _buildPromise: Promise<IOpenApiDocument> | null = null;
+
   public get IsEnabled(): boolean {
     return this.SwaggerConfig?.enabled !== false;
   }
@@ -43,13 +49,33 @@ export class SwaggerService extends AsyncService {
     await super.resolve();
   }
 
+  /**
+   * Drop the cached spec so the next getSpec() rebuilds it. Call after
+   * registering controllers at runtime (Controllers.add) so they appear in
+   * the documentation.
+   */
+  public invalidate(): void {
+    this._spec = null;
+  }
+
   public async getSpec(): Promise<IOpenApiDocument | null> {
     if (!this.IsEnabled) return null;
-    if (!this._spec) {
+    if (this._spec) return this._spec;
+
+    // Coalesce concurrent builds onto a single in-flight promise.
+    if (!this._buildPromise) {
       this.Log.info('Building Swagger/OpenAPI documentation...');
-      const spec = await this.buildSpec();
-      this.Log.info(`Swagger documentation ready. ${Object.keys(spec.paths ?? {}).length} paths documented.`);
+      this._buildPromise = this.buildSpec()
+        .then((spec) => {
+          this.Log.info(`Swagger documentation ready. ${Object.keys(spec.paths ?? {}).length} paths documented.`);
+          return spec;
+        })
+        .finally(() => {
+          this._buildPromise = null;
+        });
     }
+
+    await this._buildPromise;
     return this._spec;
   }
 

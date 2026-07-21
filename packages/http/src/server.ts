@@ -163,7 +163,9 @@ export class HttpServer extends AsyncService {
    * Server static files
    */
   private _serverStaticFiles() {
-    _.uniq(this.HttpConfig.Static).forEach((s) => {
+    // uniqBy Path — Static entries are objects, so plain _.uniq (reference
+    // equality) would never dedupe two config entries pointing at the same dir.
+    _.uniqBy(this.HttpConfig.Static, (s) => s.Path).forEach((s) => {
       if (!existsSync(s.Path)) {
         this.Log.warn(`static file path ${s.Path} not exists`);
         return;
@@ -181,8 +183,9 @@ export class HttpServer extends AsyncService {
    */
   public start() {
     return new Promise<void>((res, rej) => {
-      // add all middlewares to execute after
-      this.Middlewares.reverse().forEach((m) => {
+      // add all middlewares to execute after. Copy before reversing so we don't
+      // mutate the shared, already-sorted Middlewares array in place.
+      [...this.Middlewares].reverse().forEach((m) => {
         const f = m.after();
         if (f) {
           this.Log.info(`Using server middleware::after() - ${m.constructor.name}`);
