@@ -1,8 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI } from '@spinajs/di';
+import { ClassInfo, DI } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { BaseController, BasePath, Get, Middleware, Ok, Policy, Query, CONTROLLED_DESCRIPTOR_SYMBOL } from '../src/index.js';
+import { BaseController, BasePath, Controllers, Get, Middleware, Ok, Policy, Query, CONTROLLED_DESCRIPTOR_SYMBOL } from '../src/index.js';
 import { BasePolicy, RouteMiddleware } from '../src/interfaces.js';
 import type { IControllerDescriptor, IRoute, IController, Response } from '../src/interfaces.js';
 import { OtherFilePkgController } from './controller-inheritance-fixture.js';
@@ -63,6 +64,96 @@ class AppUserController extends PkgUserController {
 class OtherFileAppController extends OtherFilePkgController {
   @Get()
   public async refresh() { return new Ok('app-refresh'); }
+}
+
+// ---------------------------------------------------------------------------
+// Fixtures for the loader-level override report
+// ---------------------------------------------------------------------------
+
+/** Stands in for a controller shipped by a package. */
+class LoaderPkgController extends BaseController {
+  public async resolve() { /* skip BaseController wiring - not needed here */ }
+}
+
+/** The application's replacement for it. */
+class LoaderAppController extends LoaderPkgController {
+  public async resolve() { /* see above */ }
+}
+
+/** Unrelated to the pair above - must never appear in the report. */
+class LoaderSoloController extends BaseController {
+  public async resolve() { /* see above */ }
+}
+
+interface ILogCall {
+  level: string;
+  message: string;
+}
+
+/**
+ * Controllers reads its logger through `@Logger('http')`, which installs a
+ * non-configurable getter on the prototype - hence an own property on the
+ * instance rather than a stub on the class. Recording locally also leaves the
+ * process-wide `Log.Loggers` map alone, so no later suite inherits a logger
+ * built from this file's blackhole configuration.
+ */
+function recordingLog(calls: ILogCall[]) {
+  const record = (level: string) => (message: string) => { calls.push({ level, message: String(message) }); };
+  return {
+    trace: record('trace'),
+    debug: record('debug'),
+    info: record('info'),
+    warn: record('warn'),
+    error: record('error'),
+    fatal: record('fatal'),
+    security: record('security'),
+    success: record('success'),
+  };
+}
+
+/**
+ * Drives the real `Controllers.resolve()`. Only the file scan, the route
+ * attachment and the Express mount are faked - `fileByType` and the
+ * BaseController collection, the two inputs the override report is derived
+ * from, are exactly what production builds.
+ */
+class TestControllers extends Controllers {
+  public Scanned: Array<ClassInfo<BaseController>> = [];
+  public Mounted: string[] = [];
+
+  public async register(controller: ClassInfo<BaseController>) {
+    // The real one parses the controller's source file and attaches routes to
+    // Express; recording the name is all these tests need.
+    this.Mounted.push(controller.name);
+  }
+}
+
+// `@ListFromFiles` installed a getter on Controllers.prototype - shadow it so
+// the test decides what "found on disk" means.
+Object.defineProperty(TestControllers.prototype, 'Controllers', {
+  get(this: TestControllers) {
+    return Promise.resolve(this.Scanned);
+  },
+});
+
+async function runLoader(scanned: Array<Class<BaseController>>) {
+  const calls: ILogCall[] = [];
+  const loader = new TestControllers();
+
+  Object.defineProperty(loader, 'Log', { value: recordingLog(calls) });
+  (loader as unknown as { Server: unknown }).Server = { use: () => { /* Express mount - not under test */ } };
+
+  loader.Scanned = scanned.map((type) =>
+    Object.assign(new ClassInfo<BaseController>(), {
+      name: type.name,
+      type,
+      file: `${type.name}.ts`,
+    }),
+  );
+
+  await loader.resolve();
+
+  return { calls, mounted: loader.Mounted };
 }
 
 // Own metadata only: `Reflect.getMetadata` walks the prototype chain and would
@@ -150,5 +241,66 @@ describe('controller descriptor inheritance', () => {
 
     expect(names).to.include('AppUserController');
     expect(names).to.not.include('PkgUserController');
+  });
+
+  describe('override reporting from the Controllers loader', () => {
+    afterEach(() => {
+      // Controllers.resolve() registers the scanned types on the ROOT container
+      // ( it uses the global DI, not this.Container ), so each test has to hand
+      // them back or they leak into every later suite in this process.
+      for (const type of [LoaderAppController, LoaderPkgController, LoaderSoloController]) {
+        DI.unregister(type);
+        DI.uncache(type);
+      }
+
+      // The BaseController collection is cached as a whole and is only rebuilt
+      // when a registered type is missing from it - dropping a registration is
+      // not enough on its own, the cached array has to go too.
+      DI.uncache(BaseController);
+    });
+
+    it('reports an override at info and mounts the subclass alone', async () => {
+      // The shape the whole feature exists for: the app replaces a controller
+      // shipped by a package.
+      DI.register(LoaderAppController).as(LoaderPkgController);
+
+      const { calls, mounted } = await runLoader([LoaderPkgController, LoaderAppController]);
+
+      expect(mounted).to.include('LoaderAppController');
+      expect(mounted).to.not.include('LoaderPkgController');
+
+      const info = calls.filter((c) => c.level === 'info' && c.message.includes('LoaderPkgController'));
+      expect(info.map((c) => c.message), 'scanned controller dropped from the mount without a word').to.have.lengthOf(1);
+      expect(info[0].message).to.contain('LoaderAppController');
+
+      const warn = calls.filter((c) => c.level === 'warn' && c.message.includes('LoaderPkgController'));
+      expect(warn.map((c) => c.message), 'a registered override is not a mistake').to.be.empty;
+    });
+
+    it('warns when a scanned controller is subclassed but no override was registered', async () => {
+      const { calls, mounted } = await runLoader([LoaderPkgController, LoaderAppController]);
+
+      // Behaviour is unchanged - both still mount, only the report is new.
+      expect(mounted).to.include('LoaderPkgController');
+      expect(mounted).to.include('LoaderAppController');
+
+      const warn = calls.filter((c) => c.level === 'warn' && c.message.includes('LoaderPkgController'));
+      expect(warn.map((c) => c.message), 'both mounted and nothing said so').to.have.lengthOf(1);
+      expect(warn[0].message).to.contain('LoaderAppController');
+      // The reader has to be told what to call, not just that something smells.
+      expect(warn[0].message).to.contain('DI.register(LoaderAppController).as(LoaderPkgController)');
+
+      const info = calls.filter((c) => c.level === 'info' && c.message.includes('overridden'));
+      expect(info.map((c) => c.message), 'nothing was overridden here').to.be.empty;
+    });
+
+    it('stays quiet for controllers with no scanned base', async () => {
+      // LoaderPkgController is deliberately NOT scanned - the shape of a shared
+      // base living outside the controllers dir ( eg. abstract Crud in orm-api ).
+      const { calls } = await runLoader([LoaderAppController, LoaderSoloController]);
+
+      const noisy = calls.filter((c) => (c.level === 'warn' || c.level === 'info') && /Loader\w+Controller/.test(c.message));
+      expect(noisy.map((c) => c.message)).to.be.empty;
+    });
   });
 });

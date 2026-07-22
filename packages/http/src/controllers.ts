@@ -454,6 +454,33 @@ export class Controllers extends AsyncService {
 
     const instances = (await DI.resolve(Array.ofType(BaseController))) as BaseController[];
 
+    // Report on scanned controllers that someone else derives from. Both
+    // outcomes are otherwise invisible: an override leaves no trace at all, and
+    // an accidental shadow leaves two controllers answering the same paths.
+    const mounted = new Set(instances.map((i) => i.constructor as Class<BaseController>));
+
+    for (const [type, ci] of fileByType) {
+      // Something that mounted derives from this scanned controller. Keying off
+      // the descendant rather than off `mounted` is what lets both cases be
+      // seen — in the not-registered case the scanned type mounts too.
+      const descendant = instances.find((i) => i.constructor !== type && i instanceof type);
+
+      if (!descendant) {
+        continue;
+      }
+
+      if (!mounted.has(type)) {
+        // Scanned, yet absent from the collection — DI chained its registration
+        // to the subclass. Say so rather than dropping it silently.
+        this.Log.info(`Controller ${ci.name} overridden by ${descendant.constructor.name}`);
+      } else {
+        // Subclassed but never registered as an override, so BOTH mounted and
+        // Express route order picks the winner. Warn rather than throw, since
+        // legitimate shared bases exist ( eg. abstract Crud in orm-api ).
+        this.Log.warn(`Controller ${descendant.constructor.name} extends ${ci.name} but was not registered as an override. Call DI.register(${descendant.constructor.name}).as(${ci.name}) to replace it, otherwise both mount and route order decides which one answers.`);
+      }
+    }
+
     for (const instance of instances) {
       const type = instance.constructor as Class<BaseController>;
       const originalCi = fileByType.get(type);
