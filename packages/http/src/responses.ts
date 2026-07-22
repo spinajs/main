@@ -61,7 +61,9 @@ export function jsonResponse(model: any, options?: IResponseOptions) {
     _setCoockies(res, options);
     _setHeaders(res, options);
 
-    if (model) {
+    // Presence check, not truthiness: 0 / false / '' are valid JSON bodies and
+    // must be sent. Only undefined / null mean "no body".
+    if (model !== undefined && model !== null) {
       res.json(model);
     } else {
       res.json();
@@ -82,12 +84,13 @@ export function textResponse(model: any, options?: IResponseOptions) {
     _setCoockies(res, options);
     _setHeaders(res, options);
 
-    if (model) {
+    // Presence check, not truthiness: 0 / false / '' are valid bodies. Only
+    // undefined / null end the response empty (and always terminate it —
+    // otherwise a missing body on this fallback path hangs until timeout).
+    if (model !== undefined && model !== null) {
       res.set('Content-Type', 'text/plain');
       res.send(JSON.stringify(model));
     } else {
-      // Always terminate the response — otherwise a falsy body on this
-      // negotiation fallback path leaves the request hanging until timeout.
       res.end();
     }
   };

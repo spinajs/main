@@ -804,7 +804,10 @@ export abstract class Response<T = any> {
     const response = await this.prepareResponse();
     return await httpResponse(response, this._template, {
       ...this.options,
-      StatusCode: this._errorCode,
+      // Honor an explicit caller-supplied StatusCode; fall back to the
+      // response type's semantic default (_errorCode). Previously _errorCode
+      // always won, silently ignoring options.StatusCode.
+      StatusCode: this.options?.StatusCode ?? this._errorCode,
     });
   }
 

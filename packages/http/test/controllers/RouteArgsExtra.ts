@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Get, Post, Ok, Ip, RequestId, UserAgent, Referer, RawBody, FromXml, Query, Body, Form, Type } from '../../src/index.js';
+import { BaseController, BasePath, Get, Post, Ok, Ip, RequestId, UserAgent, Referer, RawBody, FromXml, Query, Body, Form, Type, HTTP_STATUS_CODE } from '../../src/index.js';
 
 class SampleItem {
   public id: number;
@@ -52,5 +52,20 @@ export class RouteArgsExtra extends BaseController {
   @Post('typedarr')
   public typedarr(@Body() @Type(Array.ofType(SampleItem)) items: SampleItem[]) {
     return new Ok({ count: items.length });
+  }
+
+  @Get('zero')
+  public zero() {
+    return new Ok(0);
+  }
+
+  @Get('bool')
+  public bool() {
+    return new Ok(false);
+  }
+
+  @Get('status')
+  public status() {
+    return new Ok({ ok: true }, { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
   }
 }

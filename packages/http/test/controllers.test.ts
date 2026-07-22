@@ -376,4 +376,22 @@ describe('http & controller tests', function () {
     expect(response).to.have.status(200);
     expect(response.body.count).to.eq(2);
   });
+
+  it('Ok(0) sends the numeric body, not empty', async () => {
+    const response = await req().get('extra/zero').set('Accept', 'application/json').send();
+    expect(response).to.have.status(200);
+    expect(response.text).to.eq('0');
+  });
+
+  it('Ok(false) sends the boolean body, not empty', async () => {
+    const response = await req().get('extra/bool').set('Accept', 'application/json').send();
+    expect(response).to.have.status(200);
+    expect(response.text).to.eq('false');
+  });
+
+  it('response honors an explicit StatusCode option', async () => {
+    const response = await req().get('extra/status').set('Accept', 'application/json').send();
+    expect(response).to.have.status(202);
+    expect(response.body).to.deep.equal({ ok: true });
+  });
 });
