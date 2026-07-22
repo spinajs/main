@@ -80,13 +80,44 @@ describe('descriptor inheritance', () => {
     class B extends A {}
     class C extends B {}
 
-    decorate(A, (d) => d.Entries.set('k', 'a'));
-    decorate(B, (d) => d.Entries.set('k', 'b'));
+    decorate(A, (d) => {
+      d.Entries.set('k', 'a');
+      d.Items.push('a');
+    });
+    decorate(B, (d) => {
+      d.Entries.set('k', 'b');
+      d.Items.push('b');
+    });
     decorate(C, (d) => d.Items.push('c'));
 
     const c = getInheritedDescriptor(C, TEST_SYMBOL, createDefault);
     expect(c.Entries.get('k')).to.eq('b');
-    expect(c.Items).to.deep.eq(['c']);
+    expect(c.Items).to.deep.eq(['a', 'b', 'c']);
+  });
+
+  it('does not duplicate array entries down a four level chain', () => {
+    class W {}
+    class X extends W {}
+    class Y extends X {}
+    class Z extends Y {}
+
+    decorate(W, (d) => d.Items.push('w'));
+    decorate(X, (d) => d.Items.push('x'));
+    decorate(Y, (d) => d.Items.push('y'));
+    decorate(Z, (d) => d.Items.push('z'));
+
+    expect(getInheritedDescriptor(Z, TEST_SYMBOL, createDefault).Items).to.deep.eq(['w', 'x', 'y', 'z']);
+  });
+
+  it('skips an undecorated class in the middle of the chain', () => {
+    class P {}
+    class Q extends P {}
+    class R extends Q {}
+
+    decorate(P, (d) => d.Items.push('p'));
+    decorate(R, (d) => d.Items.push('r'));
+
+    expect(getInheritedDescriptor(R, TEST_SYMBOL, createDefault).Items).to.deep.eq(['p', 'r']);
   });
 
   it('keys by class identity, so two classes sharing a name stay separate', () => {

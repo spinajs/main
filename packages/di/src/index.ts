@@ -11,5 +11,5 @@ export * from './registry.js';
 export * from './container.js';
 export * as DI from './root.js';
 export * from './exceptions.js';
-export * from "./fp.js";
+export * from './fp.js';
 export * from './descriptor-inheritance.js';
