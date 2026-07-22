@@ -440,6 +440,19 @@ describe('Dependency injection', () => {
     expect(DI.resolve<SampleBaseClass>(Array.ofType(SampleBaseClass))).to.have.length(2);
   });
 
+  it('Concrete type resolved BEFORE the collection still appears in Array.ofType', () => {
+    DI.register(SampleImplementation1).as(SampleBaseClass);
+    DI.register(SampleImplementation2).as(SampleBaseClass);
+
+    // resolve one concrete type first - it lands in the cache under its own
+    // key, which must not stop it from showing up in the collection later
+    const single = DI.resolve(SampleImplementation1);
+
+    const val = DI.resolve<SampleBaseClass>(Array.ofType(SampleBaseClass));
+    expect(val).to.have.length(2);
+    expect(val[0]).to.equal(single);
+  });
+
   it('Autoinject resolve', () => {
     const autoinjected = DI.resolve<AutoinjectClass>(AutoinjectClass);
 
