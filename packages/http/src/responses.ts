@@ -8,7 +8,13 @@ import * as randomstring from 'randomstring';
 import { __translate, __translateH, __translateL, __translateNumber } from '@spinajs/intl';
 import { Templates } from '@spinajs/templates';
 import { fs } from '@spinajs/fs';
-import { ServerError } from './index.js';
+// NOTE: import the exception, not the `ServerError` *response* from './index.js'.
+// That barrel import created the cycle interfaces -> responses -> index ->
+// response-methods/badRequest -> interfaces, which blew up with
+// "Cannot access 'Response' before initialization" whenever a module other
+// than index.js (eg. server.js) was the entry point. `UnexpectedServerError`
+// is mapped back to the ServerError response by __handle_error__ anyway.
+import { UnexpectedServerError } from '@spinajs/exceptions';
 import * as cs from 'cookie-signature';
 import { XMLBuilder } from 'fast-xml-parser';
 
@@ -244,7 +250,7 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
     const fs = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
 
     if (!fs) {
-      throw new ServerError('file provider __fs_http_response_templates__ not set. Pleas set response template file provider for html http default responses !');
+      throw new UnexpectedServerError('file provider __fs_http_response_templates__ not set. Pleas set response template file provider for html http default responses !');
     }
 
     fs.download(template)

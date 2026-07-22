@@ -6,7 +6,9 @@ import { promises } from 'fs';
 import { resolve as resolvePath } from 'path';
 import { IFileResponseOptions, IResponseOptions, Response } from './../interfaces.js';
 import { fs } from '@spinajs/fs';
-import { _setCoockies, _setHeaders } from '../index.js';
+// import from the defining module, not the package barrel - '../index.js' pulls
+// the whole export graph back through interfaces.js and re-forms an import cycle
+import { _setCoockies, _setHeaders } from '../responses.js';
 
 export class ZipResponse extends Response {
   /**
