@@ -1,4 +1,4 @@
-import { isConstructor, collapseInheritedDescriptor } from "@spinajs/di";
+import { isConstructor, collapseInheritedDescriptor } from '@spinajs/di';
 import { IModelDescriptor } from "./interfaces.js";
 import { MODEL_DESCTRIPTION_SYMBOL } from "./symbols.js";
 
