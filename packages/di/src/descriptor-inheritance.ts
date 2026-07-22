@@ -46,6 +46,14 @@ function findNearestOwnDescriptor<T extends object>(target: object, symbol: symb
  * parent ( eg. `child.Nested.Field = x` is visible on the parent ). Prefer flat
  * descriptors - scalars, arrays and Maps - or replace nested objects wholesale
  * rather than mutating them.
+ *
+ * NOTE: "rebuilt" means ONE LEVEL DEEP. The new array / Map is a fresh
+ * container, but its ELEMENTS are the parent's objects, shared by reference -
+ * so a flat-looking descriptor whose Map holds objects has exactly the hazard
+ * above one level down ( eg. `child.Routes.get('x').Path = y` rewrites the
+ * parent's route ). A consumer that mutates elements in place must copy them
+ * itself right after the collapse; one that only ever replaces whole elements
+ * ( eg. `Map.set(key, freshObject)` ) needs no copy.
  */
 const descriptorMerger = (a: unknown, b: unknown): unknown => {
   if (_.isArray(a) || _.isArray(b)) {
