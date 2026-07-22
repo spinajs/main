@@ -190,6 +190,16 @@ export class ContainerCache {
             emit(resolvedInstance);
           }
         }
+        // Also cache under the concrete type. Resolving a collection
+        // ( eg. Array.ofType(BaseController) ) used to register the instance
+        // ONLY under the element type key, so a later get/resolve by the
+        // concrete type missed the cache - returning undefined from get(), and
+        // silently constructing a SECOND instance from resolve(). Same
+        // instance, second key - no extra construction.
+        if (getTypeName(targetType) !== sourceTypeKey && !this.has(targetType)) {
+          this.add(targetType, resolvedInstance);
+        }
+
         const cached = this.get(sourceTypeKey);
         return sourceType instanceof TypedArray ? cached : cached[0];
       } else {

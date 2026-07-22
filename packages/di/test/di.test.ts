@@ -419,6 +419,27 @@ describe('Dependency injection', () => {
     expect(val[1] instanceof SampleImplementation2).to.be.true;
   });
 
+  it('Types resolved via Array.ofType are also retrievable by their concrete type', () => {
+    DI.register(SampleImplementation1).as(SampleBaseClass);
+    DI.register(SampleImplementation2).as(SampleBaseClass);
+
+    const val = DI.resolve<SampleBaseClass>(Array.ofType(SampleBaseClass));
+
+    // resolving the collection must not hide the individual implementations -
+    // they used to be cached only under the base type, so a concrete-type
+    // lookup missed and silently returned undefined
+    expect(DI.get(SampleImplementation1)).to.equal(val[0]);
+    expect(DI.get(SampleImplementation2)).to.equal(val[1]);
+
+    // ... and re-resolving must hand back the same singleton rather than
+    // constructing a second, parallel instance
+    expect(DI.resolve(SampleImplementation1)).to.equal(val[0]);
+    expect(DI.resolve(SampleImplementation2)).to.equal(val[1]);
+
+    // the collection itself must be unaffected
+    expect(DI.resolve<SampleBaseClass>(Array.ofType(SampleBaseClass))).to.have.length(2);
+  });
+
   it('Autoinject resolve', () => {
     const autoinjected = DI.resolve<AutoinjectClass>(AutoinjectClass);
 
