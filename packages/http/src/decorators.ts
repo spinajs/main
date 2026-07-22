@@ -36,12 +36,42 @@ function Controller(callback: (controller: IControllerDescriptor, target: any, p
       // here - this is also the only frame from which the V8 stack still points
       // at the controller source rather than at the collapse machinery.
       metadata.SourceFile = captureControllerSourceFile();
+      detachInheritedRoutes(metadata);
     }
 
     if (callback) {
       callback(metadata, target, propertyKey!, indexOrDescriptor!);
     }
   };
+}
+
+/**
+ * Give this class its own copy of every route it inherited.
+ *
+ * The collapse rebuilds the Routes Map but copies its entries by reference, and
+ * `Route()` hands whatever entry it finds under a member name straight to the
+ * route decorators - all of which mutate it in place ( eg. `route.Path = path`,
+ * `route.Policies.push(...)` ). Without this, a subclass overriding a single
+ * route would rewrite the parent's path, policies and parameters: the same
+ * cross-class corruption the own-descriptor change removes one level up, on the
+ * most likely override shape of all ( eg. redeclare one route with a new path ).
+ *
+ * Only the members that are mutated in place need copying. `Parameters` values
+ * are patched field by field ( eg. `p.Type = type` in `Parameter()`, and
+ * `rParam.Name` filled from the parsed source when the controller is
+ * registered ), so the IRouteParameter objects are copied as well. `Options`
+ * and `Schema` are only ever assigned wholesale, so sharing those references
+ * with the parent is safe.
+ */
+function detachInheritedRoutes(descriptor: IControllerDescriptor) {
+  for (const [member, route] of descriptor.Routes) {
+    descriptor.Routes.set(member, {
+      ...route,
+      Policies: [...route.Policies],
+      Middlewares: [...route.Middlewares],
+      Parameters: new Map([...route.Parameters].map(([index, parameter]) => [index, { ...parameter }])),
+    });
+  }
 }
 
 function createDefaultControllerDescriptor(): IControllerDescriptor {
@@ -72,6 +102,10 @@ function captureControllerSourceFile(): string | undefined {
   const skipMarkers = [
     'decorators.ts',
     'decorators.js',
+    // The descriptor collapse machinery in @spinajs/di sits between this module
+    // and the controller source whenever it calls back into us, so its frames
+    // must never be mistaken for the controller's file.
+    'descriptor-inheritance',
     'tslib',
     'reflect-metadata',
     '__decorate',
