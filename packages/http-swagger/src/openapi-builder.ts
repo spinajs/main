@@ -550,16 +550,22 @@ export class OpenApiBuilder {
    * Read the FilterableColumns map from a model constructor via the orm model
    * descriptor metadata. Keeps http-swagger free of a hard @spinajs/orm dep —
    * the symbol is global (`Symbol.for('MODEL_DESCRIPTOR')`).
+   *
+   * The metadata IS the descriptor. orm keys it by class identity — one
+   * descriptor owned by each constructor — so there is no name indexing to do
+   * here. It used to be a container keyed by class name
+   * (`{ [class.name]: descriptor }`), which collapsed two classes sharing a
+   * name into one slot; reading that old shape now yields undefined and
+   * silently drops every operator from the docs.
    */
   private extractFilterableColumns(modelCtor: new (...args: unknown[]) => unknown): { column: string; operators: string[] }[] {
     const MODEL_DESCRIPTOR_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
-    const metadata = Reflect.getMetadata(MODEL_DESCRIPTOR_SYMBOL, modelCtor) as
-      | Record<string, { FilterableColumns?: Map<string, { operators?: string[] }> }>
+    const descriptor = Reflect.getMetadata(MODEL_DESCRIPTOR_SYMBOL, modelCtor) as
+      | { FilterableColumns?: Map<string, { operators?: string[] }> }
       | undefined;
-    if (!metadata) return [];
+    if (!descriptor) return [];
 
-    const descriptor = metadata[modelCtor.name];
-    const map = descriptor?.FilterableColumns;
+    const map = descriptor.FilterableColumns;
     if (!map || typeof map.entries !== 'function') return [];
 
     const result: { column: string; operators: string[] }[] = [];
