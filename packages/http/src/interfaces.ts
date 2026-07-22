@@ -312,9 +312,34 @@ export enum HTTP_STATUS_CODE {
   PARTIAL_CONTENT = 206,
 
   /**
+   * Resource has moved permanently to a new URL.
+   */
+  MOVED_PERMANENTLY = 301,
+
+  /**
+   * Resource found at a different URL (temporary redirect, method may change).
+   */
+  FOUND = 302,
+
+  /**
+   * Response to the request can be found at another URL using GET.
+   */
+  SEE_OTHER = 303,
+
+  /**
    * Resource is not modified
    */
   NOT_MODIFIED = 304,
+
+  /**
+   * Temporary redirect preserving the request method and body.
+   */
+  TEMPORARY_REDIRECT = 307,
+
+  /**
+   * Permanent redirect preserving the request method and body.
+   */
+  PERMANENT_REDIRECT = 308,
 
   /**
    * Invalid request, eg. invalid parameters

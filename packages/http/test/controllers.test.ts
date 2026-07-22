@@ -394,4 +394,29 @@ describe('http & controller tests', function () {
     expect(response).to.have.status(202);
     expect(response.body).to.deep.equal({ ok: true });
   });
+
+  it('new Xml() sends an XML body', async () => {
+    const response = await req().get('extra/xmlout').set('Accept', 'application/xml').buffer(true).send();
+    expect(response).to.have.status(200);
+    expect(response.header['content-type']).to.contain('application/xml');
+    const body = response.text ?? (response.body instanceof Buffer ? response.body.toString() : '');
+    expect(body).to.contain('<user><id>7</id></user>');
+  });
+
+  it('Redirect honors the status code', async () => {
+    const response = await req().get('extra/goredirect').redirects(0).send();
+    expect(response).to.have.status(301);
+    expect(response.header['location']).to.eq('/extra/ip');
+  });
+
+  it('unsupported Accept returns 406 Not Acceptable', async () => {
+    const response = await req().get('extra/ip').set('Accept', 'image/png').send();
+    expect(response).to.have.status(406);
+  });
+
+  it('wildcard/absent Accept defaults to JSON', async () => {
+    const response = await req().get('extra/ip').send();
+    expect(response).to.have.status(200);
+    expect(response.header['content-type']).to.contain('application/json');
+  });
 });

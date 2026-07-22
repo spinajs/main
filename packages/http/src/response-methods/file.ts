@@ -3,6 +3,8 @@ import { IOFail, ResourceNotFound } from '@spinajs/exceptions';
 import * as express from 'express';
 import _ from 'lodash';
 import mime from 'mime';
+import { promises } from 'fs';
+import { resolve as resolvePath } from 'path';
 import { IFileResponseOptions, IResponseOptions, Response } from './../interfaces.js';
 import { fs } from '@spinajs/fs';
 import { _setCoockies, _setHeaders } from '../index.js';
@@ -78,6 +80,13 @@ export class FileResponse extends Response {
 
     const file = await provider.download(this.Options.path);
 
+    // A local provider returns the real on-disk file (must NOT be deleted); a
+    // remote provider downloads to a throwaway temp copy that must be cleaned
+    // up after sending. Detect the local case by the file living under the
+    // provider's own base path.
+    const basePath = (provider as any).Options?.basePath as string | undefined;
+    const isLocalRealFile = !!basePath && resolvePath(file).startsWith(resolvePath(basePath));
+
     return new Promise((resolve, reject) => {
 
       const encodedFilename = encodeURIComponent(this.Options.filename);
@@ -89,19 +98,26 @@ export class FileResponse extends Response {
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
 
       res.sendFile(file, (err: Error) => {
-        const r = () => {
+        const cleanups: Promise<unknown>[] = [];
+
+        // Remove the source file on the provider when requested.
+        if (this.Options.deleteAfterDownload) {
+          cleanups.push(provider.rm(this.Options.path).catch(() => undefined));
+        }
+
+        // Remove the downloaded temp copy for remote providers (never the real
+        // local file).
+        if (!isLocalRealFile) {
+          cleanups.push(promises.unlink(file).catch(() => undefined));
+        }
+
+        Promise.allSettled(cleanups).finally(() => {
           if (!_.isNil(err)) {
             reject(err);
           } else {
             resolve();
           }
-        };
-
-        if (this.Options.deleteAfterDownload) {
-          provider.rm(this.Options.path).finally(r);
-        } else {
-          r();
-        }
+        });
       });
     });
   }

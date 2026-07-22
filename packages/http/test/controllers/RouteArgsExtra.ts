@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Get, Post, Ok, Ip, RequestId, UserAgent, Referer, RawBody, FromXml, Query, Body, Form, Type, HTTP_STATUS_CODE } from '../../src/index.js';
+import { BaseController, BasePath, Get, Post, Ok, Ip, RequestId, UserAgent, Referer, RawBody, FromXml, Query, Body, Form, Type, HTTP_STATUS_CODE, Xml, Redirect } from '../../src/index.js';
 
 class SampleItem {
   public id: number;
@@ -67,5 +67,15 @@ export class RouteArgsExtra extends BaseController {
   @Get('status')
   public status() {
     return new Ok({ ok: true }, { StatusCode: HTTP_STATUS_CODE.ACCEPTED });
+  }
+
+  @Get('xmlout')
+  public xmlout() {
+    return new Xml({ user: { id: 7 } });
+  }
+
+  @Get('goredirect')
+  public goredirect() {
+    return new Redirect('/extra/ip', HTTP_STATUS_CODE.MOVED_PERMANENTLY);
   }
 }
