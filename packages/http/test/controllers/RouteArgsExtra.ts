@@ -1,4 +1,11 @@
-import { BaseController, BasePath, Get, Post, Ok, Ip, RequestId, UserAgent, Referer, RawBody, FromXml } from '../../src/index.js';
+import { BaseController, BasePath, Get, Post, Ok, Ip, RequestId, UserAgent, Referer, RawBody, FromXml, Query, Body, Form, Type } from '../../src/index.js';
+
+class SampleItem {
+  public id: number;
+  constructor(data: any) {
+    Object.assign(this, data);
+  }
+}
 
 @BasePath('extra')
 export class RouteArgsExtra extends BaseController {
@@ -30,5 +37,20 @@ export class RouteArgsExtra extends BaseController {
   @Post('xml')
   public xml(@FromXml() doc: any) {
     return new Ok(doc);
+  }
+
+  @Get('required')
+  public required(@Query({ type: 'string' }, { required: true }) term: string) {
+    return new Ok({ term });
+  }
+
+  @Post('form')
+  public form(@Form() data: any) {
+    return new Ok(data);
+  }
+
+  @Post('typedarr')
+  public typedarr(@Body() @Type(Array.ofType(SampleItem)) items: SampleItem[]) {
+    return new Ok({ count: items.length });
   }
 }

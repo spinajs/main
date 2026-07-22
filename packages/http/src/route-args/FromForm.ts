@@ -16,6 +16,7 @@ import { EntityTooLargeException } from '../exceptions.js';
 import { BadRequest, Exception, IOFail } from '@spinajs/exceptions';
 import { FileSystem } from "@spinajs/fs";
 import { ImmediateFileUploader } from '../uploaders/ImmediateFileUploader.js';
+import qs from 'qs';
 interface FormData {
   Fields: Fields;
   Files: Files;
@@ -477,18 +478,20 @@ export class FromForm extends FromFormBase {
 
   public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
     const data = await super.extract(callData, _args, param, req, res, route);
-    let result = null;
 
-    // todo
-    // refactor to support arrays in object
-    // and array of objects
-    const fData = Object.fromEntries(
-      Object.entries(this.FormData.Fields).map(([key, value]) => {
-        return [key, value![0]];
-      }),
-    );
+    // Build a querystring from the raw form fields (keys keep their `[]` / `[key]`
+    // bracket syntax, values are percent-encoded) and let qs parse it. This
+    // yields arrays for `field[]` / repeated fields and nested objects for
+    // `field[key]` / `field[a][b]`, matching express.urlencoded({ extended: true }).
+    const pairs: string[] = [];
+    for (const [key, values] of Object.entries(this.FormData.Fields)) {
+      for (const v of values ?? []) {
+        pairs.push(`${key}=${encodeURIComponent(String(v))}`);
+      }
+    }
+    const fData = qs.parse(pairs.join('&'));
 
-    result = await this.tryHydrateParam(fData, param, route!);
+    const result = await this.tryHydrateParam(fData, param, route!);
 
     return {
       ...data,

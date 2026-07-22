@@ -341,8 +341,8 @@ export function ParamField() {
  *
  * @param schema - parameter json schema for optional validation
  */
-export function Query(schema?: any) {
-  return Route(Parameter(ParameterType.FromQuery, schema));
+export function Query(schema?: any, options?: { required?: boolean }) {
+  return Route(Parameter(ParameterType.FromQuery, schema, options));
 }
 
 /**
@@ -350,8 +350,8 @@ export function Query(schema?: any) {
  *
  * @param schema - parameter json schema for optional validation
  */
-export function Body() {
-  return Route(Parameter(ParameterType.FromBody, null));
+export function Body(options?: { required?: boolean }) {
+  return Route(Parameter(ParameterType.FromBody, null, options));
 }
 
 /**
@@ -359,8 +359,8 @@ export function Body() {
  *
  * @param schema - parameter json schema for optional validation
  */
-export function Param(schema?: any) {
-  return Route(Parameter(ParameterType.FromParams, schema));
+export function Param(schema?: any, options?: { required?: boolean }) {
+  return Route(Parameter(ParameterType.FromParams, schema, options));
 }
 
 /**
@@ -371,8 +371,8 @@ export function Param(schema?: any) {
  * @param schema - schema for validation ( optional )
  * @returns
  */
-export function Header(keyName?: string, schema?: any) {
-  return Route(Parameter(ParameterType.FromHeader, schema, { key: keyName }));
+export function Header(keyName?: string, schema?: any, options?: { required?: boolean }) {
+  return Route(Parameter(ParameterType.FromHeader, schema, { key: keyName, ...options }));
 }
 
 /**

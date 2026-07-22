@@ -337,4 +337,43 @@ describe('http & controller tests', function () {
     const response = await req().post('extra/xml').set('Content-Type', 'application/xml').set('Accept', 'application/json').send('<envelope><body></envelope>');
     expect(response).to.have.status(400);
   });
+
+  it('required query param rejects when absent (400)', async () => {
+    const response = await req().get('extra/required').set('Accept', 'application/json').send();
+    expect(response).to.have.status(400);
+  });
+
+  it('required query param passes when present', async () => {
+    const response = await req().get('extra/required?term=hello').set('Accept', 'application/json').send();
+    expect(response).to.have.status(200);
+    expect(response.body.term).to.eq('hello');
+  });
+
+  it('@Form parses arrays and nested objects', async () => {
+    const response = await req()
+      .post('extra/form')
+      .set('Accept', 'application/json')
+      .field('name', 'alice')
+      .field('tags[]', 'a')
+      .field('tags[]', 'b')
+      .field('addr[city]', 'NYC')
+      .field('addr[zip]', '10001');
+    expect(response).to.have.status(200);
+    expect(response.body).to.deep.equal({
+      name: 'alice',
+      tags: ['a', 'b'],
+      addr: { city: 'NYC', zip: '10001' },
+    });
+  });
+
+  it('typed-array body rejects non-array JSON with 400', async () => {
+    const response = await req().post('extra/typedarr').set('Content-Type', 'application/json').set('Accept', 'application/json').send({ a: 1 });
+    expect(response).to.have.status(400);
+  });
+
+  it('typed-array body accepts a JSON array', async () => {
+    const response = await req().post('extra/typedarr').set('Content-Type', 'application/json').set('Accept', 'application/json').send([{ id: 1 }, { id: 2 }]);
+    expect(response).to.have.status(200);
+    expect(response.body.count).to.eq(2);
+  });
 });

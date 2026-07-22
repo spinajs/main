@@ -3,7 +3,7 @@ import { ParameterType, IRouteParameter, IRouteCall, IRoute, Request } from './.
 import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator.js';
 import _ from 'lodash';
-import { DataValidator } from '@spinajs/validation';
+import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 /**
@@ -54,6 +54,22 @@ export abstract class RouteArgs implements IRouteArgs {
   public abstract extract(callData: IRouteCall, callArgs: unknown[], routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
 
   protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter, route: IRoute) {
+    // Enforce presence for params explicitly marked `{ required: true }` BEFORE
+    // the null/undefined skip below (absent optional params are intentionally
+    // not validated). Params without the flag keep the old optional behavior.
+    if ((routeParameter.Options as any)?.required === true && (arg === undefined || arg === null || arg === '')) {
+      throw new ValidationFailed(`Parameter '${routeParameter.Name}' is required`, [
+        {
+          propertyName: routeParameter.Name,
+          message: `Parameter '${routeParameter.Name}' is required`,
+          keyword: 'required',
+          params: { missingParameter: routeParameter.Name },
+          schemaPath: '#/required',
+          instancePath: routeParameter.Name,
+        },
+      ]);
+    }
+
     let result = null;
     let schema = null;
     let hydrator = null;
@@ -111,12 +127,23 @@ export abstract class RouteArgs implements IRouteArgs {
 
   protected tryExtractObject(arg: any, param: IRouteParameter) {
     try {
-      if (isClass(param.RuntimeType)) {
-        return new (param.RuntimeType as any)(_.isString(arg) ? JSON.parse(arg) : arg);
-      } else if (param.RuntimeType instanceof TypedArray) {
+      // TypedArray must be checked BEFORE isClass: a TypedArray instance's
+      // constructor is `class TypedArray`, so isClass() reports true for it and
+      // would (wrongly) try `new <instance>()`. Handle the typed-array case here.
+      if (param.RuntimeType instanceof TypedArray) {
         const type = (param.RuntimeType as TypedArray<any>).Type as any;
         const arrData = _.isString(arg) ? JSON.parse(arg) : arg;
-        return arrData ? arrData.map((x: any) => new type(x)) : [];
+        if (arrData === null || arrData === undefined) {
+          return [];
+        }
+        if (!Array.isArray(arrData)) {
+          // A typed-array param requires a JSON array; a non-array value is a
+          // client error (400), not an uncaught TypeError from .map (500).
+          throw new InvalidArgument(`Parameter '${param.Name}' must be a JSON array`, param.Name);
+        }
+        return arrData.map((x: any) => new type(x));
+      } else if (isClass(param.RuntimeType)) {
+        return new (param.RuntimeType as any)(_.isString(arg) ? JSON.parse(arg) : arg);
       } else if (param.RuntimeType.name === 'Object' || param.RuntimeType.name === 'Array') {
         return _.isString(arg) ? JSON.parse(arg) : arg;
       }
