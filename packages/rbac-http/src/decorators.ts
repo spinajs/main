@@ -53,19 +53,47 @@ function rbacDescriptor(target: any): IRbacDescriptor {
   // True only for the very first decorator that touches THIS class, since
   // getInheritedDescriptor stores own metadata as soon as it is called.
   const isFirstDecorator = !Reflect.getOwnMetadata(ACL_CONTROLLER_DESCRIPTOR, controller);
+
+  // Decided BEFORE the collapse, and on the existence of an ancestor descriptor
+  // rather than on the collapsed value: an empty permission list is a
+  // declaration ( eg. `@Resource('r', [])` grants nothing ), so a subclass that
+  // inherits one must keep it. Standing the default in whenever the list came
+  // out empty would hand that subclass readOwn - MORE than its base grants.
+  const inherits = hasInheritedDescriptor(controller);
+
   const metadata = getInheritedDescriptor<IRbacDescriptor>(controller, ACL_CONTROLLER_DESCRIPTOR, createDefaultRbacDescriptor);
 
-  // Nothing declared and nothing inherited - see createDefaultRbacDescriptor for
-  // why the default cannot simply be part of the seed. Only on creation: later
-  // decorators would otherwise refill a permission list a class deliberately
-  // emptied ( eg. `@Resource('r', [])` ). Optional chaining because the symbol
-  // is global - a foreign package may have stored a differently shaped
-  // descriptor on this prototype and decoration must not throw over it.
-  if (isFirstDecorator && !metadata.Permission?.length) {
+  // Nothing to inherit - see createDefaultRbacDescriptor for why the default
+  // cannot simply be part of the seed. Only on creation, so that a later
+  // decorator cannot refill a list this class deliberately emptied.
+  if (isFirstDecorator && !inherits) {
     metadata.Permission = [...DEFAULT_CONTROLLER_PERMISSION];
   }
 
   return metadata;
+}
+
+/**
+ * True when something ABOVE `controller` in the prototype chain owns an ACL
+ * descriptor - ie. when the collapse has a real ancestor to take values from.
+ *
+ * Mirrors the walk inside `getInheritedDescriptor`, starting one level up
+ * because `controller`'s own descriptor is what the caller is about to create.
+ * Keyed by identity, never by class name, and undecorated classes in between
+ * are simply passed over since they own no metadata.
+ */
+function hasInheritedDescriptor(controller: object): boolean {
+  let current: object | null = Object.getPrototypeOf(controller) as object | null;
+
+  while (current && current !== Object.prototype && current !== Function.prototype) {
+    if (Reflect.getOwnMetadata(ACL_CONTROLLER_DESCRIPTOR, current)) {
+      return true;
+    }
+
+    current = Object.getPrototypeOf(current) as object | null;
+  }
+
+  return false;
 }
 
 export function setRbacMetadata(target: any, callback: (meta: IRbacDescriptor) => void) {

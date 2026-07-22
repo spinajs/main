@@ -87,6 +87,18 @@ class RootResourceController {}
 class EmptiedPermissionController {}
 
 /**
+ * Subclass of a base that granted nothing. An empty list is a declaration, so
+ * inheriting it must not be confused with having nothing to inherit - the
+ * subclass may not end up with more than its base.
+ */
+class ChildOfEmptiedController extends EmptiedPermissionController {
+  @Permission(['deleteAny'])
+  public async purge() {
+    /* see above */
+  }
+}
+
+/**
  * Base declaring route permissions but no @Resource, subclassed by a class that
  * declares one. Exercises the empty-string resource and the default permission
  * being inherited and then overridden.
@@ -212,6 +224,18 @@ describe('rbac controller descriptor inheritance', () => {
     // every decorator would let a later decorator resurrect ['readOwn'] on a
     // class that explicitly declared it grants nothing.
     expect(descriptorOf(EmptiedPermissionController.prototype).Permission).to.deep.eq([]);
+  });
+
+  it('inherits a deliberately empty permission list', () => {
+    // The default may only stand in when there is NO ancestor descriptor at all.
+    // Deciding on "the collapsed list came out empty" instead would hand this
+    // subclass readOwn - more than its base grants, and the one direction a
+    // permission list must never drift in.
+    const child = descriptorOf(ChildOfEmptiedController.prototype);
+
+    expect(child.Permission).to.deep.eq([]);
+    expect(child.Resource).to.eq('emptied');
+    expect(permissionsOf(child, 'purge')).to.deep.eq(['deleteAny']);
   });
 
   it('resolves reads to the parent for a subclass with no rbac decorators', () => {
