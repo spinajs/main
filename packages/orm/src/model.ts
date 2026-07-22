@@ -13,7 +13,8 @@ import { Wrap } from './statements.js';
 import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
 
-import { DI, isConstructor, IContainer, Constructor, isClass } from '@spinajs/di';
+import { DI, isConstructor, IContainer, Constructor, isClass, getInheritedDescriptor } from '@spinajs/di';
+import { createDefaultModelDescriptor } from './descriptor.js';
 
 import { DateTime } from 'luxon';
 import _ from 'lodash';
@@ -52,8 +53,10 @@ export function updateModelDescriptor(targetOrForward: any, callback: (descripto
     return;
   }
 
-  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
-  callback(metadata[target.name]);
+  // Must go through getInheritedDescriptor like every other write of this
+  // symbol - it hands back the class's OWN descriptor, so mutating it here
+  // cannot leak into the base class ( eg. assigning the driver to a subclass )
+  callback(getInheritedDescriptor<IModelDescriptor>(target, MODEL_DESCTRIPTION_SYMBOL, createDefaultModelDescriptor));
 }
 
 export class ModelBase<M = unknown> implements IModelBase {

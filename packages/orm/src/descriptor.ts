@@ -1,19 +1,8 @@
-import { isConstructor } from "@spinajs/di";
+import { isConstructor, collapseInheritedDescriptor } from "@spinajs/di";
 import { IModelDescriptor } from "./interfaces.js";
 import { MODEL_DESCTRIPTION_SYMBOL } from "./symbols.js";
-import _ from "lodash";
 
-
-function getConstructorChain(obj: any) {
-  var cs = [obj.name],
-    pt = obj;
-  do {
-    if ((pt = Object.getPrototypeOf(pt))) cs.push(pt.name || null);
-  } while (pt != null);
-  return cs.filter((x) => x !== 'Function' && x !== 'Object' && x !== null);
-}
-
-function createDefaultModelDescriptor(): IModelDescriptor {
+export function createDefaultModelDescriptor(): IModelDescriptor {
   return {
     Driver: null,
     Converters: new Map(),
@@ -49,47 +38,20 @@ export function extractModelDescriptorInherited(targetOrForward: any): IModelDes
     return null;
   }
 
-  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
-
-  // we want collapse metadata vals in reverse order ( base class first )
-  const inheritanceChain = getConstructorChain(target).reverse();
-  const merger = (a: any, b: any) => {
-    if (_.isArray(a) || _.isArray(b)) {
-      return [...(a ?? []), ...(b ?? [])];
-    }
-
-    if (!(_.isNil(a) || _.isEmpty(a)) && (_.isNil(b) || _.isEmpty(b))) {
-      return a;
-    }
-
-    if (_.isMap(a)) {
-      return new Map([...a, ...b]);
-    }
-
-    return b;
-  };
-
   return {
-    ...createDefaultModelDescriptor(),
-    ...(metadata ? inheritanceChain.reduce((prev, c) => {
-      return {
-        ..._.assignWith(prev, metadata[c], merger),
-        Converters: new Map([...(prev.Converters ?? []), ...(metadata[c] ? metadata[c].Converters : [])]),
-      };
-    }, {}) : {}),
-    ...{
-      Name: target.name
-    }
-  }
+    ...collapseInheritedDescriptor(target, MODEL_DESCTRIPTION_SYMBOL, createDefaultModelDescriptor),
+    // Name is always this class's own, never inherited - the merger would
+    // otherwise keep the parent's non-empty name over the child's default ''
+    Name: target.name,
+  };
 }
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescriptor | null {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
+
   if (!target) {
     return null;
   }
 
-  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
-
-  return metadata[target.name];
+  return (Reflect.getOwnMetadata(MODEL_DESCTRIPTION_SYMBOL, target) as IModelDescriptor) ?? null;
 }
