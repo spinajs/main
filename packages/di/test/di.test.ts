@@ -453,6 +453,22 @@ describe('Dependency injection', () => {
     expect(val[0]).to.equal(single);
   });
 
+  it('Array.ofType picks up types registered AFTER the collection was first resolved', () => {
+    DI.register(SampleImplementation1).as(SampleBaseClass);
+
+    const first = DI.resolve<SampleBaseClass>(Array.ofType(SampleBaseClass));
+    expect(first).to.have.length(1);
+
+    // registered late - the cached collection must not mask it
+    DI.register(SampleImplementation2).as(SampleBaseClass);
+
+    const second = DI.resolve<SampleBaseClass>(Array.ofType(SampleBaseClass));
+    expect(second).to.have.length(2);
+
+    // the already-resolved entry keeps its identity, no re-construction
+    expect(second[0]).to.equal(first[0]);
+  });
+
   it('Autoinject resolve', () => {
     const autoinjected = DI.resolve<AutoinjectClass>(AutoinjectClass);
 
