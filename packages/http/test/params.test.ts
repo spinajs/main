@@ -19,7 +19,7 @@ import { QueryParams } from './controllers/params/QueryParams.js';
 
 import { CoockieParams } from './controllers/params/CoockieParams.js';
 import { VariousParams } from './controllers/params/VariousParams.js';
-import { TestTransformer as TestFileTransformer } from './file-transformers/custom-file-transformer.js';
+import { TestFileTransformer } from './file-transformers/custom-file-transformer.js';
 import { CustomFileUploader } from './uploaders/custom-uploader.js';
 import { CvsFileParams } from './controllers/params/CvsFileParams.js';
 
@@ -44,6 +44,8 @@ describe('controller action test params', function () {
     for (const b of bootstrappers) {
       await b.bootstrap();
     }
+
+    DI.setESMModuleSupport();
 
     DI.register(TestConfiguration).as(Configuration);
 
@@ -867,7 +869,7 @@ describe('controller action test params', function () {
         .attach('objects', fs.readFileSync(dir('./test-files') + '/username_invalid.csv'), { filename: 'test.csv' });
 
       expect(res.status).to.eq(400);
-      expect(res.body.error.message).to.eq('CSV data validation failed');
+      expect(res.body.message).to.eq('CSV data validation failed');
     });
   });
 

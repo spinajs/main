@@ -3,7 +3,7 @@ import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOpt
 import * as express from 'express';
 import formidable, { Fields, Files, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
-import { Autoinject, DI, Injectable, NewInstance } from '@spinajs/di';
+import { Autoinject, DI, Injectable, NewInstance, TypedArray } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs, fsNative } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
@@ -380,7 +380,15 @@ export class FromCSV extends FromFormBase {
       this.validateCsvData(csvData, schema);
     }
 
-    const args = await Promise.all(csvData.map((x) => this.tryHydrateParam(x, param, route!)));
+    // The param describes the WHOLE csv file, but rows are hydrated one at a
+    // time. When it is declared as a typed array ( @Type(Array.ofType(X)) ) each
+    // row must be hydrated to the ELEMENT type X - feeding a single row to the
+    // whole-array TypedArray path would reject it as "must be a JSON array",
+    // and would look for an array schema where a row schema is wanted.
+    // @Body @Type(Array.ofType(X)) keeps the whole-array path, untouched.
+    const rowParam = param.RuntimeType instanceof TypedArray ? { ...param, RuntimeType: (param.RuntimeType as TypedArray<unknown>).Type } : param;
+
+    const args = await Promise.all(csvData.map((x) => this.tryHydrateParam(x, rowParam, route!)));
 
     return {
       ...data,
