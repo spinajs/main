@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { PermissionType } from '@spinajs/rbac';
-import { ACL_CONTROLLER_DESCRIPTOR, Permission, Resource } from '../src/decorators.js';
+import { ACL_CONTROLLER_DESCRIPTOR, Permission, Resource, setRbacMetadata } from '../src/decorators.js';
 import { IRbacDescriptor } from '../src/interfaces.js';
 
 /**
@@ -45,6 +45,21 @@ class SilentUserController extends PkgUserController {
 }
 
 /**
+ * Subclass renaming the resource and passing NO permission argument. The
+ * argument has a default value, but omitting it means "say nothing about
+ * permissions", not "reset them to readOwn" - the base controller's list stands.
+ */
+@Resource('renamed-user')
+class RenamedUserController extends PkgUserController {}
+
+/**
+ * The minimal override shape an application actually writes: subclass, register
+ * it in place of the package controller, change nothing about the ACL. It owns
+ * no metadata of its own and every read has to resolve to the parent's.
+ */
+class UndecoratedUserController extends PkgUserController {}
+
+/**
  * No ancestor, no @Resource - documents the fallback permission of a controller
  * that only uses route level @Permission.
  */
@@ -54,6 +69,77 @@ class StandaloneController {
     /* see above */
   }
 }
+
+/**
+ * No ancestor, @Resource without a permission argument - the documented default
+ * has to come from somewhere now that the argument no longer carries it.
+ */
+@Resource('root-only')
+class RootResourceController {}
+
+/**
+ * Deliberately empty permission list, with a second class level decorator after
+ * it. Class decorators apply bottom-up, so `@Permission` touches the descriptor
+ * once `@Resource` has already emptied it.
+ */
+@Permission(['updateAny'])
+@Resource('emptied', [])
+class EmptiedPermissionController {}
+
+/**
+ * Base declaring route permissions but no @Resource, subclassed by a class that
+ * declares one. Exercises the empty-string resource and the default permission
+ * being inherited and then overridden.
+ */
+class BaseWithoutResourceController {
+  @Permission(['createOwn'])
+  public async create() {
+    /* see above */
+  }
+}
+
+@Resource('named-by-child', ['createAny'])
+class NamedByChildController extends BaseWithoutResourceController {}
+
+/**
+ * Three levels. Only the NEAREST ancestor's descriptor may be merged: every
+ * stored descriptor is already collapsed, so folding the whole chain in would
+ * duplicate array elements once per level.
+ */
+@Resource('level-one', ['readAny'])
+class LevelOneController {
+  @Permission(['updateAny'])
+  public async update() {
+    /* see above */
+  }
+}
+
+@Resource('level-two')
+class LevelTwoController extends LevelOneController {}
+
+class LevelThreeController extends LevelTwoController {
+  @Permission(['deleteOwn'])
+  public async remove() {
+    /* see above */
+  }
+}
+
+/**
+ * `setRbacMetadata` is exported public API with no caller in this repository,
+ * so nothing else would notice if it stopped inheriting. Called here the way a
+ * consumer would - on the class, outside the decorator syntax.
+ */
+class ManualBaseController {}
+setRbacMetadata(ManualBaseController, (meta) => {
+  meta.Resource = 'manual-base';
+  meta.Permission = ['updateAny'];
+  meta.Routes.set('save', { Permission: ['updateAny'] });
+});
+
+class ManualDerivedController extends ManualBaseController {}
+setRbacMetadata(ManualDerivedController, (meta) => {
+  meta.Resource = 'manual-derived';
+});
 
 /**
  * Own metadata only. `Reflect.getMetadata` walks the prototype chain and would
@@ -101,9 +187,84 @@ describe('rbac controller descriptor inheritance', () => {
     expect(descriptorOf(SilentUserController.prototype).Permission).to.deep.eq(['readAny']);
   });
 
+  it('inherits Permission when the subclass declares a Resource but no permission', () => {
+    // `@Resource(resource)` omits an argument that has a default value. Taking
+    // that default as a declaration would silently reset an inherited
+    // ['readAny'] to ['readOwn'] just because the subclass renamed the resource.
+    const renamed = descriptorOf(RenamedUserController.prototype);
+
+    expect(renamed.Resource).to.eq('renamed-user');
+    expect(renamed.Permission).to.deep.eq(['readAny']);
+    expect(permissionsOf(renamed, 'update')).to.deep.eq(['updateAny']);
+  });
+
   it('falls back to the default permission with nothing to inherit', () => {
     expect(descriptorOf(StandaloneController.prototype).Permission).to.deep.eq(['readOwn']);
     expect(permissionsOf(descriptorOf(StandaloneController.prototype), 'create')).to.deep.eq(['createAny']);
+
+    // Same default, reached through @Resource rather than through a route.
+    expect(descriptorOf(RootResourceController.prototype).Permission).to.deep.eq(['readOwn']);
+    expect(descriptorOf(RootResourceController.prototype).Resource).to.eq('root-only');
+  });
+
+  it('does not refill a permission list the class emptied on purpose', () => {
+    // The default is applied when the descriptor is CREATED. Applying it on
+    // every decorator would let a later decorator resurrect ['readOwn'] on a
+    // class that explicitly declared it grants nothing.
+    expect(descriptorOf(EmptiedPermissionController.prototype).Permission).to.deep.eq([]);
+  });
+
+  it('resolves reads to the parent for a subclass with no rbac decorators', () => {
+    // Task 5's minimal override: subclass, register it in place of the package
+    // controller, declare nothing. No decorator runs, so no own metadata is
+    // created and every read has to fall through to the parent's descriptor.
+    expect(ownDescriptorOf(UndecoratedUserController.prototype), 'an undecorated subclass must not own metadata').to.not.exist;
+
+    const undecorated = descriptorOf(UndecoratedUserController.prototype);
+
+    expect(undecorated).to.equal(ownDescriptorOf(PkgUserController.prototype));
+    expect(undecorated.Resource).to.eq('pkg-user');
+    expect(undecorated.Permission).to.deep.eq(['readAny']);
+    expect(permissionsOf(undecorated, 'update')).to.deep.eq(['updateAny']);
+
+    // ...and the same holds for an instance of it, which is what RbacPolicy sees.
+    expect(Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, new UndecoratedUserController())).to.equal(undecorated);
+  });
+
+  it('lets a subclass name the resource its base left undeclared', () => {
+    const base = descriptorOf(BaseWithoutResourceController.prototype);
+    const child = descriptorOf(NamedByChildController.prototype);
+
+    expect(base.Resource, 'child resource leaked into the base').to.eq('');
+    expect(base.Permission).to.deep.eq(['readOwn']);
+
+    expect(child.Resource).to.eq('named-by-child');
+    expect(child.Permission).to.deep.eq(['createAny']);
+    expect(permissionsOf(child, 'create')).to.deep.eq(['createOwn']);
+  });
+
+  it('does not accumulate down a three level chain', () => {
+    // Every stored descriptor is already collapsed, so merging the whole chain
+    // instead of the nearest ancestor would duplicate array elements per level
+    // ( eg. ['readAny', 'readAny'] ) - and a longer permission list grants more.
+    const three = descriptorOf(LevelThreeController.prototype);
+
+    expect(three.Resource).to.eq('level-two');
+    expect(three.Permission).to.deep.eq(['readAny']);
+    expect([...three.Routes.keys()].sort()).to.deep.eq(['remove', 'update']);
+    expect(permissionsOf(three, 'update')).to.deep.eq(['updateAny']);
+  });
+
+  it('inherits through setRbacMetadata as well', () => {
+    const base = descriptorOf(ManualBaseController.prototype);
+    const derived = descriptorOf(ManualDerivedController.prototype);
+
+    expect(derived).to.not.equal(base);
+    expect(base.Resource, 'derived class rewrote the base resource').to.eq('manual-base');
+
+    expect(derived.Resource).to.eq('manual-derived');
+    expect(derived.Permission).to.deep.eq(['updateAny']);
+    expect(permissionsOf(derived, 'save')).to.deep.eq(['updateAny']);
   });
 
   it('replaces an inherited route entry the subclass redeclares', () => {

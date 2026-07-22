@@ -48,11 +48,20 @@ function createDefaultRbacDescriptor(): IRbacDescriptor {
  * http-swagger reach it from, off a controller INSTANCE.
  */
 function rbacDescriptor(target: any): IRbacDescriptor {
-  const metadata = getInheritedDescriptor<IRbacDescriptor>(target.prototype || target, ACL_CONTROLLER_DESCRIPTOR, createDefaultRbacDescriptor);
+  const controller = target.prototype || target;
+
+  // True only for the very first decorator that touches THIS class, since
+  // getInheritedDescriptor stores own metadata as soon as it is called.
+  const isFirstDecorator = !Reflect.getOwnMetadata(ACL_CONTROLLER_DESCRIPTOR, controller);
+  const metadata = getInheritedDescriptor<IRbacDescriptor>(controller, ACL_CONTROLLER_DESCRIPTOR, createDefaultRbacDescriptor);
 
   // Nothing declared and nothing inherited - see createDefaultRbacDescriptor for
-  // why the default cannot simply be part of the seed.
-  if (metadata.Permission.length === 0) {
+  // why the default cannot simply be part of the seed. Only on creation: later
+  // decorators would otherwise refill a permission list a class deliberately
+  // emptied ( eg. `@Resource('r', [])` ). Optional chaining because the symbol
+  // is global - a foreign package may have stored a differently shaped
+  // descriptor on this prototype and decoration must not throw over it.
+  if (isFirstDecorator && !metadata.Permission?.length) {
     metadata.Permission = [...DEFAULT_CONTROLLER_PERMISSION];
   }
 
@@ -81,18 +90,25 @@ function descriptor(callback: (controller: IRbacDescriptor, target: any, propert
  * Assign resource for controller
  *
  * @param resource - name of resource
- * @param permission - default permission
+ * @param permission - default permission. When omitted, the base controller's
+ *                     permission is kept ( `readOwn` if there is nothing to
+ *                     inherit ), so renaming a resource in a subclass does not
+ *                     silently change what it grants.
  */
-export function Resource(resource: string, permission: PermissionType[] = ['readOwn']) {
+export function Resource(resource: string, permission?: PermissionType[]) {
   return descriptor((metadata: IRbacDescriptor) => {
-    // Both fields are ASSIGNED, never merged: a subclass declaring @Resource
-    // replaces what it inherited. `permission` has a default argument, so at
-    // this point a declared `['readOwn']` is indistinguishable from an omitted
-    // one - assigning makes both mean the same thing, "this class grants
-    // readOwn". Concatenating instead would let an application that tries to
-    // NARROW a package controller end up granting the union of both lists.
     metadata.Resource = resource;
-    metadata.Permission = permission;
+
+    // ASSIGNED, never merged, and only when the argument was actually passed.
+    // Assigning is what lets an application NARROW a package controller -
+    // concatenating would grant the union of both lists, and a longer
+    // permission list grants more. Omitting the argument says nothing about
+    // permissions, so whatever was collapsed from the base controller stands.
+    // Copied because the array belongs to the call site, which is free to keep
+    // mutating it.
+    if (permission) {
+      metadata.Permission = [...permission];
+    }
   });
 }
 
