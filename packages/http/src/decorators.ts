@@ -1,4 +1,4 @@
-import { Constructor, DI } from '@spinajs/di';
+import { Constructor, DI, getInheritedDescriptor } from '@spinajs/di';
 import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController, HTTP_STATUS_CODE } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
@@ -14,27 +14,46 @@ export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
 
 function Controller(callback: (controller: IControllerDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void) {
   return (target: any, propertyKey?: string | symbol, indexOrDescriptor?: number | PropertyDescriptor) => {
-    let metadata: IControllerDescriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, target.prototype || target);
-    if (!metadata) {
-      metadata = {
-        BasePath: null,
-        Middlewares: [],
-        Policies: [],
-        Routes: new Map<string, IRoute>(),
-        // Capture the controller's source file from the V8 stack the first
-        // time a route decorator runs on this class. The first frame outside
-        // this module / common transpiler shims is the controller source —
-        // exactly what ControllersCache needs when the controller was added
-        // through DI rather than the file scan.
-        SourceFile: captureControllerSourceFile(),
-      };
+    const controller = target.prototype || target;
 
-      Reflect.defineMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, metadata, target.prototype || target);
+    // True only for the very first decorator that touches THIS class, since
+    // getInheritedDescriptor stores own metadata as soon as it is called.
+    const isFirstDecorator = !Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, controller);
+
+    // Own metadata per class. Reflect.getMetadata walks the prototype chain, so
+    // a controller subclass used to find - and mutate - its parent's descriptor,
+    // writing its routes into the package's controller. getInheritedDescriptor
+    // hands back a copy pre-populated with everything inherited, so overriding
+    // one route leaves the rest of the parent's routes intact.
+    const metadata = getInheritedDescriptor<IControllerDescriptor>(controller, CONTROLLED_DESCRIPTOR_SYMBOL, createDefaultControllerDescriptor);
+
+    if (isFirstDecorator) {
+      // SourceFile is the one field that must NOT be inherited: a subclass is
+      // declared in its own file and ControllersCache.getCache() parses that
+      // file looking for the class BY NAME, so an inherited path would send it
+      // to the package's file where the subclass does not exist. The collapse
+      // otherwise keeps the ancestor's value, so stamp the class's own file
+      // here - this is also the only frame from which the V8 stack still points
+      // at the controller source rather than at the collapse machinery.
+      metadata.SourceFile = captureControllerSourceFile();
     }
 
     if (callback) {
       callback(metadata, target, propertyKey!, indexOrDescriptor!);
     }
+  };
+}
+
+function createDefaultControllerDescriptor(): IControllerDescriptor {
+  return {
+    BasePath: null,
+    Middlewares: [],
+    Policies: [],
+    Routes: new Map<string, IRoute>(),
+    // Stamped by Controller() right after the collapse, not here - see there
+    // for why it must be the class's own file. ControllersCache needs it when
+    // the controller was added through DI rather than the file scan.
+    SourceFile: undefined,
   };
 }
 
