@@ -34,12 +34,13 @@ describe('Swagger @Relation reflection', function () {
     const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
     expect(result).to.have.status(200);
 
-    const raw = result.text;
-    expect(raw).to.contain('x-relation');
-    expect(raw).to.contain('Reference to RefTarget by Uuid');
-
-    const spec = JSON.parse(raw);
-    const flat = JSON.stringify(spec);
-    expect(flat).to.contain('"x-relation":{"model":"RefTarget","by":"Uuid"}');
+    // Navigate to the enriched property structurally instead of matching a
+    // serialized fragment - key order in the JSON output is an implementation
+    // detail and must not fail this test.
+    const spec = JSON.parse(result.text);
+    const prop = spec?.paths?.['/rel/create']?.post?.requestBody?.content?.['application/json']?.schema?.properties?.author;
+    expect(prop, 'author property missing from /rel/create post request body schema').to.exist;
+    expect(prop['x-relation']).to.deep.equal({ model: 'RefTarget', by: 'Uuid' });
+    expect(prop.description).to.contain('Reference to RefTarget by Uuid');
   });
 });
