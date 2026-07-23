@@ -1,7 +1,9 @@
 import 'reflect-metadata';
 import { getInheritedDescriptor } from '@spinajs/di';
-import { ModelBase } from '@spinajs/orm';
+import { ModelBase, OrmNotFoundException } from '@spinajs/orm';
 import { ArgHydrator, IRouteParameter } from '@spinajs/http';
+import { SCHEMA_SYMBOL } from '@spinajs/validation';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 /**
  * Global symbol (shared via the global registry) under which a DTO's relation
@@ -45,13 +47,56 @@ export function Relation(target: () => typeof ModelBase, options?: IRelationOpti
   };
 }
 
+const schemaChecked = new WeakSet<object>();
+
+/** Enforces the rule: a DTO using @Relation must declare a @Schema. */
+function assertDtoHasSchema(ctor: any): void {
+  if (schemaChecked.has(ctor)) return;
+  const schema = Reflect.getMetadata(SCHEMA_SYMBOL, ctor.prototype) ?? Reflect.getMetadata(SCHEMA_SYMBOL, ctor);
+  if (!schema) {
+    throw new InvalidOperation(`DTO ${ctor.name} uses @Relation but has no @Schema. All DTOs with @Relation must declare a @Schema.`);
+  }
+  schemaChecked.add(ctor);
+}
+
 /**
- * Resolves a DTO's @Relation fields against the DB. Stub for Task 2 — builds and
- * returns the DTO instance. Task 3 adds resolution + schema enforcement.
+ * Resolves a DTO's @Relation fields against the DB. Enforces that any DTO with a
+ * @Relation declares a @Schema, resolves each present relation field to a model
+ * instance (404 if not found), and leaves absent/null fields untouched.
  */
 export class RelationResolverHydrator extends ArgHydrator {
   public async hydrate(input: any, parameter: IRouteParameter): Promise<any> {
     const ctor = parameter.RuntimeType as any;
-    return new ctor(input);
+    const dto = new ctor(input);
+
+    const relDesc = Reflect.getMetadata(RELATION_SYMBOL, ctor.prototype) as IDtoRelations | undefined;
+    if (!relDesc || relDesc.Relations.size === 0) {
+      return dto;
+    }
+
+    // Enforce "every @Relation DTO must have a @Schema" once per class.
+    assertDtoHasSchema(ctor);
+
+    await Promise.all(
+      [...relDesc.Relations.values()].map(async (rel) => {
+        const value = (dto as any)[rel.field];
+
+        // Absent / null: optional fields are skipped; required fields were
+        // already rejected upstream by @Schema validation.
+        if (value === undefined || value === null) {
+          return;
+        }
+
+        const model = rel.target();
+        const by = rel.by ?? model.getModelDescriptor().PrimaryKey;
+        const resolved = await (model as any)
+          .where({ [by]: value })
+          .firstOrThrow(new OrmNotFoundException(`${model.name} referenced by '${rel.field}' not found`));
+
+        (dto as any)[rel.field] = resolved;
+      }),
+    );
+
+    return dto;
   }
 }

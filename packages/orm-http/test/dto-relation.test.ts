@@ -56,3 +56,24 @@ describe('@Relation decorator', () => {
     expect(baseDesc.Relations.get('author')!.by).to.equal('Uuid');
   });
 });
+
+describe('RelationResolverHydrator schema enforcement', () => {
+  it('throws when a @Relation DTO has no @Schema', async () => {
+    class NoSchemaDto {
+      @Relation(() => FakeUser, { by: 'Uuid' }) public author?: string;
+      constructor(data: any) { Object.assign(this, data); }
+    }
+
+    const hydrator = new RelationResolverHydrator();
+    const param = { RuntimeType: NoSchemaDto } as any;
+
+    let threw = false;
+    try {
+      await hydrator.hydrate({ author: 'x' }, param);
+    } catch (err) {
+      threw = true;
+      expect((err as Error).message).to.match(/@Schema/);
+    }
+    expect(threw).to.equal(true);
+  });
+});
