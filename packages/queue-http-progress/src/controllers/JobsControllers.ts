@@ -13,7 +13,7 @@ export class JobsController extends BaseController {
             return new Ok({ jobId, status: 'queued', progress: 0, message: undefined, createdAt: undefined });
         }
 
-        const ctx = row.Result ?? {};
+        const failed = row.Status === 'dead' || row.Status === 'error';
         const response: IJobStatusResponse = {
             jobId: row.JobId,
             progress: row.Progress,

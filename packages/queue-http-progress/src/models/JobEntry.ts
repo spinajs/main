@@ -9,6 +9,11 @@ export interface IJobStatusResponse {
      * states (e.g. `retrying` / `dead`) cannot drift out of sync again.
      */
     status: JobModel<unknown>['Status'] | 'queued';
+    phase?: string;
     message?: string;
+    error?: string;
+    attempt?: number;
+    maxAttempts?: number;
     createdAt?: DateTime;
+    finishedAt?: DateTime;
 }
