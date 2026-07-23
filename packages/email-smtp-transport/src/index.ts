@@ -1,8 +1,9 @@
-import { IOFail } from '@spinajs/exceptions';
+import { IOFail, UnexpectedServerError } from '@spinajs/exceptions';
 import { Autoinject, DI, Injectable, NewInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
+import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder } from '@spinajs/util';
 import * as nodemailer from 'nodemailer';
 import { fs } from '@spinajs/fs';
 import _ from 'lodash';
@@ -15,12 +16,17 @@ export class EmailSenderSmtp extends EmailSender {
   protected Log: Log;
 
   @Autoinject(Templates)
-  protected Tempates: Templates;
+  protected Templates: Templates;
 
   @Config('fs.defaultProvider')
   protected DefaultFileProvider: string;
 
   protected Transporter: nodemailer.Transporter;
+
+  /**
+   * In-process resilience pipeline guarding the SMTP send ( per-attempt timeout + retry ).
+   */
+  protected SendPipeline: ResiliencePipeline<nodemailer.SentMessageInfo>;
 
   constructor(public Options: EmailConnectionOptions) {
     super();
@@ -37,7 +43,7 @@ export class EmailSenderSmtp extends EmailSender {
         secure: this.Options.ssl, // true for 465, false for other ports
         auth: {
           user: this.Options.user, // generated ethereal user
-          pass: this.Options.pass, // generated ethereal password
+          pass: this.Options.password, // generated ethereal password
         },
       },
 
@@ -50,12 +56,20 @@ export class EmailSenderSmtp extends EmailSender {
     // create reusable transporter object using the default SMTP transport
     this.Transporter = nodemailer.createTransport(options);
 
+    // in-process resilience applied only around the SMTP send. Queue-level retry
+    // handles deferred sends once this pipeline gives up.
+    this.SendPipeline = new ResiliencePipelineBuilder<nodemailer.SentMessageInfo>()
+      .addTimeout(this.Options.resilience?.timeout ?? 30_000)
+      .addRetry({ MaxRetryAttempts: this.Options.resilience?.retries ?? 2, Delay: this.Options.resilience?.delay ?? 500, BackoffType: BackoffType.Exponential, UseJitter: true })
+      .build();
+
     try {
       // verify returns Promise<true> so always is true
       // we must catch exception
       await this.Transporter.verify();
     } catch (err) {
-      throw new Error(`cannot send smtp emails, verify() failed. Please check email smtp configuration for connection ${this.Options.name}`);
+      this.Log.error(err, `Cannot verify smtp connection ${this.Options.name} (${this.Options.host}:${this.Options.port})`);
+      throw new UnexpectedServerError(`Cannot verify smtp connection ${this.Options.name} (${this.Options.host}:${this.Options.port})`, err);
     }
 
     this.Log.success(`Email smtp connection ${this.Options.name} on host ${this.Options.host} established !`);
@@ -66,25 +80,35 @@ export class EmailSenderSmtp extends EmailSender {
       throw new IOFail(`Email from address is required. Please provide it in email or in configuration`);
     }
 
-    let fs : fs = this.defaultTemplateFs;
-  
+    // only resolve / download / render a template when one is actually provided.
+    // text-only emails leave html undefined.
+    let html: string | undefined;
 
-    if(!_.isString(email.template)){
+    if (email.template) {
+      // string template -> default template filesystem
+      // IEmailTemplate object -> resolve its own fs provider
+      let templateFs: fs = this.defaultTemplateFs;
 
-      if(!email.template){
-        throw new IOFail(`Email template is required when email template is not string. Please provide template or change template property to string with path to template`);
+      if (!_.isString(email.template)) {
+        templateFs = await DI.resolve<fs>('__file_provider__', [email.template.fs]);
+        if (!templateFs) {
+          throw new IOFail(`Filesystem provider for ${email.template.fs} not registered. Make sure you importer all required fs providers`);
+        }
       }
 
-      fs = await DI.resolve<fs>('__file_provider__', [email.template.fs]);
-      if (!fs) {
-        throw new IOFail(`Filesystem provider for ${email.template!.fs} not registered. Make sure you importer all required fs providers`);
+      this.Log.trace(`Using filesystem ${templateFs.Name} to resolve email template`);
+      const tfile = await (_.isString(email.template) ? templateFs.download(email.template) : templateFs.download(email.template.file));
+      this.Log.trace(`Resolved email template ${tfile}`);
+
+      try {
+        html = await this.Templates.render(tfile, { ...email.model, ...this.Options.templates?.defaults }, email.lang);
+      } catch (err) {
+        // template rendering is a deterministic failure - log & rethrow the original error, do not retry
+        this.Log.error(err, `Cannot render email template ${tfile} for connection ${this.Options.name}`);
+        throw err;
       }
     }
 
-    this.Log.trace(`Using filesystem ${fs.Name} to resolve email template`);
-    const tfile = await  (_.isString(email.template) ? fs.download(email.template) : fs.download(email.template!.file));
-    this.Log.trace(`Resolved email template ${tfile}`);
- 
     const options = {
       from: email.from ?? this.Options.defaults?.mailFrom, // sender address
       to: email.to.join(','), // list of receivers
@@ -93,7 +117,7 @@ export class EmailSenderSmtp extends EmailSender {
       replyTo: email.replyTo,
       subject: email.subject, // Subject line
       text: email.text, // plain text body
-      html: email.template ? await this.Tempates.render(tfile, { ...email.model, ...this.Options.templates?.defaults }, email.lang) : undefined,
+      html, // rendered template or undefined for text-only emails
       attachments: [] as any[],
     };
 
@@ -123,8 +147,15 @@ export class EmailSenderSmtp extends EmailSender {
       );
     }
 
-    let message = await this.Transporter.sendMail(options);
+    let message: nodemailer.SentMessageInfo;
+    try {
+      // guard only the SMTP send with the resilience pipeline ( timeout + retry )
+      message = await this.SendPipeline.execute(() => this.Transporter.sendMail(options));
+    } catch (err) {
+      this.Log.error(err, `Cannot send email for connection ${this.Options.name}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
+      throw err;
+    }
 
-    this.Log.trace(`Sent email with data: ${JSON.stringify(_.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']))}, SMTP response: ${JSON.stringify(message)}`);
+    this.Log.trace(`Sent email with data: ${JSON.stringify(_.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']))}, messageId: ${message?.messageId}, response: ${message?.response}`);
   }
 }
