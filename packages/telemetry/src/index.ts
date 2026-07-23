@@ -10,3 +10,4 @@ export * from './PromMetricSink.js';
 export * from './policies/TelemetryTokenPolicy.js';
 export * from './policies/PublicPolicy.js';
 export * from './responses.js';
+export * from './health.js';
