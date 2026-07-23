@@ -258,7 +258,6 @@ export class HttpServer extends AsyncService {
     }
 
     this._state = LifecycleState.Closing;
-    this.Container.emit('http.server.closing', this);
 
     this._closePromise = new Promise<void>((resolve) => {
       // One watchdog, unref'd so it can never hold the event loop open, and
@@ -290,6 +289,12 @@ export class HttpServer extends AsyncService {
       // while any in-flight request keeps the grace window above.
       this.Server.closeIdleConnections?.();
     });
+
+    // Emit AFTER _closePromise is assigned. Container.emit is fully synchronous,
+    // so a listener that re-enters stop() during this emit hits the Closing guard
+    // and must find the shared promise already in place ( emitting before the
+    // assignment would hand that re-entrant caller a null instead of a thenable ).
+    this.Container.emit('http.server.closing', this);
 
     return this._closePromise;
   }
