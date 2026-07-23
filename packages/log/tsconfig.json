@@ -11,6 +11,7 @@
     { "path": "../configuration/tsconfig.json" },
     { "path": "../di/tsconfig.json" },
     { "path": "../exceptions/tsconfig.json" },
+    { "path": "../fs/tsconfig.json" },
     { "path": "../internal-logger/tsconfig.json" },
     { "path": "../log-common/tsconfig.json" },
   ]

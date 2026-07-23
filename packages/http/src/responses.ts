@@ -8,7 +8,7 @@ import * as randomstring from 'randomstring';
 import { __translate, __translateH, __translateL, __translateNumber } from '@spinajs/intl';
 import { Templates } from '@spinajs/templates';
 import { fs } from '@spinajs/fs';
-import { ServerError } from './index.js';
+import { ServerError } from './response-methods/serverError.js';
 import * as cs from 'cookie-signature';
 
 export function _setCoockies(res: express.Response, options?: IResponseOptions) {
