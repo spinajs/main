@@ -712,7 +712,9 @@ export class OpenApiBuilder {
         const rt = runtimeType as any;
         const classSchema = Reflect.getMetadata(SCHEMA_SYMBOL, rt) ?? (rt?.prototype ? Reflect.getMetadata(SCHEMA_SYMBOL, rt.prototype) : undefined);
         if (classSchema) {
-          return this.convertJsonSchema(classSchema);
+          const converted = this.convertJsonSchema(classSchema);
+          this.applyRelationMetadata(converted, rt);
+          return converted;
         }
       }
     }
@@ -783,6 +785,33 @@ export class OpenApiBuilder {
     }
 
     return result;
+  }
+
+  /**
+   * Enriches a DTO schema with orm-http @Relation annotations. The relation
+   * descriptors are read via the global symbol `Symbol.for('orm-http:relations')`
+   * so this package needs no dependency on orm-http.
+   */
+  private applyRelationMetadata(schema: IOpenApiSchema, runtimeType: any): void {
+    const RELATION_SYMBOL = Symbol.for('orm-http:relations');
+    const rel = (Reflect.getMetadata(RELATION_SYMBOL, runtimeType) ?? (runtimeType?.prototype ? Reflect.getMetadata(RELATION_SYMBOL, runtimeType.prototype) : undefined)) as
+      | { Relations: Map<string, { field: string; target: () => any; by?: string }> }
+      | undefined;
+
+    if (!rel || !schema.properties) {
+      return;
+    }
+
+    for (const [field, desc] of rel.Relations) {
+      const prop = schema.properties[field];
+      if (!prop) continue;
+
+      const modelName = desc.target()?.name ?? 'model';
+      const byLabel = desc.by ?? 'primary key';
+      const note = `Reference to ${modelName} by ${byLabel}. Must match an existing record (404 if not found).`;
+      prop.description = prop.description ? `${prop.description} ${note}` : note;
+      (prop as any)['x-relation'] = { model: modelName, by: desc.by };
+    }
   }
 
   /**
