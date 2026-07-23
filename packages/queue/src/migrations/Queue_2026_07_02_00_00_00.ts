@@ -24,7 +24,13 @@ export class Queue_2026_07_02_00_00_00 extends OrmMigration {
     const isSqlite = connection.Options.Driver.toLowerCase().includes('sqlite');
     if (!isSqlite) {
       await connection.schema().alterTable('queue_jobs', (table) => {
-        table.string('Status', 32).notNull().modify();
+        // MySQL's MODIFY COLUMN replaces the whole definition and silently drops anything
+        // omitted, so the 'created' default must be restated or it is lost. `.default().value()`
+        // returns the ColumnQueryBuilder (no `.modify()`), so `.modify()` is called separately
+        // on the column builder itself ( mirrors the pattern in Queue_2026_07_17 ).
+        const status = table.string('Status', 32).notNull();
+        status.default().value('created');
+        status.modify();
         table.string('Name', 256).notNull().modify();
         table.text('Result').modify();
       });

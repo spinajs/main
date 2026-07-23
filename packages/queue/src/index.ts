@@ -150,6 +150,9 @@ export class DefaultQueueService extends QueueService {
                 jModel.Connection = c;
                 jModel.Attempt = 0;
                 jModel.Progress = 0;
+                // set Status explicitly so tracking never depends on the DB column default,
+                // which can differ across dialects ( and MySQL MODIFY COLUMN can drop it ).
+                jModel.Status = 'created';
                 // capture the dispatch-time retry limit so it stays authoritative across redeliveries.
                 jModel.MaxAttempts = (ev as QueueJob).RetryCount ?? 0;
 
