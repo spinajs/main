@@ -1,7 +1,6 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import { guessLanguage, defaultLanguage } from '@spinajs/intl';
 import * as fs from 'fs';
-import { normalize } from 'path';
 import { TemplateRenderer } from './interfaces.js';
 import { ensureParentDir } from './io.js';
 
@@ -14,18 +13,18 @@ export type CompiledTemplate = (locals: any) => string;
 
 /**
  * Base class for template engines that compile a template file into a reusable
- * delegate and cache it (pug, handlebars). It captures the render skeleton -
- * validation, lazy compile + caching, language resolution, timing/logging and
- * writing to file - leaving engines to supply only what actually differs:
+ * delegate (pug, handlebars). It captures the render skeleton - validation,
+ * lazy compile + caching, language resolution, timing/logging and writing to
+ * file - leaving engines to supply only what actually differs:
  *
  *  - {@link buildContext} - the locals object passed to the compiled delegate
  *    (model merged with engine-specific helpers).
- *  - {@link compile} - how a template file is compiled and cached.
- *  - {@link shouldRecompile} - whether to bypass the cache (e.g. dev mode).
+ *  - {@link compile} - how a template source is compiled into a delegate.
+ *
+ * Caching (including dev-mode recompilation) is owned by the base
+ * {@link TemplateRenderer.withCache} machinery, not this class.
  */
 export abstract class CompiledTemplateRenderer<TDelegate extends CompiledTemplate = CompiledTemplate> extends TemplateRenderer {
-  protected Templates: Map<string, TDelegate> = new Map<string, TDelegate>();
-
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string): Promise<void> {
     const content = await this.render(template, model, language);
     ensureParentDir(filePath);
@@ -41,13 +40,8 @@ export abstract class CompiledTemplateRenderer<TDelegate extends CompiledTemplat
     this.Log.trace(`Rendering template ${templateName}`);
     this.Log.timeStart(label);
 
-    const normalized = normalize(templateName);
-    if (!this.Templates.has(normalized) || this.shouldRecompile()) {
-      await this.compile(normalized);
-    }
-
-    const compiled = this.Templates.get(normalized)!;
-    const content = compiled(this.buildContext(model, this.resolveLanguage(language)));
+    const delegate = await this.withCache(templateName, () => this.compile(templateName));
+    const content = delegate(this.buildContext(model, this.resolveLanguage(language)));
 
     const time = this.Log.timeEnd(label);
     this.Log.trace(`Rendering template ${templateName} ended, (${time} ms)`);
@@ -64,22 +58,15 @@ export abstract class CompiledTemplateRenderer<TDelegate extends CompiledTemplat
   }
 
   /**
-   * Whether a cached template must be recompiled on every render. Defaults to
-   * `false`; engines can override to force recompilation in dev mode.
-   */
-  protected shouldRecompile(): boolean {
-    return false;
-  }
-
-  /**
    * Build the locals object passed to the compiled template - the model merged
    * with any engine-specific helpers (translation functions, `lang`, ...).
    */
   protected abstract buildContext(model: unknown, language: string): Record<string, unknown>;
 
   /**
-   * Compile the template at `path` and store the resulting delegate in
-   * {@link Templates}, keyed by the (already normalized) path.
+   * Compile the template identified by `template` (a bare path or `fs://` URI)
+   * into a reusable delegate. Called only on a cache miss; the returned delegate
+   * is cached by {@link TemplateRenderer.withCache}.
    */
-  protected abstract compile(path: string): Promise<void>;
+  protected abstract compile(template: string): Promise<TDelegate>;
 }

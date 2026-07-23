@@ -1,6 +1,7 @@
 import { Templates, TemplateRenderer } from '../src/index.js';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
+import { Perf, PerfSink, IPerfMetric } from '@spinajs/log';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 import { join, normalize, resolve } from 'path';
 import { writeFile, mkdir } from 'fs/promises';
@@ -243,5 +244,48 @@ describe('templates cache modes', () => {
       // into every test that runs after this one
       provider.stat = original;
     }
+  });
+});
+
+/**
+ * Collects every perf metric the facade emits so the test can assert on the
+ * spans without touching any real sink.
+ */
+class RecordingSink extends PerfSink {
+  public metrics: IPerfMetric[] = [];
+  public collect(m: IPerfMetric): void {
+    this.metrics.push(m);
+  }
+}
+
+describe('templates perf instrumentation', () => {
+  let sink: RecordingSink;
+
+  beforeEach(async () => {
+    await writeTemplate('hello');
+
+    DI.register(RecordingSink).as(PerfSink);
+
+    // the container caches the resolved PerfSink[] by type and does not re-check
+    // for late registrations, so drop that cache to pick our sink up alongside
+    // the real one registered during log bootstrap
+    DI.uncache(Array.ofType(PerfSink));
+    sink = (DI.resolve(Array.ofType(PerfSink)) as PerfSink[]).find((s) => s instanceof RecordingSink) as RecordingSink;
+    sink.metrics = [];
+
+    // the facade memoizes its resolved sinks too; force a re-resolve so our sink is seen
+    Perf.refreshSinks();
+  });
+
+  it('emits one template.render span with the engine label and template field', async () => {
+    const t = await setup();
+
+    await t.render('fs://test/stub.test-tpl', {});
+
+    const spans = sink.metrics.filter((m) => m.name === 'template.render');
+    expect(spans).to.have.length(1);
+    expect(spans[0].kind).to.eq('span');
+    expect(spans[0].labels?.engine).to.eq('stub');
+    expect(spans[0].fields?.template).to.eq('fs://test/stub.test-tpl');
   });
 });

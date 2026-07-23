@@ -1,6 +1,6 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { AsyncService, Inject, Autoinject } from '@spinajs/di';
-import { Log, Logger } from '@spinajs/log';
+import { Log, Logger, Perf } from '@spinajs/log';
 import { TemplateRenderer } from './interfaces.js';
 import { IRenderOptions } from './progress.js';
 import { extname } from 'path';
@@ -27,7 +27,8 @@ export class Templates extends AsyncService {
   }
 
   public async compileToFile(template: string, renderer: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {
-    return await this.engineByType(renderer).renderToFile(template, model, filePath, language, options);
+    const engine = this.engineByType(renderer);
+    return await Perf.measure('template.compile', () => engine.renderToFile(template, model, filePath, language, options), { labels: { engine: engine.Type }, fields: { template } });
   }
 
   /**
@@ -42,7 +43,8 @@ export class Templates extends AsyncService {
    * @returns
    */
   public async compile(template: string, renderer: string, model: unknown, language?: string, options?: IRenderOptions): Promise<string> {
-    return await this.engineByType(renderer).render(template, model, language, options);
+    const engine = this.engineByType(renderer);
+    return await Perf.measure('template.compile', () => engine.render(template, model, language, options), { labels: { engine: engine.Type }, fields: { template } });
   }
 
   /**
@@ -57,11 +59,13 @@ export class Templates extends AsyncService {
    * @returns
    */
   public async render(template: string, model: unknown, language?: string, options?: IRenderOptions): Promise<string> {
-    return await this.engineByExtension(template).render(template, model, language, options);
+    const renderer = this.engineByExtension(template);
+    return await Perf.measure('template.render', () => renderer.render(template, model, language, options), { labels: { engine: renderer.Type }, fields: { template } });
   }
 
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {
-    return await this.engineByExtension(template).renderToFile(template, model, filePath, language, options);
+    const renderer = this.engineByExtension(template);
+    return await Perf.measure('template.render', () => renderer.renderToFile(template, model, filePath, language, options), { labels: { engine: renderer.Type }, fields: { template } });
   }
 
   /**
