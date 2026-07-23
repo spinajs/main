@@ -26,11 +26,19 @@ const email = {
      * FS must be set in configuration on server/app that sends emails
      */
     templateFs: "email-templates",
+
+    /**
+     * Default queue-level retry count for deferred emails.
+     */
+    retry: {
+      count: 3,
+    },
   },
   queue: {
     routing: {
-      EmailSendJob: { connection: 'email-queue-black-hole' },
+      EmailSend: { connection: 'email-queue-black-hole' },
       EmailSent: { connection: 'email-queue-black-hole' },
+      EmailSendFailed: { connection: 'email-queue-black-hole' },
     },
 
     // by default we dont have queue server for sending emails
@@ -40,6 +48,7 @@ const email = {
         service: 'BlackHoleQueueClient',
         defaultQueueChannel: 'email-jobs',
         defaultTopicChannel: 'email-events',
+        defaultQueueDeadLetterChannel: 'email-jobs-dlq',
       },
     ],
   },

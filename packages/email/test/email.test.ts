@@ -39,7 +39,7 @@ export class ConnectionConf extends FrameworkConfiguration {
             host: 'smtp.mailtrap.io',
             port: 2525,
             user: process.env.SPINE_TEST_EMAIL_USER || '9dd1310b3e28cf',
-            pass: process.env.SPINE_TEST_EMAIL_PASSWORD || '2535b401d2ae2b',
+            password: process.env.SPINE_TEST_EMAIL_PASSWORD || '2535b401d2ae2b',
           },
           {
             name: 'test2',
@@ -47,14 +47,14 @@ export class ConnectionConf extends FrameworkConfiguration {
             host: 'smtp.mailtrap.io',
             port: 2525,
             user: process.env.SPINE_TEST_EMAIL_USER || '9dd1310b3e28cf',
-            pass: process.env.SPINE_TEST_EMAIL_PASSWORD || '2535b401d2ae2b',
+            password: process.env.SPINE_TEST_EMAIL_PASSWORD || '2535b401d2ae2b',
           },
         ],
       },
       queue: {
         default: 'default-test-queue',
         routing: {
-          EmailSendJob: { connection: 'default-test-queue' },
+          EmailSend: { connection: 'default-test-queue' },
           EmailSent: { connection: 'default-test-queue' },
         },
         connections: [
@@ -208,7 +208,7 @@ describe('smtp email transport', function () {
     chai.expect(m.FinishedAt).to.eq(null);
     chai.expect(m.Progress).to.eq(0);
 
-    await e.processDefferedEmails();
+    await e.processDeferredEmails();
     await wait(10000);
 
     //chai.expect(sExecute.calledOnce).to.be.true;
@@ -284,7 +284,7 @@ describe('smtp email transport', function () {
 
   it('should sent email template with lang', async () => {
     const e = await email();
-    const f = await DI.resolve<fs>('__file_provider__', ['fs-templates']);
+    const f = await DI.resolve<fs>('__file_provider__', ['fs-template']);
     const file = await f.download('test-lang.pug');
     await e.send({
       to: ['test@spinajs.com'],
