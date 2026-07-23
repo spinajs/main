@@ -3,7 +3,8 @@ import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
-import { QueueJob, Job, QueueService, JobModel, QueueClient, IQueueMessage, QueueMessage } from './../src/index.js';
+import * as sinon from 'sinon';
+import { QueueJob, Job, QueueService, JobModel, QueueClient, IQueueMessage, QueueMessage, IJobFailureContext } from './../src/index.js';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
@@ -40,7 +41,13 @@ class TestQueueClient extends QueueClient {
   }
 }
 
-class ConnectionConf extends FrameworkConfiguration {
+/**
+ * Toggles the `queue.deduplicate` config seen by {@link TrackingConnectionConf}. `undefined` omits the key
+ * entirely so the service falls back to its documented default ( true ). Set per-suite in beforeEach.
+ */
+let CONFIG_DEDUP: boolean | undefined = undefined;
+
+class TrackingConnectionConf extends FrameworkConfiguration {
   protected onLoad(): unknown {
     return {
       db: {
@@ -63,6 +70,7 @@ class ConnectionConf extends FrameworkConfiguration {
       queue: {
         default: 'test-queue',
         routing: {},
+        ...(CONFIG_DEDUP !== undefined ? { deduplicate: CONFIG_DEDUP } : {}),
         connections: [
           {
             service: 'TestQueueClient',
@@ -93,6 +101,35 @@ class TrackedJob extends QueueJob {
   }
 }
 
+/** Records every onFailed invocation so a test can assert attempt / isFinal per delivery. */
+const hookCalls: IJobFailureContext[] = [];
+
+@Job()
+class HookedJob extends QueueJob {
+  public RetryCount = 1;
+
+  public async execute() {
+    throw new Error('boom');
+  }
+
+  public async onFailed(_err: unknown, ctx: IJobFailureContext) {
+    hookCalls.push(ctx);
+  }
+}
+
+@Job()
+class ThrowingHookJob extends QueueJob {
+  public RetryCount = 0;
+
+  public async execute() {
+    throw new Error('boom');
+  }
+
+  public async onFailed() {
+    throw new Error('hook exploded');
+  }
+}
+
 async function q() {
   return DI.resolve(QueueService);
 }
@@ -107,13 +144,16 @@ describe('queue tracking (producer generates JobId, consumer find-or-create)', f
 
   beforeEach(async () => {
     DI.clearCache();
-    DI.register(ConnectionConf).as(Configuration);
+    CONFIG_DEDUP = undefined; // default ( dedup on )
+    hookCalls.length = 0;
+    DI.register(TrackingConnectionConf).as(Configuration);
 
     await DI.resolve(Configuration);
     await DI.resolve(Orm);
   });
 
   afterEach(async () => {
+    sinon.restore();
     const queue = await q();
     await queue.dispose();
   });
@@ -173,5 +213,148 @@ describe('queue tracking (producer generates JobId, consumer find-or-create)', f
     expect(row.JobId).to.equal((wire as any).JobId);
     expect(row.Attempt).to.equal(2);
     expect(['retrying', 'dead']).to.include(row.Status);
+  });
+
+  it('emit() returns the JobId and it matches the wire message; no row is created by emit alone', async () => {
+    const jobId = await TrackedJob.emit({});
+    expect(jobId, 'emit returns the generated JobId').to.be.a('string');
+
+    const c = await client();
+    expect(c.Emitted.length).to.equal(1);
+    expect((c.Emitted[0] as any).JobId).to.equal(jobId);
+
+    // producer is DB-free - only the consumer writes the tracking row
+    expect((await JobModel.all()).length).to.equal(0);
+  });
+
+  it('persists MaxAttempts ( job RetryCount ) on first receipt', async () => {
+    const queue = await q();
+    await queue.consume(TrackedJob);
+    await TrackedJob.emit({ RetryCount: 3 });
+
+    const c = await client();
+    const wire = c.Emitted[0];
+    await c.deliver(wire);
+
+    const row = await JobModel.where({ JobId: (wire as any).JobId }).firstOrFail();
+    expect(row.MaxAttempts).to.equal(3);
+  });
+
+  it('transitions retrying -> dead across redeliveries using the dispatch-time limit', async () => {
+    const queue = await q();
+    await queue.consume(TrackedJob);
+    await TrackedJob.emit({ ShouldFail: true, RetryCount: 1 });
+
+    const c = await client();
+    const wire = c.Emitted[0];
+
+    // first receipt: attempt 1 of maxAttempts 1 -> still retrying
+    await expect(c.deliver(wire)).to.be.rejectedWith('boom');
+    let row = await JobModel.where({ JobId: (wire as any).JobId }).firstOrFail();
+    expect(row.Status).to.equal('retrying');
+    expect(row.Attempt).to.equal(1);
+    expect(row.MaxAttempts).to.equal(1);
+
+    // redelivery: attempt 2 exceeds the limit -> dead
+    await expect(c.deliver(wire)).to.be.rejectedWith('boom');
+    row = await JobModel.where({ JobId: (wire as any).JobId }).firstOrFail();
+    expect(row.Status).to.equal('dead');
+    expect(row.Attempt).to.equal(2);
+  });
+
+  it('dedup ON ( default ): a redelivery of a succeeded job is skipped ( execute runs once )', async () => {
+    const queue = await q();
+    const spy = sinon.spy(TrackedJob.prototype, 'execute');
+
+    await queue.consume(TrackedJob);
+    await TrackedJob.emit({});
+
+    const c = await client();
+    const wire = c.Emitted[0];
+
+    await c.deliver(wire); // executes, marks success
+    await c.deliver(wire); // duplicate - must be skipped
+
+    expect(spy.callCount, 'execute must run exactly once').to.equal(1);
+
+    const row = await JobModel.where({ JobId: (wire as any).JobId }).firstOrFail();
+    expect(row.Status).to.equal('success');
+  });
+
+  it('onFailed is called per failure with correct attempt / isFinal', async () => {
+    const queue = await q();
+    await queue.consume(HookedJob);
+    await HookedJob.emit({});
+
+    const c = await client();
+    const wire = c.Emitted[0];
+
+    await expect(c.deliver(wire)).to.be.rejectedWith('boom'); // attempt 1, retrying
+    await expect(c.deliver(wire)).to.be.rejectedWith('boom'); // attempt 2, dead
+
+    expect(hookCalls.length).to.equal(2);
+
+    expect(hookCalls[0].attempt).to.equal(1);
+    expect(hookCalls[0].maxAttempts).to.equal(1);
+    expect(hookCalls[0].isFinal).to.equal(false);
+    expect(hookCalls[0].jobId).to.equal((wire as any).JobId);
+
+    expect(hookCalls[1].attempt).to.equal(2);
+    expect(hookCalls[1].isFinal).to.equal(true);
+  });
+
+  it('a throwing onFailed does not change job status and does not prevent the consumer rethrow', async () => {
+    const queue = await q();
+    await queue.consume(ThrowingHookJob);
+    await ThrowingHookJob.emit({});
+
+    const c = await client();
+    const wire = c.Emitted[0];
+
+    // RetryCount 0 -> first failure is final ( dead ); the throwing hook must not mask 'boom'
+    await expect(c.deliver(wire)).to.be.rejectedWith('boom');
+
+    const row = await JobModel.where({ JobId: (wire as any).JobId }).firstOrFail();
+    expect(row.Status).to.equal('dead');
+    expect(row.Attempt).to.equal(1);
+    expect(row.LastError).to.contain('boom');
+  });
+});
+
+describe('queue dedup OFF ( queue.deduplicate: false )', function () {
+  this.timeout(15000);
+
+  beforeEach(async () => {
+    DI.clearCache();
+    CONFIG_DEDUP = false;
+    DI.register(TrackingConnectionConf).as(Configuration);
+
+    await DI.resolve(Configuration);
+    await DI.resolve(Orm);
+  });
+
+  afterEach(async () => {
+    sinon.restore();
+    const queue = await q();
+    await queue.dispose();
+  });
+
+  it('re-executes a succeeded job on redelivery when dedup is disabled', async () => {
+    const queue = await q();
+    const spy = sinon.spy(TrackedJob.prototype, 'execute');
+
+    await queue.consume(TrackedJob);
+    await TrackedJob.emit({});
+
+    const c = await client();
+    const wire = c.Emitted[0];
+
+    await c.deliver(wire);
+    await c.deliver(wire);
+
+    expect(spy.callCount, 'dedup off -> execute runs on every delivery').to.equal(2);
+
+    const row = await JobModel.where({ JobId: (wire as any).JobId }).firstOrFail();
+    expect(row.Status).to.equal('success');
   });
 });

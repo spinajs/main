@@ -193,6 +193,20 @@ export interface IJobProgressMeta {
  */
 export type JobProgressCallback = (p: number, meta?: IJobProgressMeta) => Promise<void>;
 
+/**
+ * Context passed to {@link QueueJob.onFailed} describing the failed attempt.
+ */
+export interface IJobFailureContext {
+  /** The attempt number that just failed ( 1-based ). */
+  attempt: number;
+  /** The dispatch-time retry limit ( the job's RetryCount ). */
+  maxAttempts: number;
+  /** True when this failure exhausted the retries and the job was marked dead. */
+  isFinal: boolean;
+  /** The failed job's JobId. */
+  jobId: string;
+}
+
 export abstract class QueueJob extends QueueMessage implements IQueueJob {
   public JobId: string;
 
@@ -208,6 +222,13 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
   }
 
   public abstract execute(progress: JobProgressCallback): Promise<unknown>;
+
+  /**
+   * Called by the consumer after a failed execute(); isFinal=true when the job was marked dead.
+   * Must not throw - errors are logged and swallowed. Override to react to failures ( e.g. send an
+   * alert on the final attempt ). No-op by default.
+   */
+  public async onFailed(_err: unknown, _ctx: IJobFailureContext): Promise<void> {}
 
   /**
    * Emit (enqueue) this job. Returns the generated JobId so the caller can track

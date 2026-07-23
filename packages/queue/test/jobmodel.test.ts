@@ -11,7 +11,7 @@ chai.use(chaiAsPromised);
 
 // Broker-free coverage for the queue schema: an in-memory sqlite DB with the
 // queue migrations applied, verifying the Phase/Message progress columns.
-class ConnectionConf extends FrameworkConfiguration {
+class JobModelConnectionConf extends FrameworkConfiguration {
   protected onLoad() {
     return {
       logger: {
@@ -42,7 +42,7 @@ describe('JobModel progress columns', function () {
 
   beforeEach(async () => {
     DI.clearCache();
-    DI.register(ConnectionConf).as(Configuration);
+    DI.register(JobModelConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
     // runs the queue migrations (incl. the Phase/Message column migration)
     await DI.resolve(Orm);

@@ -2,7 +2,7 @@ import { UnexpectedServerError, InvalidArgument, ConnectionNotFound } from '@spi
 import { Constructor, DI, Injectable, ServiceNotFound } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { QueueClient, QueueJob, QueueEvent, IQueueMessage, IJobProgressMeta, QueueMessage, QueueService, JobRetentionService, isJob } from './interfaces.js';
-import { JobModel } from './models/JobModel.js';
+import { JobModel, JOB_TERMINAL_STATUSES } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
@@ -14,6 +14,8 @@ export * from './models/JobModel.js';
 export * from './services/JobRetentionService.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
 export * from './migrations/Queue_2026_06_30_00_00_00.js';
+export * from './migrations/Queue_2026_07_02_00_00_00.js';
+export * from './migrations/Queue_2026_07_10_00_00_00.js';
 export * from './migrations/Queue_2026_07_17_00_00_00.js';
 export * from './fp.js';
 
@@ -69,6 +71,7 @@ export class DefaultQueueService extends QueueService {
 
       if (isJob(event)) {
         event.JobId = event.JobId ?? uuidv4(); // generate only; consumer writes the row
+        jobId = event.JobId;
       }
 
       await connection.emit(event);
@@ -147,6 +150,8 @@ export class DefaultQueueService extends QueueService {
                 jModel.Connection = c;
                 jModel.Attempt = 0;
                 jModel.Progress = 0;
+                // capture the dispatch-time retry limit so it stays authoritative across redeliveries.
+                jModel.MaxAttempts = (ev as QueueJob).RetryCount ?? 0;
 
                 try {
                   await jModel.insert();
@@ -154,6 +159,14 @@ export class DefaultQueueService extends QueueService {
                   // concurrent first-receipt from another worker won the insert; re-read and continue.
                   jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
                 }
+              }
+
+              // at-least-once delivery means a job can be redelivered after it already finished
+              // ( consumer crash before ack, broker failover ). Skip re-running a job whose tracking
+              // row is already terminal so jobs stay idempotent. Acks without re-execution or rethrow.
+              if ((this.Configuration?.deduplicate ?? true) && JOB_TERMINAL_STATUSES.includes(jModel.Status)) {
+                this.Log.info(`Job ${ev.Name}:${ev.JobId} already in terminal state ${jModel.Status}, skipping duplicate delivery`);
+                return;
               }
 
               jModel.Status = 'executing';
@@ -185,11 +198,21 @@ export class DefaultQueueService extends QueueService {
                 // transport can apply its retry-then-dead-letter policy ( re-thrown below ).
                 // the error goes to LastError - Result is reserved for the successful output.
                 jModel.Attempt = (jModel.Attempt ?? 0) + 1;
-                const maxRetries = (ev as QueueJob).RetryCount ?? 0;
+                // prefer the dispatch-time limit captured on the row so it stays authoritative
+                // across redeliveries ( a redelivered wire message could carry a different RetryCount ).
+                const maxRetries = jModel.MaxAttempts ?? (ev as QueueJob).RetryCount ?? 0;
                 jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
                 jModel.LastError = err instanceof Error ? err.message : String(err);
 
                 await jModel.update();
+
+                // notify the job of the failed attempt ( e.g. to send an alert on the final one ).
+                // the hook must never mask the original error, so its own failure is only logged.
+                try {
+                  await (ev as QueueJob).onFailed(err, { attempt: jModel.Attempt, maxAttempts: maxRetries, isFinal: jModel.Status === 'dead', jobId: ev.JobId });
+                } catch (hookErr) {
+                  this.Log.error(hookErr, `onFailed hook for job ${event.name} threw`);
+                }
 
                 // propagate so the transport sees the failure and can retry / dead-letter.
                 // ( previously the error was swallowed and the message silently acked )

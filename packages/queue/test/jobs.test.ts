@@ -280,8 +280,4 @@ describe('jobs', function () {
     expect(callback.calledOnce).to.be.true;
     expect((callback.args[0][0] as any).Bar).to.eq('test message');
   });
-
-  it('Should retry job on fail', () => {
-    // TODO: retries & dead letter queue
-  });
 });

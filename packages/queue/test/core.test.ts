@@ -38,7 +38,7 @@ class InMemoryQueueClient extends QueueClient {
   }
 }
 
-class ConnectionConf extends FrameworkConfiguration {
+class CoreConnectionConf extends FrameworkConfiguration {
   protected onLoad(): unknown {
     return {
       db: {
@@ -113,7 +113,7 @@ describe('queue core - dedup & persistence', function () {
     DI.clearCache();
     InMemoryQueueClient.Subs.clear();
     InMemoryQueueClient.Last = undefined;
-    DI.register(ConnectionConf).as(Configuration);
+    DI.register(CoreConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
     await DI.resolve(Orm);
   });
@@ -161,8 +161,11 @@ describe('queue core - dedup & persistence', function () {
     expect(spy.calledOnce, 'duplicate deliveries must not re-execute the job').to.be.true;
   });
 
-  it('stores MaxAttempts ( job RetryCount ) at dispatch', async () => {
-    await q();
+  it('stores MaxAttempts ( job RetryCount ) on first receipt', async () => {
+    // producer is DB-free: the tracking row ( and its MaxAttempts ) is written by the
+    // consumer on first receipt, so drive a delivery via consume() before asserting.
+    const queue = await q();
+    await queue.consume(SampleJob);
     await SampleJob.emit({ Foo: 'x', RetryCount: 4 } as any);
 
     const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
