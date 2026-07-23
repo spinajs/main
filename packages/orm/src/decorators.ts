@@ -37,6 +37,10 @@ export function _prepareColumnDesc(initialize: Partial<IColumnDescriptor>): ICol
 }
 
 function _getMetadataFrom(target: any) {
+  // Sampled BEFORE getInheritedDescriptor, which stores own metadata as a side
+  // effect - so this is only true on the very first decorator to touch `target`.
+  const isFirstDecorator = !Reflect.getOwnMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
+
   // Own metadata per class - see @spinajs/di getInheritedDescriptor. Replaces
   // the previous name-keyed container, which collapsed two classes sharing a
   // name into a single slot.
@@ -45,7 +49,32 @@ function _getMetadataFrom(target: any) {
   // Name is this class's own, never inherited from the base
   descriptor.Name = target.name;
 
+  if (isFirstDecorator) {
+    detachInheritedModelMembers(descriptor);
+  }
+
   return descriptor;
+}
+
+/**
+ * The collapse merger ( @spinajs/di ) rebuilds Columns / Relations and the
+ * option objects one level deep, but their ELEMENTS stay shared by reference
+ * with the parent model. Decorators such as @Ignore / @Uuid ( `columnDesc.Ignore = true` ),
+ * @Recursive ( `relation.Recursive = true` ) and @CreatedAt / @SoftDelete /
+ * @DiscriminationMap ( `model.<option>.<field> = ...` ) mutate a found element
+ * in place - on an INHERITED member that would write straight through to the
+ * base model's descriptor. Give this class its own shallow copies of exactly
+ * the structures that get mutated in place. ( same hazard @spinajs/http closes
+ * with detachInheritedRoutes; Converters / JunctionModelProperties are only
+ * ever set/pushed with fresh values, so they need no copy. )
+ */
+function detachInheritedModelMembers(descriptor: IModelDescriptor) {
+  descriptor.Columns = descriptor.Columns.map((c) => ({ ...c }));
+  descriptor.Relations = new Map([...descriptor.Relations].map(([name, relation]) => [name, { ...relation }]));
+  descriptor.Timestamps = { ...descriptor.Timestamps };
+  descriptor.SoftDelete = { ...descriptor.SoftDelete };
+  descriptor.Archived = { ...descriptor.Archived };
+  descriptor.DiscriminationMap = { ...descriptor.DiscriminationMap };
 }
 
 export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
