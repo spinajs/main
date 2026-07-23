@@ -1,5 +1,7 @@
 import * as express from 'express';
 import { DI, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration-common';
 import { Logger, Log, Perf } from '@spinajs/log';
 import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
 
@@ -7,7 +9,9 @@ import { Counter, Gauge, Histogram } from 'prom-client';
 import { Metrics, MetricMap } from './metrics.js';
 import { RequestStats } from './requestStats.js';
 import { Timeline } from './timeline.js';
+import { RouteStats } from './routeStats.js';
 import { PromMetricSink } from './PromMetricSink.js';
+import { InMemoryPerfSink } from './InMemoryPerfSink.js';
 
 /**
  * Default metric-name prefix for the HTTP telemetry metrics.
@@ -41,9 +45,36 @@ export class TelemetryMiddleware extends ServerMiddleware {
   protected Log!: Log;
 
   /**
-   * Metric-name prefix. Overridable by subclasses.
+   * Metric-name prefix. A subclass that assigns this wins over configuration —
+   * subclassing to re-prefix is a documented extension point.
    */
   protected Prefix = DEFAULT_PREFIX;
+
+  @Config('telemetry.prefix', { defaultValue: DEFAULT_PREFIX })
+  protected ConfiguredPrefix!: string;
+
+  @Config('telemetry.buckets', { defaultValue: DURATION_BUCKETS_MS })
+  protected Buckets!: number[];
+
+  @Config('telemetry.apdexThresholdMs', { defaultValue: 25 })
+  protected ApdexThresholdMs!: number;
+
+  @Config('telemetry.timeline.length', { defaultValue: 60 })
+  protected TimelineLength!: number;
+
+  @Config('telemetry.timeline.bucketMs', { defaultValue: 60_000 })
+  protected TimelineBucketMs!: number;
+
+  /**
+   * Whether per-route stats are recorded. Read on the hot path in `after()`, so
+   * it must stay a plain, DI-independent field ( a directly-instantiated
+   * middleware in a unit test has no resolved Configuration ). Populated from
+   * `telemetry.routes.enabled` in `resolve()` once configuration is available.
+   */
+  protected RoutesEnabled = true;
+
+  @Config('telemetry.routes.maxEntries', { defaultValue: 500 })
+  protected RoutesMaxEntries!: number;
 
   protected metrics!: Metrics;
   protected requestsTotal!: Counter<string>;
@@ -53,14 +84,26 @@ export class TelemetryMiddleware extends ServerMiddleware {
   private defined = false;
 
   /**
-   * Lifetime request stats ( status classes, error rate, apdex ).
+   * Epoch ms at which this middleware started collecting. Used to compute the
+   * lifetime request / error rates.
    */
-  public readonly RequestStats = new RequestStats();
+  public readonly StartedAt = Date.now();
 
   /**
-   * Rolling 60 x 1-min timeline of request stats.
+   * Lifetime request stats ( status classes, error rate, apdex ). Rebuilt in
+   * `resolve()` once configuration is available.
    */
-  public readonly Timeline = new Timeline();
+  public RequestStats = new RequestStats();
+
+  /**
+   * Rolling timeline of request stats. Rebuilt in `resolve()`.
+   */
+  public Timeline = new Timeline();
+
+  /**
+   * Per method+route breakdown. Rebuilt in `resolve()`.
+   */
+  public RouteStats = new RouteStats(500, 25);
 
   constructor() {
     super();
@@ -71,8 +114,19 @@ export class TelemetryMiddleware extends ServerMiddleware {
 
   public async resolve(): Promise<void> {
     await super.resolve();
-    // Ensure the prom PerfSink exists so the Perf facade discovers it.
+
+    // Rebuild the aggregates now that configuration is available.
+    this.RequestStats = new RequestStats(this.ApdexThresholdMs);
+    this.Timeline = new Timeline(this.TimelineLength, this.TimelineBucketMs, this.ApdexThresholdMs);
+    this.RouteStats = new RouteStats(this.RoutesMaxEntries, this.ApdexThresholdMs);
+
+    // RoutesEnabled is a hot-path field, not a @Config getter, so read it here.
+    const cfg = DI.get(Configuration);
+    this.RoutesEnabled = cfg?.get('telemetry.routes.enabled', true) ?? true;
+
+    // Ensure the perf sinks exist so the Perf facade discovers them.
     void DI.resolve(PromMetricSink);
+    void DI.resolve(InMemoryPerfSink);
     Perf.refreshSinks();
   }
 
@@ -85,7 +139,10 @@ export class TelemetryMiddleware extends ServerMiddleware {
 
     this.metrics = DI.get(Metrics) ?? DI.resolve(Metrics);
 
-    const map: MetricMap = this.metrics.defineMetrics(this.Prefix, [
+    // A subclass that overrode Prefix keeps it; otherwise configuration wins.
+    const prefix = this.Prefix !== DEFAULT_PREFIX ? this.Prefix : this.ConfiguredPrefix ?? DEFAULT_PREFIX;
+
+    const map: MetricMap = this.metrics.defineMetrics(prefix, [
       {
         name: 'requests_total',
         help: 'Total number of HTTP requests',
@@ -97,7 +154,7 @@ export class TelemetryMiddleware extends ServerMiddleware {
         help: 'HTTP request duration in milliseconds',
         type: 'histogram',
         labelNames: ['method', 'route', 'status'],
-        buckets: DURATION_BUCKETS_MS,
+        buckets: this.Buckets ?? DURATION_BUCKETS_MS,
       },
       {
         name: 'requests_in_flight',
@@ -156,6 +213,10 @@ export class TelemetryMiddleware extends ServerMiddleware {
         this.RequestStats.countRequest();
         this.RequestStats.countResponse(status, durationMs);
         this.Timeline.record(status, durationMs, Date.now());
+
+        if (this.RoutesEnabled !== false) {
+          this.RouteStats.record(method, route, status, durationMs);
+        }
       } catch (err) {
         this.Log?.warn(err as Error, 'telemetry after() failed');
       }

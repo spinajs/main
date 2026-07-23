@@ -99,3 +99,57 @@ describe('TelemetryMiddleware — before()/after() handlers', () => {
     expect(mw.Order).to.eq(2);
   });
 });
+
+describe('TelemetryMiddleware — per-route stats and config', () => {
+  it('records into RouteStats keyed by method and matched route', () => {
+    const { mw } = makeMiddleware();
+    const req = fakeReq({ route: { path: '/users/:id' } });
+    const res = { statusCode: 200 } as any;
+
+    mw.before()(req, res, sinon.spy());
+    mw.after()(req, res, sinon.spy());
+
+    const snapshot = mw.RouteStats.toJSON();
+    expect(snapshot.routes).to.have.length(1);
+    expect(snapshot.routes[0].method).to.eq('GET');
+    expect(snapshot.routes[0].route).to.eq('/users/:id');
+    expect(snapshot.routes[0].stats.requests).to.eq(1);
+  });
+
+  it('skips per-route recording when routes are disabled', () => {
+    const { mw } = makeMiddleware();
+    (mw as any).RoutesEnabled = false;
+
+    const req = fakeReq({ route: { path: '/users/:id' } });
+    const res = { statusCode: 200 } as any;
+
+    mw.before()(req, res, sinon.spy());
+    mw.after()(req, res, sinon.spy());
+
+    expect(mw.RouteStats.toJSON().routes).to.have.length(0);
+  });
+
+  it('stamps StartedAt so request rates can be computed', () => {
+    const { mw } = makeMiddleware();
+    expect(mw.StartedAt).to.be.a('number');
+    expect(mw.StartedAt).to.be.at.most(Date.now());
+  });
+
+  it('still calls next() when the metric call throws', () => {
+    const { mw } = makeMiddleware();
+    (mw as any).requestDuration = {
+      observe: () => {
+        throw new Error('boom');
+      },
+    };
+
+    const req = fakeReq();
+    const res = { statusCode: 200 } as any;
+    const next = sinon.spy();
+
+    mw.before()(req, res, sinon.spy());
+    mw.after()(req, res, next);
+
+    expect(next.calledOnce).to.eq(true);
+  });
+});
