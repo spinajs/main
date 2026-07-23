@@ -2,9 +2,12 @@ import { DI } from '@spinajs/di';
 import { IOFail, ResourceNotFound } from '@spinajs/exceptions';
 import * as express from 'express';
 import _ from 'lodash';
-import mime from 'mime';
+import { promises } from 'fs';
+import { resolve as resolvePath } from 'path';
 import { IFileResponseOptions, IResponseOptions, Response } from './../interfaces.js';
 import { fs } from '@spinajs/fs';
+// import from the defining module, not the package barrel - '../index.js' pulls
+// the whole export graph back through interfaces.js and re-forms an import cycle
 import { _setCoockies, _setHeaders } from '../responses.js';
 
 export class ZipResponse extends Response {
@@ -15,7 +18,10 @@ export class ZipResponse extends Response {
   constructor(protected Options: IFileResponseOptions, protected responseOptions?: IResponseOptions) {
     super(null);
 
-    this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename) ?? undefined;
+    // The payload is always a zip archive — default to application/zip rather
+    // than deriving from the (original) download filename, which would mislabel
+    // e.g. a zipped `report.txt` as text/plain.
+    this.Options.mimeType = Options.mimeType ?? 'application/zip';
     this.Options.provider = Options.provider ?? 'local';
   }
 
@@ -36,7 +42,7 @@ export class ZipResponse extends Response {
       _setCoockies(res, this.responseOptions);
       _setHeaders(res, this.responseOptions);
 
-      res.setHeader('Content-Type', this.Options.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Type', this.Options.mimeType || 'application/zip');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
 
       res.sendFile(zippedFile.fs.resolvePath(fPath), (err: Error) => {
@@ -60,7 +66,11 @@ export class FileResponse extends Response {
   constructor(protected Options: IFileResponseOptions, protected responseOptions?: IResponseOptions) {
     super(null);
 
-    this.Options.mimeType = Options.mimeType ?? mime.getType(Options.filename) ?? undefined;
+    // Do NOT default the mime type here. When the caller doesn't specify one we
+    // let res.sendFile derive it from the actual file, which yields the correct
+    // charset for text types (e.g. `text/plain; charset=utf-8`) and the right
+    // type for binaries — deriving it from the filename dropped the charset.
+    this.Options.mimeType = Options.mimeType;
     this.Options.provider = Options.provider ?? 'local';
   }
 
@@ -78,6 +88,13 @@ export class FileResponse extends Response {
 
     const file = await provider.download(this.Options.path);
 
+    // A local provider returns the real on-disk file (must NOT be deleted); a
+    // remote provider downloads to a throwaway temp copy that must be cleaned
+    // up after sending. Detect the local case by the file living under the
+    // provider's own base path.
+    const basePath = (provider as any).Options?.basePath as string | undefined;
+    const isLocalRealFile = !!basePath && resolvePath(file).startsWith(resolvePath(basePath));
+
     return new Promise((resolve, reject) => {
 
       const encodedFilename = encodeURIComponent(this.Options.filename);
@@ -85,23 +102,34 @@ export class FileResponse extends Response {
       _setCoockies(res, this.responseOptions);
       _setHeaders(res, this.responseOptions);
 
-      res.setHeader('Content-Type', this.Options.mimeType || 'application/octet-stream');
+      // Only pin the Content-Type when the caller gave an explicit mime type;
+      // otherwise let sendFile set it from the file (correct charset / type).
+      if (this.Options.mimeType) {
+        res.setHeader('Content-Type', this.Options.mimeType);
+      }
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
 
       res.sendFile(file, (err: Error) => {
-        const r = () => {
+        const cleanups: Promise<unknown>[] = [];
+
+        // Remove the source file on the provider when requested.
+        if (this.Options.deleteAfterDownload) {
+          cleanups.push(provider.rm(this.Options.path).catch(() => undefined));
+        }
+
+        // Remove the downloaded temp copy for remote providers (never the real
+        // local file).
+        if (!isLocalRealFile) {
+          cleanups.push(promises.unlink(file).catch(() => undefined));
+        }
+
+        Promise.allSettled(cleanups).finally(() => {
           if (!_.isNil(err)) {
             reject(err);
           } else {
             resolve();
           }
-        };
-
-        if (this.Options.deleteAfterDownload) {
-          provider.rm(this.Options.path).finally(r);
-        } else {
-          r();
-        }
+        });
       });
     });
   }
@@ -115,7 +143,9 @@ export class JsonFileResponse extends Response {
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
     const provider = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
     const tmpPath = provider.tmppath();
-    provider.write(tmpPath, JSON.stringify(this.data));
+    // Must await: sendFile below races the write otherwise and can hit the
+    // path before it exists, producing an intermittent ENOENT / 500.
+    await provider.write(tmpPath, JSON.stringify(this.data));
 
     return new Promise((resolve, reject) => {
       const encodedFilename = encodeURIComponent(this.filename);

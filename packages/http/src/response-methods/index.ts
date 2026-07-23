@@ -5,12 +5,15 @@ export * from './forbidden.js';
 export * from './noContent.js';
 export * from './notFound.js';
 export * from './json.js';
+export * from './xml.js';
 export * from './ok.js';
 export * from './template.js';
+export * from './redirect.js';
 export * from './serverError.js';
 export * from './unauthorized.js';
 export * from './conflict.js';
 export * from './notAllowed.js';
+export * from './notAcceptable.js';
 export * from './validationError.js';
 export * from './entityTooLarge.js';
 

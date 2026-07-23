@@ -74,6 +74,14 @@ export class IntHttpMiddleware extends ServerMiddleware {
   @Config('intl.defaultLocale')
   protected defaultLocale!: string;
 
+  constructor() {
+    super();
+    // Must run AFTER RequestStorage (Order -2) which creates req.storage;
+    // otherwise `req.storage.language = ...` dereferences undefined and every
+    // request 500s. Sit alongside RealIp / RequestId.
+    this.Order = 1;
+  }
+
   public before(): (req: express.Request, res: express.Response, next: express.NextFunction) => void {
     return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
       const lang = extractLanguageFromRequest(req, this.LangQueryParameter);

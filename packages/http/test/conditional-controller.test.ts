@@ -54,9 +54,17 @@ describe('Conditional controller registration (Array.ofType<BaseController>)', (
   });
 
   afterEach(() => {
-    // Each test starts with a clean cache; registrations persist across tests
-    // intentionally so we can also assert dedupe across re-registers.
-    DI.clearCache();
+    // Each test starts with a clean BaseController collection; registrations
+    // persist across tests intentionally so we can also assert dedupe across
+    // re-registers.
+    //
+    // Uncache ONLY the collection - a blanket DI.clearCache() is destructive
+    // beyond this suite: `@HandleException` stores the '__http_error_map__'
+    // Map straight into the container cache at decoration time, with no
+    // registry entry to rebuild it from. Wiping it leaves every later suite in
+    // the same process without an error map, so all its 4xx responses come
+    // back as 500.
+    DI.uncache(BaseController);
   });
 
   it('a class registered as BaseController is resolved via Array.ofType', async () => {

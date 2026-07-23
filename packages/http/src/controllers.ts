@@ -140,13 +140,20 @@ export abstract class BaseController extends AsyncService implements IController
       // If at least ONE policy returns no error allow route to execute
       // It allows to use multiple access to resource eg. token access & session
       handlers.push((req: Express.Request, _res: Express.Response, next: Express.NextFunction) => {
-        if (policies.length === 0) {
+        // Only policies enabled for this concrete route participate in the gate.
+        // A route whose policies are ALL disabled has no active authorization
+        // check, so it is allowed through — same semantics as having no policies
+        // at all. Computing this up front is what prevents the request from
+        // hanging: `Promise.allSettled([])` resolves to `[]`, which matches
+        // neither the fulfilled nor the rejected branch below, so `next` would
+        // never be called.
+        const enabledPolicies = policies.filter((p) => p.isEnabled(route, this));
+        if (enabledPolicies.length === 0) {
           next();
           return;
         }
 
-        Promise.allSettled(policies
-          .filter((p) => p.isEnabled(route, this))
+        Promise.allSettled(enabledPolicies
           .map((p) => {
             return p
               .execute(req, route, this)
@@ -165,11 +172,16 @@ export abstract class BaseController extends AsyncService implements IController
               return;
             }
 
-            const failed = results.find(r => r.status === 'rejected');
-            if (failed && "reason" in failed) {
-              throw next(failed.reason);
-            }
+            // Every policy rejected — forward the first failure to the express
+            // error handler. Use next(err) directly (not `throw next(...)`,
+            // which would reject this .then() with `undefined` as an unhandled
+            // rejection while the error was already forwarded).
+            const failed = results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+            next(failed ? failed.reason : new UnexpectedServerError('Policy evaluation produced no result'));
           })
+          // Guard against unexpected throws in the settle/handler chain so the
+          // request can never stall without a response.
+          .catch((err) => next(err));
       });
       handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBefore.bind(m), route)));
 
@@ -441,6 +453,33 @@ export class Controllers extends AsyncService {
     }
 
     const instances = (await DI.resolve(Array.ofType(BaseController))) as BaseController[];
+
+    // Report on scanned controllers that someone else derives from. Both
+    // outcomes are otherwise invisible: an override leaves no trace at all, and
+    // an accidental shadow leaves two controllers answering the same paths.
+    const mounted = new Set(instances.map((i) => i.constructor as Class<BaseController>));
+
+    for (const [type, ci] of fileByType) {
+      // Something that mounted derives from this scanned controller. Keying off
+      // the descendant rather than off `mounted` is what lets both cases be
+      // seen — in the not-registered case the scanned type mounts too.
+      const descendant = instances.find((i) => i.constructor !== type && i instanceof type);
+
+      if (!descendant) {
+        continue;
+      }
+
+      if (!mounted.has(type)) {
+        // Scanned, yet absent from the collection — DI chained its registration
+        // to the subclass. Say so rather than dropping it silently.
+        this.Log.info(`Controller ${ci.name} overridden by ${descendant.constructor.name}`);
+      } else {
+        // Subclassed but never registered as an override, so BOTH mounted and
+        // Express route order picks the winner. Warn rather than throw, since
+        // legitimate shared bases exist ( eg. abstract Crud in orm-api ).
+        this.Log.warn(`Controller ${descendant.constructor.name} extends ${ci.name} but was not registered as an override. Call DI.register(${descendant.constructor.name}).as(${ci.name}) to replace it, otherwise both mount and route order decides which one answers.`);
+      }
+    }
 
     for (const instance of instances) {
       const type = instance.constructor as Class<BaseController>;

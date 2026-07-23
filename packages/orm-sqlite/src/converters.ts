@@ -36,6 +36,12 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
       if (val.Type === RelationType.One) {
         if ((model as any)[val.Name].Value) {
           (obj as any)[val.ForeignKey] = (model as any)[val.Name].Value.PrimaryKeyValue;
+        } else if ((model as any)[val.ForeignKey] != null) {
+          // Fallback: when the BelongsTo SingleRelation has no Value (e.g. the FK
+          // was set directly / translated from a resolved model instance rather
+          // than by attaching the relation), serialize the raw FK column so the
+          // update/insert still persists it instead of silently dropping it.
+          (obj as any)[val.ForeignKey] = (model as any)[val.ForeignKey];
         }
       }
 

@@ -47,6 +47,17 @@ export enum HttpAcceptHeaders {
   ALL = 1 | 2 | 4,
 }
 
+/**
+ * Lifecycle state of the HttpServer. Drives start() / stop() / dispose() and is
+ * emitted on the DI bus as `http.server.listening` / `.closing` / `.closed`.
+ */
+export enum LifecycleState {
+  Created,
+  Listening,
+  Closing,
+  Closed,
+}
+
 export interface IHttpServerConfiguration {
   /**
    * Https server configuration
@@ -77,6 +88,13 @@ export interface IHttpServerConfiguration {
   AcceptHeaders: HttpAcceptHeaders;
 
   FatalTemplate: string;
+
+  /**
+   * Grace period ( ms ) for a graceful shutdown before still-open connections
+   * are force-closed. Idle keep-alive sockets are released immediately; only
+   * genuinely in-flight requests use this window. Default 10000.
+   */
+  shutdownTimeout?: number;
 }
 
 /**
@@ -147,6 +165,14 @@ export interface FileValidationRules {
   }
   proportions?: FileProportions[];
   types?: FileTypeEnum[];
+
+  /**
+   * File size bounds in bytes. `min`/`max` are inclusive.
+   */
+  size?: {
+    min?: number;
+    max?: number;
+  };
 }
 
 export type UploadFileMiddlewareDescriptor = string | Class<FileUploadMiddleware> | { options: any; service: string | Class<FileUploadMiddleware> };
@@ -200,6 +226,13 @@ export interface IUploadedFile<T = any> {
 
 export interface Request extends express.Request {
   storage: IActionLocalStoregeContext;
+
+  /**
+   * Raw request body bytes, captured by the express.json `verify` hook for
+   * JSON requests. Consumed by the {@link ParameterType.RawBody} route arg for
+   * webhook signature verification. Undefined for non-JSON requests.
+   */
+  rawBody?: Buffer;
 }
 
 /**
@@ -312,9 +345,34 @@ export enum HTTP_STATUS_CODE {
   PARTIAL_CONTENT = 206,
 
   /**
+   * Resource has moved permanently to a new URL.
+   */
+  MOVED_PERMANENTLY = 301,
+
+  /**
+   * Resource found at a different URL (temporary redirect, method may change).
+   */
+  FOUND = 302,
+
+  /**
+   * Response to the request can be found at another URL using GET.
+   */
+  SEE_OTHER = 303,
+
+  /**
    * Resource is not modified
    */
   NOT_MODIFIED = 304,
+
+  /**
+   * Temporary redirect preserving the request method and body.
+   */
+  TEMPORARY_REDIRECT = 307,
+
+  /**
+   * Permanent redirect preserving the request method and body.
+   */
+  PERMANENT_REDIRECT = 308,
 
   /**
    * Invalid request, eg. invalid parameters
@@ -497,6 +555,36 @@ export enum ParameterType {
    * From http header
    */
   FromHeader = 'FromHeader',
+
+  /**
+   * Client IP resolved by the RealIp middleware (X-Forwarded-For aware)
+   */
+  Ip = 'IpRouteArgs',
+
+  /**
+   * Per-request id (matches the x-request-id response header)
+   */
+  RequestId = 'RequestIdRouteArgs',
+
+  /**
+   * User-Agent request header
+   */
+  UserAgent = 'UserAgentRouteArgs',
+
+  /**
+   * Referer / Referrer request header
+   */
+  Referer = 'RefererRouteArgs',
+
+  /**
+   * Raw request body Buffer (captured for JSON requests)
+   */
+  RawBody = 'RawBodyRouteArgs',
+
+  /**
+   * Parsed XML request body
+   */
+  FromXml = 'FromXmlRouteArgs',
 
   /**
    * Req from express
@@ -775,7 +863,10 @@ export abstract class Response<T = any> {
     const { httpResponse } = await import('./responses.js');
     return await httpResponse(response, this._template, {
       ...this.options,
-      StatusCode: this._errorCode,
+      // Honor an explicit caller-supplied StatusCode; fall back to the
+      // response type's semantic default (_errorCode). Previously _errorCode
+      // always won, silently ignoring options.StatusCode.
+      StatusCode: this.options?.StatusCode ?? this._errorCode,
     });
   }
 

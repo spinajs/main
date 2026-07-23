@@ -1,6 +1,7 @@
 import { IContainer, Inject, Injectable, Container, Constructor } from '@spinajs/di';
 import { IRoute, IRouteCall, IRouteParameter, ParameterType, RouteArgs } from '@spinajs/http';
 import { ModelBase } from '@spinajs/orm';
+import { InvalidArgument } from '@spinajs/exceptions';
 import express from 'express';
 import { FilterableLogicalOperators, IColumnFilter } from './interfaces.js';
 
@@ -52,10 +53,13 @@ export class FilterModelRouteArg extends RouteArgs {
               anyOf: (param.Options as IColumnFilter<unknown>[]).map((x) => {
                 return {
                   type: 'object',
-                  required: ['Column', 'Value', 'Operator'],
+                  // Value is intentionally NOT required: valueless operators
+                  // (isnull/notnull/exists/n-exists) carry no value. Mirror the
+                  // model-derived schema in model.ts (filterSchema()).
+                  required: ['Column', 'Operator'],
                   properties: {
                     Column: { const: x.column },
-                    Value: { type: ['string', 'integer', 'array'] },
+                    Value: { type: ['string', 'integer', 'array', 'boolean'] },
                     Operator: { type: 'string', enum: x.operators },
                   },
                 };
@@ -66,7 +70,18 @@ export class FilterModelRouteArg extends RouteArgs {
       };
     }
 
-    let result = await this.tryHydrateParam(typeof filter === 'string' ? JSON.parse(filter) : filter, rParam, route);
+    let parsed: unknown = filter;
+    if (typeof filter === 'string') {
+      try {
+        parsed = JSON.parse(filter);
+      } catch (err) {
+        // A malformed filter string is a client error (400), not an
+        // unhandled 500 out of the route-arg extractor.
+        throw new InvalidArgument(`Filter parameter '${param.Name}' is invalid JSON. Reason: ${(err as Error).message}`, err);
+      }
+    }
+
+    let result = await this.tryHydrateParam(parsed, rParam, route);
     return { CallData: callData, Args: result };
   }
 }

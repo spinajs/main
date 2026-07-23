@@ -28,7 +28,12 @@ export class ZipFileTransformer extends FileUploadMiddleware {
 
             return {
                 ...file,
-                BaseName: result.asFilePath(),
+                // BaseName must stay a bare filename (see IUploadedFile.BaseName
+                // and UnzipFileTransformer). asFilePath() is a fully-resolved
+                // absolute path; downstream (ImmediateFileUploader.copy) resolves
+                // BaseName against the provider base path again, so an absolute
+                // value produces a broken path.
+                BaseName: Path.basename(result.asFilePath()),
                 Size: stat.Size!,
                 Type: "application/zip",
                 Name: Path.parse(file.Name).name + ".zip",

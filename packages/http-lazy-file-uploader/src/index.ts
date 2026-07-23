@@ -8,7 +8,7 @@ export class HttpLazyFileUploader extends FormFileUploader {
   @Logger('http')
   protected Log!: Log;
 
-  constructor(public Options: { fs: string }) {
+  constructor(public Options: { fs: string; deleteAfterUpload?: boolean }) {
     super();
   }
 
@@ -22,6 +22,10 @@ export class HttpLazyFileUploader extends FormFileUploader {
       ToFilesystem: this.Options.fs,
       Path: file.BaseName,
       SourceFilesystem: file.Provider!.Name,
+      // Clean up the intermediate (temp) source once the lazy copy completes,
+      // otherwise uploaded files pile up in the source fs forever. Opt out with
+      // deleteAfterUpload: false when the source must be retained.
+      DeleteAfterUpload: this.Options.deleteAfterUpload ?? true,
     });
 
     return {

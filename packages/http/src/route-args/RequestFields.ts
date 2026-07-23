@@ -33,6 +33,7 @@ export class RequestTypeRouteArgs extends RouteArgs {
         break;
       case 'text/plain':
         acceptHeader = HttpAcceptHeaders.TEXT;
+        break;
       case 'image/png':
       case 'image/jpeg':
       case 'image/*':
