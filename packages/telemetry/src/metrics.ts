@@ -1,11 +1,11 @@
 import { Injectable, Singleton } from '@spinajs/di';
 import * as client from 'prom-client';
-import { Counter, Gauge, Histogram, Registry } from 'prom-client';
+import { Counter, Gauge, Histogram, Registry, Summary } from 'prom-client';
 
 /**
  * Kind of a prom-client metric.
  */
-export type MetricType = 'counter' | 'gauge' | 'histogram';
+export type MetricType = 'counter' | 'gauge' | 'histogram' | 'summary';
 
 /**
  * Declarative description of a single prom-client metric.
@@ -20,12 +20,18 @@ export interface MetricDef {
    * Histogram bucket boundaries. Only meaningful for `type: 'histogram'`.
    */
   buckets?: number[];
+
+  /**
+   * Quantiles to track. Only meaningful for `type: 'summary'`.
+   * Defaults to prom-client's own defaults when omitted.
+   */
+  percentiles?: number[];
 }
 
 /**
  * Any concrete prom-client metric produced by {@link Metrics.defineMetrics}.
  */
-export type AnyMetric = Counter<string> | Gauge<string> | Histogram<string>;
+export type AnyMetric = Counter<string> | Gauge<string> | Histogram<string> | Summary<string>;
 
 /**
  * Typed map of metric name -> constructed prom-client metric.
@@ -99,6 +105,12 @@ export class Metrics {
           metric = new client.Histogram({
             ...common,
             buckets: def.buckets ?? client.linearBuckets(1, 1, 10),
+          });
+          break;
+        case 'summary':
+          metric = new client.Summary({
+            ...common,
+            ...(def.percentiles ? { percentiles: def.percentiles } : {}),
           });
           break;
         default:

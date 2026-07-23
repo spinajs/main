@@ -74,3 +74,19 @@ describe('Metrics — declarative registry', () => {
     expect(textB).to.not.contain('a_x');
   });
 });
+
+describe('Metrics — summary support', () => {
+  it('constructs a Summary for type "summary" and registers it', async () => {
+    const m = new Metrics();
+    const map = m.defineMetrics('jobs', [{ name: 'latency_ms', help: 'Job latency', type: 'summary', labelNames: ['queue'], percentiles: [0.5, 0.9, 0.99] }]);
+
+    expect(map['latency_ms']).to.not.be.undefined;
+    expect(m.getRegistry().getSingleMetric('jobs_latency_ms')).to.not.be.undefined;
+
+    (map['latency_ms'] as any).observe({ queue: 'default' }, 12);
+
+    const text = await m.render();
+    expect(text).to.contain('jobs_latency_ms');
+    expect(text).to.contain('quantile="0.9"');
+  });
+});
