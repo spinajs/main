@@ -20,3 +20,18 @@ export class CampaignDTO {
     Object.assign(this, data);
   }
 }
+
+/**
+ * The inherit-and-make-required workflow from the design: the subclass ships a
+ * schema listing `author` as required; the @Relation descriptor is inherited.
+ */
+@Schema({
+  type: 'object',
+  $id: 'orm-http.test.StrictCampaignDTO',
+  properties: {
+    Name: { type: 'string' },
+    author: { type: 'string' },
+  },
+  required: ['author'],
+})
+export class StrictCampaignDTO extends CampaignDTO {}
