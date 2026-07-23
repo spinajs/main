@@ -14,6 +14,7 @@
     { "path": "../exceptions/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
     { "path": "../http/tsconfig.json" },
-    { "path": "../validation/tsconfig.json" }
+    { "path": "../validation/tsconfig.json" },
+    { "path": "../fs/tsconfig.json" }
   ]
 }

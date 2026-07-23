@@ -50,6 +50,9 @@
   "bugs": {
     "url": "https://github.com/spinajs/main/issues"
   },
+  "devDependencies": {
+    "@spinajs/fs": "^2.0.481"
+  },
   "dependencies": {
     "@spinajs/configuration": "^2.0.481",
     "@spinajs/configuration-common": "^2.0.481",

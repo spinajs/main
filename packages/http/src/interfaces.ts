@@ -365,6 +365,12 @@ export enum HTTP_STATUS_CODE {
    * Method not implemented
    */
   NOT_IMPLEMENTED = 501,
+
+  /**
+   * The server is not ready to handle the request — a dependency is down or the
+   * app is still starting up. Used by the telemetry readiness endpoint.
+   */
+  SERVICE_UNAVAILABLE = 503,
 }
 
 /**

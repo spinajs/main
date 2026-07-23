@@ -8,3 +8,4 @@ export * from './endpoints.js';
 export * from './PromMetricSink.js';
 export * from './policies/TelemetryTokenPolicy.js';
 export * from './policies/PublicPolicy.js';
+export * from './responses.js';
