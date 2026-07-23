@@ -47,6 +47,17 @@ export enum HttpAcceptHeaders {
   ALL = 1 | 2 | 4,
 }
 
+/**
+ * Lifecycle state of the HttpServer. Drives start() / stop() / dispose() and is
+ * emitted on the DI bus as `http.server.listening` / `.closing` / `.closed`.
+ */
+export enum LifecycleState {
+  Created,
+  Listening,
+  Closing,
+  Closed,
+}
+
 export interface IHttpServerConfiguration {
   /**
    * Https server configuration
@@ -77,6 +88,13 @@ export interface IHttpServerConfiguration {
   AcceptHeaders: HttpAcceptHeaders;
 
   FatalTemplate: string;
+
+  /**
+   * Grace period ( ms ) for a graceful shutdown before still-open connections
+   * are force-closed. Idle keep-alive sockets are released immediately; only
+   * genuinely in-flight requests use this window. Default 10000.
+   */
+  shutdownTimeout?: number;
 }
 
 /**

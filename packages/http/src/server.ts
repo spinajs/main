@@ -12,7 +12,7 @@ import Express, { ErrorRequestHandler, RequestHandler } from 'express';
 import _ from 'lodash';
 import fs from 'fs';
 
-import { ServerMiddleware, IHttpServerConfiguration } from './interfaces.js';
+import { ServerMiddleware, IHttpServerConfiguration, LifecycleState } from './interfaces.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
@@ -49,6 +49,11 @@ export class HttpServer extends AsyncService {
   })
   protected AppEnv!: string;
 
+  @Config('http.shutdownTimeout', {
+    defaultValue: 10000,
+  })
+  protected ShutdownTimeout!: number;
+
   /**
    * Express app instance
    */
@@ -64,6 +69,23 @@ export class HttpServer extends AsyncService {
    * Track active connections for cleanup
    */
   protected _connections = new Set<any>();
+
+  /**
+   * Lifecycle state. All three public entry points ( start / stop / dispose )
+   * transition through it so double-close, restart and idempotency are decided
+   * in one place.
+   */
+  protected _state: LifecycleState = LifecycleState.Created;
+
+  /**
+   * The in-flight close promise, so concurrent / repeated stop() calls share one
+   * shutdown rather than each issuing a second Server.close().
+   */
+  protected _closePromise: Promise<void> | null = null;
+
+  public get State(): LifecycleState {
+    return this._state;
+  }
 
   public get Server(): Http | Https {
     return this.HttpsEnabled ? this._httpsServer : this._httpServer;
@@ -194,6 +216,8 @@ export class HttpServer extends AsyncService {
       });
 
       this.Server.listen(this.HttpConfig.port, () => {
+        this._state = LifecycleState.Listening;
+        this.Container.emit('http.server.listening', this);
         this.Log.info(`Server started at port ${this.HttpConfig.port}`);
         res();
       }).on('error', (err: any) => {
@@ -206,57 +230,68 @@ export class HttpServer extends AsyncService {
     });
   }
 
-  public stop() {
-    if (this.Server) {
-      this.Server.close();
-    }
+  public stop(): Promise<void> {
+    return this._close();
   }
 
   /**
-   * Enhanced dispose method with proper connection cleanup and timeout handling
+   * AsyncService teardown. HttpServer holds no resources beyond the socket
+   * server and its tracked connections, both released by stop(); this awaits it.
    */
   public async dispose(): Promise<void> {
-    if (!this.Server) {
-      return;
+    await this.stop();
+  }
+
+  /**
+   * Single shutdown path for both stop() and dispose(). Idempotent: repeated or
+   * concurrent calls share one Server.close() instead of issuing a second one
+   * ( which would reject with ERR_SERVER_NOT_RUNNING ).
+   */
+  protected _close(): Promise<void> {
+    if (this._state === LifecycleState.Closing) {
+      return this._closePromise!;
     }
 
-    return new Promise<void>((resolve, reject) => {
-      // Set a timeout for graceful shutdown
-      const timeout = setTimeout(() => {
-        this.Log.warn('Server shutdown timeout, forcing close');
-        
-        // Force close all tracked connections
+    if (this._state !== LifecycleState.Listening || !this.Server) {
+      // Created or Closed - nothing to close
+      return Promise.resolve();
+    }
+
+    this._state = LifecycleState.Closing;
+    this.Container.emit('http.server.closing', this);
+
+    this._closePromise = new Promise<void>((resolve) => {
+      // One watchdog, unref'd so it can never hold the event loop open, and
+      // cleared on every close-callback path. The old code leaked a second,
+      // never-cleared 5s timer here.
+      const watchdog = setTimeout(() => {
+        this.Log.warn('Server shutdown grace period expired, forcing connections closed');
+        this.Server.closeAllConnections?.();
         this._forceCloseConnections();
-        
-        // Force close connections if available (Node.js 18.2+)
-        if (typeof this.Server.closeAllConnections === 'function') {
-          this.Server.closeAllConnections();
-        }
-        
-        // Still resolve as we've done our best to clean up
-        resolve();
-      }, 10000);
+      }, this.ShutdownTimeout);
+      watchdog.unref();
 
       this.Server.close((err) => {
-        clearTimeout(timeout);
-        
+        clearTimeout(watchdog);
+        this._forceCloseConnections();
+        this._state = LifecycleState.Closed;
+
         if (err) {
-          this.Log.error('Error during server close:', err);
-          reject(err);
-        } else {
-          this.Log.info('Server closed successfully');
-          resolve();
+          // Unexpected given the guards above; log rather than reject so shutdown
+          // always settles.
+          this.Log.warn(`Error during server close: ${err.message}`);
         }
+
+        this.Container.emit('http.server.closed', this);
+        resolve();
       });
 
-      // For tracked connections, manually close them after grace period
-      setTimeout(() => {
-        if (this._connections.size > 0) {
-          this.Log.warn(`Forcing closure of ${this._connections.size} remaining connections`);
-          this._forceCloseConnections();
-        }
-      }, 5000);
+      // Free IDLE keep-alive sockets right away so the port releases promptly,
+      // while any in-flight request keeps the grace window above.
+      this.Server.closeIdleConnections?.();
     });
+
+    return this._closePromise;
   }
 
   /**
