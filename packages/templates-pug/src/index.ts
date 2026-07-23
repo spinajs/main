@@ -1,20 +1,16 @@
 import { __translate, __translateNumber, __translateL, __translateH } from '@spinajs/intl';
 import { IOFail } from '@spinajs/exceptions';
-import * as fs from 'fs';
-import * as pugTemplate from 'pug';
+import * as pug from 'pug';
 import _ from 'lodash';
 import { CompiledTemplateRenderer, TemplateRenderer } from '@spinajs/templates';
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
-@Injectable(TemplateRenderer)
-export class PugRenderer extends TemplateRenderer {
-  @Config('templates.pug')
-  protected Options: pugTemplate.Options;
 
-  constructor() {
-    super();
-  }
+@Injectable(TemplateRenderer)
+export class PugRenderer extends CompiledTemplateRenderer<pug.compileTemplate> {
+  @Config('templates.pug')
+  protected Options: pug.Options;
 
   public get Type() {
     return 'pug';
@@ -24,48 +20,27 @@ export class PugRenderer extends TemplateRenderer {
     return '.pug';
   }
 
-  // in dev mode always recompile so template edits are picked up without a restart
-  protected shouldRecompile(): boolean {
-    return this.devMode;
-  }
+  protected async compile(template: string): Promise<pug.compileTemplate> {
+    // pug compiles from a path, not a string - it resolves include/extends
+    // against the local filesystem itself, so remote fs:// sources are
+    // materialised to temp storage first.
+    const tPath = await this.resolveLocalPath(template);
+    const compiled = pug.compileFile(tPath, this.Options);
 
-  public async render(templateName: string, model: unknown, language?: string): Promise<string> {
-    this.Log.trace(`Rendering pug template ${templateName}`);
-    this.Log.timeStart(`PugTemplate.render.start.${templateName}`);
-
-    if (!templateName) {
-      throw new InvalidArgument('template parameter cannot be null or empty');
+    if (!compiled) {
+      throw new IOFail(`Cannot compile pug template ${template} from path ${tPath}`);
     }
 
-    const fTemplate = await this.withCache(templateName, async () => {
-      // pug compiles from a path, not a string - it resolves include/extends
-      // against the local filesystem itself, so remote sources are materialised
-      // to temp storage first.
-      const tPath = await this.resolveLocalPath(templateName);
-      const tCompiled = pugTemplate.compileFile(tPath, this.Options);
+    return compiled;
+  }
 
-      if (!tCompiled) {
-        throw new IOFail(`Cannot compile pug template ${templateName} from path ${tPath}`);
-      }
-
-      return tCompiled;
+  protected buildContext(model: unknown, language: string): Record<string, unknown> {
+    // merge into a fresh object so the caller's model is never mutated
+    return _.merge({}, model ?? {}, {
+      __: __translate(language),
+      __n: __translateNumber(language),
+      __l: __translateL,
+      __h: __translateH,
     });
-
-    const lang = language ? language : guessLanguage();
-    const tLang = lang ?? defaultLanguage();
-
-    const content = fTemplate(
-      _.merge(model ?? {}, {
-        __: __translate(tLang),
-        __n: __translateNumber(tLang),
-        __l: __translateL,
-        __h: __translateH,
-      }),
-    );
-
-    const time = this.Log.timeEnd(`PugTemplate.render.start.${templateName}`);
-    this.Log.trace(`Rendering pug template ${templateName} ended, (${time} ms)`);
-
-    return content;
   }
 }

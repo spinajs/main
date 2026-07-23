@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { Templates } from '@spinajs/templates';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { join, normalize, resolve } from 'path';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -104,5 +106,30 @@ describe('templates', () => {
     const result = await t.render('fs://test-templates/uri-template.pug', { hello: 'world' });
 
     expect(result).to.include('world');
+  });
+
+  it('should not mutate the caller model', async () => {
+    const t = await tp();
+    const m: Record<string, unknown> = { a: 1 };
+
+    await t.render(dir('templates/template.pug'), m, 'en');
+
+    expect(Object.keys(m)).to.eql(['a']);
+    expect(m.a).to.eq(1);
+  });
+
+  it('should render to file', async () => {
+    const t = await tp();
+    const outDir = mkdtempSync(join(tmpdir(), 'pug-render-'));
+    const outFile = join(outDir, 'nested', 'out.html');
+
+    try {
+      await t.renderToFile(dir('templates/template.pug'), { hello: 'world' }, outFile, 'en');
+
+      expect(existsSync(outFile)).to.eq(true);
+      expect(readFileSync(outFile, 'utf-8')).to.eq('<p>hello world en_US</p>');
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
   });
 });
