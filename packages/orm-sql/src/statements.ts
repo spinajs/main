@@ -206,7 +206,20 @@ export class SqlJoinStatement extends JoinStatement {
     }
 
     const sourceTableAlias = this._options.builder?.TableAlias;
-    const joinTableAlias = this._options.joinTableAlias ? this._options.joinTableAlias : `${joinModelDriver.Options.AliasSeparator}${joinModel?.Name}${joinModelDriver.Options.AliasSeparator}`;
+    const separator = joinModelDriver.Options.AliasSeparator;
+
+    /**
+     * The generated alias includes the source one, because a single query can join the same
+     * model more than once - eg. a campaign pulls in both Client and Agency, and each of them
+     * joins the same lookup table. A bare model name collides then and the database rejects
+     * the query with "Not unique table/alias".
+     *
+     * Relations always pass an explicit alias, so only ad-hoc joins are affected.
+     */
+    const sourceAliasPart = separator && sourceTableAlias ? sourceTableAlias.split(separator).filter(Boolean).join('_') : sourceTableAlias;
+    const generatedJoinAlias = sourceAliasPart ? `${separator}${sourceAliasPart}_${joinModel?.Name}${separator}` : `${separator}${joinModel?.Name}${separator}`;
+
+    const joinTableAlias = this._options.joinTableAlias ? this._options.joinTableAlias : generatedJoinAlias;
 
     let sourceTable = sourceModel ? sourceModel.TableName : this._options.builder ? this._options.builder.Table : null;
     let joinTable = joinModel ? joinModel.TableName : this._options.joinTable;
@@ -303,6 +316,15 @@ export class SqlInStatement extends InStatement {
   public build(): IQueryStatementResult {
     const exprr = this._not ? 'NOT IN' : 'IN';
     let column = _columnWrap(this._column, this._builder.TableAlias);
+
+    // `IN ()` is a syntax error, so degenerate to a constant predicate with the same meaning:
+    // nothing can be in an empty set, and everything is outside of it.
+    if (this._val.length === 0) {
+      return {
+        Bindings: [],
+        Statements: [this._not ? '1 = 1' : '1 = 0'],
+      };
+    }
 
     return {
       Bindings: this._val,
