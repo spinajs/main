@@ -167,4 +167,41 @@ describe('HttpServer lifecycle', () => {
       }
     });
   });
+
+  describe('startup (bug 4)', () => {
+    it('a second start() is a no-op and attaches no middleware', async () => {
+      await server.start();
+
+      const useSpy = sinon.spy(server, 'use');
+      await server.start(); // must short-circuit while Listening
+      const called = useSpy.called;
+      useSpy.restore();
+
+      expect(server.State).to.eq(LifecycleState.Listening);
+      expect(called, 'second start() must not attach any middleware').to.be.false;
+    });
+
+    it('start -> stop -> start restarts on the same port without re-attaching after-middlewares', async () => {
+      // first start attaches the after-middlewares once for this instance
+      await server.start();
+      await server.stop();
+
+      const useSpy = sinon.spy(server, 'use');
+      await server.start(); // restart from Closed
+      const called = useSpy.called;
+      useSpy.restore();
+
+      expect(server.State).to.eq(LifecycleState.Listening);
+      // after-middlewares are attached once per instance, not once per start
+      expect(called, 'restart must not re-attach after-middlewares').to.be.false;
+    });
+
+    it('emits http.server.listening exactly once per start', async () => {
+      let listening = 0;
+      DI.on('http.server.listening', () => listening++);
+      await server.start();
+      await server.start(); // no-op, no second emit
+      expect(listening).to.eq(1);
+    });
+  });
 });

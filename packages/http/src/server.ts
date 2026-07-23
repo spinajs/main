@@ -83,6 +83,12 @@ export class HttpServer extends AsyncService {
    */
   protected _closePromise: Promise<void> | null = null;
 
+  /**
+   * After-middlewares ( NotFound / ErrorHandler / ServerTiming ... ) attach to
+   * the Express app exactly once per instance. Restart must not re-stack them.
+   */
+  protected _afterAttached = false;
+
   public get State(): LifecycleState {
     return this._state;
   }
@@ -203,10 +209,22 @@ export class HttpServer extends AsyncService {
   /**
    * Starts http server & express
    */
-  public start() {
-    return new Promise<void>((res, rej) => {
-      // add all middlewares to execute after. Copy before reversing so we don't
-      // mutate the shared, already-sorted Middlewares array in place.
+  public async start(): Promise<void> {
+    // Idempotent: already serving -> nothing to do. This is what stops a
+    // repeated start() ( HttpServer is a DI singleton ) re-stacking middleware.
+    if (this._state === LifecycleState.Listening) {
+      return;
+    }
+
+    // A start() racing a shutdown waits for the close to finish, then re-listens.
+    if (this._state === LifecycleState.Closing && this._closePromise) {
+      await this._closePromise;
+    }
+
+    // add all after-middlewares once per instance ( not once per start ).
+    if (!this._afterAttached) {
+      // Copy before reversing so we don't mutate the shared, already-sorted
+      // Middlewares array in place.
       [...this.Middlewares].reverse().forEach((m) => {
         const f = m.after();
         if (f) {
@@ -214,18 +232,26 @@ export class HttpServer extends AsyncService {
           this.use(f);
         }
       });
+      this._afterAttached = true;
+    }
+
+    await new Promise<void>((res, rej) => {
+      // .once, removed on success, so repeated start()/restart never accumulates
+      // 'error' listeners on the reused server object.
+      const onError = (err: any) => {
+        if (err.code === 'EADDRINUSE') {
+          this.Log.error(`----- Port ${this.HttpConfig.port} is busy -----`);
+        }
+        rej(err);
+      };
+      this.Server.once('error', onError);
 
       this.Server.listen(this.HttpConfig.port, () => {
+        this.Server.removeListener('error', onError);
         this._state = LifecycleState.Listening;
         this.Container.emit('http.server.listening', this);
         this.Log.info(`Server started at port ${this.HttpConfig.port}`);
         res();
-      }).on('error', (err: any) => {
-        if (err.code === 'EADDRINUSE') {
-          this.Log.error(`----- Port ${this.HttpConfig.port} is busy -----`);
-        }
-
-        rej(err);
       });
     });
   }
