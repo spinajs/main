@@ -265,11 +265,26 @@ export class HttpServer extends AsyncService {
       this.Server.listen(this.HttpConfig.port, () => {
         this.Server.removeListener('error', onError);
         this._state = LifecycleState.Listening;
-        this.Container.emit('http.server.listening', this);
+        this._emit('http.server.listening');
         this.Log.info(`Server started at port ${this.HttpConfig.port}`);
         res();
       });
     });
+  }
+
+  /**
+   * Emit a lifecycle event on the DI bus, isolating the state machine from a
+   * throwing subscriber. Container.emit is synchronous, so without this guard a
+   * listener that throws would pre-empt the caller - eg. a throwing
+   * `http.server.listening` listener runs before res() and would hang start(),
+   * and a throwing `http.server.closing` listener would escape stop().
+   */
+  protected _emit(event: string): void {
+    try {
+      this.Container.emit(event, this);
+    } catch (err: any) {
+      this.Log.warn(`Listener for ${event} threw: ${err?.message ?? err}`);
+    }
   }
 
   public stop(): Promise<void> {
@@ -323,7 +338,7 @@ export class HttpServer extends AsyncService {
           this.Log.warn(`Error during server close: ${err.message}`);
         }
 
-        this.Container.emit('http.server.closed', this);
+        this._emit('http.server.closed');
         resolve();
       });
 
@@ -336,7 +351,7 @@ export class HttpServer extends AsyncService {
     // so a listener that re-enters stop() during this emit hits the Closing guard
     // and must find the shared promise already in place ( emitting before the
     // assignment would hand that re-entrant caller a null instead of a thenable ).
-    this.Container.emit('http.server.closing', this);
+    this._emit('http.server.closing');
 
     return this._closePromise;
   }

@@ -217,4 +217,45 @@ describe('HttpServer lifecycle', () => {
       expect(() => server.Server.emit('error', new Error('synthetic post-listen error'))).to.not.throw();
     });
   });
+
+  describe('event-listener robustness', () => {
+    it('a throwing http.server.listening listener does not hang or fail start()', async () => {
+      const thrower = () => {
+        throw new Error('boom from a lifecycle listener');
+      };
+      DI.on('http.server.listening', thrower);
+      try {
+        // emit runs inside start()'s listen callback; if it were not guarded the
+        // throw would pre-empt res() and start() would never resolve ( hang ).
+        await server.start();
+        expect(server.State).to.eq(LifecycleState.Listening);
+      } finally {
+        DI.off('http.server.listening', thrower);
+      }
+    });
+
+    it('a throwing http.server.closing listener does not break stop()', async () => {
+      const thrower = () => {
+        throw new Error('boom from a closing listener');
+      };
+      await server.start();
+      DI.on('http.server.closing', thrower);
+      try {
+        await server.stop();
+        expect(server.State).to.eq(LifecycleState.Closed);
+      } finally {
+        DI.off('http.server.closing', thrower);
+      }
+    });
+
+    it('does not accumulate persistent error listeners across restarts', async () => {
+      // The no-accumulation guarantee for the persistent _createServer() handler
+      // rests on _createServer running once; pin it so a future refactor that
+      // re-created the server on restart would fail here.
+      await server.start();
+      await server.stop();
+      await server.start();
+      expect(server.Server.listenerCount('error')).to.eq(1);
+    });
+  });
 });
