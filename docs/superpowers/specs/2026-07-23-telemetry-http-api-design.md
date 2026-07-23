@@ -82,8 +82,9 @@ What moves:
 | `README.md` | Not carried over (it is intl's README). |
 
 `packages/telemetry/package.json` gains `@spinajs/configuration` (for `@Config`
-and the config dir) and `@spinajs/exceptions` (for `Forbidden`). It already
-depends on `@spinajs/http`, `@spinajs/log`, `@spinajs/di`, `prom-client`.
+and the config dir), `@spinajs/exceptions` (for `Forbidden`) and
+`@spinajs/validation` (for `@Schema` on the response DTOs). It already depends
+on `@spinajs/http`, `@spinajs/log`, `@spinajs/di`, `prom-client`.
 
 ## 6. Endpoint contracts
 
@@ -162,7 +163,8 @@ window so consumers do not have to reverse the `floor(ts / bucketMs)` key:
 }
 ```
 
-`buckets` is validated by a `TimelineQuery` DTO (§9) — integer, `1..length`.
+`buckets` is validated by an inline schema on the `@Query()` decorator (§9) —
+integer, minimum 1.
 
 - `400` — `buckets` not a positive integer
 
@@ -239,9 +241,24 @@ against `telemetry.health.timeoutMs`:
 - `503` — any check `down`, or `degraded` when `failOnDegraded` is true
 
 A check that throws or times out counts as `down` with the error message in
-`message`. Returned via `new Ok(body, { StatusCode: 503 })` — `IResponseOptions`
-already carries a `StatusCode` override
-(`packages/http/src/interfaces.ts:264-268`), so no new response class is needed.
+`message`.
+
+The 503 needs a dedicated `Response` subclass. `IResponseOptions.StatusCode`
+looks like the obvious route but `Response.execute` spreads the options and then
+**overwrites** `StatusCode` with the class's `_errorCode`
+(`packages/http/src/interfaces.ts:773-780`), so `new Ok(body, { StatusCode: 503 })`
+silently returns 200. Telemetry declares its own:
+
+```ts
+export class ServiceUnavailable<T = any> extends Response<T> {
+  protected _errorCode = 503;
+  protected _template = 'serverError.pug';
+}
+```
+
+`HTTP_STATUS_CODE` has no `SERVICE_UNAVAILABLE` member (it stops at
+`NOT_IMPLEMENTED = 501`), so `503` is added to that enum in `@spinajs/http` as a
+one-line additive change.
 
 With no checks registered, `status` is `up` and `checks` is `[]`.
 
@@ -280,7 +297,10 @@ Three changes:
 2. **Per-route stats.** A `Map<"METHOD route", RequestStats>` updated in
    `after()` alongside the existing global stats. Reuses `RequestStats`
    verbatim. Bounded by `telemetry.routes.maxEntries` (default 500): once full,
-   new keys are dropped and a `truncated` flag is set, with a warn logged once.
+   new keys are dropped and a `truncated` flag is set, which the `/routes`
+   payload carries so a consumer can tell a complete list from a capped one.
+   `RouteStats` stays pure and dependency-free like `RequestStats` and
+   `Timeline`, so it does not log.
    The bound matters — the `route` label falls back to `req.path` for unmatched
    requests (`middleware.ts:119-124`), so a 404-scanning bot would otherwise
    grow the map without limit. Disabled entirely by `telemetry.routes.enabled`.
@@ -398,9 +418,18 @@ So full OpenAPI coverage means:
   `src/dto/` with JSON schemas in `src/schemas/`, following the `@spinajs/orm-api`
   convention (`src/dto/QueryArgs.ts`): `RequestStatsSnapshot`, `StatsResponse`,
   `TimelineResponse`, `RoutesResponse`, `PerfResponse`, `HealthResponse`,
-  `ReadyResponse`.
-- `TimelineQuery` DTO for `?buckets=`, which also satisfies the strict
-  validation enabled in #98 — without a schema the query arg is rejected.
+  `ReadyResponse`. `@Schema` registers the schema under the class name in the
+  `'__schemas__'` DI map, which is exactly what `DtoSchemaProvider.getSchema()`
+  reads when the builder expands a `@returns {StatsResponse}` tag into a
+  `#/components/schemas/StatsResponse` component
+  (`packages/validation/src/schema-providers.ts:29-43`,
+  `openapi-builder.ts:919-970`). The DTO modules must be imported by the
+  controller for the decorator to have run.
+- An inline JSON schema on `@Query({ type: 'number', minimum: 1 }) buckets` —
+  no DTO class. `FromQuery` extracts by parameter name and the schema on the
+  decorator serves both validation and the OpenAPI parameter description
+  (`openapi-builder.ts:659-678`). A DTO would be ceremony around a single
+  integer.
 - JSDoc on every controller method: a summary, `@returns {DtoName} description`,
   and `@response 403` / `@response 503` / `@response 400` where they apply.
 
