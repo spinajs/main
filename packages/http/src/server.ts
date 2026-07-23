@@ -173,6 +173,14 @@ export class HttpServer extends AsyncService {
           this._connections.delete(socket);
         });
       });
+
+      // Persistent, log-only 'error' handler attached once per server ( same place
+      // as 'connection', so it never accumulates ). start()'s per-start .once is
+      // removed on listen success, so without this a server-level 'error' emitted
+      // AFTER listening would be unhandled and crash the process.
+      this._httpsServer.on('error', (err: any) => {
+        this.Log.error(`Server error: ${err?.message ?? err}`);
+      });
     } else {
       this.Log.info(`HTTP enabled !`);
       this._httpServer = HttpCreateServer(this.Express);
@@ -183,6 +191,14 @@ export class HttpServer extends AsyncService {
         socket.on('close', () => {
           this._connections.delete(socket);
         });
+      });
+
+      // Persistent, log-only 'error' handler attached once per server ( same place
+      // as 'connection', so it never accumulates ). start()'s per-start .once is
+      // removed on listen success, so without this a server-level 'error' emitted
+      // AFTER listening would be unhandled and crash the process.
+      this._httpServer.on('error', (err: any) => {
+        this.Log.error(`Server error: ${err?.message ?? err}`);
       });
     }
   }

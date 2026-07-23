@@ -198,10 +198,23 @@ describe('HttpServer lifecycle', () => {
 
     it('emits http.server.listening exactly once per start', async () => {
       let listening = 0;
-      DI.on('http.server.listening', () => listening++);
+      const onListening = () => listening++;
+      DI.on('http.server.listening', onListening);
+      try {
+        await server.start();
+        await server.start(); // no-op, no second emit
+        expect(listening).to.eq(1);
+      } finally {
+        DI.off('http.server.listening', onListening);
+      }
+    });
+
+    it('a server-level error after listening is handled ( logged ), not an unhandled crash', async () => {
       await server.start();
-      await server.start(); // no-op, no second emit
-      expect(listening).to.eq(1);
+      // start()'s per-start .once('error') is removed on listen success; the
+      // persistent log-only handler from _createServer() must catch this, else
+      // Node throws on an unhandled 'error' event.
+      expect(() => server.Server.emit('error', new Error('synthetic post-listen error'))).to.not.throw();
     });
   });
 });
