@@ -9,7 +9,23 @@
  * the browser condition registers BrowserFrameworkConfiguration — so a single
  * side-effect `import "@spinajs/log"` wires both log and configuration.
  */
+import { setLogContextProvider } from "@spinajs/log-common";
+import { LogContext, scalarContext } from "./context.browser.js";
+
 export * from "@spinajs/log-common";
 export * from "./targets/BlackHoleTarget.js";
 export * from "./targets/BrowserConsoleTarget.js";
+export * from "./targets/JsonTarget.js";
+export * from "./targets/MemoryTarget.js";
+export * from "./targets/wrappers/SplitGroupTarget.js";
+export * from "./targets/wrappers/AutoFlushTarget.js";
+export * from "./targets/wrappers/RetryingTarget.js";
+export * from "./targets/wrappers/FallbackGroupTarget.js";
+export * from "./filters/index.js";
 export * from "./log.js";
+export * from "./context.browser.js";
+export * from "./traceparent.js";
+
+// The browser build has no Bootstrapper flow wiring the seam, so register the
+// synchronous fallback provider as an import side-effect.
+setLogContextProvider(() => scalarContext(LogContext.active()));

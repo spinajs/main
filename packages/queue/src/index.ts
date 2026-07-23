@@ -14,8 +14,7 @@ export * from './models/JobModel.js';
 export * from './services/JobRetentionService.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
 export * from './migrations/Queue_2026_06_30_00_00_00.js';
-export * from './migrations/Queue_2026_07_02_00_00_00.js';
-export * from './migrations/Queue_2026_07_10_00_00_00.js';
+export * from './migrations/Queue_2026_07_17_00_00_00.js';
 export * from './fp.js';
 
 /** Fallback progress-throttle values used when `queue.progress` is not configured. */
@@ -69,20 +68,7 @@ export class DefaultQueueService extends QueueService {
       }
 
       if (isJob(event)) {
-        const jModel = new JobModel();
-
-        jModel.JobId = uuidv4();
-        jModel.Name = event.Name;
-        jModel.Status = 'created';
-        jModel.Progress = 0;
-        jModel.Attempt = 0;
-        jModel.MaxAttempts = (event as QueueJob).RetryCount ?? 0;
-        jModel.Connection = c;
-
-        await jModel.insert();
-
-        event.JobId = jModel.JobId;
-        jobId = jModel.JobId;
+        event.JobId = event.JobId ?? uuidv4(); // generate only; consumer writes the row
       }
 
       await connection.emit(event);
@@ -149,14 +135,25 @@ export class DefaultQueueService extends QueueService {
              */
             if (ev instanceof QueueJob) {
               let jobResult = null;
-              const jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
 
-              // idempotency: messaging is at-least-once, so the same job can be redelivered
-              // ( consumer crash, broker failover ). Skip if it already reached a terminal state.
-              if (this.Configuration.deduplicate !== false && (jModel.Status === 'success' || jModel.Status === 'dead')) {
-                // return normally ( no throw ) so the transport acks and drops the duplicate
-                this.Log.warn(`Job ${event.name}:${jModel.JobId} already ${jModel.Status}, skipping duplicate delivery`);
-                return;
+              // Consumer owns the tracking row. First receipt inserts; a redelivery finds the
+              // row from the prior attempt. The queue_jobs.JobId unique index makes a rare
+              // concurrent double-receipt safe (second insert collides -> re-read).
+              let jModel = await JobModel.where({ JobId: ev.JobId }).first();
+              if (!jModel) {
+                jModel = new JobModel();
+                jModel.JobId = ev.JobId;
+                jModel.Name = ev.Name;
+                jModel.Connection = c;
+                jModel.Attempt = 0;
+                jModel.Progress = 0;
+
+                try {
+                  await jModel.insert();
+                } catch (e) {
+                  // concurrent first-receipt from another worker won the insert; re-read and continue.
+                  jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+                }
               }
 
               jModel.Status = 'executing';

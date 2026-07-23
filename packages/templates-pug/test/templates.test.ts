@@ -6,6 +6,7 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
+import { FsBootsrapper, fsService } from '@spinajs/fs';
 import '../src/index.js';
 
 const expect = chai.expect;
@@ -42,6 +43,10 @@ export class ConnectionConf extends FrameworkConfiguration {
           templates: [dir('./templates'), dir('templates_2')],
         },
       },
+      fs: {
+        defaultProvider: 'test-templates',
+        providers: [{ service: 'fsNative', name: 'test-templates', basePath: dir('./templates') }],
+      },
     };
   }
 }
@@ -53,8 +58,11 @@ async function tp() {
 describe('templates', () => {
   beforeEach(async () => {
     DI.clearCache();
+    DI.resolve(FsBootsrapper).bootstrap();
     DI.register(ConnectionConf).as(Configuration);
+
     await DI.resolve(Configuration);
+    await DI.resolve(fsService);
   });
 
   it('should render pug', async () => {
@@ -89,5 +97,12 @@ describe('templates', () => {
   it('should fail when template not exists', async () => {
     const t = await tp();
     expect(t.render(dir('templates/handlebars/template_not_exists.handlebars'), { hello: 'world' })).to.be.rejected;
+  });
+
+  it('should render pug from fs:// uri', async () => {
+    const t = await tp();
+    const result = await t.render('fs://test-templates/uri-template.pug', { hello: 'world' });
+
+    expect(result).to.include('world');
   });
 });

@@ -1,7 +1,6 @@
 import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, ITransaction } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { LogLevel } from '@spinajs/log-common';
 
 import { SqlDriver } from '@spinajs/orm-sql';
 import mssql from 'mssql';
@@ -19,84 +18,46 @@ export interface IMsSqlTransactionContext {
 @NewInstance()
 export class MsSqlOrmDriver extends SqlDriver {
   protected _connectionPool: mssql.ConnectionPool = null as any;
-  protected _executionId = 0;
   protected TransactionStorage = new AsyncLocalStorage<IMsSqlTransactionContext>();
 
   constructor(options: IDriverOptions) {
     super(Object.assign({ AliasSeparator: '#' }, options));
   }
 
-  private getNextExecutionId(): number {
-    this._executionId = (this._executionId + 1) % Number.MAX_SAFE_INTEGER;
-    return this._executionId;
-  }
-
   public async executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
-    const tName = `query-${this.getNextExecutionId()}`;
     let finalQuery = stmt.replaceAll('`', '');
 
-    this.Log.timeStart(`query-${tName}`);
+    // Check if we're inside a transaction context and use that request
+    const txContext = this.TransactionStorage.getStore();
+    const req = txContext?.request ?? this._connectionPool.request();
+    let idx = 0;
+    let i = 0;
 
-    try {
-      // Check if we're inside a transaction context and use that request
-      const txContext = this.TransactionStorage.getStore();
-      const req = txContext?.request ?? this._connectionPool.request();
-      let idx = 0;
-      let i = 0;
+    /**
+     * Brute force replacement ? for @parameters
+     * MSSQL driver requires named parameters in query string
+     */
+    while ((idx = finalQuery.indexOf('?')) !== -1) {
+      finalQuery = finalQuery.substring(0, idx) + `@p${i}` + finalQuery.substring(idx + 1, finalQuery.length);
+      req.input(`p${i}`, params[i]);
+      i++;
+    }
 
-      /**
-       * Brute force replacement ? for @parameters
-       * MSSQL driver requires named parameters in query string
-       */
-      while ((idx = finalQuery.indexOf('?')) !== -1) {
-        finalQuery = finalQuery.substring(0, idx) + `@p${i}` + finalQuery.substring(idx + 1, finalQuery.length);
-        req.input(`p${i}`, params[i]);
-        i++;
-      }
+    const result = await req.query(finalQuery);
 
-      const result = await req.query(finalQuery);
-
-      const tDiff = this.Log.timeEnd(`query-${tName}`);
-      void this.Log.write({
-        Level: LogLevel.Trace,
-        Variables: {
-          error: undefined,
-          message: `Executed: ${finalQuery}, bindings: ${params ? params.join(',') : 'none'}`,
-          logger: this.Log.Name,
-          level: 'TRACE',
-          duration: tDiff,
-        },
-      });
-
-      switch (context) {
-        case QueryContext.Update:
-        case QueryContext.Delete:
-          return {
-            RowsAffected: result.rowsAffected[0],
-          };
-        case QueryContext.Insert:
-          return {
-            RowsAffected: result.rowsAffected[0],
-            LastInsertId: result.recordset[0].ID,
-          };
-        default:
-          return result.recordset;
-      }
-    } catch (err) {
-      const tDiff = this.Log.timeEnd(`query-${tName}`);
-
-      void this.Log.write({
-        Level: LogLevel.Error,
-        Variables: {
-          error: err,
-          message: `Failed: ${finalQuery}, bindings: ${params ? params.join(',') : 'none'}`,
-          logger: this.Log.Name,
-          level: 'Error',
-          duration: tDiff,
-        },
-      });
-
-      throw err;
+    switch (context) {
+      case QueryContext.Update:
+      case QueryContext.Delete:
+        return {
+          RowsAffected: result.rowsAffected[0],
+        };
+      case QueryContext.Insert:
+        return {
+          RowsAffected: result.rowsAffected[0],
+          LastInsertId: result.recordset[0].ID,
+        };
+      default:
+        return result.recordset;
     }
   }
 

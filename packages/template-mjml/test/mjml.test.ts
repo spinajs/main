@@ -5,6 +5,7 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
+import { FsBootsrapper, fsService } from '@spinajs/fs';
 import "@spinajs/templates-handlebars";
 import '../src/index.js';
 
@@ -41,6 +42,10 @@ export class ConnectionConf extends FrameworkConfiguration {
           templates: [dir('./templates')],
         },
       },
+      fs: {
+        defaultProvider: 'test-templates',
+        providers: [{ service: 'fsNative', name: 'test-templates', basePath: dir('./templates') }],
+      },
     };
   }
 }
@@ -52,17 +57,26 @@ async function tp() {
 describe('templates', () => {
   beforeEach(async () => {
     DI.clearCache();
+    DI.resolve(FsBootsrapper).bootstrap();
     DI.register(ConnectionConf).as(Configuration);
 
     await DI.resolve(Configuration);
+    await DI.resolve(fsService);
   });
  
   it('should render mjml', async () => {
     const t = await tp();
     const result = await t.render(dir('templates/simple.mjml'), { hello: 'world' });
 
-    // mjml compiles the .mjml through handlebars ({{hello}} -> "world") then to responsive HTML
-    expect(result).to.match(/<html/i);
-    expect(result).to.contain('world');
+    expect(result).to.include('world');
+    expect(result).to.include('<!doctype html>');
+  });
+
+  it('should render mjml from fs:// uri', async () => {
+    const t = await tp();
+    const result = await t.render('fs://test-templates/uri-template.mjml', { hello: 'world' });
+
+    expect(result).to.include('world');
+    expect(result).to.include('<!doctype html>');
   });
 });

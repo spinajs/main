@@ -12,6 +12,8 @@ import { TestLevel } from "./targets/TestLevel.js";
 import { BlackHoleTarget } from "./../src/targets/BlackHoleTarget.js";
 import { TestTarget } from "./targets/TestTarget.js";
 import { LogLevel, Log } from "../src/index.js";
+import { FrameworkLogger } from "../src/log.js";
+import { InvalidOption } from "@spinajs/exceptions";
 
 
 
@@ -29,6 +31,89 @@ export class CustomVariable extends ConfigVariable {
 function logger(name?: string) {
   return DI.resolve(Log, [name ?? "TestLogger"]);
 }
+
+describe("matchRulesToLogger", () => {
+  // drive matchRulesToLogger() directly, without full DI/config resolution
+  function match(name: string, rules: Array<{ name: any; level: string; target: string; final?: boolean }>): string[] {
+    const log: any = new FrameworkLogger(name);
+    log.Options = { targets: [], rules };
+    log.matchRulesToLogger();
+    return (log.Rules as Array<{ name: string }>).map((r) => r.name);
+  }
+
+  it("matches the '*' wildcard", () => {
+    expect(match("anything", [{ name: "*", level: "trace", target: "T" }])).to.deep.eq(["*"]);
+  });
+
+  it("matches a 'prefix*' wildcard", () => {
+    const rules = [{ name: "http*", level: "trace", target: "T" }];
+    expect(match("http-server", rules)).to.deep.eq(["http*"]);
+    expect(match("db", rules)).to.deep.eq([]);
+  });
+
+  it("matches an 'a.b.*' wildcard", () => {
+    const rules = [{ name: "a.b.*", level: "trace", target: "T" }];
+    expect(match("a.b.c", rules)).to.deep.eq(["a.b.*"]);
+    expect(match("a.x.c", rules)).to.deep.eq([]);
+  });
+
+  it("matches an exact name", () => {
+    const rules = [
+      { name: "exact", level: "trace", target: "T" },
+      { name: "other", level: "trace", target: "T" },
+    ];
+    expect(match("exact", rules)).to.deep.eq(["exact"]);
+  });
+
+  it("is ADDITIVE: a logger matched by '*' and a specific rule keeps BOTH ( in config order )", () => {
+    const rules = [
+      { name: "*", level: "trace", target: "All" },
+      { name: "http*", level: "info", target: "Http" },
+    ];
+    // headline footgun fix: the specific rule no longer DROPS the '*' catch-all
+    expect(match("http-server", rules)).to.deep.eq(["*", "http*"]);
+    // a name only the wildcard matches still gets the wildcard
+    expect(match("db", rules)).to.deep.eq(["*"]);
+  });
+
+  it("keeps every matching rule additively ( no '*'-drop )", () => {
+    const rules = [
+      { name: "http*", level: "trace", target: "A" },
+      { name: "http-server", level: "info", target: "B" },
+      { name: "*", level: "trace", target: "All" },
+    ];
+    expect(match("http-server", rules)).to.deep.eq(["http*", "http-server", "*"]);
+  });
+
+  it("'final: true' stops evaluation of LATER rules ( restores this-rule-only )", () => {
+    const rules = [
+      { name: "db.pool", level: "trace", target: "X", final: true },
+      { name: "*", level: "trace", target: "Y" },
+    ];
+    // db.pool matches, applies, and STOPS - the later '*' is skipped
+    expect(match("db.pool", rules)).to.deep.eq(["db.pool"]);
+    // a NON-matching logger still falls through to the '*' catch-all
+    expect(match("other", rules)).to.deep.eq(["*"]);
+  });
+
+  it("rules BEFORE a final rule still apply; rules AFTER it are skipped", () => {
+    const rules = [
+      { name: "*", level: "trace", target: "A" },
+      { name: "db*", level: "trace", target: "B", final: true },
+      { name: "db.pool", level: "trace", target: "C" },
+    ];
+    // '*' and 'db*' apply ( db* is final ); 'db.pool' ( after the final ) is skipped
+    expect(match("db.pool", rules)).to.deep.eq(["*", "db*"]);
+  });
+
+  it("throws InvalidOption on a non-string rule name", () => {
+    expect(() => match("x", [{ name: 123 as any, level: "trace", target: "T" }])).to.throw(InvalidOption);
+  });
+
+  it("throws InvalidOption on an invalid rule level", () => {
+    expect(() => match("x", [{ name: "*", level: "verbose" as any, target: "T" }])).to.throw(InvalidOption);
+  });
+});
 
 describe("logger tests", function () {
   this.timeout(15000);
@@ -48,8 +133,8 @@ describe("logger tests", function () {
     sinon.restore();
   });
 
-  after(() => {
-    process.exit();
+  after(async () => {
+    await Log.clearLoggers();
   });
 
   it("Should create logger", async () => {
@@ -99,28 +184,28 @@ describe("logger tests", function () {
 
     expect(spy.args[0][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("TRACE Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("TRACE Hello world (test-format)"));
     expect(spy.args[1][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("DEBUG Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("DEBUG Hello world (test-format)"));
     expect(spy.args[2][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("INFO Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("INFO Hello world (test-format)"));
     expect(spy.args[3][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("SUCCESS Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("SUCCESS Hello world (test-format)"));
     expect(spy.args[4][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("WARN Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("WARN Hello world (test-format)"));
     expect(spy.args[5][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("ERROR Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("ERROR Hello world (test-format)"));
     expect(spy.args[6][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("FATAL Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("FATAL Hello world (test-format)"));
     expect(spy.args[7][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("SECURITY Hello world  (test-format)"));
+      .and.satisfy((msg: string) => msg.startsWith(now.toFormat("dd/MM/yyyy")) && msg.endsWith("SECURITY Hello world (test-format)"));
   });
 
   it("Should not create new logger with same name", () => {
@@ -228,10 +313,10 @@ describe("logger tests", function () {
 
     expect(spy.args[0][0])
       .to.be.a("string")
-      .and.satisfy((msg: string) => msg.includes("ERROR hello world err Error: error message"));
+      .and.satisfy((msg: string) => msg.includes("ERROR hello world err Exception: error message"));
   });
 
-  it('Should format message with one argunt', () =>{ 
+  it('Should format message with one argunt', () =>{
     const spy = sinon.spy(TestTarget.prototype, "sink");
     const log = logger("test-format");
 

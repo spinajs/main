@@ -3,7 +3,7 @@ import { Constructor, AsyncService, Class, isPromise } from '@spinajs/di';
 import { fs, IFileInfo } from '@spinajs/fs';
 import formidable from 'formidable';
 import { CookieOptions } from 'express';
-import { httpResponse } from './responses.js';
+import { IPerfScope } from '@spinajs/log';
 
 /**
  * Accept header enum
@@ -257,6 +257,16 @@ export interface IServerTimingEntry {
 
 export interface IActionLocalStoregeContext {
   requestId: string;
+  /**
+   * W3C trace id shared across services for one distributed trace. Seeded by
+   * {@link RequestId} from an inbound `traceparent` header ( or freshly minted )
+   * and merged into every log line by the ambient log context.
+   */
+  traceId?: string;
+  /**
+   * W3C span id identifying this service's span within the trace.
+   */
+  spanId?: string;
   responseStart: Date;
   responseEnd: Date;
   responseTime: number;
@@ -266,6 +276,11 @@ export interface IActionLocalStoregeContext {
    * `Server-Timing` response header when {@link ServerTiming} is enabled.
    */
   serverTiming?: IServerTimingEntry[];
+  /**
+   * Per-request perf accumulator ( query counts, span totals ) populated by the
+   * Perf facade during the action and flushed by {@link PerfRollup} at finish.
+   */
+  perf?: IPerfScope;
 }
 
 export interface IResponseHeader {
@@ -845,6 +860,7 @@ export abstract class Response<T = any> {
 
   public async execute(_req: express.Request, _res: express.Response, _next?: express.NextFunction): Promise<ResponseFunction | void> {
     const response = await this.prepareResponse();
+    const { httpResponse } = await import('./responses.js');
     return await httpResponse(response, this._template, {
       ...this.options,
       // Honor an explicit caller-supplied StatusCode; fall back to the
