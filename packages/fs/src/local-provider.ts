@@ -1,7 +1,6 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail } from '@spinajs/exceptions';
 import { constants, createReadStream, createWriteStream, existsSync, readFileSync, Stats } from 'fs';
-import { tmpdir } from 'os';
 import { rm, stat, readdir, rename, mkdir, access, open, appendFile, readFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
