@@ -84,4 +84,13 @@ describe('HealthCheckRunner', () => {
     expect(report.checks).to.have.length(2);
     expect(report.checks.find((c) => c.name === 'fast')!.status).to.eq('up');
   });
+
+  it('isFailing: down always fails, degraded only when configured', () => {
+    expect(makeRunner([], 50, false).isFailing('down')).to.eq(true);
+    expect(makeRunner([], 50, false).isFailing('degraded')).to.eq(false);
+    expect(makeRunner([], 50, false).isFailing('up')).to.eq(false);
+    expect(makeRunner([], 50, true).isFailing('degraded')).to.eq(true);
+    expect(makeRunner([], 50, true).isFailing('down')).to.eq(true);
+    expect(makeRunner([], 50, true).isFailing('up')).to.eq(false);
+  });
 });
