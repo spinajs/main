@@ -47,6 +47,20 @@ export class TestConfiguration extends FrameworkConfiguration {
             name: 'fs-temp',
             basePath: dir('./files'),
           },
+          // The http package resolves these named providers when HttpServer /
+          // controller cache boot; this config replaces the framework defaults
+          // wholesale, so they must be declared here (mirrors http-swagger's
+          // known-good test config).
+          {
+            service: 'fsNative',
+            name: '__fs_controller_cache__',
+            basePath: dir('./cache'),
+          },
+          {
+            service: 'fsNative',
+            name: '__fs_http_response_templates__',
+            basePath: resolve(normalize(join(process.cwd(), '..', 'http', 'src', 'views', 'responses'))),
+          },
 
         ],
       },

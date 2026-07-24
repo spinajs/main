@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
-import { Constructor, DI, IContainer } from '@spinajs/di';
+import { Constructor, DI, IContainer, getInheritedDescriptor } from '@spinajs/di';
 import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase } from './model.js';
@@ -8,7 +8,7 @@ import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { ManyQueryRelationList, Relation } from './relation-objects.js';
 import { Orm } from './orm.js';
 import { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
-import { extractModelDescriptor, extractModelDescriptorInherited } from './descriptor.js';
+import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
 
 export { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 
@@ -37,39 +37,44 @@ export function _prepareColumnDesc(initialize: Partial<IColumnDescriptor>): ICol
 }
 
 function _getMetadataFrom(target: any) {
-  let metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target) ?? {};
+  // Sampled BEFORE getInheritedDescriptor, which stores own metadata as a side
+  // effect - so this is only true on the very first decorator to touch `target`.
+  const isFirstDecorator = !Reflect.getOwnMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
 
-  /**
-   * NOTE:
-   * We hold metadata information as poperty of object stored by normal metadata.
-   * This way we can avoid overwritting metadata properties by inherited classes.
-   *
-   * Eg. given class hierarchy:
-   *
-   *  @Decorator({ a: 1})
-   *  class A {}
-   *
-   *  @Decorator({ a: 2})
-   *  class B extends A {}
-   *
-   *  @Decorator({ a: 3})
-   *  class C extends A {}
-   *
-   *  Normally metadata is created for class A due import order. Reflect.metadata() searches in prototype chain, so
-   *  when class B gets decorator executed it will find already defined from class A. Then class C decorator will overwrite
-   *  decorator for class A ( B decorator is lost ).
-   *
-   *  This is becouse decorator is saerched in protype chain of object.
-   *
-   *  When we need metadata value, we collapse this object with proper inheritance object
-   */
+  // Own metadata per class - see @spinajs/di getInheritedDescriptor. Replaces
+  // the previous name-keyed container, which collapsed two classes sharing a
+  // name into a single slot.
+  const descriptor = getInheritedDescriptor<IModelDescriptor>(target, MODEL_DESCTRIPTION_SYMBOL, createDefaultModelDescriptor);
 
-  if (!metadata.hasOwnProperty(target.name)) {
-    metadata[target.name] = extractModelDescriptorInherited(target);
+  // Name is this class's own, never inherited from the base
+  descriptor.Name = target.name;
+
+  if (isFirstDecorator) {
+    detachInheritedModelMembers(descriptor);
   }
-  Reflect.defineMetadata(MODEL_DESCTRIPTION_SYMBOL, metadata, target);
 
-  return metadata[target.name];
+  return descriptor;
+}
+
+/**
+ * The collapse merger ( @spinajs/di ) rebuilds Columns / Relations and the
+ * option objects one level deep, but their ELEMENTS stay shared by reference
+ * with the parent model. Decorators such as @Ignore / @Uuid ( `columnDesc.Ignore = true` ),
+ * @Recursive ( `relation.Recursive = true` ) and @CreatedAt / @SoftDelete /
+ * @DiscriminationMap ( `model.<option>.<field> = ...` ) mutate a found element
+ * in place - on an INHERITED member that would write straight through to the
+ * base model's descriptor. Give this class its own shallow copies of exactly
+ * the structures that get mutated in place. ( same hazard @spinajs/http closes
+ * with detachInheritedRoutes; Converters / JunctionModelProperties are only
+ * ever set/pushed with fresh values, so they need no copy. )
+ */
+function detachInheritedModelMembers(descriptor: IModelDescriptor) {
+  descriptor.Columns = descriptor.Columns.map((c) => ({ ...c }));
+  descriptor.Relations = new Map([...descriptor.Relations].map(([name, relation]) => [name, { ...relation }]));
+  descriptor.Timestamps = { ...descriptor.Timestamps };
+  descriptor.SoftDelete = { ...descriptor.SoftDelete };
+  descriptor.Archived = { ...descriptor.Archived };
+  descriptor.DiscriminationMap = { ...descriptor.DiscriminationMap };
 }
 
 export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
