@@ -20,7 +20,7 @@ export class JobsController extends BaseController {
             status: row.Status,
             phase: row.Phase ?? undefined,
             message: row.Message ?? undefined,
-            error: failed ? row.LastError : undefined,
+            error: failed || row.Status === 'retrying' ? row.LastError ?? undefined : undefined,
             attempt: row.Attempt,
             maxAttempts: row.MaxAttempts,
             createdAt: row.CreatedAt,

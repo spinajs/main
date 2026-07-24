@@ -161,7 +161,7 @@ describe('queue core - dedup & persistence', function () {
     expect(spy.calledOnce, 'duplicate deliveries must not re-execute the job').to.be.true;
   });
 
-  it('stores MaxAttempts ( job RetryCount ) on first receipt', async () => {
+  it('stores MaxAttempts ( RetryCount + 1 ) on first receipt', async () => {
     // producer is DB-free: the tracking row ( and its MaxAttempts ) is written by the
     // consumer on first receipt, so drive a delivery via consume() before asserting.
     const queue = await q();
@@ -169,7 +169,7 @@ describe('queue core - dedup & persistence', function () {
     await SampleJob.emit({ Foo: 'x', RetryCount: 4 } as any);
 
     const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
-    expect(model.MaxAttempts).to.eq(4);
+    expect(model.MaxAttempts).to.eq(5);
   });
 
   it('records failures in LastError ( not Result ) and marks the job dead', async () => {

@@ -47,7 +47,7 @@ export class EmailSendFailed extends QueueEvent {
   public Attempt?: number;
 
   /**
-   * The dispatch-time retry limit for the job.
+   * The total allowed executions for the job ( retries + 1 ).
    */
   public MaxAttempts?: number;
 

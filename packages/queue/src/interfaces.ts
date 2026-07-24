@@ -199,7 +199,7 @@ export type JobProgressCallback = (p: number, meta?: IJobProgressMeta) => Promis
 export interface IJobFailureContext {
   /** The attempt number that just failed ( 1-based ). */
   attempt: number;
-  /** The dispatch-time retry limit ( the job's RetryCount ). */
+  /** The total allowed executions ( retries + 1 ). */
   maxAttempts: number;
   /** True when this failure exhausted the retries and the job was marked dead. */
   isFinal: boolean;

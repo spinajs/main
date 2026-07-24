@@ -227,7 +227,7 @@ describe('queue tracking (producer generates JobId, consumer find-or-create)', f
     expect((await JobModel.all()).length).to.equal(0);
   });
 
-  it('persists MaxAttempts ( job RetryCount ) on first receipt', async () => {
+  it('persists MaxAttempts ( RetryCount + 1 ) on first receipt', async () => {
     const queue = await q();
     await queue.consume(TrackedJob);
     await TrackedJob.emit({ RetryCount: 3 });
@@ -237,7 +237,7 @@ describe('queue tracking (producer generates JobId, consumer find-or-create)', f
     await c.deliver(wire);
 
     const row = await JobModel.where({ JobId: (wire as any).JobId }).firstOrFail();
-    expect(row.MaxAttempts).to.equal(3);
+    expect(row.MaxAttempts).to.equal(4);
   });
 
   it('transitions retrying -> dead across redeliveries using the dispatch-time limit', async () => {
@@ -248,12 +248,12 @@ describe('queue tracking (producer generates JobId, consumer find-or-create)', f
     const c = await client();
     const wire = c.Emitted[0];
 
-    // first receipt: attempt 1 of maxAttempts 1 -> still retrying
+    // first receipt: attempt 1 of maxAttempts 2 -> still retrying
     await expect(c.deliver(wire)).to.be.rejectedWith('boom');
     let row = await JobModel.where({ JobId: (wire as any).JobId }).firstOrFail();
     expect(row.Status).to.equal('retrying');
     expect(row.Attempt).to.equal(1);
-    expect(row.MaxAttempts).to.equal(1);
+    expect(row.MaxAttempts).to.equal(2);
 
     // redelivery: attempt 2 exceeds the limit -> dead
     await expect(c.deliver(wire)).to.be.rejectedWith('boom');
@@ -295,7 +295,7 @@ describe('queue tracking (producer generates JobId, consumer find-or-create)', f
     expect(hookCalls.length).to.equal(2);
 
     expect(hookCalls[0].attempt).to.equal(1);
-    expect(hookCalls[0].maxAttempts).to.equal(1);
+    expect(hookCalls[0].maxAttempts).to.equal(2);
     expect(hookCalls[0].isFinal).to.equal(false);
     expect(hookCalls[0].jobId).to.equal((wire as any).JobId);
 

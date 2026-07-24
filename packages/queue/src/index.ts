@@ -153,8 +153,9 @@ export class DefaultQueueService extends QueueService {
                 // set Status explicitly so tracking never depends on the DB column default,
                 // which can differ across dialects ( and MySQL MODIFY COLUMN can drop it ).
                 jModel.Status = 'created';
-                // capture the dispatch-time retry limit so it stays authoritative across redeliveries.
-                jModel.MaxAttempts = (ev as QueueJob).RetryCount ?? 0;
+                // capture the dispatch-time attempt ceiling ( retries + 1 ) so it stays authoritative
+                // across redeliveries and consumers can render Attempt/MaxAttempts consistently.
+                jModel.MaxAttempts = ((ev as QueueJob).RetryCount ?? 0) + 1;
 
                 try {
                   await jModel.insert();
@@ -201,9 +202,10 @@ export class DefaultQueueService extends QueueService {
                 // transport can apply its retry-then-dead-letter policy ( re-thrown below ).
                 // the error goes to LastError - Result is reserved for the successful output.
                 jModel.Attempt = (jModel.Attempt ?? 0) + 1;
-                // prefer the dispatch-time limit captured on the row so it stays authoritative
-                // across redeliveries ( a redelivered wire message could carry a different RetryCount ).
-                const maxRetries = jModel.MaxAttempts ?? (ev as QueueJob).RetryCount ?? 0;
+                // derive the retry limit from the dispatch-time ceiling captured on the row so it stays
+                // authoritative across redeliveries ( a redelivered wire message could carry a different
+                // RetryCount ). MaxAttempts is retries + 1, so the limit is MaxAttempts - 1.
+                const maxRetries = jModel.MaxAttempts ? jModel.MaxAttempts - 1 : ((ev as QueueJob).RetryCount ?? 0);
                 jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
                 jModel.LastError = err instanceof Error ? err.message : String(err);
 
@@ -212,7 +214,7 @@ export class DefaultQueueService extends QueueService {
                 // notify the job of the failed attempt ( e.g. to send an alert on the final one ).
                 // the hook must never mask the original error, so its own failure is only logged.
                 try {
-                  await (ev as QueueJob).onFailed(err, { attempt: jModel.Attempt, maxAttempts: maxRetries, isFinal: jModel.Status === 'dead', jobId: ev.JobId });
+                  await (ev as QueueJob).onFailed(err, { attempt: jModel.Attempt, maxAttempts: jModel.MaxAttempts ?? maxRetries + 1, isFinal: jModel.Status === 'dead', jobId: ev.JobId });
                 } catch (hookErr) {
                   this.Log.error(hookErr, `onFailed hook for job ${event.name} threw`);
                 }

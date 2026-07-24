@@ -219,7 +219,7 @@ describe('email deferred ( hermetic - no SMTP, no broker )', function () {
     const failed = emittedOfType(c, 'EmailSendFailed');
     expect(failed.length).to.equal(1);
     expect((failed[0] as any).Attempt).to.equal(2);
-    expect((failed[0] as any).MaxAttempts).to.equal(1);
+    expect((failed[0] as any).MaxAttempts).to.equal(2);
     expect((failed[0] as any).Error).to.equal(FAKE_ERROR_MESSAGE);
     expect((failed[0] as any).JobId).to.equal((wire as any).JobId);
   });

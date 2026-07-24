@@ -95,13 +95,13 @@ export class JobModel<T = unknown> extends ModelBase {
 
   /**
    * Number of times job execution has been attempted. Incremented on every failed run.
-   * Once it exceeds {@link JobModel.MaxAttempts} the job is marked as `dead`.
+   * Once it reaches {@link JobModel.MaxAttempts} the job is marked as `dead`.
    */
   public Attempt: number;
 
   /**
-   * Configured retry limit for the job ( the job's RetryCount at dispatch time ).
-   * Lets consumers report progress as `Attempt / MaxAttempts`.
+   * Total allowed executions for the job ( RetryCount + 1 ) captured at first receipt.
+   * Lets consumers render `Attempt / MaxAttempts` ( e.g. "attempt 2 of 2" ).
    */
   public MaxAttempts: number;
 
