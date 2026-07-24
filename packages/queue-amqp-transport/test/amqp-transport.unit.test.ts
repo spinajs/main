@@ -100,7 +100,13 @@ class FakeConnection {
 
 class TestableAmqpClient extends AmqpQueueClient {
   public fake = new FakeConnection();
-  protected createConnection(): Promise<any> {
+  // captured arguments of the last createConnection() call so tests can assert on
+  // the connection target ( url string or Options.Connect object ) and socket options.
+  public connectUrl?: string | Record<string, any>;
+  public connectSocketOptions?: Record<string, any>;
+  protected createConnection(url: string | Record<string, any>, socketOptions: Record<string, any>): Promise<any> {
+    this.connectUrl = url;
+    this.connectSocketOptions = socketOptions;
     return Promise.resolve(this.fake);
   }
   public get pub() {
@@ -180,6 +186,74 @@ describe('amqp queue transport - unit', function () {
       await new Promise((r) => setTimeout(r, 40));
       expect(c.IsConnected).to.be.true;
       expect(c.con.consumers.has('/queue/work'), 'subscription should be replayed').to.be.true;
+    });
+  });
+
+  describe('credentials', () => {
+    // A url-style host is parsed into an explicit Options.Connect object so credentials ( and every
+    // other setting ) are clear fields rather than being buried inside the url string.
+    it('applies config login/password when the host url carries no credentials', async () => {
+      const c = await connected({ host: 'amqp://broker:5672', login: 'guest', password: 'secret' });
+
+      expect(c.connectUrl, 'url host should be parsed into an options object').to.be.an('object');
+      const opts = c.connectUrl as Record<string, any>;
+      expect(opts.username).to.eq('guest');
+      expect(opts.password).to.eq('secret');
+      expect(opts.protocol).to.eq('amqp');
+      expect(opts.hostname).to.eq('broker');
+      expect(opts.port).to.eq(5672);
+    });
+
+    it('keeps credentials embedded in the host url ( they win over config )', async () => {
+      const c = await connected({ host: 'amqp://urluser:urlpass@broker:5672', login: 'guest', password: 'secret' });
+
+      const opts = c.connectUrl as Record<string, any>;
+      expect(opts.username).to.eq('urluser');
+      expect(opts.password).to.eq('urlpass');
+    });
+
+    it('url-decodes credentials embedded in the host url', async () => {
+      const c = await connected({ host: 'amqp://us%40er:p%40ss@broker', login: 'guest', password: 'secret' });
+
+      const opts = c.connectUrl as Record<string, any>;
+      expect(opts.username).to.eq('us@er');
+      expect(opts.password).to.eq('p@ss');
+    });
+
+    it('preserves the scheme, port and vhost when parsing the host url', async () => {
+      const c = await connected({ host: 'amqps://broker:5671/prod', login: 'guest', password: 'secret' });
+
+      const opts = c.connectUrl as Record<string, any>;
+      expect(opts.protocol).to.eq('amqps');
+      expect(opts.hostname).to.eq('broker');
+      expect(opts.port).to.eq(5671);
+      expect(opts.vhost).to.eq('prod');
+    });
+
+    it('leaves the vhost percent-encoded so amqplib decodes it exactly once', async () => {
+      // amqplib unescapes the vhost internally; decoding it here as well would double-decode ( %2f -> / )
+      const c = await connected({ host: 'amqp://broker/%2Fshared', login: 'guest', password: 'secret' });
+
+      const opts = c.connectUrl as Record<string, any>;
+      expect(opts.vhost).to.eq('%2Fshared');
+    });
+
+    it('carries url query tuning params ( eg. heartbeat ) into the connect options', async () => {
+      const c = await connected({ host: 'amqp://broker?heartbeat=30', login: 'guest', password: 'secret' });
+
+      const opts = c.connectUrl as Record<string, any>;
+      expect(opts.heartbeat).to.eq(30);
+    });
+
+    it('passes discrete login/password as connect options when host is not a url', async () => {
+      const c = await connected({ host: 'broker', port: 5672, login: 'guest', password: 'secret' });
+
+      expect(c.connectUrl, 'a non-url host should build an options object').to.be.an('object');
+      const opts = c.connectUrl as Record<string, any>;
+      expect(opts.username).to.eq('guest');
+      expect(opts.password).to.eq('secret');
+      expect(opts.hostname).to.eq('broker');
+      expect(opts.port).to.eq(5672);
     });
   });
 

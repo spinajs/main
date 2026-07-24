@@ -102,6 +102,74 @@ export class AmqpQueueClient extends QueueClient {
     return amqp.connect(url as any, socketOptions);
   }
 
+  /**
+   * Builds the amqplib connection target from the configured options.
+   *
+   * A url-style host ( `amqp://.../vhost` ) is parsed into an explicit {@link Options.Connect}
+   * object rather than passed as a raw string, so every setting - crucially the credentials - is a
+   * clear field instead of being buried in the url. amqplib derives credentials for a *string* url
+   * only from the url's own userinfo, which is why the discrete `login` / `password` config fields
+   * were previously ignored for a url host. Credentials embedded in the url still win; the config
+   * fields are the fallback when the url carries none ( matching amqplib's own precedence ).
+   */
+  protected buildConnectionTarget(): Options.Connect {
+    const host = this.Options.host;
+
+    // discrete-fields host ( no scheme ) - build straight from the individual config fields
+    if (!host || !host.includes('://')) {
+      return this.connectOptionsFromFields(host ?? 'localhost');
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(host);
+    } catch {
+      // not a parseable url - treat the whole value as a bare hostname and use the config fields
+      return this.connectOptionsFromFields(host);
+    }
+
+    const protocol = parsed.protocol.replace(/:$/, '') || 'amqp';
+
+    // amqplib treats the url's credentials as authoritative when it carries either field; only when
+    // it carries neither do we fall back to the login / password config fields.
+    const urlHasCredentials = parsed.username !== '' || parsed.password !== '';
+
+    const target: Options.Connect = {
+      protocol,
+      // strip IPv6 brackets - amqplib uses hostname verbatim as the socket host in object mode
+      hostname: parsed.hostname.replace(/^\[|\]$/g, ''),
+      port: parsed.port ? Number(parsed.port) : this.Options.port ?? (protocol === 'amqps' ? 5671 : 5672),
+      username: urlHasCredentials ? decodeURIComponent(parsed.username) : this.Options.login,
+      password: urlHasCredentials ? decodeURIComponent(parsed.password) : this.Options.password,
+      // keep the vhost percent-encoded - amqplib unescapes it exactly once ( decoding here too would
+      // double-decode, eg. %2f -> / -> wrong vhost ). An empty path keeps the broker default.
+      vhost: parsed.pathname && parsed.pathname !== '/' ? parsed.pathname.slice(1) : '/',
+    };
+
+    // connection tuning params live in the url query string in string-mode; carry the ones amqplib
+    // understands over so switching to object-mode does not silently drop them.
+    const heartbeat = parsed.searchParams.get('heartbeat');
+    const frameMax = parsed.searchParams.get('frameMax');
+    const locale = parsed.searchParams.get('locale');
+    if (heartbeat !== null) target.heartbeat = Number(heartbeat);
+    if (frameMax !== null) target.frameMax = Number(frameMax);
+    if (locale !== null) target.locale = locale;
+
+    return target;
+  }
+
+  /** Connect-options object built from the discrete `host` / `port` / `login` / `password` fields. */
+  protected connectOptionsFromFields(hostname: string): Options.Connect {
+    return {
+      protocol: 'amqp',
+      hostname,
+      port: this.Options.port ?? 5672,
+      username: this.Options.login,
+      password: this.Options.password,
+      vhost: this.Options.options?.vhost ?? '/',
+    };
+  }
+
   public async dispose() {
     this.Log.info(`Disposing queue connection ${this.Options.name} ...`);
 
@@ -141,19 +209,10 @@ export class AmqpQueueClient extends QueueClient {
     this.AssertedRetryQueues.clear();
 
     try {
-      // when host is a full url ( eg. amqp://user:pass@host/vhost ) use it as is,
-      // otherwise build a connect-options object from discrete fields.
-      const url: string | Options.Connect =
-        this.Options.host && this.Options.host.includes('://')
-          ? this.Options.host
-          : {
-              protocol: 'amqp',
-              hostname: this.Options.host ?? 'localhost',
-              port: this.Options.port ?? 5672,
-              username: this.Options.login,
-              password: this.Options.password,
-              vhost: this.Options.options?.vhost ?? '/',
-            };
+      // resolve the connection target from config. A url-style host is parsed into an explicit
+      // Options.Connect object ( see buildConnectionTarget ) so the credentials and every other
+      // setting are clear fields instead of being hidden inside a url string.
+      const url = this.buildConnectionTarget();
 
       this.Connection = await this.createConnection(url, {
         clientProperties: { connection_name: this.ClientId },
