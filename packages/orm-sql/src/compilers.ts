@@ -8,19 +8,47 @@ import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 
+/**
+ * Central identifier escaping for the MySQL-flavoured dialect.
+ *
+ * Wraps a table/column/alias/schema name in backticks and escapes any embedded
+ * backtick by doubling it (the MySQL rule). For a normal identifier (no special
+ * characters) the output is byte-identical to the previous raw interpolation
+ * (`` `${name}` ``), so existing generated SQL is unchanged; only names that
+ * actually contain a backtick produce different — and now safe — output.
+ *
+ * Dialects that quote differently (e.g. `[name]` with `]`-doubling) override
+ * this by shadowing the relevant compiler/statement, the same way
+ * {@link SqlTableAliasCompiler} is already overridden per driver.
+ */
+export function escapeIdentifier(name: string): string {
+  return '`' + String(name).replace(/`/g, '``') + '`';
+}
+
+/**
+ * Escapes a DDL string *literal* (SET/ENUM member, COMMENT, CHARACTER SET,
+ * COLLATE, string DEFAULT). These are single-quoted string literals, NOT
+ * identifiers, so the correct escaping is doubling embedded single quotes.
+ * Returns the value WITHOUT the surrounding quotes so callers keep their exact
+ * quoting; for a value with no quote the output is byte-identical.
+ */
+export function escapeStringLiteral(value: string): string {
+  return String(value).replace(/'/g, "''");
+}
+
 @NewInstance()
 export class SqlTableAliasCompiler implements TableAliasCompiler {
   public compile(builder: IQueryBuilder, tbl?: string) {
     let table = '';
 
     if (builder.Database) {
-      table += `\`${builder.Database}\`.`;
+      table += `${escapeIdentifier(builder.Database)}.`;
     }
 
-    table += `\`${tbl ? tbl : builder.Table}\``;
+    table += escapeIdentifier(tbl ? tbl : builder.Table);
 
     if (builder.TableAlias) {
-      table += ` as \`${builder.TableAlias}\``;
+      table += ` as ${escapeIdentifier(builder.TableAlias)}`;
     }
 
     return table;
@@ -71,7 +99,7 @@ export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
     const bindings: string[] = [];
 
     if (sorts.length > 0) {
-      stmt = ` ORDER BY ${sorts.map((s) => `\`${s.column}\` ${s.order}`).join(', ')}`;
+      stmt = ` ORDER BY ${sorts.map((s) => `${escapeIdentifier(s.column)} ${s.order}`).join(', ')}`;
     }
 
     return {
@@ -111,7 +139,7 @@ export class SqlForeignKeyQueryCompiler implements ForeignKeyQueryCompiler {
   }
 
   public compile(): ICompilerOutput {
-    const exprr = `FOREIGN KEY (${this._builder.ForeignKeyField}) REFERENCES ${this._builder.Table}(${this._builder.PrimaryKey}) ON DELETE ${this._builder.OnDeleteAction} ON UPDATE ${this._builder.OnUpdateAction}`;
+    const exprr = `FOREIGN KEY (${escapeIdentifier(this._builder.ForeignKeyField)}) REFERENCES ${escapeIdentifier(this._builder.Table)}(${escapeIdentifier(this._builder.PrimaryKey)}) ON DELETE ${this._builder.OnDeleteAction} ON UPDATE ${this._builder.OnUpdateAction}`;
 
     return {
       bindings: [],
@@ -392,7 +420,7 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
     for (const prop of Object.keys(this._builder.Value)) {
       const v = (this._builder.Value as never)[`${prop}`] as any;
 
-      exprr.push(`\`${prop}\` = ?`);
+      exprr.push(`${escapeIdentifier(prop)} = ?`);
 
       bindings = bindings.concat(this.tryConvertValue(v));
     }
@@ -466,7 +494,7 @@ export class SqlOnDuplicateQueryCompiler implements OnDuplicateQueryCompiler {
           // re-binding one specific row's value. Binding `parent.Values[0]`
           // applied the FIRST row's values to every conflicting row in a
           // multi row upsert.
-          return `\`${c}\` = VALUES(\`${c}\`)`;
+          return `${escapeIdentifier(c)} = VALUES(${escapeIdentifier(c)})`;
         } else {
           return c.Query;
         }
@@ -500,7 +528,7 @@ export class SqlIndexQueryCompiler extends IndexQueryCompiler {
   public compile(): ICompilerOutput {
     return {
       bindings: [],
-      expression: `CREATE ${this._builder.Unique ? 'UNIQUE ' : ''}INDEX \`${this._builder.Name}\` ON \`${this._builder.Table}\` (${this._builder.Columns.map((c) => `\`${c}\``).join(',')});`,
+      expression: `CREATE ${this._builder.Unique ? 'UNIQUE ' : ''}INDEX ${escapeIdentifier(this._builder.Name)} ON ${escapeIdentifier(this._builder.Table)} (${this._builder.Columns.map((c) => escapeIdentifier(c)).join(',')});`,
     };
   }
 }
@@ -618,7 +646,9 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
         return (this._builder.getColumns()[i] as ColumnStatement).Column;
       })
       .map((c) => {
-        return `\`${c instanceof RawQuery ? c.Query : c}\``;
+        // RawQuery columns carry raw SQL - preserve the existing (unescaped)
+        // backtick wrapping. String columns go through the identifier escaper.
+        return c instanceof RawQuery ? `\`${c.Query}\`` : escapeIdentifier(c as string);
       });
 
     if (columns.length === 0) {
@@ -753,7 +783,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
             expression: `SELECT * FROM ${_tblName}`,
           };
 
-      const fExprr = `INSERT INTO \`${this.builder.Table}\` ${fOut.expression}`;
+      const fExprr = `INSERT INTO ${escapeIdentifier(this.builder.Table)} ${fOut.expression}`;
 
       return [
         out1,
@@ -938,7 +968,7 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
 
   protected _primaryKeys() {
     const _keys = this.builder.Columns.filter((x) => x.PrimaryKey)
-      .map((c) => `\`${c.Name}\``)
+      .map((c) => escapeIdentifier(c.Name))
       .join(',');
 
     if (!_.isEmpty(_keys)) {
@@ -956,7 +986,7 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
 @NewInstance()
 export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
   protected _statementsMappings = {
-    set: (builder: ColumnQueryBuilder) => `SET(${builder.Args[0].map((a: string) => `'${a}\'`).join(',')})`,
+    set: (builder: ColumnQueryBuilder) => `SET(${builder.Args[0].map((a: string) => `'${escapeStringLiteral(a)}'`).join(',')})`,
     string: (builder: ColumnQueryBuilder) => `VARCHAR(${builder.Args[0] ? builder.Args[0] : 255})`,
     boolean: () => `BOOLEAN`,
     float: (builder: ColumnQueryBuilder) => {
@@ -966,7 +996,7 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     },
     double: (builder: ColumnQueryBuilder) => this._statementsMappings.float(builder),
     decimal: (builder: ColumnQueryBuilder) => this._statementsMappings.float(builder),
-    enum: (builder: ColumnQueryBuilder) => `${builder.Type.toUpperCase()}(${builder.Args[0].map((a: any) => `'${a}'`).join(',')})`,
+    enum: (builder: ColumnQueryBuilder) => `${builder.Type.toUpperCase()}(${builder.Args[0].map((a: any) => `'${escapeStringLiteral(a)}'`).join(',')})`,
     binary: (builder: ColumnQueryBuilder) => `BINARY(${builder.Args[0] ?? 255})`,
     smallint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     tinyint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
@@ -989,12 +1019,12 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
 
     // COLUMN ADDITIONA PROPS
     unsigned: () => 'UNSIGNED',
-    charset: (builder: ColumnQueryBuilder) => `CHARACTER SET '${builder.Charset}'`,
-    collation: (builder: ColumnQueryBuilder) => `COLLATE '${builder.Collation}'`,
+    charset: (builder: ColumnQueryBuilder) => `CHARACTER SET '${escapeStringLiteral(builder.Charset)}'`,
+    collation: (builder: ColumnQueryBuilder) => `COLLATE '${escapeStringLiteral(builder.Collation)}'`,
     notnull: () => `NOT NULL`,
     default: () => this._defaultCompiler(),
     autoincrement: () => `AUTO_INCREMENT`,
-    comment: (builder: ColumnQueryBuilder) => `COMMENT '${builder.Comment}'`,
+    comment: (builder: ColumnQueryBuilder) => `COMMENT '${escapeStringLiteral(builder.Comment)}'`,
   };
 
   constructor(protected builder: ColumnQueryBuilder) {
@@ -1006,7 +1036,7 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
   public compile(): ICompilerOutput {
     const _stmt: string[] = [];
 
-    _stmt.push(`\`${this.builder.Name}\``);
+    _stmt.push(escapeIdentifier(this.builder.Name));
     _stmt.push(this._statementsMappings[this.builder.Type](this.builder));
 
     if (this.builder.Unsigned) {
@@ -1048,7 +1078,7 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     }
 
     if (_.isString(this.builder.Default.Value)) {
-      _stmt = `DEFAULT '${this.builder.Default.Value.trim()}'`;
+      _stmt = `DEFAULT '${escapeStringLiteral(this.builder.Default.Value.trim())}'`;
     } else if (_.isNumber(this.builder.Default.Value)) {
       _stmt = `DEFAULT ${this.builder.Default.Value}`;
     } else if (this.builder.Default.Query instanceof RawQuery) {
@@ -1072,7 +1102,7 @@ export class SqlAlterColumnQueryCompiler extends SqlColumnQueryCompiler {
       const bld = this.builder as AlterColumnQueryBuilder;
       return {
         bindings: [],
-        expression: `RENAME COLUMN \`${bld.OldName}\` TO \`${bld.Name}\``,
+        expression: `RENAME COLUMN ${escapeIdentifier(bld.OldName)} TO ${escapeIdentifier(bld.Name)}`,
       };
     }
 
@@ -1080,7 +1110,7 @@ export class SqlAlterColumnQueryCompiler extends SqlColumnQueryCompiler {
     if (builder.AlterType === ColumnAlterationType.Add) {
       return {
         bindings: cDefinition.bindings,
-        expression: `ADD ${cDefinition.expression} ${builder.AfterColumn ? `AFTER \`${builder.AfterColumn}\`` : ''}`,
+        expression: `ADD ${cDefinition.expression} ${builder.AfterColumn ? `AFTER ${escapeIdentifier(builder.AfterColumn)}` : ''}`,
       };
     }
 

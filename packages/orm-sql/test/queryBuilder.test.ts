@@ -1281,7 +1281,7 @@ describe('schema building', () => {
       })
       .toDB() as ICompilerOutput[];
 
-    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE CASCADE ON UPDATE CASCADE)');
+    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (`parent_id`) REFERENCES `group`(`id`) ON DELETE CASCADE ON UPDATE CASCADE)');
   });
 
   it('table with default referential action', () => {
@@ -1292,7 +1292,7 @@ describe('schema building', () => {
       })
       .toDB() as ICompilerOutput[];
 
-    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE NO ACTION ON UPDATE NO ACTION)');
+    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (`parent_id`) REFERENCES `group`(`id`) ON DELETE NO ACTION ON UPDATE NO ACTION)');
   });
 
   it('column with one primary keys', () => {
@@ -1629,6 +1629,74 @@ describe('schema building', () => {
   it('SqlQueryCompiler rejects a null builder', () => {
     const container = db()!.Connections.get('sqlite')!.Container;
     expect(() => new SqlSelectQueryCompiler(container, null as any)).to.throw(InvalidArgument);
+  });
+});
+
+describe('Identifier escaping ( A3 )', () => {
+  beforeEach(async () => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(FakeSqliteDriver).as('sqlite');
+    await DI.resolve(Orm);
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  it('escapes a backtick in a column name by doubling it', () => {
+    const result = sqb().select('a`b').from('users').toDB();
+    expect(result.expression).to.equal('SELECT `a``b` FROM `users`');
+  });
+
+  it('escapes a backtick in a table name by doubling it', () => {
+    const result = sqb().select('*').from('ta`ble').toDB();
+    expect(result.expression).to.equal('SELECT * FROM `ta``ble`');
+  });
+
+  it('escapes a backtick in a table alias by doubling it', () => {
+    const result = sqb().select('*').from('users', 'a`lias').toDB();
+    expect(result.expression).to.equal('SELECT `a``lias`.* FROM `users` as `a``lias`');
+  });
+
+  it('escapes a backtick in an ORDER BY column - it cannot break out of the identifier', () => {
+    const result = sqb().select('*').from('users').orderBy('na`me').toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `na``me` ASC');
+  });
+
+  it('backtick-quotes foreign key DDL, escaping embedded backticks', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.int('foo').notNull().primaryKey().autoIncrement();
+        table.foreignKey('par`ent_id').references('gr`oup', 'id').onDelete(ReferentialAction.Cascade).onUpdate(ReferentialAction.Cascade);
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result[0].expression).to.contain('FOREIGN KEY (`par``ent_id`) REFERENCES `gr``oup`(`id`)');
+  });
+
+  it('escapes single quotes in a SET member string literal', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.set('foo', ["ba'r", 'baz']);
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result[0].expression).to.contain("`foo` SET('ba''r','baz')");
+  });
+
+  it('escapes single quotes in a COMMENT string literal', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.text('foo').comment("it's a comment");
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result[0].expression).to.contain("COMMENT 'it''s a comment'");
+  });
+
+  it('regression: a normal-identifier query stays byte-identical', () => {
+    const result = sqb().select('*').from('users', 'u').toDB();
+    expect(result.expression).to.equal('SELECT `u`.* FROM `users` as `u`');
   });
 });
 
