@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, USER_COMMON_METADATA, login, UserLogged, UserBanned, CreateMiddleware } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, grant, revoke, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
@@ -53,7 +53,7 @@ describe('User model tests', function () {
   });
 
   it('Should activate user', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     let user = await User.query().whereAnything('test-notactive@spinajs.pl').firstOrFail();
 
@@ -74,7 +74,7 @@ describe('User model tests', function () {
   });
 
   it('Should deactivate user', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     let user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
     expect(user.IsActive).to.eq(true);
@@ -89,7 +89,7 @@ describe('User model tests', function () {
   });
 
   it('Should create user', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const { User: U, Password } = await create('test@wp.pl', 'test222', 'bbbb', ['admin']);
 
@@ -110,7 +110,7 @@ describe('User model tests', function () {
   });
 
   it('Should create user with metadata', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const { User: U, Password } = await create('meta@wp.pl', 'metameta', 'bbbb', ['admin'], undefined, {
       'user:niceName': 'Meta User',
@@ -138,7 +138,7 @@ describe('User model tests', function () {
   });
 
   it('Should create user with beforeCreate and afterCreate middleware', async () => {
-    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const beforeSpy = sinon.spy((u: User) => {
       u.IsActive = true;
@@ -184,7 +184,7 @@ describe('User model tests', function () {
   });
 
   it('Should delete user', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     let user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
 
@@ -203,7 +203,7 @@ describe('User model tests', function () {
   });
 
   it('Should ban user', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     await ban('test@spinajs.pl', 'Banned by admin', 100);
 
@@ -224,18 +224,116 @@ describe('User model tests', function () {
     expect((eStub.args[2] as any)[0]).to.be.instanceOf(EmailSend);
   });
 
-  it('Should unban user', async () => {});
+  it('Should unban user', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-  it('Should change password', async () => {});
+    await ban('test@spinajs.pl', 'Banned by admin', 100);
 
-  it('Should grant role', async () => {});
+    let user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+    expect(user.IsBanned).to.be.true;
 
-  it('Should revoke role', async () => {});
+    eStub.resetHistory();
 
-  it('Should update user', async () => {});
+    await unban('test@spinajs.pl');
+
+    user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+
+    // ban must actually be lifted, not just an in-memory no-op
+    expect(user.IsBanned).to.be.false;
+    expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]).to.be.null;
+    expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_REASON]).to.be.null;
+    expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_DURATION]).to.be.null;
+    expect(user.Metadata[USER_COMMON_METADATA.USER_BAN_START_DATE]).to.be.null;
+
+    // UserUnbanned event emitted
+    expect(eStub.args.some((a) => (a as any)[0] instanceof UserUnbanned)).to.be.true;
+  });
+
+  it('Should not unban a user that is not banned', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+    await expect(unban('test-notactive@spinajs.pl')).to.be.rejected;
+  });
+
+  it('Should treat a ban as expired once its duration elapses', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await ban('test@spinajs.pl', 'temp', 100);
+
+    const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+    expect(user.IsBanned).to.be.true;
+
+    // move the ban start date to 200s ago while duration is 100s -> expired
+    user.Metadata[USER_COMMON_METADATA.USER_BAN_START_DATE] = DateTime.now().minus({ seconds: 200 });
+    await user.Metadata.update();
+
+    const reloaded = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+    expect(reloaded.IsBanned).to.be.false;
+  });
+
+  it('Should change password', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+    const oldHash = user.Password;
+
+    await changePassword('newPass123')(user);
+
+    const reloaded = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    expect(reloaded.Password).to.not.eq(oldHash);
+
+    const pwd = await DI.resolve(BasicPasswordProvider);
+    expect(await pwd.verify(reloaded.Password, 'newPass123')).to.be.true;
+    expect(eStub.args.some((a) => (a as any)[0] instanceof UserPasswordChanged)).to.be.true;
+  });
+
+  it('Should reject a password that does not meet requirements', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+    const user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    // password rule requires at least 8 chars with a letter and a digit
+    await expect(changePassword('short')(user)).to.be.rejected;
+  });
+
+  it('Should grant role', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const before = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    expect(before.Role).to.not.include('editor');
+
+    await grant('test@spinajs.pl', 'editor');
+
+    const after = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    expect(after.Role).to.include('editor');
+
+    // granting the same role twice must not duplicate it
+    await grant('test@spinajs.pl', 'editor');
+    const again = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    expect(again.Role.filter((r) => r === 'editor').length).to.eq(1);
+  });
+
+  it('Should revoke role', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await grant('test@spinajs.pl', 'editor');
+    let user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    expect(user.Role).to.include('editor');
+
+    await revoke('test@spinajs.pl', 'editor');
+    user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    expect(user.Role).to.not.include('editor');
+  });
+
+  it('Should update user', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    await _user_update({ Login: 'updated-login' })(user);
+
+    const reloaded = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    expect(reloaded.Login).to.eq('updated-login');
+  });
 
   it('Should authenticate user', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const user = await login('test@spinajs.pl', 'bbbb');
 
@@ -245,7 +343,7 @@ describe('User model tests', function () {
   });
 
   it('Should not auth with invalid password', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     await expect(login('test@spinajs.pl', 'bbbbssss')).to.be.rejected;
     expect(eStub.callCount).to.eq(1);
@@ -259,7 +357,7 @@ describe('User model tests', function () {
 
   it('Should reject auth with banned user', async () => {
 
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     await expect(login('test-banned@spinajs.pl', 'bbbb')).to.be.rejected;
     expect(eStub.callCount).to.eq(1);
@@ -267,7 +365,7 @@ describe('User model tests', function () {
   });
 
   it('Should reject auth with not active user', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve());
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     await expect(login('test-notactive@spinajs.pl', 'bbbb')).to.be.rejected;
     expect(eStub.callCount).to.eq(1);
@@ -275,11 +373,55 @@ describe('User model tests', function () {
   });
 
 
-  it('Password change request ', async () => {});
+  it('Password change request ', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-  it('Password change after request', async () => {});
+    await passwordChangeRequest('test@spinajs.pl');
 
-  it('Password change after request with wrong token', async () => {});
+    const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
 
-  it('Password change after request with expired token', async () => {});
+    // a reset token, start date and wait time must be stored
+    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]).to.be.a('string');
+    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_START_DATE]).to.be.not.null;
+    // wait time must come from config (rbac.password.passwordResetWaitTime), not be undefined
+    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME]).to.eq(60 * 60);
+
+    expect(eStub.args.some((a) => (a as any)[0] instanceof UserPasswordChangeRequest)).to.be.true;
+  });
+
+  it('Password change after request', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await passwordChangeRequest('test@spinajs.pl');
+    let user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+    const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+    await confirmPasswordReset('test@spinajs.pl', 'brandNew123', token);
+
+    user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+    const pwd = await DI.resolve(BasicPasswordProvider);
+    expect(await pwd.verify(user.Password, 'brandNew123')).to.be.true;
+  });
+
+  it('Password change after request with wrong token', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await passwordChangeRequest('test@spinajs.pl');
+
+    await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', 'not-the-token')).to.be.rejected;
+  });
+
+  it('Password change after request with expired token', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await passwordChangeRequest('test@spinajs.pl');
+    const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+    const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+    // force the reset request to be older than the configured wait time
+    user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_START_DATE] = DateTime.now().minus({ seconds: 2 * 60 * 60 });
+    await user.Metadata.update();
+
+    await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', token)).to.be.rejected;
+  });
 });

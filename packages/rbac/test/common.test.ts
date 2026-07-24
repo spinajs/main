@@ -136,8 +136,8 @@ export class TestConfiguration extends FrameworkConfiguration {
               // UNCOMMENT ONE OF BELOW OR MODIFY
               // VALIDATION RULE IS JSON SCHEMA
 
-              // Minimum eight characters, at least one letter and one number
-              pattern: '^(?=.*[A-Za-z])(?=.*d)[A-Za-zd]{8,}$',
+              // Minimum eight characters, at least one number
+              pattern: '^(?=.*\\d).{8,}$',
 
               // Minimum eight characters, at least one letter, one number and one special character:
               // pattern: '^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$',

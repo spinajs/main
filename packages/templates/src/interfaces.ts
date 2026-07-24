@@ -2,8 +2,10 @@ import { IMappableService } from '@spinajs/di';
 import { AsyncService } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { fs, IStat, URI } from '@spinajs/fs';
+import { Config } from '@spinajs/configuration';
 import { readFile, stat as localStat } from 'fs/promises';
 import { normalize } from 'path';
+import { IRenderOptions } from './progress.js';
 
 /**
  * How aggressively compiled templates are reused.

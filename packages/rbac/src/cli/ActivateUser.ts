@@ -11,7 +11,7 @@ export class ActivateUser extends CliCommand {
 
   public async execute(idOrUuid: string, active: boolean): Promise<void> {
     try {
-      (await active) ? activate(idOrUuid) : deactivate(idOrUuid);
+      await (active ? activate(idOrUuid) : deactivate(idOrUuid));
 
       this.Log.success(`User ${idOrUuid} ${active ? 'activated' : 'deactivated'}`);
     } catch (e) {
