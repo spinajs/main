@@ -43,7 +43,7 @@
 - Consumes: nothing.
 - Produces: a recorded baseline every later task compares against.
 
-- [ ] **Step 1: Record current pass/fail counts**
+- [x] **Step 1: Record current pass/fail counts**
 
 ```bash
 cd packages/orm     && npm test 2>&1 | tail -20
@@ -51,16 +51,69 @@ cd ../orm-sql       && npm test 2>&1 | tail -20
 cd ../orm-sqlite    && npm test 2>&1 | tail -20
 ```
 
-- [ ] **Step 2: Write the numbers into the plan file**
+- [x] **Step 2: Write the numbers into the plan file**
 
 Append a `## Baseline (measured YYYY-MM-DD)` section to this document recording passing/failing counts per package and the *names* of the pre-existing failures. Later tasks compare against those names, not just counts — a test that flips from failing to passing while another flips the other way keeps the count identical and hides a regression.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-07-25-orm-foundation.md
 git commit -m "docs(orm): record test baseline for orm-foundation branch"
 ```
+
+## Baseline (measured 2026-07-25)
+
+Measured on `worktree-agent-a47d0b3b1cbe7a2ab`, forked from `orm-fixes-2` @ `be0ac3812`,
+after a clean `npm install` + full `npm run build` at the repo root.
+
+**Environment note.** Tests resolve `@spinajs/*` through the workspace symlinks into each
+package's *built* `lib/mjs` output, so `packages/orm` must be rebuilt (`npm run build` in that
+package, or `tsc -b tsconfig.mjs.json`) before the `orm-sql` / `orm-sqlite` suites see a source
+change. `packages/orm`'s own suite imports `../src/index.js` directly and does not need this.
+
+| Package | Passing | Failing |
+| --- | --- | --- |
+| `orm` | 113 | 2 |
+| `orm-sql` | 146 | 7 |
+| `orm-sqlite` | 43 | 8 |
+| `orm-mssql` | 0 | 4 (no live SQL Server; also `this.Log.trace is not a function`) |
+| `orm-mysql` | 0 | 9 (no live MySQL on `127.0.0.1:3900` — `ECONNREFUSED`) |
+
+### Pre-existing failures by name
+
+`orm` (2):
+1. `Orm relations tests` → `OneToOneRelation should be dehydrated`
+2. `Orm relations tests` → `populate should load missing relation data`
+
+`orm-sql` (7):
+1. `model generated queries` → `Should model query join work`
+2. `model generated queries` → `model insert with uuid from static function`
+3. `model generated queries` → `model join with select and column alias`
+4. `model generated queries` → `model join with exists`
+5. `model generated queries` → `whereExists on ManyToMany relation should join the target so the callback resolves`
+6. `Select query builder` → `withRecursion simple`
+7. `Select query builder` → `withRecursion with where`
+
+`orm-sqlite` (8):
+1. `Sqlite - relations test` → `Static method populate on oneToMany`
+2. `Sqlite model functions` → `Model should populate recursive relations`
+3. `Sqlite model functions` → `model should populate nested belongsTo relation`
+4. `Sqlite model functions` → `model relation belongsto should populate `
+5. `Sqlite model functions` → `model relation set should work`
+6. `Sqlite model functions` → `model relation set should update`
+7. `Sqlite model functions` → `model relation union should work`
+8. `Sqlite model functions` → `model relation diff should work`
+
+`orm-mssql` (4) — every test in `Mssql driver migrate, updates, deletions & inserts`, all
+failing with `TypeError: this.Log.trace is not a function` before any DB contact.
+
+`orm-mysql` (9) — every test in `mysql.test.ts`; all require a live MySQL on port 3900.
+
+### Docker availability
+
+`docker` is **not installed** on this machine (`docker`, `docker compose`, `docker info` all
+absent; no `C:\Program Files\Docker`). Task 8's live-database verification cannot be run here.
 
 ---
 
