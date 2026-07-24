@@ -49,6 +49,13 @@ function fakeRes(statusCode = 200) {
     finish() {
       for (const handler of listeners['finish'] ?? []) handler();
     },
+    /**
+     * Node emits 'close' on every response — after 'finish' when the response
+     * was flushed, INSTEAD of it when the client went away mid-response.
+     */
+    close() {
+      for (const handler of listeners['close'] ?? []) handler();
+    },
     listenerCount(event: string) {
       return (listeners[event] ?? []).length;
     },
@@ -150,6 +157,64 @@ describe('TelemetryMiddleware — before() / finish handler', () => {
     res.finish();
 
     expect(spies.inc.firstCall.args[0]).to.deep.include({ route: '/raw', status: '404' });
+  });
+
+  it('balances in-flight when the client aborts and only close fires', () => {
+    const { mw, store, spies } = makeMiddleware();
+    const req = fakeReq();
+
+    // A response node never got to send: the status is still the un-sent default.
+    const res = fakeRes(200);
+
+    mw.before()(req, res, sinon.spy());
+    res.close();
+
+    // the gauge is back where it started — this is the leak the close arm fixes
+    expect(spies.gaugeInc.calledOnce).to.eq(true);
+    expect(spies.gaugeDec.calledOnce).to.eq(true);
+
+    // ...and NOTHING else was recorded: res.statusCode here is the default, not a
+    // status that was ever sent, so counting it would pollute the status classes,
+    // the route stats and the timeline.
+    expect(spies.inc.called, 'no request counter on an aborted request').to.eq(false);
+    expect(spies.observe.called, 'no duration observation on an aborted request').to.eq(false);
+
+    const stats = store.RequestStats.toJSON();
+    expect(stats.requests).to.eq(0);
+    expect(stats.responses).to.eq(0);
+    expect(stats.success).to.eq(0);
+    expect(store.RouteStats.toJSON().routes).to.have.length(0);
+    expect(Object.keys(store.Timeline.toJSON())).to.have.length(0);
+  });
+
+  it('decrements in-flight exactly once when close follows finish, as node emits it', () => {
+    const { mw, store, spies } = makeMiddleware();
+    const req = fakeReq({ route: { path: '/users/:id' } });
+    const res = fakeRes(200);
+
+    mw.before()(req, res, sinon.spy());
+    res.finish();
+    res.close();
+
+    expect(spies.gaugeInc.calledOnce).to.eq(true);
+    expect(spies.gaugeDec.calledOnce, 'close must not double-decrement after finish').to.eq(true);
+
+    // the finish-path recording still happened, exactly once
+    expect(spies.inc.calledOnce).to.eq(true);
+    expect(store.RequestStats.toJSON().responses).to.eq(1);
+  });
+
+  it('records nothing twice when the same response finishes more than once', () => {
+    const { mw, store, spies } = makeMiddleware();
+    const res = fakeRes(200);
+
+    mw.before()(fakeReq(), res, sinon.spy());
+    res.finish();
+    res.finish();
+
+    expect(spies.gaugeDec.calledOnce).to.eq(true);
+    expect(spies.inc.calledOnce).to.eq(true);
+    expect(store.RequestStats.toJSON().responses).to.eq(1);
   });
 
   it('Order sits after req.storage-establishing middlewares', () => {

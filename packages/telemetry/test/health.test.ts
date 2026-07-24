@@ -85,6 +85,31 @@ describe('HealthCheckRunner', () => {
     expect(report.checks.find((c) => c.name === 'fast')!.status).to.eq('up');
   });
 
+  it('treats a status outside up|degraded|down as down rather than as harmless', async () => {
+    // HealthStatus is only enforced at compile time — a JS consumer, or a check
+    // forwarding a status from elsewhere, can return anything. An unranked value
+    // used to compare `undefined > 0` === false, so the overall status stayed up
+    // and /telemetry/ready answered 200 with a dependency down.
+    const report = await makeRunner([new StubCheck('a', { status: 'up' }), new StubCheck('b', { status: 'UNHEALTHY' as any })]).run();
+
+    expect(report.status).to.eq('down');
+    expect(makeRunner([]).isFailing(report.status)).to.eq(true);
+
+    // the check's own line keeps what it actually returned — that string is the
+    // only clue an operator has that the check is misbehaving
+    expect(report.checks.find((c) => c.name === 'b')!.status).to.eq('UNHEALTHY');
+  });
+
+  it('does not let a later unknown status be masked by an earlier real one', async () => {
+    const report = await makeRunner([new StubCheck('a', { status: 'degraded' }), new StubCheck('b', { status: 'DOWN' as any })]).run();
+    expect(report.status).to.eq('down');
+  });
+
+  it('does not let an unknown status downgrade an already-down overall status', async () => {
+    const report = await makeRunner([new StubCheck('a', { status: 'down' }), new StubCheck('b', { status: 'weird' as any })]).run();
+    expect(report.status).to.eq('down');
+  });
+
   it('isFailing: down always fails, degraded only when configured', () => {
     expect(makeRunner([], 50, false).isFailing('down')).to.eq(true);
     expect(makeRunner([], 50, false).isFailing('degraded')).to.eq(false);

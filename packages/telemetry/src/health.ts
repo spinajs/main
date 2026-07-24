@@ -45,6 +45,20 @@ export abstract class HealthCheck extends AsyncService {
 const RANK: Record<HealthStatus, number> = { up: 0, degraded: 1, down: 2 };
 
 /**
+ * Severity of one check's status, for the reduction in {@link HealthCheckRunner.run}.
+ *
+ * An unrecognised value ranks as `down`, not as harmless: `HealthStatus` is only
+ * enforced at compile time, so a JS consumer ( or a check that forwards a status
+ * from somewhere else ) can return `'DOWN'` or `'UNHEALTHY'`. A plain
+ * `RANK[status] > RANK[worst]` reads `undefined` for those, and `undefined > n`
+ * is false, so a genuinely failing dependency would leave the overall status at
+ * `up` and `/telemetry/ready` would answer 200.
+ */
+function rank(status: HealthStatus): number {
+  return RANK[status] ?? RANK.down;
+}
+
+/**
  * Runs every registered {@link HealthCheck} concurrently, each raced against a
  * per-check timeout, and reduces the results to one overall status.
  *
@@ -76,7 +90,11 @@ export class HealthCheckRunner {
 
     let worst: HealthStatus = 'up';
     for (const c of checks) {
-      if (RANK[c.status] > RANK[worst]) worst = c.status;
+      // The unrecognised status is reduced AS `down`, but the check's own line in
+      // the report keeps the string the check actually returned — that value is
+      // the only clue an operator has that a check is misbehaving, and rewriting
+      // it would hide the misconfiguration behind a correct-looking report.
+      if (rank(c.status) > rank(worst)) worst = RANK[c.status] !== undefined ? c.status : 'down';
     }
 
     return { status: worst, checks };

@@ -12,6 +12,18 @@ import { ServiceUnavailable } from './../responses.js';
 // response schemas resolvable by name in the generated OpenAPI document.
 import './../dto/index.js';
 
+// Same reason, for security rather than documentation: importing the policy
+// modules runs their @Injectable decorators, which is what puts the classes in
+// the DI container under the names the routes below name as STRINGS ( via
+// `telemetry.auth.policies.*` ). Nothing else forces them to load — this
+// controller is mounted by the config-declared directory scan, and that
+// configuration is auto-discovered from node_modules, so an app never has to
+// import the package barrel. And http FAILS OPEN on an unresolvable policy name
+// ( it logs `No policy named ...`, drops it, and a route left with no policies
+// calls next() ), which would serve these endpoints unauthenticated.
+import './../policies/TelemetryTokenPolicy.js';
+import './../policies/PublicPolicy.js';
+
 /**
  * JSON telemetry API. Machine-facing — consumed by dashboards, uptime monitors
  * and orchestrator probes.

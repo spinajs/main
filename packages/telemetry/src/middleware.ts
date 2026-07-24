@@ -36,8 +36,9 @@ const START_KEY = '__telemetryStart';
  * All of the end-of-request work runs from a `res.on( 'finish' )` handler
  * registered in `before()` — `ServerMiddleware.after()` is never reached for a
  * normal matched route, the same reason http's own `AccessLog` / `PerfRollup`
- * middlewares work this way. Every bit of it is guarded so telemetry can never
- * break a request.
+ * middlewares work this way. A `res.on( 'close' )` handler balances the in-flight
+ * gauge — and only the gauge — for requests the client aborted, where `'finish'`
+ * never fires. Every bit of it is guarded so telemetry can never break a request.
  */
 @Injectable(ServerMiddleware)
 export class TelemetryMiddleware extends ServerMiddleware {
@@ -51,8 +52,16 @@ export class TelemetryMiddleware extends ServerMiddleware {
   protected Store!: TelemetryStore;
 
   /**
-   * Metric-name prefix. A subclass that assigns this wins over configuration —
-   * subclassing to re-prefix is a documented extension point.
+   * Metric-name prefix. Set it with the `telemetry.prefix` configuration key —
+   * that is the supported way to re-prefix, and it needs no subclass.
+   *
+   * The precedence implemented in {@link ensureMetrics} is: a value assigned to
+   * this field that differs from {@link DEFAULT_PREFIX} wins, otherwise
+   * `telemetry.prefix` is used, otherwise {@link DEFAULT_PREFIX}. That override
+   * exists for subclasses that are replacing the middleware wholesale — see the
+   * README's "Replacing the middleware" section, which also covers the
+   * double-registration hazard of subclassing. Do NOT subclass merely to change
+   * the prefix.
    */
   protected Prefix = DEFAULT_PREFIX;
 
@@ -163,7 +172,34 @@ export class TelemetryMiddleware extends ServerMiddleware {
         (req.storage as any)[START_KEY] = process.hrtime.bigint();
         this.inFlight.inc();
 
-        res.on('finish', () => this.onFinish(req, res));
+        // The inc() above must be balanced exactly once, whichever event wins.
+        // 'finish' does NOT fire when the client disconnects mid-response, only
+        // 'close' does — without the 'close' arm the gauge drifts monotonically
+        // upward for the life of the process behind a load balancer with client
+        // timeouts. On a normal request both fire, 'finish' first, so the flag
+        // is what keeps the gauge from being decremented twice.
+        let settled = false;
+
+        res.on('finish', () => {
+          if (settled) return;
+          settled = true;
+          this.onFinish(req, res);
+        });
+
+        res.on('close', () => {
+          if (settled) return;
+          settled = true;
+
+          // Aborted request: balance the gauge and NOTHING else. `res.statusCode`
+          // is still the un-sent default here, so recording it would pollute the
+          // status-class counters and the route stats with a response that was
+          // never sent.
+          try {
+            this.inFlight.dec();
+          } catch (err) {
+            this.Log?.warn(err as Error, 'telemetry close handler failed');
+          }
+        });
       } catch (err) {
         this.Log?.warn(err as Error, 'telemetry before() failed');
       }

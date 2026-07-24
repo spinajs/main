@@ -4,6 +4,17 @@ import { Autoinject } from '@spinajs/di';
 import { Metrics } from './../metrics.js';
 import { PrometheusResponse } from './../responses.js';
 
+// Importing the policy modules runs their @Injectable decorators, which is what
+// puts the classes in the DI container under the names the routes below name as
+// STRINGS ( via `telemetry.auth.policies.*` ). Nothing else forces them to load:
+// this controller is mounted by the config-declared directory scan, and that
+// configuration is auto-discovered from node_modules — so an app never has to
+// import the package barrel. And http FAILS OPEN on an unresolvable policy name
+// ( it logs `No policy named ...`, drops it, and a route left with no policies
+// calls next() ), which would serve /metrics unauthenticated.
+import './../policies/TelemetryTokenPolicy.js';
+import './../policies/PublicPolicy.js';
+
 /**
  * Prometheus scrape endpoint.
  *
