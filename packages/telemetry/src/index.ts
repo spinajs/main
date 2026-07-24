@@ -11,3 +11,4 @@ export * from './policies/TelemetryTokenPolicy.js';
 export * from './policies/PublicPolicy.js';
 export * from './responses.js';
 export * from './health.js';
+export * from './dto/index.js';
