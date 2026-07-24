@@ -33,6 +33,33 @@ export class UserSession implements ISession {
 }
 
 /**
+ * Session-fixation protection helper. Mints a NEW session id, copies the
+ * ownership identity and data across, deletes the old id and persists the new
+ * one. Apply on privilege elevation (login already mints a fresh session, but
+ * 2FA-authorize and role-switch elevate an existing one).
+ *
+ * The returned session carries a new `SessionId` so the caller can reset the
+ * `ssid` cookie. `Expiration` is left unset so `save` schedules a fresh one via
+ * the configured strategy (`Creation` is preserved, so a capped lifetime window
+ * is not extended).
+ *
+ * @param provider - the active session store
+ * @param session - the session to regenerate
+ */
+export async function regenerateSession(provider: SessionProvider, session: ISession): Promise<ISession> {
+  const regenerated = new UserSession({
+    UserId: session.UserId,
+    Creation: session.Creation,
+    Data: new Map(session.Data),
+  });
+
+  await provider.delete(session.SessionId);
+  await provider.save(regenerated);
+
+  return regenerated;
+}
+
+/**
  * Simple session storage in memory, for testing or rapid prototyping.
  * Keeps live session objects (no serialization).
  */
