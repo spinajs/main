@@ -1,8 +1,8 @@
 /* eslint-disable prettier/prettier */
-import { ITransaction, ValueConverter } from './../src/interfaces.js';
+import { ITransactionContext, ITransactionOptions, ValueConverter } from './../src/interfaces.js';
 import { join, normalize, resolve } from 'path';
 import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder } from '../src/index.js';
-import { OrmDriver, TransactionCallback } from './../src/driver.js';
+import { OrmDriver } from './../src/driver.js';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
 
@@ -999,15 +999,32 @@ export class FakeSqliteDriver extends OrmDriver {
     return TEST_TABLE_INFO[table] || [];
   }
 
-  public async transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<ITransaction> {
-    if (queryOrCallback instanceof Function) {
-      await queryOrCallback(this);
-    }
+  protected async _begin(_options?: ITransactionOptions): Promise<ITransactionContext> {
+    return { depth: 0 };
+  }
 
-    return {
-      commit: () => Promise.resolve(),
-      rollback: () => Promise.resolve(),
-    };
+  protected async _commit(_ctx: ITransactionContext): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _rollback(_ctx: ITransactionContext): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _savepoint(_ctx: ITransactionContext, _name: string): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _releaseSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _rollbackToSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _dispose(_ctx: ITransactionContext): Promise<void> {
+    // no-op, this fake never acquires anything
   }
 }
 
@@ -1044,15 +1061,32 @@ export class FakeMysqlDriver extends OrmDriver {
     return [];
   }
 
-  public async transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<ITransaction> {
-    if (queryOrCallback instanceof Function) {
-      await queryOrCallback(this);
-    }
+  protected async _begin(_options?: ITransactionOptions): Promise<ITransactionContext> {
+    return { depth: 0 };
+  }
 
-    return {
-      commit: () => Promise.resolve(),
-      rollback: () => Promise.resolve(),
-    };
+  protected async _commit(_ctx: ITransactionContext): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _rollback(_ctx: ITransactionContext): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _savepoint(_ctx: ITransactionContext, _name: string): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _releaseSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _rollbackToSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _dispose(_ctx: ITransactionContext): Promise<void> {
+    // no-op, this fake never acquires anything
   }
 }
 
