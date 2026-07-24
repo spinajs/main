@@ -51,6 +51,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
+    "@spinajs/orm-mysql": "^2.0.481",
     "@types/luxon": "^3.6.1",
     "@types/node": "^18.11.18"
   },
