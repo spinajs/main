@@ -1712,3 +1712,36 @@ describe('SqlDatetimeValueConverter', () => {
   });
 });
 
+describe('Query builder execution ( F1 )', () => {
+  beforeEach(async () => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(FakeSqliteDriver).as('sqlite');
+    await DI.resolve(Orm);
+  });
+
+  afterEach(() => {
+    sinon.restore();
+    DI.clearCache();
+  });
+
+  it('then() propagates the callback return value down the chain (B9)', async () => {
+    const result = await sqb()
+      .select('*')
+      .from('users')
+      .then(() => 'transformed');
+
+    expect(result).to.equal('transformed');
+  });
+
+  it('execute() runs the query once no matter how many times it is awaited', async () => {
+    const query = sqb().select('*').from('users');
+    const spy = sinon.spy(query.Driver, 'execute');
+
+    await query;
+    await query;
+    await query.execute();
+
+    expect(spy.calledOnce).to.be.true;
+  });
+});
+

@@ -1038,6 +1038,15 @@ export interface IJoinBuilder {
 export interface IBuilder<T> extends PromiseLike<T> {
   middleware(middleware: IBuilderMiddleware<T>): this;
   toDB(): ICompilerOutput | ICompilerOutput[];
+
+  /**
+   * Executes the query and resolves with its result.
+   *
+   * The single execution entry point — `then()` delegates to it. Execution is memoized:
+   * a builder runs at most once, and awaiting it again resolves with the same result.
+   * Use `clone()` when a second round-trip is intended.
+   */
+  execute(): Promise<T>;
 }
 
 export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }

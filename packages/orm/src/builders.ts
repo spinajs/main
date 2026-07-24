@@ -70,82 +70,90 @@ export class Builder<T = any> implements IBuilder<T> {
     this._queryMiddlewares = DI.resolve(Array.ofType(QueryMiddleware));
   }
 
-  then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
-    return this._driver
-      .execute(this)
-      .then((result: T) => {
-        try {
-          if (this._asRaw) {
-            onfulfilled?.(result);
-            return;
-          }
+  /**
+   * Memoized result of {@link execute}. A builder executes at most once; awaiting
+   * it again resolves with the same value instead of re-running the query.
+   * Call `clone()` first if you genuinely need a second round-trip.
+   */
+  protected _executionPromise: Promise<T> | null = null;
 
-          let transformedResult = result;
+  /**
+   * The execution engine. Sends the compiled query to the driver, applies the
+   * result middlewares, hydrates models and awaits the post-hydration middlewares.
+   *
+   * Always *returns* its value — the caller's promise chain is what propagates it.
+   * Subclasses override this (not `execute()`) so that their extra work also lands
+   * inside the memo.
+   */
+  protected async _run(): Promise<T> {
+    const result = (await this._driver.execute(this)) as T;
 
-          // if we have something to transform ...
-          if (transformedResult) {
-            this._middlewares.forEach((m) => {
-              Object.assign(transformedResult, m.afterQuery(transformedResult));
-            });
-          }
+    if (this._asRaw) {
+      return result;
+    }
 
-          if (this._model && !this._nonSelect) {
-            // TODO: rething this casting
-            const models = (transformedResult as unknown as any[]).map((r) => {
-              let model = null;
-              for (const middleware of this._middlewares.reverse()) {
-                model = middleware.modelCreation(r);
-                if (model !== null) {
-                  break;
-                }
-              }
+    const transformedResult = result;
 
-              if (model === null) {
-                model = DI.resolve<ModelBase>('__orm_model_factory__', [this._model]);
-              }
+    // if we have something to transform ...
+    if (transformedResult) {
+      this._middlewares.forEach((m) => {
+        Object.assign(transformedResult, m.afterQuery(transformedResult));
+      });
+    }
 
-              model.hydrate(r);
-              model.IsDirty = false;
-              return model;
-            });
-
-            const afterMiddlewarePromises = this._middlewares.reduce((prev, current) => {
-              return prev.concat([current.afterHydration(models)]);
-            }, [] as Array<Promise<any[] | void>>);
-
-            if (this._middlewares.length > 0) {
-              Promise.all(afterMiddlewarePromises).then(() => {
-                try {
-                  onfulfilled?.(models as unknown as T);
-                } catch (err) {
-                  if (onrejected) {
-                    onrejected(err);
-                  } else {
-                    throw err;
-                  }
-                }
-              }, onrejected);
-            } else {
-              onfulfilled?.(models as unknown as T);
-            }
-          } else {
-            onfulfilled?.(transformedResult);
-          }
-        } catch (err) {
-          if (onrejected) {
-            onrejected(err);
-          } else {
-            throw err;
+    if (this._model && !this._nonSelect) {
+      // TODO: rething this casting
+      const models = (transformedResult as unknown as any[]).map((r) => {
+        let model = null;
+        for (const middleware of this._middlewares.reverse()) {
+          model = middleware.modelCreation(r);
+          if (model !== null) {
+            break;
           }
         }
-      })
-      .catch((err) => {
-        if (onrejected) {
-          onrejected(err);
-        } else {
-          throw err;
+
+        if (model === null) {
+          model = DI.resolve<ModelBase>('__orm_model_factory__', [this._model]);
         }
-      }) as Promise<any>;
+
+        model.hydrate(r);
+        model.IsDirty = false;
+        return model;
+      });
+
+      if (this._middlewares.length > 0) {
+        await Promise.all(this._middlewares.map((m) => m.afterHydration(models)));
+      }
+
+      return models as unknown as T;
+    }
+
+    return transformedResult;
+  }
+
+  /**
+   * Executes the query. The single entry point for execution — `then()` delegates here.
+   * The underlying work runs exactly once per builder instance; subsequent calls resolve
+   * with the memoized result.
+   */
+  public execute(): Promise<T> {
+    if (!this._executionPromise) {
+      this._executionPromise = this._run();
+    }
+
+    return this._executionPromise;
+  }
+
+  then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null): PromiseLike<TResult1 | TResult2> {
+    return this.execute().then(onfulfilled, onrejected);
+  }
+
+  public catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null): Promise<T | TResult> {
+    return this.execute().catch(onrejected);
+  }
+
+  public finally(onfinally?: (() => void) | null): Promise<T> {
+    return this.execute().finally(onfinally);
   }
 
   public middleware(middleware: IBuilderMiddleware<T>) {
@@ -1354,45 +1362,34 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public async all(): Promise<T> {
-    return await this;
+    return await this.execute();
   }
 
   public async resultExists(): Promise<boolean> {
-    return this.then((res) => {
-      if (Array.isArray(res)) {
-        return res.length > 0;
-      }
+    const res = await this.execute();
 
-      return res !== undefined && res !== null;
-    });
+    if (Array.isArray(res)) {
+      return res.length > 0;
+    }
+
+    return res !== undefined && res !== null;
   }
 
-  public then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
+  /**
+   * Overrides the engine rather than `execute()` so that the query middlewares and the
+   * `takeFirst()` unwrapping happen *inside* the memo: `beforeQueryExecution` now fires
+   * once per builder instead of once per await.
+   */
+  protected async _run(): Promise<T> {
     this._queryMiddlewares.forEach((x) => x.beforeQueryExecution(this));
 
-    return super.then((result: T) => {
-      if (this._first) {
-        if (Array.isArray(result)) {
-          if (result.length !== 0) {
-            return onfulfilled?.(result[0]) as TResult1 | PromiseLike<TResult1>;
-          } else {
-            try {
-              return onfulfilled?.(undefined as unknown as T) as TResult1 | PromiseLike<TResult1>;
-            } catch (err) {
-              onrejected?.(err);
-            }
-          }
-        } else {
-          return onfulfilled?.(result) as TResult1 | PromiseLike<TResult1>;
-        }
-      } else {
-        return onfulfilled?.(result) as TResult1 | PromiseLike<TResult1>;
-      }
-    }, onrejected) as PromiseLike<TResult1 | TResult2>;
-  }
+    const result = await super._run();
 
-  public async execute(): Promise<T> {
-    return (await this) as any;
+    if (this._first && Array.isArray(result)) {
+      return (result.length !== 0 ? result[0] : undefined) as T;
+    }
+
+    return result;
   }
 }
 
@@ -1473,7 +1470,11 @@ export class OnDuplicateQueryBuilder {
     return this;
   }
 
-  public then<TResult1, TResult2 = never>(onfulfilled?: (value: any) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
+  public execute(): Promise<any> {
+    return this._parent.execute();
+  }
+
+  public then<TResult1, TResult2 = never>(onfulfilled?: ((value: any) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null): PromiseLike<TResult1 | TResult2> {
     return this._parent.then(onfulfilled, onrejected);
   }
 
