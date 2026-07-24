@@ -1,26 +1,22 @@
 import { DI } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration } from '@spinajs/configuration';
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import { AbsoluteExpiration, SlidingExpiration, SlidingCappedExpiration, UserSession } from '../src/index.js';
+import { TestConfiguration } from './common.test.js';
 
 // Shared, mutable expiration config the single registered Configuration reads.
 // Each test sets it, then re-resolves Configuration from a cleared cache.
 let currentExpiration: unknown = {};
 
-class ExpirationTestConfiguration extends FrameworkConfiguration {
+// Extends the common TestConfiguration (full db/logger/queue config) so this
+// suite does not strip shared-container config from sibling db suites — it only
+// overrides rbac.session.expiration.
+class ExpirationTestConfiguration extends TestConfiguration {
   protected onLoad() {
-    return {
-      logger: {
-        targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
-        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-      },
-      rbac: {
-        session: {
-          expiration: currentExpiration,
-        },
-      },
-    };
+    const cfg = super.onLoad() as any;
+    cfg.rbac.session = { ...(cfg.rbac.session ?? {}), expiration: currentExpiration };
+    return cfg;
   }
 }
 

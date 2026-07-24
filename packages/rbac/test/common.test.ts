@@ -121,8 +121,14 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
         defaultRole: 'guest',
         session: {
-          // 2h session expiration  time
-          expiration: 120,
+          service: 'MemorySessionStore',
+          // expiration strategy (units: minutes)
+          expiration: {
+            service: 'SlidingCappedExpiration',
+            ttl: 120,
+            maxLifetime: 1440,
+          },
+          cookie: {},
         },
         auth: {
           service: 'SimpleDbAuthProvider',
