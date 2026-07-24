@@ -1,17 +1,16 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable, NewInstance } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log';
-import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, ITransaction } from '@spinajs/orm';
-import { SqlDriver } from '@spinajs/orm-sql';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from '@spinajs/orm';
+import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
 import { MySqlTableExistsCompiler } from './compilers.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
 import { Client as SSHClient } from 'ssh2';
 import fs from 'fs';
-import { AsyncLocalStorage } from 'async_hooks';
 
-export interface IMySqlTransactionContext {
+export interface IMySqlTransactionContext extends ITransactionContext {
   connection: PoolConnection;
 }
 
@@ -26,7 +25,11 @@ export class MysqlServerResponseMapper extends ServerResponseMapper {
 export class MySqlOrmDriver extends SqlDriver {
   protected Pool: mysql.Pool;
   protected _executionId = 0;
-  protected TransactionStorage = new AsyncLocalStorage<IMySqlTransactionContext>();
+
+  /**
+   * MySQL/InnoDB honours all four standard levels.
+   */
+  public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
   private getNextExecutionId(): number {
     this._executionId = (this._executionId + 1) % Number.MAX_SAFE_INTEGER;
@@ -38,9 +41,11 @@ export class MySqlOrmDriver extends SqlDriver {
     const tName = `query-${this.getNextExecutionId()}`;
     this.Log.timeStart(`query-${tName}`);
 
-    // Check if we're inside a transaction context and use that connection
-    const txContext = this.TransactionStorage.getStore();
-    const queryable = txContext?.connection ?? this.Pool;
+    // Check if we're inside a transaction context and use that connection.
+    // The context comes from the base driver, so `connection` is typed loosely there; only
+    // this driver's `_begin` ever populates it, and it always puts a PoolConnection in.
+    const txContext = this.TransactionStorage.getStore() as IMySqlTransactionContext | undefined;
+    const queryable: mysql.Pool | PoolConnection = txContext?.connection ?? this.Pool;
 
     return new Promise((resolve, reject) => {
 
@@ -252,82 +257,87 @@ export class MySqlOrmDriver extends SqlDriver {
     });
   }
 
-  public transaction(queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<ITransaction> {
+  /**
+   * Pulls the pooled connection out of a transaction context. The base class only ever hands
+   * us contexts this driver's own `_begin` produced, so the cast is safe.
+   */
+  private txConnection(ctx: ITransactionContext): PoolConnection {
+    return (ctx as IMySqlTransactionContext).connection;
+  }
+
+  /**
+   * Runs a statement on the transaction's own connection, bypassing the ambient-context lookup
+   * in `executeOnDb`. Transaction control statements must never land on a pooled connection
+   * other than their own.
+   */
+  private runOnConnection(connection: PoolConnection, stmt: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      connection.query(stmt, (err) => (err ? reject(err) : resolve()));
+    });
+  }
 
-      const trx: ITransaction = {
-        commit: () => Promise.resolve(),
-        rollback: () => Promise.resolve(),
-      };
-
-      if (!queryOrCallback) {
-        resolve(trx);
-        return;
-      }
-
+  protected _begin(options?: ITransactionOptions): Promise<ITransactionContext> {
+    return new Promise((resolve, reject) => {
       this.Pool.getConnection((err, connection) => {
         if (err) {
           reject(err);
           return;
         }
 
-        connection.beginTransaction(async (err) => {
-          if (err) {
+        const begin = () => {
+          connection.beginTransaction((err) => {
+            if (err) {
+              connection.release();
+              reject(err);
+              return;
+            }
+
+            resolve({ connection, depth: 0 });
+          });
+        };
+
+        if (options?.isolation) {
+          // isolation levels are a fixed, validated enum — never caller-supplied free text
+          this.runOnConnection(connection, `SET TRANSACTION ISOLATION LEVEL ${options.isolation}`).then(begin, (err) => {
             connection.release();
             reject(err);
-            return;
-          }
+          });
+          return;
+        }
 
-          try {
-            // Run the callback/queries within async context so executeOnDb uses this connection
-            await this.TransactionStorage.run({ connection }, async () => {
-              if (Array.isArray(queryOrCallback)) {
-                for (const q of queryOrCallback) {
-                  await q;
-                }
-              } else {
-                await queryOrCallback(this);
-              }
-            });
-
-
-            resolve({
-              commit: async () => {
-                return new Promise((res, rej) => {
-                  connection.commit((err) => {
-                    if (err) {
-                      connection.rollback(() => {
-                        connection.release();
-                        rej(err);
-                      });
-                      return;
-                    }
-                    connection.release();
-                    res();
-                  });
-                });
-
-              },
-              rollback: async () => {
-                return new Promise((res) => {
-                  connection.rollback(() => {
-                    connection.release();
-                    res();
-                  });
-                });
-              },
-            });
-
-
-          } catch (ex) {
-            connection.rollback(() => {
-              connection.release();
-              reject(ex);
-            });
-          }
-        });
+        begin();
       });
     });
+  }
+
+  protected _commit(ctx: ITransactionContext): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.txConnection(ctx).commit((err) => (err ? reject(err) : resolve()));
+    });
+  }
+
+  protected _rollback(ctx: ITransactionContext): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.txConnection(ctx).rollback((err?: unknown) => (err ? reject(err) : resolve()));
+    });
+  }
+
+  // savepoint names cannot be bound parameters, so they are inlined through the identifier
+  // escaper rather than passed as `?`
+  protected _savepoint(ctx: ITransactionContext, name: string): Promise<void> {
+    return this.runOnConnection(this.txConnection(ctx), `SAVEPOINT ${escapeIdentifier(name)}`);
+  }
+
+  protected _releaseSavepoint(ctx: ITransactionContext, name: string): Promise<void> {
+    return this.runOnConnection(this.txConnection(ctx), `RELEASE SAVEPOINT ${escapeIdentifier(name)}`);
+  }
+
+  protected _rollbackToSavepoint(ctx: ITransactionContext, name: string): Promise<void> {
+    return this.runOnConnection(this.txConnection(ctx), `ROLLBACK TO SAVEPOINT ${escapeIdentifier(name)}`);
+  }
+
+  protected async _dispose(ctx: ITransactionContext): Promise<void> {
+    this.txConnection(ctx).release();
   }
 }
 
