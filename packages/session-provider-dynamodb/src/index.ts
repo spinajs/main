@@ -1,3 +1,8 @@
+// TODO(session sub-project C): conform to new SessionProvider contract
+// (deleteByUser/listByUser/touch:boolean, save persists Expiration verbatim,
+// shared session codec, persist UserId + logout by numeric UserId, aws-sdk v3).
+// This package does NOT compile against the new @spinajs/rbac contract until
+// sub-project C lands.
 import AWS from 'aws-sdk';
 import { DateTime } from 'luxon';
 

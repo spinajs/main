@@ -1,3 +1,7 @@
+// TODO(session sub-project B): conform to new SessionProvider contract
+// (deleteByUser/listByUser/touch:boolean, save persists Expiration verbatim,
+// shared session codec, persist+logout by numeric UserId). This package does
+// NOT compile against the new @spinajs/rbac contract until sub-project B lands.
 import { SessionProvider, ISession, UserSession, User } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
