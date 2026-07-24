@@ -4,19 +4,26 @@ import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { Injectable } from '@spinajs/di';
 
+/**
+ * Shared-token guard for the telemetry endpoints. Reads the expected token from
+ * `telemetry.auth.token` and compares it against the `x-metrics-token` header.
+ * The header name is deliberately unchanged from the retired
+ * `@spinajs/metrics` package so existing scrape configs keep working.
+ *
+ * Bypassed entirely in development.
+ */
 @Injectable(BasePolicy)
-export class DefaultMetricsPolicy extends BasePolicy {
+export class TelemetryTokenPolicy extends BasePolicy {
   @Logger('Security')
   protected Log: Log;
 
-  @Config('metrics.auth.token')
+  @Config('telemetry.auth.token')
   protected Token: string;
- 
-  protected HEADER_TOKEN_FIELD = 'x-metrics-token';
 
   @Config('configuration.isDevelopment')
   protected isDev: boolean;
 
+  protected HEADER_TOKEN_FIELD = 'x-metrics-token';
 
   public isEnabled(_action: IRoute, _instance: IController): boolean {
     return true;
@@ -29,12 +36,12 @@ export class DefaultMetricsPolicy extends BasePolicy {
 
     const token = req.headers[this.HEADER_TOKEN_FIELD];
     if (!token) {
-      this.Log.warn(`No token is set for restricted area, header field: ${this.HEADER_TOKEN_FIELD}, policy: DefaultMetricsPolicy, ip: ${req.storage.realIp}`);
+      this.Log.warn(`No token is set for restricted area, header field: ${this.HEADER_TOKEN_FIELD}, policy: TelemetryTokenPolicy, ip: ${req.storage.realIp}`);
       throw new Forbidden('access token is not set');
     }
 
     if (token !== this.Token) {
-      this.Log.warn(`Invalid access token received, token: ${token}, header field: ${this.HEADER_TOKEN_FIELD}, policy: DefaultMetricsPolicy, ip: ${req.storage.realIp}`);
+      this.Log.warn(`Invalid access token received, header field: ${this.HEADER_TOKEN_FIELD}, policy: TelemetryTokenPolicy, ip: ${req.storage.realIp}`);
       throw new Forbidden('invalid access token');
     }
   }

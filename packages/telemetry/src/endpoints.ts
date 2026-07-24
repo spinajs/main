@@ -1,5 +1,5 @@
 import { Metrics } from './metrics.js';
-import { TelemetryMiddleware } from './middleware.js';
+import { TelemetryStore } from './store.js';
 
 /**
  * Minimal request/response shapes the endpoint handlers rely on. Kept
@@ -32,13 +32,17 @@ export function metricsHandler(metrics: Metrics): (req: MinimalRequest, res: IMi
  * Build the JSON stats handler.
  *
  * Writes `{ all: RequestStats.toJSON(), timeline: Timeline.toJSON() }` read
- * from the given telemetry middleware's lifetime stats.
+ * from the shared telemetry store — the same counters `GET /telemetry/stats`
+ * serves. The rate fields differ though: only the controller endpoint calls
+ * `RequestStats.updateRates( ... )`, and because that MUTATES the shared
+ * `RequestStats`, the `req_rate` / `err_rate` this handler emits are whatever
+ * the last `/telemetry/stats` call left behind ( `0` if nobody has called it ).
  */
-export function statsHandler(mw: TelemetryMiddleware): (req: MinimalRequest, res: IMinimalResponse) => void {
+export function statsHandler(store: TelemetryStore): (req: MinimalRequest, res: IMinimalResponse) => void {
   return (_req: MinimalRequest, res: IMinimalResponse): void => {
     const body = JSON.stringify({
-      all: mw.RequestStats.toJSON(),
-      timeline: mw.Timeline.toJSON(),
+      all: store.RequestStats.toJSON(),
+      timeline: store.Timeline.toJSON(),
     });
     res.setHeader('Content-Type', 'application/json');
     res.end(body);
