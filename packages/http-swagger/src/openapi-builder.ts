@@ -4,6 +4,7 @@ import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
 import { safeParse } from '@spinajs/util';
 import {
   IOpenApiDocument,
+  IOpenApiExample,
   IOpenApiOperation,
   IOpenApiParameter,
   IOpenApiRequestBody,
@@ -452,9 +453,20 @@ export class OpenApiBuilder {
       operation.requestBody = this.buildRequestBody(bodyParams, route);
     }
 
-    // Add examples to request body if available
-    if (methodDoc?.examples && operation.requestBody) {
-      const content = operation.requestBody.content['application/json'];
+    // Attach @example tags: to the request body when the route has one,
+    // otherwise (e.g. GET routes) to the 200 response — a bodyless route's
+    // examples can only describe what it returns.
+    if (methodDoc?.examples) {
+      let content: { examples?: Record<string, IOpenApiExample> } | undefined;
+      if (operation.requestBody) {
+        content = operation.requestBody.content['application/json'];
+      } else {
+        const ok = operation.responses['200'];
+        if (ok && !ok.$ref) {
+          ok.content ??= { 'application/json': {} };
+          content = ok.content['application/json'] ??= {};
+        }
+      }
       if (content) {
         content.examples = {};
         methodDoc.examples.forEach((ex, i) => {
@@ -784,7 +796,7 @@ export class OpenApiBuilder {
         required: true,
         content: {
           [contentType]: {
-            schema: this.schemaFromParam(bp.param, bp.doc?.type),
+            schema: this.expandNamedSchemas(this.schemaFromParam(bp.param, bp.doc?.type)),
           },
         },
       };
@@ -794,10 +806,10 @@ export class OpenApiBuilder {
     const properties: Record<string, IOpenApiSchema> = {};
     for (const bp of bodyParams) {
       const name = bp.param.Name || `param_${bp.param.Index}`;
-      properties[name] = {
-        ...this.schemaFromParam(bp.param, bp.doc?.type),
-        description: bp.doc?.description,
-      };
+      const expanded = this.expandNamedSchemas(this.schemaFromParam(bp.param, bp.doc?.type));
+      properties[name] = expanded.$ref
+        ? expanded
+        : { ...expanded, description: bp.doc?.description };
     }
 
     return {
@@ -820,7 +832,14 @@ export class OpenApiBuilder {
   private buildResponses(methodDoc: IMethodDocumentation | undefined): Record<string, IOpenApiResponse> {
     const responses: Record<string, IOpenApiResponse> = {};
 
-    if (methodDoc?.returns) {
+    // When the JSDoc explicitly documents a non-200 success (e.g. `@response 202`)
+    // and there is no explicit `@returns` tag (returns carries only the
+    // TS-inferred schema), the operation's success status IS that 2xx — don't
+    // fabricate a 200 alongside it.
+    const hasExplicit2xx = !!methodDoc?.responses && Object.keys(methodDoc.responses).some((c) => c.startsWith('2'));
+    const returnsIsInferredOnly = !!methodDoc?.returns && !methodDoc.returns.type && !methodDoc.returns.description;
+
+    if (methodDoc?.returns && !(hasExplicit2xx && returnsIsInferredOnly)) {
       const schema =
         methodDoc.returns.type
           ? this.inferSchemaFromString(methodDoc.returns.type)
@@ -830,7 +849,7 @@ export class OpenApiBuilder {
         description: methodDoc.returns.description || 'Successful response',
         content: { 'application/json': { schema: this.expandNamedSchemas(schema) } },
       };
-    } else {
+    } else if (!hasExplicit2xx) {
       responses['200'] = { description: 'Successful response' };
     }
 
@@ -843,7 +862,7 @@ export class OpenApiBuilder {
         if (resp.type) {
           responses[statusCode] = {
             description: resp.description,
-            content: { 'application/json': { schema: this.inferSchemaFromString(resp.type) } },
+            content: { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(resp.type)) } },
           };
           continue;
         }
