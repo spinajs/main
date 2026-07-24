@@ -33,6 +33,21 @@ export class UserSession implements ISession {
 }
 
 /**
+ * Derives the `ssid` cookie `maxAge` (milliseconds) from a session's real
+ * `Expiration` (fixes B1 — the cookie previously always died at
+ * `expiration * 1000` ms i.e. ~2 minutes). Returns `undefined` for a
+ * never-expiring session (a session cookie), and never a negative value.
+ *
+ * @param session - the session whose expiry drives the cookie lifetime
+ */
+export function sessionCookieMaxAge(session: ISession): number | undefined {
+  if (!session.Expiration) {
+    return undefined;
+  }
+  return Math.max(0, Math.floor(session.Expiration.diff(DateTime.now()).milliseconds));
+}
+
+/**
  * Session-fixation protection helper. Mints a NEW session id, copies the
  * ownership identity and data across, deletes the old id and persists the new
  * one. Apply on privilege elevation (login already mints a fresh session, but
