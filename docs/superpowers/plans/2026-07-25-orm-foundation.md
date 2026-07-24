@@ -646,14 +646,14 @@ git commit -m "test(orm): docker MySQL and integration suites for the transactio
 - Consumes: everything above.
 - Produces: a merge-ready branch.
 
-- [ ] **Step 1: Find every caller of the old transaction API**
+- [x] **Step 1: Find every caller of the old transaction API**
 
 ```bash
 grep -rn "\.transaction(" packages --include=*.ts | grep -v node_modules
 ```
 Any caller that awaits `transaction(...)` and then calls `.commit()` must drop the `commit()` call — the base class now commits. Any caller passing an array of builders instead of a callback needs converting, since the array form is gone.
 
-- [ ] **Step 2: Build the dependent packages**
+- [x] **Step 2: Build the dependent packages**
 
 ```bash
 cd packages/orm-api && npm run build
@@ -664,22 +664,22 @@ cd ../orm-threading && npm run build && npm test
 ```
 `intl-orm` hooks the middleware pipeline directly and is the most likely casualty of Task 3 — run its suite, do not settle for a clean compile.
 
-- [ ] **Step 3: Write the changelog**
+- [x] **Step 3: Write the changelog**
 
 Append an `orm-foundation` section to `docs/orm-analysis.md` covering: re-awaiting a builder no longer re-executes (call `.clone()` if you need a fresh run); `transaction(cb)` now commits automatically and the returned value is the callback's result rather than an `ITransaction`; the array-of-builders form is removed; nested `transaction()` calls now create savepoints instead of independent transactions.
 
-- [ ] **Step 4: Self-review against the spec**
+- [x] **Step 4: Self-review against the spec**
 
 Re-read [the foundation spec](../specs/2026-07-25-orm-foundation-design.md) section by section. F1, F2, F5 each need a task pointing at them. F3 and F4 are already landed — confirm nothing regressed them. Note anything deferred, with the reason.
 
-- [ ] **Step 5: Full suite**
+- [x] **Step 5: Full suite**
 
 ```bash
 cd packages/orm && npm test && cd ../orm-sql && npm test && cd ../orm-sqlite && npm test
 ```
 Expected: no failures beyond the Task 1 baseline names.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A

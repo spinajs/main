@@ -315,3 +315,91 @@ To keep generated SQL byte-identical for normal identifiers (protecting the exis
 - **Execution-model refactor (A1/B8/B9/B19)** — memoized execute-once promise (**decided: second await returns the cached result; `toDB()` idempotent**), remove in-place `_middlewares.reverse()` and compile side-effects.
 - **Transaction API (B24)** — **decided: `transaction(callback)` auto-commits on success, rolls back on throw; keep explicit begin/commit as the low-level API**; formalize tx-context in the `OrmDriver` contract; fix double-release.
 - **Tier-4 features** — `FOR UPDATE`/`FOR SHARE` locking, composite primary keys, savepoints, RETURNING emulation (dead `.returning()` API exists at `builders.ts:1555`).
+
+---
+
+## 8. Changelog — branch `orm-foundation` (shared groundwork)
+
+Forked from `orm-fixes-2` @ `be0ac3812`. Implements F1, F2 and F5 of
+[the foundation spec](superpowers/specs/2026-07-25-orm-foundation-design.md); F3 and F4 had
+already landed on `orm-fixes-2` and were verified un-regressed rather than redone.
+
+Suite deltas, all against a baseline measured on this branch before any source change and with
+the **same** pre-existing failures throughout (orm 2, orm-sql 7, orm-sqlite 8, orm-mssql 4,
+orm-mysql 9 — the last two need live servers this machine does not have):
+
+| Package | Baseline | After | New tests |
+| --- | --- | --- | --- |
+| `orm` | 113 pass / 2 fail | 120 pass / 2 fail | +7 driver-contract |
+| `orm-sql` | 146 pass / 7 fail | 150 pass / 7 fail | +4 execution-model |
+| `orm-sqlite` | 43 pass / 8 fail | 43 pass / 8 fail | +7 in a new integration suite |
+| `orm-mysql` | 0 pass / 9 fail | 7 pass / 9 fail | +7 stubbed-pool unit |
+| `orm-mssql` | 0 pass / 4 fail | 0 pass / 4 fail | — (compile-verified only) |
+
+- **`9fd6d513d` — F1 / B9 (execute-once builder).** `Builder.then()` was the entire execution
+  engine *and* invoked `onfulfilled` for its side effect, discarding whatever the callback
+  returned. The engine moved into `protected _run()`, which returns its values; `execute()`
+  memoizes `_run()`'s promise; `then()`/`catch()`/`finally()` are now delegates over a real
+  promise chain. `SelectQueryBuilder` overrides `_run()` (not `execute()`) so the `takeFirst()`
+  unwrapping and `beforeQueryExecution` land inside the memo.
+- **`563016b12` — F1 / B8, B19 (immutable middleware pipeline).** `_run()` snapshots
+  `_middlewares` once per execution and derives the `modelCreation` order from a copy;
+  `Array.prototype.reverse()` is never called on the live array again. `QueryRelation.compile()`
+  and `VirtualRelation.compile()` gained the `_compiled` guard the other relation kinds already
+  had (`_compiled` moved up to `OrmRelation`), which is what made `toDB()` non-idempotent.
+- **`c1a0f7e79` — F2 / B24 (transaction contract).** `OrmDriver.transaction()` is now a concrete
+  template method over seven abstract primitives (`_begin`, `_commit`, `_rollback`, `_savepoint`,
+  `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose`). It commits on resolve, rolls back on
+  throw, and disposes in a `finally` so the connection is released exactly once on every path.
+  The `AsyncLocalStorage` transaction context moved from the MySQL driver into the abstract base,
+  so ambient-connection propagation is part of the contract; `CurrentTransaction` exposes it.
+- **`20e158a2e` / `a6f1c5597` / `f98c02b0f`** — MySQL, SQLite and MSSQL implement the primitives.
+- **`1b3a603b6` — F5 (integration infrastructure).** Root `docker-compose.yml` (MySQL 8 on host
+  port 3900, behind the `test` compose profile), `test:integration` scripts, and transaction
+  integration suites for MySQL and SQLite.
+
+### Breaking changes
+
+1. **Re-awaiting a builder no longer re-executes it.** Execution is memoized per builder
+   instance; the second `await` resolves with the first result. Call `.clone()` for a fresh run.
+2. **`then()` now propagates callback return values.** `await qb.then((rows) => x)` resolves with
+   `x`; it previously resolved with `undefined`. Code that relied on the old behaviour — for
+   instance treating a `.then()` chain as fire-and-forget — will now see a real value. This also
+   silently repairs `selectCount()`, which had been resolving `undefined`.
+3. **`transaction(cb)` commits automatically and resolves with the callback's result.** It no
+   longer resolves with an `ITransaction`. **Existing callers must drop their `.commit()` call** —
+   `await (await driver.transaction(fn)).commit()` becomes `await driver.transaction(fn)`.
+4. **The array-of-builders form of `transaction()` is removed.** `transaction([q1, q2])` no longer
+   compiles; wrap the queries in a callback instead. The zero-argument form
+   (`await driver.transaction()` returning a handle) is removed for the same reason.
+5. **Nested `transaction()` calls create savepoints** instead of independent transactions. An
+   inner block that throws now rolls back only its own work, and the enclosing transaction
+   survives. Previously the inner call opened a second, unrelated transaction.
+6. **`transaction(cb, { isolation })` rejects unsupported levels** rather than ignoring them.
+   SQLite declares `SERIALIZABLE` only; MySQL and MSSQL declare all four.
+7. **Custom `OrmDriver` subclasses must implement the seven transaction primitives.** They are
+   abstract, so a driver that does not implement them will not compile. In-repo drivers
+   (MySQL, SQLite, MSSQL, the Electron renderer bridge, and the test fakes) were all updated.
+8. **`ModelBase.transaction()` is generic in its return type** — `Promise<R>` rather than
+   `Promise<ITransaction>`.
+9. **`packages/orm-mysql` and `packages/orm-sqlite` narrowed their `test` glob** from
+   `test/**/*.test.ts` to `test/*.test.ts`, so `npm test` no longer sweeps `test/integration/`
+   into the unit run. Integration specs run via `npm run test:integration`.
+
+`ITransaction` itself is still exported and unchanged; nothing in the ORM produces one any more.
+
+### Deferred, with reasons
+
+- **The explicit `begin`/`commit`/`rollback` escape hatch** named in the spec was *not* added.
+  The transaction primitives are `protected`, so there is no public low-level form. Building one
+  that keeps the ambient-context guarantee would need `AsyncLocalStorage.enterWith()` and its own
+  leak story; a half-working escape hatch is worse than none. No in-repo caller needs it.
+- **MySQL integration suite is written but unrun** — Docker is not installed on the machine this
+  branch was built on. It type-checks and reaches `ECONNREFUSED 127.0.0.1:3900`, i.e. it fails
+  only for want of a server. Its assertions are mirrored at unit level against a stubbed `mysql2`
+  pool in `packages/orm-mysql/test/transaction-unit.test.ts` (7 passing), including the
+  release-exactly-once check that is the real proof of B24.
+- **The reflective `clone()` guard test** (F4's optional leftover) was not added; F4 itself is
+  done and un-regressed.
+- **`_.uniqBy` workaround at `middlewares.ts:262-268`** was left in place. F1 makes the pipeline
+  immutable *per execution*, but the root cause of duplicate registration is `orm-uow`'s.

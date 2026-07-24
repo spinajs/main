@@ -59,7 +59,15 @@ export class IntlModelRelation extends NativeOrmRelation {
   }
 
   public compile(): void {
+    // guarded like every other relation: `toDB()` calls compile(), so without this a query
+    // compiled twice would register the translation middleware twice ( B19 )
+    if (this._compiled) {
+      return;
+    }
+
     this._query.middleware(new IntlModelMiddleware(this._lang, this._relationQuery, this._mDescriptor, this.parentRelation!));
+
+    this._compiled = true;
   }
 
   public translate(_lang: string) {
