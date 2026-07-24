@@ -15,6 +15,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { ResourceModel } from './models/ResourceModel.js';
 import { TestCampaign } from './models/TestCampaign.js';
 import { TestClient } from './models/TestClient.js';
+import { TestScope } from './models/TestScope.js';
 
 chai.use(chaiAsPromised);
 
@@ -170,6 +171,49 @@ describe('Orm rbac test', function () {
           expect(wherePart).to.not.contain('Name');
         },
       );
+    });
+
+    it('should give each join a distinct alias when one model is joined twice', async () => {
+      // Two relations to the same client, each filtering the client by its scope (a JOIN to
+      // test_scope). Both scope joins default to the same `$TestScope$` alias, which the
+      // database rejects with "Not unique table/alias".
+      const result = TestCampaign.where('Id', '>', 0)
+        .populate('Client', function () {
+          this.innerJoin('Scope', function () {
+            this.whereIn('code', ['primespot']);
+          });
+        })
+        .populate('Agency', function () {
+          this.innerJoin('Scope', function () {
+            this.whereIn('code', ['primespot']);
+          });
+        })
+        .toDB() as ICompilerOutput;
+
+      const aliases = [...result.expression!.matchAll(/as `([^`]+)`/g)].map((m) => m[1]);
+      const duplicated = aliases.filter((a, i) => aliases.indexOf(a) !== i);
+
+      expect(duplicated, `duplicate alias in:\n${result.expression}`).to.be.empty;
+    });
+
+    it('should not drop a parent whose relation is filtered by a joined table', async () => {
+      // Client 1 sits in the 'yourscreen' scope; the relation filter allows only 'primespot'.
+      // The campaign must still come back (with Client empty) - a relation constraint may not
+      // decide which parent rows survive. An INNER JOIN in the relation drops the parent.
+      await TestScope.insert(new TestScope({ Id: 1, code: 'primespot' }));
+      await TestScope.insert(new TestScope({ Id: 2, code: 'yourscreen' }));
+
+      await TestClient.insert(new TestClient({ Id: 1, type: 1, scope_id: 2 } as any));
+      await TestCampaign.insert(new TestCampaign({ Id: 1, client_id: 1 } as any));
+
+      const campaigns = await TestCampaign.where('Id', '>', 0).populate('Client', function () {
+        this.innerJoin('Scope', function () {
+          this.whereIn('code', ['primespot']);
+        });
+      });
+
+      expect(campaigns.length).to.equal(1);
+      expect(campaigns[0].Client?.Value).to.satisfy((v: unknown) => v === null || v === undefined);
     });
 
     it('should not drop campaigns whose client type is filtered out', async () => {

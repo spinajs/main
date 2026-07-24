@@ -18,15 +18,25 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
       table.int('UserId');
     });
 
+    // agency_id: second relation to test_client, for the two-relations-to-one-model case
     await connection.schema().createTable('test_campaign', (table) => {
       table.int('Id').primaryKey().autoIncrement();
       table.int('client_id');
+      table.int('agency_id');
     });
 
+    // scope_id: lets a client be filtered through a joined table (test_scope) rather than a
+    // plain column, the case where the rbac hook has to JOIN instead of adding a WHERE
     await connection.schema().createTable('test_client', (table) => {
       table.int('Id').primaryKey().autoIncrement();
       table.int('type');
+      table.int('scope_id');
       table.string('Name', 64);
+    });
+
+    await connection.schema().createTable('test_scope', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('code', 64);
     });
   }
 

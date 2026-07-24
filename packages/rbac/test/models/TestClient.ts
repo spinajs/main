@@ -1,6 +1,7 @@
-import { Connection, Model, ModelBase, Primary, SelectQueryBuilder } from '@spinajs/orm';
+import { BelongsTo, Connection, Model, ModelBase, Primary, SelectQueryBuilder, SingleRelation } from '@spinajs/orm';
 import { OrmResource } from '../../src/decorators.js';
 import { User } from '../../src/models/User.js';
+import { TestScope } from './TestScope.js';
 
 /**
  * Mirrors the ArrowClient use case: model with custom static rbac() filtering by type,
@@ -16,7 +17,13 @@ export class TestClient extends ModelBase {
 
   public type: number;
 
+  public scope_id: number;
+
   public Name: string;
+
+  // scope reached through a relation - filtering on it needs a JOIN, unlike `type`
+  @BelongsTo(TestScope, 'scope_id')
+  public Scope: SingleRelation<TestScope>;
 
   public static rbac(this: SelectQueryBuilder<TestClient>, _user?: User) {
     this.whereIn('type', [1, 2]);

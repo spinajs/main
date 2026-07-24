@@ -13,4 +13,8 @@ export class TestCampaign extends ModelBase {
 
   @BelongsTo(TestClient, 'client_id')
   public Client: SingleRelation<TestClient>;
+
+  // second relation to the same model - populating both is what surfaces the alias collision
+  @BelongsTo(TestClient, 'agency_id')
+  public Agency: SingleRelation<TestClient>;
 }
