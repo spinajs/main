@@ -17,8 +17,16 @@ export function srcDir(path: string) {
   return resolve(normalize(join(process.cwd(), 'src', path)));
 }
 
+/**
+ * Port for the test HTTP server. Deliberately NOT one of the common ones —
+ * `@spinajs/orm-api`'s harness also binds 1337, so a concurrent test run in
+ * another checkout of this monorepo makes these tests fail with connection
+ * errors. Keep this distinctive.
+ */
+export const TEST_PORT = 34871;
+
 export function req() {
-  return chai.request('http://localhost:1337/');
+  return chai.request(`http://localhost:${TEST_PORT}/`);
 }
 
 export const TEST_TOKEN = 'test-token-123';
@@ -67,7 +75,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         rules: [{ name: '*', level: 'error', target: 'Empty' }],
       },
       http: {
-        port: 1337,
+        port: TEST_PORT,
         cookie: { secret: 'dsa12!@E#!$' },
         middlewares: [express.json({ limit: '5mb' }), express.urlencoded({ extended: true })],
         AcceptHeaders: 1 | 2,
