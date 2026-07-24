@@ -138,7 +138,7 @@ export class Security extends BaseController {
     @Get('logout/:user')
     @Permission(['updateAny'])
     public async logoutUser(@FromModel({ queryField: "Uuid" }) user: User) {
-        await this.SessionProvider.logsOut(user);
+        await this.SessionProvider.deleteByUser(user.Id);
         return new Ok();
     }
 }
