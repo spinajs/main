@@ -272,17 +272,14 @@ export class SqlJoinStatement extends JoinStatement {
     const onBindings: unknown[] = [];
 
     if (this._whereBuilder) {
-      const parts: string[] = [];
-      this._whereBuilder.Statements.filter((x: WhereStatement) => !x.IsAggregate).forEach((x: WhereStatement) => {
-        const r = x.build();
-        parts.push(...r.Statements);
-        if (Array.isArray(r.Bindings)) {
-          onBindings.push(...r.Bindings);
+      // Compile join-callback conditions through the shared where-compiler so
+      // per-statement AND/OR connectors are honoured here too.
+      const compiled = new SqlWhereCompiler().where(this._whereBuilder);
+      if (compiled.expression && compiled.expression !== '') {
+        onExpression += ` AND ${compiled.expression}`;
+        if (Array.isArray(compiled.bindings)) {
+          onBindings.push(...compiled.bindings);
         }
-      });
-
-      if (parts.length > 0) {
-        onExpression += ` AND ${parts.join(` ${this._whereBuilder.Op.toUpperCase()} `)}`;
       }
     }
 

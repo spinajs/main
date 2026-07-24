@@ -294,6 +294,43 @@ describe('Where query builder', () => {
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE ( `a` = ? AND `b` = ? ) OR ( `c` = ? AND `d` = ? ) OR `f` = ?');
   });
 
+  it('where(a).where(b).orWhere(c) keeps per-statement boolean (a AND b OR c)', () => {
+    const result = sqb().select('*').from('users').where('a', 1).where('b', 2).orWhere('c', 3).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `a` = ? AND `b` = ? OR `c` = ?');
+    expect(result.bindings).to.deep.equal([1, 2, 3]);
+  });
+
+  it('orWhere(a).andWhere(b) is not rewritten to all-AND (a OR b)', () => {
+    const result = sqb().select('*').from('users').orWhere('a', 1).andWhere('b', 2).toDB();
+    // first statement has no leading connector; second carries its own AND
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `a` = ? AND `b` = ?');
+
+    const result2 = sqb().select('*').from('users').where('a', 1).orWhere('b', 2).andWhere('c', 3).toDB();
+    expect(result2.expression).to.equal('SELECT * FROM `users` WHERE `a` = ? OR `b` = ? AND `c` = ?');
+    expect(result2.bindings).to.deep.equal([1, 2, 3]);
+  });
+
+  it('nested function-where still groups with parens under mixed connectors', () => {
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .where('x', 0)
+      .orWhere(function () {
+        this.where('a', 1).where('b', 2);
+      })
+      .where('y', 9)
+      .toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `x` = ? OR ( `a` = ? AND `b` = ? ) AND `y` = ?');
+  });
+
+  it('whereIn / whereNull mixed with orWhere connect per-statement', () => {
+    const result = sqb().select('*').from('users').where('a', 1).orWhere('b', 2).whereIn('c', [3, 4]).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `a` = ? OR `b` = ? AND `c` IN (?,?)');
+
+    const result2 = sqb().select('*').from('users').whereNull('a').orWhere('b', 2).toDB();
+    expect(result2.expression).to.equal('SELECT * FROM `users` WHERE `a` IS NULL OR `b` = ?');
+  });
+
   it('where RAW expressions', () => {
     const result = sqb().select('*').from('users').where(RawQuery.create('foo = bar AND zar.id = tar.id')).toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE foo = bar AND zar.id = tar.id');

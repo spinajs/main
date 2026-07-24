@@ -705,7 +705,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   public clone<P extends IWhereBuilder<any>>(_parent: P): WhereBuilder<T> {
     // TODO: fix this cast
     const builder = new WhereBuilder<T>(_parent as any);
-    builder._statements = this._statements.map((s) => s.clone(builder));
+    builder._statements = this._statements.map((s) => {
+      const cloned = s.clone(builder);
+      // preserve the per-statement boolean connector (clone() rebuilds the
+      // statement from scratch and would otherwise reset it to the AND default)
+      cloned.Boolean = s.Boolean;
+      return cloned;
+    });
     builder._boolean = this._boolean;
     builder._model = this._model;
     builder._tableAlias = this.TableAlias;
@@ -713,6 +719,20 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return builder;
   }
 
+
+  /**
+   * Pushes a statement onto this builder, stamping it with the currently pending
+   * boolean connector (set by {@link orWhere}/{@link andWhere}). The pending
+   * connector applies to the NEXT pushed statement only and resets to AND
+   * afterwards, so `where(a).where(b).orWhere(c).where(d)` compiles to
+   * `a AND b OR c AND d` rather than rewriting the whole clause.
+   */
+  protected pushStatement(statement: IQueryStatement): this {
+    statement.Boolean = this._boolean;
+    this._statements.push(statement);
+    this._boolean = WhereBoolean.AND;
+    return this;
+  }
 
   public when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this {
     if (condition) {
@@ -762,7 +782,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     if (column instanceof RawQuery) {
-      this.Statements.push(this._container.resolve<RawQueryStatement>(RawQueryStatement, [column.Query, column.Bindings, self.TableAlias]));
+      this.pushStatement(this._container.resolve<RawQueryStatement>(RawQueryStatement, [column.Query, column.Bindings, self.TableAlias]));
       return this;
     }
 
@@ -771,12 +791,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       const builder = new WhereBuilder(this);
       column.call(builder);
 
-      self.Statements.push(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self.TableAlias]));
+      self.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self.TableAlias]));
       return this;
     }
 
     if (column instanceof Lazy) {
-      this.Statements.push(this._container.resolve<LazyQueryStatement>(LazyQueryStatement, [column, this]));
+      this.pushStatement(this._container.resolve<LazyQueryStatement>(LazyQueryStatement, [column, this]));
       return this;
     }
 
@@ -814,7 +834,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         return this.whereNull(c);
       }
 
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, this]));
+      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, this]));
 
       return self;
     }
@@ -850,7 +870,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         throw new InvalidArgument(`operator ${o} cannot be used with null value ( only =, !=, <> are allowed )`);
       }
 
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
+      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
 
       return this;
     }
@@ -884,13 +904,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this]));
+    this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this]));
 
     return this;
   }
 
   public whereNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this]));
+    this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this]));
     return this;
   }
 
@@ -905,12 +925,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       this.where(false);
       return this;
     }
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this]));
+    this.pushStatement(this._container.resolve<InStatement>(InStatement, [column, val, false, this]));
     return this;
   }
 
   public whereNotIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this]));
+    this.pushStatement(this._container.resolve<InStatement>(InStatement, [column, val, true, this]));
     return this;
   }
 
@@ -936,7 +956,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
    */
   protected buildExistsClause<R>(query: ISelectQueryBuilder | string, negated: boolean, callback?: WhereFunction<R>): this {
     if (typeof query !== 'string') {
-      this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, negated]));
+      this.pushStatement(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, negated]));
       return this;
     }
 
@@ -953,29 +973,29 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
     const subquery = handler.apply(this, rel, query, callback);
     if (subquery) {
-      this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [subquery, negated]));
+      this.pushStatement(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [subquery, negated]));
     }
 
     return this;
   }
 
   public whereBetween(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, false, this.TableAlias]));
+    this.pushStatement(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, false, this.TableAlias]));
     return this;
   }
 
   public whereNotBetween(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, true, this.TableAlias]));
+    this.pushStatement(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, true, this.TableAlias]));
     return this;
   }
 
   public whereInSet(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this.TableAlias]));
+    this.pushStatement(this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this.TableAlias]));
     return this;
   }
 
   public whereNotInSet(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this.TableAlias]));
+    this.pushStatement(this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this.TableAlias]));
     return this;
   }
 

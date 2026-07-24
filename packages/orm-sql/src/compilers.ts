@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler, LazyQueryStatement, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
@@ -194,52 +194,78 @@ export class SqlColumnsCompiler implements IColumnsCompiler {
 @NewInstance()
 export class SqlWhereCompiler implements IWhereCompiler {
   public where(builder: IWhereBuilder<unknown>) {
-    const where: string[] = [];
     const bindings: any[] = [];
 
-    const lazyBindings = builder.Statements.filter((x: WhereStatement) => x instanceof LazyQueryStatement).map((x : LazyQueryStatement) => x.build());
-    builder.Statements.filter((x: WhereStatement) => !x.IsAggregate).filter(x => !(x instanceof LazyQueryStatement))
-      .map((x) => {
-        return x.build();
-      })
-      .concat(lazyBindings)
-      .forEach((r) => {
-        where.push(...r.Statements);
+    // Lazy statements must be built FIRST: their build() may have side effects
+    // that append further statements to the builder (e.g. a correlated EXISTS
+    // sub-query registers its correlation predicate lazily). Building them now and
+    // reusing the result guarantees the side effect runs exactly once, and lets the
+    // non-lazy pass below pick up any statements the lazy build appended. The lazy
+    // results are then emitted after the non-lazy ones (preserving legacy ordering).
+    const lazyEntries = (builder.Statements.filter((x) => x instanceof LazyQueryStatement) as unknown as LazyQueryStatement[]).map((stmt) => ({
+      boolean: (stmt as unknown as IQueryStatement).Boolean,
+      result: stmt.build(),
+    }));
 
-        if (Array.isArray(r.Bindings)) {
-          bindings.push(...r.Bindings);
-        }
-      });
+    const nonLazyEntries = builder.Statements
+      .filter((x: WhereStatement) => !x.IsAggregate)
+      .filter((x) => !(x instanceof LazyQueryStatement))
+      .map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
 
-  
     return {
       bindings,
-      expression: where.join(` ${builder.Op.toUpperCase()} `),
+      expression: joinBuiltStatements(nonLazyEntries.concat(lazyEntries), bindings),
     };
   }
+}
+
+interface IBuiltStatement {
+  boolean: WhereBoolean;
+  result: IQueryStatementResult;
+}
+
+/**
+ * Joins a list of already-built where/having statements into a single SQL
+ * expression, prefixing every statement after the first with its OWN boolean
+ * connector. This yields correct mixed grouping such as
+ * `a AND b OR c` for `where(a).where(b).orWhere(c)`, instead of applying a single
+ * builder-level connector uniformly. Bindings are collected in statement order.
+ */
+function joinBuiltStatements(statements: IBuiltStatement[], bindings: any[]): string {
+  const parts: string[] = [];
+
+  statements.forEach(({ boolean, result }) => {
+    if (Array.isArray(result.Bindings)) {
+      bindings.push(...result.Bindings);
+    }
+
+    // A single statement always builds to one fragment; guard multi-fragment
+    // statements by joining them with AND (they carry no per-fragment connector).
+    const fragment = result.Statements.join(' AND ');
+    if (fragment === '') {
+      return;
+    }
+
+    if (parts.length === 0) {
+      parts.push(fragment);
+    } else {
+      parts.push(`${(boolean ?? WhereBoolean.AND).toUpperCase()} ${fragment}`);
+    }
+  });
+
+  return parts.join(' ');
 }
 
 @NewInstance()
 export class SqlHavingCompiler implements IHavingCompiler {
   public having(builder: IWhereBuilder<unknown>) {
-    const where: string[] = [];
     const bindings: any[] = [];
 
-    builder.Statements.filter((x: WhereStatement) => x.IsAggregate)
-      .map((x) => {
-        return x.build();
-      })
-      .forEach((r) => {
-        where.push(...r.Statements);
-
-        if (Array.isArray(r.Bindings)) {
-          bindings.push(...r.Bindings);
-        }
-      });
+    const aggregates = builder.Statements.filter((x: WhereStatement) => x.IsAggregate).map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
 
     return {
       bindings,
-      expression: where.join(` ${builder.Op.toUpperCase()} `),
+      expression: joinBuiltStatements(aggregates, bindings),
     };
   }
 }
