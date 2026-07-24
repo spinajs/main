@@ -436,22 +436,22 @@ export class SqlOnDuplicateQueryCompiler implements OnDuplicateQueryCompiler {
       .getColumnsToUpdate()
       .map((c: string | RawQuery): string => {
         if (_.isString(c)) {
-          return `\`${c}\` = ?`;
+          // Reference the row being inserted via VALUES(col) instead of
+          // re-binding one specific row's value. Binding `parent.Values[0]`
+          // applied the FIRST row's values to every conflicting row in a
+          // multi row upsert.
+          return `\`${c}\` = VALUES(\`${c}\`)`;
         } else {
           return c.Query;
         }
       })
       .join(',');
 
-    const parent = this._builder.getParent() as InsertQueryBuilder;
-
-    const valueMap = parent.getColumns().map((c: ColumnStatement) => c.Column);
-    const bindings = this._builder.getColumnsToUpdate().map((c: string | RawQuery): any => {
-      if (_.isString(c)) {
-        return parent.Values[0][valueMap.indexOf(c)];
-      } else {
-        return c.Bindings;
-      }
+    // Only RawQuery update columns contribute bindings - VALUES(col) needs
+    // none. flatMap keeps raw bindings flat; returning the array itself
+    // nested them and shifted every following placeholder.
+    const bindings = _.flatMap(this._builder.getColumnsToUpdate(), (c: string | RawQuery): any[] => {
+      return _.isString(c) ? [] : c.Bindings ?? [];
     });
 
     return {
@@ -511,46 +511,71 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
     };
   }
 
+  /**
+   * Indices of the columns that take part in this INSERT.
+   *
+   * An auto increment primary key is omitted only when NO row supplies a value
+   * for it. If at least one row supplies one the column stays, and the rows
+   * that don't emit NULL so the engine assigns the value.
+   *
+   * Both {@link columns} and {@link values} MUST derive their shape from this
+   * single decision - deciding per-row in one place and per-batch in the other
+   * produced value tuples whose arity did not match the column list.
+   */
+  protected keptColumnIndices(): number[] {
+    return this._builder
+      .getColumns()
+      .map((c, i) => ({ c, i }))
+      .filter(({ c, i }) => {
+        const descriptor = (c as ColumnStatement).Descriptor;
+        if (descriptor && descriptor.AutoIncrement && descriptor.PrimaryKey) {
+          return this._builder.Values.some((x) => x[i] !== undefined && x[i] !== null);
+        }
+        return true;
+      })
+      .map(({ i }) => i);
+  }
+
   protected values() {
     if (this._builder.Values.length === 0) {
       throw new InvalidArgument('values count invalid');
     }
 
+    const kept = this.keptColumnIndices();
     const bindings: any[] = [];
     let data = 'VALUES ';
 
     data += this._builder.Values.map((val) => {
-      const toInsert = val
-        .filter((v, i) => {
-          // eslint-disable-next-line security/detect-object-injection
-          const descriptor = (this._builder.getColumns()[i] as ColumnStatement).Descriptor;
-          if (descriptor) {
-            if (!descriptor.Nullable && (v === null || v === undefined) && !descriptor.AutoIncrement) {
-              throw new InvalidArgument(`value column ${descriptor.Name} cannot be null`);
-            }
+      const toInsert = kept.map((i) => {
+        // eslint-disable-next-line security/detect-object-injection
+        const v = val[i];
+        // eslint-disable-next-line security/detect-object-injection
+        const descriptor = (this._builder.getColumns()[i] as ColumnStatement).Descriptor;
 
-            if (descriptor.AutoIncrement && descriptor.PrimaryKey) {
-              if (v !== undefined && v !== null) {
-                return true;
-              }
-              return false;
-            }
+        if (descriptor) {
+          if (!descriptor.Nullable && (v === null || v === undefined) && !descriptor.AutoIncrement) {
+            throw new InvalidArgument(`value column ${descriptor.Name} cannot be null`);
           }
 
-          return true;
-        })
-        .map((v) => {
-          if (v === undefined) {
-            return 'DEFAULT';
-          }
-
-          if (v === null) {
+          // Auto increment PK this row does not supply. NULL (not DEFAULT) lets
+          // the engine assign it and is portable - sqlite does not accept the
+          // DEFAULT keyword inside a VALUES tuple.
+          if (descriptor.AutoIncrement && descriptor.PrimaryKey && (v === undefined || v === null)) {
             return 'NULL';
           }
+        }
 
-          bindings.push(this.tryConvertValue(v));
-          return '?';
-        });
+        if (v === undefined) {
+          return 'DEFAULT';
+        }
+
+        if (v === null) {
+          return 'NULL';
+        }
+
+        bindings.push(this.tryConvertValue(v));
+        return '?';
+      });
       return `(` + toInsert.join(',') + ')';
     }).join(',');
 
@@ -561,20 +586,10 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
   }
 
   protected columns() {
-    const columns = this._builder
-      .getColumns()
-      .filter((c, i) => {
-        const descriptor = (c as ColumnStatement).Descriptor;
-        if (descriptor && descriptor.AutoIncrement && descriptor.PrimaryKey) {
-          if (this._builder.Values.every((x) => x[i] !== undefined && x[i] !== null)) {
-            return true;
-          }
-          return false;
-        }
-        return true;
-      })
-      .map((c) => {
-        return (c as ColumnStatement).Column;
+    const columns = this.keptColumnIndices()
+      .map((i) => {
+        // eslint-disable-next-line security/detect-object-injection
+        return (this._builder.getColumns()[i] as ColumnStatement).Column;
       })
       .map((c) => {
         return `\`${c instanceof RawQuery ? c.Query : c}\``;

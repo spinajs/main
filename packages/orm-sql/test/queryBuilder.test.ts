@@ -1133,8 +1133,44 @@ describe('insert query builder', () => {
       .update(['email', 'active'])
       .toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?) ON DUPLICATE KEY UPDATE `email` = ?,`active` = ?');
-    expect(result.bindings).to.be.an('array').to.include.members([1, true, 'spine@spine.pl', 'spine@spine.pl', true]);
+    // update values reference the incoming row via VALUES(col) instead of
+    // re-binding a specific row's values (B13)
+    expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?) ON DUPLICATE KEY UPDATE `email` = VALUES(`email`),`active` = VALUES(`active`)');
+    expect(result.bindings).to.be.an('array').that.has.lengthOf(3);
+    expect(result.bindings).to.include.members([1, 'spine@spine.pl']);
+  });
+
+  it('multi row insert with on duplicate updates each row from its own values (B13)', () => {
+    const result = iqb()
+      .into('users')
+      .values([
+        { id: 1, active: true, email: 'a@spine.pl' },
+        { id: 2, active: false, email: 'b@spine.pl' },
+      ])
+      .onDuplicate('id')
+      .update(['email', 'active'])
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?),(?,?,?) ON DUPLICATE KEY UPDATE `email` = VALUES(`email`),`active` = VALUES(`active`)');
+
+    // only the 6 inserted values are bound - no row-0 values leak into the update
+    expect(result.bindings).to.be.an('array').that.has.lengthOf(6);
+    expect(result.bindings).to.include.members(['a@spine.pl', 'b@spine.pl']);
+  });
+
+  it('on duplicate with a RawQuery column keeps bindings flat (B13)', () => {
+    const result = iqb()
+      .into('users')
+      .values({ id: 1, active: true, email: 'spine@spine.pl' })
+      .onDuplicate('id')
+      .update([RawQuery.create('`counter` = `counter` + ?', [5])] as any)
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?) ON DUPLICATE KEY UPDATE `counter` = `counter` + ?');
+
+    // raw bindings are spread into the flat array, not nested as an array element
+    expect(result.bindings).to.be.an('array').that.has.lengthOf(4);
+    expect(result.bindings![3]).to.equal(5);
   });
 });
 

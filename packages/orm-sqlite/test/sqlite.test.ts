@@ -683,6 +683,24 @@ describe('Sqlite model functions', function () {
     expect(check.Many[0].Id).to.eq(1);
   });
 
+  it('mixed batch insert (some rows with explicit PK) keeps columns and values aligned (B12)', async () => {
+    await SoftDeleteModel.insert([{ Id: 42, Val: 'explicit' }, { Val: 'auto' }] as any);
+
+    const all = await SoftDeleteModel.all();
+    expect(all.length).to.eq(2);
+
+    const explicit = all.find((r) => r.Val === 'explicit');
+    const auto = all.find((r) => r.Val === 'auto');
+
+    expect(explicit).to.be.not.undefined;
+    expect(explicit!.Id).to.eq(42);
+
+    // the row without an explicit PK still gets an engine assigned id
+    expect(auto).to.be.not.undefined;
+    expect(auto!.Id).to.be.a('number');
+    expect(auto!.Id).to.not.eq(42);
+  });
+
   it('soft-deleted rows are excluded by default and included with withDeleted()', async () => {
     await SoftDeleteModel.insert([{ Val: 'a' }, { Val: 'b' }, { Val: 'c' }]);
 
