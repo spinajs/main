@@ -88,6 +88,15 @@ export class Builder<T = any> implements IBuilder<T> {
   protected async _run(): Promise<T> {
     const result = (await this._driver.execute(this)) as T;
 
+    // Snapshot the pipeline once, *after* the driver call: compiling the query is what
+    // registers the relation middlewares (the driver calls `toDB()`), so this is the first
+    // point at which the list is complete. Everything below runs against this immutable copy,
+    // so a middleware registered later cannot change the pipeline mid-flight, and — crucially —
+    // we never call `Array.prototype.reverse()` on `this._middlewares`, which mutates in place
+    // and used to flip `modelCreation` resolution order on every execution ( B8 ).
+    const middlewares = [...this._middlewares];
+    const creationOrder = [...middlewares].reverse();
+
     if (this._asRaw) {
       return result;
     }
@@ -96,7 +105,7 @@ export class Builder<T = any> implements IBuilder<T> {
 
     // if we have something to transform ...
     if (transformedResult) {
-      this._middlewares.forEach((m) => {
+      middlewares.forEach((m) => {
         Object.assign(transformedResult, m.afterQuery(transformedResult));
       });
     }
@@ -105,7 +114,7 @@ export class Builder<T = any> implements IBuilder<T> {
       // TODO: rething this casting
       const models = (transformedResult as unknown as any[]).map((r) => {
         let model = null;
-        for (const middleware of this._middlewares.reverse()) {
+        for (const middleware of creationOrder) {
           model = middleware.modelCreation(r);
           if (model !== null) {
             break;
@@ -121,8 +130,8 @@ export class Builder<T = any> implements IBuilder<T> {
         return model;
       });
 
-      if (this._middlewares.length > 0) {
-        await Promise.all(this._middlewares.map((m) => m.afterHydration(models)));
+      if (middlewares.length > 0) {
+        await Promise.all(middlewares.map((m) => m.afterHydration(models)));
       }
 
       return models as unknown as T;

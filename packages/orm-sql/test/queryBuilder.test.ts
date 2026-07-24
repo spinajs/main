@@ -12,6 +12,8 @@ import * as sinon from 'sinon';
 import { RelationModel3 } from './Models/RelationModel3.js';
 import { DateTime } from 'luxon';
 import { RelationModel2 } from './Models/RelationModel2.js';
+import { Model1 } from './Models/Model1.js';
+import { QueryRelationModel } from './Models/QueryRelationModel.js';
 import { SqlSelectQueryCompiler } from '../src/compilers.js';
 import { SqlDatetimeValueConverter } from '../src/converters.js';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -43,6 +45,19 @@ function inqb() {
 
 function db() {
   return DI.get(Orm);
+}
+
+/**
+ * Minimal `IBuilderMiddleware` that does nothing but stay identifiable, so a test can
+ * assert the order the pipeline was walked in.
+ */
+function fakeMiddleware(name: string): any {
+  return {
+    name,
+    afterQuery: (data: any) => data,
+    modelCreation: () => null as any,
+    afterHydration: () => Promise.resolve(),
+  };
 }
 
 describe('Query builder generic', () => {
@@ -1742,6 +1757,36 @@ describe('Query builder execution ( F1 )', () => {
     await query.execute();
 
     expect(spy.calledOnce).to.be.true;
+  });
+
+  it('does not mutate the middleware array during execution (B8)', async () => {
+    // the middleware pipeline is only walked when the builder hydrates models,
+    // so the query has to be model-bound and the driver has to return rows.
+    sinon.stub(FakeSqliteDriver.prototype, 'executeOnDb').resolves([{ Id: 1 }]);
+
+    const connection = db()!.Connections.get('sqlite')!;
+    const query = connection.Container.resolve(SelectQueryBuilder, [connection, Model1]) as SelectQueryBuilder<Model1[]>;
+    query.select('*').from('TestTable1');
+
+    query.middleware(fakeMiddleware('a'));
+    query.middleware(fakeMiddleware('b'));
+
+    const before = [...(query as any)._middlewares];
+    await query.execute();
+
+    expect((query as any)._middlewares).to.deep.equal(before);
+    expect(((query as any)._middlewares as any[]).map((m) => m.name)).to.deep.equal(['a', 'b']);
+  });
+
+  it('toDB() is idempotent (B19)', () => {
+    const query = QueryRelationModel.where('Id', 1).populate('Many') as any;
+
+    const first = query.toDB();
+    const middlewaresAfterFirstCompile = query._middlewares.length;
+    const second = query.toDB();
+
+    expect(second).to.deep.equal(first);
+    expect(query._middlewares.length).to.equal(middlewaresAfterFirstCompile);
   });
 });
 
