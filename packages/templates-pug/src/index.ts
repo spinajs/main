@@ -3,7 +3,7 @@ import { IOFail, InvalidArgument } from '@spinajs/exceptions';
 import * as fs from 'fs';
 import * as pugTemplate from 'pug';
 import _ from 'lodash';
-import { CompiledTemplateRenderer, TemplateRenderer } from '@spinajs/templates';
+import { ensureParentDir, TemplateRenderer } from '@spinajs/templates';
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
@@ -22,11 +22,6 @@ export class PugRenderer extends TemplateRenderer {
 
   public get Extension() {
     return '.pug';
-  }
-
-  // in dev mode always recompile so template edits are picked up without a restart
-  protected shouldRecompile(): boolean {
-    return this.devMode;
   }
 
   public async render(templateName: string, model: unknown, language?: string): Promise<string> {
@@ -67,5 +62,18 @@ export class PugRenderer extends TemplateRenderer {
     this.Log.trace(`Rendering pug template ${templateName} ended, (${time} ms)`);
 
     return content;
+  }
+
+  /**
+   * Render and write the result to `filePath`, creating the parent directory if
+   * it does not exist. Same contract as {@link CompiledTemplateRenderer.renderToFile};
+   * pug cannot inherit it because it compiles from a PATH ( so that include /
+   * extends resolve against the filesystem ) rather than from a source string.
+   */
+  public async renderToFile(templateName: string, model: unknown, filePath: string, language?: string): Promise<void> {
+    const content = await this.render(templateName, model, language);
+
+    ensureParentDir(filePath);
+    fs.writeFileSync(filePath, content);
   }
 }
