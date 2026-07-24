@@ -50,7 +50,13 @@ export class TestConfiguration extends FrameworkConfiguration {
           // the intl locales dir must be present or forbidden.pug / serverError.pug
           // fail to render and the framework falls back to a 500.
           locales: [resolve(normalize(join(process.cwd(), '..', 'http', 'src', 'locales')))],
-          controllers: [srcDir('./controllers')],
+          // http-swagger's controllers ship in its COMPILED dir ( that is the path
+          // its own config declares ). Listed here for EVERY suite, not just the
+          // openapi one, because reflection's `@ListFromFiles` memoizes the
+          // file-scanned controller list for the life of the process — whichever
+          // suite boots first fixes the list, so a directory added later is never
+          // scanned and `docs/swagger.json` would 404 in a whole-suite run.
+          controllers: [srcDir('./controllers'), resolve(normalize(join(process.cwd(), '..', 'http-swagger', 'lib', 'mjs', 'controllers')))],
         },
       },
       intl: {

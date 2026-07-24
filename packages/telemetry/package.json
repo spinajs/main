@@ -51,7 +51,8 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "devDependencies": {
-    "@spinajs/fs": "^2.0.481"
+    "@spinajs/fs": "^2.0.481",
+    "@spinajs/http-swagger": "^2.0.481"
   },
   "dependencies": {
     "@spinajs/configuration": "^2.0.481",
