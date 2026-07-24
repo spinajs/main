@@ -47,6 +47,7 @@
     { "path": "packages/templates-xlsx/tsconfig.mjs.json" },
     { "path": "packages/templates-image/tsconfig.mjs.json" },
     { "path": "packages/validation/tsconfig.mjs.json" },
+    { "path": "packages/telemetry/tsconfig.mjs.json" },
     { "path": "packages/templates-pdf/tsconfig.mjs.json" },
     { "path": "packages/templates-csv/tsconfig.mjs.json" },
     { "path": "packages/template-mjml/tsconfig.mjs.json" },
