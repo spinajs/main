@@ -12,7 +12,7 @@ import Express, { ErrorRequestHandler, RequestHandler } from 'express';
 import _ from 'lodash';
 import fs from 'fs';
 
-import { ServerMiddleware, IHttpServerConfiguration } from './interfaces.js';
+import { ServerMiddleware, IHttpServerConfiguration, LifecycleState } from './interfaces.js';
 import './transformers/index.js';
 import './middlewares/ResponseTime.js';
 import './middlewares/RequestId.js';
@@ -49,6 +49,11 @@ export class HttpServer extends AsyncService {
   })
   protected AppEnv!: string;
 
+  @Config('http.shutdownTimeout', {
+    defaultValue: 10000,
+  })
+  protected ShutdownTimeout!: number;
+
   /**
    * Express app instance
    */
@@ -64,6 +69,29 @@ export class HttpServer extends AsyncService {
    * Track active connections for cleanup
    */
   protected _connections = new Set<any>();
+
+  /**
+   * Lifecycle state. All three public entry points ( start / stop / dispose )
+   * transition through it so double-close, restart and idempotency are decided
+   * in one place.
+   */
+  protected _state: LifecycleState = LifecycleState.Created;
+
+  /**
+   * The in-flight close promise, so concurrent / repeated stop() calls share one
+   * shutdown rather than each issuing a second Server.close().
+   */
+  protected _closePromise: Promise<void> | null = null;
+
+  /**
+   * After-middlewares ( NotFound / ErrorHandler / ServerTiming ... ) attach to
+   * the Express app exactly once per instance. Restart must not re-stack them.
+   */
+  protected _afterAttached = false;
+
+  public get State(): LifecycleState {
+    return this._state;
+  }
 
   public get Server(): Http | Https {
     return this.HttpsEnabled ? this._httpsServer : this._httpServer;
@@ -145,6 +173,14 @@ export class HttpServer extends AsyncService {
           this._connections.delete(socket);
         });
       });
+
+      // Persistent, log-only 'error' handler attached once per server ( same place
+      // as 'connection', so it never accumulates ). start()'s per-start .once is
+      // removed on listen success, so without this a server-level 'error' emitted
+      // AFTER listening would be unhandled and crash the process.
+      this._httpsServer.on('error', (err: any) => {
+        this.Log.error(`Server error: ${err?.message ?? err}`);
+      });
     } else {
       this.Log.info(`HTTP enabled !`);
       this._httpServer = HttpCreateServer(this.Express);
@@ -156,6 +192,14 @@ export class HttpServer extends AsyncService {
           this._connections.delete(socket);
         });
       });
+
+      // Persistent, log-only 'error' handler attached once per server ( same place
+      // as 'connection', so it never accumulates ). start()'s per-start .once is
+      // removed on listen success, so without this a server-level 'error' emitted
+      // AFTER listening would be unhandled and crash the process.
+      this._httpServer.on('error', (err: any) => {
+        this.Log.error(`Server error: ${err?.message ?? err}`);
+      });
     }
   }
 
@@ -163,7 +207,9 @@ export class HttpServer extends AsyncService {
    * Server static files
    */
   private _serverStaticFiles() {
-    _.uniq(this.HttpConfig.Static).forEach((s) => {
+    // uniqBy Path — Static entries are objects, so plain _.uniq (reference
+    // equality) would never dedupe two config entries pointing at the same dir.
+    _.uniqBy(this.HttpConfig.Static, (s) => s.Path).forEach((s) => {
       if (!existsSync(s.Path)) {
         this.Log.warn(`static file path ${s.Path} not exists`);
         return;
@@ -179,81 +225,135 @@ export class HttpServer extends AsyncService {
   /**
    * Starts http server & express
    */
-  public start() {
-    return new Promise<void>((res, rej) => {
-      // add all middlewares to execute after
-      this.Middlewares.reverse().forEach((m) => {
+  public async start(): Promise<void> {
+    // Idempotent: already serving -> nothing to do. This is what stops a
+    // repeated start() ( HttpServer is a DI singleton ) re-stacking middleware.
+    if (this._state === LifecycleState.Listening) {
+      return;
+    }
+
+    // A start() racing a shutdown waits for the close to finish, then re-listens.
+    if (this._state === LifecycleState.Closing && this._closePromise) {
+      await this._closePromise;
+    }
+
+    // add all after-middlewares once per instance ( not once per start ).
+    if (!this._afterAttached) {
+      // Copy before reversing so we don't mutate the shared, already-sorted
+      // Middlewares array in place.
+      [...this.Middlewares].reverse().forEach((m) => {
         const f = m.after();
         if (f) {
           this.Log.info(`Using server middleware::after() - ${m.constructor.name}`);
           this.use(f);
         }
       });
+      this._afterAttached = true;
+    }
 
-      this.Server.listen(this.HttpConfig.port, () => {
-        this.Log.info(`Server started at port ${this.HttpConfig.port}`);
-        res();
-      }).on('error', (err: any) => {
-        if (err.errno === 'EADDRINUSE') {
+    await new Promise<void>((res, rej) => {
+      // .once, removed on success, so repeated start()/restart never accumulates
+      // 'error' listeners on the reused server object.
+      const onError = (err: any) => {
+        if (err.code === 'EADDRINUSE') {
           this.Log.error(`----- Port ${this.HttpConfig.port} is busy -----`);
         }
-
         rej(err);
+      };
+      this.Server.once('error', onError);
+
+      this.Server.listen(this.HttpConfig.port, () => {
+        this.Server.removeListener('error', onError);
+        this._state = LifecycleState.Listening;
+        this._emit('http.server.listening');
+        this.Log.info(`Server started at port ${this.HttpConfig.port}`);
+        res();
       });
     });
-  }
-
-  public stop() {
-    if (this.Server) {
-      this.Server.close();
-    }
   }
 
   /**
-   * Enhanced dispose method with proper connection cleanup and timeout handling
+   * Emit a lifecycle event on the DI bus, isolating the state machine from a
+   * throwing subscriber. Container.emit is synchronous, so without this guard a
+   * listener that throws would pre-empt the caller - eg. a throwing
+   * `http.server.listening` listener runs before res() and would hang start(),
+   * and a throwing `http.server.closing` listener would escape stop().
+   */
+  protected _emit(event: string): void {
+    try {
+      this.Container.emit(event, this);
+    } catch (err: any) {
+      this.Log.warn(`Listener for ${event} threw: ${err?.message ?? err}`);
+    }
+  }
+
+  public stop(): Promise<void> {
+    return this._close();
+  }
+
+  /**
+   * AsyncService teardown. HttpServer holds no resources beyond the socket
+   * server and its tracked connections, both released by stop(); this awaits it.
    */
   public async dispose(): Promise<void> {
-    if (!this.Server) {
-      return;
+    await this.stop();
+  }
+
+  /**
+   * Single shutdown path for both stop() and dispose(). Idempotent: repeated or
+   * concurrent calls share one Server.close() instead of issuing a second one
+   * ( which would reject with ERR_SERVER_NOT_RUNNING ).
+   */
+  protected _close(): Promise<void> {
+    if (this._state === LifecycleState.Closing) {
+      return this._closePromise!;
     }
 
-    return new Promise<void>((resolve, reject) => {
-      // Set a timeout for graceful shutdown
-      const timeout = setTimeout(() => {
-        this.Log.warn('Server shutdown timeout, forcing close');
-        
-        // Force close all tracked connections
+    if (this._state !== LifecycleState.Listening || !this.Server) {
+      // Created or Closed - nothing to close
+      return Promise.resolve();
+    }
+
+    this._state = LifecycleState.Closing;
+
+    this._closePromise = new Promise<void>((resolve) => {
+      // One watchdog, unref'd so it can never hold the event loop open, and
+      // cleared on every close-callback path. The old code leaked a second,
+      // never-cleared 5s timer here.
+      const watchdog = setTimeout(() => {
+        this.Log.warn('Server shutdown grace period expired, forcing connections closed');
+        this.Server.closeAllConnections?.();
         this._forceCloseConnections();
-        
-        // Force close connections if available (Node.js 18.2+)
-        if (typeof this.Server.closeAllConnections === 'function') {
-          this.Server.closeAllConnections();
-        }
-        
-        // Still resolve as we've done our best to clean up
-        resolve();
-      }, 10000);
+      }, this.ShutdownTimeout);
+      watchdog.unref();
 
       this.Server.close((err) => {
-        clearTimeout(timeout);
-        
+        clearTimeout(watchdog);
+        this._forceCloseConnections();
+        this._state = LifecycleState.Closed;
+
         if (err) {
-          this.Log.error('Error during server close:', err);
-          reject(err);
-        } else {
-          this.Log.info('Server closed successfully');
-          resolve();
+          // Unexpected given the guards above; log rather than reject so shutdown
+          // always settles.
+          this.Log.warn(`Error during server close: ${err.message}`);
         }
+
+        this._emit('http.server.closed');
+        resolve();
       });
 
-      // For tracked connections, manually close them after grace period
-      setTimeout(() => {
-        if (this._connections.size > 0) {
-          this.Log.warn(`Forcing closure of ${this._connections.size} remaining connections`);
-          this._forceCloseConnections();
-        }
-      }, 5000);
+      // Free IDLE keep-alive sockets right away so the port releases promptly,
+      // while any in-flight request keeps the grace window above.
+      this.Server.closeIdleConnections?.();
     });
+
+    // Emit AFTER _closePromise is assigned. Container.emit is fully synchronous,
+    // so a listener that re-enters stop() during this emit hits the Closing guard
+    // and must find the shared promise already in place ( emitting before the
+    // assignment would hand that re-entrant caller a null instead of a thenable ).
+    this._emit('http.server.closing');
+
+    return this._closePromise;
   }
 
   /**

@@ -1,5 +1,5 @@
 import { BaseController, Get, Ok, BasePath } from '@spinajs/http';
-import { IFilter, Filter, IFilterRequest } from './../../src/index.js';
+import { Filter, IFilterRequest } from './../../src/index.js';
 import { FilterableModel } from '../models/Filterable.js';
 import { Test } from '../models/Test.js';
 import { Test2 } from '../models/Test2.js';
@@ -8,7 +8,7 @@ import { Belongs } from '../models/Belongs.js';
 @BasePath('filter')
 export class FilterC extends BaseController {
   @Get()
-  public testFilter(@Filter(FilterableModel) filter: IFilter[]) {
+  public testFilter(@Filter(FilterableModel) filter: IFilterRequest) {
     return new Ok(filter);
   }
 
@@ -20,7 +20,7 @@ export class FilterC extends BaseController {
         operators: ['eq', 'gt'],
       },
     ])
-    filter: IFilterRequest[],
+    filter: IFilterRequest,
   ) {
     return new Ok(filter);
   }

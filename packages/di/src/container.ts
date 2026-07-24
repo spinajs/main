@@ -276,16 +276,23 @@ export class Container extends EventEmitter implements IContainer {
     }
 
     if (isTypedArray(type)) {
-      // special case for arrays
-      // if we have in cache, retunr all we got
-      // TODO: fix this and every time check if theres is any
-      // new registerd type
-      if (this.Cache.has(type)) {
-        return this.Cache.get(type);
-      }
-
       // if its array type, resolve all registered types or throw exception
       const targetType = this.getRegisteredTypes(type);
+
+      // special case for arrays
+      // return the cached collection, but ONLY when nothing new has been
+      // registered since it was built - otherwise a type registered after the
+      // first resolve would stay invisible forever. Factory registrations are
+      // ignored here: they are never added to the cache, so counting them as
+      // `new` would re-run every factory on each resolve.
+      if (this.Cache.has(type)) {
+        const cached = (this.Cache.get(type) ?? []) as unknown[];
+        const hasUnresolved = (targetType ?? []).some((t) => !isFactory(t) && !cached.some((i) => (i as object)?.constructor === t));
+
+        if (!hasUnresolved) {
+          return cached as T[];
+        }
+      }
 
       if (!targetType) {
         return [];

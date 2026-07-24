@@ -47,7 +47,7 @@ export class WebsocketServer extends AsyncService {
       for (const m of this.Middlewares) {
         await m.onConnect(socket);
 
-        socket.on('disconnet', async (reason) => {
+        socket.on('disconnect', async (reason) => {
           await m.onDisconnect(socket, reason);
         });
       }

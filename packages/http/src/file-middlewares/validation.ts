@@ -1,6 +1,7 @@
-import { Injectable, NewInstance } from "@spinajs/di";
+import { Autoinject, Injectable, NewInstance } from "@spinajs/di";
 import { FileProportions, FileUploadMiddleware, FileValidationRules, IUploadedFile, IUploadOptions } from "../interfaces.js";
 import { Log, Logger } from "@spinajs/log-common";
+import { FileInfoService } from "@spinajs/fs";
 import { ValidationFailed } from "@spinajs/validation";
 
 
@@ -11,7 +12,10 @@ import { ValidationFailed } from "@spinajs/validation";
 @NewInstance()
 export class FileValidationMiddleware extends FileUploadMiddleware {
     @Logger('http')
-    protected Log: Log;
+    protected Log!: Log;
+
+    @Autoinject()
+    protected FileInfo!: FileInfoService;
 
     constructor(protected Rules: FileValidationRules) {
         super();
@@ -19,10 +23,65 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
 
 
     public async beforeUpload(file: IUploadedFile<any>, _paramOptions: IUploadOptions): Promise<any> {
+        // No rules configured -> nothing to validate (and guards against a
+        // TypeError if the middleware is resolved without an options object).
+        if (!this.Rules) {
+            return file;
+        }
+
+        await this.ensureFileInfo(file);
+
+        this.validateSize(file);
         this.validateType(file);
         this.validateProportions(file);
         this.validateResolution(file);
         return file;
+    }
+
+    /**
+     * Type / proportion / resolution rules need content-detected metadata
+     * (`file.Info`). It is normally populated by FileInfoMiddleware, but only
+     * when the `fileInfo` upload option is set. Fetch it here when it's missing
+     * so validation works regardless of upload options — otherwise every rule
+     * would fail with a misleading "unable to determine ..." error.
+     */
+    protected async ensureFileInfo(file: IUploadedFile<any>) {
+        const needsInfo = !!(this.Rules.types?.length || this.Rules.proportions || this.Rules.resolution);
+        if (!needsInfo || file.Info) {
+            return;
+        }
+
+        if (this.FileInfo && file.OriginalFile?.filepath) {
+            file.Info = await this.FileInfo.getInfo(file.OriginalFile.filepath);
+        }
+    }
+
+    protected validateSize(file: IUploadedFile<any>) {
+        if (!this.Rules.size) {
+            return;
+        }
+
+        const { min, max } = this.Rules.size;
+
+        if (min !== undefined && file.Size < min) {
+            throw new ValidationFailed('validation error', [{
+                instancePath: '/file/size',
+                schemaPath: '#/properties/file/size',
+                keyword: 'size',
+                params: { min, actual: file.Size },
+                message: `File size must be at least ${min} bytes. Got: ${file.Size} bytes`
+            }]);
+        }
+
+        if (max !== undefined && file.Size > max) {
+            throw new ValidationFailed('validation error', [{
+                instancePath: '/file/size',
+                schemaPath: '#/properties/file/size',
+                keyword: 'size',
+                params: { max, actual: file.Size },
+                message: `File size must be at most ${max} bytes. Got: ${file.Size} bytes`
+            }]);
+        }
     }
 
     protected validateType(file: IUploadedFile<any>) {
@@ -172,16 +231,6 @@ export class FileValidationMiddleware extends FileUploadMiddleware {
                 keyword: 'resolution',
                 params: { expected: this.Rules.resolution?.maxWidth, actual: file.Info!.Width },
                 message: `Image width must be lower than ${this.Rules.resolution?.maxWidth}px. Got: ${file.Info!.Width}px`
-            }]);
-        }
-
-        if (file.Info!.Height > this.Rules.resolution?.maxHeight!) {
-            throw new ValidationFailed('validation error', [{
-                instancePath: '/file/height',
-                schemaPath: '#/properties/file/resolution/height',
-                keyword: 'resolution',
-                params: { expected: this.Rules.resolution?.maxHeight, actual: file.Info!.Height },
-                message: `Image height must be lower than ${this.Rules.resolution?.maxHeight}px. Got: ${file.Info!.Height}px`
             }]);
         }
     }

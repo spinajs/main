@@ -86,9 +86,20 @@ const http = {
       helmet(),
       express.json({
         limit: '5mb',
+        // Capture the exact received bytes for the @RawBody() route arg
+        // (webhook signature verification needs the unmodified body).
+        verify: (req: any, _res: any, buf: Buffer) => {
+          req.rawBody = buf;
+        },
       }),
       express.urlencoded({
         extended: true,
+      }),
+      // Parse XML request bodies as text so the @FromXml() route arg can read
+      // and parse them. Covers application/xml, text/xml and *+xml types.
+      express.text({
+        type: ['application/xml', 'text/xml', 'application/*+xml'],
+        limit: '5mb',
       }),
       cookieParser(),
       compression(),

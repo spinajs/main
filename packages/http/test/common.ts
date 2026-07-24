@@ -116,9 +116,16 @@ export class TestConfiguration extends FrameworkConfiguration {
           (helmet as any)(),
           express.json({
             limit: '5mb',
+            verify: (req: any, _res: any, buf: Buffer) => {
+              req.rawBody = buf;
+            },
           }),
           express.urlencoded({
             extended: true,
+          }),
+          express.text({
+            type: ['application/xml', 'text/xml', 'application/*+xml'],
+            limit: '5mb',
           }),
           cookieParser(),
           compression(),
