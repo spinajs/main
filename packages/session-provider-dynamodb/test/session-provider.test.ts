@@ -8,6 +8,7 @@ import { DynamoDbSessionProvider } from '../src/index.js';
 import { UserSession as Session } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 import { runSessionProviderConformance, IConformanceExpiration } from '../../rbac/test/conformance/session-provider-conformance.js';
+import { GetItemCommand, PutItemCommand, DeleteItemCommand, ScanCommand, DescribeTableCommand, CreateTableCommand, UpdateTimeToLiveCommand, DeleteTableCommand } from '@aws-sdk/client-dynamodb';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -55,49 +56,61 @@ export class ConnectionConf extends FrameworkConfiguration {
 }
 
 /**
- * Stateful in-memory fake of the aws-sdk v2 `AWS.DynamoDB` client. Keyed by
- * SessionId, storing raw DynamoDB attribute-value item maps. Implements only the
- * methods the provider uses; every call returns the v2 `{ promise() }` shape.
- * Table-admin calls are honored just enough (`deleteTable` clears the store) so
+ * Stateful in-memory fake of the AWS SDK v3 `DynamoDBClient`. Keyed by
+ * SessionId, storing raw DynamoDB attribute-value item maps. Exposes a single
+ * `send(command)` method that dispatches on the command type (the v3 call style)
+ * instead of v2's named methods. Attribute-value shapes (`{ S }`, `{ N }`) are
+ * identical between v2 and v3, so item marshalling is unchanged. Table-admin
+ * commands are honored just enough (`DeleteTableCommand` clears the store) so
  * `truncate()` works without an external service.
  */
 export function createFakeDynamo() {
   const store = new Map<string, any>();
-  const ok = (value: any = {}) => ({ promise: () => Promise.resolve(value) });
 
   return {
-    // table admin — no-ops, except deleteTable which clears the store
-    describeTable: () => ok({}),
-    createTable: () => ok({}),
-    updateTimeToLive: () => ok({}),
-    deleteTable: () => {
-      store.clear();
-      return ok({});
-    },
-
-    getItem: (params: any) => ok({ Item: store.get(params.Key.SessionId.S) }),
-
-    putItem: (params: any) => {
-      store.set(params.Item.SessionId.S, params.Item);
-      return ok({});
-    },
-
-    deleteItem: (params: any) => {
-      store.delete(params.Key.SessionId.S);
-      return ok({});
-    },
-
-    scan: (params: any) => {
-      let items = Array.from(store.values());
-      const vals = params?.ExpressionAttributeValues;
-
-      // honor the provider's `UserId = :uid` server-side filter
-      if (params?.FilterExpression && vals && vals[':uid']) {
-        const uid = vals[':uid'].N;
-        items = items.filter((it) => it.UserId && it.UserId.N === uid);
+    send(command: any): Promise<any> {
+      // table admin — no-ops, except DeleteTableCommand which clears the store
+      if (command instanceof DescribeTableCommand || command instanceof CreateTableCommand || command instanceof UpdateTimeToLiveCommand) {
+        return Promise.resolve({});
       }
 
-      return ok({ Items: items });
+      if (command instanceof DeleteTableCommand) {
+        store.clear();
+        return Promise.resolve({});
+      }
+
+      if (command instanceof GetItemCommand) {
+        const input = command.input as any;
+        return Promise.resolve({ Item: store.get(input.Key.SessionId.S) });
+      }
+
+      if (command instanceof PutItemCommand) {
+        const input = command.input as any;
+        store.set(input.Item.SessionId.S, input.Item);
+        return Promise.resolve({});
+      }
+
+      if (command instanceof DeleteItemCommand) {
+        const input = command.input as any;
+        store.delete(input.Key.SessionId.S);
+        return Promise.resolve({});
+      }
+
+      if (command instanceof ScanCommand) {
+        const input = command.input as any;
+        let items = Array.from(store.values());
+        const vals = input.ExpressionAttributeValues;
+
+        // honor the provider's `UserId = :uid` server-side filter
+        if (input.FilterExpression && vals && vals[':uid']) {
+          const uid = vals[':uid'].N;
+          items = items.filter((it) => it.UserId && it.UserId.N === uid);
+        }
+
+        return Promise.resolve({ Items: items });
+      }
+
+      return Promise.reject(new Error(`Fake DynamoDBClient received an unsupported command: ${command?.constructor?.name}`));
     },
   };
 }

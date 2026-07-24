@@ -1,4 +1,17 @@
-import AWS from 'aws-sdk';
+import { readFileSync } from 'fs';
+import {
+  DynamoDBClient,
+  DynamoDBClientConfig,
+  GetItemCommand,
+  PutItemCommand,
+  DeleteItemCommand,
+  ScanCommand,
+  DescribeTableCommand,
+  CreateTableCommand,
+  UpdateTimeToLiveCommand,
+  DeleteTableCommand,
+  AttributeValue,
+} from '@aws-sdk/client-dynamodb';
 import { DateTime } from 'luxon';
 
 import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/rbac';
@@ -6,13 +19,15 @@ import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 
+type AttributeMap = Record<string, AttributeValue>;
+
 /**
  * DynamoDB-backed session store. Conforms to the `@spinajs/rbac`
  * `SessionProvider` contract: ownership is the numeric `UserId` (persisted as
  * its own top-level attribute), expiration is owned by the injected strategy
  * (`this.Expiration`) and persisted verbatim, and `Data` is (de)serialized with
- * the shared session codec. Stays on `aws-sdk` v2 (`new AWS.DynamoDB(...)` +
- * `.promise()`).
+ * the shared session codec. Uses the AWS SDK for JavaScript v3
+ * (`new DynamoDBClient(...)` + command objects dispatched through `.send()`).
  */
 @Injectable(SessionProvider)
 export class DynamoDbSessionProvider extends SessionProvider {
@@ -38,16 +53,21 @@ export class DynamoDbSessionProvider extends SessionProvider {
   })
   protected WriteCapacityUnits: any;
 
-  protected DynamoDb: AWS.DynamoDB;
+  protected DynamoDb: DynamoDBClient;
 
   public async resolve() {
+    // v3 has no global `AWS.config` / `loadFromPath` — the whole configuration
+    // (region, endpoint, credentials) is passed straight into the client
+    // constructor. `configPath` is read here and merged in ourselves.
+    let cfg: DynamoDBClientConfig = {};
+
     if (this.ConfigPath) {
-      AWS.config.loadFromPath(this.ConfigPath);
+      cfg = { ...cfg, ...JSON.parse(readFileSync(this.ConfigPath, 'utf-8')) };
     } else if (this.AwsConfig) {
-      AWS.config.update(this.AwsConfig);
+      cfg = { ...cfg, ...this.AwsConfig };
     }
 
-    this.DynamoDb = new AWS.DynamoDB({ apiVersion: '2012-08-10' });
+    this.DynamoDb = new DynamoDBClient(cfg);
 
     const table = await this.checkSessionTable();
     if (!table) {
@@ -57,12 +77,14 @@ export class DynamoDbSessionProvider extends SessionProvider {
   }
 
   public async restore(sessionId: string): Promise<ISession | null> {
-    const result = await this.DynamoDb.getItem({
-      TableName: this.Table,
-      Key: {
-        SessionId: { S: sessionId },
-      },
-    }).promise();
+    const result = await this.DynamoDb.send(
+      new GetItemCommand({
+        TableName: this.Table,
+        Key: {
+          SessionId: { S: sessionId },
+        },
+      }),
+    );
 
     if (!result.Item) {
       return null;
@@ -86,7 +108,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       this.applyInitialExpiration(session);
     }
 
-    const item: AWS.DynamoDB.PutItemInputAttributeMap = {
+    const item: AttributeMap = {
       SessionId: { S: session.SessionId },
       // ownership source of truth — a top-level numeric attribute (fixes B4).
       UserId: { N: `${session.UserId}` },
@@ -100,10 +122,12 @@ export class DynamoDbSessionProvider extends SessionProvider {
       item.Expiration = { N: `${session.Expiration.toMillis()}` };
     }
 
-    await this.DynamoDb.putItem({
-      TableName: this.Table,
-      Item: item,
-    }).promise();
+    await this.DynamoDb.send(
+      new PutItemCommand({
+        TableName: this.Table,
+        Item: item,
+      }),
+    );
   }
 
   public async touch(session: ISession): Promise<boolean> {
@@ -122,12 +146,14 @@ export class DynamoDbSessionProvider extends SessionProvider {
   }
 
   public async delete(sessionId: string): Promise<void> {
-    await this.DynamoDb.deleteItem({
-      TableName: this.Table,
-      Key: {
-        SessionId: { S: sessionId },
-      },
-    }).promise();
+    await this.DynamoDb.send(
+      new DeleteItemCommand({
+        TableName: this.Table,
+        Key: {
+          SessionId: { S: sessionId },
+        },
+      }),
+    );
   }
 
   public async deleteByUser(userId: number): Promise<void> {
@@ -153,19 +179,21 @@ export class DynamoDbSessionProvider extends SessionProvider {
     await this.updateTimeToLive();
   }
 
-  protected async scanByUser(userId: number): Promise<AWS.DynamoDB.AttributeMap[]> {
-    const result = await this.DynamoDb.scan({
-      TableName: this.Table,
-      FilterExpression: 'UserId = :uid',
-      ExpressionAttributeValues: {
-        ':uid': { N: `${userId}` },
-      },
-    }).promise();
+  protected async scanByUser(userId: number): Promise<AttributeMap[]> {
+    const result = await this.DynamoDb.send(
+      new ScanCommand({
+        TableName: this.Table,
+        FilterExpression: 'UserId = :uid',
+        ExpressionAttributeValues: {
+          ':uid': { N: `${userId}` },
+        },
+      }),
+    );
 
     return result.Items ?? [];
   }
 
-  protected toSession(item: AWS.DynamoDB.AttributeMap): ISession {
+  protected toSession(item: AttributeMap): ISession {
     return new UserSession({
       SessionId: item.SessionId.S!,
       UserId: item.UserId ? parseInt(item.UserId.N!, 10) : 0,
@@ -183,44 +211,51 @@ export class DynamoDbSessionProvider extends SessionProvider {
   }
 
   protected updateTimeToLive() {
-    return this.DynamoDb.updateTimeToLive({
-      TableName: this.Table,
-      TimeToLiveSpecification: {
-        AttributeName: 'Expiration',
-        Enabled: true,
-      },
-    }).promise();
+    return this.DynamoDb.send(
+      new UpdateTimeToLiveCommand({
+        TableName: this.Table,
+        TimeToLiveSpecification: {
+          AttributeName: 'Expiration',
+          Enabled: true,
+        },
+      }),
+    );
   }
 
   protected createSessionTable() {
-    return this.DynamoDb.createTable({
-      TableName: this.Table,
-      AttributeDefinitions: [
-        {
-          AttributeName: 'SessionId',
-          AttributeType: 'S',
+    return this.DynamoDb.send(
+      new CreateTableCommand({
+        TableName: this.Table,
+        AttributeDefinitions: [
+          {
+            AttributeName: 'SessionId',
+            AttributeType: 'S',
+          },
+        ],
+        KeySchema: [
+          {
+            AttributeName: 'SessionId',
+            KeyType: 'HASH',
+          },
+        ],
+        ProvisionedThroughput: {
+          ReadCapacityUnits: this.ReadCapacityUnits,
+          WriteCapacityUnits: this.WriteCapacityUnits,
         },
-      ],
-      KeySchema: [
-        {
-          AttributeName: 'SessionId',
-          KeyType: 'HASH',
-        },
-      ],
-      ProvisionedThroughput: {
-        ReadCapacityUnits: this.ReadCapacityUnits,
-        WriteCapacityUnits: this.WriteCapacityUnits,
-      },
-    }).promise();
+      }),
+    );
   }
 
   protected async checkSessionTable() {
     try {
-      return await this.DynamoDb.describeTable({
-        TableName: this.Table,
-      }).promise();
+      return await this.DynamoDb.send(
+        new DescribeTableCommand({
+          TableName: this.Table,
+        }),
+      );
     } catch (err) {
-      if (err.code === 'ResourceNotFoundException') {
+      // v3 surfaces the error class name via `err.name` (v2 used `err.code`).
+      if (err.name === 'ResourceNotFoundException') {
         return null;
       }
 
@@ -229,8 +264,10 @@ export class DynamoDbSessionProvider extends SessionProvider {
   }
 
   protected async deleteSessionTable() {
-    await this.DynamoDb.deleteTable({
-      TableName: this.Table,
-    }).promise();
+    await this.DynamoDb.send(
+      new DeleteTableCommand({
+        TableName: this.Table,
+      }),
+    );
   }
 }
