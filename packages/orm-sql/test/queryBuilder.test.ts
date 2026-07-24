@@ -864,6 +864,13 @@ describe('Select query builder', () => {
     expect(result.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` GROUP BY DATE(`CreatedAt`)');
   });
 
+  it('clone() preserves group by (B18)', () => {
+    const query = sqb().groupBy('Category').from('roles').columns(['id', 'parent_id', 'slug']);
+    const cloned = query.clone().toDB();
+
+    expect(cloned.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` GROUP BY `Category`');
+  });
+
   it('wrap where date', () => {
     const result = sqb().from('roles').where(Wrapper.Date('CreatedAt'), 'abc').columns(['id', 'parent_id', 'slug']).toDB();
     expect(result.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE DATE(`CreatedAt`) = ?');
