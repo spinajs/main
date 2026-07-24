@@ -277,6 +277,13 @@ export interface IRbacModelDescriptor extends IModelDescriptor {
   RbacResource: string;
 
   OwnerField: string;
+
+  /**
+   * Where the :own rbac constraints land when the model is populated as a relation:
+   * - 'where' ( default ) - parent query WHERE, effectively narrowing a LEFT JOIN to an inner one
+   * - 'join' - the relation LEFT JOIN ON clause, parent rows are kept and non matching relation rows are null
+   */
+  RbacRelationScope?: 'where' | 'join';
 }
 
 /**

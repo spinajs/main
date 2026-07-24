@@ -104,12 +104,26 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
               return;
             } else if (canOwn) {
               this.Log.trace(`Resource ${resource}:own permission granted for ${storage.User.Role}, scope: ${storage.PermissionScope}`);
+
+              const user = storage.User;
+              // 'join' scope: :own constraints go to the relation LEFT JOIN ON clause
+              // instead of parent WHERE ( on root queries whereOnJoin acts as plain WHERE )
+              const joinScoped = descriptor.RbacRelationScope === 'join';
+
               if (rbacFunc) {
                 this.Log.trace(`Applying custom rbac func for ${resource}`);
-                rbacFunc.call(builder, storage.User);
+                if (joinScoped) {
+                  builder.whereOnJoin(() => rbacFunc.call(builder, user));
+                } else {
+                  rbacFunc.call(builder, user);
+                }
               } else if (descriptor.OwnerField) {
                 this.Log.trace(`Applying owner field restriction for ${resource}`);
-                builder.andWhere(descriptor.OwnerField, storage.User.PrimaryKeyValue);
+                if (joinScoped) {
+                  builder.whereOnJoin(() => builder.andWhere(descriptor.OwnerField, user.PrimaryKeyValue));
+                } else {
+                  builder.andWhere(descriptor.OwnerField, user.PrimaryKeyValue);
+                }
               } else {
                 this.Log.error(`Model ${descriptor.Name} does not have OwnerField set or static rbac function, cannot apply :own permission`); throw new OrmException(`Model ${descriptor.Name} does not have OwnerField set, cannot apply :own permission`);
               }

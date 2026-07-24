@@ -117,6 +117,9 @@ export class TestConfiguration extends FrameworkConfiguration {
             Test: {
               'read:own': ['*'],
             },
+            clients: {
+              'read:own': ['*'],
+            },
           },
         },
         defaultRole: 'guest',
