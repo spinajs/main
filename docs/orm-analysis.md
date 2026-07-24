@@ -291,3 +291,27 @@ Multi-column ORDER BY (`OrderByBuilder` accumulates; `getSort()` kept for dialec
 
 ### Deferred to iteration 2+ (separate plan & approval)
 B2 (per-statement WHERE boolean), B8/B9/B19 (execution-model refactor), B24 (transaction auto-commit + contract), B12/B13 (batch-insert/upsert bindings), B18 (`clone()` completeness), A3 (identifier escaping), plus feature gaps: locking clauses, composite PKs, savepoints, RETURNING emulation.
+
+---
+
+## 7. Changelog — iteration 2 (branch `orm-fixes-2`, "safe correctness tier")
+
+Four commits off the `orm-fixes-1` tip, red-first tests throughout. Suite deltas from the iteration-1 end state: `orm` 113 pass (unchanged — only `builders.ts` touched, no new orm tests beyond B18), `orm-sql` 131→146 pass, `orm-sqlite` 42→43 pass — all with the **same** pre-existing failures (orm 2, orm-sql 7, orm-sqlite 8). orm-mysql and orm-mssql are compile-verified only (no live DB); `orm-api`/`orm-http` compile clean.
+
+- **`ba20ee674` — B12/B13 (insert & upsert compiler):** multi-row insert column/value alignment (auto-increment PK column no longer desyncs from value tuples on mixed batches); `ON DUPLICATE KEY UPDATE` now emits `col = VALUES(col)` instead of binding only row 0, and RawQuery update bindings are flattened (were nested).
+- **`ca91d3fb5` — B18 (`clone()` completeness):** `SelectQueryBuilder.clone()` now carries `_groupStatements` (cloned), `_relations`, and `_middlewares` — a cloned query no longer silently loses its GROUP BY (e.g. orm-api count-pagination) or populated relations.
+- **`00a81987f` — B2 (per-statement WHERE/HAVING boolean):** the AND/OR connector is now stamped on each statement at push time instead of a single builder-level `Op` applied uniformly. The JOIN `ON`-clause builder was routed through the same logic.
+- **`92ea0c596` — A3 (central identifier escaping):** added `escapeIdentifier` / `escapeStringLiteral` helpers (orm-sql) and routed table/column/alias/schema/FK-DDL identifiers and DDL string literals (SET/ENUM/COMMENT/CHARSET/COLLATE/DEFAULT) through them.
+
+### Breaking / behavior changes
+- **Mixed `andWhere`/`orWhere` now group per-statement** — `where(a).where(b).orWhere(c)` compiles to `a AND b OR c` (was: `a OR b OR c`, the last-set connector rewrote the whole clause). Any query mixing AND/OR may change generated SQL to the correct grouping.
+- **Upsert binds every conflicting row** via `VALUES(col)` rather than row 0's values — multi-row `insertOrUpdate` semantics change.
+- **Foreign-key DDL is now backtick-quoted** (was unquoted); identifiers containing a backtick are now escaped rather than breaking the statement.
+
+### A3 is intentionally partial (byte-identity constraint)
+To keep generated SQL byte-identical for normal identifiers (protecting the existing assertion suites), several **descriptor-sourced** sites that existing tests assert unquoted were deliberately left unescaped: JOIN `ON` key columns (alias qualifiers *are* escaped), the recursive-CTE column list, `DROP COLUMN` names, and the table-history/event compilers. These take identifiers from validated model descriptors, not user input, so injection risk is low; the injection-reachable high-risk sites (previously-unquoted FK DDL, table/alias/schema names, DDL string literals) are all covered. orm-mssql was routed through the shared backtick escaper rather than given a true `[bracket]` override (a bracket dialect is now a one-function change). A full sweep of the remaining sites is follow-up work.
+
+### Still deferred to iteration 3+ (pre-decided semantics)
+- **Execution-model refactor (A1/B8/B9/B19)** — memoized execute-once promise (**decided: second await returns the cached result; `toDB()` idempotent**), remove in-place `_middlewares.reverse()` and compile side-effects.
+- **Transaction API (B24)** — **decided: `transaction(callback)` auto-commits on success, rolls back on throw; keep explicit begin/commit as the low-level API**; formalize tx-context in the `OrmDriver` contract; fix double-release.
+- **Tier-4 features** — `FOR UPDATE`/`FOR SHARE` locking, composite primary keys, savepoints, RETURNING emulation (dead `.returning()` API exists at `builders.ts:1555`).
