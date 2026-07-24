@@ -32,8 +32,11 @@ export function metricsHandler(metrics: Metrics): (req: MinimalRequest, res: IMi
  * Build the JSON stats handler.
  *
  * Writes `{ all: RequestStats.toJSON(), timeline: Timeline.toJSON() }` read
- * from the shared telemetry store — the same aggregates the JSON controller
- * serves, so a hand-mounted endpoint and `GET /telemetry/stats` cannot diverge.
+ * from the shared telemetry store — the same counters `GET /telemetry/stats`
+ * serves. The rate fields differ though: only the controller endpoint calls
+ * `RequestStats.updateRates( ... )`, and because that MUTATES the shared
+ * `RequestStats`, the `req_rate` / `err_rate` this handler emits are whatever
+ * the last `/telemetry/stats` call left behind ( `0` if nobody has called it ).
  */
 export function statsHandler(store: TelemetryStore): (req: MinimalRequest, res: IMinimalResponse) => void {
   return (_req: MinimalRequest, res: IMinimalResponse): void => {

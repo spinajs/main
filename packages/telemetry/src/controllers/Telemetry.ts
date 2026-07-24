@@ -73,12 +73,18 @@ export class TelemetryController extends BaseController {
       .map((k) => Number(k))
       .sort((a, b) => a - b);
 
-    if (buckets !== undefined && buckets !== null && buckets !== '') {
+    // Only a genuinely ABSENT `buckets` means "all of them". An explicitly empty
+    // `?buckets=` is a supplied value that is not a positive integer, so it is
+    // rejected like every other invalid one rather than silently meaning "all".
+    if (buckets !== undefined && buckets !== null) {
       // Taken as a string and parsed here rather than declared `number` and left
       // to the decorator's schema: a query value arrives as a string, and how the
       // framework coerces a non-numeric one ( `Number( 'abc' )` -> NaN, rejected
       // by the arg validator with a generic message ) is not something this
       // endpoint's contract should depend on.
+      //
+      // `Number( '' )` is 0, not NaN, so the empty string falls through to the
+      // `count < 1` rejection below on its own.
       const count = Number(buckets);
 
       if (!Number.isInteger(count) || count < 1) {

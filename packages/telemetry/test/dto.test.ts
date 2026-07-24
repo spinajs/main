@@ -37,3 +37,18 @@ describe('telemetry response DTOs', () => {
     }
   });
 });
+
+describe('telemetry public barrel', () => {
+  /**
+   * The controllers are found and mounted by reflection's file scan of
+   * `dist/controllers`. Re-exporting them from the package barrel would import
+   * the modules a SECOND time under a different specifier, and every route
+   * would end up registered twice. Nothing but review guards that, so pin it.
+   */
+  it('does not export the controllers', async () => {
+    const barrel = await import('./../src/index.js');
+
+    expect(Object.keys(barrel)).to.not.include('TelemetryController');
+    expect(Object.keys(barrel)).to.not.include('MetricsController');
+  });
+});

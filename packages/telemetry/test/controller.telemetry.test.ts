@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI, Bootstrapper, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { BaseController, Controllers, HttpServer } from '@spinajs/http';
+import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { Perf } from '@spinajs/log';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 
@@ -199,22 +199,37 @@ describe('telemetry json api', function () {
     });
 
     it('limits to the LAST n buckets when asked', async () => {
-      const all = await guarded('telemetry/timeline');
+      const newest = (body: any) => body.buckets[body.buckets.length - 1].key;
+
+      const before = await guarded('telemetry/timeline');
       const res = await guarded('telemetry/timeline?buckets=1');
+      const after = await guarded('telemetry/timeline');
 
       expect(res).to.have.status(200);
       expect(res.body.buckets).to.have.length(1);
-      expect(res.body.buckets[0].key).to.eq(all.body.buckets[all.body.buckets.length - 1].key);
+
+      // there must be something to limit, or "the last one" proves nothing
+      expect(before.body.buckets.length, 'more than one bucket must exist').to.be.at.least(2);
+
+      // Wall clock can cross a minute boundary between the calls, which opens a
+      // NEW newest bucket. So the limited response has to match the newest bucket
+      // as seen on either side of it — but never an older one, which is exactly
+      // what taking the tail rather than the head has to prove.
+      expect([newest(before.body), newest(after.body)]).to.include(res.body.buckets[0].key);
     });
 
     it('rejects a bucket count that is not a positive integer', async () => {
       // The mapped 400 degrades to 500 in this harness ( see the auth note above ),
       // so assert the rejection plus the reason this endpoint itself produced.
-      for (const value of ['abc', '0', '-1', '1.5']) {
+      //
+      // '' covers `?buckets=` — a value that WAS supplied and is not a positive
+      // integer, so it is rejected like the rest instead of silently meaning
+      // "all buckets". Omitting the parameter entirely still means "all".
+      for (const value of ['abc', '0', '-1', '1.5', '']) {
         const res = await guarded(`telemetry/timeline?buckets=${value}`);
 
-        expect(res.status, `buckets=${value} must be rejected`).to.be.at.least(400);
-        expect(JSON.stringify(res.body), `buckets=${value}`).to.contain('buckets must be a positive integer');
+        expect(res.status, `buckets='${value}' must be rejected`).to.be.at.least(400);
+        expect(JSON.stringify(res.body), `buckets='${value}'`).to.contain('buckets must be a positive integer');
       }
     });
   });
@@ -302,6 +317,24 @@ describe('telemetry json api', function () {
    * pipeline, so a request served by this very server shows up in the endpoints.
    */
   describe('live traffic', () => {
+    /**
+     * The hand-assignment in `before()` works around the reflection memo, but it
+     * would also mask the very defect this store exists to fix: with the
+     * controller pointed at the shared store by hand, every other assertion here
+     * still passes even if `TelemetryStore` were not a `@Singleton()` at all.
+     *
+     * The mounted MIDDLEWARE is not re-pointed — it is freshly resolved on every
+     * boot — so asserting that ITS store is the container's singleton pins the
+     * sharing by construction, in a way no hand-assignment can fake.
+     */
+    it('the mounted middleware and the DI container share one TelemetryStore', async () => {
+      const mws = (await DI.resolve(Array.ofType(ServerMiddleware))) as any[];
+      const mounted = mws.find((m) => m.constructor.name === 'TelemetryMiddleware');
+
+      expect(mounted, 'TelemetryMiddleware should be mounted').to.not.be.undefined;
+      expect((mounted as any).Store).to.eq(await DI.resolve(TelemetryStore));
+    });
+
     it('counts requests served by the server itself', async () => {
       const before = await guarded('telemetry/stats');
       await json('telemetry/health');
