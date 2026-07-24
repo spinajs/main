@@ -129,7 +129,7 @@ absent; no `C:\Program Files\Docker`). Task 8's live-database verification canno
 
 **Why this is a bug, not a refactor.** The current `then()` invokes `onfulfilled?.(result)` for its side effect and then `return;` on several branches (builders.ts:78-79 among others), so the value a caller returns from `.then(cb)` is discarded. That is B9. Chained `.then()` calls silently produce `undefined`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 it('then() propagates the callback return value down the chain (B9)', async () => {
@@ -153,12 +153,12 @@ it('execute() runs the query once no matter how many times it is awaited', async
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd packages/orm-sql && npx ts-mocha -p tsconfig.json test/queryBuilder.test.ts -g "B9|executes the query once"`
 Expected: first test FAILS with `expected undefined to equal 'transformed'`; second FAILS with the driver called three times.
 
-- [ ] **Step 3: Extract the engine into `execute()`**
+- [x] **Step 3: Extract the engine into `execute()`**
 
 Move the whole body of `QueryBuilder.then()` into `protected async _run(): Promise<T>`, then:
 
@@ -182,7 +182,7 @@ public then<TResult1 = T, TResult2 = never>(
 
 `_run()` must `return` its values rather than calling `onfulfilled` for effect — the callback plumbing disappears entirely, because the native promise chain now does that job. Drop the manual `catch`/`onrejected` forwarding for the same reason.
 
-- [ ] **Step 4: Rework `SelectQueryBuilder`**
+- [x] **Step 4: Rework `SelectQueryBuilder`**
 
 `SelectQueryBuilder.then()` (line 1370) currently overrides `then` to apply `_first` unwrapping and to fire `_queryMiddlewares.beforeQueryExecution`. Both move into an `execute()` override:
 
@@ -201,12 +201,12 @@ Delete the `then()` override — the inherited delegate is now correct. Keep `al
 
 Note `beforeQueryExecution` now runs inside the memo, so it fires once per builder rather than once per await. That is the intended fix, not a side effect.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `cd packages/orm-sql && npm test`
 Expected: the two new tests PASS; no failures beyond the Task 1 baseline names.
 
-- [ ] **Step 6: Run the dependent suites**
+- [x] **Step 6: Run the dependent suites**
 
 ```bash
 cd packages/orm && npm test
@@ -214,7 +214,7 @@ cd ../orm-sqlite && npm test
 ```
 Expected: no new failures. `first()`, `firstOrFail()`, `orThrow()` and `resultExists()` all route through the changed code — if any break, the `_first` unwrapping moved to the wrong place.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/orm/src/builders.ts packages/orm-sql/test/queryBuilder.test.ts
@@ -235,7 +235,7 @@ git commit -m "fix(orm): execute-once query builder, then() delegates (F1, B9)"
 
 **The bug.** `for (const middleware of this._middlewares.reverse())` reverses the array **in place**. `Array.prototype.reverse` mutates. Every execution flips middleware order, so `modelCreation` resolution order alternates between runs. Combined with `mergeRelations()` concatenating middleware arrays across builders, this is B8.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 it('does not mutate the middleware array during execution (B8)', async () => {
@@ -262,12 +262,12 @@ it('toDB() is idempotent (B19)', () => {
 
 `fakeMiddleware(name)` returns an object implementing `IBuilderMiddleware` whose `modelCreation` returns `null`, `afterQuery` returns its argument unchanged, and `afterHydration` resolves. Add it to the test file's helpers if no equivalent exists.
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd packages/orm-sql && npx ts-mocha -p tsconfig.json test/queryBuilder.test.ts -g "B8|B19"`
 Expected: the B8 test FAILS showing the array reversed.
 
-- [ ] **Step 3: Snapshot the pipeline per execution**
+- [x] **Step 3: Snapshot the pipeline per execution**
 
 At the top of `_run()`, take one immutable copy and use it throughout:
 
@@ -278,16 +278,16 @@ const creationOrder = [...middlewares].reverse();
 
 Use `middlewares` for `afterQuery` and `afterHydration`, `creationOrder` for the `modelCreation` loop. Never call `.reverse()` on `this._middlewares`.
 
-- [ ] **Step 4: Make `toDB()` side-effect free**
+- [x] **Step 4: Make `toDB()` side-effect free**
 
 Audit `toDB()` and everything it calls for state mutation on the builder — appending to `_statements`, resolving relations, registering middlewares. Compilation must read builder state, not modify it. If a mutation is genuinely required (relation compilation), hoist it into `_run()` before compilation so it happens once per execution rather than once per `toDB()` call.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `cd packages/orm-sql && npm test && cd ../orm && npm test`
 Expected: both new tests PASS, no new failures.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/orm/src/builders.ts packages/orm-sql/test/queryBuilder.test.ts
@@ -341,7 +341,7 @@ export type TransactionCallback<R = void> = (driver: OrmDriver) => Promise<R>;
 
 **The bug (B24).** Every driver's `transaction()` today runs the callback and then *resolves with* `{ commit, rollback }` for the caller to invoke. Nothing commits unless the caller remembers, and nothing releases the pooled connection if they don't. The callback form must own the whole lifecycle.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Use a fake driver subclassing `OrmDriver` that records primitive calls into an array.
 
@@ -379,12 +379,12 @@ it('rejects an isolation level the driver does not support', async () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd packages/orm && npx ts-mocha -p tsconfig.json test/driver.test.ts`
 Expected: FAIL — `_begin` and friends do not exist.
 
-- [ ] **Step 3: Implement the template method on `OrmDriver`**
+- [x] **Step 3: Implement the template method on `OrmDriver`**
 
 ```ts
 public async transaction<R>(cb: TransactionCallback<R>, options?: ITransactionOptions): Promise<R> {
@@ -424,12 +424,12 @@ public async transaction<R>(cb: TransactionCallback<R>, options?: ITransactionOp
 
 Note `_dispose` in `finally` so the connection is released on every path exactly once, and `_rollback` swallowing its own error so a rollback failure cannot mask the original.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd packages/orm && npx ts-mocha -p tsconfig.json test/driver.test.ts`
 Expected: all five PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/orm/src/driver.ts packages/orm/src/interfaces.ts packages/orm/test/driver.test.ts
@@ -448,28 +448,28 @@ git commit -m "feat(orm): ORM-level transaction contract with auto-commit and sa
 - Consumes: the abstract members from Task 4.
 - Produces: `_begin`/`_commit`/`_rollback`/`_savepoint`/`_releaseSavepoint`/`_rollbackToSavepoint`/`_dispose` on the MySQL driver; `SupportedIsolationLevels` listing all four.
 
-- [ ] **Step 1: Delete the old `transaction()` override**
+- [x] **Step 1: Delete the old `transaction()` override**
 
 The base class now owns the flow. Everything from `public transaction(queryOrCallback?...)` through its closing brace goes.
 
-- [ ] **Step 2: Implement the primitives**
+- [x] **Step 2: Implement the primitives**
 
 `_begin` acquires a pooled connection (promisify `Pool.getConnection`), issues `SET TRANSACTION ISOLATION LEVEL ...` when `options.isolation` is set, then `connection.beginTransaction()`, and returns `{ connection, depth: 0 }`. `_commit`/`_rollback` call the mysql2 equivalents. The three savepoint primitives issue `SAVEPOINT ?` / `RELEASE SAVEPOINT ?` / `ROLLBACK TO SAVEPOINT ?` as literal SQL with the name inlined through the escaping helper from `92ea0c596` — savepoint names cannot be bound parameters. `_dispose` calls `connection.release()`.
 
 The existing `TransactionStorage` field on this driver is deleted; `executeOnDb` keeps reading `this.TransactionStorage.getStore()`, which now resolves to the inherited one.
 
-- [ ] **Step 3: Verify the ambient-context path still works**
+- [x] **Step 3: Verify the ambient-context path still works**
 
 `executeOnDb` picks `txContext?.connection ?? this.Pool`. Confirm the context shape is unchanged so that line needs no edit.
 
-- [ ] **Step 4: Build and run**
+- [x] **Step 4: Build and run**
 
 ```bash
 cd packages/orm-mysql && npm run build && npm test
 ```
 Expected: compiles; unit suite passes. Live-DB verification comes in Task 8.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/orm-mysql/src/index.ts
@@ -487,18 +487,18 @@ git commit -m "feat(orm-mysql): implement transaction primitives against the dri
 - Consumes: Task 4's abstract members.
 - Produces: the same seven primitives for SQLite.
 
-- [ ] **Step 1: Replace `transaction()` with primitives**
+- [x] **Step 1: Replace `transaction()` with primitives**
 
 SQLite has one shared handle, so the context carries no connection — `_begin` issues `BEGIN TRANSACTION` and returns `{ depth: 0 }`. Savepoints work natively: `SAVEPOINT sp_1` / `RELEASE sp_1` / `ROLLBACK TO sp_1`.
 
 `SupportedIsolationLevels` is `['SERIALIZABLE']` only — sqlite3 outside shared-cache mode gives serialized access and nothing else. Any other requested level must be rejected by the base class rather than silently ignored, which is exactly what Task 4's check does.
 
-- [ ] **Step 2: Run the suite**
+- [x] **Step 2: Run the suite**
 
 Run: `cd packages/orm-sqlite && npm test`
 Expected: no new failures against baseline.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/orm-sqlite/src/index.ts
@@ -518,16 +518,16 @@ git commit -m "feat(orm-sqlite): implement transaction primitives against the dr
 
 MSSQL is out of investment scope but the contract is abstract, so it must implement the primitives or the package will not compile.
 
-- [ ] **Step 1: Map the primitives onto `mssql`**
+- [x] **Step 1: Map the primitives onto `mssql`**
 
 `_begin` → `connectionPool.transaction()` + `transaction.begin(isolationLevel)`. `_commit`/`_rollback` → the `Transaction` methods. Savepoints → `SAVE TRANSACTION <name>` and `ROLLBACK TRANSACTION <name>`; MSSQL has no release, so `_releaseSavepoint` is a resolved no-op with a comment saying why. `_dispose` is a no-op — `mssql` manages its own pooling.
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `cd packages/orm-mssql && npm run build && npm test`
 Expected: compiles, suite passes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/orm-mssql/src/index.ts
@@ -546,15 +546,15 @@ git commit -m "feat(orm-mssql): implement transaction primitives to satisfy the 
 - Consumes: the transaction contract from Tasks 4-6.
 - Produces: `docker compose up -d mysql` plus `npm run test:integration`, which `orm-perf` later builds its benchmark harness on.
 
-- [ ] **Step 1: Write `docker-compose.yml`**
+- [x] **Step 1: Write `docker-compose.yml`**
 
 One `mysql:8` service on a non-default host port to avoid colliding with a local install, with a healthcheck and a named volume. Put it behind a compose profile so `docker compose up` without arguments does not start it.
 
-- [ ] **Step 2: Add the test scripts**
+- [x] **Step 2: Add the test scripts**
 
 `"test:integration": "ts-mocha -p tsconfig.json test/integration/**/*.test.ts"` in both packages. The existing `test` script must keep matching only `test/**/*.test.ts` at the top level, or CI without Docker will start failing — verify the glob does not pick up `test/integration/`. If it does, move the unit specs or tighten the glob.
 
-- [ ] **Step 3: Write the integration tests**
+- [x] **Step 3: Write the integration tests**
 
 Against a real database, asserting what the fakes cannot:
 
@@ -594,20 +594,41 @@ it('releases the pooled connection', async () => {
 
 The connection-release test is the one that actually proves B24 is fixed — set `PoolLimit` to something small like 2 so a leak deadlocks rather than passing quietly.
 
-- [ ] **Step 4: Run against MySQL and SQLite**
+- [~] **Step 4: Run against MySQL and SQLite** — **PARTIALLY BLOCKED**
 
 ```bash
 docker compose --profile test up -d mysql
 cd packages/orm-mysql  && npm run test:integration
 cd ../orm-sqlite       && npm run test:integration
 ```
-Expected: PASS on both.
 
-- [ ] **Step 5: Document it**
+- **SQLite: DONE, 7 passing.** Needs no container; the suite creates a temporary on-disk
+  database. Commit, rollback, savepoint nesting, no leaked `BEGIN` across 50 sequential
+  transactions, and isolation-level validation are all verified against a real database file.
+- **MySQL: BLOCKED — Docker is not installed on this machine.** `docker`, `docker compose`
+  and `docker info` are all absent and there is no `C:\Program Files\Docker`, so the container
+  cannot be started and no live MySQL exists on port 3900.
+
+  What was done instead:
+  - `docker-compose.yml` and `scripts/docker/mysql-init/01-databases.sql` are written and
+    ready — `docker compose --profile test up -d mysql` should be all that is needed.
+  - `packages/orm-mysql/test/integration/transaction.test.ts` is written in full and
+    **type-checks clean**; running it fails only with `ECONNREFUSED 127.0.0.1:3900`, i.e. it
+    gets as far as the missing server and no further.
+  - The behaviour it would prove is covered at unit level in
+    `packages/orm-mysql/test/transaction-unit.test.ts` (7 passing) against a stubbed `mysql2`
+    pool: connection acquired once, `commit`/`rollback` issued, `release()` called exactly
+    once on both paths, `SAVEPOINT` / `RELEASE SAVEPOINT` / `ROLLBACK TO SAVEPOINT` emitted
+    with the right SQL, and no connection acquired at all when the isolation level is rejected.
+
+  **To unblock:** install Docker Desktop, then run the three commands above. No code change
+  is expected to be needed.
+
+- [x] **Step 5: Document it**
 
 A short `## Running integration tests` section in the repo README: start the container, set the env vars, run the script.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docker-compose.yml packages/orm-mysql packages/orm-sqlite README.md
