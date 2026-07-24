@@ -24,39 +24,125 @@ SpinaJS's DI + middleware conventions. It provides:
 - **`RequestStats`** — pure status-class counters (1xx..5xx), error rate, request
   rate, response-time min/max/avg, and **Apdex**.
 - **`Timeline`** — a rolling ring of `RequestStats` buckets (default 60 x 1 min).
-- **endpoint handlers** — `metricsHandler(metrics)` (the Prometheus `/metrics`
-  scrape endpoint) and `statsHandler(store)` (a JSON stats snapshot). Both are plain
-  `(req, res)` handlers a consumer wires into their own router.
+- **`RouteStats`** — a bounded per method+route breakdown.
+- **controllers** — `/metrics` (Prometheus exposition) and a `/telemetry/*` JSON
+  API, each guarded by a policy named in configuration. Registered automatically;
+  the response DTOs carry schemas, so they show up in the generated OpenAPI
+  document when `@spinajs/http-swagger` is installed.
+- **`HealthCheck`** — the abstract readiness probe backing `/telemetry/ready`.
+  The package ships no concrete checks; you register your own.
+- **endpoint handlers** — `metricsHandler(metrics)` and `statsHandler(store)`,
+  plain `(req, res)` handlers for apps that do not use the SpinaJS controller
+  stack. Not needed otherwise; the controllers above cover it.
 
 The registry is **isolated** (not `prom-client`'s global default), so multiple
 SpinaJS apps in one process — and repeated init in tests — stay independent.
+
+> Replacing `@spinajs/metrics`? Read
+> [`docs/migrations/2026-07-23-metrics-to-telemetry.md`](../../docs/migrations/2026-07-23-metrics-to-telemetry.md)
+> first — the http metric series are renamed **and** their unit changed from
+> seconds to milliseconds, which takes dashboards down silently.
 
 ---
 
 ## Quick start
 
-Expose the two endpoints from your own router. `TelemetryMiddleware` is picked up
-by the HTTP server automatically (it is a `ServerMiddleware`); it lazily defines
-its metric set on the first request.
+Install the package. The controllers, middleware, perf bridge and default
+process metrics are wired automatically; set the auth token and you are done.
+
+```ts
+// configuration
+{
+  telemetry: {
+    auth: { token: process.env.METRICS_TOKEN },
+  },
+}
+```
+
+| Endpoint | Returns | Default access |
+| --- | --- | --- |
+| `GET /metrics` | Prometheus exposition text | token |
+| `GET /telemetry/stats` | `{ all, timeline }` — lifetime stats + rolling timeline | token |
+| `GET /telemetry/timeline?buckets=N` | The timeline alone, buckets annotated with their window | token |
+| `GET /telemetry/routes` | Per method+route request breakdown | token |
+| `GET /telemetry/perf` | Aggregated `Perf` spans and events | token |
+| `GET /telemetry/health` | Liveness — uptime, pid, node version, optional app version | public |
+| `GET /telemetry/ready` | Readiness — runs every registered `HealthCheck`, 503 when any is down | public |
+
+Guarded endpoints expect the token on the `x-metrics-token` header:
+
+```bash
+curl -H "x-metrics-token: $METRICS_TOKEN" http://localhost:8080/metrics
+```
+
+`TelemetryTokenPolicy` is bypassed entirely when `configuration.isDevelopment`
+is set, so a local run needs no token at all.
+
+Every endpoint's policy is a config key, so access can be changed without code:
+
+```ts
+telemetry: {
+  auth: {
+    policies: {
+      metrics: 'TelemetryTokenPolicy',
+      health: 'PublicPolicy',   // probes cannot carry a token
+    },
+  },
+}
+```
+
+`/telemetry/health` and `/telemetry/ready` are public by default because kubelet
+probes and load balancers cannot send a header. They expose uptime, pid, the node
+version and — if you set `telemetry.health.version` — the app version. Point them
+at `TelemetryTokenPolicy` if that is more than you want to publish.
+
+### Readiness checks
+
+Telemetry ships no concrete checks — a database check belongs where the database
+dependency already is. Register your own:
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { HealthCheck, IHealthResult } from '@spinajs/telemetry';
+
+@Injectable(HealthCheck)
+export class DatabaseCheck extends HealthCheck {
+  public Name = 'database';
+
+  public async check(): Promise<IHealthResult> {
+    try {
+      await db.raw('select 1');
+      return { status: 'up' };
+    } catch (err) {
+      return { status: 'down', message: (err as Error).message };
+    }
+  }
+}
+```
+
+`status` is `'up' | 'degraded' | 'down'`; a check may also return a `data` bag.
+Each check is raced against `telemetry.health.timeoutMs` ( default 2000 ), so a
+hung dependency cannot hang the probe — a timed-out check, or one that throws,
+counts as `down`. The overall status is the worst of them, and `/ready` answers
+503 when it is `down` ( or `degraded`, with `telemetry.health.failOnDegraded` ).
+
+### Mounting on a bare express app
+
+`metricsHandler( metrics )` and `statsHandler( store )` are exported for apps
+that do not use the SpinaJS controller stack:
 
 ```ts
 import { DI } from '@spinajs/di';
 import { Metrics, TelemetryStore, metricsHandler, statsHandler } from '@spinajs/telemetry';
 
-// Prometheus scrape endpoint
-const metrics = await DI.resolve(Metrics);
-metrics.collectDefault(); // optional: process_* / nodejs_* metrics
-
-router.get('/metrics', metricsHandler(metrics));
-
-// JSON stats snapshot ( the shared store's lifetime stats + timeline )
-const store = await DI.resolve(TelemetryStore);
-router.get('/telemetry/stats', statsHandler(store));
+router.get('/metrics', metricsHandler(await DI.resolve(Metrics)));
+router.get('/telemetry/stats', statsHandler(await DI.resolve(TelemetryStore)));
 ```
 
-`GET /metrics` returns Prometheus exposition text with the correct
-`Content-Type`; `GET /telemetry/stats` returns `{ all, timeline }` (see
-[JSON stats](#json-stats-endpoint)).
+These are unguarded — the policy lives on the controllers, so an app wiring the
+handlers by hand owns its own auth. `statsHandler` also reports `req_rate` /
+`err_rate` as whatever the last `/telemetry/stats` controller call left behind
+( `0` if nobody has called it ), because only the controller derives them.
 
 ---
 
@@ -115,9 +201,10 @@ const map = metrics.defineMetrics('orders', [
 const exposition = await metrics.render();
 ```
 
-`MetricDef.type` is `'counter' | 'gauge' | 'histogram'`; `labelNames` and
-`buckets` (histogram only) are optional. Keep label **values** low-cardinality —
-never put ids, emails, or raw URLs in a label.
+`MetricDef.type` is `'counter' | 'gauge' | 'histogram' | 'summary'`; `labelNames`
+is optional, as are `buckets` (histogram only) and `percentiles` (summary only).
+Every name is prefixed with `${prefix}_`, so pass the base name. Keep label
+**values** low-cardinality — never put ids, emails, or raw URLs in a label.
 
 ---
 
@@ -269,11 +356,67 @@ Both are pure and take the timestamp in, so they're deterministic under test.
 | `perf_span_duration_ms` | histogram | `name` | `PromMetricSink` (from `Perf.measure`/`@Measure`) |
 | `perf_events_total` | counter | `name` | `PromMetricSink` (from `Perf.count`/`Perf.value`) |
 | `perf_scope_total_ms` | histogram | `name` | `PromMetricSink` (from per-request rollups) |
-| `process_*` / `nodejs_*` | various | — | `metrics.collectDefault()` (opt-in) |
+| `process_*` / `nodejs_*` | various | — | `metrics.collectDefault()`, called at bootstrap unless `telemetry.collectDefaultMetrics` is `false` |
 
 Duration histogram buckets (ms): `http_request_duration_ms` uses
 `DURATION_BUCKETS_MS` = `[5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]`;
 the `perf_*` histograms use `PERF_DURATION_BUCKETS_MS` (same, plus a leading `1`).
+
+---
+
+## Configuration reference
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `telemetry.auth.token` | `''` | Expected value of the `x-metrics-token` header |
+| `telemetry.auth.policies.<endpoint>` | see below | Policy class name per endpoint |
+| `telemetry.collectDefaultMetrics` | `true` | Register `process_*` / `nodejs_*` metrics at bootstrap |
+| `telemetry.prefix` | `'http'` | Metric name prefix for the http metrics |
+| `telemetry.buckets` | `[5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]` | Duration histogram buckets ( ms ) |
+| `telemetry.apdexThresholdMs` | `25` | Apdex satisfied threshold; tolerated is 4x |
+| `telemetry.timeline.length` | `60` | Buckets retained in the timeline ring |
+| `telemetry.timeline.bucketMs` | `60000` | Timeline bucket width ( ms ) |
+| `telemetry.routes.enabled` | `true` | Collect the per-route breakdown |
+| `telemetry.routes.maxEntries` | `500` | Cap on distinct method+route keys |
+| `telemetry.perf.enabled` | `true` | Collect the in-memory perf aggregate behind `/telemetry/perf` |
+| `telemetry.perf.maxNames` | `200` | Cap on distinct perf measurement names |
+| `telemetry.health.timeoutMs` | `2000` | Per-check timeout for `/telemetry/ready` |
+| `telemetry.health.failOnDegraded` | `false` | Serve 503 for a degraded overall status |
+| `telemetry.health.version` | unset | Version string reported by `/telemetry/health`; omitted from the response when unset |
+
+The `<endpoint>` keys are `metrics`, `stats`, `timeline`, `routes`, `perf`,
+`health` and `ready`. Policy defaults: `TelemetryTokenPolicy` for `metrics`,
+`stats`, `timeline`, `routes` and `perf`; `PublicPolicy` for `health` and
+`ready`.
+
+`telemetry.perf.enabled` and `telemetry.perf.maxNames` bound the **JSON** view
+only ( `InMemoryPerfSink` ). The `perf_*` Prometheus series come from a separate
+sink and are unaffected by either.
+
+### Cardinality
+
+Both the `route` label and the perf `name` label are meant for bounded
+vocabularies. The `maxEntries` / `maxNames` caps bound the JSON views, but the
+Prometheus histograms have no such cap — the `route` label falls back to the raw
+request path when no route matched, so a 404-scanning bot inflates the series
+count. Put telemetry behind a router that 404s unmatched paths early, or subclass
+`TelemetryMiddleware` and override `routeLabel()` to collapse unmatched requests
+to a constant:
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
+import { TelemetryMiddleware } from '@spinajs/telemetry';
+
+@Injectable(ServerMiddleware)
+export class BoundedTelemetry extends TelemetryMiddleware {
+  protected routeLabel(req: sRequest): string {
+    const matched = (req as any).route?.path ?? (req.storage as any)?.route;
+    // anything the router never matched collapses to one series
+    return typeof matched === 'string' && matched.length > 0 ? matched : '__unmatched__';
+  }
+}
+```
 
 ---
 
@@ -285,4 +428,8 @@ the `perf_*` histograms use `PERF_DURATION_BUCKETS_MS` (same, plus a leading `1`
 - **Error-safe.** All middleware telemetry and all sink calls are guarded — a
   telemetry failure can never break a request or the measured code.
 - **Cardinality.** Both the `route` label and the perf `name` label are meant for
-  bounded vocabularies. Never emit per-request/per-entity unique label values.
+  bounded vocabularies. Never emit per-request/per-entity unique label values —
+  see [Cardinality](#cardinality) for the unmatched-path case, which is the one
+  that bites without you doing anything wrong.
+- **Migrating from `@spinajs/metrics`?** See
+  [`docs/migrations/2026-07-23-metrics-to-telemetry.md`](../../docs/migrations/2026-07-23-metrics-to-telemetry.md).

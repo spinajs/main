@@ -23,7 +23,6 @@
     { "path": "packages/intl-orm/tsconfig.mjs.json" },
     { "path": "packages/log/tsconfig.mjs.json" },
     { "path": "packages/log-source-graphana-loki/tsconfig.mjs.json" },
-    { "path": "packages/metrics/tsconfig.mjs.json" },
     { "path": "packages/orm/tsconfig.mjs.json" },
     { "path": "packages/orm-http/tsconfig.mjs.json" },
     { "path": "packages/orm-mssql/tsconfig.mjs.json" },
