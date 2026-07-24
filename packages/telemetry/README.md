@@ -159,18 +159,23 @@ Once `TelemetryMiddleware` is active, every request is timed (with
 
 The `route` label prefers the **matched** route path (`req.route.path`) over the
 raw URL, keeping cardinality bounded. The prefix (`http`) and duration buckets
-are overridable by subclassing:
+are **configuration**, not code — do not subclass just to change them:
 
 ```ts
-import { Injectable } from '@spinajs/di';
-import { ServerMiddleware } from '@spinajs/http';
-import { TelemetryMiddleware } from '@spinajs/telemetry';
-
-@Injectable(ServerMiddleware)
-export class ApiTelemetry extends TelemetryMiddleware {
-  protected Prefix = 'api'; // -> api_requests_total, api_request_duration_ms, ...
+// configuration
+{
+  telemetry: {
+    prefix: 'api', // -> api_requests_total, api_request_duration_ms, api_requests_in_flight
+    buckets: [5, 25, 100, 500, 2500],
+  },
 }
 ```
+
+> **Do not subclass `TelemetryMiddleware` to re-prefix.** Decorating a subclass
+> with `@Injectable(ServerMiddleware)` **adds** a middleware, it does not replace
+> the base one — see [Replacing the middleware](#replacing-the-middleware). You
+> would get `http_*` **and** `api_*` for every request, plus double counts in
+> `/telemetry/stats`.
 
 ---
 
@@ -404,7 +409,7 @@ count. Put telemetry behind a router that 404s unmatched paths early, or subclas
 to a constant:
 
 ```ts
-import { Injectable } from '@spinajs/di';
+import { DI, Injectable } from '@spinajs/di';
 import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
 import { TelemetryMiddleware } from '@spinajs/telemetry';
 
@@ -416,7 +421,49 @@ export class BoundedTelemetry extends TelemetryMiddleware {
     return typeof matched === 'string' && matched.length > 0 ? matched : '__unmatched__';
   }
 }
+
+// REQUIRED — drop the base registration, otherwise BOTH middlewares run.
+// See "Replacing the middleware" below.
+DI.unregister(TelemetryMiddleware);
 ```
+
+### Replacing the middleware
+
+`@Injectable(ServerMiddleware)` **appends** to the `ServerMiddleware` registration
+list — it does not displace the base class. `TelemetryMiddleware` registers itself
+when `@spinajs/telemetry` is imported, so a subclass that carries its own
+`@Injectable(ServerMiddleware)` leaves **two** telemetry middlewares registered.
+`HttpServer` resolves all of them (`@Autoinject(ServerMiddleware)`), so both run
+on every request:
+
+- both write to the same singleton `TelemetryStore`, so `/telemetry/stats`,
+  `/telemetry/timeline` and `/telemetry/routes` report **double** the real
+  counts;
+- both call `ensureMetrics()` with the same prefix, and `defineMetrics()`
+  removes-and-recreates a duplicate name, so one of the two instances ends up
+  holding **deregistered** metric objects — whose `routeLabel()` reaches the live
+  histogram then depends on middleware ordering.
+
+Remove the base registration with `DI.unregister()`:
+
+```ts
+import { DI } from '@spinajs/di';
+import { TelemetryMiddleware } from '@spinajs/telemetry';
+import { BoundedTelemetry } from './BoundedTelemetry.js'; // must be imported, so its @Injectable has run
+
+DI.unregister(TelemetryMiddleware);
+```
+
+Two rules:
+
+1. Run it **after** both modules are imported ( the decorators register at import
+   time ) and **before** `HttpServer` is resolved — the middleware list is read
+   once, when the server is resolved.
+2. `unregister` matches by **type name**, so it removes only
+   `TelemetryMiddleware`; your subclass stays registered.
+
+If you only need a different prefix or different buckets, do **not** subclass at
+all — use the `telemetry.prefix` / `telemetry.buckets` config keys.
 
 ---
 

@@ -22,7 +22,7 @@ of red. Update them before you deploy.
 | --- | --- | --- |
 | `http_request_duration_seconds{status_code,method,path}` | `http_request_duration_ms{status,method,route}` | histogram; **unit changed s -> ms**, all three labels renamed |
 | `http_request_duration_seconds_count{...}` | `http_requests_total{status,method,route}` | request count is now a dedicated counter |
-| `up` | — | **removed**; use `GET /telemetry/health` or `process_start_time_seconds` |
+| `up` | — | the application-**exposed** `up` is **removed**; use `GET /telemetry/health` or `process_start_time_seconds`. Prometheus' own synthetic `up{job,instance}` is generated per target on every scrape regardless of the exposition body, so `up == 0` scrape-failure alerts keep working untouched — only queries that read the value the app itself exposed need attention |
 | — | `http_requests_in_flight` | new gauge, no labels |
 | — | `perf_span_duration_ms{name}` | new — every `Perf.measure` / `@Measure` span |
 | — | `perf_events_total{name}` | new — every `Perf.count` / `Perf.value` |
@@ -95,6 +95,8 @@ independent.
 The consequence: application metrics you constructed directly, like
 
 ```ts
+import { Histogram } from 'prom-client';
+
 // registers on prom-client's GLOBAL registry, because that is prom-client's default
 const orders = new Histogram( { name: 'orders_value_eur', help: '...', buckets: [ 10, 50, 100 ] } );
 ```
@@ -121,6 +123,10 @@ const map = metrics.defineMetrics( 'orders', [
 the telemetry registry explicitly:
 
 ```ts
+import { DI } from '@spinajs/di';
+import { Metrics } from '@spinajs/telemetry';
+import { Histogram } from 'prom-client';
+
 const registry = ( await DI.resolve( Metrics ) ).getRegistry();
 const orders = new Histogram( { name: 'orders_value_eur', help: '...', registers: [ registry ] } );
 ```
