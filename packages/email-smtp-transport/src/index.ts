@@ -32,6 +32,18 @@ export class EmailSenderSmtp extends EmailSender {
     super();
   }
 
+  /**
+   * Builds the in-process resilience pipeline guarding the SMTP send
+   * ( per-attempt timeout + exponential retry ). Extracted so the send
+   * behavior can be tested hermetically without opening a real connection.
+   */
+  protected buildSendPipeline(): ResiliencePipeline<nodemailer.SentMessageInfo> {
+    return new ResiliencePipelineBuilder<nodemailer.SentMessageInfo>()
+      .addTimeout(this.Options.resilience?.timeout ?? 30_000)
+      .addRetry({ MaxRetryAttempts: this.Options.resilience?.retries ?? 2, Delay: this.Options.resilience?.delay ?? 500, BackoffType: BackoffType.Exponential, UseJitter: true })
+      .build();
+  }
+
   public async resolve(): Promise<void> {
 
     await super.resolve();
@@ -58,10 +70,7 @@ export class EmailSenderSmtp extends EmailSender {
 
     // in-process resilience applied only around the SMTP send. Queue-level retry
     // handles deferred sends once this pipeline gives up.
-    this.SendPipeline = new ResiliencePipelineBuilder<nodemailer.SentMessageInfo>()
-      .addTimeout(this.Options.resilience?.timeout ?? 30_000)
-      .addRetry({ MaxRetryAttempts: this.Options.resilience?.retries ?? 2, Delay: this.Options.resilience?.delay ?? 500, BackoffType: BackoffType.Exponential, UseJitter: true })
-      .build();
+    this.SendPipeline = this.buildSendPipeline();
 
     try {
       // verify returns Promise<true> so always is true
