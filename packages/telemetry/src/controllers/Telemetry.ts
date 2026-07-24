@@ -3,7 +3,7 @@ import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { BadRequest } from '@spinajs/exceptions';
 
-import { TelemetryMiddleware } from './../middleware.js';
+import { TelemetryStore } from './../store.js';
 import { InMemoryPerfSink } from './../InMemoryPerfSink.js';
 import { HealthCheckRunner } from './../health.js';
 import { ServiceUnavailable } from './../responses.js';
@@ -21,8 +21,8 @@ import './../dto/index.js';
  */
 @BasePath('telemetry')
 export class TelemetryController extends BaseController {
-  @Autoinject(TelemetryMiddleware)
-  protected Telemetry: TelemetryMiddleware;
+  @Autoinject(TelemetryStore)
+  protected Store: TelemetryStore;
 
   @Autoinject(InMemoryPerfSink)
   protected PerfSink: InMemoryPerfSink;
@@ -42,15 +42,15 @@ export class TelemetryController extends BaseController {
   @Get('stats')
   @Policy('telemetry.auth.policies.stats')
   public async getStats() {
-    const stats = this.Telemetry.RequestStats;
+    const stats = this.Store.RequestStats;
 
     // Rates are not maintained on the hot path — they are derived here, over the
     // whole collection window, or `req_rate` / `err_rate` would always read 0.
-    stats.updateRates(Date.now() - this.Telemetry.StartedAt);
+    stats.updateRates(Date.now() - this.Store.StartedAt);
 
     return new Ok({
       all: stats.toJSON(),
-      timeline: this.Telemetry.Timeline.toJSON(),
+      timeline: this.Store.Timeline.toJSON(),
     });
   }
 
@@ -66,7 +66,7 @@ export class TelemetryController extends BaseController {
   @Get('timeline')
   @Policy('telemetry.auth.policies.timeline')
   public async getTimeline(@Query() buckets?: string) {
-    const timeline = this.Telemetry.Timeline;
+    const timeline = this.Store.Timeline;
     const snapshot = timeline.toJSON();
 
     let keys = Object.keys(snapshot)
@@ -113,7 +113,7 @@ export class TelemetryController extends BaseController {
   @Get('routes')
   @Policy('telemetry.auth.policies.routes')
   public async getRoutes() {
-    return new Ok(this.Telemetry.RouteStats.toJSON());
+    return new Ok(this.Store.RouteStats.toJSON());
   }
 
   /**

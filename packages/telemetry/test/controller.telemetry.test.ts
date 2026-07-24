@@ -3,13 +3,14 @@ import { expect } from 'chai';
 import { DI, Bootstrapper, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
+import { Perf } from '@spinajs/log';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 
 import { TestConfiguration, req, TEST_TOKEN } from './common.js';
 
 // the barrel, not `src/health.js` — loading it is what registers the telemetry
 // policies the guarded endpoints are configured with
-import { HealthCheck, IHealthResult, TelemetryMiddleware, InMemoryPerfSink } from './../src/index.js';
+import { HealthCheck, IHealthResult, InMemoryPerfSink, Metrics, TelemetryStore } from './../src/index.js';
 
 let failCheck = false;
 
@@ -34,6 +35,17 @@ function json(path: string) {
 
 function guarded(path: string) {
   return json(path).set('x-metrics-token', TEST_TOKEN);
+}
+
+/**
+ * Current value of a label-less gauge in the private prom registry.
+ */
+async function gauge(name: string): Promise<number> {
+  const text = await (await DI.resolve(Metrics)).render();
+  const line = text.split('\n').find((l) => l.startsWith(`${name} `));
+
+  expect(line, `${name} must be present in the registry`).to.not.be.undefined;
+  return Number(line!.split(' ')[1]);
 }
 
 const BUCKET_MS = 60_000;
@@ -61,44 +73,45 @@ describe('telemetry json api', function () {
     const server = await DI.resolve(HttpServer);
     server.start();
 
-    // Seed the aggregates the endpoints read, off the LIVE controller instance,
-    // so what is seeded is exactly what gets serialised.
-    //
-    // They are seeded rather than produced by driving traffic through the server
-    // because `TelemetryMiddleware` records in `ServerMiddleware.after()`, which
-    // express never reaches for a matched route ( the route pipeline ends at
-    // `__handle_response__` without calling next() — see the note in http's own
-    // `ServerTiming` middleware ). That is a defect in the middleware, not in this
-    // controller; see the pending test at the bottom of this file.
-    //
-    // The instance comes off the file-scanned ClassInfo list rather than
-    // `Array.ofType( BaseController )` — the ClassInfo instances are the ones
-    // actually mounted on the express router, and the two differ once another
-    // suite in the same process has already booted a server.
+    // PRE-EXISTING harness quirk, unrelated to what this file tests: reflection's
+    // `@ListFromFiles` memoizes the file-scanned controller INSTANCES on the
+    // decorated prototype for the life of the PROCESS, and `DI.clearCache()`
+    // cannot reach that memo ( the property is non-configurable and the memo is
+    // a closure ). So in a whole-suite run — where another file booted a server
+    // first — the instance express mounts here was built during THAT boot and
+    // still holds that container's store and perf sink, while the middleware and
+    // the Perf facade resolved for THIS boot write into this container's. Point
+    // the mounted controller back at the current ones, or the file would read a
+    // different half of the pipeline than the one being written to. Run alone,
+    // these two assignments are no-ops — the instances are already the same.
     const loaded = (await (controllers as any).Controllers) as Array<{ name: string; instance: BaseController }>;
     const controller = loaded.find((c) => c.name === 'TelemetryController')?.instance as any;
 
     expect(controller, 'TelemetryController must be registered').to.not.be.undefined;
 
-    const mw = controller.Telemetry as TelemetryMiddleware;
+    const store = await DI.resolve(TelemetryStore);
+    controller.Store = store;
+    controller.PerfSink = await DI.resolve(InMemoryPerfSink);
 
-    mw.RequestStats.countRequest();
-    mw.RequestStats.countResponse(200, 5);
-    mw.RequestStats.countRequest();
-    mw.RequestStats.countResponse(404, 3);
+    // The endpoints read that shared `TelemetryStore` singleton, which is also
+    // what the mounted middleware writes to — so almost everything asserted in
+    // this file is produced by REAL traffic through the server, not seeded.
+    //
+    // The one exception is a timeline bucket in the PAST: nothing real can
+    // create one, and the timeline assertions need more than a single bucket
+    // before ordering and limiting are observable at all.
+    store.Timeline.record(200, 5, Date.now() - BUCKET_MS);
 
-    const now = Date.now();
-    // an older bucket first, so the ring holds two and ordering / limiting is
-    // actually observable
-    mw.Timeline.record(200, 5, now - BUCKET_MS);
-    mw.Timeline.record(200, 5, now);
+    // Prime the lifetime counters with real traffic — one served request and one
+    // denied one — so the stats assertions do not depend on which describe block
+    // mocha happens to run first.
+    await json('telemetry/health');
+    await json('telemetry/stats');
 
-    mw.RouteStats.record('GET', '/telemetry/health', 200, 5);
-    mw.RouteStats.record('POST', '/telemetry/other', 500, 12);
-
-    const sink = controller.PerfSink as InMemoryPerfSink;
-    sink.collect({ name: 'test.span', kind: 'span', durationMs: 5 });
-    sink.collect({ name: 'test.counter', kind: 'counter', value: 3 });
+    // Real measurements through the Perf facade. These reach InMemoryPerfSink
+    // only if the facade actually discovered that sink, which is the point.
+    Perf.start('test.span').end();
+    Perf.count('test.counter', 3);
   });
 
   beforeEach(() => {
@@ -146,7 +159,7 @@ describe('telemetry json api', function () {
 
       expect(res).to.have.status(200);
       expect(res.body.all.requests).to.be.greaterThan(0);
-      expect(res.body.all.errors).to.eq(1);
+      expect(res.body.all.errors).to.be.at.least(1);
       expect(Object.keys(res.body.timeline)).to.not.have.length(0);
     });
 
@@ -167,7 +180,7 @@ describe('telemetry json api', function () {
       expect(res.body.bucketMs).to.eq(BUCKET_MS);
       expect(res.body.length).to.eq(60);
       expect(res.body.buckets).to.be.an('array');
-      expect(res.body.buckets).to.have.length(2);
+      expect(res.body.buckets.length).to.be.at.least(2);
 
       for (const bucket of res.body.buckets) {
         expect(bucket.key).to.be.a('number');
@@ -215,6 +228,7 @@ describe('telemetry json api', function () {
       expect(res.body.routes).to.not.have.length(0);
 
       const health = res.body.routes.find((r: any) => r.route.includes('health'));
+      expect(health, 'the served health route must be listed').to.not.be.undefined;
       expect(health.method).to.eq('GET');
       expect(health.stats.requests).to.be.greaterThan(0);
     });
@@ -228,10 +242,11 @@ describe('telemetry json api', function () {
       expect(res.body.truncated).to.eq(false);
 
       const span = res.body.spans.find((s: any) => s.name === 'test.span');
-      expect(span).to.not.be.undefined;
+      expect(span, 'a span measured through the Perf facade must be listed').to.not.be.undefined;
       expect(span.count).to.eq(1);
 
       const counter = res.body.events.find((e: any) => e.name === 'test.counter');
+      expect(counter, 'a counter measured through the Perf facade must be listed').to.not.be.undefined;
       expect(counter.total).to.eq(3);
     });
   });
@@ -281,19 +296,47 @@ describe('telemetry json api', function () {
     });
   });
 
+  /**
+   * The end-to-end proof that the collection pipeline is actually wired up: the
+   * middleware express mounted, the shared store and the controller are one
+   * pipeline, so a request served by this very server shows up in the endpoints.
+   */
   describe('live traffic', () => {
-    // BLOCKED on a defect OUTSIDE this controller — see .superpowers/sdd/task-8-report.md.
-    // `TelemetryMiddleware` ( task 4 ) records every request in
-    // `ServerMiddleware.after()`, which express never reaches for a matched route,
-    // so nothing served by the app is ever counted. Un-skip once the middleware
-    // records from a `res.on( 'finish' )` handler installed in `before()`, the way
-    // http's own AccessLog / PerfRollup middlewares do.
-    it.skip('counts requests served by the server itself', async () => {
+    it('counts requests served by the server itself', async () => {
       const before = await guarded('telemetry/stats');
       await json('telemetry/health');
       const after = await guarded('telemetry/stats');
 
       expect(after.body.all.requests).to.be.greaterThan(before.body.all.requests);
+    });
+
+    it('lists the route it just served, with that route own counter advanced', async () => {
+      const served = (body: any) => body.routes.find((r: any) => r.method === 'GET' && r.route.includes('ready'));
+
+      const before = await guarded('telemetry/routes');
+      await json('telemetry/ready');
+      const after = await guarded('telemetry/routes');
+
+      const entry = served(after.body);
+      expect(entry, 'the served route must appear in the breakdown').to.not.be.undefined;
+      expect(entry.stats.requests).to.be.greaterThan(served(before.body)?.stats.requests ?? 0);
+    });
+
+    it('returns the in-flight gauge to 0 once the response is done', async () => {
+      await json('telemetry/health');
+
+      // an inc() in before() with no matching dec() makes this climb forever
+      expect(await gauge('http_requests_in_flight')).to.eq(0);
+    });
+
+    it('advances the prometheus request counter for the route it served', async () => {
+      await json('telemetry/health');
+
+      const text = await (await DI.resolve(Metrics)).render();
+      const line = text.split('\n').find((l) => l.startsWith('http_requests_total{') && l.includes('health'));
+
+      expect(line, 'http_requests_total must carry the served route').to.not.be.undefined;
+      expect(Number(line!.split(' ').pop())).to.be.greaterThan(0);
     });
   });
 });

@@ -1,17 +1,12 @@
 import * as express from 'express';
-import { DI, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { Configuration } from '@spinajs/configuration-common';
-import { Logger, Log, Perf } from '@spinajs/log';
+import { Logger, Log } from '@spinajs/log';
 import { ServerMiddleware, Request as sRequest } from '@spinajs/http';
 
 import { Counter, Gauge, Histogram } from 'prom-client';
 import { Metrics, MetricMap } from './metrics.js';
-import { RequestStats } from './requestStats.js';
-import { Timeline } from './timeline.js';
-import { RouteStats } from './routeStats.js';
-import { PromMetricSink } from './PromMetricSink.js';
-import { InMemoryPerfSink } from './InMemoryPerfSink.js';
+import { TelemetryStore } from './store.js';
 
 /**
  * Default metric-name prefix for the HTTP telemetry metrics.
@@ -35,14 +30,25 @@ const START_KEY = '__telemetryStart';
  *  - `${prefix}_requests_total{method,route,status}` — a Counter,
  *  - `${prefix}_request_duration_ms{method,route,status}` — a Histogram,
  *  - `${prefix}_requests_in_flight` — a Gauge,
- * against the DI-resolved {@link Metrics} registry, plus a lifetime
- * {@link RequestStats} and a rolling {@link Timeline} for the JSON stats
- * endpoint. All telemetry work is guarded so it can never break a request.
+ * against the DI-resolved {@link Metrics} registry, and feeds the shared
+ * {@link TelemetryStore} that backs the JSON stats endpoints.
+ *
+ * All of the end-of-request work runs from a `res.on( 'finish' )` handler
+ * registered in `before()` — `ServerMiddleware.after()` is never reached for a
+ * normal matched route, the same reason http's own `AccessLog` / `PerfRollup`
+ * middlewares work this way. Every bit of it is guarded so telemetry can never
+ * break a request.
  */
 @Injectable(ServerMiddleware)
 export class TelemetryMiddleware extends ServerMiddleware {
   @Logger('telemetry')
   protected Log!: Log;
+
+  /**
+   * The shared aggregates. This middleware is the only writer.
+   */
+  @Autoinject(TelemetryStore)
+  protected Store!: TelemetryStore;
 
   /**
    * Metric-name prefix. A subclass that assigns this wins over configuration —
@@ -56,26 +62,6 @@ export class TelemetryMiddleware extends ServerMiddleware {
   @Config('telemetry.buckets', { defaultValue: DURATION_BUCKETS_MS })
   protected Buckets!: number[];
 
-  @Config('telemetry.apdexThresholdMs', { defaultValue: 25 })
-  protected ApdexThresholdMs!: number;
-
-  @Config('telemetry.timeline.length', { defaultValue: 60 })
-  protected TimelineLength!: number;
-
-  @Config('telemetry.timeline.bucketMs', { defaultValue: 60_000 })
-  protected TimelineBucketMs!: number;
-
-  /**
-   * Whether per-route stats are recorded. Read on the hot path in `after()`, so
-   * it must stay a plain, DI-independent field ( a directly-instantiated
-   * middleware in a unit test has no resolved Configuration ). Populated from
-   * `telemetry.routes.enabled` in `resolve()` once configuration is available.
-   */
-  protected RoutesEnabled = true;
-
-  @Config('telemetry.routes.maxEntries', { defaultValue: 500 })
-  protected RoutesMaxEntries!: number;
-
   protected metrics!: Metrics;
   protected requestsTotal!: Counter<string>;
   protected requestDuration!: Histogram<string>;
@@ -83,51 +69,11 @@ export class TelemetryMiddleware extends ServerMiddleware {
 
   private defined = false;
 
-  /**
-   * Epoch ms at which this middleware started collecting. Used to compute the
-   * lifetime request / error rates.
-   */
-  public readonly StartedAt = Date.now();
-
-  /**
-   * Lifetime request stats ( status classes, error rate, apdex ). Rebuilt in
-   * `resolve()` once configuration is available.
-   */
-  public RequestStats = new RequestStats();
-
-  /**
-   * Rolling timeline of request stats. Rebuilt in `resolve()`.
-   */
-  public Timeline = new Timeline();
-
-  /**
-   * Per method+route breakdown. Rebuilt in `resolve()`.
-   */
-  public RouteStats = new RouteStats(500, 25);
-
   constructor() {
     super();
     // Needs req.storage ( ReqStorage = -2 ) and sits alongside RequestId /
     // AccessLog ( Order 2 ).
     this.Order = 2;
-  }
-
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    // Rebuild the aggregates now that configuration is available.
-    this.RequestStats = new RequestStats(this.ApdexThresholdMs);
-    this.Timeline = new Timeline(this.TimelineLength, this.TimelineBucketMs, this.ApdexThresholdMs);
-    this.RouteStats = new RouteStats(this.RoutesMaxEntries, this.ApdexThresholdMs);
-
-    // RoutesEnabled is a hot-path field, not a @Config getter, so read it here.
-    const cfg = DI.get(Configuration);
-    this.RoutesEnabled = cfg?.get('telemetry.routes.enabled', true) ?? true;
-
-    // Ensure the perf sinks exist so the Perf facade discovers them.
-    void DI.resolve(PromMetricSink);
-    void DI.resolve(InMemoryPerfSink);
-    Perf.refreshSinks();
   }
 
   /**
@@ -180,12 +126,44 @@ export class TelemetryMiddleware extends ServerMiddleware {
     return req.path ?? anyReq.originalUrl ?? 'unknown';
   }
 
+  /**
+   * Do the end-of-request accounting. Called from the response `finish` event,
+   * never from `after()`.
+   */
+  protected onFinish(req: sRequest, res: express.Response): void {
+    try {
+      const start = (req.storage as any)?.[START_KEY] as bigint | undefined;
+      const durationMs = start !== undefined ? Number(process.hrtime.bigint() - start) / 1e6 : 0;
+
+      const method = req.method ?? 'GET';
+
+      // Read the route label HERE, not in before(): `req.route` is only
+      // populated once the router has matched.
+      const route = this.routeLabel(req);
+      const status = res.statusCode;
+      const labels = { method, route, status: String(status) };
+
+      // Balance before()'s inc() FIRST: a throw from anything below would
+      // otherwise strand the gauge one higher for the rest of the process.
+      this.inFlight.dec();
+
+      this.requestDuration.observe(labels, durationMs);
+      this.requestsTotal.inc(labels);
+
+      this.Store.record(method, route, status, durationMs);
+    } catch (err) {
+      this.Log?.warn(err as Error, 'telemetry finish handler failed');
+    }
+  }
+
   public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    return (req: sRequest, _res: express.Response, next: express.NextFunction) => {
+    return (req: sRequest, res: express.Response, next: express.NextFunction) => {
       try {
         this.ensureMetrics();
         (req.storage as any)[START_KEY] = process.hrtime.bigint();
         this.inFlight.inc();
+
+        res.on('finish', () => this.onFinish(req, res));
       } catch (err) {
         this.Log?.warn(err as Error, 'telemetry before() failed');
       }
@@ -193,34 +171,11 @@ export class TelemetryMiddleware extends ServerMiddleware {
     };
   }
 
-  public after(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    return (req: sRequest, res: express.Response, next: express.NextFunction) => {
-      try {
-        this.ensureMetrics();
-
-        const start = (req.storage as any)?.[START_KEY] as bigint | undefined;
-        const durationMs = start !== undefined ? Number(process.hrtime.bigint() - start) / 1e6 : 0;
-
-        const method = req.method ?? 'GET';
-        const route = this.routeLabel(req);
-        const status = res.statusCode;
-        const labels = { method, route, status: String(status) };
-
-        this.requestDuration.observe(labels, durationMs);
-        this.requestsTotal.inc(labels);
-        this.inFlight.dec();
-
-        this.RequestStats.countRequest();
-        this.RequestStats.countResponse(status, durationMs);
-        this.Timeline.record(status, durationMs, Date.now());
-
-        if (this.RoutesEnabled !== false) {
-          this.RouteStats.record(method, route, status, durationMs);
-        }
-      } catch (err) {
-        this.Log?.warn(err as Error, 'telemetry after() failed');
-      }
-      next();
-    };
+  /**
+   * Nothing to do after the controllers — express does not run this for a
+   * matched route. See {@link onFinish}.
+   */
+  public after(): null {
+    return null;
   }
 }

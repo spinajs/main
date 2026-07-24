@@ -9,9 +9,13 @@ SpinaJS's DI + middleware conventions. It provides:
   Prometheus text rendering (`render` / `contentType`).
 - **`TelemetryMiddleware`** — an `@Injectable(ServerMiddleware)` that times every
   HTTP request and records a duration **histogram**, a request **counter**, and
-  an in-flight **gauge** (keyed by `method` / `route` / `status`), plus a
-  lifetime `RequestStats` and a rolling `Timeline`. Telemetry errors never break
-  the request.
+  an in-flight **gauge** (keyed by `method` / `route` / `status`), and feeds the
+  shared `TelemetryStore`. All of it runs from a `res.on('finish')` handler, and
+  telemetry errors never break the request.
+- **`TelemetryStore`** — the `@Singleton()` that owns the collected aggregates
+  (`RequestStats`, `Timeline`, `RouteStats`). The middleware is its only writer;
+  the JSON endpoints are readers. It exists because a `ServerMiddleware` is not a
+  singleton, so writer and reader cannot be the same object.
 - **`PromMetricSink`** — an `@Injectable(PerfSink)` that bridges the
   `@spinajs/log` **`Perf`** facade to Prometheus: every `Perf.measure` /
   `@Measure` / `Perf.count` measurement (including the ORM `orm.query` spans and
@@ -21,7 +25,7 @@ SpinaJS's DI + middleware conventions. It provides:
   rate, response-time min/max/avg, and **Apdex**.
 - **`Timeline`** — a rolling ring of `RequestStats` buckets (default 60 x 1 min).
 - **endpoint handlers** — `metricsHandler(metrics)` (the Prometheus `/metrics`
-  scrape endpoint) and `statsHandler(mw)` (a JSON stats snapshot). Both are plain
+  scrape endpoint) and `statsHandler(store)` (a JSON stats snapshot). Both are plain
   `(req, res)` handlers a consumer wires into their own router.
 
 The registry is **isolated** (not `prom-client`'s global default), so multiple
@@ -37,7 +41,7 @@ its metric set on the first request.
 
 ```ts
 import { DI } from '@spinajs/di';
-import { Metrics, TelemetryMiddleware, metricsHandler, statsHandler } from '@spinajs/telemetry';
+import { Metrics, TelemetryStore, metricsHandler, statsHandler } from '@spinajs/telemetry';
 
 // Prometheus scrape endpoint
 const metrics = await DI.resolve(Metrics);
@@ -45,9 +49,9 @@ metrics.collectDefault(); // optional: process_* / nodejs_* metrics
 
 router.get('/metrics', metricsHandler(metrics));
 
-// JSON stats snapshot ( from the middleware's lifetime stats + timeline )
-const mw = await DI.resolve(TelemetryMiddleware);
-router.get('/telemetry/stats', statsHandler(mw));
+// JSON stats snapshot ( the shared store's lifetime stats + timeline )
+const store = await DI.resolve(TelemetryStore);
+router.get('/telemetry/stats', statsHandler(store));
 ```
 
 `GET /metrics` returns Prometheus exposition text with the correct
@@ -186,20 +190,16 @@ without affecting the metrics.
 
 ### Registration timing
 
-`PromMetricSink` is discovered by `Perf` because `TelemetryMiddleware.resolve()`
-resolves it (and calls `Perf.refreshSinks()`) when the HTTP server constructs its
-middleware. So the bridge is live whenever the telemetry middleware is. If you use
-telemetry **without** `@spinajs/http`, resolve the sink yourself once during
-bootstrap so `Perf` can find it:
+`TelemetryBootstrapper` builds both sinks and calls `Perf.refreshSinks()` at
+startup, so the bridge is live for every app that has this package installed —
+with or without `@spinajs/http`. Nothing to wire.
 
-```ts
-import { DI } from '@spinajs/di';
-import { Perf } from '@spinajs/log';
-import { PromMetricSink } from '@spinajs/telemetry';
-
-DI.resolve(PromMetricSink);
-Perf.refreshSinks();
-```
+It builds them through `Array.ofType(PerfSink)` rather than
+`DI.resolve(PromMetricSink)`, and that detail is load-bearing: the container
+caches a directly-resolved instance under its own type name only, and a later
+`Array.ofType(PerfSink)` returns that cached instance **without** adding it to
+the `PerfSink` list — leaving `Perf` blind to the sink it just handed back. If
+you add a sink of your own, resolve it the same way.
 
 ### Write your own sink
 
@@ -231,7 +231,7 @@ other sinks.
 
 ## JSON stats endpoint
 
-`statsHandler(mw)` writes `{ all, timeline }` from the middleware's lifetime
+`statsHandler(store)` writes `{ all, timeline }` from the shared store's lifetime
 `RequestStats` and rolling `Timeline`:
 
 ```jsonc

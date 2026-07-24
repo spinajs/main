@@ -1,22 +1,16 @@
 import { Injectable, Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Perf } from '@spinajs/log';
+import { Perf, PerfSink } from '@spinajs/log';
 
 import { Metrics } from './metrics.js';
-import { PromMetricSink } from './PromMetricSink.js';
-import { InMemoryPerfSink } from './InMemoryPerfSink.js';
 
 /**
  * Wires the telemetry collection layer at startup:
  *
  *  - registers prom-client's default process metrics against the PRIVATE
  *    registry ( never the global default one ), when configured,
- *  - resolves both perf sinks and refreshes the Perf facade's sink list, so the
+ *  - builds the perf sinks and refreshes the Perf facade's sink list, so the
  *    perf bridge is live in apps that use telemetry WITHOUT @spinajs/http.
- *
- * `TelemetryMiddleware.resolve()` does the same sink wiring for the http case.
- * Both paths are idempotent ( the sinks are singletons and `refreshSinks` just
- * drops a memo ).
  */
 @Injectable(Bootstrapper)
 export class TelemetryBootstrapper extends Bootstrapper {
@@ -28,8 +22,22 @@ export class TelemetryBootstrapper extends Bootstrapper {
       metrics.collectDefault();
     }
 
-    DI.resolve(PromMetricSink);
-    DI.resolve(InMemoryPerfSink);
+    // Build the sinks through the ARRAY, never with a direct
+    // `DI.resolve( PromMetricSink )`. A direct resolve caches the instance under
+    // its own type name only; the later `Array.ofType( PerfSink )` — which is
+    // what the Perf facade uses — then hits that cache entry on its fast path,
+    // returns it WITHOUT adding it to the `PerfSink` list, and the facade stays
+    // blind to that sink. Resolving the array first creates them together.
+    const sinks = DI.resolve(Array.ofType(PerfSink));
+
+    // The array cache does not double as a per-type cache, so publish each
+    // instance under its own type name too. Without this a later
+    // `@Autoinject( InMemoryPerfSink )` ( the telemetry controller does exactly
+    // that ) would build a SECOND, permanently empty sink.
+    for (const sink of sinks) {
+      DI.register(sink).asValue(sink.constructor.name);
+    }
+
     Perf.refreshSinks();
   }
 }
