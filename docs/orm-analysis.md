@@ -422,3 +422,59 @@ dependent test as a failure. Both `orm-mysql` columns share the same four pre-ex
   done and un-regressed.
 - **`_.uniqBy` workaround at `middlewares.ts:262-268`** was left in place. F1 makes the pipeline
   immutable *per execution*, but the root cause of duplicate registration is `orm-uow`'s.
+
+---
+
+## 9. Changelog — branch `orm-infra`
+
+> The plan said to append this as "section 8"; section 8 is already `orm-foundation`, so it is 9.
+
+### I1 — Per-statement WHERE/HAVING connector (landed earlier as `00a81987f`)
+
+The AND/OR connector is stamped on each statement when it is pushed, instead of a single
+builder-level flag that the compiler applied to every statement in scope. HAVING got the same
+treatment, and the JOIN `ON` builder was routed through the same code.
+
+**Before / after:**
+
+| Chain | SQL before | SQL now |
+| --- | --- | --- |
+| `.where('a', 1).orWhere('b', 2).where('c', 3)` | `a = ? OR b = ? OR c = ?` | `a = ? OR b = ? AND c = ?` |
+| `.where('a', 1).where('b', 2).orWhere('c', 3)` | `a = ? OR b = ? OR c = ?` | `a = ? AND b = ? OR c = ?` |
+| `.where('a', 1).where('b', 2)` | `a = ? AND b = ?` | `a = ? AND b = ?` (unchanged) |
+| `.orWhere('a', 1).orWhere('b', 2)` | `a = ? OR b = ?` | `a = ? OR b = ?` (unchanged) |
+
+Pure-AND and pure-OR chains are unaffected. Only chains that mix the two change, and the new
+result is the one every other builder (Knex, TypeORM) produces. The connector of the *first*
+statement in a clause is discarded (`joinBuiltStatements`, `orm-sql/src/compilers.ts`), so a
+leading `orWhere` never emits a dangling `WHERE OR`.
+
+**Migration.** If you relied on a trailing `orWhere` turning the whole clause into a disjunction,
+wrap the intended group explicitly:
+`.where(function () { this.where('a', 1).where('b', 2); }).orWhere('c', 3)`.
+
+**Consumer verification — `orm-http`.** Its DTO→WHERE translation is **not** affected, and this
+was established by reading the translation code, not inferred from a clean compile:
+
+- `packages/orm-http/src/builders.ts:150-221` (`SelectQueryBuilder.prototype.filter`) wraps the
+  entire filter set in one explicit `this.andWhere(function () { ... })` group, so the group is
+  isolated from anything else already on the query.
+- Inside that group it applies `applyAnd` for **every** filter or `applyOr` for **every** filter,
+  chosen once from `logicalOperator`. It never mixes the two in one chain — which is exactly and
+  only the case whose SQL changed.
+- The two direct `query.where(...)` calls (`src/index.ts:97`, `:117`) are single statements.
+
+A regression suite pinning this SQL was added at `packages/orm-http/test/filters.test.ts`
+(6 tests, all passing): the mixed chain, a leading `orWhere`, `filter()` in AND mode, `filter()`
+in OR mode, a filter group AND-joined to an outer `where`, and the documented explicit-group
+migration.
+
+**Caveat — the pre-existing `orm-http` suite does not run in this worktree.** `npm test` in
+`packages/orm-http` reports 0 passing / 2 failing: `Http orm tests > "before all" hook` dies with
+`TypeError: Cannot read properties of undefined (reading 'get')` in
+`packages/configuration/src/decorators.ts:27` while resolving `fsService`, and the `after all`
+hook then fails with `No __file_provider_instance__ registered`. That is an HTTP/fs bootstrap
+defect unrelated to the WHERE connector — it fails before any query is built. The new
+`filters.test.ts` therefore boots only the ORM (SQLite, in-memory) and applies
+`MODEL_STATIC_MIXINS` to its fixture model exactly as `src/index.ts:199-203` does in production,
+so the real `filter()` path is exercised against a real SQL compiler.
