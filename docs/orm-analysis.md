@@ -325,16 +325,22 @@ Forked from `orm-fixes-2` @ `be0ac3812`. Implements F1, F2 and F5 of
 already landed on `orm-fixes-2` and were verified un-regressed rather than redone.
 
 Suite deltas, all against a baseline measured on this branch before any source change and with
-the **same** pre-existing failures throughout (orm 2, orm-sql 7, orm-sqlite 8, orm-mssql 4,
-orm-mysql 9 — the last two need live servers this machine does not have):
+the **same** pre-existing failures throughout (orm 2, orm-sql 7, orm-sqlite 8, orm-mssql 4 —
+mssql still needs a live server this machine does not have):
 
 | Package | Baseline | After | New tests |
 | --- | --- | --- | --- |
 | `orm` | 113 pass / 2 fail | 120 pass / 2 fail | +7 driver-contract |
 | `orm-sql` | 146 pass / 7 fail | 150 pass / 7 fail | +4 execution-model |
 | `orm-sqlite` | 43 pass / 8 fail | 43 pass / 8 fail | +7 in a new integration suite |
-| `orm-mysql` | 0 pass / 9 fail | 7 pass / 9 fail | +7 stubbed-pool unit |
+| `orm-mysql` (live MySQL 8.4.10) | 16 pass / 4 fail | 23 pass / 4 fail | +7 stubbed-pool unit |
+| `orm-mysql` integration (live) | n/a | **9 pass / 0 fail** | +9 transaction-contract |
 | `orm-mssql` | 0 pass / 4 fail | 0 pass / 4 fail | — (compile-verified only) |
+
+The `orm-mysql` rows were re-measured on 2026-07-26 against the docker-compose MySQL, replacing
+the original figures which were taken with no server running and so recorded every server-
+dependent test as a failure. Both `orm-mysql` columns share the same four pre-existing failures
+(two `MySql transactions` hooks, two `MySql cross-schema whereExists` hooks).
 
 - **`9fd6d513d` — F1 / B9 (execute-once builder).** `Builder.then()` was the entire execution
   engine *and* invoked `onfulfilled` for its side effect, discarding whatever the callback
@@ -394,11 +400,24 @@ orm-mysql 9 — the last two need live servers this machine does not have):
   The transaction primitives are `protected`, so there is no public low-level form. Building one
   that keeps the ambient-context guarantee would need `AsyncLocalStorage.enterWith()` and its own
   leak story; a half-working escape hatch is worse than none. No in-repo caller needs it.
-- **MySQL integration suite is written but unrun** — Docker is not installed on the machine this
-  branch was built on. It type-checks and reaches `ECONNREFUSED 127.0.0.1:3900`, i.e. it fails
-  only for want of a server. Its assertions are mirrored at unit level against a stubbed `mysql2`
-  pool in `packages/orm-mysql/test/transaction-unit.test.ts` (7 passing), including the
-  release-exactly-once check that is the real proof of B24.
+- **MySQL integration suite now verified against a live server** (2026-07-26, MySQL 8.4.10 via
+  `docker compose --profile test up -d mysql`): 9 passing, 0 failing. Its assertions are also
+  mirrored at unit level against a stubbed `mysql2` pool in
+  `packages/orm-mysql/test/transaction-unit.test.ts` (7 passing), including the
+  release-exactly-once check that is the real proof of B24. Two defects surfaced only once the
+  suite actually ran, both fixed here:
+  - `docker-compose.yml` passed `--default-authentication-plugin=mysql_native_password` against
+    image `mysql:8`. That tag now resolves to 8.4.x, which **removed** the variable, so the
+    container crashlooped with `unknown variable`. The image is now pinned to `mysql:8.4` and the
+    flag dropped — mysql2 3.x speaks `caching_sha2_password`, which is the production default
+    anyway.
+  - The integration config set `Migration.OnStartup: false` and migrated by hand in `before`.
+    `Orm.resolve()` runs migrations *then* `reloadTableInfo()` unconditionally, and the MySQL
+    driver **throws** `Table <db>.<name> does not exist` (`orm-mysql/src/index.ts:217`) where the
+    SQLite driver returns `null` — so resolve() aborted before the suite could migrate. Set to
+    `OnStartup: true`. **The underlying driver inconsistency is pre-existing and untouched by this
+    branch**: on MySQL, an ORM configured with `OnStartup: false` cannot boot against a database
+    whose model tables do not yet exist. Logged for `orm-infra`.
 - **The reflective `clone()` guard test** (F4's optional leftover) was not added; F4 itself is
   done and un-regressed.
 - **`_.uniqBy` workaround at `middlewares.ts:262-268`** was left in place. F1 makes the pipeline

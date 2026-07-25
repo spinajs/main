@@ -64,7 +64,13 @@ export class IntegrationConf extends FrameworkConfiguration {
               Password: PASSWORD,
               Database: DATABASE,
               PoolLimit: POOL_LIMIT,
-              Migration: { Table: 'orm_migrations_integration', OnStartup: false },
+              // OnStartup MUST be true here. `Orm.resolve()` runs migrations and then
+              // immediately calls `reloadTableInfo()`, and the MySQL driver *throws*
+              // `Table <db>.<name> does not exist` for a missing table
+              // (orm-mysql/src/index.ts:217) where the SQLite driver returns null.
+              // With OnStartup false the migration is skipped by design, so resolve()
+              // blows up before the suite can migrate by hand.
+              Migration: { Table: 'orm_migrations_integration', OnStartup: true },
             },
           ],
         },

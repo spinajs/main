@@ -10,7 +10,9 @@
 services:
   mysql:
     profiles: ['test']
-    image: mysql:8
+    # Pinned, not `mysql:8`. That floating tag now resolves to 8.4.x, and the version the
+    # suite runs against must not change under us on an image pull.
+    image: mysql:8.4
     container_name: spinajs-orm-test-mysql
     restart: unless-stopped
     environment:
@@ -19,7 +21,11 @@ services:
       # because MYSQL_DATABASE only ever creates one.
       MYSQL_DATABASE: test
     command:
-      - --default-authentication-plugin=mysql_native_password
+      # No --default-authentication-plugin here. MySQL 8.4 *removed* that server variable
+      # and refuses to start when it is passed. It is also unnecessary: mysql2 (3.x) speaks
+      # caching_sha2_password natively, which is what MySQL 8 defaults to in production —
+      # so leaving the default alone makes this fixture more representative, not less.
+      #
       # small pool on the server side too, so a leaked connection surfaces as a failure
       # rather than being absorbed
       - --max-connections=32
