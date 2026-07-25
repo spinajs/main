@@ -27,10 +27,10 @@ export class CrudUpdate extends Crud {
   @Permission(['updateAny'])
   public async update(@ModelType() model: IModelStatic, @Param() id: number, @BodyField() data: unknown) {
     const descriptor = this.getModelDescriptor(model);
-    const entity = await model.where(descriptor.PrimaryKey, id).firstOrThrow(
+    const entity = await model.where(descriptor.PrimaryKey[0], id).firstOrThrow(
       new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        [descriptor.PrimaryKey]: id,
+        [descriptor.PrimaryKey[0]]: id,
       }),
     );
 
@@ -54,14 +54,14 @@ export class CrudUpdate extends Crud {
     if (!pExists) {
       throw new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        [mDescriptor.PrimaryKey]: id,
+        [mDescriptor.PrimaryKey[0]]: id,
       });
     }
 
-    const result = await query.where(rmDescriptor.PrimaryKey, relationId).firstOrThrow(
+    const result = await query.where(rmDescriptor.PrimaryKey[0], relationId).firstOrThrow(
       new ResourceNotFound(`Record with id ${relationId} not found`, {
         Resource: rDescriptor.TargetModel.name,
-        [rmDescriptor.PrimaryKey]: relationId,
+        [rmDescriptor.PrimaryKey[0]]: relationId,
       }),
     );
 

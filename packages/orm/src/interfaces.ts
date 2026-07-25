@@ -337,9 +337,11 @@ export interface IValueConverterDescriptor {
  */
 export interface IModelDescriptor {
   /**
-   * Primary key name
+   * Primary key column names, in declaration order. Empty when the model has no @Primary().
+   * A single-column key is a one-element array and must compile to exactly the SQL it did
+   * when this field was a plain string.
    */
-  PrimaryKey: string;
+  PrimaryKey: string[];
 
   /**
    * Connection name, must be avaible in db config

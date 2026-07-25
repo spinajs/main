@@ -116,7 +116,9 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   public get PrimaryKeyName() {
-    return this.ModelDescriptor!.PrimaryKey;
+    // Task 5 widens this to the full string[]; for now the single-key fast path keeps
+    // every caller compiling with byte-identical behaviour.
+    return this.ModelDescriptor!.PrimaryKey[0];
   }
 
   public get PrimaryKeyValue() {
@@ -689,8 +691,11 @@ export class ModelBase<M = unknown> implements IModelBase {
 
 
 function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
-  if (description.PrimaryKey) {
-    query.where(description.PrimaryKey, model.PrimaryKeyValue);
+  // NOTE: `if (description.PrimaryKey)` used to be false for the '' default. An empty ARRAY is
+  // truthy, so this must be an explicit length check or no-primary-key models would stop
+  // falling back to their unique columns.
+  if (description.PrimaryKey.length !== 0) {
+    query.where(description.PrimaryKey[0], model.PrimaryKeyValue);
   } else {
     const unique = description.Columns.filter((x) => x.Unique);
     if (unique.length !== 0) {
@@ -704,8 +709,9 @@ function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuild
 }
 
 function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, order?: SortOrder) {
-  if (description.PrimaryKey) {
-    query.order(description.PrimaryKey, order ?? SortOrder.DESC);
+  // See the note in _preparePkWhere: an empty array is truthy, '' was not.
+  if (description.PrimaryKey.length !== 0) {
+    query.order(description.PrimaryKey[0], order ?? SortOrder.DESC);
   } else {
     const unique = description.Columns.filter((c) => c.Unique);
     if (unique.length !== 0) {
@@ -939,7 +945,7 @@ export const MODEL_STATIC_MIXINS = {
 
   async find<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey;
+    const pkey = description.PrimaryKey[0];
     query.select('*');
     query.whereIn(pkey, pks);
     return await (query as SelectQueryBuilder<Array<InstanceType<T>>>);
@@ -947,7 +953,7 @@ export const MODEL_STATIC_MIXINS = {
 
   async findOrFail<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
     const { query, description, model } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey;
+    const pkey = description.PrimaryKey[0];
 
     query.select('*');
     query.whereIn(pkey, pks);
@@ -963,7 +969,7 @@ export const MODEL_STATIC_MIXINS = {
 
   async get<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey;
+    const pkey = description.PrimaryKey[0];
 
     query.select('*');
     query.where(pkey, pk);
@@ -975,7 +981,7 @@ export const MODEL_STATIC_MIXINS = {
 
   async getOrFail<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey;
+    const pkey = description.PrimaryKey[0];
 
     query.select('*');
     query.where(pkey, pk);
@@ -1006,7 +1012,7 @@ export const MODEL_STATIC_MIXINS = {
     }
 
     if (pks) {
-      query.whereIn(description.PrimaryKey, data);
+      query.whereIn(description.PrimaryKey[0], data);
     }
 
     return query;
@@ -1022,8 +1028,8 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     // pk constrain
-    if (description.PrimaryKey && pk !== null) {
-      query.where(description.PrimaryKey, pk);
+    if (description.PrimaryKey.length !== 0 && pk !== null) {
+      query.where(description.PrimaryKey[0], pk);
     }
 
     // check for all unique columns ( unique constrain )
@@ -1068,7 +1074,7 @@ export const MODEL_STATIC_MIXINS = {
       // we dont want to set primary key on new model if not exists
       // and autoincrement is set
       if (primaryKey?.AutoIncrement) {
-        delete (toHydrate as any)[description.PrimaryKey];
+        delete (toHydrate as any)[description.PrimaryKey[0]];
       }
 
       entity = new (Function.prototype.bind.apply(this))(toHydrate);
@@ -1081,11 +1087,11 @@ export const MODEL_STATIC_MIXINS = {
   async exists<T extends typeof ModelBase>(this: T, pk: any) {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
     // pk constrain
-    if (description.PrimaryKey && pk !== null) {
-      query.where(description.PrimaryKey, pk);
+    if (description.PrimaryKey.length !== 0 && pk !== null) {
+      query.where(description.PrimaryKey[0], pk);
     }
 
-    const result = await query.clearColumns().select(description.PrimaryKey).first();
+    const result = await query.clearColumns().select(description.PrimaryKey[0]).first();
     if (result) {
       return true;
     }

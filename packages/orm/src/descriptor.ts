@@ -19,7 +19,7 @@ function createDefaultModelDescriptor(): IModelDescriptor {
     Converters: new Map(),
     Columns: [],
     Connection: null,
-    PrimaryKey: '',
+    PrimaryKey: [],
     SoftDelete: {
       DeletedAt: '',
     },
@@ -69,7 +69,7 @@ export function extractModelDescriptorInherited(targetOrForward: any): IModelDes
     return b;
   };
 
-  return {
+  const merged = {
     ...createDefaultModelDescriptor(),
     ...(metadata ? inheritanceChain.reduce((prev, c) => {
       return {
@@ -80,7 +80,16 @@ export function extractModelDescriptorInherited(targetOrForward: any): IModelDes
     ...{
       Name: target.name
     }
-  }
+  } as IModelDescriptor;
+
+  // `merger` concatenates arrays, which is right for Columns ( de-duplicated later by
+  // Orm.reloadTableInfo's _.unionBy ) but wrong for PrimaryKey: an inherited key would
+  // appear once per level of the hierarchy. Two levels of derivation is enough to produce
+  // ['Id','Id'], because the intermediate class's own cached descriptor already carries the
+  // key it inherited from the base.
+  merged.PrimaryKey = _.uniq(merged.PrimaryKey ?? []);
+
+  return merged;
 }
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescriptor | null {

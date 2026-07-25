@@ -78,7 +78,7 @@ export class CrudCreate extends Crud {
     if (!m) {
       throw new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        [mDescriptor.PrimaryKey]: id,
+        [mDescriptor.PrimaryKey[0]]: id,
       });
     }
 

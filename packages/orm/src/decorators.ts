@@ -221,11 +221,17 @@ export function Archived() {
 }
 
 /**
- * Makrs field as primary key
+ * Marks a field as part of the primary key. Applying it to more than one property of the same
+ * model declares a composite key; the columns are ordered by decorator evaluation order.
+ *
+ * NOTE: @Primary() is additive across an inheritance chain. A subclass cannot *replace* a base
+ * class's primary key, only extend it. Declare @Primary() on every key column of the concrete model.
  */
 export function Primary() {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
-    model.PrimaryKey = propertyKey;
+    if (!model.PrimaryKey.includes(propertyKey)) {
+      model.PrimaryKey.push(propertyKey);
+    }
   });
 }
 
@@ -328,7 +334,7 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
       TargetModel: undefined as any,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
       // default PK must come from the TARGET model, not the source ( fixed below )
-      PrimaryKey: primaryKey ?? model.PrimaryKey,
+      PrimaryKey: primaryKey ?? model.PrimaryKey[0],
       Recursive: false,
     };
 
@@ -341,12 +347,12 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
 
         Object.defineProperty(descriptor, 'PrimaryKey', {
           get: function () {
-            return getModel()?.PrimaryKey ?? model.PrimaryKey;
+            return getModel()?.PrimaryKey[0] ?? model.PrimaryKey[0];
           },
         });
       } else {
         const targetModelDesc = extractModelDescriptor(targetModel);
-        descriptor.PrimaryKey = targetModelDesc?.PrimaryKey ?? model.PrimaryKey;
+        descriptor.PrimaryKey = targetModelDesc?.PrimaryKey[0] ?? model.PrimaryKey[0];
       }
     }
 
@@ -418,7 +424,7 @@ export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: str
       TargetModelType: forwardRef.forwardRef,
       TargetModel: undefined as any,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
-      PrimaryKey: primaryKey ?? model.PrimaryKey,
+      PrimaryKey: primaryKey ?? model.PrimaryKey[0],
       Recursive: false,
     });
   });
@@ -490,7 +496,7 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       TargetModelType: targetModel,
       TargetModel: undefined as any,
       ForeignKey: options ? options.foreignKey ?? `${model.Name.toLowerCase()}_id` : `${model.Name.toLowerCase()}_id`,
-      PrimaryKey: options ? options.primaryKey ?? model.PrimaryKey : model.PrimaryKey,
+      PrimaryKey: options ? options.primaryKey ?? model.PrimaryKey[0] : model.PrimaryKey[0],
       Recursive: false,
       Factory: options?.factory ? options.factory : undefined,
       RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_factory__', [type]),
@@ -506,8 +512,8 @@ export function Historical(targetModel: Constructor<ModelBase>) {
       SourceModel: target,
       TargetModelType: targetModel,
       TargetModel: undefined as any,
-      ForeignKey: model.PrimaryKey,
-      PrimaryKey: model.PrimaryKey,
+      ForeignKey: model.PrimaryKey[0],
+      PrimaryKey: model.PrimaryKey[0],
       Recursive: false,
     });
   });
@@ -530,7 +536,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       TargetModel: undefined as any,
       ForeignKey: '',
       // ForeignKey: options?.targetModelPKey ?? targetModelDescriptor.PrimaryKey,
-      PrimaryKey: options?.sourceModelPKey ?? model.PrimaryKey,
+      PrimaryKey: options?.sourceModelPKey ?? model.PrimaryKey[0],
       JunctionModel: junctionModel,
       // JunctionModelTargetModelFKey_Name: options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
       JunctionModelTargetModelFKey_Name: '',
@@ -562,7 +568,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       });
     } else {
       const targetModelDescriptor = extractModelDescriptor(targetModel);
-      descriptor.ForeignKey = options?.targetModelPKey ?? targetModelDescriptor!.PrimaryKey;
+      descriptor.ForeignKey = options?.targetModelPKey ?? targetModelDescriptor!.PrimaryKey[0];
       descriptor.JunctionModelTargetModelFKey_Name = options?.junctionModelTargetPk ?? `${targetModelDescriptor!.Name.toLowerCase()}_id`;
     }
 

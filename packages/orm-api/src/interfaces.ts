@@ -92,7 +92,7 @@ export abstract class Crud extends BaseController {
     const descriptor = this.getModelDescriptor(model);
     const rDescriptor = this.getRelationDescriptor(model, relation);
     const tDescriptor = this.getModelDescriptor(rDescriptor.TargetModel);
-    const sQuery = model.query().where(descriptor.PrimaryKey, id).populate(relation, callback);
+    const sQuery = model.query().where(descriptor.PrimaryKey[0], id).populate(relation, callback);
 
     return {
       relation: rDescriptor,

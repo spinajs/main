@@ -103,12 +103,12 @@ export class CrudRead extends Crud {
     const { query, permission } = this.getSafeQuery(model, user);
     const result = await query
       .select('*')
-      .where(descriptor.PrimaryKey, id)
+      .where(descriptor.PrimaryKey[0], id)
       .populate(includes)
       .firstOrThrow(
         new ResourceNotFound(`Record with id ${id} not found`, {
           Resource: model.name,
-          [descriptor.PrimaryKey]: id,
+          [descriptor.PrimaryKey[0]]: id,
         }),
       );
 
@@ -130,18 +130,18 @@ export class CrudRead extends Crud {
     if (!pExists) {
       throw new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        [mDescriptor.PrimaryKey]: id,
+        [mDescriptor.PrimaryKey[0]]: id,
       });
     }
 
     const result = await query
       .select('*')
       .populate(includes)
-      .where(rmDescriptor.PrimaryKey, relationId)
+      .where(rmDescriptor.PrimaryKey[0], relationId)
       .firstOrThrow(
         new ResourceNotFound(`Record with id ${relationId} not found`, {
           Resource: rDescriptor.TargetModel.name,
-          [rmDescriptor.PrimaryKey]: relationId,
+          [rmDescriptor.PrimaryKey[0]]: relationId,
         }),
       );
 
@@ -162,7 +162,7 @@ export class CrudRead extends Crud {
     if (!pExists) {
       throw new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        [mDescriptor.PrimaryKey]: id,
+        [mDescriptor.PrimaryKey[0]]: id,
       });
     }
 

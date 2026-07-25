@@ -26,9 +26,9 @@ export abstract class ExistsRelationHandler {
  * Falls back to the source descriptor's `TableName` when neither the builder nor its parent
  * has an alias set, matching the legacy behaviour of `whereExist` / `whereNotExists`.
  */
-function sourcePKeyRef(builder: WhereBuilder<any>, tDesc: { TableName: string; PrimaryKey: string }): string {
+function sourcePKeyRef(builder: WhereBuilder<any>, tDesc: { TableName: string; PrimaryKey: string[] }): string {
   const sourceAlias = builder.TableAlias ?? tDesc.TableName;
-  return `\`${sourceAlias}\`.\`${tDesc.PrimaryKey}\``;
+  return `\`${sourceAlias}\`.\`${tDesc.PrimaryKey[0]}\``;
 }
 
 @Injectable(ExistsRelationHandler)

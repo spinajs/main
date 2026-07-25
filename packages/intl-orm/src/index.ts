@@ -90,7 +90,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
     const self = this;
     const pks = data.map((d) => {
       // do this as one pass
-      return (d as any)[this._description.PrimaryKey];
+      return (d as any)[this._description.PrimaryKey[0]];
     });
 
     const hydrateMiddleware = {
@@ -104,7 +104,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
         data.forEach((d) => {
           let val = d as any;
           const relData = relationData.filter((rd) => {
-            return (rd as any)['ResourceId'] === val[self._description.PrimaryKey];
+            return (rd as any)['ResourceId'] === val[self._description.PrimaryKey[0]];
           });
 
           relData.forEach((rd: IntlResource) => {

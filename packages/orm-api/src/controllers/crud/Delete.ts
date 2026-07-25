@@ -26,12 +26,12 @@ export class CrudDelete extends Crud {
   @Post(':model/__batchDelete')
   public async batchDelete(@ModelType() model: IModelStatic, @Body() ids: any[]) {
     const tModel = this.getModelDescriptor(model);
-    const result = await model.destroy().whereIn(tModel.PrimaryKey, ids);
+    const result = await model.destroy().whereIn(tModel.PrimaryKey[0], ids);
 
     this.Log.trace(`Deleted ${result.RowsAffected} records from ${tModel.Name}`);
 
     return new Ok({
-      [tModel.PrimaryKey]: ids,
+      [tModel.PrimaryKey[0]]: ids,
     });
   }
 
@@ -44,7 +44,7 @@ export class CrudDelete extends Crud {
     this.Log.trace(`Deleted ${result.RowsAffected} records from ${descriptor.Name} with id ${id}`);
 
     return new Ok({
-      [descriptor.PrimaryKey]: [id],
+      [descriptor.PrimaryKey[0]]: [id],
     });
   }
 
@@ -92,7 +92,7 @@ export class CrudDelete extends Crud {
     this.Log.trace(`Deleted related ${result.RowsAffected} records from ${tModel.Name} with id ${id}`);
 
     return new Ok({
-      [tModel.PrimaryKey]: relationId,
+      [tModel.PrimaryKey[0]]: relationId,
     });
   }
 

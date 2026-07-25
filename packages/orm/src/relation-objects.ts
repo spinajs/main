@@ -236,7 +236,7 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
 
     const query = createQuery(this.Relation!.TargetModel, SelectQueryBuilder<ModelBase>).query;
     const desc = extractModelDescriptor(this.Relation!.TargetModel);
-    query.where({ [desc!.PrimaryKey]: (this._owner as any)[this.Relation!.ForeignKey] });
+    query.where({ [desc!.PrimaryKey[0]]: (this._owner as any)[this.Relation!.ForeignKey] });
 
     if (callback) {
       callback.apply(query);
@@ -327,7 +327,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
  * @param obj
  */
   public set(obj: T[] | ((data: T[], pKeyName: string) => T[])) {
-    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor!.PrimaryKey) : obj;
+    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor!.PrimaryKey[0]) : obj;
     this.empty();
     this.push(...toPush);
   }
@@ -482,7 +482,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     // if we have data in relation, we need to exclude them from delete query
     const toDelete = data.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
     if (toDelete.length !== 0) {
-      query.whereNotIn(this.TargetModelDescriptor!.PrimaryKey, toDelete);
+      query.whereNotIn(this.TargetModelDescriptor!.PrimaryKey[0], toDelete);
     }
 
     await query;
@@ -552,7 +552,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns Difference between this relation and dataset
    */
   public diff(dataset: T[], callback?: (a: T, b: T) => boolean) {
-    return Dataset.diff(dataset, callback)([...this], this.TargetModelDescriptor!.PrimaryKey);
+    return Dataset.diff(dataset, callback)([...this], this.TargetModelDescriptor!.PrimaryKey[0]);
   }
 
   /**
@@ -561,7 +561,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @param obj
    */
   public set(obj: T[] | ((data: T[], pKeyName: string) => T[])) {
-    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor!.PrimaryKey) : obj;
+    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor!.PrimaryKey[0]) : obj;
     this.empty();
     this.push(...toPush);
   }
@@ -574,7 +574,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns Data that are in both sets
    */
   public intersection(obj: T[], callback?: (a: T, b: T) => boolean) {
-    return Dataset.intersection(obj, callback)([...this], this.TargetModelDescriptor!.PrimaryKey);
+    return Dataset.intersection(obj, callback)([...this], this.TargetModelDescriptor!.PrimaryKey[0]);
   }
 
   /**

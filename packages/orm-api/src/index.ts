@@ -66,7 +66,7 @@ export class FromDbModel extends RouteArgs {
     const descriptor = extractModelDescriptor(param.RuntimeType);
     query.setTable(descriptor!.TableName, `$${descriptor!.TableName}`);
     query.where(function() {
-      this.where(descriptor!.PrimaryKey, pkValue);
+      this.where(descriptor!.PrimaryKey[0], pkValue);
     });
 
     /**

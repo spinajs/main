@@ -178,7 +178,7 @@ export abstract class WhereStatement extends QueryStatement {
 
       // Allow primary key columns and any model property even if not explicitly in Columns array
       // Some properties may be defined without decorators or only with @Primary
-      if (columnName && !columnDesc && columnName !== desc?.PrimaryKey && !(columnName in this._model.prototype)) {
+      if (columnName && !columnDesc && !desc?.PrimaryKey.includes(columnName) && !(columnName in this._model.prototype)) {
         throw new InvalidArgument(`column ${columnName} not exists in model ${this._model.name}`);
       }
 
