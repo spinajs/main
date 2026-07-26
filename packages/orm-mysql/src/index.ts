@@ -329,7 +329,11 @@ export class MySqlOrmDriver extends SqlDriver {
     // backtick-quote an identifier, escaping embedded backticks by doubling them
     const escapeId = (id: string) => '`' + String(id).replace(/`/g, '``') + '`';
 
-    const tblInfo = (await this.executeOnDb(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? AND TABLE_SCHEMA=?`, [name, dbSchema], QueryContext.Select)) as ITableColumnInfo;
+    // ORDER BY ORDINAL_POSITION is not decoration. Without it MySQL is free to return the rows
+    // in any order — and does: the same table came back as (Code, TenantId) in one run and
+    // (TenantId, Code) in the next. Column order is part of what a table descriptor means, so
+    // it has to be the table's own order, not whatever the optimizer produced this time.
+    const tblInfo = (await this.executeOnDb(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? AND TABLE_SCHEMA=? ORDER BY ORDINAL_POSITION`, [name, dbSchema], QueryContext.Select)) as ITableColumnInfo;
     const isView = (await this.executeOnDb(`SHOW FULL TABLES FROM ${escapeId(dbSchema)} WHERE ${escapeId(`Tables_in_${dbSchema}`)}=?`, [name], QueryContext.Select)) as ITableTypeInfo[];
     let indexInfo: IIndexInfo[] = [];
 
