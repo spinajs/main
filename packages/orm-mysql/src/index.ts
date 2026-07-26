@@ -1,7 +1,11 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { LogLevel } from '@spinajs/log';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, ORM_METRIC_ACQUIRE_SECONDS } from '@spinajs/orm';
+// No LogLevel import: master moved per-query timing out of every driver and into a single
+// `Perf.measure('orm.query', ...)` around SqlDriver.execute, so duplicating it here would
+// emit the same query twice. QueryBuilder / TransactionCallback / ITransaction are gone with
+// the old `{ commit, rollback }` transaction shape this branch replaced. ConnectionState /
+// IPoolMetrics are orm-infra's connection-resilience + pool-telemetry work.
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics } from '@spinajs/orm';
 import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
@@ -29,17 +33,14 @@ export class MysqlServerResponseMapper extends ServerResponseMapper {
 @NewInstance()
 export class MySqlOrmDriver extends SqlDriver {
   protected Pool: mysql.Pool;
-  protected _executionId = 0;
+  // `_executionId` went with the per-driver query timing master centralised.
+  // `TransactionStorage` is no longer declared here either — it moved up to OrmDriver so
+  // ambient-connection propagation is part of the contract rather than a MySQL detail.
 
   /**
    * MySQL/InnoDB honours all four standard levels.
    */
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
-
-  private getNextExecutionId(): number {
-    this._executionId = (this._executionId + 1) % Number.MAX_SAFE_INTEGER;
-    return this._executionId;
-  }
 
   public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport failures,
@@ -78,8 +79,6 @@ export class MySqlOrmDriver extends SqlDriver {
 
   protected _executeOnDbOnce(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const self = this;
-    const tName = `query-${this.getNextExecutionId()}`;
-    this.Log.timeStart(`query-${tName}`);
 
     // Check if we're inside a transaction context and use that connection.
     // The context comes from the base driver, so `connection` is typed loosely there; only
@@ -152,7 +151,7 @@ export class MySqlOrmDriver extends SqlDriver {
 
       this.Pool.getConnection((err, connection) => {
         const seconds = Number(process.hrtime.bigint() - acquireStart) / 1e9;
-        this.metricsSink().observe(ORM_METRIC_ACQUIRE_SECONDS, 'Seconds spent acquiring an ORM pool connection', { connection: this.Options.Name }, seconds);
+        this.observeAcquireSeconds(seconds);
 
         if (err) {
           fail(err);
@@ -168,39 +167,7 @@ export class MySqlOrmDriver extends SqlDriver {
           connection.release();
         });
       });
-    })
-      .then((val) => {
-        const tDiff = this.Log.timeEnd(`query-${tName}`);
-
-        void this.Log.write({
-          Level: LogLevel.Trace,
-          Variables: {
-            error: undefined,
-            message: `Executed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
-            logger: this.Log.Name,
-            level: 'TRACE',
-            duration: tDiff,
-          },
-        });
-
-        return val;
-      })
-      .catch((err) => {
-        const tDiff = this.Log.timeEnd(`query-${tName}`);
-
-        void this.Log.write({
-          Level: LogLevel.Error,
-          Variables: {
-            error: err,
-            message: `Failed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
-            logger: this.Log.Name,
-            level: 'Error',
-            duration: tDiff,
-          },
-        });
-
-        throw err;
-      });
+    });
   }
 
   public supportedFeatures(): ISupportedFeature {

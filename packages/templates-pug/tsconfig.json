@@ -13,7 +13,8 @@
     { "path": "../exceptions/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
     { "path": "../intl/tsconfig.json"},
-    { "path": "../templates/tsconfig.json"}
+    { "path": "../templates/tsconfig.json"},
+    { "path": "../fs/tsconfig.json" }
   ]
 }
 

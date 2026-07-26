@@ -8,5 +8,7 @@ export * from './FromForm.js';
 export * from './FromHeaderArg.js';
 export * from './FromParams.js';
 export * from './FromQuery.js';
+export * from './FromXml.js';
+export * from './RequestContext.js';
 export * from './RouteArgs.js';
 export * from './RequestFields.js';

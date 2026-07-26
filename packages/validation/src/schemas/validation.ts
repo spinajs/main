@@ -8,6 +8,7 @@ const CONFIGURATION_SCHEMA = {
     removeAdditional: { type: 'boolean' },
     useDefaults: { type: 'boolean' },
     coerceTypes: { type: 'boolean' },
+    messages: { type: 'boolean' },
   },
 };
 

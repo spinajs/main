@@ -27,7 +27,7 @@ export function __handle_error__() {
             return next();
         }
 
-        const error = {
+        const error: any = {
             /**
              * By default Error object dont copy values like message ( they are not enumerable )
              * It only copies custom props added to Error ( via inheritance )
@@ -36,10 +36,10 @@ export function __handle_error__() {
 
             // make sure error message is added
             message: err.message,
-            stack: {},
         };
 
-        // in dev mode add stack trace for debugging
+        // in dev mode add stack trace for debugging. In production the stack is
+        // omitted entirely rather than serialized as an empty object.
         if (!isProductionEnv) {
             error.stack = err.stack ? err.stack : err.parameter && err.parameter.stack;
         }
@@ -52,7 +52,7 @@ export function __handle_error__() {
             const httpResponse = errorMap.get(err.constructor.name);
             response = new httpResponse!(error);
         } else {
-            logger.warn(`Error type ${error.constructor} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
+            logger.warn(`Error type ${err.constructor?.name} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
             response = new ServerError(error);
         }
 

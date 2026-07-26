@@ -2,7 +2,10 @@ import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/h
 import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 
 /**
- * Policy to block guests
+ * Policy that ALLOWS guest users through. Access is only refused when the
+ * request has no user/session at all, or when the guest account itself has
+ * been globally disabled (IsActive === false). Use BlockGuest for the opposite
+ * behavior (reject guests, require a real logged-in user).
  */
 export class AllowGuest extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {

@@ -24,7 +24,22 @@ export class SwaggerService extends AsyncService {
   @Config('http.swagger')
   protected SwaggerConfig!: ISwaggerConfig;
 
+  /**
+   * The global route prefix the runtime prepends to every controller route
+   * (see BaseController route registration). Documented paths must include it
+   * or Swagger "Try it out" hits the wrong URL. Only used as a fallback when
+   * an explicit swagger.basePath isn't configured.
+   */
+  @Config('http.controllers.route.prefix', { defaultValue: '' })
+  protected RoutePrefix!: string;
+
   private _spec: IOpenApiDocument | null = null;
+
+  /**
+   * In-flight build, shared so concurrent first requests don't each kick off a
+   * full (expensive) rebuild. Cleared once the build settles.
+   */
+  private _buildPromise: Promise<IOpenApiDocument> | null = null;
 
   public get IsEnabled(): boolean {
     return this.SwaggerConfig?.enabled !== false;
@@ -34,13 +49,33 @@ export class SwaggerService extends AsyncService {
     await super.resolve();
   }
 
+  /**
+   * Drop the cached spec so the next getSpec() rebuilds it. Call after
+   * registering controllers at runtime (Controllers.add) so they appear in
+   * the documentation.
+   */
+  public invalidate(): void {
+    this._spec = null;
+  }
+
   public async getSpec(): Promise<IOpenApiDocument | null> {
     if (!this.IsEnabled) return null;
-    if (!this._spec) {
+    if (this._spec) return this._spec;
+
+    // Coalesce concurrent builds onto a single in-flight promise.
+    if (!this._buildPromise) {
       this.Log.info('Building Swagger/OpenAPI documentation...');
-      const spec = await this.buildSpec();
-      this.Log.info(`Swagger documentation ready. ${Object.keys(spec.paths ?? {}).length} paths documented.`);
+      this._buildPromise = this.buildSpec()
+        .then((spec) => {
+          this.Log.info(`Swagger documentation ready. ${Object.keys(spec.paths ?? {}).length} paths documented.`);
+          return spec;
+        })
+        .finally(() => {
+          this._buildPromise = null;
+        });
     }
+
+    await this._buildPromise;
     return this._spec;
   }
 
@@ -48,10 +83,17 @@ export class SwaggerService extends AsyncService {
    * Rebuild the OpenAPI specification from current controllers.
    */
   public async buildSpec(): Promise<IOpenApiDocument> {
-    const config = this.SwaggerConfig || {
+    const baseConfig = this.SwaggerConfig || {
       enabled: true,
       title: 'API Documentation',
       version: '1.0.0',
+    };
+
+    // Fall back to the runtime route prefix so documented paths match the
+    // actual mounted URLs when no explicit swagger.basePath is set.
+    const config = {
+      ...baseConfig,
+      basePath: baseConfig.basePath || this.RoutePrefix || '',
     };
 
     const builder = await DI.resolve(OpenApiBuilder, [config]);

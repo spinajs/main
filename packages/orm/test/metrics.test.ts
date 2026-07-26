@@ -2,24 +2,12 @@
 import { expect } from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
-import { OrmMetricsSink, NullOrmMetricsSink, ORM_METRIC_POOL_SIZE, ORM_METRIC_POOL_IN_USE, ORM_METRIC_POOL_WAITING, ORM_METRIC_CONNECTION_STATE } from '../src/metrics.js';
+import { Metrics } from '@spinajs/telemetry-common';
+import { ORM_METRIC_POOL_SIZE, ORM_METRIC_POOL_IN_USE, ORM_METRIC_POOL_WAITING, ORM_METRIC_CONNECTION_STATE, ORM_METRIC_ACQUIRE_SECONDS } from '../src/metrics.js';
 import { ConnectionState } from '../src/resilience.js';
 import { OrmDriver } from '../src/driver.js';
 import { IColumnDescriptor, ISupportedFeature, ITransactionContext, ITransactionOptions } from '../src/interfaces.js';
 import { Builder } from '../src/builders.js';
-
-class RecordingSink extends OrmMetricsSink {
-  public gauges: Array<{ name: string; labels: Record<string, string>; value: number }> = [];
-  public observations: Array<{ name: string; seconds: number }> = [];
-
-  public gauge(name: string, _help: string, labels: Record<string, string>, value: number): void {
-    this.gauges.push({ name, labels, value });
-  }
-
-  public observe(name: string, _help: string, _labels: Record<string, string>, seconds: number): void {
-    this.observations.push({ name, seconds });
-  }
-}
 
 /**
  * A driver that overrides nothing beyond the abstract members, so `poolMetrics()` is whatever
@@ -53,44 +41,60 @@ function stub<T extends OrmDriver>(d: T): T {
   return d;
 }
 
+/**
+ * `Metrics` is a `@Singleton()`, so this is the very instance the driver publishes into. Every
+ * test gets a fresh one because `afterEach` clears the DI cache — the ORM keys its one-time
+ * `defineMetrics` call on the service instance, so a new service means a clean registry.
+ */
+function metrics(): Metrics {
+  return DI.get(Metrics) ?? DI.resolve(Metrics);
+}
+
 describe('pool metrics', () => {
   afterEach(() => DI.clearCache());
 
-  it('the default sink discards without throwing', () => {
-    const s = new NullOrmMetricsSink();
-    expect(() => s.gauge('a', 'h', {}, 1)).to.not.throw();
-    expect(() => s.observe('a', 'h', {}, 1)).to.not.throw();
-  });
-
-  it('publishes size, in-use, waiting and state with a connection label', () => {
-    const sink = new RecordingSink();
-    DI.register(() => sink).as(OrmMetricsSink);
-
+  it('publishes size, in-use, waiting and state with a connection label', async () => {
+    const m = metrics();
     const d = stub(new MetricDriver({ Driver: 'fake', Name: 'conn-a' } as any));
 
     d.publishPoolMetrics();
 
-    const byName = new Map(sink.gauges.map((g) => [g.name, g]));
-    expect(byName.get(ORM_METRIC_POOL_SIZE)!.value).to.equal(4);
-    expect(byName.get(ORM_METRIC_POOL_IN_USE)!.value).to.equal(1);
-    expect(byName.get(ORM_METRIC_POOL_WAITING)!.value).to.equal(2);
-    expect(byName.get(ORM_METRIC_POOL_SIZE)!.labels).to.deep.equal({ connection: 'conn-a' });
+    const out = await m.render();
+    expect(out).to.contain(`${ORM_METRIC_POOL_SIZE}{connection="conn-a"} 4`);
+    expect(out).to.contain(`${ORM_METRIC_POOL_IN_USE}{connection="conn-a"} 1`);
+    expect(out).to.contain(`${ORM_METRIC_POOL_WAITING}{connection="conn-a"} 2`);
   });
 
-  it('publishes 1 for connected and 0 otherwise', () => {
-    const sink = new RecordingSink();
-    DI.register(() => sink).as(OrmMetricsSink);
-
+  it('publishes 1 for connected and 0 otherwise', async () => {
+    const m = metrics();
     const d = stub(new MetricDriver({ Driver: 'fake', Name: 'conn-b' } as any));
 
     d.forceState(ConnectionState.Connected);
     d.publishPoolMetrics();
-    expect(sink.gauges.find((g) => g.name === ORM_METRIC_CONNECTION_STATE)!.value).to.equal(1);
+    expect(await m.render()).to.contain(`${ORM_METRIC_CONNECTION_STATE}{connection="conn-b"} 1`);
 
-    sink.gauges.length = 0;
     d.forceState(ConnectionState.Degraded);
     d.publishPoolMetrics();
-    expect(sink.gauges.find((g) => g.name === ORM_METRIC_CONNECTION_STATE)!.value).to.equal(0);
+    expect(await m.render()).to.contain(`${ORM_METRIC_CONNECTION_STATE}{connection="conn-b"} 0`);
+  });
+
+  it('records pool acquire waits as a histogram', async () => {
+    const m = metrics();
+    const d = stub(new MetricDriver({ Driver: 'fake', Name: 'conn-c' } as any));
+
+    d.observeAcquireSeconds(0.25);
+    d.observeAcquireSeconds(0.75);
+
+    const out = await m.render();
+    expect(out).to.contain(`${ORM_METRIC_ACQUIRE_SECONDS}_count{connection="conn-c"} 2`);
+    expect(out).to.contain(`${ORM_METRIC_ACQUIRE_SECONDS}_sum{connection="conn-c"} 1`);
+  });
+
+  it('publishing never throws, even for a driver built outside DI', () => {
+    const d = new MetricDriver({ Driver: 'fake', Name: 'conn-d' } as any);
+
+    expect(() => d.publishPoolMetrics()).to.not.throw();
+    expect(() => d.observeAcquireSeconds(1)).to.not.throw();
   });
 
   it('the base driver reports an empty pool by default', () => {

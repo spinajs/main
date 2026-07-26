@@ -6,6 +6,7 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
+import { FsBootsrapper, fsService } from '@spinajs/fs';
 import '../src/index.js';
 
 const expect = chai.expect;
@@ -41,6 +42,10 @@ export class ConnectionConf extends FrameworkConfiguration {
           templates: [dir('./templates')],
         },
       },
+      fs: {
+        defaultProvider: 'test-templates',
+        providers: [{ service: 'fsNative', name: 'test-templates', basePath: dir('./templates') }],
+      },
     };
   }
 }
@@ -52,9 +57,11 @@ async function tp() {
 describe('templates', () => {
   beforeEach(async () => {
     DI.clearCache();
+    DI.resolve(FsBootsrapper).bootstrap();
     DI.register(ConnectionConf).as(Configuration);
 
     await DI.resolve(Configuration);
+    await DI.resolve(fsService);
   });
 
   it('should render handlebar', async () => {
@@ -91,7 +98,14 @@ describe('templates', () => {
     expect(t.render(dir('template_not_exists.handlebars'), { hello: 'world' })).to.be.rejected;
   });
 
-  it('should render text center & right', async() =>{ 
+  it('should render handlebar from fs:// uri', async () => {
+    const t = await tp();
+    const result = await t.render('fs://test-templates/uri-template.handlebars', { hello: 'world' });
+
+    expect(result).to.eq('hello world');
+  });
+
+  it('should render text center & right', async() =>{
     const t = await tp();
     const result = await t.render(dir('templates/text.handlebars'), { hello: 'world' });
     expect(result).to.eq('       world        \r\n               world\r\n');

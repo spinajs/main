@@ -21,9 +21,11 @@ describe('DtoSchemaProvider', function () {
   let provider: DtoSchemaProvider;
 
   // Stub for the autoinjected DataValidator so the $ref lookup needs no AJV bootstrap.
+  // NOTE: DataValidator.getSchema() returns the unwrapped schema object directly
+  // (it internally unwraps ajv's `{ schema }` wrapper), so the fake must do the same.
   const fakeValidator = {
     getSchema: (id: string) =>
-      id === REF_ID ? { schema: { type: 'object', properties: { ok: { type: 'boolean' } } } } : undefined,
+      id === REF_ID ? { type: 'object', properties: { ok: { type: 'boolean' } } } : undefined,
   };
 
   before(() => {

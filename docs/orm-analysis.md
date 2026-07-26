@@ -595,17 +595,21 @@ because it has RETURNING.
 - The single startup `ping()` is replaced by a periodic probe (`startHealthCheck()` /
   `stopHealthCheck()`), started by `Orm` after a successful connect and stopped on `dispose()`. The
   timer is `unref()`ed and never holds the process open.
-- Pool telemetry goes through a new `OrmMetricsSink` abstract seam in `@spinajs/orm` with a no-op
-  default (`NullOrmMetricsSink`, registered in `bootstrap.ts`). `@spinajs/metrics` ships
-  `PromOrmMetricsSink`; register it with `DI.register(PromOrmMetricsSink).as(OrmMetricsSink)`.
+- Pool telemetry is published through the `Metrics` service in `@spinajs/telemetry-common`, which
+  `@spinajs/orm` depends on directly. Nothing has to be registered: `Metrics` is a `@Singleton()`
+  over a private prom-client registry, and `@spinajs/telemetry` re-exports that very class, so its
+  `/metrics` endpoint renders the registry the ORM writes to.
   Metrics: `orm_pool_size`, `orm_pool_in_use`, `orm_pool_waiting`, `orm_pool_acquire_seconds`,
   `orm_connection_state`, all labelled `connection`.
-  **The dependency runs `@spinajs/metrics` → `@spinajs/orm`, never the other way**, because
-  `@spinajs/metrics` depends on `@spinajs/http`; an ORM that depended on it would put the whole HTTP
-  stack underneath every database connection. `@spinajs/http` does not depend on `@spinajs/orm`, so
-  the graph stays acyclic.
-  Publishing can never fail a query or a health probe: the sink lookup falls back to a discarding
-  sink and `publishPoolMetrics()` swallows and traces.
+  **The dependency runs `@spinajs/orm` → `@spinajs/telemetry-common`, never
+  `@spinajs/orm` → `@spinajs/telemetry`**, because `@spinajs/telemetry` depends on `@spinajs/http`,
+  `@spinajs/log`, `@spinajs/validation` and `@spinajs/configuration`; an ORM that depended on it
+  would put the whole HTTP stack underneath every database connection. `-common` needs nothing but
+  `@spinajs/di` and prom-client — the same split `@spinajs/configuration-common` and
+  `@spinajs/log-common` already make.
+  Publishing can never fail a query or a health probe: `ormMetrics()` returns null instead of
+  throwing when the service cannot be resolved, and `publishPoolMetrics()` /
+  `observeAcquireSeconds()` swallow and trace.
 - MySQL's `_executeOnDbOnce` now takes its pool connection explicitly instead of letting
   `Pool.query` acquire out of sight. That is what makes `orm_pool_acquire_seconds` a real number
   rather than always zero; the connection is released on every path including a synchronous throw,

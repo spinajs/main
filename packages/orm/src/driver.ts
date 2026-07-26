@@ -7,10 +7,7 @@ import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlCon
 import { OrmException } from './exceptions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, IConnectionResilienceOptions, isRetryableErrorCode } from './resilience.js';
-import { IPoolMetrics, NullOrmMetricsSink, ORM_METRIC_CONNECTION_STATE, ORM_METRIC_POOL_IN_USE, ORM_METRIC_POOL_SIZE, ORM_METRIC_POOL_WAITING, OrmMetricsSink } from './metrics.js';
-
-/** Shared fallback for drivers built outside DI; discarding, so it holds no state. */
-const NULL_METRICS_SINK = new NullOrmMetricsSink();
+import { IPoolMetrics, ORM_METRIC_KEY_ACQUIRE_SECONDS, ORM_METRIC_KEY_CONNECTION_STATE, ORM_METRIC_KEY_POOL_IN_USE, ORM_METRIC_KEY_POOL_SIZE, ORM_METRIC_KEY_POOL_WAITING, ormGauge, ormHistogram, ormMetrics } from './metrics.js';
 import './hydrators.js';
 import './dehydrators.js';
 
@@ -299,37 +296,50 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   }
 
   /**
-   * The configured telemetry sink, or a discarding one when nothing is registered — which is the
-   * case for a driver constructed outside DI, as tooling and tests do. Never throws: publishing a
-   * metric must not be able to fail a query or a health probe.
+   * Pushes the current pool state and connection state to the shared `Metrics` registry from
+   * `@spinajs/telemetry-common`. Nothing has to be wired for this to work — `Metrics` owns a
+   * private registry and `@spinajs/telemetry`'s `/metrics` endpoint renders that same singleton.
    */
-  protected metricsSink(): OrmMetricsSink {
+  public publishPoolMetrics(): void {
     try {
-      return (this.Container ?? DI).resolve(OrmMetricsSink);
-    } catch {
-      return NULL_METRICS_SINK;
+      const metrics = ormMetrics();
+
+      if (!metrics) {
+        return;
+      }
+
+      const labels = { connection: this.Options.Name };
+      const pool = this.poolMetrics();
+
+      ormGauge(metrics, ORM_METRIC_KEY_POOL_SIZE).set(labels, pool.Size);
+      ormGauge(metrics, ORM_METRIC_KEY_POOL_IN_USE).set(labels, pool.InUse);
+      ormGauge(metrics, ORM_METRIC_KEY_POOL_WAITING).set(labels, pool.Waiting);
+      ormGauge(metrics, ORM_METRIC_KEY_CONNECTION_STATE).set(labels, this.State === ConnectionState.Connected ? 1 : 0);
+    } catch (err) {
+      // Telemetry must never break a connection. This runs first on every health tick, so a
+      // registry that throws — or a driver built outside DI, as tooling and tests do — would
+      // otherwise stop the probe that follows it from ever running.
+      this.Log?.trace(`publishing pool metrics for ${this.Options.Name} failed: ${(err as Error).message}`);
     }
   }
 
   /**
-   * Pushes the current pool state and connection state to the configured metrics sink. The
-   * default sink discards, so this costs a resolve and four no-op calls when nobody is listening.
+   * Records one pool-acquire wait, in SECONDS ( prometheus convention ). Drivers that own a real
+   * pool call this from the acquire callback; keeping the prom-client objects behind this method
+   * is what stops every driver from needing to know about `@spinajs/telemetry-common`. Never
+   * throws, for the same reason `publishPoolMetrics` never throws.
    */
-  public publishPoolMetrics(): void {
+  public observeAcquireSeconds(seconds: number): void {
     try {
-      const sink = this.metricsSink();
-      const labels = { connection: this.Options.Name };
-      const pool = this.poolMetrics();
+      const metrics = ormMetrics();
 
-      sink.gauge(ORM_METRIC_POOL_SIZE, 'Open ORM pool connections', labels, pool.Size);
-      sink.gauge(ORM_METRIC_POOL_IN_USE, 'ORM pool connections checked out by a query', labels, pool.InUse);
-      sink.gauge(ORM_METRIC_POOL_WAITING, 'Callers waiting for a free ORM pool connection', labels, pool.Waiting);
-      sink.gauge(ORM_METRIC_CONNECTION_STATE, 'ORM connection state: 1 connected, 0 otherwise', labels, this.State === ConnectionState.Connected ? 1 : 0);
+      if (!metrics) {
+        return;
+      }
+
+      ormHistogram(metrics, ORM_METRIC_KEY_ACQUIRE_SECONDS).observe({ connection: this.Options.Name }, seconds);
     } catch (err) {
-      // Telemetry must never break a connection. This runs first on every health tick, so a sink
-      // that throws — or a driver built outside DI, as tooling and tests do — would otherwise
-      // stop the probe that follows it from ever running.
-      this.Log?.trace(`publishing pool metrics for ${this.Options.Name} failed: ${(err as Error).message}`);
+      this.Log?.trace(`observing pool acquire time for ${this.Options.Name} failed: ${(err as Error).message}`);
     }
   }
 
