@@ -3,11 +3,13 @@ import { expect } from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm, SelectQueryBuilder, DeleteQueryBuilder, SortOrder, extractModelDescriptor } from '@spinajs/orm';
+import { Orm, SelectQueryBuilder, DeleteQueryBuilder, SortOrder, extractModelDescriptor, IColumnDescriptor } from '@spinajs/orm';
 import { wherePk, whereAnyPk, whereNotAnyPk, orderByPk, normalizePkTuple, pkValueOf, pkKeyString } from '@spinajs/orm';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
 import { Model1 } from './Models/Model1.js';
 import { CompositeKeyModel } from './Models/CompositeKeyModel.js';
+import * as sinon from 'sinon';
+import { SqlSelectQueryCompiler, SqlDeleteQueryCompiler } from '../src/compilers.js';
 
 function sqb() {
   const connection = DI.get(Orm)!.Connections.get('sqlite')!;
@@ -28,7 +30,54 @@ describe('primary key predicates', () => {
 
   afterEach(() => {
     DI.clearCache();
+    sinon.restore();
   });
+
+  /**
+   * FakeSqliteDriver.executeOnDb returns `true`, which the SELECT path cannot `.map()` over.
+   * Any test that actually EXECUTES a finder ( rather than only building it ) needs rows.
+   */
+  function stubRows(rows: any[] = []) {
+    return sinon.stub(FakeSqliteDriver.prototype, 'executeOnDb').resolves(rows);
+  }
+
+  function col(Name: string, over: Partial<IColumnDescriptor> = {}): IColumnDescriptor {
+    return {
+      Type: 'INT',
+      MaxLength: 0,
+      Comment: '',
+      DefaultValue: null,
+      NativeType: 'INT',
+      Unsigned: false,
+      Nullable: false,
+      PrimaryKey: false,
+      AutoIncrement: false,
+      Name,
+      Converter: null as any,
+      Schema: 'sqlite',
+      Unique: false,
+      Uuid: false,
+      Ignore: false,
+      IsForeignKey: false,
+      ForeignKeyDescription: null as any,
+      Aggregate: false,
+      Virtual: false,
+      ...over,
+    } as IColumnDescriptor;
+  }
+
+  /**
+   * `select(column)` validates the column against `descriptor.Columns`, which is filled from
+   * the driver's `tableInfo`. FakeSqliteDriver returns null there, so a model that names its
+   * key columns explicitly ( as `exists` does ) needs the table described.
+   */
+  async function describeCompositeTable() {
+    const stub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
+    stub.returns(Promise.resolve(null as any));
+    stub.withArgs('composite_table', undefined).returns(Promise.resolve([col('TenantId', { PrimaryKey: true }), col('Code', { PrimaryKey: true, Type: 'VARCHAR', NativeType: 'VARCHAR' }), col('Name', { Type: 'VARCHAR', NativeType: 'VARCHAR', Nullable: true })]));
+    await DI.get(Orm)!.reloadTableInfo();
+    return stub;
+  }
 
   it('wherePk on a single-column key compiles to a plain equality (no AND wrapper)', () => {
     const q = sqb().select('*').from('users');
@@ -125,6 +174,62 @@ describe('primary key predicates', () => {
   it('pkValueOf returns a scalar for a single key and a tuple for a composite one', () => {
     expect(pkValueOf({ Id: 9 }, extractModelDescriptor(Model1)!)).to.equal(9);
     expect(pkValueOf({ TenantId: 1, Code: 'z' }, extractModelDescriptor(CompositeKeyModel)!)).to.deep.equal([1, 'z']);
+  });
+
+  // NOTE: these must AWAIT the finder. The query is only compiled when the builder is
+  // executed, so reading spy.returnValues[0] synchronously ( as an earlier draft did )
+  // sees an empty array and fails with "Cannot read properties of undefined".
+  it('Model.get on a composite key compiles a conjunction', async () => {
+    stubRows();
+    const spy = sinon.spy(SqlSelectQueryCompiler.prototype, 'compile');
+    await CompositeKeyModel.get([4, 'k']);
+
+    const out = spy.returnValues[0];
+    // `.first()` appends the LIMIT, hence the trailing `LIMIT ?` and its binding of 1.
+    expect(out.expression).to.equal('SELECT * FROM `composite_table` WHERE ( `TenantId` = ? AND `Code` = ? ) ORDER BY `TenantId` DESC, `Code` DESC LIMIT ?');
+    expect(out.bindings).to.deep.equal([4, 'k', 1]);
+    spy.restore();
+  });
+
+  it('Model.find on a composite key compiles a disjunction of conjunctions', async () => {
+    stubRows();
+    const spy = sinon.spy(SqlSelectQueryCompiler.prototype, 'compile');
+    await CompositeKeyModel.find([[1, 'a'], [2, 'b']]);
+
+    const out = spy.returnValues[0];
+    expect(out.expression).to.equal('SELECT * FROM `composite_table` WHERE ( ( `TenantId` = ? AND `Code` = ? ) OR ( `TenantId` = ? AND `Code` = ? ) )');
+    expect(out.bindings).to.deep.equal([1, 'a', 2, 'b']);
+    spy.restore();
+  });
+
+  it('Model.find on a single key still compiles to IN', async () => {
+    stubRows();
+    const spy = sinon.spy(SqlSelectQueryCompiler.prototype, 'compile');
+    await Model1.find([1, 2, 3]);
+
+    expect(spy.returnValues[0].expression).to.equal('SELECT * FROM `TestTable1` WHERE `Id` IN (?,?,?)');
+    spy.restore();
+  });
+
+  it('Model.destroy on a composite key deletes only the named rows', async () => {
+    stubRows();
+    const spy = sinon.spy(SqlDeleteQueryCompiler.prototype, 'compile');
+    await CompositeKeyModel.destroy([[1, 'a']]);
+
+    const out = spy.returnValues[0];
+    expect(out.expression).to.equal('DELETE FROM `composite_table` WHERE ( ( `TenantId` = ? AND `Code` = ? ) )');
+    expect(out.bindings).to.deep.equal([1, 'a']);
+    spy.restore();
+  });
+
+  it('Model.exists selects every key column of a composite key', async () => {
+    await describeCompositeTable();
+    stubRows();
+    const spy = sinon.spy(SqlSelectQueryCompiler.prototype, 'compile');
+    await (CompositeKeyModel as any).exists([1, 'a']);
+
+    expect(spy.returnValues[0].expression).to.equal('SELECT `TenantId`,`Code` FROM `composite_table` WHERE ( `TenantId` = ? AND `Code` = ? ) LIMIT ?');
+    spy.restore();
   });
 
   it('PrimaryKeyName is the key column list', () => {

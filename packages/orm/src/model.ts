@@ -19,7 +19,7 @@ import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { extractModelDescriptor } from './descriptor.js';
-import { hasPk, isCompositePk, orderByPk, pkValueOf, setPkValue, wherePk } from './primary-keys.js';
+import { hasPk, isCompositePk, orderByPk, pkColumns, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
@@ -976,18 +976,16 @@ export const MODEL_STATIC_MIXINS = {
 
   async find<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey[0];
     query.select('*');
-    query.whereIn(pkey, pks);
+    whereAnyPk(query, description, pks);
     return await (query as SelectQueryBuilder<Array<InstanceType<T>>>);
   },
 
   async findOrFail<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
     const { query, description, model } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey[0];
 
     query.select('*');
-    query.whereIn(pkey, pks);
+    whereAnyPk(query, description, pks);
 
     const result = await (query as SelectQueryBuilder<Array<InstanceType<T>>>);
 
@@ -1000,10 +998,9 @@ export const MODEL_STATIC_MIXINS = {
 
   async get<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey[0];
 
     query.select('*');
-    query.where(pkey, pk);
+    wherePk(query, description, pk);
 
     _prepareOrderBy(description, query);
 
@@ -1012,10 +1009,9 @@ export const MODEL_STATIC_MIXINS = {
 
   async getOrFail<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey[0];
 
     query.select('*');
-    query.where(pkey, pk);
+    wherePk(query, description, pk);
 
     _prepareOrderBy(description, query);
 
@@ -1043,7 +1039,7 @@ export const MODEL_STATIC_MIXINS = {
     }
 
     if (pks) {
-      query.whereIn(description.PrimaryKey[0], data);
+      whereAnyPk(query as unknown as IWhereBuilder<any>, description, data);
     }
 
     return query;
@@ -1059,8 +1055,8 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     // pk constrain
-    if (description.PrimaryKey.length !== 0 && pk !== null) {
-      query.where(description.PrimaryKey[0], pk);
+    if (hasPk(description) && pk !== null) {
+      wherePk(query, description, pk);
     }
 
     // check for all unique columns ( unique constrain )
@@ -1100,13 +1096,15 @@ export const MODEL_STATIC_MIXINS = {
     if (!entity) {
 
       const toHydrate = data ?? {};
-      const primaryKey = description.Columns.find((c) => c.PrimaryKey);
-      // remove primary key from data to hydrate
-      // we dont want to set primary key on new model if not exists
-      // and autoincrement is set
-      if (primaryKey?.AutoIncrement) {
-        delete (toHydrate as any)[description.PrimaryKey[0]];
-      }
+      // Do not carry an auto-increment key into a brand new model; the engine assigns it.
+      // Every key column is checked, not just the first, so a composite key with an
+      // auto-increment member is stripped correctly.
+      pkColumns(description).forEach((name) => {
+        const col = description.Columns.find((c) => c.Name === name);
+        if (col?.AutoIncrement) {
+          delete (toHydrate as any)[name];
+        }
+      });
 
       entity = new (Function.prototype.bind.apply(this))(toHydrate);
       return entity;
@@ -1118,11 +1116,14 @@ export const MODEL_STATIC_MIXINS = {
   async exists<T extends typeof ModelBase>(this: T, pk: any) {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
     // pk constrain
-    if (description.PrimaryKey.length !== 0 && pk !== null) {
-      query.where(description.PrimaryKey[0], pk);
+    if (hasPk(description) && pk !== null) {
+      wherePk(query, description, pk);
     }
 
-    const result = await query.clearColumns().select(description.PrimaryKey[0]).first();
+    const q = query.clearColumns();
+    pkColumns(description).forEach((c) => q.select(c));
+
+    const result = await q.first();
     if (result) {
       return true;
     }
