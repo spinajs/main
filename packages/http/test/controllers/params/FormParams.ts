@@ -1,7 +1,7 @@
 import { BasePath, BaseController, FormField, Ok, Post, Form, File, IUploadedFile, ZipFileTransformer, UnzipFileTransformer, FileInfoMiddleware, FileValidationMiddleware, FileProportions } from '../../../src/index.js';
 import { SampleModelWithHydrator3, SampleObject } from '../../dto/index.js';
 import { SampleModel } from '../../dto/index.js';
-import { TestTransformer } from '../../file-transformers/custom-file-transformer.js';
+import { TestFileTransformer } from '../../file-transformers/custom-file-transformer.js';
 import { CustomFileUploader } from '../../uploaders/custom-uploader.js';
 
 @BasePath('params/forms')
@@ -70,7 +70,7 @@ export class FormParams extends BaseController {
   }
 
   @Post()
-  public fileWithCustomTransformers(@File({ middlewares: [TestTransformer] }) file: IUploadedFile) {
+  public fileWithCustomTransformers(@File({ middlewares: [TestFileTransformer] }) file: IUploadedFile) {
     return new Ok(file);
   }
 
@@ -85,7 +85,7 @@ export class FormParams extends BaseController {
   }
 
   @Post()
-  public fileWithInfo(@File({ middlewares: [FileInfoMiddleware] }) file: IUploadedFile) {
+  public fileWithInfo(@File({ fileInfo: true, middlewares: [FileInfoMiddleware] }) file: IUploadedFile) {
     return new Ok(file);
   }
 

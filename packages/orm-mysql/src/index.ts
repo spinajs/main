@@ -1,6 +1,5 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { LogLevel } from '@spinajs/log';
 import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, ITransaction } from '@spinajs/orm';
 import { SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
@@ -25,18 +24,10 @@ export class MysqlServerResponseMapper extends ServerResponseMapper {
 @NewInstance()
 export class MySqlOrmDriver extends SqlDriver {
   protected Pool: mysql.Pool;
-  protected _executionId = 0;
   protected TransactionStorage = new AsyncLocalStorage<IMySqlTransactionContext>();
-
-  private getNextExecutionId(): number {
-    this._executionId = (this._executionId + 1) % Number.MAX_SAFE_INTEGER;
-    return this._executionId;
-  }
 
   public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const self = this;
-    const tName = `query-${this.getNextExecutionId()}`;
-    this.Log.timeStart(`query-${tName}`);
 
     // Check if we're inside a transaction context and use that connection
     const txContext = this.TransactionStorage.getStore();
@@ -80,39 +71,7 @@ export class MySqlOrmDriver extends SqlDriver {
             break;
         }
       });
-    })
-      .then((val) => {
-        const tDiff = this.Log.timeEnd(`query-${tName}`);
-
-        void this.Log.write({
-          Level: LogLevel.Trace,
-          Variables: {
-            error: undefined,
-            message: `Executed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
-            logger: this.Log.Name,
-            level: 'TRACE',
-            duration: tDiff,
-          },
-        });
-
-        return val;
-      })
-      .catch((err) => {
-        const tDiff = this.Log.timeEnd(`query-${tName}`);
-
-        void this.Log.write({
-          Level: LogLevel.Error,
-          Variables: {
-            error: err,
-            message: `Failed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
-            logger: this.Log.Name,
-            level: 'Error',
-            duration: tDiff,
-          },
-        });
-
-        throw err;
-      });
+    });
   }
 
   public supportedFeatures(): ISupportedFeature {
