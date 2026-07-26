@@ -225,13 +225,45 @@ export enum MigrationTransactionMode {
 }
 
 /**
+ * Connection pool sizing and timeouts.
+ */
+export interface IPoolOptions {
+  /**
+   * Connections kept open when idle. Default 0.
+   */
+  Min?: number;
+
+  /**
+   * Maximum concurrent connections. Default 10. Overrides the deprecated PoolLimit.
+   */
+  Max?: number;
+
+  /**
+   * Milliseconds an idle connection is kept before being closed. Default 30000.
+   */
+  IdleTimeout?: number;
+
+  /**
+   * Milliseconds to wait for a free connection before failing. Default 10000.
+   */
+  AcquireTimeout?: number;
+}
+
+/**
  * Configuration options to set in configuration file and used in OrmDriver
  */
 export interface IDriverOptions {
   /**
-   * Max connections limit
+   * Max connections limit.
+   *
+   * @deprecated use `Pool.Max`. Still honoured when `Pool.Max` is absent.
    */
   PoolLimit?: number;
+
+  /**
+   * Connection pool sizing and timeouts.
+   */
+  Pool?: IPoolOptions;
 
   /**
    * Database name associated with this connection

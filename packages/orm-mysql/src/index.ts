@@ -149,6 +149,8 @@ export class MySqlOrmDriver extends SqlDriver {
   public connect(): Promise<OrmDriver> {
     return new Promise((resolve, reject) => {
       try {
+        const pool = this.resolvedPoolOptions();
+
         this.Pool = mysql.createPool({
           host: this.Options.Host,
           user: this.Options.User,
@@ -156,7 +158,14 @@ export class MySqlOrmDriver extends SqlDriver {
           port: this.Options.Port,
           database: this.Options.Database,
           waitForConnections: true,
-          connectionLimit: this.Options.PoolLimit,
+          connectionLimit: pool.Max,
+          // mysql2's `maxIdle` is a CEILING on idle connections, not a floor, and it never
+          // pre-warms the pool — so there is no direct equivalent of `Pool.Min`. Passing Min
+          // straight through would set maxIdle to 0 by default and make mysql2 destroy every
+          // released connection, i.e. disable pooling. Instead: an explicit Min becomes the
+          // number of connections we let sit idle; Min = 0 keeps mysql2's own default (Max).
+          maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
+          idleTimeout: pool.IdleTimeout,
           queueLimit: 0,
         });
 
@@ -385,6 +394,8 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
             return;
           }
 
+          const pool = this.resolvedPoolOptions();
+
           this.Pool = mysql.createPool({
             host: 'localhost', // we tunnel via ssh so we use localhost
             user: this.Options.User,
@@ -392,7 +403,10 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
             port: this.Options.Port,
             database: this.Options.Database,
             waitForConnections: true,
-            connectionLimit: this.Options.PoolLimit,
+            connectionLimit: pool.Max,
+            // see MySqlOrmDriver.connect — `maxIdle` is a ceiling, so Min = 0 must not reach it
+            maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
+            idleTimeout: pool.IdleTimeout,
             queueLimit: 0,
             stream: stream,
           } as PoolOptions);

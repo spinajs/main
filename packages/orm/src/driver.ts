@@ -1,6 +1,6 @@
 import { Log } from '@spinajs/log-common';
 /* eslint-disable prettier/prettier */
-import { IColumnDescriptor, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
+import { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ModelToSqlConverter, ObjectToSqlConverter } from './interfaces.js';
 import { SyncService, IContainer, DI, Container, Autoinject } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, Builder } from './builders.js';
 import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
@@ -107,6 +107,21 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     this.Container.register(JsonValueConverter).as(JsonValueConverter);
     this.Container.register(UuidConverter).as(UuidConverter);
     this.Container.register(UniversalValueConverter).as(UniversalValueConverter);
+  }
+
+  /**
+   * Effective pool settings: `Pool.*` when given, then the deprecated `PoolLimit` for `Max`,
+   * then the defaults. Resolved in one place so every driver agrees on what "unset" means.
+   */
+  protected resolvedPoolOptions(): Required<IPoolOptions> {
+    const pool = this.Options.Pool ?? {};
+
+    return {
+      Min: pool.Min ?? 0,
+      Max: pool.Max ?? this.Options.PoolLimit ?? 10,
+      IdleTimeout: pool.IdleTimeout ?? 30000,
+      AcquireTimeout: pool.AcquireTimeout ?? 10000,
+    };
   }
 
   /**

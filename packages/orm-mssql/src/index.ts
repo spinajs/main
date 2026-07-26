@@ -147,9 +147,10 @@ export class MsSqlOrmDriver extends SqlDriver {
           cryptoCredentialsDetails: this.Options.Options?.CryptoCredentialsDetails ? this.Options.Options?.CryptoCredentialsDetails : {},
         },
         pool: {
-          max: this.Options.PoolLimit ?? 10,
-          min: 0,
-          idleTimeoutMillis: 3000,
+          max: this.resolvedPoolOptions().Max,
+          min: this.resolvedPoolOptions().Min,
+          idleTimeoutMillis: this.resolvedPoolOptions().IdleTimeout,
+          acquireTimeoutMillis: this.resolvedPoolOptions().AcquireTimeout,
         },
       })) as mssql.ConnectionPool;
 
