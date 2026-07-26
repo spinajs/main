@@ -224,7 +224,9 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public supportedFeatures(): ISupportedFeature {
-    return { events: false, insertReturning: true };
+    // insertIdIsFirstOfBatch is false: sqlite3's `lastID` is the LAST rowid the statement
+    // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false };
   }
 
   public async ping(): Promise<boolean> {

@@ -46,6 +46,26 @@ export interface ISupportedFeature {
 
   /** Can this dialect echo inserted rows back via RETURNING / OUTPUT on a plain INSERT? */
   insertReturning: boolean;
+
+  /**
+   * Does the identity value reported after a multi-row `INSERT ... VALUES` name the key of the
+   * FIRST row of that statement, with the remaining rows following contiguously?
+   *
+   * MySQL: **true**. InnoDB treats a statement whose row count is known before execution — every
+   * `INSERT ... VALUES (…), (…)` the builder can produce — as a *simple insert*, reserves one
+   * contiguous block of auto-increment values under a short mutex, and `LAST_INSERT_ID()` reports
+   * the first of them. This holds under `innodb_autoinc_lock_mode = 2`, the MySQL 8 default; the
+   * documented "values may not be contiguous" caveat is about *bulk* inserts (`INSERT … SELECT`,
+   * row count unknown) and about mixed-mode inserts where some rows carry an explicit key.
+   *
+   * MSSQL: **false**. `SCOPE_IDENTITY()` returns the LAST identity generated in the scope.
+   * SQLite: **false**. `sqlite3_last_insert_rowid()` is likewise the last row, not the first —
+   * SQLite gets its keys from RETURNING instead.
+   *
+   * Optional and defaulting to false, so a custom driver that does not set it simply opts out of
+   * the batch key backfill rather than getting wrong keys.
+   */
+  insertIdIsFirstOfBatch?: boolean;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {

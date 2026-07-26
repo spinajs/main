@@ -162,7 +162,11 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public supportedFeatures(): ISupportedFeature {
-    return { events: true, insertReturning: false };
+    // insertIdIsFirstOfBatch: a multi-row `INSERT ... VALUES` is a *simple insert* to InnoDB
+    // ( row count known before execution ), so it reserves one contiguous block of
+    // auto-increment values and LAST_INSERT_ID() reports the first of them. True even under
+    // innodb_autoinc_lock_mode = 2, the MySQL 8 default.
+    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true };
   }
 
   public resolve() {

@@ -123,6 +123,9 @@ export class MsSqlOrmDriver extends SqlDriver {
     return {
       events: true,
       insertReturning: false,
+      // SCOPE_IDENTITY() reports the LAST identity generated in the scope, so a multi-row insert
+      // cannot be walked forwards from it. MSSQL opts out of the batch key backfill.
+      insertIdIsFirstOfBatch: false,
     };
   }
 

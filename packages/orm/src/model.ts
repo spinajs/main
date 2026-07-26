@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
@@ -741,6 +741,60 @@ export class ModelBase<M = unknown> implements IModelBase {
 }
 
 
+/**
+ * Decides whether a multi-row insert's generated keys can be read off `LastInsertId + index` on a
+ * dialect that has no RETURNING.
+ *
+ * The premise is a documented MySQL guarantee, not a guess. InnoDB splits inserts into *simple*
+ * ones — row count known before execution, which is exactly what `INSERT INTO t (…) VALUES (…),
+ * (…)` is, and the only shape {@link InsertQueryBuilder} can build — and *bulk* ones
+ * (`INSERT … SELECT`), where it is not. For a simple insert InnoDB reserves one contiguous block
+ * of N auto-increment values under a short mutex it releases immediately, so the k-th row of the
+ * statement gets `LAST_INSERT_ID() + k`. This holds under `innodb_autoinc_lock_mode = 2`, the
+ * MySQL 8 default, and was verified against a live server. The "values may not be contiguous"
+ * caveat in the MySQL manual is about bulk inserts and about mixed-mode inserts.
+ *
+ * The guards below rule out every case where the mapping stops being positional.
+ */
+function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], response: DbServerResponse, features: ISupportedFeature, insertBehaviour: InsertBehaviour): boolean {
+  // Only a dialect whose reported id is the FIRST of the block can be walked forwards. MSSQL's
+  // SCOPE_IDENTITY() and SQLite's last_insert_rowid() report the LAST one.
+  if (!features.insertIdIsFirstOfBatch) {
+    return false;
+  }
+
+  // One database-generated identity column, or there is no counter to walk. A composite key has
+  // no single identity column, and uuid / assigned keys are already set by this point.
+  const keys = pkColumns(description);
+  if (keys.length !== 1 || pkGeneration(description, keys[0]) !== 'auto') {
+    return false;
+  }
+
+  // INSERT IGNORE / REPLACE / ON DUPLICATE KEY UPDATE are mixed-mode: rows can be skipped,
+  // replaced or updated rather than inserted, so the k-th allocated id stops belonging to the
+  // k-th input row. ( The array path rejects these outright today; this keeps the invariant
+  // local to the decision rather than depending on a check three hundred lines away. )
+  if (insertBehaviour !== InsertBehaviour.None) {
+    return false;
+  }
+
+  // No identity value reported at all.
+  if (typeof response.LastInsertId !== 'number' || !Number.isFinite(response.LastInsertId) || response.LastInsertId <= 0) {
+    return false;
+  }
+
+  // The server must confirm it inserted exactly one row per row we sent. Anything else means
+  // rows were skipped or the statement did something other than a plain multi-row insert.
+  if (response.RowsAffected !== rows.length) {
+    return false;
+  }
+
+  // A batch where SOME rows carry an explicit key is a mixed-mode insert: InnoDB allocates
+  // auto-increment values only for the rows that omitted one, so index arithmetic would both
+  // mis-key the generated rows and overwrite the supplied ones.
+  return rows.every((v) => v instanceof ModelBase && (v.PrimaryKeyValue === null || v.PrimaryKeyValue === undefined));
+}
+
 function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
   // NOTE: `if (description.PrimaryKey)` used to be false for the '' default. An empty ARRAY is
   // truthy, so this must be an explicit length check or no-primary-key models would stop
@@ -1004,11 +1058,17 @@ export const MODEL_STATIC_MIXINS = {
           if (v instanceof ModelBase && !v.PrimaryKeyValue) {
             v.PrimaryKeyValue = response.LastInsertId;
           }
+        } else if (_canBackfillContiguousKeys(description, rows, response, query.Driver.supportedFeatures(), insertBehaviour)) {
+          // Multi-row `INSERT ... VALUES` on a dialect with no RETURNING whose identity value is
+          // the first of the statement's contiguous block. See _canBackfillContiguousKeys.
+          rows.forEach((v, idx) => {
+            (v as ModelBase).PrimaryKeyValue = response.LastInsertId + idx;
+          });
         }
-        // More than one row on a dialect without RETURNING: we deliberately assign nothing.
-        // `LastInsertId + idx` assumed contiguous allocation, which MySQL does not guarantee
-        // under innodb_autoinc_lock_mode=2 and which is meaningless for uuid/assigned keys.
-        // Callers needing the keys must re-select or insert the models one at a time.
+        // Anything else — a dialect whose insert id names the last row, a batch that mixed
+        // supplied and generated keys, a statement the server did not insert one row per input
+        // row for — cannot be mapped positionally, so nothing is assigned. Callers needing the
+        // keys there must re-select or insert the models one at a time.
 
         return result;
       },
