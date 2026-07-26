@@ -19,6 +19,7 @@ import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { extractModelDescriptor } from './descriptor.js';
+import { hasPk, isCompositePk, orderByPk, pkValueOf, setPkValue, wherePk } from './primary-keys.js';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
@@ -115,29 +116,46 @@ export class ModelBase<M = unknown> implements IModelBase {
     return this._container;
   }
 
-  public get PrimaryKeyName() {
-    // Task 5 widens this to the full string[]; for now the single-key fast path keeps
-    // every caller compiling with byte-identical behaviour.
-    return this.ModelDescriptor!.PrimaryKey[0];
+  /**
+   * Primary key column names of this model. One element for the common single-column case.
+   */
+  public get PrimaryKeyName(): string[] {
+    return this.ModelDescriptor!.PrimaryKey;
   }
 
+  /**
+   * Primary key value: a scalar for a single-column key, a tuple in key order for a composite key.
+   */
   public get PrimaryKeyValue() {
-    return (this as any)[this.PrimaryKeyName];
+    return pkValueOf(this, this.ModelDescriptor!);
   }
 
+  /**
+   * Accepts a scalar for a single-column key, and an array in key order or an object keyed by
+   * column name for a composite key. Cascades the new value into loaded relations exactly as
+   * before, using the single-column relation key ( relations join on one column pair ).
+   */
   public set PrimaryKeyValue(newVal: any) {
-    (this as any)[this.PrimaryKeyName] = newVal;
+    setPkValue(this, this.ModelDescriptor!, newVal);
 
     this.ModelDescriptor!.Relations.forEach((r) => {
       const rel = (this as any)[r.Name];
       if (!rel) return;
 
+      // A relation's ForeignKey names ONE column, so it can only carry a single-column key.
+      // Cascading a composite parent key into children is not expressible and is skipped.
+      if (isCompositePk(this.ModelDescriptor!)) {
+        return;
+      }
+
+      const scalar = pkValueOf(this, this.ModelDescriptor!);
+
       switch (r.Type) {
         case RelationType.One:
-          (rel as any)[r.ForeignKey] = newVal;
+          (rel as any)[r.ForeignKey] = scalar;
           break;
         case RelationType.Many:
-          (rel as any[]).forEach((rVal) => (rVal[r.ForeignKey] = newVal));
+          (rel as any[]).forEach((rVal) => (rVal[r.ForeignKey] = scalar));
           break;
         case RelationType.ManyToMany:
           // TODO: rethink this
@@ -495,10 +513,15 @@ export class ModelBase<M = unknown> implements IModelBase {
    * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
    */
   public async destroy() {
-    if (!this.PrimaryKeyValue) {
+    // A composite key is a tuple, and a tuple is ALWAYS truthy - so the old `!pk` guard
+    // would happily issue a DELETE for a model whose key columns are still unset.
+    const pk = this.PrimaryKeyValue;
+    const missing = Array.isArray(pk) ? pk.some((v) => v === null || v === undefined) : !pk;
+    if (missing) {
       return;
     }
-    const result = await (this.constructor as any).destroy(this.PrimaryKeyValue);
+
+    const result = await (this.constructor as any).destroy(pk);
 
     this.IsDirty = false;
 
@@ -516,7 +539,9 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     const { query } = this.createUpdateQuery();
-    return await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    query.update(this.toSql());
+    wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
+    return await query;
   }
 
   public async update(data?: Partial<this>) {
@@ -539,7 +564,9 @@ export class ModelBase<M = unknown> implements IModelBase {
       (this as any)[this.ModelDescriptor!.Timestamps.UpdatedAt] = DateTime.now();
     }
 
-    result = await query.update(this.toSql(true)).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    query.update(this.toSql(true));
+    wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
+    result = await query;
 
     this.IsDirty = false;
 
@@ -568,11 +595,14 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     query.middleware({
       afterQuery: (data: IUpdateResult) => {
-        const response = sResponseMapper.read(data, this.PrimaryKeyName);
-        // if already exists do not overwrite
-        // sometimes we have models with primary key as string etc
-        // and not autoincrement
-        if (!this.PrimaryKeyValue) {
+        // NOTE: ServerResponseMapper.read still takes a single column name here; Task 12
+        // widens it to string[]. Passing [0] keeps this compiling in between.
+        const response = sResponseMapper.read(data, this.PrimaryKeyName[0]);
+        // Do not overwrite a key the caller already supplied ( uuid / assigned strategies ).
+        // Same tuple-truthiness trap as destroy().
+        const current = this.PrimaryKeyValue;
+        const missing = Array.isArray(current) ? current.some((v) => v === null || v === undefined) : !current;
+        if (missing) {
           this.PrimaryKeyValue = response.LastInsertId;
         }
         return data;
@@ -694,8 +724,8 @@ function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuild
   // NOTE: `if (description.PrimaryKey)` used to be false for the '' default. An empty ARRAY is
   // truthy, so this must be an explicit length check or no-primary-key models would stop
   // falling back to their unique columns.
-  if (description.PrimaryKey.length !== 0) {
-    query.where(description.PrimaryKey[0], model.PrimaryKeyValue);
+  if (hasPk(description)) {
+    wherePk(query, description, model.PrimaryKeyValue);
   } else {
     const unique = description.Columns.filter((x) => x.Unique);
     if (unique.length !== 0) {
@@ -709,18 +739,19 @@ function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuild
 }
 
 function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, order?: SortOrder) {
-  // See the note in _preparePkWhere: an empty array is truthy, '' was not.
-  if (description.PrimaryKey.length !== 0) {
-    query.order(description.PrimaryKey[0], order ?? SortOrder.DESC);
-  } else {
-    const unique = description.Columns.filter((c) => c.Unique);
-    if (unique.length !== 0) {
-      unique.forEach((c) => query.order(c.Name, order ?? SortOrder.DESC));
-    } else if (description.Timestamps?.CreatedAt) {
-      query.order(description.Timestamps.CreatedAt, order ?? SortOrder.DESC);
-    } else if (description.Timestamps?.UpdatedAt) {
-      query.order(description.Timestamps.UpdatedAt, order ?? SortOrder.DESC);
-    }
+  // orderByPk emits one ORDER BY term per key column and reports whether the model has a
+  // primary key at all - see the note in _preparePkWhere on why a length check is required.
+  if (orderByPk(query, description, order ?? SortOrder.DESC)) {
+    return;
+  }
+
+  const unique = description.Columns.filter((c) => c.Unique);
+  if (unique.length !== 0) {
+    unique.forEach((c) => query.order(c.Name, order ?? SortOrder.DESC));
+  } else if (description.Timestamps?.CreatedAt) {
+    query.order(description.Timestamps.CreatedAt, order ?? SortOrder.DESC);
+  } else if (description.Timestamps?.UpdatedAt) {
+    query.order(description.Timestamps.UpdatedAt, order ?? SortOrder.DESC);
   }
 }
 

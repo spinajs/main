@@ -127,6 +127,35 @@ describe('primary key predicates', () => {
     expect(pkValueOf({ TenantId: 1, Code: 'z' }, extractModelDescriptor(CompositeKeyModel)!)).to.deep.equal([1, 'z']);
   });
 
+  it('PrimaryKeyName is the key column list', () => {
+    expect(new Model1().PrimaryKeyName).to.deep.equal(['Id']);
+    expect(new CompositeKeyModel().PrimaryKeyName).to.deep.equal(['TenantId', 'Code']);
+  });
+
+  it('PrimaryKeyValue stays a scalar for single-column keys', () => {
+    const m = new Model1();
+    m.PrimaryKeyValue = 42;
+
+    expect(m.Id).to.equal(42);
+    expect(m.PrimaryKeyValue).to.equal(42);
+  });
+
+  it('PrimaryKeyValue is a tuple for composite keys', () => {
+    const m = new CompositeKeyModel();
+    m.PrimaryKeyValue = [3, 'xyz'];
+
+    expect(m.TenantId).to.equal(3);
+    expect(m.Code).to.equal('xyz');
+    expect(m.PrimaryKeyValue).to.deep.equal([3, 'xyz']);
+  });
+
+  it('PrimaryKeyValue accepts the object form for composite keys', () => {
+    const m = new CompositeKeyModel();
+    m.PrimaryKeyValue = { Code: 'q', TenantId: 8 };
+
+    expect(m.PrimaryKeyValue).to.deep.equal([8, 'q']);
+  });
+
   it('pkKeyString builds a collision-free grouping key', () => {
     const d = extractModelDescriptor(CompositeKeyModel)!;
     expect(pkKeyString({ TenantId: 1, Code: 'a\u0000b' }, d)).to.not.equal(pkKeyString({ TenantId: 1, Code: 'a' }, d));

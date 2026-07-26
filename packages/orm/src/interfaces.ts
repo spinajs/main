@@ -564,7 +564,7 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
 export interface IModelBase {
   ModelDescriptor: IModelDescriptor | null;
   Container: IContainer;
-  PrimaryKeyName: string;
+  PrimaryKeyName: string[];
   PrimaryKeyValue: any;
 
   /**
