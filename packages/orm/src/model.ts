@@ -600,9 +600,7 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     query.middleware({
       afterQuery: (data: IUpdateResult) => {
-        // NOTE: ServerResponseMapper.read still takes a single column name here; Task 12
-        // widens it to string[]. Passing [0] keeps this compiling in between.
-        const response = sResponseMapper.read(data, this.PrimaryKeyName[0]);
+        const response = sResponseMapper.read(data, this.PrimaryKeyName);
         // Do not overwrite a key the caller already supplied ( uuid / assigned strategies ).
         // Same tuple-truthiness trap as destroy().
         const current = this.PrimaryKeyValue;

@@ -22,9 +22,25 @@ import { SqlLiteDefaultValueBuilder } from './builders.js';
 import { SqliteModelToSqlConverter } from './converters.js';
 
 export class SqliteServerResponseMapper extends ServerResponseMapper {
-  public read(data: any, pkName: string) {
+  public read(data: any, pkNames?: string[]) {
+    // Upsert and returning-inserts resolve with the RETURNING rows; plain runs resolve with
+    // { RowsAffected, LastInsertId }.
+    if (Array.isArray(data)) {
+      const last = data.length !== 0 ? data[data.length - 1] : undefined;
+      const key = pkNames && pkNames.length === 1 && last ? last[pkNames[0]] : 0;
+
+      return {
+        RowsAffected: data.length,
+        // A uuid / assigned key is not a number and has no identity semantics.
+        LastInsertId: typeof key === 'number' ? key : 0,
+        Returning: data,
+      };
+    }
+
     return {
-      LastInsertId: Array.isArray(data) ? data[data.length - 1][pkName] : data.LastInsertId,
+      RowsAffected: data?.RowsAffected ?? 0,
+      LastInsertId: data?.LastInsertId ?? 0,
+      Returning: [] as any[],
     };
   }
 }
@@ -140,6 +156,7 @@ export class SqliteOrmDriver extends SqlDriver {
             resolve({
               RowsAffected: this.changes,
               LastInsertId: this.lastID,
+              Returning: [],
             });
           });
           break;

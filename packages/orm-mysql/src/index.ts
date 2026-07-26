@@ -16,7 +16,12 @@ export interface IMySqlTransactionContext extends ITransactionContext {
 
 export class MysqlServerResponseMapper extends ServerResponseMapper {
   public read(data: any) {
-    return { LastInsertId: data.LastInsertId, RowsAffected: data.RowsAffected };
+    // MySQL has no RETURNING; the identity value is all it reports.
+    return {
+      LastInsertId: data?.LastInsertId ?? 0,
+      RowsAffected: data?.RowsAffected ?? 0,
+      Returning: [] as any[],
+    };
   }
 }
 
@@ -78,6 +83,7 @@ export class MySqlOrmDriver extends SqlDriver {
             resolve({
               RowsAffected: (results as any as OkPacket).affectedRows,
               LastInsertId: (results as any as OkPacket).insertId,
+              Returning: [],
             });
             break;
           default:

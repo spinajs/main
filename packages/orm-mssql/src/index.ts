@@ -94,7 +94,9 @@ export class MsSqlOrmDriver extends SqlDriver {
         case QueryContext.Insert:
           return {
             RowsAffected: result.rowsAffected[0],
-            LastInsertId: result.recordset[0].ID,
+            // SCOPE_IDENTITY() path; MSSQL keeps no RETURNING rows here.
+            LastInsertId: result.recordset?.[0]?.ID ?? 0,
+            Returning: [],
           };
         default:
           return result.recordset;

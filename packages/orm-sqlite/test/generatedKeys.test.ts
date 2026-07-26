@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import { Configuration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, IInsertResult, ServerResponseMapper } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
@@ -82,5 +82,40 @@ describe('Sqlite - generated primary keys', function () {
 
     await expect(m.insert()).to.be.rejectedWith(/must be assigned/);
     expect(await AssignedKeyModel.all()).to.have.length(0);
+  });
+
+  it('a plain insert result carries RowsAffected, LastInsertId and an empty Returning', async () => {
+    const driver = db().Connections.get('sqlite')!;
+    const result = (await driver.insert().into('auto_key_model').values({ Name: 'shape' })) as IInsertResult;
+
+    expect(result.RowsAffected).to.equal(1);
+    expect(result.LastInsertId).to.be.greaterThan(0);
+    expect(result.Returning).to.deep.equal([]);
+  });
+
+  it('the response mapper normalizes a plain insert response', () => {
+    const mapper = db().Connections.get('sqlite')!.Container.resolve(ServerResponseMapper);
+
+    expect(mapper.read({ RowsAffected: 1, LastInsertId: 7 }, ['Id'])).to.deep.equal({
+      RowsAffected: 1,
+      LastInsertId: 7,
+      Returning: [],
+    });
+  });
+
+  it('the response mapper reads the key out of RETURNING rows', () => {
+    const mapper = db().Connections.get('sqlite')!.Container.resolve(ServerResponseMapper);
+
+    expect(mapper.read([{ Id: 3, Name: 'x' }], ['Id'])).to.deep.equal({
+      RowsAffected: 1,
+      LastInsertId: 3,
+      Returning: [{ Id: 3, Name: 'x' }],
+    });
+  });
+
+  it('the response mapper reports LastInsertId 0 for a non-numeric key', () => {
+    const mapper = db().Connections.get('sqlite')!.Container.resolve(ServerResponseMapper);
+
+    expect(mapper.read([{ Id: 'aaaa-bbbb' }], ['Id']).LastInsertId).to.equal(0);
   });
 });

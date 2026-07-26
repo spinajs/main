@@ -129,10 +129,19 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
 }
 
 export interface DbServerResponse {
+  RowsAffected: number;
   LastInsertId: number;
+  Returning: any[];
 }
+
 export abstract class ServerResponseMapper {
-  public abstract read(response: any, pkName?: string): DbServerResponse;
+  /**
+   * Normalizes a driver's raw insert response.
+   *
+   * @param response - whatever the driver's executeOnDb resolved with
+   * @param pkNames - primary key column names, used to read a key out of RETURNING rows
+   */
+  public abstract read(response: any, pkNames?: string[]): DbServerResponse;
 }
 
 export abstract class DefaultValueBuilder<T> {
@@ -462,6 +471,15 @@ export type ForwardRefFunction = () => Constructor<ModelBase>;
 export interface IUpdateResult {
   RowsAffected: number;
   LastInsertId: number;
+}
+
+/**
+ * Result of an INSERT. Extends IUpdateResult so existing RowsAffected / LastInsertId readers
+ * keep working. `LastInsertId` is 0 when the dialect reports no identity value ( uuid and
+ * assigned keys ); `Returning` holds the rows the dialect echoed back, empty when unsupported.
+ */
+export interface IInsertResult extends IUpdateResult {
+  Returning: any[];
 }
 
 export interface IRelationDescriptor {
