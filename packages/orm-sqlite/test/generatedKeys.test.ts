@@ -123,6 +123,34 @@ describe('Sqlite - generated primary keys', function () {
     expect(db().Connections.get('sqlite')!.supportedFeatures().insertReturning).to.equal(true);
   });
 
+  it('a batch insert of auto-key models assigns each model its own key', async () => {
+    const rows = [new AutoKeyModel({ Name: 'x' }), new AutoKeyModel({ Name: 'y' }), new AutoKeyModel({ Name: 'z' })];
+    await AutoKeyModel.insert(rows);
+
+    const ids = rows.map((r) => r.Id);
+    expect(new Set(ids).size).to.equal(3);
+    ids.forEach((id) => expect(id).to.be.a('number').and.greaterThan(0));
+
+    const stored = await AutoKeyModel.find(ids);
+    expect(stored.map((s) => s.Name).sort()).to.deep.equal(['x', 'y', 'z']);
+  });
+
+  it('a batch insert of uuid-key models keeps every client-generated key', async () => {
+    const rows = [new UuidKeyModel({ Name: 'p' }), new UuidKeyModel({ Name: 'q' })];
+    const before = rows.map((r) => r.Id);
+
+    await UuidKeyModel.insert(rows);
+
+    expect(rows.map((r) => r.Id)).to.deep.equal(before);
+    expect((await UuidKeyModel.find(before)).map((s) => s.Name).sort()).to.deep.equal(['p', 'q']);
+  });
+
+  it('a batch insert of assigned-key models rejects a missing key', async () => {
+    const rows = [new AssignedKeyModel({ Code: 'A', Name: 'a' }), new AssignedKeyModel({ Name: 'b' } as any)];
+
+    await expect(AssignedKeyModel.insert(rows)).to.be.rejectedWith(/must be assigned/);
+  });
+
   it('returning() echoes the inserted row back on sqlite', async () => {
     const driver = db().Connections.get('sqlite')!;
     const result = (await driver.insert().into('auto_key_model').values({ Name: 'echoed' }).returning(['Id', 'Name'])) as IInsertResult;

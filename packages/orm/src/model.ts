@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
@@ -19,7 +19,7 @@ import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { extractModelDescriptor } from './descriptor.js';
-import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
+import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
@@ -598,16 +598,30 @@ export class ModelBase<M = unknown> implements IModelBase {
         break;
     }
 
+    // Only an `auto` key needs the database to tell us what it became. Asking for RETURNING
+    // where the dialect supports it beats reading an identity counter, and is the shape
+    // orm-uow needs to backfill cascaded children.
+    const needsKeyBack = pkColumns(description).some((c) => pkGeneration(description, c) === 'auto');
+    if (needsKeyBack && insertBehaviour !== InsertBehaviour.InsertOrUpdate && query.Driver.supportedFeatures().insertReturning) {
+      query.returning(pkColumns(description));
+    }
+
     query.middleware({
-      afterQuery: (data: IUpdateResult) => {
-        const response = sResponseMapper.read(data, this.PrimaryKeyName);
-        // Do not overwrite a key the caller already supplied ( uuid / assigned strategies ).
-        // Same tuple-truthiness trap as destroy().
-        const current = this.PrimaryKeyValue;
-        const missing = Array.isArray(current) ? current.some((v) => v === null || v === undefined) : !current;
-        if (missing) {
-          this.PrimaryKeyValue = response.LastInsertId;
+      afterQuery: (data: IInsertResult) => {
+        const response = sResponseMapper.read(data, pkColumns(description));
+
+        if ((response.Returning ?? []).length !== 0) {
+          setPkValue(this, description, pkValueOf(response.Returning[0], description));
+        } else if (needsKeyBack) {
+          // Do not overwrite a key the caller already supplied ( uuid / assigned strategies ).
+          // Same tuple-truthiness trap as destroy().
+          const current = this.PrimaryKeyValue;
+          const missing = Array.isArray(current) ? current.some((v) => v === null || v === undefined) : !current;
+          if (missing) {
+            this.PrimaryKeyValue = response.LastInsertId;
+          }
         }
+
         return data;
       },
       modelCreation: (): any => null,
@@ -929,6 +943,13 @@ export const MODEL_STATIC_MIXINS = {
         throw new OrmException(`insert behaviour is not supported with arrays`);
       }
 
+      // Run the key strategies over every element BEFORE any SQL is built, so a missing
+      // `assigned` key fails with a clear message instead of a NOT NULL violation.
+      (data as Array<InstanceType<T>>).forEach((d) => {
+        generateClientSideKeys(d, description);
+        assertAssignedKeys(d, description);
+      });
+
       query.values(
         (data as Array<InstanceType<T>>).map((d) => {
           if (d instanceof ModelBase) {
@@ -950,6 +971,9 @@ export const MODEL_STATIC_MIXINS = {
           break;
       }
 
+      generateClientSideKeys(data, description);
+      assertAssignedKeys(data, description);
+
       if (data instanceof ModelBase) {
         query.values(data.toSql());
       } else {
@@ -957,18 +981,34 @@ export const MODEL_STATIC_MIXINS = {
       }
     }
 
+    const autoKey = pkColumns(description).some((c) => pkGeneration(description, c) === 'auto');
+    if (autoKey && query.Driver.supportedFeatures().insertReturning) {
+      query.returning(pkColumns(description));
+    }
+
     const iMidleware = {
-      afterQuery: (result: IUpdateResult) => {
-        const response = sResponseMapper.read(result);
-        if (Array.isArray(data)) {
-          (data as Array<InstanceType<T>>).forEach((v, idx) => {
+      afterQuery: (result: IInsertResult) => {
+        const response = sResponseMapper.read(result, pkColumns(description));
+        const rows = Array.isArray(data) ? (data as Array<InstanceType<T>>) : [data as InstanceType<T>];
+
+        if ((response.Returning ?? []).length === rows.length) {
+          // Authoritative: the database told us every key it assigned, in insert order.
+          rows.forEach((v, idx) => {
             if (v instanceof ModelBase) {
-              v.PrimaryKeyValue = v.PrimaryKeyValue ?? response.LastInsertId + idx;
+              setPkValue(v, description, pkValueOf(response.Returning[idx], description));
             }
           });
-        } else if (data instanceof ModelBase) {
-          (data as InstanceType<T>).PrimaryKeyValue = (data as InstanceType<T>).PrimaryKeyValue ?? response.LastInsertId;
+        } else if (autoKey && rows.length === 1) {
+          // One row, one identity value - safe.
+          const v = rows[0];
+          if (v instanceof ModelBase && !v.PrimaryKeyValue) {
+            v.PrimaryKeyValue = response.LastInsertId;
+          }
         }
+        // More than one row on a dialect without RETURNING: we deliberately assign nothing.
+        // `LastInsertId + idx` assumed contiguous allocation, which MySQL does not guarantee
+        // under innodb_autoinc_lock_mode=2 and which is meaningless for uuid/assigned keys.
+        // Callers needing the keys must re-select or insert the models one at a time.
 
         return result;
       },

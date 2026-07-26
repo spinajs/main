@@ -37,10 +37,12 @@ export class SqliteServerResponseMapper extends ServerResponseMapper {
       };
     }
 
+    // A RETURNING insert already arrives normalized by executeOnDb, carrying its rows; a plain
+    // run carries none. Passing the rows through is what lets the caller read generated keys.
     return {
       RowsAffected: data?.RowsAffected ?? 0,
       LastInsertId: data?.LastInsertId ?? 0,
-      Returning: [] as any[],
+      Returning: Array.isArray(data?.Returning) ? data.Returning : ([] as any[]),
     };
   }
 }
