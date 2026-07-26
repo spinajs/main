@@ -122,6 +122,7 @@ export class MsSqlOrmDriver extends SqlDriver {
   public supportedFeatures(): ISupportedFeature {
     return {
       events: true,
+      insertReturning: false,
     };
   }
 

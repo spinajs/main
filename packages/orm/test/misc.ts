@@ -961,6 +961,7 @@ export class FakeSqliteDriver extends OrmDriver {
       jsonColumn: true,
       upsert: true,
       events: false,
+      insertReturning: false,
     };
   }
 
@@ -1038,6 +1039,7 @@ export class FakeMysqlDriver extends OrmDriver {
       jsonColumn: true,
       upsert: true,
       events: false,
+      insertReturning: false,
     };
   }
 

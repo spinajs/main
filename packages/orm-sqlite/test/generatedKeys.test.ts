@@ -118,4 +118,17 @@ describe('Sqlite - generated primary keys', function () {
 
     expect(mapper.read([{ Id: 'aaaa-bbbb' }], ['Id']).LastInsertId).to.equal(0);
   });
+
+  it('sqlite advertises insertReturning support', () => {
+    expect(db().Connections.get('sqlite')!.supportedFeatures().insertReturning).to.equal(true);
+  });
+
+  it('returning() echoes the inserted row back on sqlite', async () => {
+    const driver = db().Connections.get('sqlite')!;
+    const result = (await driver.insert().into('auto_key_model').values({ Name: 'echoed' }).returning(['Id', 'Name'])) as IInsertResult;
+
+    expect(result.Returning).to.have.length(1);
+    expect(result.Returning[0].Name).to.equal('echoed');
+    expect(result.Returning[0].Id).to.be.a('number');
+  });
 });

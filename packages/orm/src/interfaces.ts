@@ -23,6 +23,9 @@ export enum QueryContext {
 
   // Insert or UPDATE
   Upsert,
+
+  /** INSERT that carries a RETURNING clause and therefore resolves with rows, not a status packet. */
+  InsertReturning,
 }
 
 export enum ColumnAlterationType {
@@ -37,6 +40,9 @@ export interface ISupportedFeature {
    * To execute tasks accoriding to schedule in DB.
    */
   events: boolean;
+
+  /** Can this dialect echo inserted rows back via RETURNING / OUTPUT on a plain INSERT? */
+  insertReturning: boolean;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {

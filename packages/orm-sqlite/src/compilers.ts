@@ -152,11 +152,25 @@ export class SqliteInsertQueryCompiler extends SqlInsertQueryCompiler {
     const columns = this.columns();
     const values = this.values();
     const upsort = this.upsort();
+    const returning = this.returning();
 
     return {
       bindings: values.bindings.concat(upsort.bindings),
-      expression: `${into} ${columns} ${values.data} ${upsort.expression}`.trim(),
+      expression: `${into} ${columns} ${values.data} ${upsort.expression}${returning}`.trim(),
     };
+  }
+
+  /**
+   * RETURNING on a plain INSERT. Skipped when an upsert clause is present — the ON CONFLICT
+   * compiler emits its own RETURNING and two would be invalid SQL.
+   */
+  protected returning() {
+    if (this._builder.Update || this._builder.Returning.length === 0) {
+      return '';
+    }
+
+    const cols = this._builder.Returning[0] === '*' ? ['*'] : this._builder.Returning.map((c: string) => `\`${c}\``);
+    return ` RETURNING ${cols.join(',')}`;
   }
 
   protected into() {

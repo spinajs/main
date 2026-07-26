@@ -127,7 +127,7 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public supportedFeatures(): ISupportedFeature {
-    return { events: true };
+    return { events: true, insertReturning: false };
   }
 
   public resolve() {

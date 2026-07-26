@@ -48,7 +48,7 @@ class FakeTxDriver extends OrmDriver {
   }
 
   public supportedFeatures(): ISupportedFeature {
-    return { events: false };
+    return { events: false, insertReturning: false };
   }
 
   public async tableInfo(_name: string, _schema?: string): Promise<IColumnDescriptor[]> {

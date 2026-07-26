@@ -105,6 +105,7 @@ export class SqliteOrmDriver extends SqlDriver {
 
         case QueryContext.Select:
         case QueryContext.Upsert:
+        case QueryContext.InsertReturning:
           this.Db.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
             if (err) {
               reject(
@@ -120,6 +121,18 @@ export class SqliteOrmDriver extends SqlDriver {
                   err,
                 ),
               );
+              return;
+            }
+
+            // A RETURNING insert resolves with rows, so it must be normalized into the same
+            // IInsertResult shape the Db.run path produces.
+            if (queryContext === QueryContext.InsertReturning) {
+              const returned = (rows as any[]) ?? [];
+              resolve({
+                RowsAffected: returned.length,
+                LastInsertId: 0,
+                Returning: returned,
+              });
               return;
             }
 
@@ -209,7 +222,7 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public supportedFeatures(): ISupportedFeature {
-    return { events: false };
+    return { events: false, insertReturning: true };
   }
 
   public async ping(): Promise<boolean> {

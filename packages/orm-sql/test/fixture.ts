@@ -32,6 +32,7 @@ export class FakeSqliteDriver extends SqlDriver {
       jsonColumn: true,
       upsert: true,
       events: false,
+      insertReturning: false,
     };
   }
 
