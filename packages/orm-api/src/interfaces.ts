@@ -1,9 +1,25 @@
 import { Class } from '@spinajs/di';
-import { ModelBase, SortOrder, IModelStatic, IOrmRelation, SelectQueryBuilder } from '@spinajs/orm';
+import { ModelBase, SortOrder, IModelStatic, IOrmRelation, SelectQueryBuilder, IModelDescriptor } from '@spinajs/orm';
 import { Schema } from '@spinajs/validation';
 import { BaseController } from '@spinajs/http';
+import { BadRequest } from '@spinajs/exceptions';
 
 import _ from 'lodash';
+
+/**
+ * CRUD routes address a row by one `:id` path segment, which cannot carry a composite key.
+ * Returns the single key column, or throws so the caller gets a 400 instead of a query that
+ * silently filters on half the key.
+ */
+export function _assertSingleColumnKey(descriptor: IModelDescriptor): string {
+  const keys = descriptor.PrimaryKey ?? [];
+
+  if (keys.length !== 1) {
+    throw new BadRequest(`model ${descriptor.Name} has a composite primary key (${keys.join(', ')}); the generic CRUD routes address rows by a single id and cannot serve it`);
+  }
+
+  return keys[0];
+}
 
 @Schema('http://json-schema.org/draft-07/schema#')
 export class JsonApiIncomingObject {
@@ -92,7 +108,7 @@ export abstract class Crud extends BaseController {
     const descriptor = this.getModelDescriptor(model);
     const rDescriptor = this.getRelationDescriptor(model, relation);
     const tDescriptor = this.getModelDescriptor(rDescriptor.TargetModel);
-    const sQuery = model.query().where(descriptor.PrimaryKey[0], id).populate(relation, callback);
+    const sQuery = model.query().where(_assertSingleColumnKey(descriptor), id).populate(relation, callback);
 
     return {
       relation: rDescriptor,
