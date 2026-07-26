@@ -22,7 +22,7 @@ export class DbPropertyHydrator extends ModelHydrator {
     keys.forEach((k) => {
       // skip if column is primary key & is null
       // we dont want to override pkey of target model
-      if (k === descriptor.PrimaryKey && (values[k] === null || values[k] === undefined)) {
+      if (descriptor.PrimaryKey.includes(k) && (values[k] === null || values[k] === undefined)) {
         return;
       }
 

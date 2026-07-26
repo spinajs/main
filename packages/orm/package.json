@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm",
-  "version": "2.0.481",
+  "version": "3.0.0",
   "description": "framework orm module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -60,6 +60,7 @@
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
     "@spinajs/log-common": "^2.0.481",
+    "@spinajs/telemetry-common": "^2.0.481",
     "@spinajs/validation": "^2.0.481",
     "glob": "^8.1.0",
     "glob-to-regexp": "^0.4.1",

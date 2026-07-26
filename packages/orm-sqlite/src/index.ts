@@ -9,11 +9,12 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 
 export * from './compilers.js';
 
-// Union of both sides: AlterColumnQueryCompiler is master's, and is registered below;
-// IsolationLevel / ITransactionContext / ITransactionOptions are this branch's transaction
-// contract. QueryBuilder / TransactionCallback / ITransaction went with the old
+// Union of all three sides: AlterColumnQueryCompiler is master's, and is registered below;
+// IsolationLevel / ITransactionContext / ITransactionOptions are the transaction contract from
+// orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
+// orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -25,9 +26,27 @@ import { SqlLiteDefaultValueBuilder } from './builders.js';
 import { SqliteModelToSqlConverter } from './converters.js';
 
 export class SqliteServerResponseMapper extends ServerResponseMapper {
-  public read(data: any, pkName: string) {
+  public read(data: any, pkNames?: string[]) {
+    // Upsert and returning-inserts resolve with the RETURNING rows; plain runs resolve with
+    // { RowsAffected, LastInsertId }.
+    if (Array.isArray(data)) {
+      const last = data.length !== 0 ? data[data.length - 1] : undefined;
+      const key = pkNames && pkNames.length === 1 && last ? last[pkNames[0]] : 0;
+
+      return {
+        RowsAffected: data.length,
+        // A uuid / assigned key is not a number and has no identity semantics.
+        LastInsertId: typeof key === 'number' ? key : 0,
+        Returning: data,
+      };
+    }
+
+    // A RETURNING insert already arrives normalized by executeOnDb, carrying its rows; a plain
+    // run carries none. Passing the rows through is what lets the caller read generated keys.
     return {
-      LastInsertId: Array.isArray(data) ? data[data.length - 1][pkName] : data.LastInsertId,
+      RowsAffected: data?.RowsAffected ?? 0,
+      LastInsertId: data?.LastInsertId ?? 0,
+      Returning: Array.isArray(data?.Returning) ? data.Returning : ([] as any[]),
     };
   }
 }
@@ -36,6 +55,16 @@ export class SqliteServerResponseMapper extends ServerResponseMapper {
 @NewInstance()
 export class SqliteOrmDriver extends SqlDriver {
   protected Db: sqlite3.Database;
+
+  /**
+   * Read-only handles. SQLite serializes writers at the file level no matter how many handles are
+   * open, so a second WRITER handle buys nothing and invites SQLITE_BUSY; extra READ handles do
+   * parallelize SELECTs. Empty for `:memory:` and anonymous temporary databases, where each handle
+   * would open its own private database, and when `Pool.Max` is 1.
+   */
+  protected ReadPool: sqlite3.Database[] = [];
+
+  private _readCursor = -1;
 
   /**
    * sqlite3 outside shared-cache mode serializes access to the database file, which is
@@ -47,6 +76,37 @@ export class SqliteOrmDriver extends SqlDriver {
   // getNextExecutionId() went with the per-driver query timing that master centralised into
   // `Perf.measure('orm.query', ...)` around SqlDriver.execute — its only caller is gone.
 
+  /**
+   * Picks the handle for a query. Everything that mutates, changes schema, or runs inside a
+   * transaction stays on the single writer handle — scattering a transaction's statements across
+   * handles would run them outside the transaction, and a read handle cannot see uncommitted
+   * writes made on the writer.
+   */
+  protected handleFor(queryContext: QueryContext): sqlite3.Database {
+    if (this.ReadPool.length === 0 || queryContext !== QueryContext.Select) {
+      return this.Db;
+    }
+
+    if (this.TransactionStorage.getStore()) {
+      return this.Db;
+    }
+
+    this._readCursor = (this._readCursor + 1) % this.ReadPool.length;
+    // eslint-disable-next-line security/detect-object-injection
+    return this.ReadPool[this._readCursor];
+  }
+
+  /**
+   * The writer handle plus every read handle. SQLite has no queue of waiting callers — sqlite3
+   * serializes internally per handle — so InUse and Waiting are always zero.
+   */
+  public poolMetrics(): IPoolMetrics {
+    return {
+      Size: this.Db ? this.ReadPool.length + 1 : 0,
+      InUse: 0,
+      Waiting: 0,
+    };
+  }
 
   public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
@@ -56,11 +116,13 @@ export class SqliteOrmDriver extends SqlDriver {
       throw new Error('cannot execute sqlite statement, no db connection avaible');
     }
 
+    const handle = this.handleFor(queryContext);
+
     return new Promise((resolve, reject) => {
       switch (queryContext) {
         case QueryContext.Update:
         case QueryContext.Delete:
-          this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
+          handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
               reject(
                 new OrmException(
@@ -86,7 +148,8 @@ export class SqliteOrmDriver extends SqlDriver {
 
         case QueryContext.Select:
         case QueryContext.Upsert:
-          this.Db.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
+        case QueryContext.InsertReturning:
+          handle.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
             if (err) {
               reject(
                 new OrmException(
@@ -104,12 +167,24 @@ export class SqliteOrmDriver extends SqlDriver {
               return;
             }
 
+            // A RETURNING insert resolves with rows, so it must be normalized into the same
+            // IInsertResult shape the Db.run path produces.
+            if (queryContext === QueryContext.InsertReturning) {
+              const returned = (rows as any[]) ?? [];
+              resolve({
+                RowsAffected: returned.length,
+                LastInsertId: 0,
+                Returning: returned,
+              });
+              return;
+            }
+
             resolve(rows);
           });
           break;
 
         case QueryContext.Insert:
-          this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: any) {
+          handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: any) {
             if (err) {
               if (err.code === 'SQLITE_CONSTRAINT') {
                 reject(new ResourceDuplicated(err));
@@ -137,13 +212,14 @@ export class SqliteOrmDriver extends SqlDriver {
             resolve({
               RowsAffected: this.changes,
               LastInsertId: this.lastID,
+              Returning: [],
             });
           });
           break;
         case QueryContext.Schema:
         case QueryContext.Transaction:
         default:
-          this.Db.run(stmt, ...queryParams, (err: unknown, data: unknown) => {
+          handle.run(stmt, ...queryParams, (err: unknown, data: unknown) => {
             if (err) {
               reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`));
               return;
@@ -157,7 +233,9 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public supportedFeatures(): ISupportedFeature {
-    return { events: false };
+    // insertIdIsFirstOfBatch is false: sqlite3's `lastID` is the LAST rowid the statement
+    // produced, not the first. SQLite does not need it — it gets every key from RETURNING.
+    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false };
   }
 
   public async ping(): Promise<boolean> {
@@ -165,8 +243,10 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public async connect(): Promise<OrmDriver> {
-    return new Promise((resolve, reject) => {
-      this.Db = new sqlite3.Database(format({}, this.Options.Filename!), (err: unknown) => {
+    const filename = format({}, this.Options.Filename!);
+
+    await new Promise<void>((resolve, reject) => {
+      this.Db = new sqlite3.Database(filename, (err: unknown) => {
         if (err) {
           // Clean up the database handle if connection fails
           if (this.Db) {
@@ -180,12 +260,68 @@ export class SqliteOrmDriver extends SqlDriver {
           return;
         }
 
-        resolve(this);
+        resolve();
       });
     });
+
+    await this.openReadPool(filename);
+    this.setState(ConnectionState.Connected);
+
+    return this;
+  }
+
+  /**
+   * Opens `Pool.Max - 1` read-only handles. Skipped for `:memory:` and for anonymous temporary
+   * databases, where every handle gets its own private database and a read pool would query empty
+   * files. A handle that fails to open is dropped rather than failing the connection — the driver
+   * is fully usable on the writer alone.
+   */
+  protected async openReadPool(filename: string): Promise<void> {
+    const max = this.resolvedPoolOptions().Max;
+    const normalized = filename.trim();
+
+    await this.closeReadPool();
+
+    if (max <= 1 || normalized === ':memory:' || normalized === '') {
+      return;
+    }
+
+    const handles = await Promise.all(
+      Array.from(
+        { length: max - 1 },
+        () =>
+          new Promise<sqlite3.Database | null>((resolve) => {
+            const db = new sqlite3.Database(filename, sqlite3.OPEN_READONLY, (err: unknown) => {
+              if (err) {
+                this.Log.warn(`could not open a read-only sqlite handle for ${this.Options.Name}: ${(err as Error).message}`);
+                resolve(null);
+                return;
+              }
+              resolve(db);
+            });
+          }),
+      ),
+    );
+
+    this.ReadPool = handles.filter((h): h is sqlite3.Database => h !== null);
+    this._readCursor = -1;
+  }
+
+  /** Closes every read handle. Safe to call when none are open. */
+  protected async closeReadPool(): Promise<void> {
+    const handles = this.ReadPool;
+    this.ReadPool = [];
+    this._readCursor = -1;
+
+    await Promise.all(handles.map((db) => new Promise<void>((resolve) => db.close(() => resolve()))));
   }
 
   public async disconnect(): Promise<OrmDriver> {
+    this.stopHealthCheck();
+    this.setState(ConnectionState.Disconnected);
+
+    await this.closeReadPool();
+
     if (!this.Db) {
       return this;
     }
@@ -283,6 +419,10 @@ export class SqliteOrmDriver extends SqlDriver {
     // get all foreign keys
     const foreignKeys = (await this.executeOnDb(`PRAGMA foreign_key_list("${name}")`, [] as any, QueryContext.Select)) as IForeignKeyList[];
 
+    // PRAGMA table_info reports `pk` as the 1-BASED POSITION within the primary key, not a
+    // boolean. Every column with pk > 0 is part of the key.
+    const pkColumnCount = tblInfo.filter((r) => r.pk > 0).length;
+
     return tblInfo.map((r: ITableInfo) => {
       const fk = foreignKeys.find((i) => i.from === r.name);
       const converter = converters.get(r.type.toLocaleLowerCase());
@@ -294,7 +434,7 @@ export class SqliteOrmDriver extends SqlDriver {
         NativeType: r.type,
         Unsigned: false,
         Nullable: r.notnull === 0,
-        PrimaryKey: r.pk === 1,
+        PrimaryKey: r.pk > 0,
         Uuid: false,
         Ignore: false,
         IsForeignKey: fk !== undefined,
@@ -307,8 +447,9 @@ export class SqliteOrmDriver extends SqlDriver {
               To: fk.to,
             }
           : null as any,
-        // simply assumpt that integer pkeys are autoincement / auto fill  by default
-        AutoIncrement: r.pk === 1 && r.type === 'INTEGER',
+        // sqlite only auto-fills a lone INTEGER PRIMARY KEY ( the rowid alias ); a composite
+        // key never auto-increments, so the column count has to be checked too.
+        AutoIncrement: pkColumnCount === 1 && r.pk === 1 && r.type === 'INTEGER',
         Name: r.name,
         Converter: null as any,
         Schema: _schema ? _schema : this.Options.Database,

@@ -12,6 +12,9 @@ import { MethodNotImplemented } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 import { Relation } from './relation-objects.js';
 import { Lazy } from '@spinajs/util';
+// imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
+// `resilience.js`, and exporting the same name from both is an ambiguous re-export.
+import { IConnectionResilienceOptions } from './resilience.js';
 
 export enum QueryContext {
   Insert,
@@ -23,6 +26,9 @@ export enum QueryContext {
 
   // Insert or UPDATE
   Upsert,
+
+  /** INSERT that carries a RETURNING clause and therefore resolves with rows, not a status packet. */
+  InsertReturning,
 }
 
 export enum ColumnAlterationType {
@@ -37,6 +43,29 @@ export interface ISupportedFeature {
    * To execute tasks accoriding to schedule in DB.
    */
   events: boolean;
+
+  /** Can this dialect echo inserted rows back via RETURNING / OUTPUT on a plain INSERT? */
+  insertReturning: boolean;
+
+  /**
+   * Does the identity value reported after a multi-row `INSERT ... VALUES` name the key of the
+   * FIRST row of that statement, with the remaining rows following contiguously?
+   *
+   * MySQL: **true**. InnoDB treats a statement whose row count is known before execution — every
+   * `INSERT ... VALUES (…), (…)` the builder can produce — as a *simple insert*, reserves one
+   * contiguous block of auto-increment values under a short mutex, and `LAST_INSERT_ID()` reports
+   * the first of them. This holds under `innodb_autoinc_lock_mode = 2`, the MySQL 8 default; the
+   * documented "values may not be contiguous" caveat is about *bulk* inserts (`INSERT … SELECT`,
+   * row count unknown) and about mixed-mode inserts where some rows carry an explicit key.
+   *
+   * MSSQL: **false**. `SCOPE_IDENTITY()` returns the LAST identity generated in the scope.
+   * SQLite: **false**. `sqlite3_last_insert_rowid()` is likewise the last row, not the first —
+   * SQLite gets its keys from RETURNING instead.
+   *
+   * Optional and defaulting to false, so a custom driver that does not set it simply opts out of
+   * the batch key backfill rather than getting wrong keys.
+   */
+  insertIdIsFirstOfBatch?: boolean;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
@@ -120,7 +149,7 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
    *
    * @param dataset - data for replace.
    */
-  set(obj: R[] | ((data: R[], pKey: string) => R[])): void;
+  set(obj: R[] | ((data: R[], pKey: string[]) => R[])): void;
 
   /**
    * Populates this relation ( loads all data related to owner of this relation)
@@ -129,10 +158,19 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
 }
 
 export interface DbServerResponse {
+  RowsAffected: number;
   LastInsertId: number;
+  Returning: any[];
 }
+
 export abstract class ServerResponseMapper {
-  public abstract read(response: any, pkName?: string): DbServerResponse;
+  /**
+   * Normalizes a driver's raw insert response.
+   *
+   * @param response - whatever the driver's executeOnDb resolved with
+   * @param pkNames - primary key column names, used to read a key out of RETURNING rows
+   */
+  public abstract read(response: any, pkNames?: string[]): DbServerResponse;
 }
 
 export abstract class DefaultValueBuilder<T> {
@@ -210,13 +248,56 @@ export enum MigrationTransactionMode {
 }
 
 /**
+ * Connection pool sizing and timeouts.
+ */
+export interface IPoolOptions {
+  /**
+   * Connections kept open when idle. Default 0.
+   */
+  Min?: number;
+
+  /**
+   * Maximum concurrent connections. Default 10. Overrides the deprecated PoolLimit.
+   *
+   * SQLite: writes always serialize on one handle — SQLite serializes writers at the file level,
+   * so extra writer handles only produce SQLITE_BUSY. `Max` sizes a pool of READ-ONLY handles
+   * instead ( `Max - 1` of them ) so concurrent SELECTs stop queueing behind each other. Ignored
+   * for `:memory:` and anonymous temporary databases, where each handle would open its own
+   * private database.
+   */
+  Max?: number;
+
+  /**
+   * Milliseconds an idle connection is kept before being closed. Default 30000.
+   */
+  IdleTimeout?: number;
+
+  /**
+   * Milliseconds to wait for a free connection before failing. Default 10000.
+   */
+  AcquireTimeout?: number;
+}
+
+/**
  * Configuration options to set in configuration file and used in OrmDriver
  */
 export interface IDriverOptions {
   /**
-   * Max connections limit
+   * Max connections limit.
+   *
+   * @deprecated use `Pool.Max`. Still honoured when `Pool.Max` is absent.
    */
   PoolLimit?: number;
+
+  /**
+   * Connection pool sizing and timeouts.
+   */
+  Pool?: IPoolOptions;
+
+  /**
+   * Reconnect and health-check behaviour.
+   */
+  Resilience?: IConnectionResilienceOptions;
 
   /**
    * Database name associated with this connection
@@ -335,11 +416,35 @@ export interface IValueConverterDescriptor {
 /**
  * Describes model, used internally
  */
+/**
+ * How a primary key column gets its value.
+ * - `auto`     — the database assigns it ( identity / auto-increment column ). Default.
+ * - `uuid`     — generated client-side immediately before insert, so the value is known
+ *                without a round-trip.
+ * - `assigned` — the caller supplies it; inserting without one is an error.
+ */
+export type PrimaryKeyGeneration = 'auto' | 'uuid' | 'assigned';
+
+export interface IPrimaryKeyOptions {
+  generated?: PrimaryKeyGeneration;
+}
+
 export interface IModelDescriptor {
   /**
-   * Primary key name
+   * Primary key column names, in declaration order. Empty when the model has no @Primary().
+   * A single-column key is a one-element array and must compile to exactly the SQL it did
+   * when this field was a plain string.
    */
-  PrimaryKey: string;
+  PrimaryKey: string[];
+
+  /**
+   * Generation strategy per primary key column, keyed by column name. Absent means `auto`.
+   *
+   * A Map rather than an array because `extractModelDescriptorInherited`'s merger has a
+   * dedicated `_.isMap` branch that merges cleanly, unlike the array branch which
+   * concatenates ( the duplication trap fixed in Task 3 ).
+   */
+  PrimaryKeyGeneration: Map<string, PrimaryKeyGeneration>;
 
   /**
    * Connection name, must be avaible in db config
@@ -438,6 +543,15 @@ export type ForwardRefFunction = () => Constructor<ModelBase>;
 export interface IUpdateResult {
   RowsAffected: number;
   LastInsertId: number;
+}
+
+/**
+ * Result of an INSERT. Extends IUpdateResult so existing RowsAffected / LastInsertId readers
+ * keep working. `LastInsertId` is 0 when the dialect reports no identity value ( uuid and
+ * assigned keys ); `Returning` holds the rows the dialect echoed back, empty when unsupported.
+ */
+export interface IInsertResult extends IUpdateResult {
+  Returning: any[];
 }
 
 export interface IRelationDescriptor {
@@ -562,7 +676,7 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
 export interface IModelBase {
   ModelDescriptor: IModelDescriptor | null;
   Container: IContainer;
-  PrimaryKeyName: string;
+  PrimaryKeyName: string[];
   PrimaryKeyValue: any;
 
   /**

@@ -1232,6 +1232,12 @@ describe('insert query builder', () => {
     expect(result.bindings).to.be.an('array').that.has.lengthOf(4);
     expect(result.bindings![3]).to.equal(5);
   });
+
+  it('returning() throws NotSupported on a driver that cannot honour it', () => {
+    // Silently storing the columns and doing nothing is how this API was a no-op on
+    // MySQL and MSSQL for years (I3).
+    expect(() => iqb().into('users').values({ Name: 'a' }).returning(['Id'])).to.throw(/does not support RETURNING/);
+  });
 });
 
 describe('schema building', () => {

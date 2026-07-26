@@ -9,7 +9,7 @@ import { ModelType } from '../../route-args/ModelType.js';
 import { FindModelType } from '../../policies/FindModelType.js';
 import { Log, Logger } from '@spinajs/log';
 import { AccessControl } from '@spinajs/rbac';
-import { Crud } from './../../interfaces.js';
+import { Crud, _assertSingleColumnKey } from './../../interfaces.js';
 
 @BasePath('crud')
 @Policy(FindModelType)
@@ -27,10 +27,10 @@ export class CrudUpdate extends Crud {
   @Permission(['updateAny'])
   public async update(@ModelType() model: IModelStatic, @Param() id: number, @BodyField() data: unknown) {
     const descriptor = this.getModelDescriptor(model);
-    const entity = await model.where(descriptor.PrimaryKey, id).firstOrThrow(
+    const entity = await model.where(_assertSingleColumnKey(descriptor), id).firstOrThrow(
       new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        [descriptor.PrimaryKey]: id,
+        [_assertSingleColumnKey(descriptor)]: id,
       }),
     );
 
@@ -54,14 +54,14 @@ export class CrudUpdate extends Crud {
     if (!pExists) {
       throw new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        [mDescriptor.PrimaryKey]: id,
+        [_assertSingleColumnKey(mDescriptor)]: id,
       });
     }
 
-    const result = await query.where(rmDescriptor.PrimaryKey, relationId).firstOrThrow(
+    const result = await query.where(_assertSingleColumnKey(rmDescriptor), relationId).firstOrThrow(
       new ResourceNotFound(`Record with id ${relationId} not found`, {
         Resource: rDescriptor.TargetModel.name,
-        [rmDescriptor.PrimaryKey]: relationId,
+        [_assertSingleColumnKey(rmDescriptor)]: relationId,
       }),
     );
 

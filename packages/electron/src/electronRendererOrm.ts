@@ -5,6 +5,7 @@ export class RendererOrmDriverBridge extends OrmDriver {
   public supportedFeatures(): ISupportedFeature {
     return {
       events: false,
+      insertReturning: false,
     };
   }
 

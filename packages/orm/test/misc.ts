@@ -961,6 +961,7 @@ export class FakeSqliteDriver extends OrmDriver {
       jsonColumn: true,
       upsert: true,
       events: false,
+      insertReturning: false,
     };
   }
 
@@ -1038,6 +1039,7 @@ export class FakeMysqlDriver extends OrmDriver {
       jsonColumn: true,
       upsert: true,
       events: false,
+      insertReturning: false,
     };
   }
 
@@ -1200,10 +1202,12 @@ export class FakeColumnQueryCompiler extends ColumnQueryCompiler {
 }
 
 export class FakeServerResponseMapper {
-  public read(response: any, _pkName?: string): any {
+  public read(response: any, _pkNames?: string[]): any {
     return {
       LastInsertId: response?.insertId || response?.lastID || 1,
       RowsAffected: response?.changes || response?.affectedRows || 1,
+      // Part of the DbServerResponse contract since I3; this fake reports no RETURNING rows.
+      Returning: [] as any[],
     };
   }
 }

@@ -91,7 +91,14 @@ export class FromDbModel extends RouteArgs {
     const pkValue = this._extractValue(param, req);
     const query = param.RuntimeType['query']() as SelectQueryBuilder;
     const descriptor = extractModelDescriptor(param.RuntimeType);
-    const queryField = param?.Options?.queryField ?? descriptor!.PrimaryKey;
+
+    // A route parameter carries ONE value, so it cannot address a composite key. Fail with a
+    // 400 rather than silently filtering on the first key column and returning the wrong row.
+    if (!param?.Options?.queryField && (descriptor!.PrimaryKey?.length ?? 0) !== 1) {
+      throw new BadRequest(`model ${descriptor!.Name} has a composite primary key (${(descriptor!.PrimaryKey ?? []).join(', ')}); pass queryField to select a single lookup column`);
+    }
+
+    const queryField = param?.Options?.queryField ?? descriptor!.PrimaryKey[0];
 
     query.setTable(descriptor!.TableName, `$${descriptor!.TableName}`);
     query.select('*');

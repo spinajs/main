@@ -58,8 +58,8 @@ export function _insert<T extends ModelBase>(behaviour?: InsertBehaviour): (mode
         return Promise.resolve(model);
       }
       return (model[0].constructor as typeof ModelBase).insert(model, behaviour).then((res: IUpdateResult) => {
-        // UUID / non-auto-increment PKs yield LastInsertId 0 on a successful insert,
-        // so only RowsAffected signals failure.
+        // `uuid` and `assigned` primary keys report LastInsertId 0 on a successful insert, so
+        // only RowsAffected signals failure. See @Primary({ generated }) in the ORM docs.
         if (res.RowsAffected <= 0) {
           return Promise.reject(new ErrorCode(E_ORM_CODES.E_NO_ROWS_AFFECTED));
         }

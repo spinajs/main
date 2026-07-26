@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable, isConstructor, Class } from '@spinajs/di';
-import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
+import { InvalidArgument, MethodNotImplemented, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
@@ -1563,6 +1563,11 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     return this._replace;
   }
 
+  /** Columns requested via {@link returning}. Empty when no RETURNING clause was asked for. */
+  public get Returning() {
+    return this._returning ?? [];
+  }
+
   constructor(container: Container, driver: OrmDriver, model: Constructor<any>) {
     super(container, driver, model);
 
@@ -1588,8 +1593,23 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     return this;
   }
 
+  /**
+   * Asks the dialect to echo the given columns of every inserted row back.
+   *
+   * @throws NotSupported on drivers whose `supportedFeatures().insertReturning` is false —
+   *         silently doing nothing is how this API was a no-op on MySQL and MSSQL for years.
+   */
   public returning(columns: string[]) {
+    if (!this.Driver.supportedFeatures().insertReturning) {
+      throw new NotSupported(`driver ${this.Driver.Options.Driver} does not support RETURNING on INSERT`);
+    }
+
     this._returning = columns;
+
+    // onDuplicate() sets Upsert unconditionally and wins if it runs afterwards.
+    if (this.QueryContext === QueryContext.Insert) {
+      this.QueryContext = QueryContext.InsertReturning;
+    }
 
     return this;
   }
@@ -1787,6 +1807,13 @@ export class ColumnQueryBuilder {
   public Type: ColumnType;
   public Args: any[];
 
+  /**
+   * When false the column compiler must not emit an inline PRIMARY KEY; the table compiler
+   * emits a table-level constraint instead. Dialects that cannot express a composite key
+   * inline ( SQLite ) clear this. Defaults to true.
+   */
+  public InlinePrimaryKey: boolean;
+
   constructor(protected container: IContainer, name: string, type: ColumnType, ...args: any[]) {
     this.Name = name;
     this.Type = type;
@@ -1798,6 +1825,7 @@ export class ColumnQueryBuilder {
     this.Comment = '';
     this.Unique = false;
     this.Unsigned = false;
+    this.InlinePrimaryKey = true;
 
     this.Args.push(...args);
   }

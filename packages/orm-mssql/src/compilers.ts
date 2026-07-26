@@ -47,7 +47,7 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
       USING (SELECT * FROM ${table} WHERE ${this._builder.getColumn().map((c) => {
         return `${c} = ?`;
       })}) as source
-      ON (target.${descriptor!.PrimaryKey} = source.${descriptor!.PrimaryKey})
+      ON (target.${descriptor!.PrimaryKey[0]} = source.${descriptor!.PrimaryKey[0]})
       WHEN MATCHED
         THEN UPDATE
             SET ${columns}

@@ -8,7 +8,8 @@ export function createDefaultModelDescriptor(): IModelDescriptor {
     Converters: new Map(),
     Columns: [],
     Connection: null,
-    PrimaryKey: '',
+    PrimaryKey: [],
+    PrimaryKeyGeneration: new Map(),
     SoftDelete: {
       DeletedAt: '',
     },
@@ -38,6 +39,9 @@ export function extractModelDescriptorInherited(targetOrForward: any): IModelDes
     return null;
   }
 
+  // Only the NEAREST own descriptor is collapsed onto a fresh default, and every stored
+  // descriptor is already collapsed, so array fields ( Columns, PrimaryKey ) gain no duplicate
+  // per inheritance level - the de-duplication the name-keyed reader needed is now structural.
   return {
     ...collapseInheritedDescriptor(target, MODEL_DESCTRIPTION_SYMBOL, createDefaultModelDescriptor),
     // Name is always this class's own, never inherited - the merger would

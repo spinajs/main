@@ -77,7 +77,9 @@ export class MsSqlOrmDriver extends SqlDriver {
       case QueryContext.Insert:
         return {
           RowsAffected: result.rowsAffected[0],
-          LastInsertId: result.recordset[0].ID,
+          // SCOPE_IDENTITY() path; MSSQL keeps no RETURNING rows here.
+          LastInsertId: result.recordset?.[0]?.ID ?? 0,
+          Returning: [],
         };
       default:
         return result.recordset;
@@ -87,6 +89,10 @@ export class MsSqlOrmDriver extends SqlDriver {
   public supportedFeatures(): ISupportedFeature {
     return {
       events: true,
+      insertReturning: false,
+      // SCOPE_IDENTITY() reports the LAST identity generated in the scope, so a multi-row insert
+      // cannot be walked forwards from it. MSSQL opts out of the batch key backfill.
+      insertIdIsFirstOfBatch: false,
     };
   }
 
@@ -111,9 +117,10 @@ export class MsSqlOrmDriver extends SqlDriver {
           cryptoCredentialsDetails: this.Options.Options?.CryptoCredentialsDetails ? this.Options.Options?.CryptoCredentialsDetails : {},
         },
         pool: {
-          max: this.Options.PoolLimit ?? 10,
-          min: 0,
-          idleTimeoutMillis: 3000,
+          max: this.resolvedPoolOptions().Max,
+          min: this.resolvedPoolOptions().Min,
+          idleTimeoutMillis: this.resolvedPoolOptions().IdleTimeout,
+          acquireTimeoutMillis: this.resolvedPoolOptions().AcquireTimeout,
         },
       })) as mssql.ConnectionPool;
 

@@ -357,6 +357,10 @@ export class Orm extends AsyncService {
       }
 
       this.Connections.set(c.Name, driver);
+
+      // a connection that was healthy at boot says nothing about one whose server has since
+      // restarted, so the probe keeps running for the lifetime of the connection
+      driver.startHealthCheck();
       this.Log.success(`Created ORM connection ${c.Name} with parameters ${connectionInfo}`);
     }
 
@@ -494,6 +498,7 @@ export class Orm extends AsyncService {
 
   public async dispose(): Promise<void> {
     for (const [, value] of this.Connections) {
+      value.stopHealthCheck();
       await value.disconnect();
     }
   }

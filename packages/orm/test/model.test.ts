@@ -1020,10 +1020,13 @@ describe('General model tests', () => {
     expect(descriptor).to.include({
       Connection: 'sqlite',
       TableName: 'TestTable1',
-      PrimaryKey: 'Id',
       Name: 'Model1',
     });
-    
+
+    // PrimaryKey is a string[] since composite-key support (I2); `include` compares strictly,
+    // so it cannot carry an array and the key is asserted separately.
+    expect(descriptor.PrimaryKey).to.deep.equal(['Id']);
+
     expect(descriptor.SoftDelete).to.deep.equal({
       DeletedAt: 'DeletedAt',
     });
@@ -1048,10 +1051,11 @@ describe('General model tests', () => {
     expect(descriptor).to.include({
       Connection: 'SampleConnection1',
       TableName: 'TestTable2',
-      PrimaryKey: 'Id',
       Name: 'Model2',
     });
-    
+
+    expect(descriptor.PrimaryKey).to.deep.equal(['Id']);
+
     expect(descriptor.SoftDelete).to.deep.equal({
       DeletedAt: 'DeletedAt',
     });

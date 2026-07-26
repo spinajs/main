@@ -64,7 +64,19 @@ The MySQL integration suite reads these, falling back to the compose defaults:
 | `ORM_TEST_MYSQL_USER` | `root` |
 | `ORM_TEST_MYSQL_PASSWORD` | `root` |
 | `ORM_TEST_MYSQL_DATABASE` | `test` |
+| `ORM_TEST_MYSQL_CONTAINER` | `spinajs-orm-test-mysql` |
 
 The suite deliberately configures a `PoolLimit` of 2. That is what makes the
 connection-release test meaningful: if a transaction ever failed to return its pooled
 connection, the loop would exhaust the pool and hang rather than passing quietly.
+
+**The suite restarts the container mid-run.** `MySQL integration - orm-infra > the pool
+recovers after the server restarts` runs `docker restart $ORM_TEST_MYSQL_CONTAINER`, so do not
+point the suite at a database you care about.
+
+It restarts by container *name* rather than with `docker compose restart`, on purpose: compose
+only touches containers labelled with the project it derives from the current directory, so run
+from a git worktree — or any directory whose basename differs from the one that started the
+container — `docker compose --profile test restart mysql` matches nothing, prints nothing and
+**exits 0**. The restart silently does not happen. The test also asserts that MySQL's `Uptime`
+went *down*, so it cannot pass without a real restart.

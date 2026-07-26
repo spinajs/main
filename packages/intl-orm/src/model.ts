@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { InsertBehaviour, ModelBase } from '@spinajs/orm';
+import { InsertBehaviour, ModelBase, wherePk } from '@spinajs/orm';
 import _ from 'lodash';
 import { IntlResource } from './models/IntlResource.js';
 import { Configuration } from '@spinajs/configuration-common';
@@ -62,7 +62,9 @@ export class Translatable extends ModelBase {
       const dToUpdate = _.omit(this.toSql(), cToDehydrate);
 
       if (Object.keys(dToUpdate).length !== 0) {
-        await query.update(dToUpdate).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+        const q = query.update(dToUpdate);
+        wherePk(q, this.ModelDescriptor!, this.PrimaryKeyValue);
+        await q;
       }
 
       const translations = tColumns.map((c) => {

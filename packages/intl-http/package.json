@@ -58,7 +58,7 @@
     "@spinajs/reflection": "^2.0.481"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.481"
+    "@spinajs/orm-sqlite": "^3.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

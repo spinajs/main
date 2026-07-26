@@ -10,6 +10,7 @@
   "references": [
     { "path": "../configuration-common/tsconfig.json" },
     { "path": "../di/tsconfig.json" },
+    { "path": "../telemetry-common/tsconfig.json" },
     { "path": "../exceptions/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
     { "path": "../validation/tsconfig.json" },

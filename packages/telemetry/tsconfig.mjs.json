@@ -9,6 +9,7 @@
   "include": ["src/**/*"],
   "references": [
     { "path": "../configuration-common/tsconfig.mjs.json" },
+    { "path": "../telemetry-common/tsconfig.mjs.json" },
     { "path": "../configuration/tsconfig.mjs.json" },
     { "path": "../di/tsconfig.mjs.json" },
     { "path": "../exceptions/tsconfig.mjs.json" },

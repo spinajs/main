@@ -61,6 +61,7 @@
     "@spinajs/exceptions": "^2.0.481",
     "@spinajs/http": "^2.0.481",
     "@spinajs/log": "^2.0.481",
+    "@spinajs/telemetry-common": "^2.0.481",
     "@spinajs/validation": "^2.0.481",
     "lodash": "^4.17.21",
     "prom-client": "^14.2.0"
