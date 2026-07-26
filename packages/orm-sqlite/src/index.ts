@@ -10,7 +10,7 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 import { LogLevel } from '@spinajs/log-common';
 export * from './compilers.js';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -247,12 +247,16 @@ export class SqliteOrmDriver extends SqlDriver {
           return;
         }
 
+        this.setState(ConnectionState.Connected);
         resolve(this);
       });
     });
   }
 
   public async disconnect(): Promise<OrmDriver> {
+    this.stopHealthCheck();
+    this.setState(ConnectionState.Disconnected);
+
     if (!this.Db) {
       return this;
     }

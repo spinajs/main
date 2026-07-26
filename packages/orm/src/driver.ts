@@ -219,6 +219,71 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
     throw lastError;
   }
 
+  private _healthCheckTimer: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Starts the periodic health probe. Replaces the single startup `ping()` — a connection that
+   * was healthy at boot tells you nothing about a pool holding sockets to a database that has
+   * since restarted. No-op when `Resilience.HealthCheckInterval` is 0. Idempotent.
+   */
+  public startHealthCheck(): void {
+    const { HealthCheckInterval } = this.resolvedResilienceOptions();
+
+    if (HealthCheckInterval <= 0 || this._healthCheckTimer !== null) {
+      return;
+    }
+
+    this._healthCheckTimer = setInterval(() => {
+      void this.runHealthCheck();
+    }, HealthCheckInterval);
+
+    // Never hold the process open just to probe a database.
+    if (typeof (this._healthCheckTimer as any).unref === 'function') {
+      (this._healthCheckTimer as any).unref();
+    }
+  }
+
+  /**
+   * Stops the periodic health probe. Idempotent.
+   */
+  public stopHealthCheck(): void {
+    if (this._healthCheckTimer !== null) {
+      clearInterval(this._healthCheckTimer);
+      this._healthCheckTimer = null;
+    }
+  }
+
+  /**
+   * One health probe. A failed probe degrades the driver and attempts a single reconnect; it
+   * never throws, because it runs on a timer with no caller to receive the error.
+   */
+  protected async runHealthCheck(): Promise<void> {
+    let alive = false;
+
+    try {
+      alive = await this.ping();
+    } catch {
+      alive = false;
+    }
+
+    if (alive) {
+      this.setState(ConnectionState.Connected);
+      return;
+    }
+
+    this.setState(ConnectionState.Degraded);
+
+    try {
+      // The driver stays DEGRADED even when reconnecting succeeds: a fresh handle is not
+      // evidence that queries work. Only the next successful probe promotes it back to
+      // Connected — drivers whose own connect() verifies the link ( mysql takes and releases
+      // a real connection ) set the state themselves.
+      await this.connect();
+    } catch (err) {
+      this.Log.warn(`health check reconnect for ${this.Options.Name} failed: ${(err as Error).message}`);
+    }
+  }
+
   /**
    * Creates select query builder associated with this connection.
    * This can be used to execute raw queries to db without orm model layer

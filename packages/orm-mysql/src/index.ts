@@ -235,6 +235,9 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public disconnect(): Promise<OrmDriver> {
+    this.stopHealthCheck();
+    this.setState(ConnectionState.Disconnected);
+
     return new Promise((resolve, reject) => {
       if (!this.Pool) {
         resolve(this);

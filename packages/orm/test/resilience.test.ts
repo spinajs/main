@@ -2,6 +2,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import * as sinon from 'sinon';
 import { backoffDelay, ConnectionState } from '../src/resilience.js';
 import { OrmDriver } from '../src/driver.js';
 import { IColumnDescriptor, ISupportedFeature, ITransactionContext, ITransactionOptions } from '../src/interfaces.js';
@@ -161,5 +162,60 @@ describe('connection resilience', () => {
 
     expect(d.states).to.include(ConnectionState.Degraded);
     expect(d.State).to.equal(ConnectionState.Connected);
+  });
+});
+
+describe('periodic health check', () => {
+  let clock: sinon.SinonFakeTimers;
+
+  beforeEach(() => {
+    clock = sinon.useFakeTimers();
+  });
+
+  afterEach(() => {
+    clock.restore();
+  });
+
+  it('does not schedule anything when the interval is 0', () => {
+    const d = driver({ Resilience: { HealthCheckInterval: 0 } });
+    d.startHealthCheck();
+
+    expect((d as any)._healthCheckTimer).to.equal(null);
+    d.stopHealthCheck();
+  });
+
+  it('flips to degraded when a probe fails and back to connected when it recovers', async () => {
+    const d = driver({ Resilience: { HealthCheckInterval: 1000, MaxRetries: 0, RetryDelay: 1, MaxRetryDelay: 1 } });
+    d.expose().setState(ConnectionState.Connected);
+    d.startHealthCheck();
+
+    d.pingResult = false;
+    await clock.tickAsync(1000);
+    expect(d.State).to.equal(ConnectionState.Degraded);
+
+    d.pingResult = true;
+    await clock.tickAsync(1000);
+    expect(d.State).to.equal(ConnectionState.Connected);
+
+    d.stopHealthCheck();
+  });
+
+  it('starting twice does not create a second timer', () => {
+    const d = driver({ Resilience: { HealthCheckInterval: 1000 } });
+    d.startHealthCheck();
+    const first = (d as any)._healthCheckTimer;
+    d.startHealthCheck();
+
+    expect((d as any)._healthCheckTimer).to.equal(first);
+    d.stopHealthCheck();
+  });
+
+  it('stopHealthCheck clears the timer and is safe to call twice', () => {
+    const d = driver({ Resilience: { HealthCheckInterval: 1000 } });
+    d.startHealthCheck();
+    d.stopHealthCheck();
+    d.stopHealthCheck();
+
+    expect((d as any)._healthCheckTimer).to.equal(null);
   });
 });
