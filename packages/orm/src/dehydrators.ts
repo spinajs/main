@@ -54,7 +54,7 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
       }
 
       if (val.Type === RelationType.One) {
-        if ((model as any)[val.Name].Value) {
+        if ((model as any)[val.Name]?.Value) {
           (obj as any)[val.Name] = (model as any)[val.Name].Value.dehydrateWithRelations({
             ...options,
             omit: []

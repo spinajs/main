@@ -1,9 +1,10 @@
 /* eslint-disable security/detect-object-injection */
 /* eslint-disable prettier/prettier */
 
-import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
-import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler } from '@spinajs/orm';
+import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler, SqlAlterColumnQueryCompiler } from '@spinajs/orm-sql';
+import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler, ColumnAlterationType } from '@spinajs/orm';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
+import { Logger, Log } from '@spinajs/log';
 import _ from 'lodash';
 
 @NewInstance()
@@ -107,14 +108,34 @@ export class SqliteTableExistsCompiler implements TableExistsCompiler {
 @Inject(Container)
 export class SqliteTableQueryCompiler extends SqlTableQueryCompiler {
   public compile(): ICompilerOutput[] {
+    const pkColumns = this.builder.Columns.filter((c) => c.PrimaryKey);
+
+    // SQLite has no syntax for two inline PRIMARY KEY column constraints - it rejects
+    // `table ... has more than one primary key` - and AUTOINCREMENT is only legal on a single
+    // INTEGER PRIMARY KEY. Composite keys therefore move to a table-level constraint and
+    // cannot include an auto-increment column.
+    if (pkColumns.length > 1) {
+      const auto = pkColumns.find((c) => c.AutoIncrement);
+      if (auto) {
+        throw new OrmException(`sqlite cannot auto-increment column ${auto.Name}: it is part of the composite primary key of ${this.builder.Table}`);
+      }
+      pkColumns.forEach((c) => (c.InlinePrimaryKey = false));
+    }
+
     const _table = this._table();
     const _columns = this._columns();
     const _foreignKeys = this._foreignKeys();
+    const _primaryKey = pkColumns.length > 1 ? this._primaryKeys() : '';
+
+    // Built by concatenation rather than one template literal so that a table with neither a
+    // table-level primary key nor foreign keys emits byte-identically to the pre-composite
+    // compiler ( a template with two empty interpolations leaves a double space behind ).
+    const _extra = `${_primaryKey ? ',' + _primaryKey : ''}${_foreignKeys ? ',' + _foreignKeys : ''}`;
 
     return [
       {
         bindings: [],
-        expression: `${_table} (${_columns} ${_foreignKeys ? ',' + _foreignKeys : ''})`,
+        expression: `${_table} (${_columns}${_extra} )`,
       },
     ];
   }
@@ -132,11 +153,25 @@ export class SqliteInsertQueryCompiler extends SqlInsertQueryCompiler {
     const columns = this.columns();
     const values = this.values();
     const upsort = this.upsort();
+    const returning = this.returning();
 
     return {
       bindings: values.bindings.concat(upsort.bindings),
-      expression: `${into} ${columns} ${values.data} ${upsort.expression}`.trim(),
+      expression: `${into} ${columns} ${values.data} ${upsort.expression}${returning}`.trim(),
     };
+  }
+
+  /**
+   * RETURNING on a plain INSERT. Skipped when an upsert clause is present — the ON CONFLICT
+   * compiler emits its own RETURNING and two would be invalid SQL.
+   */
+  protected returning() {
+    if (this._builder.Update || this._builder.Returning.length === 0) {
+      return '';
+    }
+
+    const cols = this._builder.Returning[0] === '*' ? ['*'] : this._builder.Returning.map((c: string) => `\`${c}\``);
+    return ` RETURNING ${cols.join(',')}`;
   }
 
   protected into() {
@@ -186,7 +221,7 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
         _stmt.push('INTEGER');
         break;
       case 'boolean':
-        _stmt.push(`BOOLEAN NOT NULL CHECK ( \`${this.builder.Name}\` IN (0, 1))`);
+        _stmt.push(this._booleanDefinition());
         break;
     }
 
@@ -208,7 +243,7 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
     if (this.builder.Comment) {
       _stmt.push(`COMMENT '${this.builder.Comment}'`);
     }
-    if (this.builder.PrimaryKey) {
+    if (this.builder.PrimaryKey && this.builder.InlinePrimaryKey) {
       _stmt.push(`PRIMARY KEY`);
     }
     if (this.builder.AutoIncrement) {
@@ -222,6 +257,15 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
       bindings: [],
       expression: _stmt.filter((x) => !_.isEmpty(x)).join(' '),
     };
+  }
+
+  /**
+   * CREATE TABLE renders a boolean as a non-nullable 0/1 domain.
+   * Overridable: ADD COLUMN cannot carry an unconditional NOT NULL - see
+   * {@link SqliteAddColumnCompiler}.
+   */
+  protected _booleanDefinition(): string {
+    return `BOOLEAN NOT NULL CHECK ( \`${this.builder.Name}\` IN (0, 1))`;
   }
 
   protected _defaultCompiler() {
@@ -240,5 +284,67 @@ export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
     }
 
     return _stmt;
+  }
+}
+
+/**
+ * Column body for `ALTER TABLE ... ADD COLUMN`.
+ *
+ * sqlite refuses to add a NOT NULL column without a non-null default, so the
+ * unconditional NOT NULL that CREATE TABLE bakes into a boolean makes every
+ * boolean add fail against a table that already holds rows. The CHECK is kept -
+ * it is legal in ADD COLUMN and still enforces the 0/1 domain - and NOT NULL is
+ * left to the generic `notNull()` flag, so `.notNull().default().value(0)` still
+ * yields a non-nullable column.
+ */
+@NewInstance()
+export class SqliteAddColumnCompiler extends SqliteColumnCompiler {
+  protected _booleanDefinition(): string {
+    return `BOOLEAN CHECK ( \`${this.builder.Name}\` IN (0, 1))`;
+  }
+}
+
+export interface SqliteAlterColumnQueryCompiler { }
+
+@NewInstance()
+@Inject(Container)
+export class SqliteAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler {
+  @Logger('ORM')
+  protected Log: Log;
+
+  /**
+   * The ADD path needs a body free of CREATE-TABLE-only syntax.
+   *
+   * Note PRIMARY KEY / UNIQUE are deliberately NOT stripped here: sqlite cannot
+   * add such a column at all (it rejects both the mysql and the sqlite spelling),
+   * so suppressing the clause would silently produce a column WITHOUT the
+   * constraint the caller asked for. Letting sqlite's own error surface is honest.
+   */
+  protected _columnDefinition(): ICompilerOutput {
+    if (this.builder.AlterType === ColumnAlterationType.Add) {
+      return this.container.resolve<SqliteAddColumnCompiler>(SqliteAddColumnCompiler, [this.builder]).compile();
+    }
+
+    return super._columnDefinition();
+  }
+
+  /**
+   * sqlite cannot change a column's type: it has no MODIFY / ALTER COLUMN.
+   * It is also dynamically typed and renders enum/string/date as unconstrained
+   * TEXT, so a type-only change is a semantic no-op here anyway.
+   *
+   * Constraint changes (NOT NULL / DEFAULT / UNIQUE) ARE enforced by sqlite and
+   * are NOT applied - they need an explicit table-rebuild migration. Warn rather
+   * than throw: portable migrations legitimately restate existing constraints
+   * (mysql's MODIFY drops any attribute you omit), and throwing would break them.
+   */
+  protected _modify(_definition: string): string | null {
+    this.Log.warn(`sqlite cannot MODIFY column '${this.builder.Name}' - skipping. Type changes are a no-op (sqlite is dynamically typed); any NOT NULL / DEFAULT / UNIQUE change was NOT applied. Write an explicit table-rebuild migration if you need one.`);
+    return null;
+  }
+
+  protected _add(definition: string): string | null {
+    // AFTER is mysql-only; sqlite rejects it
+    return `ADD ${definition}`;
   }
 }

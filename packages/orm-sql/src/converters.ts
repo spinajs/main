@@ -121,12 +121,8 @@ export class SqlTimeValueConverter extends TimeValueConverter {
 
 export class SqlDatetimeValueConverter extends DatetimeValueConverter {
   public toDB(value: Date | DateTime, _model: ModelBase<unknown>, column: IColumnDescriptor, _options?: any, dehydrateOptions?: IDehydrateOptions): string | number | null {
-    if (value === null) {
+    if (value === null || value === undefined) {
       return null;
-    }
-
-    if (value === undefined) {
-      return '1970-01-01 00:00:00';
     }
 
     let dt: DateTime | null = null;

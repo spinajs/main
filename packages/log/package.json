@@ -35,7 +35,7 @@
     "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
-    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts --exit",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -54,22 +54,21 @@
     "@spinajs/configuration": "^2.0.481",
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
+    "@spinajs/fs": "^2.0.481",
     "@spinajs/internal-logger": "^2.0.481",
     "@spinajs/log-common": "^2.0.481",
+    "@spinajs/util": "^2.0.481",
     "ajv": "^8.12.0",
-    "chalk": "^4.1.2",
-    "glob": "^8.1.0",
+    "cron": "^2.2.0",
     "glob-to-regexp": "^0.4.1",
     "lodash": "^4.17.21",
     "luxon": "^3.6.1",
     "node-schedule": "^2.1.1"
   },
   "devDependencies": {
-    "@types/glob": "8.0.1",
+    "@types/cron": "^2.0.0",
     "@types/glob-to-regexp": "^0.4.1",
-    "@types/mock-fs": "^4.13.1",
-    "@types/node-schedule": "^2.1.0",
-    "mock-fs": "^5.2.0"
+    "@types/node-schedule": "^2.1.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

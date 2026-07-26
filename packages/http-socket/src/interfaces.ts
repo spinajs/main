@@ -150,14 +150,16 @@ export abstract class SocketRouteArgs implements ISocketRouteArgs {
     if (this.isRuntimeType(routeParameter)) {
       result = this.fromRuntimeType(routeParameter, arg);
 
-      if (schema) {
+      // absent optional params are not validated - validator treats null / undefined data as failure
+      if (schema && result !== null && result !== undefined) {
         this.Validator.validate(schema, result);
       }
     } else {
       hydrator = this.getHydrator(routeParameter);
       result = hydrator ? arg : this.tryExtractObject(arg, routeParameter);
 
-      if (schema) {
+      // absent optional params are not validated - validator treats null / undefined data as failure
+      if (schema && result !== null && result !== undefined) {
         this.Validator.validate(schema, result);
       }
 

@@ -3,7 +3,7 @@
 /* eslint-disable prettier/prettier */
 
 import { SqlDropEventQueryCompiler, SqlDropTableQueryCompiler, SqlEventQueryCompiler, SqlTableHistoryQueryCompiler, SqlOnDuplicateQueryCompiler, SqlIndexQueryCompiler, SqlWithRecursiveCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlColumnQueryCompiler, SqlOrderByQueryCompiler, SqlAlterColumnQueryCompiler, SqlTableCloneQueryCompiler, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlTableAliasCompiler, SqlTruncateTableQueryCompiler, SqlRawSchemaQueryCompiler } from './../src/compilers.js';
-import { OrmDriver, IColumnDescriptor, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, RecursiveQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByStatement, GroupByQueryCompiler, DateTimeWrapper, DateWrapper, QueryBuilder, TransactionCallback, AlterColumnQueryCompiler, TableCloneQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter, DropTableCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, TimeValueConverter, RawSchemaQueryCompiler } from '@spinajs/orm';
+import { OrmDriver, IColumnDescriptor, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, RecursiveQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByStatement, GroupByQueryCompiler, DateTimeWrapper, DateWrapper, ITransactionContext, ITransactionOptions, AlterColumnQueryCompiler, TableCloneQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter, DropTableCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, TimeValueConverter, RawSchemaQueryCompiler } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper } from '../src/statements.js';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -32,11 +32,36 @@ export class FakeSqliteDriver extends SqlDriver {
       jsonColumn: true,
       upsert: true,
       events: false,
+      insertReturning: false,
     };
   }
 
-  public transaction(_queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<any> {
-    return Promise.resolve();
+  protected async _begin(_options?: ITransactionOptions): Promise<ITransactionContext> {
+    return { depth: 0 };
+  }
+
+  protected async _commit(_ctx: ITransactionContext): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _rollback(_ctx: ITransactionContext): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _savepoint(_ctx: ITransactionContext, _name: string): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _releaseSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _rollbackToSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {
+    // no-op, this fake never talks to a database
+  }
+
+  protected async _dispose(_ctx: ITransactionContext): Promise<void> {
+    // no-op, this fake never acquires anything
   }
 
   public async executeOnDb(_stmt: string | object, _params?: any[]): Promise<any[] | any> {

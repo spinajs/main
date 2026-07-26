@@ -1,0 +1,7 @@
+{
+  "$id": "http://spinajs/malformed.schema.json",
+  "type": "object",
+  "properties": {
+    "broken": { "type": "string" },
+  this is not valid json
+}

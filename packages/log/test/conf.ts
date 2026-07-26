@@ -14,6 +14,15 @@ export class TestConfiguration extends FrameworkConfiguration {
           schemas: [dir("./../src/schemas")],
         },
       },
+      // fs providers used by FileTarget in tests. `logs` is rooted at test/logs,
+      // `archive` at test/logs/archive - FileTarget paths are relative to these.
+      fs: {
+        defaultProvider: "logs",
+        providers: [
+          { service: "fsNative", name: "logs", basePath: dir("./logs") },
+          { service: "fsNative", name: "archive", basePath: dir("./logs/archive") },
+        ],
+      },
       logger: {
         targets: [
           {
@@ -45,8 +54,9 @@ export class TestConfiguration extends FrameworkConfiguration {
             name: "File",
             type: "FileTarget",
             options: {
-              path: dir("./logs/log_${logger}.txt"),
-              archivePath: dir("./logs/archive"),
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}.txt",
               compress: true,
               maxArchiveFiles: 2,
               maxBufferSize: 1,
@@ -57,8 +67,9 @@ export class TestConfiguration extends FrameworkConfiguration {
             name: "file-vars",
             type: "FileTarget",
             options: {
-              path: dir("./logs/log_${logger}_${date:dd_MM_yyyy}.txt"),
-              archivePath: dir("./logs/archive"),
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}_${date:dd_MM_yyyy}.txt",
               compress: true,
               maxArchiveFiles: 2,
               maxBufferSize: 1,
@@ -69,8 +80,9 @@ export class TestConfiguration extends FrameworkConfiguration {
             name: "big-buffer",
             type: "FileTarget",
             options: {
-              path: dir("./logs/log_${logger}.txt"),
-              archivePath: dir("./logs/archive"),
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}.txt",
               compress: true,
               maxArchiveFiles: 2,
               maxBufferSize: 1000,
@@ -81,8 +93,9 @@ export class TestConfiguration extends FrameworkConfiguration {
             name: "file-speed",
             type: "FileTarget",
             options: {
-              path: dir("./logs/log_${logger}.txt"),
-              archivePath: dir("./logs/archive"),
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}.txt",
               compress: true,
               maxArchiveFiles: 2,
               maxBufferSize: 10,
@@ -93,37 +106,67 @@ export class TestConfiguration extends FrameworkConfiguration {
             name: "file-archive",
             type: "FileTarget",
             options: {
-              path: dir("./logs/log_${logger}.txt"),
-              archivePath: dir("./logs/archive"),
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}.txt",
               compress: true,
               maxArchiveFiles: 2,
               maxBufferSize: 10,
               maxSize: 1000,
-              archiveInterval: 3
+              archiveInterval: 1,
             },
           },
           {
             name: "file-archive-no-compress",
             type: "FileTarget",
             options: {
-              path: dir("./logs/log_${logger}.txt"),
-              archivePath: dir("./logs/archive"),
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}.txt",
               compress: false,
               maxArchiveFiles: 2,
               maxBufferSize: 10,
               maxSize: 1000,
-              archiveInterval: 3
+              archiveInterval: 1,
             },
           },
           {
             name: "File2",
             type: "FileTarget",
             options: {
-              path: dir("./logs/log_${logger}.txt"),
-              archivePath: dir("./logs/archive"),
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}.txt",
               compress: true,
               maxArchiveFiles: 2,
               maxBufferSize: 1,
+            },
+          },
+          {
+            name: "json-file",
+            type: "JsonFileTarget",
+            options: {
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}.txt",
+              compress: true,
+              maxArchiveFiles: 2,
+              maxBufferSize: 1,
+              maxSize: 100 * 1000,
+            },
+          },
+          {
+            name: "json-file-archive",
+            type: "JsonFileTarget",
+            options: {
+              fs: "logs",
+              archiveFs: "archive",
+              path: "log_${logger}.txt",
+              compress: false,
+              maxArchiveFiles: 5,
+              maxBufferSize: 10,
+              maxSize: 1000,
+              archiveInterval: 1,
             },
           },
         ],
@@ -143,8 +186,8 @@ export class TestConfiguration extends FrameworkConfiguration {
           { name: "big-buffer", level: "trace", target: "big-buffer" },
           { name: "file-archive", level: "trace", target: "file-archive" },
           { name: "file-archive-no-compress", level: "trace", target: "file-archive-no-compress" },
-
-
+          { name: "json-file", level: "trace", target: "json-file" },
+          { name: "json-file-archive", level: "trace", target: "json-file-archive" },
         ],
       },
     }

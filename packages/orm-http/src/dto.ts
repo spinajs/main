@@ -4,10 +4,11 @@ import { Schema } from '@spinajs/validation';
 @Schema({
   type: 'object',
   $id: 'arrow.common.PaginationDTO',
+  // Must match the class fields below — otherwise `page` is never validated
+  // and offset/take validate phantom properties that the class never declares.
   properties: {
     limit: { type: 'number', minimum: 0 },
-    offset: { type: 'number', minimum: 0 },
-    take: { type: 'number', minimum: 0 },
+    page: { type: 'number', minimum: 0 },
   },
 })
 export class PaginationDTO {

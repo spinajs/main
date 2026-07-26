@@ -3,7 +3,8 @@
 /* eslint-disable prettier/prettier */
 import { expect } from 'chai';
 import 'mocha';
-import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase } from '@spinajs/orm';
+import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase, SortOrder, AlterColumnQueryCompiler } from '@spinajs/orm';
+import { SqlAlterColumnQueryCompiler } from '../src/compilers.js';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
@@ -12,6 +13,11 @@ import * as sinon from 'sinon';
 import { RelationModel3 } from './Models/RelationModel3.js';
 import { DateTime } from 'luxon';
 import { RelationModel2 } from './Models/RelationModel2.js';
+import { Model1 } from './Models/Model1.js';
+import { QueryRelationModel } from './Models/QueryRelationModel.js';
+import { SqlSelectQueryCompiler } from '../src/compilers.js';
+import { SqlDatetimeValueConverter } from '../src/converters.js';
+import { InvalidArgument } from '@spinajs/exceptions';
 
 function sqb() {
   const connection = db()!.Connections.get('sqlite')!;
@@ -40,6 +46,19 @@ function inqb() {
 
 function db() {
   return DI.get(Orm);
+}
+
+/**
+ * Minimal `IBuilderMiddleware` that does nothing but stay identifiable, so a test can
+ * assert the order the pipeline was walked in.
+ */
+function fakeMiddleware(name: string): any {
+  return {
+    name,
+    afterQuery: (data: any) => data,
+    modelCreation: () => null as any,
+    afterHydration: () => Promise.resolve(),
+  };
 }
 
 describe('Query builder generic', () => {
@@ -291,6 +310,43 @@ describe('Where query builder', () => {
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE ( `a` = ? AND `b` = ? ) OR ( `c` = ? AND `d` = ? ) OR `f` = ?');
   });
 
+  it('where(a).where(b).orWhere(c) keeps per-statement boolean (a AND b OR c)', () => {
+    const result = sqb().select('*').from('users').where('a', 1).where('b', 2).orWhere('c', 3).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `a` = ? AND `b` = ? OR `c` = ?');
+    expect(result.bindings).to.deep.equal([1, 2, 3]);
+  });
+
+  it('orWhere(a).andWhere(b) is not rewritten to all-AND (a OR b)', () => {
+    const result = sqb().select('*').from('users').orWhere('a', 1).andWhere('b', 2).toDB();
+    // first statement has no leading connector; second carries its own AND
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `a` = ? AND `b` = ?');
+
+    const result2 = sqb().select('*').from('users').where('a', 1).orWhere('b', 2).andWhere('c', 3).toDB();
+    expect(result2.expression).to.equal('SELECT * FROM `users` WHERE `a` = ? OR `b` = ? AND `c` = ?');
+    expect(result2.bindings).to.deep.equal([1, 2, 3]);
+  });
+
+  it('nested function-where still groups with parens under mixed connectors', () => {
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .where('x', 0)
+      .orWhere(function () {
+        this.where('a', 1).where('b', 2);
+      })
+      .where('y', 9)
+      .toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `x` = ? OR ( `a` = ? AND `b` = ? ) AND `y` = ?');
+  });
+
+  it('whereIn / whereNull mixed with orWhere connect per-statement', () => {
+    const result = sqb().select('*').from('users').where('a', 1).orWhere('b', 2).whereIn('c', [3, 4]).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `a` = ? OR `b` = ? AND `c` IN (?,?)');
+
+    const result2 = sqb().select('*').from('users').whereNull('a').orWhere('b', 2).toDB();
+    expect(result2.expression).to.equal('SELECT * FROM `users` WHERE `a` IS NULL OR `b` = ?');
+  });
+
   it('where RAW expressions', () => {
     const result = sqb().select('*').from('users').where(RawQuery.create('foo = bar AND zar.id = tar.id')).toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE foo = bar AND zar.id = tar.id');
@@ -318,7 +374,7 @@ describe('Where query builder', () => {
     expect(result.bindings).to.be.an('array').to.include('2023-01-29 00:00:00.000');
   });
 
-  it('where object should filter out undefined vals and empty arrays', () => {
+  it('where object should filter undefined vals but compile empty arrays to FALSE ( B4b )', () => {
     const result = sqb()
       .select('*')
       .from('users')
@@ -328,7 +384,34 @@ describe('Where query builder', () => {
       })
       .toDB();
 
-    expect(result.expression).to.equal('SELECT * FROM `users`');
+    // empty array => `IN ()` => match nothing (FALSE), NOT "no condition"
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+  });
+
+  it('whereIn with empty array compiles to FALSE ( B4b )', () => {
+    const result = sqb().select('*').from('users').whereIn('id', []).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE FALSE');
+  });
+
+  it('where(col, "=", null) compiles to IS NULL ( B6 )', () => {
+    const result = sqb().select('*').from('users').where('id', '=', null).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` IS NULL');
+  });
+
+  it('where(col, "!=", null) compiles to IS NOT NULL ( B6 )', () => {
+    const result = sqb().select('*').from('users').where('id', '!=', null).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` IS NOT NULL');
+  });
+
+  it('whereNot(col, null) compiles to IS NOT NULL ( B6 )', () => {
+    const result = sqb().select('*').from('users').whereNot('id', null).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` IS NOT NULL');
+  });
+
+  it('where(col, ">", null) throws ( B6 )', () => {
+    expect(() => {
+      sqb().select('*').from('users').where('id', '>', null).toDB();
+    }).to.throw(InvalidArgument);
   });
 
   it('where object with arrays', () => {
@@ -834,6 +917,13 @@ describe('Select query builder', () => {
     expect(result.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` GROUP BY DATE(`CreatedAt`)');
   });
 
+  it('clone() preserves group by (B18)', () => {
+    const query = sqb().groupBy('Category').from('roles').columns(['id', 'parent_id', 'slug']);
+    const cloned = query.clone().toDB();
+
+    expect(cloned.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` GROUP BY `Category`');
+  });
+
   it('wrap where date', () => {
     const result = sqb().from('roles').where(Wrapper.Date('CreatedAt'), 'abc').columns(['id', 'parent_id', 'slug']).toDB();
     expect(result.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE DATE(`CreatedAt`) = ?');
@@ -936,6 +1026,16 @@ describe('Select query builder', () => {
   it('select with order by', () => {
     const result = sqb().select('*').from('users').orderByDescending('name').toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `name` DESC');
+  });
+
+  it('select with multiple order by columns', () => {
+    const result = sqb().select('*').from('users').orderBy('name').orderByDescending('age').toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `name` ASC, `age` DESC');
+  });
+
+  it('order() appends instead of overwriting', () => {
+    const result = sqb().select('*').from('users').order('name', SortOrder.ASC).order('age', SortOrder.DESC).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `name` ASC, `age` DESC');
   });
 
   it('select distinct', () => {
@@ -1093,8 +1193,50 @@ describe('insert query builder', () => {
       .update(['email', 'active'])
       .toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?) ON DUPLICATE KEY UPDATE `email` = ?,`active` = ?');
-    expect(result.bindings).to.be.an('array').to.include.members([1, true, 'spine@spine.pl', 'spine@spine.pl', true]);
+    // update values reference the incoming row via VALUES(col) instead of
+    // re-binding a specific row's values (B13)
+    expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?) ON DUPLICATE KEY UPDATE `email` = VALUES(`email`),`active` = VALUES(`active`)');
+    expect(result.bindings).to.be.an('array').that.has.lengthOf(3);
+    expect(result.bindings).to.include.members([1, 'spine@spine.pl']);
+  });
+
+  it('multi row insert with on duplicate updates each row from its own values (B13)', () => {
+    const result = iqb()
+      .into('users')
+      .values([
+        { id: 1, active: true, email: 'a@spine.pl' },
+        { id: 2, active: false, email: 'b@spine.pl' },
+      ])
+      .onDuplicate('id')
+      .update(['email', 'active'])
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?),(?,?,?) ON DUPLICATE KEY UPDATE `email` = VALUES(`email`),`active` = VALUES(`active`)');
+
+    // only the 6 inserted values are bound - no row-0 values leak into the update
+    expect(result.bindings).to.be.an('array').that.has.lengthOf(6);
+    expect(result.bindings).to.include.members(['a@spine.pl', 'b@spine.pl']);
+  });
+
+  it('on duplicate with a RawQuery column keeps bindings flat (B13)', () => {
+    const result = iqb()
+      .into('users')
+      .values({ id: 1, active: true, email: 'spine@spine.pl' })
+      .onDuplicate('id')
+      .update([RawQuery.create('`counter` = `counter` + ?', [5])] as any)
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.equal('INSERT INTO `users` (`id`,`active`,`email`) VALUES (?,?,?) ON DUPLICATE KEY UPDATE `counter` = `counter` + ?');
+
+    // raw bindings are spread into the flat array, not nested as an array element
+    expect(result.bindings).to.be.an('array').that.has.lengthOf(4);
+    expect(result.bindings![3]).to.equal(5);
+  });
+
+  it('returning() throws NotSupported on a driver that cannot honour it', () => {
+    // Silently storing the columns and doing nothing is how this API was a no-op on
+    // MySQL and MSSQL for years (I3).
+    expect(() => iqb().into('users').values({ Name: 'a' }).returning(['Id'])).to.throw(/does not support RETURNING/);
   });
 });
 
@@ -1161,7 +1303,7 @@ describe('schema building', () => {
       })
       .toDB() as ICompilerOutput[];
 
-    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE CASCADE ON UPDATE CASCADE)');
+    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (`parent_id`) REFERENCES `group`(`id`) ON DELETE CASCADE ON UPDATE CASCADE)');
   });
 
   it('table with default referential action', () => {
@@ -1172,7 +1314,7 @@ describe('schema building', () => {
       })
       .toDB() as ICompilerOutput[];
 
-    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (parent_id) REFERENCES group(id) ON DELETE NO ACTION ON UPDATE NO ACTION)');
+    expect(result[0].expression).to.eq('CREATE TABLE `users` (`foo` INT NOT NULL AUTO_INCREMENT ,PRIMARY KEY (`foo`) ,FOREIGN KEY (`parent_id`) REFERENCES `group`(`id`) ON DELETE NO ACTION ON UPDATE NO ACTION)');
   });
 
   it('column with one primary keys', () => {
@@ -1399,6 +1541,41 @@ describe('schema building', () => {
     expect(result[0].expression).to.equal('ALTER TABLE `test` MODIFY `Id2` VARCHAR(255)');
   });
 
+  it('Should widen an enum column via MODIFY (queue Status migration)', () => {
+    // Mirrors @spinajs/queue's Queue_2026_07_17_00_00_00 migration exactly - it
+    // replicates the SAME alterTable(...) builder call the migration emits and
+    // compiles THAT (not the migration's up(), which needs a live DB). Proves the
+    // MySQL dialect widens the enum while restating NOT NULL + DEFAULT, which
+    // MySQL's MODIFY would otherwise drop.
+    const result = schqb()
+      .alterTable('queue_jobs', (table) => {
+        // `.default().value('created')` returns the column builder (no `.modify()`),
+        // so `.modify()` is called on the column itself, separately.
+        const status = table.enum('Status', ['error', 'success', 'created', 'executing', 'retrying', 'dead']).notNull();
+        status.default().value('created');
+        status.modify();
+      })
+      .toDB();
+
+    expect(result.length).to.eq(1);
+    expect(result[0].expression).to.equal(
+      "ALTER TABLE `queue_jobs` MODIFY `Status` ENUM('error','success','created','executing','retrying','dead') NOT NULL DEFAULT 'created'",
+    );
+  });
+
+  it('Should skip alter column that compiles to nothing', () => {
+    // a compiler whose hook returns null must produce no statement at all,
+    // not a dangling "ALTER TABLE `test`"
+    const result = schqb()
+      .alterTable('test', (table) => {
+        table.string('Id2', 255).modify();
+      })
+      .toDB();
+
+    expect(result.every((r) => (r.expression ?? '').trim().length > 0)).to.be.true;
+    expect(result.every((r) => !/^ALTER TABLE `\w+`\s*$/.test(r.expression ?? ''))).to.be.true;
+  });
+
   it('Should rename column', () => {
     const result = schqb()
       .alterTable('test', (table) => {
@@ -1408,6 +1585,56 @@ describe('schema building', () => {
 
     expect(result.length).to.eq(1);
     expect(result[0].expression).to.equal('ALTER TABLE `test` RENAME COLUMN `Id2` TO `Id3`');
+  });
+
+  it('Should emit no statement when alter column hook compiles to nothing', () => {
+    // a dialect may legitimately skip an alteration by returning null from its hook.
+    // the alter table compiler must drop it entirely - emitting it anyway would
+    // yield a dangling "ALTER TABLE `test`", which is invalid SQL.
+    class NullModifyAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler {
+      protected _modify(): string | null {
+        return null;
+      }
+    }
+
+    const connection = db()!.Connections.get('sqlite')!;
+    connection.Container.register(NullModifyAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
+
+    const result = connection.Container.resolve(SchemaQueryBuilder, [connection])
+      .alterTable('test', (table) => {
+        table.string('Id2', 255).modify();
+      })
+      .toDB();
+
+    expect(result.length).to.eq(0);
+    expect(result.map((r: ICompilerOutput) => r.expression)).to.not.include('ALTER TABLE `test` ');
+  });
+
+  it('Should emit a standalone alter column statement without the ALTER TABLE prefix', () => {
+    // some dialects cannot express an alteration as a suffix of `ALTER TABLE x`
+    // eg. MSSQL renames a column with a complete `EXEC sp_rename ...` statement.
+    class StandaloneRenameAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler {
+      protected _rename(): string | null {
+        return `EXEC sp_rename '[dbo].[test].[${this.builder.OldName}]', '${this.builder.Name}', 'COLUMN'`;
+      }
+
+      public get IsStandaloneStatement(): boolean {
+        return true;
+      }
+    }
+
+    const connection = db()!.Connections.get('sqlite')!;
+    connection.Container.register(StandaloneRenameAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
+
+    const result = connection.Container.resolve(SchemaQueryBuilder, [connection])
+      .alterTable('test', (table) => {
+        table.string('Id2').rename('Id3');
+      })
+      .toDB();
+
+    expect(result.length).to.eq(1);
+    expect(result[0].expression).to.equal(`EXEC sp_rename '[dbo].[test].[Id2]', 'Id3', 'COLUMN'`);
+    expect(result[0].expression).to.not.match(/ALTER TABLE/);
   });
 
   it('column types', () => {
@@ -1484,6 +1711,174 @@ describe('schema building', () => {
     const result = schqb().raw(rawQuery).toDB();
     expect(result.expression).to.equal('CREATE INDEX ? ON users (?)');
     expect(result.bindings).to.be.an('array').to.include.members(['idx_email', 'email']);
+  });
+
+  it('binary column emits BINARY(n) with closing paren', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.binary('foo', 16);
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result[0].expression).to.contain('`foo` BINARY(16)');
+  });
+
+  it('uuid column emits BINARY(16) to match the UuidConverter ( B15b )', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.uuid('guid');
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result[0].expression).to.contain('`guid` BINARY(16)');
+  });
+
+  it('SqlQueryCompiler rejects a null builder', () => {
+    const container = db()!.Connections.get('sqlite')!.Container;
+    expect(() => new SqlSelectQueryCompiler(container, null as any)).to.throw(InvalidArgument);
+  });
+});
+
+describe('Identifier escaping ( A3 )', () => {
+  beforeEach(async () => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(FakeSqliteDriver).as('sqlite');
+    await DI.resolve(Orm);
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  it('escapes a backtick in a column name by doubling it', () => {
+    const result = sqb().select('a`b').from('users').toDB();
+    expect(result.expression).to.equal('SELECT `a``b` FROM `users`');
+  });
+
+  it('escapes a backtick in a table name by doubling it', () => {
+    const result = sqb().select('*').from('ta`ble').toDB();
+    expect(result.expression).to.equal('SELECT * FROM `ta``ble`');
+  });
+
+  it('escapes a backtick in a table alias by doubling it', () => {
+    const result = sqb().select('*').from('users', 'a`lias').toDB();
+    expect(result.expression).to.equal('SELECT `a``lias`.* FROM `users` as `a``lias`');
+  });
+
+  it('escapes a backtick in an ORDER BY column - it cannot break out of the identifier', () => {
+    const result = sqb().select('*').from('users').orderBy('na`me').toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `na``me` ASC');
+  });
+
+  it('backtick-quotes foreign key DDL, escaping embedded backticks', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.int('foo').notNull().primaryKey().autoIncrement();
+        table.foreignKey('par`ent_id').references('gr`oup', 'id').onDelete(ReferentialAction.Cascade).onUpdate(ReferentialAction.Cascade);
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result[0].expression).to.contain('FOREIGN KEY (`par``ent_id`) REFERENCES `gr``oup`(`id`)');
+  });
+
+  it('escapes single quotes in a SET member string literal', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.set('foo', ["ba'r", 'baz']);
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result[0].expression).to.contain("`foo` SET('ba''r','baz')");
+  });
+
+  it('escapes single quotes in a COMMENT string literal', () => {
+    const result = schqb()
+      .createTable('users', (table: TableQueryBuilder) => {
+        table.text('foo').comment("it's a comment");
+      })
+      .toDB() as ICompilerOutput[];
+
+    expect(result[0].expression).to.contain("COMMENT 'it''s a comment'");
+  });
+
+  it('regression: a normal-identifier query stays byte-identical', () => {
+    const result = sqb().select('*').from('users', 'u').toDB();
+    expect(result.expression).to.equal('SELECT `u`.* FROM `users` as `u`');
+  });
+});
+
+describe('SqlDatetimeValueConverter', () => {
+  it('toDB(undefined) should return null, not the epoch ( B16a )', () => {
+    const converter = new SqlDatetimeValueConverter();
+    expect(converter.toDB(undefined as any, null as any, null as any)).to.be.null;
+  });
+
+  it('toDB(null) should return null ( B16a )', () => {
+    const converter = new SqlDatetimeValueConverter();
+    expect(converter.toDB(null as any, null as any, null as any)).to.be.null;
+  });
+});
+
+describe('Query builder execution ( F1 )', () => {
+  beforeEach(async () => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(FakeSqliteDriver).as('sqlite');
+    await DI.resolve(Orm);
+  });
+
+  afterEach(() => {
+    sinon.restore();
+    DI.clearCache();
+  });
+
+  it('then() propagates the callback return value down the chain (B9)', async () => {
+    const result = await sqb()
+      .select('*')
+      .from('users')
+      .then(() => 'transformed');
+
+    expect(result).to.equal('transformed');
+  });
+
+  it('execute() runs the query once no matter how many times it is awaited', async () => {
+    const query = sqb().select('*').from('users');
+    const spy = sinon.spy(query.Driver, 'execute');
+
+    await query;
+    await query;
+    await query.execute();
+
+    expect(spy.calledOnce).to.be.true;
+  });
+
+  it('does not mutate the middleware array during execution (B8)', async () => {
+    // the middleware pipeline is only walked when the builder hydrates models,
+    // so the query has to be model-bound and the driver has to return rows.
+    sinon.stub(FakeSqliteDriver.prototype, 'executeOnDb').resolves([{ Id: 1 }]);
+
+    const connection = db()!.Connections.get('sqlite')!;
+    const query = connection.Container.resolve(SelectQueryBuilder, [connection, Model1]) as SelectQueryBuilder<Model1[]>;
+    query.select('*').from('TestTable1');
+
+    query.middleware(fakeMiddleware('a'));
+    query.middleware(fakeMiddleware('b'));
+
+    const before = [...(query as any)._middlewares];
+    await query.execute();
+
+    expect((query as any)._middlewares).to.deep.equal(before);
+    expect(((query as any)._middlewares as any[]).map((m) => m.name)).to.deep.equal(['a', 'b']);
+  });
+
+  it('toDB() is idempotent (B19)', () => {
+    const query = QueryRelationModel.where('Id', 1).populate('Many') as any;
+
+    const first = query.toDB();
+    const middlewaresAfterFirstCompile = query._middlewares.length;
+    const second = query.toDB();
+
+    expect(second).to.deep.equal(first);
+    expect(query._middlewares.length).to.equal(middlewaresAfterFirstCompile);
   });
 });
 

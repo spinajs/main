@@ -9,7 +9,7 @@ import { ModelType } from '../../route-args/ModelType.js';
 import { FindModelType } from '../../policies/FindModelType.js';
 import { Log, Logger } from '@spinajs/log';
 import { AccessControl } from '@spinajs/rbac';
-import { Crud } from './../../interfaces.js';
+import { Crud, _assertSingleColumnKey } from './../../interfaces.js';
 
 @BasePath('crud')
 @Policy(FindModelType)
@@ -26,12 +26,12 @@ export class CrudDelete extends Crud {
   @Post(':model/__batchDelete')
   public async batchDelete(@ModelType() model: IModelStatic, @Body() ids: any[]) {
     const tModel = this.getModelDescriptor(model);
-    const result = await model.destroy().whereIn(tModel.PrimaryKey, ids);
+    const result = await model.destroy().whereIn(_assertSingleColumnKey(tModel), ids);
 
     this.Log.trace(`Deleted ${result.RowsAffected} records from ${tModel.Name}`);
 
     return new Ok({
-      [tModel.PrimaryKey]: ids,
+      [_assertSingleColumnKey(tModel)]: ids,
     });
   }
 
@@ -44,7 +44,7 @@ export class CrudDelete extends Crud {
     this.Log.trace(`Deleted ${result.RowsAffected} records from ${descriptor.Name} with id ${id}`);
 
     return new Ok({
-      [descriptor.PrimaryKey]: [id],
+      [_assertSingleColumnKey(descriptor)]: [id],
     });
   }
 
@@ -92,7 +92,7 @@ export class CrudDelete extends Crud {
     this.Log.trace(`Deleted related ${result.RowsAffected} records from ${tModel.Name} with id ${id}`);
 
     return new Ok({
-      [tModel.PrimaryKey]: relationId,
+      [_assertSingleColumnKey(tModel)]: relationId,
     });
   }
 

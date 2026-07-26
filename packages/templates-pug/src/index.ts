@@ -1,20 +1,20 @@
-import { __translate, __translateNumber, __translateL, __translateH } from '@spinajs/intl';
-import { IOFail } from '@spinajs/exceptions';
+import { __translate, __translateNumber, __translateL, __translateH, guessLanguage, defaultLanguage } from '@spinajs/intl';
+import { IOFail, InvalidArgument } from '@spinajs/exceptions';
 import * as fs from 'fs';
 import * as pugTemplate from 'pug';
 import _ from 'lodash';
-import { CompiledTemplateRenderer, TemplateRenderer } from '@spinajs/templates';
+import { ensureParentDir, TemplateRenderer } from '@spinajs/templates';
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
-import { normalize } from 'path';
 @Injectable(TemplateRenderer)
-export class PugRenderer extends CompiledTemplateRenderer<pugTemplate.compileTemplate> {
+export class PugRenderer extends TemplateRenderer {
   @Config('templates.pug')
   protected Options: pugTemplate.Options;
 
-  @Config('configuration.isDevelopment')
-  protected devMode: boolean;
+  constructor() {
+    super();
+  }
 
   public get Type() {
     return 'pug';
@@ -24,32 +24,56 @@ export class PugRenderer extends CompiledTemplateRenderer<pugTemplate.compileTem
     return '.pug';
   }
 
-  // in dev mode always recompile so template edits are picked up without a restart
-  protected shouldRecompile(): boolean {
-    return this.devMode;
-  }
+  public async render(templateName: string, model: unknown, language?: string): Promise<string> {
+    this.Log.trace(`Rendering pug template ${templateName}`);
+    this.Log.timeStart(`PugTemplate.render.start.${templateName}`);
 
-  protected buildContext(model: unknown, language: string): Record<string, unknown> {
-    return _.merge({}, model ?? {}, {
-      __: __translate(language),
-      __n: __translateNumber(language),
-      __l: __translateL,
-      __h: __translateH,
+    if (!templateName) {
+      throw new InvalidArgument('template parameter cannot be null or empty');
+    }
+
+    const fTemplate = await this.withCache(templateName, async () => {
+      // pug compiles from a path, not a string - it resolves include/extends
+      // against the local filesystem itself, so remote sources are materialised
+      // to temp storage first.
+      const tPath = await this.resolveLocalPath(templateName);
+      const tCompiled = pugTemplate.compileFile(tPath, this.Options);
+
+      if (!tCompiled) {
+        throw new IOFail(`Cannot compile pug template ${templateName} from path ${tPath}`);
+      }
+
+      return tCompiled;
     });
+
+    const lang = language ? language : guessLanguage();
+    const tLang = lang ?? defaultLanguage();
+
+    const content = fTemplate(
+      _.merge(model ?? {}, {
+        __: __translate(tLang),
+        __n: __translateNumber(tLang),
+        __l: __translateL,
+        __h: __translateH,
+      }),
+    );
+
+    const time = this.Log.timeEnd(`PugTemplate.render.start.${templateName}`);
+    this.Log.trace(`Rendering pug template ${templateName} ended, (${time} ms)`);
+
+    return content;
   }
 
-  protected async compile(path: string) {
-    if (!fs.existsSync(path)) {
-      throw new IOFail(`Template file ${path} does not exist`);
-    }
+  /**
+   * Render and write the result to `filePath`, creating the parent directory if
+   * it does not exist. Same contract as {@link CompiledTemplateRenderer.renderToFile};
+   * pug cannot inherit it because it compiles from a PATH ( so that include /
+   * extends resolve against the filesystem ) rather than from a source string.
+   */
+  public async renderToFile(templateName: string, model: unknown, filePath: string, language?: string): Promise<void> {
+    const content = await this.render(templateName, model, language);
 
-    const tCompiled = pugTemplate.compileFile(path, this.Options);
-    const pNormalized = normalize(path);
-
-    if (!tCompiled) {
-      throw new IOFail(`Cannot compile pug template ${pNormalized} from path ${path}`);
-    }
-
-    this.Templates.set(pNormalized, tCompiled);
+    ensureParentDir(filePath);
+    fs.writeFileSync(filePath, content);
   }
 }

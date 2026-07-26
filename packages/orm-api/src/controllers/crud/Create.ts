@@ -9,7 +9,7 @@ import { FindModelType } from '../../policies/FindModelType.js';
 import { Log, Logger } from '@spinajs/log';
 import { AccessControl, IRbacModelDescriptor, User as UserModel } from '@spinajs/rbac';
 import { Permission } from 'accesscontrol';
-import { Crud } from './../../interfaces.js';
+import { Crud, _assertSingleColumnKey } from './../../interfaces.js';
 
 @BasePath('crud')
 @Policy(FindModelType)
@@ -78,7 +78,7 @@ export class CrudCreate extends Crud {
     if (!m) {
       throw new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        [mDescriptor.PrimaryKey]: id,
+        [_assertSingleColumnKey(mDescriptor)]: id,
       });
     }
 

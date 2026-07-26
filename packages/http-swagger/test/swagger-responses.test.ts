@@ -94,4 +94,35 @@ describe('Swagger error response components', function () {
     const op = spec.paths['/errors/clean'].get;
     expect(op.responses).to.have.property('200');
   });
+
+  it('should expand a named DTO in a typed @response into a component $ref', () => {
+    const op = spec.paths['/errors/named-typed/{id}'].get;
+    const resp = op.responses['404'];
+    expect(resp.description).to.include('Named error envelope');
+    expect(resp.content['application/json'].schema.$ref).to.equal('#/components/schemas/TestErrorEnvelopeDto');
+
+    const component = spec.components.schemas.TestErrorEnvelopeDto;
+    expect(component.type).to.equal('object');
+    expect(component.properties.error.properties.code.type).to.equal('string');
+    expect(component.example).to.deep.equal({ error: { code: 'NOT_FOUND', message: 'no such thing' }, requestId: 'req-1' });
+  });
+
+  it('should expand a named DTO in a documented request body into a component $ref', () => {
+    const op = spec.paths['/errors/named-body'].post;
+    expect(op.requestBody.content['application/json'].schema.$ref).to.equal('#/components/schemas/TestErrorEnvelopeDto');
+  });
+
+  it('should attach @example to the 200 response when the route has no request body', () => {
+    const op = spec.paths['/errors/named-typed/{id}'].get;
+    const examples = op.responses['200'].content['application/json'].examples;
+    expect(examples).to.be.an('object');
+    expect(examples['Not found sample'].value).to.deep.equal({ error: { code: 'NOT_FOUND', message: 'no such thing' } });
+  });
+
+  it('should keep attaching @example to the request body when the route has one', () => {
+    const op = spec.paths['/pets/'].post;
+    const examples = op.requestBody.content['application/json'].examples;
+    expect(examples).to.be.an('object');
+    expect(examples['Create pet request'].value).to.deep.equal({ name: 'Rex', type: 'dog', age: 3 });
+  });
 });

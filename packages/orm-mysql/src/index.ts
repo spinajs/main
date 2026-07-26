@@ -1,23 +1,31 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { LogLevel } from '@spinajs/log';
-import { QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, ITransaction } from '@spinajs/orm';
-import { SqlDriver } from '@spinajs/orm-sql';
+// No LogLevel import: master moved per-query timing out of every driver and into a single
+// `Perf.measure('orm.query', ...)` around SqlDriver.execute, so duplicating it here would
+// emit the same query twice. QueryBuilder / TransactionCallback / ITransaction are gone with
+// the old `{ commit, rollback }` transaction shape this branch replaced. ConnectionState /
+// IPoolMetrics are orm-infra's connection-resilience + pool-telemetry work.
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics } from '@spinajs/orm';
+import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
 import { MySqlTableExistsCompiler } from './compilers.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
 import { Client as SSHClient } from 'ssh2';
 import fs from 'fs';
-import { AsyncLocalStorage } from 'async_hooks';
 
-export interface IMySqlTransactionContext {
+export interface IMySqlTransactionContext extends ITransactionContext {
   connection: PoolConnection;
 }
 
 export class MysqlServerResponseMapper extends ServerResponseMapper {
   public read(data: any) {
-    return { LastInsertId: data.LastInsertId, RowsAffected: data.RowsAffected };
+    // MySQL has no RETURNING; the identity value is all it reports.
+    return {
+      LastInsertId: data?.LastInsertId ?? 0,
+      RowsAffected: data?.RowsAffected ?? 0,
+      Returning: [] as any[],
+    };
   }
 }
 
@@ -25,98 +33,149 @@ export class MysqlServerResponseMapper extends ServerResponseMapper {
 @NewInstance()
 export class MySqlOrmDriver extends SqlDriver {
   protected Pool: mysql.Pool;
-  protected _executionId = 0;
-  protected TransactionStorage = new AsyncLocalStorage<IMySqlTransactionContext>();
+  // `_executionId` went with the per-driver query timing master centralised.
+  // `TransactionStorage` is no longer declared here either — it moved up to OrmDriver so
+  // ambient-connection propagation is part of the contract rather than a MySQL detail.
 
-  private getNextExecutionId(): number {
-    this._executionId = (this._executionId + 1) % Number.MAX_SAFE_INTEGER;
-    return this._executionId;
-  }
+  /**
+   * MySQL/InnoDB honours all four standard levels.
+   */
+  public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
   public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
-    const self = this;
-    const tName = `query-${this.getNextExecutionId()}`;
-    this.Log.timeStart(`query-${tName}`);
+    // Reads and writes are both retried: `withReconnect` only re-runs on transport failures,
+    // where the statement provably never reached the server.
+    return this.withReconnect(() => this._executeOnDbOnce(stmt, params, context));
+  }
 
-    // Check if we're inside a transaction context and use that connection
-    const txContext = this.TransactionStorage.getStore();
-    const queryable = txContext?.connection ?? this.Pool;
+  /**
+   * True when the error means the transport died rather than the statement being wrong.
+   */
+  protected isRetryableError(err: unknown): boolean {
+    // Inside a transaction the connection carried uncommitted state. Reconnecting and replaying
+    // one statement would silently apply it OUTSIDE the transaction, so the error must surface.
+    if (this.TransactionStorage.getStore()) {
+      return false;
+    }
+
+    if (super.isRetryableError(err)) {
+      return true;
+    }
+
+    // mysql2 marks connection-level failures fatal; a fatal error means the connection is gone
+    // regardless of which code came with it.
+    let current: any = err;
+    let depth = 0;
+    while (current && depth < 5) {
+      if (current.fatal === true) {
+        return true;
+      }
+      current = current.inner ?? current.cause;
+      depth++;
+    }
+
+    return false;
+  }
+
+  protected _executeOnDbOnce(stmt: string, params: any[], context: QueryContext): Promise<any> {
+    const self = this;
+
+    // Check if we're inside a transaction context and use that connection.
+    // The context comes from the base driver, so `connection` is typed loosely there; only
+    // this driver's `_begin` ever populates it, and it always puts a PoolConnection in.
+    const txContext = this.TransactionStorage.getStore() as IMySqlTransactionContext | undefined;
 
     return new Promise((resolve, reject) => {
+      const fail = (err: unknown) =>
+        reject(
+          new OrmException(
+            `Error executing orm command `,
+            {
+              Host: self.Options.Host,
+              User: self.Options.User,
+              Name: self.Options.Name,
+            },
+            stmt,
+            params,
+            err,
+          ),
+        );
 
-      queryable.query(stmt, params, function (err, results) {
+      const run = (queryable: mysql.Pool | PoolConnection, done: () => void) => {
+        try {
+          queryable.query(stmt, params, function (err, results) {
+            done();
+
+            if (err) {
+              return fail(err);
+            }
+
+            switch (context) {
+              case QueryContext.Update:
+              case QueryContext.Delete:
+                resolve({
+                  RowsAffected: (results as any as OkPacket).affectedRows,
+                });
+                break;
+              case QueryContext.Insert:
+              case QueryContext.Upsert:
+                resolve({
+                  RowsAffected: (results as any as OkPacket).affectedRows,
+                  LastInsertId: (results as any as OkPacket).insertId,
+                  Returning: [],
+                });
+                break;
+              default:
+                resolve(results);
+                break;
+            }
+          });
+        } catch (err) {
+          // A synchronous throw would otherwise strand the connection outside the pool.
+          done();
+          fail(err);
+        }
+      };
+
+      if (txContext?.connection) {
+        // A transaction owns its connection for its whole lifetime — releasing it after one
+        // statement would hand the rest of the transaction to a different connection.
+        run(txContext.connection, () => undefined);
+        return;
+      }
+
+      // Acquiring is the part that queues when the pool is saturated, so it is the part worth
+      // timing. Taking the connection explicitly, instead of letting `Pool.query` do it out of
+      // sight, is what makes `orm_pool_acquire_seconds` a real number instead of always zero.
+      const acquireStart = process.hrtime.bigint();
+
+      this.Pool.getConnection((err, connection) => {
+        const seconds = Number(process.hrtime.bigint() - acquireStart) / 1e9;
+        this.observeAcquireSeconds(seconds);
+
         if (err) {
-          return reject(
-            new OrmException(
-              `Error executing orm command `,
-              {
-                Host: self.Options.Host,
-                User: self.Options.User,
-                Name: self.Options.Name,
-              },
-              stmt,
-              params,
-              err,
-            ),
-          );
+          fail(err);
+          return;
         }
 
-        switch (context) {
-          case QueryContext.Update:
-          case QueryContext.Delete:
-            resolve({
-              RowsAffected: (results as any as OkPacket).affectedRows,
-            });
-            break;
-          case QueryContext.Insert:
-          case QueryContext.Upsert:
-            resolve({
-              RowsAffected: (results as any as OkPacket).affectedRows,
-              LastInsertId: (results as any as OkPacket).insertId,
-            });
-            break;
-          default:
-            resolve(results);
-            break;
-        }
-      });
-    })
-      .then((val) => {
-        const tDiff = this.Log.timeEnd(`query-${tName}`);
-
-        void this.Log.write({
-          Level: LogLevel.Trace,
-          Variables: {
-            error: undefined,
-            message: `Executed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
-            logger: this.Log.Name,
-            level: 'TRACE',
-            duration: tDiff,
-          },
+        let released = false;
+        run(connection, () => {
+          if (released) {
+            return;
+          }
+          released = true;
+          connection.release();
         });
-
-        return val;
-      })
-      .catch((err) => {
-        const tDiff = this.Log.timeEnd(`query-${tName}`);
-
-        void this.Log.write({
-          Level: LogLevel.Error,
-          Variables: {
-            error: err,
-            message: `Failed: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`,
-            logger: this.Log.Name,
-            level: 'Error',
-            duration: tDiff,
-          },
-        });
-
-        throw err;
       });
+    });
   }
 
   public supportedFeatures(): ISupportedFeature {
-    return { events: true };
+    // insertIdIsFirstOfBatch: a multi-row `INSERT ... VALUES` is a *simple insert* to InnoDB
+    // ( row count known before execution ), so it reserves one contiguous block of
+    // auto-increment values and LAST_INSERT_ID() reports the first of them. True even under
+    // innodb_autoinc_lock_mode = 2, the MySQL 8 default.
+    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true };
   }
 
   public resolve() {
@@ -126,9 +185,29 @@ export class MySqlOrmDriver extends SqlDriver {
     this.Container.register(MysqlServerResponseMapper).as(ServerResponseMapper);
   }
 
+  /**
+   * mysql2 keeps its pool bookkeeping on the internal `_allConnections` / `_freeConnections` /
+   * `_connectionQueue` lists. They are not public API, so every read is guarded — a mysql2
+   * upgrade that renames them degrades to zeros rather than crashing the health check.
+   */
+  public poolMetrics(): IPoolMetrics {
+    const pool = this.Pool as any;
+
+    const size = pool?._allConnections?.length ?? 0;
+    const free = pool?._freeConnections?.length ?? 0;
+
+    return {
+      Size: size,
+      InUse: Math.max(size - free, 0),
+      Waiting: pool?._connectionQueue?.length ?? 0,
+    };
+  }
+
   public async ping(): Promise<boolean> {
     try {
-      await this.executeOnDb('SELECT 1', [], QueryContext.Select);
+      // deliberately bypasses `withReconnect` — a health probe that reconnects on its own
+      // would turn one dead connection into a reconnect storm on every tick.
+      await this._executeOnDbOnce('SELECT 1', [], QueryContext.Select);
       return true;
     } catch {
       return false;
@@ -138,6 +217,8 @@ export class MySqlOrmDriver extends SqlDriver {
   public connect(): Promise<OrmDriver> {
     return new Promise((resolve, reject) => {
       try {
+        const pool = this.resolvedPoolOptions();
+
         this.Pool = mysql.createPool({
           host: this.Options.Host,
           user: this.Options.User,
@@ -145,7 +226,14 @@ export class MySqlOrmDriver extends SqlDriver {
           port: this.Options.Port,
           database: this.Options.Database,
           waitForConnections: true,
-          connectionLimit: this.Options.PoolLimit,
+          connectionLimit: pool.Max,
+          // mysql2's `maxIdle` is a CEILING on idle connections, not a floor, and it never
+          // pre-warms the pool — so there is no direct equivalent of `Pool.Min`. Passing Min
+          // straight through would set maxIdle to 0 by default and make mysql2 destroy every
+          // released connection, i.e. disable pooling. Instead: an explicit Min becomes the
+          // number of connections we let sit idle; Min = 0 keeps mysql2's own default (Max).
+          maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
+          idleTimeout: pool.IdleTimeout,
           queueLimit: 0,
         });
 
@@ -161,6 +249,7 @@ export class MySqlOrmDriver extends SqlDriver {
 
           // Release the test connection
           connection.release();
+          this.setState(ConnectionState.Connected);
           resolve(this);
         });
       } catch (err) {
@@ -177,6 +266,9 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public disconnect(): Promise<OrmDriver> {
+    this.stopHealthCheck();
+    this.setState(ConnectionState.Disconnected);
+
     return new Promise((resolve, reject) => {
       if (!this.Pool) {
         resolve(this);
@@ -195,23 +287,36 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
-    const tblInfo = (await this.executeOnDb(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? ${schema ? 'AND TABLE_SCHEMA=?' : ''} `, schema ? [name, schema] : [name], QueryContext.Select)) as ITableColumnInfo;
-    const isView = (await this.executeOnDb(`SHOW FULL TABLES where \`Tables_in_${schema}\`='${name}'`, [], QueryContext.Select)) as ITableTypeInfo[];
+    const dbSchema = schema ?? this.Options.Database;
+
+    if (!dbSchema) {
+      throw new OrmException(`Cannot read table info for '${name}': no schema/database configured for this connection ( pass a schema or set Options.Database )`);
+    }
+
+    // backtick-quote an identifier, escaping embedded backticks by doubling them
+    const escapeId = (id: string) => '`' + String(id).replace(/`/g, '``') + '`';
+
+    // ORDER BY ORDINAL_POSITION is not decoration. Without it MySQL is free to return the rows
+    // in any order — and does: the same table came back as (Code, TenantId) in one run and
+    // (TenantId, Code) in the next. Column order is part of what a table descriptor means, so
+    // it has to be the table's own order, not whatever the optimizer produced this time.
+    const tblInfo = (await this.executeOnDb(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? AND TABLE_SCHEMA=? ORDER BY ORDINAL_POSITION`, [name, dbSchema], QueryContext.Select)) as ITableColumnInfo;
+    const isView = (await this.executeOnDb(`SHOW FULL TABLES FROM ${escapeId(dbSchema)} WHERE ${escapeId(`Tables_in_${dbSchema}`)}=?`, [name], QueryContext.Select)) as ITableTypeInfo[];
     let indexInfo: IIndexInfo[] = [];
 
     if (!isView || isView.length === 0) {
-      throw new OrmException(`Table ${schema}.${name} does not exist`);
+      throw new OrmException(`Table ${dbSchema}.${name} does not exist`);
     }
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
-      this.Log.trace(`Table ${schema}.${name} does not have any columns.`);
+      this.Log.trace(`Table ${dbSchema}.${name} does not have any columns.`);
       return null as any;
     }
 
     if (isView && isView[0].Table_type === 'VIEW') {
-      this.Log.trace(`Table ${schema}.${name} is a VIEW and dont have indexes set.`);
+      this.Log.trace(`Table ${dbSchema}.${name} is a VIEW and dont have indexes set.`);
     } else {
-      indexInfo = (await this.executeOnDb(`SHOW INDEXES FROM ${name}`, [], QueryContext.Select)) as IIndexInfo[];
+      indexInfo = (await this.executeOnDb(`SHOW INDEXES FROM ${escapeId(name)}`, [], QueryContext.Select)) as IIndexInfo[];
     }
 
 
@@ -243,82 +348,87 @@ export class MySqlOrmDriver extends SqlDriver {
     });
   }
 
-  public transaction(queryOrCallback?: QueryBuilder<any>[] | TransactionCallback): Promise<ITransaction> {
+  /**
+   * Pulls the pooled connection out of a transaction context. The base class only ever hands
+   * us contexts this driver's own `_begin` produced, so the cast is safe.
+   */
+  private txConnection(ctx: ITransactionContext): PoolConnection {
+    return (ctx as IMySqlTransactionContext).connection;
+  }
+
+  /**
+   * Runs a statement on the transaction's own connection, bypassing the ambient-context lookup
+   * in `executeOnDb`. Transaction control statements must never land on a pooled connection
+   * other than their own.
+   */
+  private runOnConnection(connection: PoolConnection, stmt: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      connection.query(stmt, (err) => (err ? reject(err) : resolve()));
+    });
+  }
 
-      const trx: ITransaction = {
-        commit: () => Promise.resolve(),
-        rollback: () => Promise.resolve(),
-      };
-
-      if (!queryOrCallback) {
-        resolve(trx);
-        return;
-      }
-
+  protected _begin(options?: ITransactionOptions): Promise<ITransactionContext> {
+    return new Promise((resolve, reject) => {
       this.Pool.getConnection((err, connection) => {
         if (err) {
           reject(err);
           return;
         }
 
-        connection.beginTransaction(async (err) => {
-          if (err) {
+        const begin = () => {
+          connection.beginTransaction((err) => {
+            if (err) {
+              connection.release();
+              reject(err);
+              return;
+            }
+
+            resolve({ connection, depth: 0 });
+          });
+        };
+
+        if (options?.isolation) {
+          // isolation levels are a fixed, validated enum — never caller-supplied free text
+          this.runOnConnection(connection, `SET TRANSACTION ISOLATION LEVEL ${options.isolation}`).then(begin, (err) => {
             connection.release();
             reject(err);
-            return;
-          }
+          });
+          return;
+        }
 
-          try {
-            // Run the callback/queries within async context so executeOnDb uses this connection
-            await this.TransactionStorage.run({ connection }, async () => {
-              if (Array.isArray(queryOrCallback)) {
-                for (const q of queryOrCallback) {
-                  await q;
-                }
-              } else {
-                await queryOrCallback(this);
-              }
-            });
-
-
-            resolve({
-              commit: async () => {
-                return new Promise((res, rej) => {
-                  connection.commit((err) => {
-                    if (err) {
-                      connection.rollback(() => {
-                        connection.release();
-                        rej(err);
-                      });
-                      return;
-                    }
-                    connection.release();
-                    res();
-                  });
-                });
-
-              },
-              rollback: async () => {
-                return new Promise((res) => {
-                  connection.rollback(() => {
-                    connection.release();
-                    res();
-                  });
-                });
-              },
-            });
-
-
-          } catch (ex) {
-            connection.rollback(() => {
-              connection.release();
-              reject(ex);
-            });
-          }
-        });
+        begin();
       });
     });
+  }
+
+  protected _commit(ctx: ITransactionContext): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.txConnection(ctx).commit((err) => (err ? reject(err) : resolve()));
+    });
+  }
+
+  protected _rollback(ctx: ITransactionContext): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.txConnection(ctx).rollback((err?: unknown) => (err ? reject(err) : resolve()));
+    });
+  }
+
+  // savepoint names cannot be bound parameters, so they are inlined through the identifier
+  // escaper rather than passed as `?`
+  protected _savepoint(ctx: ITransactionContext, name: string): Promise<void> {
+    return this.runOnConnection(this.txConnection(ctx), `SAVEPOINT ${escapeIdentifier(name)}`);
+  }
+
+  protected _releaseSavepoint(ctx: ITransactionContext, name: string): Promise<void> {
+    return this.runOnConnection(this.txConnection(ctx), `RELEASE SAVEPOINT ${escapeIdentifier(name)}`);
+  }
+
+  protected _rollbackToSavepoint(ctx: ITransactionContext, name: string): Promise<void> {
+    return this.runOnConnection(this.txConnection(ctx), `ROLLBACK TO SAVEPOINT ${escapeIdentifier(name)}`);
+  }
+
+  protected async _dispose(ctx: ITransactionContext): Promise<void> {
+    this.txConnection(ctx).release();
   }
 }
 
@@ -360,6 +470,8 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
             return;
           }
 
+          const pool = this.resolvedPoolOptions();
+
           this.Pool = mysql.createPool({
             host: 'localhost', // we tunnel via ssh so we use localhost
             user: this.Options.User,
@@ -367,7 +479,10 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
             port: this.Options.Port,
             database: this.Options.Database,
             waitForConnections: true,
-            connectionLimit: this.Options.PoolLimit,
+            connectionLimit: pool.Max,
+            // see MySqlOrmDriver.connect — `maxIdle` is a ceiling, so Min = 0 must not reach it
+            maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
+            idleTimeout: pool.IdleTimeout,
             queueLimit: 0,
             stream: stream,
           } as PoolOptions);
