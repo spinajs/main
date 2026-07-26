@@ -8,6 +8,32 @@ class ProbeDriver extends MySqlOrmDriver {
   }
 }
 
+describe('pool metrics', () => {
+  it('reports zeros before the pool exists rather than throwing', () => {
+    const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' } as any);
+
+    expect(d.poolMetrics()).to.deep.equal({ Size: 0, InUse: 0, Waiting: 0 });
+  });
+
+  it('reads mysql2s internal pool bookkeeping', () => {
+    const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' } as any);
+    (d as any).Pool = {
+      _allConnections: [1, 2, 3, 4],
+      _freeConnections: [1],
+      _connectionQueue: [1, 2],
+    };
+
+    expect(d.poolMetrics()).to.deep.equal({ Size: 4, InUse: 3, Waiting: 2 });
+  });
+
+  it('degrades to zeros when mysql2 renames its internals', () => {
+    const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' } as any);
+    (d as any).Pool = {};
+
+    expect(d.poolMetrics()).to.deep.equal({ Size: 0, InUse: 0, Waiting: 0 });
+  });
+});
+
 describe('pool options', () => {
   it('defaults when nothing is configured', () => {
     const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' } as any);

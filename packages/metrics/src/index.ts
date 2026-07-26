@@ -6,6 +6,7 @@ import { Configuration } from '@spinajs/configuration';
 
 export * from "./policies/DefaultMetricsPolicy.js";
 export * from "./controllers/metrics.js";
+export * from "./orm.js";
 
 export const Gauge = client.Gauge;
 export const Histogram = client.Histogram;

@@ -51,6 +51,7 @@
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
     "@spinajs/http": "^2.0.481",
+    "@spinajs/orm": "^2.0.481",
     "express-prom-bundle": "^6.6.0",
     "prom-client": "^14.1.1"
   },

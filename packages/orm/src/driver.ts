@@ -7,6 +7,10 @@ import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlCon
 import { OrmException } from './exceptions.js';
 import { AsyncLocalStorage } from 'async_hooks';
 import { backoffDelay, ConnectionState, delay, IConnectionResilienceOptions, isRetryableErrorCode } from './resilience.js';
+import { IPoolMetrics, NullOrmMetricsSink, ORM_METRIC_CONNECTION_STATE, ORM_METRIC_POOL_IN_USE, ORM_METRIC_POOL_SIZE, ORM_METRIC_POOL_WAITING, OrmMetricsSink } from './metrics.js';
+
+/** Shared fallback for drivers built outside DI; discarding, so it holds no state. */
+const NULL_METRICS_SINK = new NullOrmMetricsSink();
 import './hydrators.js';
 import './dehydrators.js';
 
@@ -258,6 +262,8 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * never throws, because it runs on a timer with no caller to receive the error.
    */
   protected async runHealthCheck(): Promise<void> {
+    this.publishPoolMetrics();
+
     let alive = false;
 
     try {
@@ -281,6 +287,49 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       await this.connect();
     } catch (err) {
       this.Log.warn(`health check reconnect for ${this.Options.Name} failed: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Point-in-time pool state. The base implementation reports an empty pool; drivers that own a
+   * real pool override it. Must never throw — it runs on the health-check timer.
+   */
+  public poolMetrics(): IPoolMetrics {
+    return { Size: 0, InUse: 0, Waiting: 0 };
+  }
+
+  /**
+   * The configured telemetry sink, or a discarding one when nothing is registered — which is the
+   * case for a driver constructed outside DI, as tooling and tests do. Never throws: publishing a
+   * metric must not be able to fail a query or a health probe.
+   */
+  protected metricsSink(): OrmMetricsSink {
+    try {
+      return (this.Container ?? DI).resolve(OrmMetricsSink);
+    } catch {
+      return NULL_METRICS_SINK;
+    }
+  }
+
+  /**
+   * Pushes the current pool state and connection state to the configured metrics sink. The
+   * default sink discards, so this costs a resolve and four no-op calls when nobody is listening.
+   */
+  public publishPoolMetrics(): void {
+    try {
+      const sink = this.metricsSink();
+      const labels = { connection: this.Options.Name };
+      const pool = this.poolMetrics();
+
+      sink.gauge(ORM_METRIC_POOL_SIZE, 'Open ORM pool connections', labels, pool.Size);
+      sink.gauge(ORM_METRIC_POOL_IN_USE, 'ORM pool connections checked out by a query', labels, pool.InUse);
+      sink.gauge(ORM_METRIC_POOL_WAITING, 'Callers waiting for a free ORM pool connection', labels, pool.Waiting);
+      sink.gauge(ORM_METRIC_CONNECTION_STATE, 'ORM connection state: 1 connected, 0 otherwise', labels, this.State === ConnectionState.Connected ? 1 : 0);
+    } catch (err) {
+      // Telemetry must never break a connection. This runs first on every health tick, so a sink
+      // that throws — or a driver built outside DI, as tooling and tests do — would otherwise
+      // stop the probe that follows it from ever running.
+      this.Log?.trace(`publishing pool metrics for ${this.Options.Name} failed: ${(err as Error).message}`);
     }
   }
 

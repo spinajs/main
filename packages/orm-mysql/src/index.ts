@@ -1,7 +1,7 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable, NewInstance } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, ORM_METRIC_ACQUIRE_SECONDS } from '@spinajs/orm';
 import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
@@ -85,46 +85,88 @@ export class MySqlOrmDriver extends SqlDriver {
     // The context comes from the base driver, so `connection` is typed loosely there; only
     // this driver's `_begin` ever populates it, and it always puts a PoolConnection in.
     const txContext = this.TransactionStorage.getStore() as IMySqlTransactionContext | undefined;
-    const queryable: mysql.Pool | PoolConnection = txContext?.connection ?? this.Pool;
 
     return new Promise((resolve, reject) => {
+      const fail = (err: unknown) =>
+        reject(
+          new OrmException(
+            `Error executing orm command `,
+            {
+              Host: self.Options.Host,
+              User: self.Options.User,
+              Name: self.Options.Name,
+            },
+            stmt,
+            params,
+            err,
+          ),
+        );
 
-      queryable.query(stmt, params, function (err, results) {
+      const run = (queryable: mysql.Pool | PoolConnection, done: () => void) => {
+        try {
+          queryable.query(stmt, params, function (err, results) {
+            done();
+
+            if (err) {
+              return fail(err);
+            }
+
+            switch (context) {
+              case QueryContext.Update:
+              case QueryContext.Delete:
+                resolve({
+                  RowsAffected: (results as any as OkPacket).affectedRows,
+                });
+                break;
+              case QueryContext.Insert:
+              case QueryContext.Upsert:
+                resolve({
+                  RowsAffected: (results as any as OkPacket).affectedRows,
+                  LastInsertId: (results as any as OkPacket).insertId,
+                  Returning: [],
+                });
+                break;
+              default:
+                resolve(results);
+                break;
+            }
+          });
+        } catch (err) {
+          // A synchronous throw would otherwise strand the connection outside the pool.
+          done();
+          fail(err);
+        }
+      };
+
+      if (txContext?.connection) {
+        // A transaction owns its connection for its whole lifetime — releasing it after one
+        // statement would hand the rest of the transaction to a different connection.
+        run(txContext.connection, () => undefined);
+        return;
+      }
+
+      // Acquiring is the part that queues when the pool is saturated, so it is the part worth
+      // timing. Taking the connection explicitly, instead of letting `Pool.query` do it out of
+      // sight, is what makes `orm_pool_acquire_seconds` a real number instead of always zero.
+      const acquireStart = process.hrtime.bigint();
+
+      this.Pool.getConnection((err, connection) => {
+        const seconds = Number(process.hrtime.bigint() - acquireStart) / 1e9;
+        this.metricsSink().observe(ORM_METRIC_ACQUIRE_SECONDS, 'Seconds spent acquiring an ORM pool connection', { connection: this.Options.Name }, seconds);
+
         if (err) {
-          return reject(
-            new OrmException(
-              `Error executing orm command `,
-              {
-                Host: self.Options.Host,
-                User: self.Options.User,
-                Name: self.Options.Name,
-              },
-              stmt,
-              params,
-              err,
-            ),
-          );
+          fail(err);
+          return;
         }
 
-        switch (context) {
-          case QueryContext.Update:
-          case QueryContext.Delete:
-            resolve({
-              RowsAffected: (results as any as OkPacket).affectedRows,
-            });
-            break;
-          case QueryContext.Insert:
-          case QueryContext.Upsert:
-            resolve({
-              RowsAffected: (results as any as OkPacket).affectedRows,
-              LastInsertId: (results as any as OkPacket).insertId,
-              Returning: [],
-            });
-            break;
-          default:
-            resolve(results);
-            break;
-        }
+        let released = false;
+        run(connection, () => {
+          if (released) {
+            return;
+          }
+          released = true;
+          connection.release();
+        });
       });
     })
       .then((val) => {
@@ -174,6 +216,24 @@ export class MySqlOrmDriver extends SqlDriver {
 
     this.Container.register(MySqlTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(MysqlServerResponseMapper).as(ServerResponseMapper);
+  }
+
+  /**
+   * mysql2 keeps its pool bookkeeping on the internal `_allConnections` / `_freeConnections` /
+   * `_connectionQueue` lists. They are not public API, so every read is guarded — a mysql2
+   * upgrade that renames them degrades to zeros rather than crashing the health check.
+   */
+  public poolMetrics(): IPoolMetrics {
+    const pool = this.Pool as any;
+
+    const size = pool?._allConnections?.length ?? 0;
+    const free = pool?._freeConnections?.length ?? 0;
+
+    return {
+      Size: size,
+      InUse: Math.max(size - free, 0),
+      Waiting: pool?._connectionQueue?.length ?? 0,
+    };
   }
 
   public async ping(): Promise<boolean> {
