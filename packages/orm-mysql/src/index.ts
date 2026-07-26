@@ -154,23 +154,32 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
-    const tblInfo = (await this.executeOnDb(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? ${schema ? 'AND TABLE_SCHEMA=?' : ''} `, schema ? [name, schema] : [name], QueryContext.Select)) as ITableColumnInfo;
-    const isView = (await this.executeOnDb(`SHOW FULL TABLES where \`Tables_in_${schema}\`='${name}'`, [], QueryContext.Select)) as ITableTypeInfo[];
+    const dbSchema = schema ?? this.Options.Database;
+
+    if (!dbSchema) {
+      throw new OrmException(`Cannot read table info for '${name}': no schema/database configured for this connection ( pass a schema or set Options.Database )`);
+    }
+
+    // backtick-quote an identifier, escaping embedded backticks by doubling them
+    const escapeId = (id: string) => '`' + String(id).replace(/`/g, '``') + '`';
+
+    const tblInfo = (await this.executeOnDb(`SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? AND TABLE_SCHEMA=?`, [name, dbSchema], QueryContext.Select)) as ITableColumnInfo;
+    const isView = (await this.executeOnDb(`SHOW FULL TABLES FROM ${escapeId(dbSchema)} WHERE ${escapeId(`Tables_in_${dbSchema}`)}=?`, [name], QueryContext.Select)) as ITableTypeInfo[];
     let indexInfo: IIndexInfo[] = [];
 
     if (!isView || isView.length === 0) {
-      throw new OrmException(`Table ${schema}.${name} does not exist`);
+      throw new OrmException(`Table ${dbSchema}.${name} does not exist`);
     }
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
-      this.Log.trace(`Table ${schema}.${name} does not have any columns.`);
+      this.Log.trace(`Table ${dbSchema}.${name} does not have any columns.`);
       return null as any;
     }
 
     if (isView && isView[0].Table_type === 'VIEW') {
-      this.Log.trace(`Table ${schema}.${name} is a VIEW and dont have indexes set.`);
+      this.Log.trace(`Table ${dbSchema}.${name} is a VIEW and dont have indexes set.`);
     } else {
-      indexInfo = (await this.executeOnDb(`SHOW INDEXES FROM ${name}`, [], QueryContext.Select)) as IIndexInfo[];
+      indexInfo = (await this.executeOnDb(`SHOW INDEXES FROM ${escapeId(name)}`, [], QueryContext.Select)) as IIndexInfo[];
     }
 
 

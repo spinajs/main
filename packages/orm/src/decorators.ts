@@ -70,7 +70,14 @@ function _getMetadataFrom(target: any) {
  */
 function detachInheritedModelMembers(descriptor: IModelDescriptor) {
   descriptor.Columns = descriptor.Columns.map((c) => ({ ...c }));
-  descriptor.Relations = new Map([...descriptor.Relations].map(([name, relation]) => [name, { ...relation }]));
+  // NOT `{ ...relation }`. A relation descriptor may carry a lazily-defined `PrimaryKey`
+  // accessor ( @BelongsTo / @HasManyToMany with a string target model, which cannot be
+  // resolved until the Orm is up ). Spreading INVOKES that getter — here, at decoration
+  // time, when DI.get(Orm) is still undefined — and then freezes whatever it returned into
+  // a plain value, defeating the laziness even when it does not throw. Copying property
+  // descriptors detaches the mutable data properties ( Recursive, etc. ) while leaving
+  // accessors as accessors.
+  descriptor.Relations = new Map([...descriptor.Relations].map(([name, relation]) => [name, Object.create(Object.getPrototypeOf(relation) as object, Object.getOwnPropertyDescriptors(relation)) as IRelationDescriptor]));
   descriptor.Timestamps = { ...descriptor.Timestamps };
   descriptor.SoftDelete = { ...descriptor.SoftDelete };
   descriptor.Archived = { ...descriptor.Archived };
@@ -325,18 +332,37 @@ export const forwardRef = (fn: () => any): IForwardReference => ({
  */
 export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignKey?: string, primaryKey?: string) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const targetModelDesc = extractModelDescriptor(target);
-
-    model.Relations.set(propertyKey, {
+    const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Type: RelationType.One,
       SourceModel: target,
       TargetModelType: targetModel,
       TargetModel: undefined as any,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
-      PrimaryKey: primaryKey ?? targetModelDesc?.PrimaryKey ?? model.PrimaryKey,
+      // default PK must come from the TARGET model, not the source ( fixed below )
+      PrimaryKey: primaryKey ?? model.PrimaryKey,
       Recursive: false,
-    });
+    };
+
+    if (!primaryKey) {
+      if (typeof targetModel === 'string') {
+        // target resolved by name at runtime - read its PK lazily ( same pattern as HasManyToMany )
+        const getModel = function () {
+          return extractModelDescriptor(DI.get(Orm)!.Models.find((x) => x.name === targetModel)!.type);
+        };
+
+        Object.defineProperty(descriptor, 'PrimaryKey', {
+          get: function () {
+            return getModel()?.PrimaryKey ?? model.PrimaryKey;
+          },
+        });
+      } else {
+        const targetModelDesc = extractModelDescriptor(targetModel);
+        descriptor.PrimaryKey = targetModelDesc?.PrimaryKey ?? model.PrimaryKey;
+      }
+    }
+
+    model.Relations.set(propertyKey, descriptor);
   });
 }
 

@@ -636,6 +636,8 @@ export class ModelBase<M = unknown> implements IModelBase {
     for (const c of this.ModelDescriptor!.Columns) {
       (this as any)[c.Name] = (model as any)[c.Name];
     }
+
+    this.IsDirty = false;
   }
 
   public toJSON() {
@@ -991,6 +993,10 @@ export const MODEL_STATIC_MIXINS = {
   destroy<T extends typeof ModelBase>(pks?: any | any[]): IWhereBuilder<InstanceType<T>> {
     const description = _descriptor(this)!;
 
+    if (pks === undefined || pks === null) {
+      throw new OrmException('Cannot destroy without primary keys ( unbounded DELETE/UPDATE ). Use truncate() to clear the whole table.');
+    }
+
     const data = Array.isArray(pks) ? pks : [pks];
     if (data.length === 0) {
       throw new OrmException('Cannot delete empty array of primary keys');
@@ -1171,9 +1177,8 @@ export const MODEL_STATIC_MIXINS = {
       callback(query);
     }
 
-    return await (
-      await query.asRaw<{ count: number }>()
-    ).count;
+    const row = await query.takeFirst().asRaw<{ count: number }>();
+    return row?.count ?? 0;
   },
 
   async transaction<T extends typeof ModelBase>(this: T, callback: (trx: OrmDriver) => Promise<void>) {
@@ -1183,8 +1188,7 @@ export const MODEL_STATIC_MIXINS = {
 };
 
 export const _modelProxyFactory = (_c: IContainer, model: Constructor<ModelBase>) => {
-  const mInstance = new model();
-  return new Proxy(mInstance, MODEL_PROXY_HANDLER);
+  return new model();
 };
 
 DI.register(_modelProxyFactory).as('__orm_model_factory__');

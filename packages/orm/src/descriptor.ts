@@ -53,5 +53,10 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor |
     return null;
   }
 
+  // master's own-metadata-per-class read. MUST stay paired with the write side in
+  // decorators.ts `_getMetadataFrom`, which replaced the old name-keyed container —
+  // that container collapsed two classes sharing a name into one slot (A9 in the
+  // ORM analysis). Reading name-keyed here against an own-metadata write returns null
+  // for every model.
   return (Reflect.getOwnMetadata(MODEL_DESCTRIPTION_SYMBOL, target) as IModelDescriptor) ?? null;
 }

@@ -1,6 +1,6 @@
 import { IJoinStatementOptions } from './interfaces.js';
 import type { SelectQueryBuilder, WhereBuilder, RawQuery, QueryBuilder } from './builders.js';
-import { ColumnMethods, SqlOperator } from './enums.js';
+import { ColumnMethods, SqlOperator, WhereBoolean } from './enums.js';
 import { NewInstance, Container, Class, Constructor, Inject, IContainer } from '@spinajs/di';
 import _ from 'lodash';
 import { IColumnDescriptor } from './interfaces.js';
@@ -17,6 +17,14 @@ export interface IQueryStatementResult {
 export interface IQueryStatement {
   TableAlias: string;
 
+  /**
+   * Boolean connector that precedes this statement inside a WHERE/HAVING clause.
+   * The very first statement in a clause has no leading connector (the value is
+   * ignored). Subsequent statements are joined by their own connector, so
+   * `where(a).where(b).orWhere(c)` compiles to `a AND b OR c`.
+   */
+  Boolean: WhereBoolean;
+
   build(): IQueryStatementResult;
 
   clone(parent?: QueryBuilder | SelectQueryBuilder | WhereBuilder<any>): IQueryStatement;
@@ -25,12 +33,22 @@ export interface IQueryStatement {
 export abstract class QueryStatement implements IQueryStatement {
   protected _tableAlias: string | undefined;
 
+  protected _boolean: WhereBoolean = WhereBoolean.AND;
+
   public get TableAlias(): string {
     return this._tableAlias ?? '';
   }
 
   public set TableAlias(alias: string) {
     this._tableAlias = alias;
+  }
+
+  public get Boolean(): WhereBoolean {
+    return this._boolean;
+  }
+
+  public set Boolean(op: WhereBoolean) {
+    this._boolean = op;
   }
 
   constructor(tableAlias?: string | null) {

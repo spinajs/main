@@ -1,16 +1,16 @@
 import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
-import { SqlWhereCompiler } from './compilers.js';
+import { SqlWhereCompiler, escapeIdentifier } from './compilers.js';
 import { NewInstance } from '@spinajs/di';
 import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor } from '@spinajs/orm';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 function _columnWrap(column: string, tableAlias: string | undefined, isAggregate?: boolean): string {
   if (tableAlias && !isAggregate) {
-    return `\`${tableAlias}\`.\`${column}\``;
+    return `${escapeIdentifier(tableAlias)}.${escapeIdentifier(column)}`;
   }
 
-  return `\`${column}\``;
+  return escapeIdentifier(column);
 }
 
 @NewInstance()
@@ -107,7 +107,7 @@ export class SqlGroupByStatement extends GroupByStatement {
     } else {
       return {
         Bindings: [],
-        Statements: [`\`${this._expr}\``],
+        Statements: [escapeIdentifier(this._expr as string)],
       };
     }
   }
@@ -243,25 +243,30 @@ export class SqlJoinStatement extends JoinStatement {
     if (sourceTableAlias) {
       const sourceDb = sourceModelDriver.Options.Database;
       if (sourceDb) {
-        sourceTable = `\`${sourceDb}\`.\`${sourceTable}\` as \`${sourceTableAlias}\``;
+        sourceTable = `${escapeIdentifier(sourceDb)}.${escapeIdentifier(sourceTable)} as ${escapeIdentifier(sourceTableAlias)}`;
       } else {
-        sourceTable = `\`${sourceTable}\` as \`${sourceTableAlias}\``;
+        sourceTable = `${escapeIdentifier(sourceTable)} as ${escapeIdentifier(sourceTableAlias)}`;
       }
     }
 
     if (joinTableAlias) {
       const joinDb = joinModelDriver.Options.Database;
       if (joinDb) {
-        joinTable = `\`${joinDb}\`.\`${joinTable}\` as \`${joinTableAlias}\``;
+        joinTable = `${escapeIdentifier(joinDb)}.${escapeIdentifier(joinTable)} as ${escapeIdentifier(joinTableAlias)}`;
       } else {
-        joinTable = `\`${joinTable}\` as \`${joinTableAlias}\``;
+        joinTable = `${escapeIdentifier(joinTable)} as ${escapeIdentifier(joinTableAlias)}`;
       }
     }
 
 
 
-    const primaryKey = sourceTableAlias ? `\`${sourceTableAlias}\`.${this._options.sourceTablePrimaryKey}` : `\`${sourceTable}\`.${this._options.sourceTablePrimaryKey}`;
-    const foreignKey = joinTableAlias ? `\`${joinTableAlias}\`.${this._options.joinTableForeignKey}` : `\`${joinTable}\`.${this._options.joinTableForeignKey}`;
+    // NOTE: only the table alias part of the ON keys is escaped here. The join
+    // key column names (sourceTablePrimaryKey / joinTableForeignKey) are left
+    // as-is on purpose: they come from validated relation descriptors and the
+    // existing suite asserts the unquoted form, so escaping them would change
+    // byte output for normal identifiers.
+    const primaryKey = sourceTableAlias ? `${escapeIdentifier(sourceTableAlias)}.${this._options.sourceTablePrimaryKey}` : `${escapeIdentifier(sourceTable)}.${this._options.sourceTablePrimaryKey}`;
+    const foreignKey = joinTableAlias ? `${escapeIdentifier(joinTableAlias)}.${this._options.joinTableForeignKey}` : `${escapeIdentifier(joinTable)}.${this._options.joinTableForeignKey}`;
 
     // Conditions supplied via the join callback (e.g. `.leftJoin(rel, b => b.where('Key', 'x'))`)
     // belong in the JOIN's ON clause, not the main WHERE — otherwise an outer
@@ -272,17 +277,14 @@ export class SqlJoinStatement extends JoinStatement {
     const onBindings: unknown[] = [];
 
     if (this._whereBuilder) {
-      const parts: string[] = [];
-      this._whereBuilder.Statements.filter((x: WhereStatement) => !x.IsAggregate).forEach((x: WhereStatement) => {
-        const r = x.build();
-        parts.push(...r.Statements);
-        if (Array.isArray(r.Bindings)) {
-          onBindings.push(...r.Bindings);
+      // Compile join-callback conditions through the shared where-compiler so
+      // per-statement AND/OR connectors are honoured here too.
+      const compiled = new SqlWhereCompiler().where(this._whereBuilder);
+      if (compiled.expression && compiled.expression !== '') {
+        onExpression += ` AND ${compiled.expression}`;
+        if (Array.isArray(compiled.bindings)) {
+          onBindings.push(...compiled.bindings);
         }
-      });
-
-      if (parts.length > 0) {
-        onExpression += ` AND ${parts.join(` ${this._whereBuilder.Op.toUpperCase()} `)}`;
       }
     }
 
@@ -342,15 +344,15 @@ export class SqlColumnStatement extends ColumnStatement {
     if (this.IsWildcard) {
       exprr = '*';
     } else {
-      exprr = `\`${this._column}\``;
+      exprr = escapeIdentifier(this._column as string);
 
       if (this._alias) {
-        exprr += ` as \`${this._alias}\``;
+        exprr += ` as ${escapeIdentifier(this._alias)}`;
       }
     }
 
     if (this._tableAlias) {
-      exprr = `\`${this._tableAlias}\`.${exprr}`;
+      exprr = `${escapeIdentifier(this._tableAlias)}.${exprr}`;
     }
 
     return {
@@ -372,11 +374,11 @@ export class SqlColumnMethodStatement extends ColumnMethodStatement {
     if (this.IsWildcard) {
       _exprr = `${this._method}(${this._column})`;
     } else {
-      _exprr = `${this._method}(\`${this._column}\`)`;
+      _exprr = `${this._method}(${escapeIdentifier(this._column as string)})`;
     }
 
     if (this._alias) {
-      _exprr += ` as \`${this._alias}\``;
+      _exprr += ` as ${escapeIdentifier(this._alias)}`;
     }
 
     return {
@@ -390,20 +392,20 @@ export class SqlColumnMethodStatement extends ColumnMethodStatement {
 export abstract class SqlDateWrapper extends DateWrapper {
   public wrap(): string {
     if (this._tableAlias) {
-      return `DATE(\`${this._tableAlias}\`.\`${this._value}\`)`;
+      return `DATE(${escapeIdentifier(this._tableAlias)}.${escapeIdentifier(this._value as string)})`;
     }
 
-    return `DATE(\`${this._value}\`)`;
+    return `DATE(${escapeIdentifier(this._value as string)})`;
   }
 }
 
 export abstract class SqlDateTimeWrapper extends DateTimeWrapper {
   public wrap(): string {
     if (this._tableAlias) {
-      return `DATETIME(\`${this._tableAlias}\`.\`${this._value}\`)`;
+      return `DATETIME(${escapeIdentifier(this._tableAlias)}.${escapeIdentifier(this._value as string)})`;
     }
 
-    return `DATETIME(\`${this._value}\`)`;
+    return `DATETIME(${escapeIdentifier(this._value as string)})`;
   }
 }
 

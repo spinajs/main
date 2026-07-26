@@ -24,6 +24,7 @@ import { has_many_1, owned_by_has_many_1, owned_by_owned_by_has_many_1 } from '.
 import { SqlDriver } from '@spinajs/orm-sql';
 import '@spinajs/log';
 import { Offer } from './models/Offer.js';
+import { SoftDeleteModel } from './models/SoftDeleteModel.js';
 import { ConnectionConf, ConnectionConf2, TEST_MIGRATION_TABLE_NAME, db } from './common.js';
 
 const expect = chai.expect;
@@ -681,6 +682,39 @@ describe('Sqlite model functions', function () {
     expect(check.Many.length).to.eq(1);
     expect(check.Many[0].Id).to.eq(1);
   });
+
+  it('mixed batch insert (some rows with explicit PK) keeps columns and values aligned (B12)', async () => {
+    await SoftDeleteModel.insert([{ Id: 42, Val: 'explicit' }, { Val: 'auto' }] as any);
+
+    const all = await SoftDeleteModel.all();
+    expect(all.length).to.eq(2);
+
+    const explicit = all.find((r) => r.Val === 'explicit');
+    const auto = all.find((r) => r.Val === 'auto');
+
+    expect(explicit).to.be.not.undefined;
+    expect(explicit!.Id).to.eq(42);
+
+    // the row without an explicit PK still gets an engine assigned id
+    expect(auto).to.be.not.undefined;
+    expect(auto!.Id).to.be.a('number');
+    expect(auto!.Id).to.not.eq(42);
+  });
+
+  it('soft-deleted rows are excluded by default and included with withDeleted()', async () => {
+    await SoftDeleteModel.insert([{ Val: 'a' }, { Val: 'b' }, { Val: 'c' }]);
+
+    // soft delete one row - sets DeletedAt instead of removing
+    await SoftDeleteModel.destroy(2);
+
+    const visible = await SoftDeleteModel.all();
+    expect(visible.length).to.eq(2);
+    expect(visible.map((r) => r.Id)).to.not.include(2);
+
+    const all = await SoftDeleteModel.all().withDeleted();
+    expect(all.length).to.eq(3);
+    expect(all.map((r) => r.Id)).to.include(2);
+  });
 });
 
 describe('Sqlite queries', function () {
@@ -843,8 +877,13 @@ describe('Sqlite driver migrate with transaction', function () {
     await orm.migrateUp();
 
     expect(trSpy.calledOnce).to.be.true;
-    expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(35).args[0]).to.eq('COMMIT');
+    // Assert the migration is wrapped in a committed transaction without
+    // coupling to the exact statement count (which changes as tables are added).
+    const commitCalls = exSpy.getCalls().map((c) => c.args[0]);
+    const beginIdx = commitCalls.indexOf('BEGIN TRANSACTION');
+    const commitIdx = commitCalls.indexOf('COMMIT');
+    expect(beginIdx).to.be.greaterThan(-1);
+    expect(commitIdx).to.be.greaterThan(beginIdx);
 
     expect(driver.executeOnDb('SELECT * FROM user', [] as any, QueryContext.Select)).to.be.fulfilled;
 

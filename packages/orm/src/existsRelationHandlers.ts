@@ -37,13 +37,13 @@ export class OneExistsRelationHandler extends ExistsRelationHandler {
     return RelationType.One;
   }
 
-  public apply<R>(builder: WhereBuilder<any>, rel: IRelationDescriptor, relationName: string, callback?: WhereFunction<R>): undefined {
+  public apply<R>(builder: WhereBuilder<any>, rel: IRelationDescriptor, _relationName: string, callback?: WhereFunction<R>): undefined {
     builder.whereNotNull(rel.ForeignKey);
 
     // simply use right join for condition check
     if (callback) {
       // TODO: cast fix
-      (builder as any).rightJoin(rel.TargetModel, callback.bind(relationName));
+      (builder as any).rightJoin(rel.TargetModel, callback);
     }
     return undefined;
   }
