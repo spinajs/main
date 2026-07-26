@@ -1,4 +1,4 @@
-import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, QueryBuilder, TransactionCallback, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, ITransaction } from '@spinajs/orm';
+import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
@@ -8,17 +8,36 @@ import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler } from './compilers.js';
 import { MssqlModelDehydrator } from './dehydrator.js';
 import { MsSqlDatetimeValueConverter } from './converters.js';
-import { AsyncLocalStorage } from 'async_hooks';
 
-export interface IMsSqlTransactionContext {
+export interface IMsSqlTransactionContext extends ITransactionContext {
+  transaction: mssql.Transaction;
   request: mssql.Request;
+}
+
+const MSSQL_ISOLATION_LEVELS: Record<IsolationLevel, mssql.IIsolationLevel> = {
+  'READ UNCOMMITTED': mssql.ISOLATION_LEVEL.READ_UNCOMMITTED,
+  'READ COMMITTED': mssql.ISOLATION_LEVEL.READ_COMMITTED,
+  'REPEATABLE READ': mssql.ISOLATION_LEVEL.REPEATABLE_READ,
+  SERIALIZABLE: mssql.ISOLATION_LEVEL.SERIALIZABLE,
+};
+
+/**
+ * MSSQL quotes identifiers with brackets and escapes an embedded `]` by doubling it — the
+ * shared `orm-sql` helper emits backticks, which SQL Server does not understand.
+ */
+function msSqlEscapeIdentifier(name: string): string {
+  return '[' + String(name).replace(/]/g, ']]') + ']';
 }
 
 @Injectable('orm-driver-mssql')
 @NewInstance()
 export class MsSqlOrmDriver extends SqlDriver {
   protected _connectionPool: mssql.ConnectionPool = null as any;
-  protected TransactionStorage = new AsyncLocalStorage<IMsSqlTransactionContext>();
+  // `_executionId` went with the per-driver query timing master centralised, and
+  // `TransactionStorage` moved up to OrmDriver so ambient-connection propagation is part of
+  // the contract rather than each driver's own business.
+
+  public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
   constructor(options: IDriverOptions) {
     super(Object.assign({ AliasSeparator: '#' }, options));
@@ -27,12 +46,16 @@ export class MsSqlOrmDriver extends SqlDriver {
   public async executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     let finalQuery = stmt.replaceAll('`', '');
 
-    // Check if we're inside a transaction context and use that request
-    const txContext = this.TransactionStorage.getStore();
+    // Check if we're inside a transaction context and use that request.
+    // The context comes from the base driver; only this driver's `_begin` populates it, so
+    // it must be narrowed from ITransactionContext to read `request`.
+    const txContext = this.TransactionStorage.getStore() as IMsSqlTransactionContext | undefined;
     const req = txContext?.request ?? this._connectionPool.request();
     let idx = 0;
     let i = 0;
 
+    // No try/finally here any more: it only ever existed to bracket this driver's own
+    // timeStart/timeEnd logging, which master centralised into `Perf.measure('orm.query')`.
     /**
      * Brute force replacement ? for @parameters
      * MSSQL driver requires named parameters in query string
@@ -173,43 +196,43 @@ export class MsSqlOrmDriver extends SqlDriver {
     });
   }
 
-  public async transaction(queryOrCallback?: QueryBuilder[] | TransactionCallback): Promise<ITransaction> {
-    const trx: ITransaction = {
-      commit: () => Promise.resolve(),
-      rollback: () => Promise.resolve(),
-    };
+  private msSqlCtx(ctx: ITransactionContext): IMsSqlTransactionContext {
+    return ctx as IMsSqlTransactionContext;
+  }
 
-    if (!queryOrCallback) {
-      return trx;
-    }
-
+  protected async _begin(options?: ITransactionOptions): Promise<ITransactionContext> {
     const transaction = this._connectionPool.transaction();
-    await transaction.begin();
-    const request = transaction.request();
 
-    try {
-      // Run the callback/queries within async context so executeOnDb uses this request
-      await this.TransactionStorage.run({ request }, async () => {
-        if (Array.isArray(queryOrCallback)) {
-          for (const q of queryOrCallback) {
-            await q;
-          }
-        } else {
-          await queryOrCallback(this);
-        }
-      });
+    await transaction.begin(options?.isolation ? MSSQL_ISOLATION_LEVELS[options.isolation] : undefined);
 
-      return {
-        commit: async () => {
-          await transaction.commit();
-        },
-        rollback: async () => {
-          await transaction.rollback();
-        },
-      };
-    } catch (err) {
-      await transaction.rollback();
-      throw err;
-    }
+    const ctx: IMsSqlTransactionContext = { transaction, request: transaction.request(), depth: 0 };
+    return ctx;
+  }
+
+  protected async _commit(ctx: ITransactionContext): Promise<void> {
+    await this.msSqlCtx(ctx).transaction.commit();
+  }
+
+  protected async _rollback(ctx: ITransactionContext): Promise<void> {
+    await this.msSqlCtx(ctx).transaction.rollback();
+  }
+
+  // savepoint names cannot be bound parameters, so they are inlined with MSSQL's own
+  // bracket quoting rather than the backtick dialect the shared SQL layer uses
+  protected async _savepoint(ctx: ITransactionContext, name: string): Promise<void> {
+    await this.msSqlCtx(ctx).request.query(`SAVE TRANSACTION ${msSqlEscapeIdentifier(name)}`);
+  }
+
+  protected async _releaseSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {
+    // MSSQL has no RELEASE SAVEPOINT: a save point simply stops being reachable once the
+    // enclosing transaction commits. Nothing to do, but the contract requires the hook.
+  }
+
+  protected async _rollbackToSavepoint(ctx: ITransactionContext, name: string): Promise<void> {
+    await this.msSqlCtx(ctx).request.query(`ROLLBACK TRANSACTION ${msSqlEscapeIdentifier(name)}`);
+  }
+
+  protected async _dispose(_ctx: ITransactionContext): Promise<void> {
+    // no-op: `mssql` owns the pooling and reclaims the transaction's connection itself
   }
 }

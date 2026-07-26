@@ -48,6 +48,13 @@ function _paramCheck<T>(callback: () => T, err: string): NonNullable<T> {
 
 
 export abstract class OrmRelation implements IOrmRelation {
+  /**
+   * Guards `compile()` against running twice. Relation compilation mutates the owning
+   * builder — it adds joins, merges columns and registers result middlewares — and
+   * `toDB()` calls it, so without this guard compiling the same query twice produced a
+   * different builder each time ( B19 ).
+   */
+  protected _compiled: boolean = false;
 
   public get Name() {
     return this._description.Name;
@@ -77,7 +84,6 @@ export abstract class NativeOrmRelation extends OrmRelation {
   protected _relationQuery: ISelectQueryBuilder;
   protected _separator: string;
   protected _driver: OrmDriver;
-  protected _compiled: boolean;
 
   public get Name() {
     return this._description.Name;
@@ -210,7 +216,13 @@ export class QueryRelation extends OrmRelation {
   }
 
   public compile(): void {
+    if (this._compiled) {
+      return;
+    }
+
     this._query.middleware(new QueryRelationMiddleware(this._description.Callback!, this._description.Mapper!, this._description));
+
+    this._compiled = true;
   }
 }
 
@@ -229,7 +241,13 @@ export class VirtualRelation extends OrmRelation {
   }
 
   public compile(): void {
+    if (this._compiled) {
+      return;
+    }
+
     this._query.middleware(new VirtualRelationMiddleware(this._relationCallback!, this._description.Callback!, this._description.Mapper!, this._description));
+
+    this._compiled = true;
   }
 }
 

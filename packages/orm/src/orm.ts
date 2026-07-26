@@ -68,7 +68,7 @@ export class Orm extends AsyncService {
         };
 
         if (driver.Options.Migration?.Transaction?.Mode === MigrationTransactionMode.PerMigration) {
-          await (await driver.transaction(trFunction)).commit();
+          await driver.transaction(trFunction);
         } else {
           await trFunction(driver);
         }
@@ -108,7 +108,7 @@ export class Orm extends AsyncService {
         };
 
         if (driver.Options.Migration?.Transaction?.Mode === MigrationTransactionMode.PerMigration) {
-          await (await driver.transaction(trFunction)).commit();
+          await driver.transaction(trFunction);
         } else {
           await trFunction(driver);
         }

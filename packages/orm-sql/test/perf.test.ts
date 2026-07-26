@@ -4,7 +4,7 @@ import { expect } from "chai";
 import { DI } from "@spinajs/di";
 import { Perf, PerfSink, IPerfMetric } from "@spinajs/log-common";
 import { SqlDriver } from "../src/index.js";
-import { QueryContext } from "@spinajs/orm";
+import { QueryContext, ITransactionContext, ITransactionOptions } from "@spinajs/orm";
 
 class RecordingSink extends PerfSink {
   public metrics: IPerfMetric[] = [];
@@ -38,6 +38,19 @@ class FakeDriver extends SqlDriver {
   public transaction(): Promise<any> {
     return Promise.resolve();
   }
+
+  // OrmDriver.transaction() is a concrete template method over these seven primitives.
+  // This double overrides transaction() itself and never talks to a database, so they only
+  // need to exist. See packages/orm-sql/test/fixture.ts for the same treatment.
+  protected async _begin(_options?: ITransactionOptions): Promise<ITransactionContext> {
+    return { depth: 0 };
+  }
+  protected async _commit(_ctx: ITransactionContext): Promise<void> {}
+  protected async _rollback(_ctx: ITransactionContext): Promise<void> {}
+  protected async _savepoint(_ctx: ITransactionContext, _name: string): Promise<void> {}
+  protected async _releaseSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {}
+  protected async _rollbackToSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {}
+  protected async _dispose(_ctx: ITransactionContext): Promise<void> {}
 }
 
 // Minimal builder stub: toDB() returns one compiled statement.
@@ -95,6 +108,17 @@ describe("SqlDriver.execute perf instrumentation", () => {
       public transaction(): Promise<any> {
         return Promise.resolve();
       }
+
+      // see FakeDriver above — required by OrmDriver's transaction contract, unused here
+      protected async _begin(_options?: ITransactionOptions): Promise<ITransactionContext> {
+        return { depth: 0 };
+      }
+      protected async _commit(_ctx: ITransactionContext): Promise<void> {}
+      protected async _rollback(_ctx: ITransactionContext): Promise<void> {}
+      protected async _savepoint(_ctx: ITransactionContext, _name: string): Promise<void> {}
+      protected async _releaseSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {}
+      protected async _rollbackToSavepoint(_ctx: ITransactionContext, _name: string): Promise<void> {}
+      protected async _dispose(_ctx: ITransactionContext): Promise<void> {}
     }
     const driver = new FailingDriver({} as any);
     let threw = false;

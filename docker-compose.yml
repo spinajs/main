@@ -1,0 +1,47 @@
+# Databases for the ORM integration suites.
+#
+# Opt-in only: every service sits behind the `test` profile, so a bare `docker compose up`
+# starts nothing. Bring MySQL up with:
+#
+#   docker compose --profile test up -d mysql
+#
+# See "Running integration tests" in README.md.
+
+services:
+  mysql:
+    profiles: ['test']
+    # Pinned, not `mysql:8`. That floating tag now resolves to 8.4.x, and the version the
+    # suite runs against must not change under us on an image pull.
+    image: mysql:8.4
+    container_name: spinajs-orm-test-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      # `test` is created by the image; `test-2` comes from the init script below,
+      # because MYSQL_DATABASE only ever creates one.
+      MYSQL_DATABASE: test
+    command:
+      # No --default-authentication-plugin here. MySQL 8.4 *removed* that server variable
+      # and refuses to start when it is passed. It is also unnecessary: mysql2 (3.x) speaks
+      # caching_sha2_password natively, which is what MySQL 8 defaults to in production —
+      # so leaving the default alone makes this fixture more representative, not less.
+      #
+      # small pool on the server side too, so a leaked connection surfaces as a failure
+      # rather than being absorbed
+      - --max-connections=32
+    ports:
+      # deliberately not 3306: never collide with a MySQL already installed on the host.
+      # 3900 is what packages/orm-mysql/test expects.
+      - '3900:3306'
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./scripts/docker/mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-uroot', '-proot']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  mysql-data:

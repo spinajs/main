@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, ITransaction } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
@@ -402,7 +402,12 @@ export class ModelBase<M = unknown> implements IModelBase {
     throw new Error('Not implemented');
   }
 
-  public static transaction<T extends typeof ModelBase>(this: T, _callback: (trx: OrmDriver) => Promise<void>): Promise<ITransaction> {
+  /**
+   * Runs `_callback` inside a transaction on this model's connection. The transaction commits
+   * when the callback resolves and rolls back when it throws — see `OrmDriver.transaction`.
+   * Resolves with whatever the callback returned.
+   */
+  public static transaction<T extends typeof ModelBase, R>(this: T, _callback: (trx: OrmDriver) => Promise<R>): Promise<R> {
     throw new Error('Not implemented');
   }
 

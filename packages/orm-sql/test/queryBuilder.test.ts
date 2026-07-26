@@ -13,6 +13,8 @@ import * as sinon from 'sinon';
 import { RelationModel3 } from './Models/RelationModel3.js';
 import { DateTime } from 'luxon';
 import { RelationModel2 } from './Models/RelationModel2.js';
+import { Model1 } from './Models/Model1.js';
+import { QueryRelationModel } from './Models/QueryRelationModel.js';
 import { SqlSelectQueryCompiler } from '../src/compilers.js';
 import { SqlDatetimeValueConverter } from '../src/converters.js';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -44,6 +46,19 @@ function inqb() {
 
 function db() {
   return DI.get(Orm);
+}
+
+/**
+ * Minimal `IBuilderMiddleware` that does nothing but stay identifiable, so a test can
+ * assert the order the pipeline was walked in.
+ */
+function fakeMiddleware(name: string): any {
+  return {
+    name,
+    afterQuery: (data: any) => data,
+    modelCreation: () => null as any,
+    afterHydration: () => Promise.resolve(),
+  };
 }
 
 describe('Query builder generic', () => {
@@ -1795,6 +1810,69 @@ describe('SqlDatetimeValueConverter', () => {
   it('toDB(null) should return null ( B16a )', () => {
     const converter = new SqlDatetimeValueConverter();
     expect(converter.toDB(null as any, null as any, null as any)).to.be.null;
+  });
+});
+
+describe('Query builder execution ( F1 )', () => {
+  beforeEach(async () => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(FakeSqliteDriver).as('sqlite');
+    await DI.resolve(Orm);
+  });
+
+  afterEach(() => {
+    sinon.restore();
+    DI.clearCache();
+  });
+
+  it('then() propagates the callback return value down the chain (B9)', async () => {
+    const result = await sqb()
+      .select('*')
+      .from('users')
+      .then(() => 'transformed');
+
+    expect(result).to.equal('transformed');
+  });
+
+  it('execute() runs the query once no matter how many times it is awaited', async () => {
+    const query = sqb().select('*').from('users');
+    const spy = sinon.spy(query.Driver, 'execute');
+
+    await query;
+    await query;
+    await query.execute();
+
+    expect(spy.calledOnce).to.be.true;
+  });
+
+  it('does not mutate the middleware array during execution (B8)', async () => {
+    // the middleware pipeline is only walked when the builder hydrates models,
+    // so the query has to be model-bound and the driver has to return rows.
+    sinon.stub(FakeSqliteDriver.prototype, 'executeOnDb').resolves([{ Id: 1 }]);
+
+    const connection = db()!.Connections.get('sqlite')!;
+    const query = connection.Container.resolve(SelectQueryBuilder, [connection, Model1]) as SelectQueryBuilder<Model1[]>;
+    query.select('*').from('TestTable1');
+
+    query.middleware(fakeMiddleware('a'));
+    query.middleware(fakeMiddleware('b'));
+
+    const before = [...(query as any)._middlewares];
+    await query.execute();
+
+    expect((query as any)._middlewares).to.deep.equal(before);
+    expect(((query as any)._middlewares as any[]).map((m) => m.name)).to.deep.equal(['a', 'b']);
+  });
+
+  it('toDB() is idempotent (B19)', () => {
+    const query = QueryRelationModel.where('Id', 1).populate('Many') as any;
+
+    const first = query.toDB();
+    const middlewaresAfterFirstCompile = query._middlewares.length;
+    const second = query.toDB();
+
+    expect(second).to.deep.equal(first);
+    expect(query._middlewares.length).to.equal(middlewaresAfterFirstCompile);
   });
 });
 

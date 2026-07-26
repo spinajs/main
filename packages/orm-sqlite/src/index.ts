@@ -9,9 +9,13 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 
 export * from './compilers.js';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, QueryBuilder, TransactionCallback, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, ITransaction } from '@spinajs/orm';
+// Union of both sides: AlterColumnQueryCompiler is master's, and is registered below;
+// IsolationLevel / ITransactionContext / ITransactionOptions are this branch's transaction
+// contract. QueryBuilder / TransactionCallback / ITransaction went with the old
+// `{ commit, rollback }` shape.
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
-import { SqlDriver } from '@spinajs/orm-sql';
+import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { SqlLiteJoinStatement } from './statements.js';
 import { ResourceDuplicated } from '@spinajs/exceptions';
@@ -32,6 +36,17 @@ export class SqliteServerResponseMapper extends ServerResponseMapper {
 @NewInstance()
 export class SqliteOrmDriver extends SqlDriver {
   protected Db: sqlite3.Database;
+
+  /**
+   * sqlite3 outside shared-cache mode serializes access to the database file, which is
+   * SERIALIZABLE and nothing else. Any other requested level is rejected by the base class
+   * rather than silently ignored.
+   */
+  public readonly SupportedIsolationLevels: IsolationLevel[] = ['SERIALIZABLE'];
+
+  // getNextExecutionId() went with the per-driver query timing that master centralised into
+  // `Perf.measure('orm.query', ...)` around SqlDriver.execute — its only caller is gone.
+
 
   public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
@@ -205,39 +220,38 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteServerResponseMapper).as(ServerResponseMapper);
   }
 
-  public async transaction(qrOrCallback: QueryBuilder[] | TransactionCallback): Promise<ITransaction> {
-    const trx: ITransaction = {
-      commit: () => Promise.resolve(),
-      rollback: () => Promise.resolve(),
-    };
-
-    if (!qrOrCallback) {
-      return trx;
-    }
-
+  protected async _begin(_options?: ITransactionOptions): Promise<ITransactionContext> {
     await this.executeOnDb('BEGIN TRANSACTION', [] as any, QueryContext.Transaction);
 
-    try {
-      if (Array.isArray(qrOrCallback)) {
-        for (const q of qrOrCallback) {
-          await q;
-        }
-      } else {
-        await qrOrCallback(this);
-      }
+    // sqlite3 gives us a single shared handle, so there is no per-transaction connection
+    // to carry — everything on this driver already runs on the same `this.Db`.
+    return { depth: 0 };
+  }
 
-      return {
-        commit: async () => {
-          await this.executeOnDb('COMMIT', [] as any, QueryContext.Transaction);
-        },
-        rollback: async () => {
-          await this.executeOnDb('ROLLBACK', [] as any, QueryContext.Transaction);
-        },
-      };
-    } catch (ex) {
-      await this.executeOnDb('ROLLBACK', [] as any, QueryContext.Transaction);
-      throw ex;
-    }
+  protected async _commit(_ctx: ITransactionContext): Promise<void> {
+    await this.executeOnDb('COMMIT', [] as any, QueryContext.Transaction);
+  }
+
+  protected async _rollback(_ctx: ITransactionContext): Promise<void> {
+    await this.executeOnDb('ROLLBACK', [] as any, QueryContext.Transaction);
+  }
+
+  // savepoint names cannot be bound parameters, so they are inlined through the identifier
+  // escaper rather than passed as `?`
+  protected async _savepoint(_ctx: ITransactionContext, name: string): Promise<void> {
+    await this.executeOnDb(`SAVEPOINT ${escapeIdentifier(name)}`, [] as any, QueryContext.Transaction);
+  }
+
+  protected async _releaseSavepoint(_ctx: ITransactionContext, name: string): Promise<void> {
+    await this.executeOnDb(`RELEASE ${escapeIdentifier(name)}`, [] as any, QueryContext.Transaction);
+  }
+
+  protected async _rollbackToSavepoint(_ctx: ITransactionContext, name: string): Promise<void> {
+    await this.executeOnDb(`ROLLBACK TO ${escapeIdentifier(name)}`, [] as any, QueryContext.Transaction);
+  }
+
+  protected async _dispose(_ctx: ITransactionContext): Promise<void> {
+    // nothing to release — the sqlite3 handle is owned by the driver, not by the transaction
   }
 
   /**

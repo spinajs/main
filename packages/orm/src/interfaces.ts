@@ -1038,6 +1038,15 @@ export interface IJoinBuilder {
 export interface IBuilder<T> extends PromiseLike<T> {
   middleware(middleware: IBuilderMiddleware<T>): this;
   toDB(): ICompilerOutput | ICompilerOutput[];
+
+  /**
+   * Executes the query and resolves with its result.
+   *
+   * The single execution entry point — `then()` delegates to it. Execution is memoized:
+   * a builder runs at most once, and awaiting it again resolves with the same result.
+   * Use `clone()` when a second round-trip is intended.
+   */
+  execute(): Promise<T>;
 }
 
 export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
@@ -1483,4 +1492,31 @@ export interface IJoinStatementOptions<R = ModelBase> {
 export interface ITransaction {
   commit(): Promise<void>;
   rollback(): Promise<void>;
+}
+
+/**
+ * SQL standard transaction isolation levels. Which of these a driver actually honours is
+ * declared per driver in `OrmDriver.SupportedIsolationLevels`; requesting one that is not
+ * listed is rejected rather than silently ignored.
+ */
+export type IsolationLevel = 'READ UNCOMMITTED' | 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE';
+
+export interface ITransactionOptions {
+  /**
+   * Isolation level for the outermost transaction. Ignored by nested calls, which map onto
+   * savepoints inside the enclosing transaction and therefore inherit its isolation.
+   */
+  isolation?: IsolationLevel;
+}
+
+/**
+ * Per-transaction state carried through `AsyncLocalStorage`.
+ *
+ * `connection` is the driver's own connection handle type and is absent for drivers with a
+ * single shared handle (SQLite). `depth` counts savepoints taken so far, 0 at the outermost
+ * transaction; it is used to mint unique savepoint names.
+ */
+export interface ITransactionContext {
+  connection?: unknown;
+  depth: number;
 }
