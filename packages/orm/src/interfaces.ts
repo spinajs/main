@@ -120,7 +120,7 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
    *
    * @param dataset - data for replace.
    */
-  set(obj: R[] | ((data: R[], pKey: string) => R[])): void;
+  set(obj: R[] | ((data: R[], pKey: string[]) => R[])): void;
 
   /**
    * Populates this relation ( loads all data related to owner of this relation)

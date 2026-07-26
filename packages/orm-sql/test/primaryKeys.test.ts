@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm, SelectQueryBuilder, DeleteQueryBuilder, SortOrder, extractModelDescriptor, IColumnDescriptor } from '@spinajs/orm';
+import { Orm, SelectQueryBuilder, DeleteQueryBuilder, SortOrder, extractModelDescriptor, IColumnDescriptor, Dataset } from '@spinajs/orm';
 import { wherePk, whereAnyPk, whereNotAnyPk, orderByPk, normalizePkTuple, pkValueOf, pkKeyString } from '@spinajs/orm';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
 import { Model1 } from './Models/Model1.js';
@@ -179,6 +179,31 @@ describe('primary key predicates', () => {
   // NOTE: these must AWAIT the finder. The query is only compiled when the builder is
   // executed, so reading spy.returnValues[0] synchronously ( as an earlier draft did )
   // sees an empty array and fails with "Cannot read properties of undefined".
+  it('Dataset.diff compares composite keys by every column', () => {
+    const keys = ['TenantId', 'Code'];
+    const a = [{ TenantId: 1, Code: 'a' }, { TenantId: 1, Code: 'b' }];
+    const b = [{ TenantId: 1, Code: 'a' }, { TenantId: 2, Code: 'a' }];
+
+    const result = Dataset.diff(a)(b, keys);
+
+    expect(result).to.deep.equal([{ TenantId: 1, Code: 'b' }, { TenantId: 2, Code: 'a' }]);
+  });
+
+  it('Dataset.intersection compares composite keys by every column', () => {
+    const keys = ['TenantId', 'Code'];
+    const a = [{ TenantId: 1, Code: 'a' }, { TenantId: 1, Code: 'b' }];
+    const b = [{ TenantId: 1, Code: 'a' }, { TenantId: 2, Code: 'a' }];
+
+    expect(Dataset.intersection(a)(b, keys)).to.deep.equal([{ TenantId: 1, Code: 'a' }]);
+  });
+
+  it('Dataset.diff on a single key is unchanged', () => {
+    const a = [{ Id: 1 }, { Id: 2 }];
+    const b = [{ Id: 2 }, { Id: 3 }];
+
+    expect(Dataset.diff(a)(b, ['Id'])).to.deep.equal([{ Id: 1 }, { Id: 3 }]);
+  });
+
   it('Model.get on a composite key compiles a conjunction', async () => {
     stubRows();
     const spy = sinon.spy(SqlSelectQueryCompiler.prototype, 'compile');

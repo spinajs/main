@@ -7,6 +7,23 @@ import { Orm } from './orm.js';
 import _ from 'lodash';
 import { OrmDriver } from './driver.js';
 import { extractModelDescriptor } from './descriptor.js';
+import { isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, whereNotAnyPk } from './primary-keys.js';
+import { OrmException } from './exceptions.js';
+
+/**
+ * Builds a lodash iteratee for the given primary key columns. A single column stays a plain
+ * property name ( lodash's fast path ); a composite key becomes a function that flattens the
+ * tuple, because an array iteratee would be read as a property PATH — `_.differenceBy(a, b,
+ * ['TenantId','Code'])` resolves `obj['TenantId']['Code']`, undefined for every row, so every
+ * row would compare equal.
+ */
+function pkIteratee(pKey: string[]): string | ((x: any) => string) {
+  if (pKey.length === 1) {
+    return pKey[0];
+  }
+
+  return (x: any) => pkKeyStringFor(x, pKey);
+}
 
 export class Dataset {
   /**
@@ -17,15 +34,16 @@ export class Dataset {
    * @param callback - function to compare objects, if none provideded - primary key value is used
    */
   public static diff<R>(dataset: R[], callback?: (a: R, b: R) => boolean) {
-    return (datasetB: R[], pKey: string) => {
+    return (datasetB: R[], pKey: string[]) => {
       // TODO: maybe refactor for speedup, this is not optimal
       // two calls to _.difference is not optimal, but it is easy to implement
+      const iteratee = pkIteratee(pKey);
 
       // calculate difference between this data in relation and dataset ( objects from this relation)
-      const result = callback ? _.differenceWith(dataset, [...datasetB], callback) : _.differenceBy(dataset, [...datasetB], pKey);
+      const result = callback ? _.differenceWith(dataset, [...datasetB], callback) : _.differenceBy(dataset, [...datasetB], iteratee as any);
 
       // calculate difference between dataset and data in this relation ( objects from dataset )
-      const result2 = callback ? _.differenceWith([...datasetB], dataset, callback) : _.differenceBy([...datasetB], dataset, pKey);
+      const result2 = callback ? _.differenceWith([...datasetB], dataset, callback) : _.differenceBy([...datasetB], dataset, iteratee as any);
 
       // combine difference from two sets
       const finalDiff = [...result, ...result2];
@@ -43,8 +61,9 @@ export class Dataset {
    * @param callback - function to compare models, if not set it is compared by primary key value
    */
   public static intersection<R>(dataset: R[], callback?: (a: R, b: R) => boolean) {
-    return (datasetB: R[], pKey: string) => {
-      return callback ? _.intersectionWith(dataset, [...datasetB], callback) : _.intersectionBy(dataset, [...datasetB], pKey);
+    return (datasetB: R[], pKey: string[]) => {
+      const iteratee = pkIteratee(pKey);
+      return callback ? _.intersectionWith(dataset, [...datasetB], callback) : _.intersectionBy(dataset, [...datasetB], iteratee as any);
     };
   }
 }
@@ -177,7 +196,7 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
    *
    * @param dataset - data for replace.
    */
-  public abstract set(obj: R[] | ((data: R[], pKey: string) => R[])): void;
+  public abstract set(obj: R[] | ((data: R[], pKey: string[]) => R[])): void;
 
   /**
    * Populates this relation ( loads all data related to owner of this relation)
@@ -277,7 +296,7 @@ export class ManyQueryRelationList<R extends ModelBase, O extends ModelBase> ext
   public diff(_dataset: R[], _callback?: (a: R, b: R) => boolean): R[] {
     throw new Error('Query relations cannot be diffed. This relation is used only for query purposes and it is always populated.');
   }
-  public set(_obj: R[] | ((data: R[], pKey: string) => R[])): void {
+  public set(_obj: R[] | ((data: R[], pKey: string[]) => R[])): void {
     throw new Error('Query relations cannot be set. This relation is used only for query purposes and it is always populated.');
   }
   public populate(_callback?: (this: ISelectQueryBuilder<R[]> & QueryScope) => void): Promise<void> {
@@ -326,8 +345,8 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
  *
  * @param obj
  */
-  public set(obj: T[] | ((data: T[], pKeyName: string) => T[])) {
-    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor!.PrimaryKey[0]) : obj;
+  public set(obj: T[] | ((data: T[], pKeyName: string[]) => T[])) {
+    const toPush = _.isFunction(obj) ? obj([...this], pkColumns(this.TargetModelDescriptor!)) : obj;
     this.empty();
     this.push(...toPush);
   }
@@ -373,6 +392,12 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   * @returns
   */
   protected async _dbDiff(data: T[]) {
+    // A junction table carries exactly ONE foreign key column per side, so it cannot address
+    // a composite target key. Fail loudly rather than delete the wrong rows.
+    if (isCompositePk(this.TargetModelDescriptor!)) {
+      throw new OrmException(`many-to-many relation ${this.Relation.Name} targets ${this.TargetModelDescriptor!.Name}, which has a composite primary key; a junction table carries one foreign key column per side and cannot address it`);
+    }
+
     const query = this.Driver.del().from(this.junctionModelDescriptor!.TableName).where(this.Relation.JunctionModelSourceModelFKey_Name!, this.Owner.PrimaryKeyValue);
 
     if (this.Driver.Options.Database) {
@@ -479,10 +504,16 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
       query.database(this.Driver.Options.Database);
     }
 
-    // if we have data in relation, we need to exclude them from delete query
-    const toDelete = data.filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
-    if (toDelete.length !== 0) {
-      query.whereNotIn(this.TargetModelDescriptor!.PrimaryKey[0], toDelete);
+    // if we have data in relation, we need to exclude them from delete query.
+    // A composite key is a tuple and always truthy, so filter on the key COLUMNS being set
+    // rather than on the tuple itself.
+    const keys = pkColumns(this.TargetModelDescriptor!);
+    const toDelete = data
+      .map((x) => pkValueOf(x, this.TargetModelDescriptor!))
+      .filter((v) => (Array.isArray(v) ? v.every((p) => p !== null && p !== undefined) : v !== null && v !== undefined));
+
+    if (toDelete.length !== 0 && keys.length !== 0) {
+      whereNotAnyPk(query, this.TargetModelDescriptor!, toDelete);
     }
 
     await query;
@@ -552,7 +583,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns Difference between this relation and dataset
    */
   public diff(dataset: T[], callback?: (a: T, b: T) => boolean) {
-    return Dataset.diff(dataset, callback)([...this], this.TargetModelDescriptor!.PrimaryKey[0]);
+    return Dataset.diff(dataset, callback)([...this], pkColumns(this.TargetModelDescriptor!));
   }
 
   /**
@@ -560,8 +591,8 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    *
    * @param obj
    */
-  public set(obj: T[] | ((data: T[], pKeyName: string) => T[])) {
-    const toPush = _.isFunction(obj) ? obj([...this], this.TargetModelDescriptor!.PrimaryKey[0]) : obj;
+  public set(obj: T[] | ((data: T[], pKeyName: string[]) => T[])) {
+    const toPush = _.isFunction(obj) ? obj([...this], pkColumns(this.TargetModelDescriptor!)) : obj;
     this.empty();
     this.push(...toPush);
   }
@@ -574,7 +605,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns Data that are in both sets
    */
   public intersection(obj: T[], callback?: (a: T, b: T) => boolean) {
-    return Dataset.intersection(obj, callback)([...this], this.TargetModelDescriptor!.PrimaryKey[0]);
+    return Dataset.intersection(obj, callback)([...this], pkColumns(this.TargetModelDescriptor!));
   }
 
   /**
