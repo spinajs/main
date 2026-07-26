@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-mysql",
-  "version": "2.0.481",
+  "version": "3.0.0",
   "description": "orm mysql integration",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -58,8 +58,8 @@
   "dependencies": {
     "@spinajs/configuration": "^2.0.481",
     "@spinajs/di": "^2.0.481",
-    "@spinajs/orm": "^2.0.481",
-    "@spinajs/orm-sql": "^2.0.481",
+    "@spinajs/orm": "^3.0.0",
+    "@spinajs/orm-sql": "^3.0.0",
     "mysql2": "^3.0.1",
     "ssh2": "^1.17.0",
     "asn1": "^0.2.6",

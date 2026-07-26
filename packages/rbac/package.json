@@ -52,7 +52,7 @@
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
     "@spinajs/log": "^2.0.481",
-    "@spinajs/orm": "^2.0.481",
+    "@spinajs/orm": "^3.0.0",
     "@spinajs/queue": "^2.0.481",
     "@spinajs/reflection": "^2.0.481",
     "@spinajs/util": "^2.0.481",
@@ -66,7 +66,7 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^2.0.481",
+    "@spinajs/orm-sqlite": "^3.0.0",
     "@types/cron": "^2.0.0",
     "@types/entropy-string": "^4.2.0"
   },

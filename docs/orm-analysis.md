@@ -478,3 +478,161 @@ defect unrelated to the WHERE connector — it fails before any query is built. 
 `filters.test.ts` therefore boots only the ORM (SQLite, in-memory) and applies
 `MODEL_STATIC_MIXINS` to its fixture model exactly as `src/index.ts:199-203` does in production,
 so the real `filter()` path is exercised against a real SQL compiler.
+
+### I2 — Composite primary keys
+
+`IModelDescriptor.PrimaryKey` changed from `string` to `string[]`, and `ModelBase.PrimaryKeyName`
+from `string` to `string[]`. `@Primary()` may now decorate more than one property of a model.
+Every predicate that used to be built by hand now goes through one module,
+`packages/orm/src/primary-keys.ts`.
+
+**Breaking:**
+
+- `descriptor.PrimaryKey` is an array. Read `descriptor.PrimaryKey[0]` for single-key models, or
+  use the new `pkColumns(descriptor)` helper.
+- `ModelBase.PrimaryKeyValue` returns a **tuple** for composite-key models and an unchanged scalar
+  for single-key models. Its setter accepts a scalar, an array in key order, or an object keyed by
+  column name.
+- `IRelation.set(fn)` — the callback's second argument is now `string[]` instead of `string`, as
+  are `Dataset.diff` / `Dataset.intersection`.
+- `@Primary()` is **additive across inheritance**: a subclass cannot replace a base class's key,
+  only extend it. Declare every key column on the concrete model. (`extractModelDescriptorInherited`
+  de-duplicates, so an inherited `['Id']` does not become `['Id','Id']`.)
+- Relations refuse to default their join column when the model has a composite key. `@BelongsTo`,
+  `@HasMany`, `@HasManyToMany` and `@Historical` throw `InvalidOperation` unless the key is named
+  explicitly (`@HasMany(Target, { primaryKey: 'TenantId', foreignKey: 'tenant_id' })`). A relation
+  joins on exactly one column pair, so guessing which half of a composite key it meant is the kind
+  of silent wrong answer this branch exists to remove.
+- `orm-api`'s generic CRUD routes and `orm-http`'s `@FromModel` reject composite-key models — a
+  single `:id` path segment cannot carry a composite key. Pass `queryField` to `@FromModel` to
+  select one lookup column.
+
+**Not breaking.** A one-element key compiles to exactly the SQL it did before: `WHERE `Id` = ?`,
+`WHERE `Id` IN (?,?)`, `ORDER BY `Id` DESC`. No `AND` wrapper is introduced. This is asserted, not
+assumed — `packages/orm-sql/test/primaryKeys.test.ts` pins the single-key SQL byte for byte.
+
+**SQL shapes for composite keys:**
+
+| Operation | SQL |
+| --- | --- |
+| `Model.get([1, 'a'])` | `WHERE ( `TenantId` = ? AND `Code` = ? )` |
+| `Model.find([[1,'a'],[2,'b']])` | `WHERE ( ( `TenantId` = ? AND `Code` = ? ) OR ( `TenantId` = ? AND `Code` = ? ) )` |
+| orphan delete | `WHERE ( ( `TenantId` != ? OR `Code` != ? ) AND ... )` |
+| `_prepareOrderBy` | `ORDER BY `TenantId` DESC, `Code` DESC` |
+
+**SQLite fixes carried by this work.** `PRAGMA table_info`'s `pk` column is a 1-based position
+within the key, not a boolean, so `tableInfo` previously reported only the *first* column of a
+composite key as primary and wrongly flagged it auto-increment. Composite keys now emit a
+table-level `PRIMARY KEY (a,b)` constraint instead of an inline `PRIMARY KEY` per column, which
+SQLite rejects outright; SQLite also cannot auto-increment a column inside a composite key, and the
+DDL compiler now says so explicitly rather than emitting invalid SQL.
+
+**MySQL fix carried by this work.** `MySqlOrmDriver.tableInfo` read
+`INFORMATION_SCHEMA.COLUMNS` with no `ORDER BY`, so column order was whatever the server produced
+that run — the same table came back as `(Code, TenantId)` in one run and `(TenantId, Code)` in the
+next. Now ordered by `ORDINAL_POSITION`.
+
+### I3 — RETURNING and generated keys
+
+- `@Primary({ generated })` accepts `auto` (default, database identity — today's behaviour),
+  `uuid` (generated client-side at construction, so the key is known before the insert), and
+  `assigned` (caller supplies it; inserting without one throws with the column named).
+- Driver insert results are now `IInsertResult { RowsAffected, LastInsertId, Returning }`.
+  `LastInsertId` is 0 when the dialect reports no identity value.
+- `ServerResponseMapper.read(response, pkNames?: string[])` — the second parameter changed from
+  `string` to `string[]`, and `DbServerResponse` gained `RowsAffected` and `Returning`.
+- `ISupportedFeature` gained `insertReturning: boolean` (SQLite true, MySQL and MSSQL false).
+  **Any custom driver must add this field.**
+- `ISupportedFeature` also gained the optional `insertIdIsFirstOfBatch?: boolean` — see below. It is
+  optional and defaults to false, so an existing custom driver keeps compiling and simply opts out.
+- `InsertQueryBuilder.returning(cols)` now **throws `NotSupported`** on drivers that cannot honour
+  it, instead of silently doing nothing (which is what it did on MySQL and MSSQL for years).
+- SQLite emits `RETURNING` on plain inserts, not only on the upsert path, and
+  `QueryContext.InsertReturning` was added to route those statements through `Db.all`.
+
+**Batch insert keys.** `Model.insert([a, b, c])` fills in every model's key, and where it cannot do
+so correctly it now fills in nothing rather than guessing:
+
+1. If the dialect returned `RETURNING` rows, they are authoritative and are applied in insert order.
+   This is the SQLite path.
+2. Otherwise, on a dialect whose reported identity value is the **first** of the statement's block
+   (`insertIdIsFirstOfBatch`), the keys are `LastInsertId + index`. This is the MySQL path.
+3. Otherwise nothing is assigned.
+
+Case 2 is a documented InnoDB guarantee, not an optimistic assumption, and it was verified against a
+live MySQL 8.4 with `innodb_autoinc_lock_mode = 2`: a 5-row `VALUES` insert reported
+`LAST_INSERT_ID() = 1`, `ROW_COUNT() = 5` and produced ids `1,2,3,4,5`. InnoDB distinguishes a
+*simple insert*, whose row count is known before execution — which every
+`INSERT ... VALUES (…), (…)` is, and the only shape `InsertQueryBuilder` can build — from a *bulk
+insert* (`INSERT … SELECT`), where it is not. For a simple insert it reserves one contiguous block
+of N auto-increment values under a short mutex. The manual's "values may not be contiguous" caveat
+is about bulk inserts and about mixed-mode inserts.
+
+The backfill is refused whenever the positional mapping could break: a composite or non-`auto` key,
+an `InsertBehaviour` other than `None` (IGNORE / REPLACE / ON DUPLICATE can skip or update rows), a
+non-positive identity value, `RowsAffected !== rows.length`, or a batch in which any row already
+carries a key (a mixed-mode insert — InnoDB only allocates for the rows that omitted one).
+
+**MSSQL is deliberately excluded** from case 2 and is the narrow case that genuinely cannot be
+backfilled: `SCOPE_IDENTITY()` reports the **last** identity generated in the scope, so there is no
+first-of-block value to walk forward from. It reports `insertIdIsFirstOfBatch: false` and a
+multi-row batch assigns nothing. Callers there must insert one at a time or re-select. SQLite sets
+the same flag false (`sqlite3`'s `lastID` is likewise the last rowid) but never reaches case 2,
+because it has RETURNING.
+
+### I4 — Connection resilience, pool behaviour and telemetry
+
+- `IDriverOptions.Pool` (`Min`, `Max`, `IdleTimeout`, `AcquireTimeout`) replaces the single
+  `PoolLimit`, which is deprecated but still honoured as `Pool.Max` when `Pool.Max` is absent.
+- `IDriverOptions.Resilience` (`HealthCheckInterval`, `MaxRetries`, `RetryDelay`, `MaxRetryDelay`)
+  controls reconnect and health probing. Defaults: 30000 / 5 / 200 / 5000.
+- Drivers expose `State: ConnectionState` (`disconnected` / `connecting` / `connected` /
+  `degraded`) and log every transition.
+- Transport failures (`ECONNRESET`, `PROTOCOL_CONNECTION_LOST`, mysql2 `fatal` errors, …) are
+  retried with bounded exponential backoff after a reconnect. Query errors are **not** retried and
+  propagate on the first attempt. Statements inside a transaction are never retried — replaying one
+  statement of a lost transaction would apply it outside the transaction.
+- The single startup `ping()` is replaced by a periodic probe (`startHealthCheck()` /
+  `stopHealthCheck()`), started by `Orm` after a successful connect and stopped on `dispose()`. The
+  timer is `unref()`ed and never holds the process open.
+- Pool telemetry goes through a new `OrmMetricsSink` abstract seam in `@spinajs/orm` with a no-op
+  default (`NullOrmMetricsSink`, registered in `bootstrap.ts`). `@spinajs/metrics` ships
+  `PromOrmMetricsSink`; register it with `DI.register(PromOrmMetricsSink).as(OrmMetricsSink)`.
+  Metrics: `orm_pool_size`, `orm_pool_in_use`, `orm_pool_waiting`, `orm_pool_acquire_seconds`,
+  `orm_connection_state`, all labelled `connection`.
+  **The dependency runs `@spinajs/metrics` → `@spinajs/orm`, never the other way**, because
+  `@spinajs/metrics` depends on `@spinajs/http`; an ORM that depended on it would put the whole HTTP
+  stack underneath every database connection. `@spinajs/http` does not depend on `@spinajs/orm`, so
+  the graph stays acyclic.
+  Publishing can never fail a query or a health probe: the sink lookup falls back to a discarding
+  sink and `publishPoolMetrics()` swallows and traces.
+- MySQL's `_executeOnDbOnce` now takes its pool connection explicitly instead of letting
+  `Pool.query` acquire out of sight. That is what makes `orm_pool_acquire_seconds` a real number
+  rather than always zero; the connection is released on every path including a synchronous throw,
+  and a transaction's connection is never released mid-transaction.
+- SQLite: write serialization is intended and documented. `Pool.Max > 1` on a file-backed SQLite
+  connection opens `Max - 1` **read-only** handles that plain `SELECT`s round-robin across; writes,
+  schema changes, upserts, RETURNING inserts and anything inside a transaction stay on the single
+  writer handle. Ignored for `:memory:` and anonymous temporary databases, where each handle would
+  open its own private database.
+
+### Deferred, with reasons
+
+- **`tableInfo`'s missing-table contract stays inconsistent between drivers.** MySQL throws
+  `Table <db>.<name> does not exist` (`orm-mysql/src/index.ts`); SQLite returns `null`. Because
+  `Orm.resolve()` migrates and then calls `reloadTableInfo()` unconditionally, a MySQL connection
+  whose tables do not exist yet must be configured with `Migration.OnStartup: true` or resolve
+  blows up. Both integration configs say so in a comment.
+
+  This was a deliberate decision, not an oversight. Normalising it at the driver level would turn a
+  loud misconfiguration into a silently empty model descriptor — precisely the failure mode this
+  branch exists to remove — and several callers (`TableExistsCompiler` consumers, migration
+  guards) currently rely on the throw to distinguish "missing" from "empty". The correct fix is in
+  `Orm.reloadTableInfo()`, which should skip tables that do not exist yet; that file is also edited
+  by `orm-foundation` (see the `orm.ts:111` merge hazard in the plan), so it belongs to whichever
+  branch lands second, not here.
+
+- **`orm-mssql` remains unverified against a server.** Its suite is 0 passing / 4 failing on this
+  machine, every failure a `before each` hook that cannot reach an MSSQL instance. The package
+  compiles and typechecks, and its contract changes (`insertReturning`, `insertIdIsFirstOfBatch`,
+  `PrimaryKey[0]`) are mechanical, but nothing here is evidence that MSSQL works.
