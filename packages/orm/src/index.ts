@@ -3,6 +3,7 @@ export * from './enums.js';
 export * from './symbols.js';
 export * from './descriptor.js';
 export * from './primary-keys.js';
+export * from './resilience.js';
 export * from './schema.js';
 export * from './schema-providers.js';
 export * from './statements.js';

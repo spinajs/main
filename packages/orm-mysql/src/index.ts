@@ -1,7 +1,7 @@
 /* eslint-disable promise/no-promise-in-callback */
 import { Injectable, NewInstance } from '@spinajs/di';
 import { LogLevel } from '@spinajs/log';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState } from '@spinajs/orm';
 import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
@@ -42,6 +42,41 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
+    // Reads and writes are both retried: `withReconnect` only re-runs on transport failures,
+    // where the statement provably never reached the server.
+    return this.withReconnect(() => this._executeOnDbOnce(stmt, params, context));
+  }
+
+  /**
+   * True when the error means the transport died rather than the statement being wrong.
+   */
+  protected isRetryableError(err: unknown): boolean {
+    // Inside a transaction the connection carried uncommitted state. Reconnecting and replaying
+    // one statement would silently apply it OUTSIDE the transaction, so the error must surface.
+    if (this.TransactionStorage.getStore()) {
+      return false;
+    }
+
+    if (super.isRetryableError(err)) {
+      return true;
+    }
+
+    // mysql2 marks connection-level failures fatal; a fatal error means the connection is gone
+    // regardless of which code came with it.
+    let current: any = err;
+    let depth = 0;
+    while (current && depth < 5) {
+      if (current.fatal === true) {
+        return true;
+      }
+      current = current.inner ?? current.cause;
+      depth++;
+    }
+
+    return false;
+  }
+
+  protected _executeOnDbOnce(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const self = this;
     const tName = `query-${this.getNextExecutionId()}`;
     this.Log.timeStart(`query-${tName}`);
@@ -139,7 +174,9 @@ export class MySqlOrmDriver extends SqlDriver {
 
   public async ping(): Promise<boolean> {
     try {
-      await this.executeOnDb('SELECT 1', [], QueryContext.Select);
+      // deliberately bypasses `withReconnect` — a health probe that reconnects on its own
+      // would turn one dead connection into a reconnect storm on every tick.
+      await this._executeOnDbOnce('SELECT 1', [], QueryContext.Select);
       return true;
     } catch {
       return false;
@@ -181,6 +218,7 @@ export class MySqlOrmDriver extends SqlDriver {
 
           // Release the test connection
           connection.release();
+          this.setState(ConnectionState.Connected);
           resolve(this);
         });
       } catch (err) {

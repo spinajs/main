@@ -12,6 +12,9 @@ import { MethodNotImplemented } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 import { Relation } from './relation-objects.js';
 import { Lazy } from '@spinajs/util';
+// imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
+// `resilience.js`, and exporting the same name from both is an ambiguous re-export.
+import { IConnectionResilienceOptions } from './resilience.js';
 
 export enum QueryContext {
   Insert,
@@ -264,6 +267,11 @@ export interface IDriverOptions {
    * Connection pool sizing and timeouts.
    */
   Pool?: IPoolOptions;
+
+  /**
+   * Reconnect and health-check behaviour.
+   */
+  Resilience?: IConnectionResilienceOptions;
 
   /**
    * Database name associated with this connection

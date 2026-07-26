@@ -6,6 +6,7 @@ import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryB
 import { JsonValueConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { OrmException } from './exceptions.js';
 import { AsyncLocalStorage } from 'async_hooks';
+import { backoffDelay, ConnectionState, delay, IConnectionResilienceOptions, isRetryableErrorCode } from './resilience.js';
 import './hydrators.js';
 import './dehydrators.js';
 
@@ -122,6 +123,100 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
       IdleTimeout: pool.IdleTimeout ?? 30000,
       AcquireTimeout: pool.AcquireTimeout ?? 10000,
     };
+  }
+
+  private _state: ConnectionState = ConnectionState.Disconnected;
+
+  /**
+   * Current connection lifecycle state.
+   */
+  public get State(): ConnectionState {
+    return this._state;
+  }
+
+  /**
+   * Records a state transition and logs it. Repeat transitions to the same state are ignored.
+   */
+  protected setState(state: ConnectionState): void {
+    if (this._state === state) {
+      return;
+    }
+
+    const previous = this._state;
+    this._state = state;
+
+    if (state === ConnectionState.Connected) {
+      this.Log.info(`connection ${this.Options.Name} is ${state} (was ${previous})`);
+    } else if (state === ConnectionState.Degraded || state === ConnectionState.Disconnected) {
+      this.Log.warn(`connection ${this.Options.Name} is ${state} (was ${previous})`);
+    } else {
+      this.Log.trace(`connection ${this.Options.Name} is ${state} (was ${previous})`);
+    }
+  }
+
+  /**
+   * Effective resilience settings with defaults applied.
+   */
+  protected resolvedResilienceOptions(): Required<IConnectionResilienceOptions> {
+    const r = this.Options.Resilience ?? {};
+
+    return {
+      HealthCheckInterval: r.HealthCheckInterval ?? 30000,
+      MaxRetries: r.MaxRetries ?? 5,
+      RetryDelay: r.RetryDelay ?? 200,
+      MaxRetryDelay: r.MaxRetryDelay ?? 5000,
+    };
+  }
+
+  /**
+   * True when the error means the transport died rather than the statement being wrong.
+   * Drivers override to add dialect-specific codes.
+   */
+  protected isRetryableError(err: unknown): boolean {
+    return isRetryableErrorCode(err);
+  }
+
+  /**
+   * Runs `operation`, and on a retryable transport failure reconnects and retries with bounded
+   * exponential backoff. Query errors propagate on the first attempt untouched.
+   */
+  protected async withReconnect<R>(operation: () => Promise<R>): Promise<R> {
+    const { MaxRetries, RetryDelay, MaxRetryDelay } = this.resolvedResilienceOptions();
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= MaxRetries; attempt++) {
+      try {
+        const result = await operation();
+        this.setState(ConnectionState.Connected);
+        return result;
+      } catch (err) {
+        if (!this.isRetryableError(err)) {
+          throw err;
+        }
+
+        lastError = err;
+        this.setState(ConnectionState.Degraded);
+
+        if (attempt === MaxRetries) {
+          break;
+        }
+
+        const wait = backoffDelay(attempt, RetryDelay, MaxRetryDelay);
+        this.Log.warn(`connection ${this.Options.Name} lost (${(err as Error).message}); reconnect attempt ${attempt + 1}/${MaxRetries} in ${wait}ms`);
+        await delay(wait);
+
+        try {
+          this.setState(ConnectionState.Connecting);
+          await this.connect();
+        } catch (reconnectErr) {
+          this.Log.warn(`reconnect attempt ${attempt + 1} for ${this.Options.Name} failed: ${(reconnectErr as Error).message}`);
+          this.setState(ConnectionState.Degraded);
+        }
+      }
+    }
+
+    this.setState(ConnectionState.Disconnected);
+    throw lastError;
   }
 
   /**
