@@ -1790,6 +1790,13 @@ export class ColumnQueryBuilder {
   public Type: ColumnType;
   public Args: any[];
 
+  /**
+   * When false the column compiler must not emit an inline PRIMARY KEY; the table compiler
+   * emits a table-level constraint instead. Dialects that cannot express a composite key
+   * inline ( SQLite ) clear this. Defaults to true.
+   */
+  public InlinePrimaryKey: boolean;
+
   constructor(protected container: IContainer, name: string, type: ColumnType, ...args: any[]) {
     this.Name = name;
     this.Type = type;
@@ -1801,6 +1808,7 @@ export class ColumnQueryBuilder {
     this.Comment = '';
     this.Unique = false;
     this.Unsigned = false;
+    this.InlinePrimaryKey = true;
 
     this.Args.push(...args);
   }

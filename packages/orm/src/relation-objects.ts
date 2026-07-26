@@ -102,6 +102,22 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
     this.IsModelAForwardRef = !isConstructor(this.Model);
   }
 
+  /**
+   * The owner-side value this relation joins on.
+   *
+   * A relation names exactly ONE source column (`IRelationDescriptor.PrimaryKey`), so a
+   * composite-key owner must contribute only that column's value. `Owner.PrimaryKeyValue`
+   * would be a tuple, which binds an array into a single `?` and fails with
+   * `SQLITE_RANGE: column index out of range`.
+   *
+   * For a single-column key `Relation.PrimaryKey` IS the model's key column, so this returns
+   * exactly what `Owner.PrimaryKeyValue` did.
+   */
+  protected get OwnerJoinValue(): any {
+    const key = this.Relation?.PrimaryKey;
+    return key ? (this.Owner as any)[key] : this.Owner.PrimaryKeyValue;
+  }
+
   public map<U>(callbackfn: (value: R, index: number, array: R[]) => U, thisArg?: any): U[] {
     const result: U[] = [];
     for (let index = 0; index < this.length; index++) {
@@ -398,7 +414,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
       throw new OrmException(`many-to-many relation ${this.Relation.Name} targets ${this.TargetModelDescriptor!.Name}, which has a composite primary key; a junction table carries one foreign key column per side and cannot address it`);
     }
 
-    const query = this.Driver.del().from(this.junctionModelDescriptor!.TableName).where(this.Relation.JunctionModelSourceModelFKey_Name!, this.Owner.PrimaryKeyValue);
+    const query = this.Driver.del().from(this.junctionModelDescriptor!.TableName).where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
 
     if (this.Driver.Options.Database) {
       query.database(this.Driver.Options.Database);
@@ -454,7 +470,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
 
 
   public async populate<Q extends typeof ModelBase>(callback?: (this: ISelectQueryBuilder<T[]> & Q['_queryScopes']) => void) {
-    const query = (this.Relation.JunctionModel as any).where((this as any).Relation.JunctionModelSourceModelFKey_Name, this.Owner.PrimaryKeyValue).populate(
+    const query = (this.Relation.JunctionModel as any).where((this as any).Relation.JunctionModelSourceModelFKey_Name, this.OwnerJoinValue).populate(
       this.Relation.TargetModel, callback
     )
 
@@ -498,7 +514,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns
    */
   protected async _dbDiff(data: T[]) {
-    const query = this.Driver.del().from(this.TargetModelDescriptor!.TableName).where(this.Relation.ForeignKey, this.Owner.PrimaryKeyValue);
+    const query = this.Driver.del().from(this.TargetModelDescriptor!.TableName).where(this.Relation.ForeignKey, this.OwnerJoinValue);
 
     if (this.Driver.Options.Database) {
       query.database(this.Driver.Options.Database);
@@ -523,7 +539,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * Populates this relation ( loads all data related to owner of this relation)
    */
   public async populate<Q extends typeof ModelBase>(callback?: (this: ISelectQueryBuilder<T[]> & Q['_queryScopes']) => void): Promise<void> {
-    const query = (this.Relation.TargetModel as any).where(this.Relation.ForeignKey, this.Owner.PrimaryKeyValue);
+    const query = (this.Relation.TargetModel as any).where(this.Relation.ForeignKey, this.OwnerJoinValue);
     if (callback) {
       callback.apply(query);
     }
@@ -563,7 +579,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     // first, a previously-clean child keeps its old FK in the DB and a following
     // sync() can delete it as "not belonging" to the new owner.
     this.forEach((d) => {
-      (d as any)[this.Relation.ForeignKey] = this.Owner.PrimaryKeyValue;
+      (d as any)[this.Relation.ForeignKey] = this.OwnerJoinValue;
     });
 
     // Fresh models have an undefined PK ( setDefaults uses the column default ),

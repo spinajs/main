@@ -42,6 +42,24 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.string('Val');
     });
 
+    // Composite primary key (I2). SQLite has no syntax for two inline PRIMARY KEY column
+    // constraints, so the table compiler must emit a table-level PRIMARY KEY (a, b).
+    await connection.schema().createTable('composite_key_model', (table) => {
+      table.int('TenantId').notNull().primaryKey();
+      table.string('Code').notNull().primaryKey();
+      table.string('Name');
+    });
+
+    // `.unique()` is required for sync()/upsert: InsertQueryBuilder.onDuplicate() derives its
+    // conflict columns from Columns.filter(c => c.Unique) and ignores PrimaryKey, so a
+    // primary-key-only table throws "no unique or primary key columns defined". Every existing
+    // fixture that is sync()'d ( test_many, has_many_1, ... ) declares .unique() for the same reason.
+    await connection.schema().createTable('composite_child', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.int('tenant_id');
+      table.string('Val');
+    });
+
     await connection.schema().createTable('owned_by_has_many_1', (table) => {
       table.int('Id').primaryKey().autoIncrement().unique();
       table.string('Val');

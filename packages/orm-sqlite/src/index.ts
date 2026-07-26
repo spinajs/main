@@ -317,6 +317,10 @@ export class SqliteOrmDriver extends SqlDriver {
     // get all foreign keys
     const foreignKeys = (await this.executeOnDb(`PRAGMA foreign_key_list("${name}")`, [] as any, QueryContext.Select)) as IForeignKeyList[];
 
+    // PRAGMA table_info reports `pk` as the 1-BASED POSITION within the primary key, not a
+    // boolean. Every column with pk > 0 is part of the key.
+    const pkColumnCount = tblInfo.filter((r) => r.pk > 0).length;
+
     return tblInfo.map((r: ITableInfo) => {
       const fk = foreignKeys.find((i) => i.from === r.name);
       const converter = converters.get(r.type.toLocaleLowerCase());
@@ -328,7 +332,7 @@ export class SqliteOrmDriver extends SqlDriver {
         NativeType: r.type,
         Unsigned: false,
         Nullable: r.notnull === 0,
-        PrimaryKey: r.pk === 1,
+        PrimaryKey: r.pk > 0,
         Uuid: false,
         Ignore: false,
         IsForeignKey: fk !== undefined,
@@ -341,8 +345,9 @@ export class SqliteOrmDriver extends SqlDriver {
               To: fk.to,
             }
           : null as any,
-        // simply assumpt that integer pkeys are autoincement / auto fill  by default
-        AutoIncrement: r.pk === 1 && r.type === 'INTEGER',
+        // sqlite only auto-fills a lone INTEGER PRIMARY KEY ( the rowid alias ); a composite
+        // key never auto-increments, so the column count has to be checked too.
+        AutoIncrement: pkColumnCount === 1 && r.pk === 1 && r.type === 'INTEGER',
         Name: r.name,
         Converter: null as any,
         Schema: _schema ? _schema : this.Options.Database,
