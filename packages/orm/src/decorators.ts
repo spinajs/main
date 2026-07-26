@@ -70,7 +70,14 @@ function _getMetadataFrom(target: any) {
  */
 function detachInheritedModelMembers(descriptor: IModelDescriptor) {
   descriptor.Columns = descriptor.Columns.map((c) => ({ ...c }));
-  descriptor.Relations = new Map([...descriptor.Relations].map(([name, relation]) => [name, { ...relation }]));
+  // NOT `{ ...relation }`. A relation descriptor may carry a lazily-defined `PrimaryKey`
+  // accessor ( @BelongsTo / @HasManyToMany with a string target model, which cannot be
+  // resolved until the Orm is up ). Spreading INVOKES that getter — here, at decoration
+  // time, when DI.get(Orm) is still undefined — and then freezes whatever it returned into
+  // a plain value, defeating the laziness even when it does not throw. Copying property
+  // descriptors detaches the mutable data properties ( Recursive, etc. ) while leaving
+  // accessors as accessors.
+  descriptor.Relations = new Map([...descriptor.Relations].map(([name, relation]) => [name, Object.create(Object.getPrototypeOf(relation) as object, Object.getOwnPropertyDescriptors(relation)) as IRelationDescriptor]));
   descriptor.Timestamps = { ...descriptor.Timestamps };
   descriptor.SoftDelete = { ...descriptor.SoftDelete };
   descriptor.Archived = { ...descriptor.Archived };
