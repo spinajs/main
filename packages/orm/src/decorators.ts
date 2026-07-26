@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer } from '@spinajs/di';
-import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
+import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
@@ -241,12 +241,16 @@ export function Archived() {
  *
  * NOTE: @Primary() is additive across an inheritance chain. A subclass cannot *replace* a base
  * class's primary key, only extend it. Declare @Primary() on every key column of the concrete model.
+ *
+ * @param options.generated - key generation strategy, defaults to `auto` ( database identity ).
  */
-export function Primary() {
+export function Primary(options?: IPrimaryKeyOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     if (!model.PrimaryKey.includes(propertyKey)) {
       model.PrimaryKey.push(propertyKey);
     }
+
+    model.PrimaryKeyGeneration.set(propertyKey, options?.generated ?? 'auto');
   });
 }
 

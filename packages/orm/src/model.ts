@@ -19,7 +19,7 @@ import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { extractModelDescriptor } from './descriptor.js';
-import { hasPk, isCompositePk, orderByPk, pkColumns, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
+import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
@@ -578,6 +578,11 @@ export class ModelBase<M = unknown> implements IModelBase {
    * primary key exists
    */
   public async insert(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
+    // Both run BEFORE the query is built, so an `assigned` key that was never supplied fails
+    // without touching the database.
+    generateClientSideKeys(this, this.ModelDescriptor!);
+    assertAssignedKeys(this, this.ModelDescriptor!);
+
     const { query, description } = this.createInsertQuery();
     const sResponseMapper = query.Container.resolve(ServerResponseMapper);
 
@@ -682,6 +687,10 @@ export class ModelBase<M = unknown> implements IModelBase {
         (this as any)[c.Name] = c.DefaultValue;
       }
     });
+
+    // `uuid` primary keys are generated at construction so the value is available to callers
+    // and to cascaded children before the row ever reaches the database.
+    generateClientSideKeys(this, this.ModelDescriptor!);
 
     if (this.ModelDescriptor!.Timestamps.CreatedAt) {
       (this as any)[this.ModelDescriptor!.Timestamps.CreatedAt] = DateTime.now();

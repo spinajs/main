@@ -42,6 +42,22 @@ export class TestMigration_2022_02_08_01_13_00 extends OrmMigration {
       table.string('Val');
     });
 
+    // @Primary() generation strategies (I3): auto / uuid / assigned.
+    await connection.schema().createTable('auto_key_model', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('Name');
+    });
+
+    await connection.schema().createTable('uuid_key_model', (table) => {
+      table.string('Id').notNull().primaryKey();
+      table.string('Name');
+    });
+
+    await connection.schema().createTable('assigned_key_model', (table) => {
+      table.string('Code').notNull().primaryKey();
+      table.string('Name');
+    });
+
     // Composite primary key (I2). SQLite has no syntax for two inline PRIMARY KEY column
     // constraints, so the table compiler must emit a table-level PRIMARY KEY (a, b).
     await connection.schema().createTable('composite_key_model', (table) => {

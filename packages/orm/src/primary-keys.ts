@@ -1,8 +1,9 @@
 /* eslint-disable prettier/prettier */
 import _ from 'lodash';
+import { v4 as uuidv4 } from 'uuid';
 import { SortOrder, SqlOperator } from './enums.js';
 import { OrmException } from './exceptions.js';
-import { IModelDescriptor, IOrderByBuilder, IWhereBuilder } from './interfaces.js';
+import { IModelDescriptor, IOrderByBuilder, IWhereBuilder, PrimaryKeyGeneration } from './interfaces.js';
 
 /**
  * Separator used when flattening a composite key into one string. NUL never appears in an
@@ -221,4 +222,43 @@ export function orderByPk(builder: IOrderByBuilder, descriptor: IModelDescriptor
 
   keys.forEach((k) => builder.order(k, order));
   return true;
+}
+
+/** Generation strategy for one primary key column. Unrecorded columns default to `auto`. */
+export function pkGeneration(descriptor: IModelDescriptor, column: string): PrimaryKeyGeneration {
+  return descriptor.PrimaryKeyGeneration?.get(column) ?? 'auto';
+}
+
+/**
+ * Fills every `uuid`-generated primary key column that has no value yet. Called immediately
+ * before insert so the key is known client-side without a database round-trip. Never overwrites
+ * a value the caller supplied.
+ */
+export function generateClientSideKeys(target: any, descriptor: IModelDescriptor): void {
+  pkColumns(descriptor).forEach((c) => {
+    if (pkGeneration(descriptor, c) !== 'uuid') {
+      return;
+    }
+
+    // eslint-disable-next-line security/detect-object-injection
+    if (target[c] === null || target[c] === undefined || target[c] === '') {
+      // eslint-disable-next-line security/detect-object-injection
+      target[c] = uuidv4();
+    }
+  });
+}
+
+/** Throws when an `assigned` primary key column has no value at insert time. */
+export function assertAssignedKeys(target: any, descriptor: IModelDescriptor): void {
+  pkColumns(descriptor).forEach((c) => {
+    if (pkGeneration(descriptor, c) !== 'assigned') {
+      return;
+    }
+
+    // eslint-disable-next-line security/detect-object-injection
+    const value = target[c];
+    if (value === null || value === undefined || value === '') {
+      throw new OrmException(`primary key column ${descriptor.Name}.${c} must be assigned before insert (@Primary({ generated: 'assigned' }))`);
+    }
+  });
 }

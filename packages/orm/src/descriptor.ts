@@ -20,6 +20,7 @@ function createDefaultModelDescriptor(): IModelDescriptor {
     Columns: [],
     Connection: null,
     PrimaryKey: [],
+    PrimaryKeyGeneration: new Map(),
     SoftDelete: {
       DeletedAt: '',
     },

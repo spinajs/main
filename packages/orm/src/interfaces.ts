@@ -335,6 +335,19 @@ export interface IValueConverterDescriptor {
 /**
  * Describes model, used internally
  */
+/**
+ * How a primary key column gets its value.
+ * - `auto`     — the database assigns it ( identity / auto-increment column ). Default.
+ * - `uuid`     — generated client-side immediately before insert, so the value is known
+ *                without a round-trip.
+ * - `assigned` — the caller supplies it; inserting without one is an error.
+ */
+export type PrimaryKeyGeneration = 'auto' | 'uuid' | 'assigned';
+
+export interface IPrimaryKeyOptions {
+  generated?: PrimaryKeyGeneration;
+}
+
 export interface IModelDescriptor {
   /**
    * Primary key column names, in declaration order. Empty when the model has no @Primary().
@@ -342,6 +355,15 @@ export interface IModelDescriptor {
    * when this field was a plain string.
    */
   PrimaryKey: string[];
+
+  /**
+   * Generation strategy per primary key column, keyed by column name. Absent means `auto`.
+   *
+   * A Map rather than an array because `extractModelDescriptorInherited`'s merger has a
+   * dedicated `_.isMap` branch that merges cleanly, unlike the array branch which
+   * concatenates ( the duplication trap fixed in Task 3 ).
+   */
+  PrimaryKeyGeneration: Map<string, PrimaryKeyGeneration>;
 
   /**
    * Connection name, must be avaible in db config
