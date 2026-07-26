@@ -145,7 +145,12 @@ export class SqlWhereStatement extends WhereStatement {
       column = _columnWrap(column, this._builder.TableAlias, this.IsAggregate);
 
       if (val instanceof ModelBase) {
-        val = val.PrimaryKeyValue;
+        // A composite key unwraps to a tuple, which would bind an array into a single `?`.
+        const pk = val.PrimaryKeyValue;
+        if (Array.isArray(pk)) {
+          throw new InvalidArgument(`cannot use model ${val.constructor.name} as a where value: it has a composite primary key (${val.PrimaryKeyName.join(', ')}). Compare the key columns explicitly.`);
+        }
+        val = pk;
       } else {
         const dsc = extractModelDescriptor(this._model);
         let converter: ValueConverter | null = null;

@@ -1,8 +1,9 @@
 import { expect } from 'chai';
 import 'mocha';
-import { Connection, Primary } from '../src/decorators.js';
+import { BelongsTo, Connection, HasMany, Primary } from '../src/decorators.js';
 import { ModelBase } from '../src/model.js';
 import { extractModelDescriptor } from '../src/descriptor.js';
+import { SingleRelation } from '../src/relation-objects.js';
 
 @Connection('sqlite')
 class SinglePkModel extends ModelBase {
@@ -63,5 +64,58 @@ describe('IModelDescriptor.PrimaryKey', () => {
 
   it('is an empty array when the model has no primary key', () => {
     expect(extractModelDescriptor(NoPkModel)!.PrimaryKey).to.deep.equal([]);
+  });
+});
+
+/**
+ * A relation's PrimaryKey / ForeignKey each name exactly ONE column ( the JOIN compiler emits a
+ * one-column ON predicate ), so a composite primary key has no defensible default. Refusing to
+ * guess is the point: silently taking PrimaryKey[0] joins on half the key and returns
+ * cross-product rows.
+ *
+ * NOTE: no @Model here. @Model registers the class into the global DI '__models__' bag, which
+ * inflates the unrelated 'Load models from dirs' count assertion in model.test.ts. @Connection
+ * and @Primary alone are enough to build the descriptor these tests read.
+ */
+describe('relation defaults against composite keys', () => {
+  it('rejects a @HasMany whose source model has a composite key and no explicit primaryKey', () => {
+    expect(() => {
+      @Connection('sqlite')
+      class CompositeParent extends ModelBase {
+        @Primary() public TenantId: number;
+        @Primary() public Code: string;
+
+        @HasMany(SinglePkModel)
+        public Children: any;
+      }
+      return CompositeParent;
+    }).to.throw(/composite primary key/);
+  });
+
+  it('accepts a @HasMany on a composite-key model when primaryKey is named', () => {
+    expect(() => {
+      @Connection('sqlite')
+      class CompositeParentOk extends ModelBase {
+        @Primary() public TenantId: number;
+        @Primary() public Code: string;
+
+        @HasMany(SinglePkModel, { primaryKey: 'TenantId', foreignKey: 'tenant_id' })
+        public Children: any;
+      }
+      return CompositeParentOk;
+    }).to.not.throw();
+  });
+
+  it('rejects a @BelongsTo whose target model has a composite key and no explicit primaryKey', () => {
+    expect(() => {
+      @Connection('sqlite')
+      class BelongsChild extends ModelBase {
+        @Primary() public Id: number;
+
+        @BelongsTo(CompositePkModel)
+        public Parent: SingleRelation<any>;
+      }
+      return BelongsChild;
+    }).to.throw(/composite primary key/);
   });
 });
