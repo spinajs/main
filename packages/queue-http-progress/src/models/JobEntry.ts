@@ -1,20 +1,14 @@
-import { DateTime } from 'luxon';
-import type { JobStatus } from '@spinajs/queue';
+﻿import { DateTime } from 'luxon';
+import { JobModel } from '@spinajs/queue';
 
 export interface IJobStatusResponse {
     jobId: string;
     progress: number; // 0-100
-    status: JobStatus;
-    /** Optional progress phase label (e.g. `loading`, `rendering`). */
-    phase?: string;
-    /** Optional progress message. */
+    /**
+     * Derived from the single source of truth in `@spinajs/queue` so new job
+     * states (e.g. `retrying` / `dead`) cannot drift out of sync again.
+     */
+    status: JobModel<unknown>['Status'] | 'queued';
     message?: string;
-    /** Failure message ( from LastError ), present only for failed / retrying jobs. */
-    error?: string;
-    /** Attempts performed so far. */
-    attempt?: number;
-    /** Configured retry limit. */
-    maxAttempts?: number;
-    createdAt: DateTime;
-    finishedAt?: DateTime;
+    createdAt?: DateTime;
 }

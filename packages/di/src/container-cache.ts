@@ -141,7 +141,22 @@ export class ContainerCache {
         }
       }
 
-      return Array.isArray(cached) ? cached[0] : cached;
+      const instance = Array.isArray(cached) ? cached[0] : cached;
+
+      // Resolving a collection ( Array.ofType(Base) ) over a type that already
+      // sits in the cache under its own key must still contribute it to the
+      // collection - otherwise the fast path returns early and the type is
+      // silently MISSING from the resolved array.
+      if (sourceType instanceof TypedArray && getTypeName(targetType) !== sourceTypeKey) {
+        const collection = this.get(sourceTypeKey);
+        if (!this.has(sourceTypeKey)) {
+          this.add(sourceTypeKey, instance);
+        } else if (!collection.includes(instance)) {
+          collection.push(instance);
+        }
+      }
+
+      return instance;
     }
 
     // For non-singletons, always create new instance
@@ -190,6 +205,16 @@ export class ContainerCache {
             emit(resolvedInstance);
           }
         }
+        // Also cache under the concrete type. Resolving a collection
+        // ( eg. Array.ofType(BaseController) ) used to register the instance
+        // ONLY under the element type key, so a later get/resolve by the
+        // concrete type missed the cache - returning undefined from get(), and
+        // silently constructing a SECOND instance from resolve(). Same
+        // instance, second key - no extra construction.
+        if (getTypeName(targetType) !== sourceTypeKey && !this.has(targetType)) {
+          this.add(targetType, resolvedInstance);
+        }
+
         const cached = this.get(sourceTypeKey);
         return sourceType instanceof TypedArray ? cached : cached[0];
       } else {

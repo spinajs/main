@@ -1,4 +1,30 @@
-import { BaseController, BasePath, Get, Ok, Param } from '@spinajs/http';
+import { BaseController, BasePath, Get, Post, Ok, Param, Body } from '@spinajs/http';
+import { Schema } from '@spinajs/validation';
+
+/**
+ * App-specific error envelope used to verify named-schema expansion in typed
+ * `@response` tags and request bodies.
+ */
+@Schema({
+  type: 'object',
+  required: ['error'],
+  properties: {
+    error: {
+      type: 'object',
+      required: ['code', 'message'],
+      properties: {
+        code: { type: 'string' },
+        message: { type: 'string' },
+      },
+    },
+    requestId: { type: 'string' },
+  },
+  example: { error: { code: 'NOT_FOUND', message: 'no such thing' }, requestId: 'req-1' },
+})
+export class TestErrorEnvelopeDto {
+  public error!: { code: string; message: string };
+  public requestId?: string;
+}
 
 /**
  * Exercises every documented standard error response so we can verify the
@@ -37,5 +63,27 @@ export class ErrorResponsesController extends BaseController {
   @Get('clean')
   public async clean() {
     return new Ok({ ok: true });
+  }
+
+  /**
+   * Endpoint documenting a NAMED typed error response — should expand into a
+   * `$ref` to `#/components/schemas/TestErrorEnvelopeDto`.
+   * @response 404 {TestErrorEnvelopeDto} Named error envelope
+   * @example
+   * <caption>Not found sample</caption>
+   * {"error": {"code": "NOT_FOUND", "message": "no such thing"}}
+   */
+  @Get('named-typed/:id')
+  public async namedTyped(@Param() id: number) {
+    return new Ok({ id });
+  }
+
+  /**
+   * Request body documented via a named DTO type — should expand into a `$ref`.
+   * @param payload {TestErrorEnvelopeDto} The envelope payload
+   */
+  @Post('named-body')
+  public async namedBody(@Body() payload: unknown) {
+    return new Ok({ payload });
   }
 }

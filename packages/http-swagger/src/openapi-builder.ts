@@ -1,8 +1,10 @@
 import { Autoinject, ClassInfo, TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
+import { safeParse } from '@spinajs/util';
 import {
   IOpenApiDocument,
+  IOpenApiExample,
   IOpenApiOperation,
   IOpenApiParameter,
   IOpenApiRequestBody,
@@ -53,6 +55,19 @@ const BODY_PARAMS = new Set<string>([
   'FromJSONFile',
   // orm-http: @AsModel — alias for FromBody (creates instance from request body)
   'AsDbModel',
+]);
+
+/**
+ * Body params that are parsed from a multipart/form upload at runtime (see
+ * @spinajs/http FromForm route-args). Any of these on a route means the
+ * request body is multipart/form-data, not application/json.
+ */
+const MULTIPART_BODY_PARAMS = new Set<string>([
+  ParameterType.FromFile, 'FromFile',
+  ParameterType.FromForm, 'FromForm',
+  ParameterType.FormField, 'FromFormField',
+  ParameterType.FromCSV, 'FromCSV',
+  ParameterType.FromJSONFile, 'FromJSONFile',
 ]);
 
 /**
@@ -156,7 +171,11 @@ export class OpenApiBuilder {
     const descriptor = controller.instance?.Descriptor;
     if (!descriptor) return;
 
-    const basePath = descriptor.BasePath || '';
+    // Mirror the runtime BasePath resolution (BaseController.BasePath): when no
+    // @BasePath decorator is present the routes mount under the lowercased class
+    // name (e.g. UsersController -> /userscontroller/...). Documenting an empty
+    // basePath here produced wrong URLs for every undecorated controller.
+    const basePath = descriptor.BasePath || controller.instance!.constructor.name.toLowerCase();
     const controllerName = controller.name.replace(/Controller$/, '');
 
     // Register tag from class documentation or controller name
@@ -451,9 +470,20 @@ export class OpenApiBuilder {
       operation.requestBody = this.buildRequestBody(bodyParams, route);
     }
 
-    // Add examples to request body if available
-    if (methodDoc?.examples && operation.requestBody) {
-      const content = operation.requestBody.content['application/json'];
+    // Attach @example tags: to the request body when the route has one,
+    // otherwise (e.g. GET routes) to the 200 response — a bodyless route's
+    // examples can only describe what it returns.
+    if (methodDoc?.examples) {
+      let content: { examples?: Record<string, IOpenApiExample> } | undefined;
+      if (operation.requestBody) {
+        content = operation.requestBody.content['application/json'];
+      } else {
+        const ok = operation.responses['200'];
+        if (ok && !ok.$ref) {
+          ok.content ??= { 'application/json': {} };
+          content = ok.content['application/json'] ??= {};
+        }
+      }
       if (content) {
         content.examples = {};
         methodDoc.examples.forEach((ex, i) => {
@@ -532,16 +562,22 @@ export class OpenApiBuilder {
    * Read the FilterableColumns map from a model constructor via the orm model
    * descriptor metadata. Keeps http-swagger free of a hard @spinajs/orm dep —
    * the symbol is global (`Symbol.for('MODEL_DESCRIPTOR')`).
+   *
+   * The metadata IS the descriptor. orm keys it by class identity — one
+   * descriptor owned by each constructor — so there is no name indexing to do
+   * here. It used to be a container keyed by class name
+   * (`{ [class.name]: descriptor }`), which collapsed two classes sharing a
+   * name into one slot; reading that old shape now yields undefined and
+   * silently drops every operator from the docs.
    */
   private extractFilterableColumns(modelCtor: new (...args: unknown[]) => unknown): { column: string; operators: string[] }[] {
     const MODEL_DESCRIPTOR_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
-    const metadata = Reflect.getMetadata(MODEL_DESCRIPTOR_SYMBOL, modelCtor) as
-      | Record<string, { FilterableColumns?: Map<string, { operators?: string[] }> }>
+    const descriptor = Reflect.getMetadata(MODEL_DESCRIPTOR_SYMBOL, modelCtor) as
+      | { FilterableColumns?: Map<string, { operators?: string[] }> }
       | undefined;
-    if (!metadata) return [];
+    if (!descriptor) return [];
 
-    const descriptor = metadata[modelCtor.name];
-    const map = descriptor?.FilterableColumns;
+    const map = descriptor.FilterableColumns;
     if (!map || typeof map.entries !== 'function') return [];
 
     const result: { column: string; operators: string[] }[] = [];
@@ -688,7 +724,9 @@ export class OpenApiBuilder {
         const rt = runtimeType as any;
         const classSchema = Reflect.getMetadata(SCHEMA_SYMBOL, rt) ?? (rt?.prototype ? Reflect.getMetadata(SCHEMA_SYMBOL, rt.prototype) : undefined);
         if (classSchema) {
-          return this.convertJsonSchema(classSchema);
+          const converted = this.convertJsonSchema(classSchema);
+          this.applyRelationMetadata(converted, rt);
+          return converted;
         }
       }
     }
@@ -762,16 +800,42 @@ export class OpenApiBuilder {
   }
 
   /**
+   * Enriches a DTO schema with orm-http @Relation annotations. The relation
+   * descriptors are read via the global symbol `Symbol.for('orm-http:relations')`
+   * so this package needs no dependency on orm-http.
+   */
+  private applyRelationMetadata(schema: IOpenApiSchema, runtimeType: any): void {
+    const RELATION_SYMBOL = Symbol.for('orm-http:relations');
+    const rel = (Reflect.getMetadata(RELATION_SYMBOL, runtimeType) ?? (runtimeType?.prototype ? Reflect.getMetadata(RELATION_SYMBOL, runtimeType.prototype) : undefined)) as
+      | { Relations: Map<string, { field: string; target: () => any; by?: string }> }
+      | undefined;
+
+    if (!rel || !schema.properties) {
+      return;
+    }
+
+    for (const [field, desc] of rel.Relations) {
+      const prop = schema.properties[field];
+      if (!prop) continue;
+
+      const modelName = desc.target()?.name ?? 'model';
+      const byLabel = desc.by ?? 'primary key';
+      const note = `Reference to ${modelName} by ${byLabel}. Must match an existing record (404 if not found).`;
+      prop.description = prop.description ? `${prop.description} ${note}` : note;
+      (prop as any)['x-relation'] = { model: modelName, by: desc.by };
+    }
+  }
+
+  /**
    * Build an OpenAPI request body from body-type parameters.
    */
   private buildRequestBody(
     bodyParams: { param: IRouteParameter; doc?: { name: string; description?: string; type?: string } }[],
     _route: IRoute,
   ): IOpenApiRequestBody {
-    // Check if any param is a file upload
-    const hasFile = bodyParams.some(
-      (bp) => bp.param.Type === ParameterType.FromFile || bp.param.Type === 'FromFile',
-    );
+    // Any file/form-parsed param means the runtime expects multipart/form-data,
+    // not JSON (covers FromFile, FromForm, FormField, FromCSV, FromJSONFile).
+    const hasFile = bodyParams.some((bp) => MULTIPART_BODY_PARAMS.has(bp.param.Type as string));
 
     const contentType = hasFile ? 'multipart/form-data' : 'application/json';
 
@@ -783,7 +847,7 @@ export class OpenApiBuilder {
         required: true,
         content: {
           [contentType]: {
-            schema: this.schemaFromParam(bp.param, bp.doc?.type),
+            schema: this.expandNamedSchemas(this.schemaFromParam(bp.param, bp.doc?.type)),
           },
         },
       };
@@ -793,10 +857,10 @@ export class OpenApiBuilder {
     const properties: Record<string, IOpenApiSchema> = {};
     for (const bp of bodyParams) {
       const name = bp.param.Name || `param_${bp.param.Index}`;
-      properties[name] = {
-        ...this.schemaFromParam(bp.param, bp.doc?.type),
-        description: bp.doc?.description,
-      };
+      const expanded = this.expandNamedSchemas(this.schemaFromParam(bp.param, bp.doc?.type));
+      properties[name] = expanded.$ref
+        ? expanded
+        : { ...expanded, description: bp.doc?.description };
     }
 
     return {
@@ -819,7 +883,14 @@ export class OpenApiBuilder {
   private buildResponses(methodDoc: IMethodDocumentation | undefined): Record<string, IOpenApiResponse> {
     const responses: Record<string, IOpenApiResponse> = {};
 
-    if (methodDoc?.returns) {
+    // When the JSDoc explicitly documents a non-200 success (e.g. `@response 202`)
+    // and there is no explicit `@returns` tag (returns carries only the
+    // TS-inferred schema), the operation's success status IS that 2xx — don't
+    // fabricate a 200 alongside it.
+    const hasExplicit2xx = !!methodDoc?.responses && Object.keys(methodDoc.responses).some((c) => c.startsWith('2'));
+    const returnsIsInferredOnly = !!methodDoc?.returns && !methodDoc.returns.type && !methodDoc.returns.description;
+
+    if (methodDoc?.returns && !(hasExplicit2xx && returnsIsInferredOnly)) {
       const schema =
         methodDoc.returns.type
           ? this.inferSchemaFromString(methodDoc.returns.type)
@@ -829,7 +900,7 @@ export class OpenApiBuilder {
         description: methodDoc.returns.description || 'Successful response',
         content: { 'application/json': { schema: this.expandNamedSchemas(schema) } },
       };
-    } else {
+    } else if (!hasExplicit2xx) {
       responses['200'] = { description: 'Successful response' };
     }
 
@@ -842,7 +913,7 @@ export class OpenApiBuilder {
         if (resp.type) {
           responses[statusCode] = {
             description: resp.description,
-            content: { 'application/json': { schema: this.inferSchemaFromString(resp.type) } },
+            content: { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(resp.type)) } },
           };
           continue;
         }
@@ -1027,10 +1098,7 @@ export class OpenApiBuilder {
    */
   private tryParseJson(value: string | undefined): any {
     if (!value) return undefined;
-    try {
-      return JSON.parse(value);
-    } catch {
-      return value;
-    }
+    // parse when valid JSON, otherwise fall back to the raw string
+    return safeParse(value, value);
   }
 }

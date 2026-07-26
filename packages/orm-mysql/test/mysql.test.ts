@@ -4,6 +4,10 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 
 import { ICompilerOutput, InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
+// Registers the concrete Log implementation. `Orm` types its logger as the ABSTRACT `Log`
+// from @spinajs/log-common, so without this nothing satisfies it and `Orm.createConnections`
+// dies on `this.Log.trace is not a function`. orm-sqlite's suites already do this.
+import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 
@@ -35,7 +39,10 @@ export class ConnectionConf extends FrameworkConfiguration {
           // },
         ],
 
-        rules: [{ name: '*', level: 'trace', target: 'Console' }],
+        // 'Empty', not 'Console' — the Console target above is commented out, so this rule
+        // named a target that does not exist. The old log stack ignored that; master's
+        // resolveLogTargets throws `No target matching rule *`. Keep tests silent anyway.
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       db: {
         Migration: {

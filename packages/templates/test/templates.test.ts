@@ -1,245 +1,247 @@
+import { Templates, TemplateRenderer } from '../src/index.js';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { FsBootsrapper, fsService } from '@spinajs/fs';
+import { join, normalize, resolve } from 'path';
+import { writeFile, mkdir } from 'fs/promises';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { Templates, TemplateRenderer, IRenderOptions, IRenderProgress, RenderPhase, cliProgressReporter, formatProgressLine } from '../src/index.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
+export function dir(path: string) {
+  return resolve(normalize(join(process.cwd(), 'test', path)));
+}
+
 /**
- * Fake renderers used to exercise the Templates facade in isolation - the
- * renderer selection (by type / by extension) and its error paths - without
- * pulling in a real template engine or touching the filesystem.
+ * The templates package ships no renderer of its own (renderers depend on it,
+ * not the reverse), so tests exercise the base class through a stub that
+ * records how many times it actually compiled.
  */
 @Injectable(TemplateRenderer)
-class FooRenderer extends TemplateRenderer {
-  public renderCalls: Array<{ template: string; model: unknown; language?: string; options?: IRenderOptions }> = [];
-  public renderToFileCalls: Array<{ template: string; filePath: string; options?: IRenderOptions }> = [];
+export class StubRenderer extends TemplateRenderer {
+  public static CompileCount = 0;
 
   public get Type() {
-    return 'foo';
+    return 'stub';
   }
 
   public get Extension() {
-    return '.foo';
+    return '.test-tpl';
   }
 
-  public render(templatePath: string, model: unknown, language?: string, options?: IRenderOptions): Promise<string> {
-    this.renderCalls.push({ template: templatePath, model, language, options });
-    return Promise.resolve(`foo:${templatePath}:${language ?? ''}`);
+  public async render(template: string, _model: unknown, _language?: string): Promise<string> {
+    const compiled = await this.withCache(template, async () => {
+      StubRenderer.CompileCount++;
+      return await this.resolveContent(template);
+    });
+
+    return compiled;
   }
 
-  public renderToFile(templatePath: string, _model: unknown, filePath: string, _language?: string, options?: IRenderOptions): Promise<void> {
-    this.renderToFileCalls.push({ template: templatePath, filePath, options });
-    return Promise.resolve();
+  public async renderToFile(): Promise<void> {
+    // not exercised by these tests
   }
 
-  protected compile(): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-@Injectable(TemplateRenderer)
-class BarRenderer extends TemplateRenderer {
-  public get Type() {
-    return 'bar';
-  }
-
-  public get Extension() {
-    return '.bar';
-  }
-
-  public render(templatePath: string): Promise<string> {
-    return Promise.resolve(`bar:${templatePath}`);
-  }
-
-  public renderToFile(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  protected compile(): Promise<void> {
-    return Promise.resolve();
+  /**
+   * Per-test reset. The DI container is bootstrapped once for the whole suite
+   * (see below), so state that would otherwise die with the container has to be
+   * cleared by hand between tests.
+   */
+  public reset() {
+    this.Cache.clear();
+    StubRenderer.CompileCount = 0;
   }
 }
 
-export class ConnectionConf extends FrameworkConfiguration {
+class ConfigurationForTests extends FrameworkConfiguration {
   protected onLoad() {
     return {
-      intl: {
-        defaultLocale: 'pl',
-        locales: ['en'],
-      },
       logger: {
-        targets: [
-          {
-            name: 'Empty',
-            type: 'BlackHoleTarget',
-            layout: '{datetime} {level} {message} {error} duration: {duration} ({logger})',
-          },
-        ],
+        targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      system: {
-        dirs: {
-          locales: [],
-          templates: [],
-        },
+      templates: {},
+      fs: {
+        // The default provider is deliberately rooted somewhere that does NOT
+        // hold the template. The bare-path regression test asserts that a plain
+        // path is read straight from disk and never routed through a provider -
+        // if the default provider were rooted at ./files, a misrouted absolute
+        // path would still resolve (fsNative.resolvePath returns paths that
+        // already start with its basePath untouched) and the test could not
+        // fail. Rooted elsewhere, a misroute join()s under the wrong base and
+        // ENOENTs, which is exactly the regression we want to catch.
+        // The fs:// tests address the 'test' provider by name, so they are
+        // unaffected by which provider is the default.
+        defaultProvider: 'default-elsewhere',
+        providers: [
+          { service: 'fsNative', name: 'test', basePath: dir('./files') },
+          { service: 'fsNative', name: 'default-elsewhere', basePath: dir('./files-2') },
+        ],
       },
     };
   }
 }
 
-async function tp() {
-  return DI.resolve(Templates);
+let Cfg: Configuration;
+let TemplatesInstance: Templates;
+let Renderer: StubRenderer;
+
+/**
+ * Bootstrapped exactly once, and the tests drive config through `Configuration.set(...)`
+ * on the instance below rather than re-registering a fresh Configuration per test.
+ *
+ * This used to be mandatory: `@Config` memoized the resolved Configuration *instance*
+ * in a decorator closure that outlived DI.clearCache(). That memoization has since been
+ * removed — `@Config` now resolves Configuration from the container on every access, so
+ * re-registering would in fact be picked up. The single-bootstrap shape is kept because
+ * it is still the convention here: it is cheaper than rebuilding the container per test
+ * and keeps the decorators and the config we mutate trivially in agreement.
+ */
+before(async () => {
+  DI.resolve(FsBootsrapper).bootstrap();
+  DI.register(ConfigurationForTests).as(Configuration);
+  Cfg = await DI.resolve(Configuration);
+  await DI.resolve(fsService);
+
+  TemplatesInstance = await DI.resolve(Templates);
+  Renderer = TemplatesInstance.getRendererFor('.test-tpl') as StubRenderer;
+});
+
+async function setup(cacheMode?: string) {
+  Cfg.set('templates.cache.mode', cacheMode);
+  Renderer.reset();
+
+  return TemplatesInstance;
 }
 
-describe('Templates facade', () => {
+async function writeTemplate(content: string) {
+  await mkdir(dir('./files'), { recursive: true });
+  await writeFile(dir('./files/stub.test-tpl'), content, 'utf-8');
+}
+
+describe('templates fs resolution', () => {
   beforeEach(async () => {
-    DI.clearCache();
-    DI.register(ConnectionConf).as(Configuration);
-    await DI.resolve(Configuration);
+    await writeTemplate('hello');
   });
 
-  describe('getRendererFor', () => {
-    it('returns the renderer matching the extension', async () => {
-      const t = await tp();
-      expect(t.getRendererFor('.foo')).to.be.instanceOf(FooRenderer);
-      expect(t.getRendererFor('.bar')).to.be.instanceOf(BarRenderer);
-    });
+  it('should render from a bare local path (regression)', async () => {
+    const t = await setup();
+    const result = await t.render(dir('./files/stub.test-tpl'), {});
+
+    expect(result).to.eq('hello');
   });
 
-  describe('compile (render by renderer type)', () => {
-    it('routes to the renderer selected by type', async () => {
-      const t = await tp();
-      const result = await t.compile('some/template', 'foo', { a: 1 }, 'en');
-      expect(result).to.eq('foo:some/template:en');
-    });
+  it('should render from an fs:// uri', async () => {
+    const t = await setup();
+    const result = await t.render('fs://test/stub.test-tpl', {});
 
-    it('throws InvalidOperation for an unknown renderer type', async () => {
-      const t = await tp();
-      await expect(t.compile('some/template', 'does-not-exist', {})).to.be.rejectedWith(InvalidOperation);
-    });
+    expect(result).to.eq('hello');
   });
 
-  describe('compileToFile (render to file by renderer type)', () => {
-    it('routes to the renderer selected by type', async () => {
-      const t = await tp();
-      await t.compileToFile('some/template', 'foo', {}, 'out.foo');
-      const foo = t.getRendererFor('.foo') as FooRenderer;
-      expect(foo.renderToFileCalls.some((c) => c.template === 'some/template' && c.filePath === 'out.foo')).to.eq(true);
-    });
+  it('should fail with InvalidArgument for an unregistered filesystem', async () => {
+    const t = await setup();
 
-    it('throws InvalidOperation for an unknown renderer type', async () => {
-      const t = await tp();
-      await expect(t.compileToFile('some/template', 'nope', {}, 'out.x')).to.be.rejectedWith(InvalidOperation);
-    });
-  });
-
-  describe('render (detect renderer by file extension)', () => {
-    it('selects the renderer by the template file extension', async () => {
-      const t = await tp();
-      expect(await t.render('report.foo', {})).to.eq('foo:report.foo:');
-      expect(await t.render('report.bar', {})).to.eq('bar:report.bar');
-    });
-
-    it('forwards the language to the renderer', async () => {
-      const t = await tp();
-      expect(await t.render('report.foo', {}, 'en')).to.eq('foo:report.foo:en');
-    });
-
-    it('throws InvalidOperation when no renderer matches the extension', async () => {
-      const t = await tp();
-      await expect(t.render('report.unknown', {})).to.be.rejectedWith(InvalidOperation);
-    });
-  });
-
-  describe('renderToFile (detect renderer by file extension)', () => {
-    it('selects the renderer by the template file extension', async () => {
-      const t = await tp();
-      await t.renderToFile('report.foo', {}, 'out.txt');
-      const foo = t.getRendererFor('.foo') as FooRenderer;
-      expect(foo.renderToFileCalls.some((c) => c.template === 'report.foo' && c.filePath === 'out.txt')).to.eq(true);
-    });
-
-    it('throws InvalidOperation when no renderer matches the extension', async () => {
-      const t = await tp();
-      await expect(t.renderToFile('report.unknown', {}, 'out.txt')).to.be.rejectedWith(InvalidOperation);
-    });
-  });
-
-  describe('render options forwarding', () => {
-    it('forwards options (onProgress) to the engine on render', async () => {
-      const t = await tp();
-      const onProgress = () => undefined;
-      await t.render('report.foo', {}, 'en', { onProgress });
-      const foo = t.getRendererFor('.foo') as FooRenderer;
-      expect(foo.renderCalls[foo.renderCalls.length - 1]?.options?.onProgress).to.eq(onProgress);
-    });
-
-    it('forwards options (onProgress) to the engine on renderToFile', async () => {
-      const t = await tp();
-      const onProgress = () => undefined;
-      await t.renderToFile('report.foo', {}, 'out.txt', 'en', { onProgress });
-      const foo = t.getRendererFor('.foo') as FooRenderer;
-      expect(foo.renderToFileCalls[foo.renderToFileCalls.length - 1]?.options?.onProgress).to.eq(onProgress);
-    });
-
-    it('forwards options through compile/compileToFile (by renderer type)', async () => {
-      const t = await tp();
-      const onProgress = () => undefined;
-      await t.compile('some/template', 'foo', {}, 'en', { onProgress });
-      await t.compileToFile('some/template', 'foo', {}, 'out.foo', 'en', { onProgress });
-      const foo = t.getRendererFor('.foo') as FooRenderer;
-      expect(foo.renderCalls[foo.renderCalls.length - 1]?.options?.onProgress).to.eq(onProgress);
-      expect(foo.renderToFileCalls[foo.renderToFileCalls.length - 1]?.options?.onProgress).to.eq(onProgress);
-    });
+    await expect(t.render('fs://not-registered/stub.test-tpl', {})).to.be.rejected;
   });
 });
 
-describe('cliProgressReporter / formatProgressLine', () => {
-  const snapshot = (phase: RenderPhase, percent: number): IRenderProgress => ({
-    phase,
-    percent,
-    resourcesLoaded: 0,
-    resourcesPending: 0,
-    resourcesFailed: 0,
-    elapsedMs: 0,
-    filePath: 'out.pdf',
+describe('templates cache modes', () => {
+  beforeEach(async () => {
+    await writeTemplate('hello');
   });
 
-  it('formats a snapshot into a single line with percent and phase', () => {
-    const line = formatProgressLine(snapshot(RenderPhase.Loading, 42));
-    expect(line).to.contain('42%');
-    expect(line).to.contain('loading');
+  it('cache mode should compile once and ignore source changes', async () => {
+    const t = await setup('cache');
+
+    expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+    await writeTemplate('changed');
+    expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+    expect(StubRenderer.CompileCount).to.eq(1);
   });
 
-  it('non-TTY: prints one line per phase change, not per event', () => {
-    const lines: string[] = [];
-    const report = cliProgressReporter((s) => lines.push(s), false);
+  it('cache should be the default mode', async () => {
+    const t = await setup();
 
-    report(snapshot(RenderPhase.Starting, 0));
-    report(snapshot(RenderPhase.Starting, 0)); // same phase -> no extra line
-    report(snapshot(RenderPhase.Loading, 40));
-    report(snapshot(RenderPhase.Loading, 60)); // same phase -> no extra line
-    report(snapshot(RenderPhase.Done, 100));
+    await t.render('fs://test/stub.test-tpl', {});
+    await writeTemplate('changed');
+    await t.render('fs://test/stub.test-tpl', {});
 
-    expect(lines.length).to.eq(3);
-    expect(lines[0]).to.contain('starting');
-    expect(lines[2]).to.contain('done');
+    expect(StubRenderer.CompileCount).to.eq(1);
   });
 
-  it('TTY: rewrites a single live line and closes it on Done', () => {
-    const writes: string[] = [];
-    const report = cliProgressReporter((s) => writes.push(s), true);
+  it('revalidate mode should recompile only after the source changes', async () => {
+    const t = await setup('revalidate');
 
-    report(snapshot(RenderPhase.Loading, 40));
-    report(snapshot(RenderPhase.Done, 100));
+    expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+    expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+    expect(StubRenderer.CompileCount).to.eq(1);
 
-    // every live update starts with a carriage return
-    expect(writes[0].startsWith('\r')).to.eq(true);
-    // the final newline terminates the live line
-    expect(writes[writes.length - 1]).to.eq('\n');
+    // mtime has 1s granularity on some filesystems; size differs here so the
+    // token changes regardless
+    await writeTemplate('changed content');
+
+    expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('changed content');
+    expect(StubRenderer.CompileCount).to.eq(2);
+  });
+
+  it('always mode should recompile on every render', async () => {
+    const t = await setup('always');
+
+    await t.render('fs://test/stub.test-tpl', {});
+    await t.render('fs://test/stub.test-tpl', {});
+
+    expect(StubRenderer.CompileCount).to.eq(2);
+  });
+
+  it('dev mode should imply always when no mode is configured', async () => {
+    const t = await setup();
+    Cfg.set('configuration.isDevelopment', true);
+
+    try {
+      await t.render('fs://test/stub.test-tpl', {});
+      await t.render('fs://test/stub.test-tpl', {});
+
+      expect(StubRenderer.CompileCount).to.eq(2);
+    } finally {
+      // must run even if an assertion throws, otherwise dev mode leaks into
+      // every test that runs after this one
+      Cfg.set('configuration.isDevelopment', false);
+    }
+  });
+
+  it('explicit mode should win over dev mode', async () => {
+    const t = await setup('cache');
+    Cfg.set('configuration.isDevelopment', true);
+
+    try {
+      expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+      await writeTemplate('changed');
+      expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+      expect(StubRenderer.CompileCount).to.eq(1);
+    } finally {
+      Cfg.set('configuration.isDevelopment', false);
+    }
+  });
+
+  it('revalidate should serve the cached entry when stat fails', async () => {
+    const t = await setup('revalidate');
+
+    expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+
+    // provider stat now throws; the cached entry must still be served
+    const provider: any = await DI.resolve('__file_provider__', ['test']);
+    const original = provider.stat.bind(provider);
+    provider.stat = () => Promise.reject(new Error('transient failure'));
+
+    try {
+      expect(await t.render('fs://test/stub.test-tpl', {})).to.eq('hello');
+      expect(StubRenderer.CompileCount).to.eq(1);
+    } finally {
+      // must run even if an assertion throws, otherwise the patched stat leaks
+      // into every test that runs after this one
+      provider.stat = original;
+    }
   });
 });

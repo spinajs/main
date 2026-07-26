@@ -17,6 +17,10 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
+// Registers the concrete Log implementation — `Orm` types its logger as the ABSTRACT `Log`
+// from @spinajs/log-common, so without this `Orm.createConnections` dies on
+// `this.Log.trace is not a function`.
+import '@spinajs/log';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import _ from 'lodash';

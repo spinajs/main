@@ -1,4 +1,4 @@
-import { Constructor, DI } from '@spinajs/di';
+import { Constructor, DI, getInheritedDescriptor } from '@spinajs/di';
 import { RouteType, IRouteParameter, ParameterType, IControllerDescriptor, BasePolicy, RouteMiddleware, IRoute, IUploadOptions, UuidVersion, IFormOptions, HttpAcceptHeaders, IController, HTTP_STATUS_CODE } from './interfaces.js';
 import { ArgHydrator } from './route-args/ArgHydrator.js';
 import { ROUTE_ARG_SCHEMA } from './schemas/RouteArgsSchemas.js';
@@ -14,27 +14,76 @@ export const CONTROLLED_DESCRIPTOR_SYMBOL = Symbol('CONTROLLER_SYMBOL');
 
 function Controller(callback: (controller: IControllerDescriptor, target: any, propertyKey: symbol | string, indexOrDescriptor: number | PropertyDescriptor) => void) {
   return (target: any, propertyKey?: string | symbol, indexOrDescriptor?: number | PropertyDescriptor) => {
-    let metadata: IControllerDescriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, target.prototype || target);
-    if (!metadata) {
-      metadata = {
-        BasePath: null,
-        Middlewares: [],
-        Policies: [],
-        Routes: new Map<string, IRoute>(),
-        // Capture the controller's source file from the V8 stack the first
-        // time a route decorator runs on this class. The first frame outside
-        // this module / common transpiler shims is the controller source —
-        // exactly what ControllersCache needs when the controller was added
-        // through DI rather than the file scan.
-        SourceFile: captureControllerSourceFile(),
-      };
+    const controller = target.prototype || target;
 
-      Reflect.defineMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, metadata, target.prototype || target);
+    // True only for the very first decorator that touches THIS class, since
+    // getInheritedDescriptor stores own metadata as soon as it is called.
+    const isFirstDecorator = !Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, controller);
+
+    // Own metadata per class. Reflect.getMetadata walks the prototype chain, so
+    // a controller subclass used to find - and mutate - its parent's descriptor,
+    // writing its routes into the package's controller. getInheritedDescriptor
+    // hands back a copy pre-populated with everything inherited, so overriding
+    // one route leaves the rest of the parent's routes intact.
+    const metadata = getInheritedDescriptor<IControllerDescriptor>(controller, CONTROLLED_DESCRIPTOR_SYMBOL, createDefaultControllerDescriptor);
+
+    if (isFirstDecorator) {
+      // SourceFile is the one field that must NOT be inherited: a subclass is
+      // declared in its own file and ControllersCache.getCache() parses that
+      // file looking for the class BY NAME, so an inherited path would send it
+      // to the package's file where the subclass does not exist. The collapse
+      // otherwise keeps the ancestor's value, so stamp the class's own file
+      // here - this is also the only frame from which the V8 stack still points
+      // at the controller source rather than at the collapse machinery.
+      metadata.SourceFile = captureControllerSourceFile();
+      detachInheritedRoutes(metadata);
     }
 
     if (callback) {
       callback(metadata, target, propertyKey!, indexOrDescriptor!);
     }
+  };
+}
+
+/**
+ * Give this class its own copy of every route it inherited.
+ *
+ * The collapse rebuilds the Routes Map but copies its entries by reference, and
+ * `Route()` hands whatever entry it finds under a member name straight to the
+ * route decorators - all of which mutate it in place ( eg. `route.Path = path`,
+ * `route.Policies.push(...)` ). Without this, a subclass overriding a single
+ * route would rewrite the parent's path, policies and parameters: the same
+ * cross-class corruption the own-descriptor change removes one level up, on the
+ * most likely override shape of all ( eg. redeclare one route with a new path ).
+ *
+ * Only the members that are mutated in place need copying. `Parameters` values
+ * are patched field by field ( eg. `p.Type = type` in `Parameter()`, and
+ * `rParam.Name` filled from the parsed source when the controller is
+ * registered ), so the IRouteParameter objects are copied as well. `Options`
+ * and `Schema` are only ever assigned wholesale, so sharing those references
+ * with the parent is safe.
+ */
+function detachInheritedRoutes(descriptor: IControllerDescriptor) {
+  for (const [member, route] of descriptor.Routes) {
+    descriptor.Routes.set(member, {
+      ...route,
+      Policies: [...route.Policies],
+      Middlewares: [...route.Middlewares],
+      Parameters: new Map([...route.Parameters].map(([index, parameter]) => [index, { ...parameter }])),
+    });
+  }
+}
+
+function createDefaultControllerDescriptor(): IControllerDescriptor {
+  return {
+    BasePath: null,
+    Middlewares: [],
+    Policies: [],
+    Routes: new Map<string, IRoute>(),
+    // Stamped by Controller() right after the collapse, not here - see there
+    // for why it must be the class's own file. ControllersCache needs it when
+    // the controller was added through DI rather than the file scan.
+    SourceFile: undefined,
   };
 }
 
@@ -53,6 +102,10 @@ function captureControllerSourceFile(): string | undefined {
   const skipMarkers = [
     'decorators.ts',
     'decorators.js',
+    // The descriptor collapse machinery in @spinajs/di sits between this module
+    // and the controller source whenever it calls back into us, so its frames
+    // must never be mistaken for the controller's file.
+    'descriptor-inheritance',
     'tslib',
     'reflect-metadata',
     '__decorate',
@@ -341,8 +394,8 @@ export function ParamField() {
  *
  * @param schema - parameter json schema for optional validation
  */
-export function Query(schema?: any) {
-  return Route(Parameter(ParameterType.FromQuery, schema));
+export function Query(schema?: any, options?: { required?: boolean }) {
+  return Route(Parameter(ParameterType.FromQuery, schema, options));
 }
 
 /**
@@ -350,8 +403,8 @@ export function Query(schema?: any) {
  *
  * @param schema - parameter json schema for optional validation
  */
-export function Body() {
-  return Route(Parameter(ParameterType.FromBody, null));
+export function Body(options?: { required?: boolean }) {
+  return Route(Parameter(ParameterType.FromBody, null, options));
 }
 
 /**
@@ -359,8 +412,8 @@ export function Body() {
  *
  * @param schema - parameter json schema for optional validation
  */
-export function Param(schema?: any) {
-  return Route(Parameter(ParameterType.FromParams, schema));
+export function Param(schema?: any, options?: { required?: boolean }) {
+  return Route(Parameter(ParameterType.FromParams, schema, options));
 }
 
 /**
@@ -371,8 +424,8 @@ export function Param(schema?: any) {
  * @param schema - schema for validation ( optional )
  * @returns
  */
-export function Header(keyName?: string, schema?: any) {
-  return Route(Parameter(ParameterType.FromHeader, schema, { key: keyName }));
+export function Header(keyName?: string, schema?: any, options?: { required?: boolean }) {
+  return Route(Parameter(ParameterType.FromHeader, schema, { key: keyName, ...options }));
 }
 
 /**
@@ -383,6 +436,61 @@ export function Header(keyName?: string, schema?: any) {
  */
 export function File(options?: IUploadOptions) {
   return Route(Parameter(ParameterType.FromFile, null, options));
+}
+
+/**
+ * Multiple uploaded files for a form field, always returned as an array
+ * (even when a single file is sent). Semantic alias over {@link File}.
+ *
+ * @param options - upload options
+ */
+export function Files(options?: IUploadOptions) {
+  return Route(Parameter(ParameterType.FromFile, null, { ...(options ?? {}), asArray: true }));
+}
+
+/**
+ * Client IP address (as resolved by the RealIp middleware).
+ */
+export function Ip() {
+  return Route(Parameter(ParameterType.Ip, null));
+}
+
+/**
+ * Per-request correlation id (matches the `x-request-id` response header).
+ */
+export function RequestId() {
+  return Route(Parameter(ParameterType.RequestId, null));
+}
+
+/**
+ * `User-Agent` request header.
+ */
+export function UserAgent() {
+  return Route(Parameter(ParameterType.UserAgent, null));
+}
+
+/**
+ * `Referer` (or `Referrer`) request header.
+ */
+export function Referer() {
+  return Route(Parameter(ParameterType.Referer, null));
+}
+
+/**
+ * Raw request body Buffer, for webhook signature verification. Captured for
+ * JSON requests via the express.json `verify` hook.
+ */
+export function RawBody() {
+  return Route(Parameter(ParameterType.RawBody, null));
+}
+
+/**
+ * Parses an XML request body into an object.
+ *
+ * @param options - fast-xml-parser options (optional)
+ */
+export function FromXml(options?: any) {
+  return Route(Parameter(ParameterType.FromXml, null, options));
 }
 
 /**

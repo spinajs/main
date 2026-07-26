@@ -96,7 +96,6 @@
     "@spinajs/log": "file:packages\\log",
     "@spinajs/log-common": "file:packages\\log-common",
     "@spinajs/log-source-graphana-loki": "file:packages/log-source-graphana-loki",
-    "@spinajs/metrics": "file:packages\\metrics",
     "@spinajs/orm": "file:packages\\orm",
     "@spinajs/orm-api": "files:packages/templates-pdf",
     "@spinajs/orm-http": "file:packages\\orm-http",

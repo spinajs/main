@@ -3,7 +3,7 @@ import { IRouteParameter, ParameterType, IRouteCall, Request, IRoute, IUploadOpt
 import * as express from 'express';
 import formidable, { Fields, Files, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
-import { Autoinject, DI, Injectable, NewInstance } from '@spinajs/di';
+import { Autoinject, DI, Injectable, NewInstance, TypedArray } from '@spinajs/di';
 import { parse } from 'csv';
 import { fs, fsNative } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
@@ -16,6 +16,7 @@ import { EntityTooLargeException } from '../exceptions.js';
 import { BadRequest, Exception, IOFail } from '@spinajs/exceptions';
 import { FileSystem } from "@spinajs/fs";
 import { ImmediateFileUploader } from '../uploaders/ImmediateFileUploader.js';
+import qs from 'qs';
 interface FormData {
   Fields: Fields;
   Files: Files;
@@ -60,6 +61,42 @@ const parseForm = (req: express.Request, options: any) => {
     });
   });
 };
+
+/**
+ * Collects settled upload results. All uploads are attempted (we use
+ * allSettled so one failure doesn't abort the rest), but any rejection is
+ * surfaced as an IOFail instead of being silently dropped — otherwise a failed
+ * upload would just vanish from the result with the client getting a 200 and
+ * fewer (or zero) files than it sent.
+ */
+function collectUploads(results: PromiseSettledResult<IUploadedFile>[]): IUploadedFile[] {
+  const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (rejected.length > 0) {
+    const reasons = rejected.map((r) => (r.reason as Error)?.message ?? String(r.reason)).join('; ');
+    throw new IOFail(`Failed to upload ${rejected.length} file(s): ${reasons}`);
+  }
+  return (results as PromiseFulfilledResult<IUploadedFile>[]).map((r) => r.value);
+}
+
+/**
+ * Best-effort removal of the intermediate formidable temp files. Used on the
+ * error path so a failed upload/validation doesn't leak files in the upload
+ * temp dir. Swallows per-file errors (a file may already have been moved or
+ * removed by a transform middleware).
+ */
+async function cleanupTempFiles(files: IUploadedFile[]): Promise<void> {
+  await Promise.allSettled(
+    files.map(async (f) => {
+      const p = f?.OriginalFile?.filepath;
+      if (!p) return;
+      try {
+        await promises.unlink(p);
+      } catch {
+        /* already gone / moved — nothing to clean */
+      }
+    }),
+  );
+}
 
 export abstract class FromFormBase extends RouteArgs {
   public FormData: FormData;
@@ -201,35 +238,46 @@ export class FromFile extends FromFormBase {
       return DI.resolve<FileUploadMiddleware>(service, [options]);
     });
 
-    for (const m of middlewares) {
-      for (const f of uplFiles) {
-        this.Log.trace(`Executing file middleware ${m.constructor.name} for file ${f.Name}`);
-        const result = await m.beforeUpload(f, uploadOptions);
-        // merge transform result
-        Object.assign(f, result);
+    try {
+      for (const m of middlewares) {
+        for (const f of uplFiles) {
+          this.Log.trace(`Executing file middleware ${m.constructor.name} for file ${f.Name}`);
+          const result = await m.beforeUpload(f, uploadOptions);
+          // merge transform result
+          Object.assign(f, result);
+        }
       }
+
+      // copy to target fs if different than default temp fs
+      if (uploadFs && this.DefaultUploadFs.Name !== uploadFs.Name) {
+        const fu = DI.resolve<FormFileUploader>(ImmediateFileUploader, [{ sourceFs: this.DefaultUploadFs, deleteSource: true }]);
+        const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
+        uFiles = collectUploads(pResults);
+      }
+
+      // if any uploader is set in options, use it to upload files
+      // additionaly
+      if (uploadOptions.uploader) {
+        const type = (uploadOptions.uploader as any).service ?? uploadOptions.uploader;
+        const options = (uploadOptions.uploader as any).options ?? {};
+
+        const fu = DI.resolve<FormFileUploader>(type, [options]);
+        const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
+        uFiles = collectUploads(pResults);
+      }
+    } catch (err) {
+      // A failed validation / middleware / upload would otherwise leave the
+      // intermediate formidable temp files in the upload temp dir forever.
+      // Best-effort clean them up before propagating the error.
+      await cleanupTempFiles(uplFiles);
+      throw err;
     }
 
-    // copy to target fs if different than default temp fs
-    if (uploadFs && this.DefaultUploadFs.Name !== uploadFs.Name) {
-      const fu = DI.resolve<FormFileUploader>(ImmediateFileUploader, [{ sourceFs: this.DefaultUploadFs, deleteSource: true }]);
-      const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
-      uFiles = pResults.filter((r) => r.status === 'fulfilled').map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
-    }
-
-    // if any uploader is set in options, use it to upload files 
-    // additionaly
-    if (uploadOptions.uploader) {
-      const type = (uploadOptions.uploader as any).service ?? uploadOptions.uploader;
-      const options = (uploadOptions.uploader as any).options ?? {};
-
-      const fu = DI.resolve<FormFileUploader>(type, [options]);
-      const pResults = await Promise.allSettled(uplFiles.map((f) => fu.upload(f)));
-      uFiles = pResults.filter((r) => r.status === 'fulfilled').map((r: PromiseFulfilledResult<IUploadedFile>) => r.value);
-    }
-
+    // @Files() forces an array result via the asArray option; @File() infers it
+    // from the declared parameter type.
+    const asArray = param.RuntimeType.name === 'Array' || (param.Options as any)?.asArray === true;
     return Object.assign(result, {
-      Args: param.RuntimeType.name === 'Array' ? uFiles : uFiles[0],
+      Args: asArray ? uFiles : uFiles[0],
     });
   }
 }
@@ -251,15 +299,28 @@ export class FromJsonFile extends FromFile {
     }
 
     const sourceFile = file.filepath;
-    const content = await promises.readFile(sourceFile, { encoding: param.Options.Encoding ?? 'utf-8', flag: 'r' });
+    // `param.Options` is undefined when @JsonFile() is used with no options, so
+    // guard every access. Accept both `Encoding` and the IUploadOptions
+    // `encoding` casing; default to utf-8 for JSON parsing.
+    const encoding = (param.Options?.Encoding ?? param.Options?.encoding ?? 'utf-8') as BufferEncoding;
+    const content = await promises.readFile(sourceFile, { encoding, flag: 'r' });
 
-    if (param.Options.DeleteFile) {
+    if (param.Options?.DeleteFile) {
       await promises.unlink(sourceFile);
+    }
+
+    // A malformed uploaded JSON file is a client error (400), not an unhandled
+    // 500 out of the extractor.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content.toString());
+    } catch (err) {
+      throw new BadRequest(`Uploaded JSON file is invalid: ${(err as Error).message}`);
     }
 
     return {
       ...data,
-      Args: JSON.parse(content.toString()),
+      Args: parsed,
     };
   }
 }
@@ -319,7 +380,15 @@ export class FromCSV extends FromFormBase {
       this.validateCsvData(csvData, schema);
     }
 
-    const args = await Promise.all(csvData.map((x) => this.tryHydrateParam(x, param, route!)));
+    // The param describes the WHOLE csv file, but rows are hydrated one at a
+    // time. When it is declared as a typed array ( @Type(Array.ofType(X)) ) each
+    // row must be hydrated to the ELEMENT type X - feeding a single row to the
+    // whole-array TypedArray path would reject it as "must be a JSON array",
+    // and would look for an array schema where a row schema is wanted.
+    // @Body @Type(Array.ofType(X)) keeps the whole-array path, untouched.
+    const rowParam = param.RuntimeType instanceof TypedArray ? { ...param, RuntimeType: (param.RuntimeType as TypedArray<unknown>).Type } : param;
+
+    const args = await Promise.all(csvData.map((x) => this.tryHydrateParam(x, rowParam, route!)));
 
     return {
       ...data,
@@ -387,13 +456,19 @@ export class FromFormField extends FromFormBase {
       throw new BadRequest(`Form field ${param.Name} is required`);
     }
 
+    // By default a form field is delivered as an array; collapse to a single
+    // value when the route param isn't an array and only one value was sent,
+    // otherwise pass the whole values array (NOT `data`, the CallData wrapper).
+    const raw = field.length === 1 && param.RuntimeType.name !== 'Array' ? field[0] : field;
+
+    // Run through the standard hydration/validation path so a @FormField(schema)
+    // is actually enforced and the value is coerced to the declared runtime type
+    // (form fields always arrive as strings).
+    const result = await this.tryHydrateParam(raw, param, route!);
+
     return {
       ...data,
-
-      // by default form field is returned in array,
-      // we assume that if length is 1 we want single param
-      // when route param is not array
-      Args: field.length === 1 && param.RuntimeType.name !== 'Array' ? field[0] : data,
+      Args: result,
     };
   }
 }
@@ -411,18 +486,20 @@ export class FromForm extends FromFormBase {
 
   public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter, req: Request, res: express.Response, route?: IRoute) {
     const data = await super.extract(callData, _args, param, req, res, route);
-    let result = null;
 
-    // todo
-    // refactor to support arrays in object
-    // and array of objects
-    const fData = Object.fromEntries(
-      Object.entries(this.FormData.Fields).map(([key, value]) => {
-        return [key, value![0]];
-      }),
-    );
+    // Build a querystring from the raw form fields (keys keep their `[]` / `[key]`
+    // bracket syntax, values are percent-encoded) and let qs parse it. This
+    // yields arrays for `field[]` / repeated fields and nested objects for
+    // `field[key]` / `field[a][b]`, matching express.urlencoded({ extended: true }).
+    const pairs: string[] = [];
+    for (const [key, values] of Object.entries(this.FormData.Fields)) {
+      for (const v of values ?? []) {
+        pairs.push(`${key}=${encodeURIComponent(String(v))}`);
+      }
+    }
+    const fData = qs.parse(pairs.join('&'));
 
-    result = await this.tryHydrateParam(fData, param, route!);
+    const result = await this.tryHydrateParam(fData, param, route!);
 
     return {
       ...data,
