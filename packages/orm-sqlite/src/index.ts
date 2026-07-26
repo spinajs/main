@@ -10,7 +10,7 @@ import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompil
 import { LogLevel } from '@spinajs/log-common';
 export * from './compilers.js';
 
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -55,6 +55,16 @@ export class SqliteOrmDriver extends SqlDriver {
   protected Db: sqlite3.Database;
 
   /**
+   * Read-only handles. SQLite serializes writers at the file level no matter how many handles are
+   * open, so a second WRITER handle buys nothing and invites SQLITE_BUSY; extra READ handles do
+   * parallelize SELECTs. Empty for `:memory:` and anonymous temporary databases, where each handle
+   * would open its own private database, and when `Pool.Max` is 1.
+   */
+  protected ReadPool: sqlite3.Database[] = [];
+
+  private _readCursor = -1;
+
+  /**
    * sqlite3 outside shared-cache mode serializes access to the database file, which is
    * SERIALIZABLE and nothing else. Any other requested level is rejected by the base class
    * rather than silently ignored.
@@ -66,6 +76,38 @@ export class SqliteOrmDriver extends SqlDriver {
     return this.executionId;
   }
 
+  /**
+   * Picks the handle for a query. Everything that mutates, changes schema, or runs inside a
+   * transaction stays on the single writer handle — scattering a transaction's statements across
+   * handles would run them outside the transaction, and a read handle cannot see uncommitted
+   * writes made on the writer.
+   */
+  protected handleFor(queryContext: QueryContext): sqlite3.Database {
+    if (this.ReadPool.length === 0 || queryContext !== QueryContext.Select) {
+      return this.Db;
+    }
+
+    if (this.TransactionStorage.getStore()) {
+      return this.Db;
+    }
+
+    this._readCursor = (this._readCursor + 1) % this.ReadPool.length;
+    // eslint-disable-next-line security/detect-object-injection
+    return this.ReadPool[this._readCursor];
+  }
+
+  /**
+   * The writer handle plus every read handle. SQLite has no queue of waiting callers — sqlite3
+   * serializes internally per handle — so InUse and Waiting are always zero.
+   */
+  public poolMetrics(): IPoolMetrics {
+    return {
+      Size: this.Db ? this.ReadPool.length + 1 : 0,
+      InUse: 0,
+      Waiting: 0,
+    };
+  }
+
   public executeOnDb(stmt: string, params: unknown[], queryContext: QueryContext): Promise<unknown> {
     const queryParams = params ?? [];
     const self = this;
@@ -74,6 +116,8 @@ export class SqliteOrmDriver extends SqlDriver {
       throw new Error('cannot execute sqlite statement, no db connection avaible');
     }
 
+    const handle = this.handleFor(queryContext);
+
     const tName = `query-${this.getNextExecutionId()}`;
     this.Log.timeStart(`query-${tName}`);
 
@@ -81,7 +125,7 @@ export class SqliteOrmDriver extends SqlDriver {
       switch (queryContext) {
         case QueryContext.Update:
         case QueryContext.Delete:
-          this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
+          handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: unknown) {
             if (err) {
               reject(
                 new OrmException(
@@ -108,7 +152,7 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Select:
         case QueryContext.Upsert:
         case QueryContext.InsertReturning:
-          this.Db.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
+          handle.all(stmt, ...queryParams, (err: unknown, rows: unknown) => {
             if (err) {
               reject(
                 new OrmException(
@@ -143,7 +187,7 @@ export class SqliteOrmDriver extends SqlDriver {
           break;
 
         case QueryContext.Insert:
-          this.Db.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: any) {
+          handle.run(stmt, ...queryParams, function (this: sqlite3.RunResult, err: any) {
             if (err) {
               if (err.code === 'SQLITE_CONSTRAINT') {
                 reject(new ResourceDuplicated(err));
@@ -178,7 +222,7 @@ export class SqliteOrmDriver extends SqlDriver {
         case QueryContext.Schema:
         case QueryContext.Transaction:
         default:
-          this.Db.run(stmt, ...queryParams, (err: unknown, data: unknown) => {
+          handle.run(stmt, ...queryParams, (err: unknown, data: unknown) => {
             if (err) {
               reject(new OrmException(`Failed to execute query: ${stmt}, bindings: ${params ? params.join(',') : 'none'}`));
               return;
@@ -234,8 +278,10 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public async connect(): Promise<OrmDriver> {
-    return new Promise((resolve, reject) => {
-      this.Db = new sqlite3.Database(format({}, this.Options.Filename!), (err: unknown) => {
+    const filename = format({}, this.Options.Filename!);
+
+    await new Promise<void>((resolve, reject) => {
+      this.Db = new sqlite3.Database(filename, (err: unknown) => {
         if (err) {
           // Clean up the database handle if connection fails
           if (this.Db) {
@@ -249,15 +295,67 @@ export class SqliteOrmDriver extends SqlDriver {
           return;
         }
 
-        this.setState(ConnectionState.Connected);
-        resolve(this);
+        resolve();
       });
     });
+
+    await this.openReadPool(filename);
+    this.setState(ConnectionState.Connected);
+
+    return this;
+  }
+
+  /**
+   * Opens `Pool.Max - 1` read-only handles. Skipped for `:memory:` and for anonymous temporary
+   * databases, where every handle gets its own private database and a read pool would query empty
+   * files. A handle that fails to open is dropped rather than failing the connection — the driver
+   * is fully usable on the writer alone.
+   */
+  protected async openReadPool(filename: string): Promise<void> {
+    const max = this.resolvedPoolOptions().Max;
+    const normalized = filename.trim();
+
+    await this.closeReadPool();
+
+    if (max <= 1 || normalized === ':memory:' || normalized === '') {
+      return;
+    }
+
+    const handles = await Promise.all(
+      Array.from(
+        { length: max - 1 },
+        () =>
+          new Promise<sqlite3.Database | null>((resolve) => {
+            const db = new sqlite3.Database(filename, sqlite3.OPEN_READONLY, (err: unknown) => {
+              if (err) {
+                this.Log.warn(`could not open a read-only sqlite handle for ${this.Options.Name}: ${(err as Error).message}`);
+                resolve(null);
+                return;
+              }
+              resolve(db);
+            });
+          }),
+      ),
+    );
+
+    this.ReadPool = handles.filter((h): h is sqlite3.Database => h !== null);
+    this._readCursor = -1;
+  }
+
+  /** Closes every read handle. Safe to call when none are open. */
+  protected async closeReadPool(): Promise<void> {
+    const handles = this.ReadPool;
+    this.ReadPool = [];
+    this._readCursor = -1;
+
+    await Promise.all(handles.map((db) => new Promise<void>((resolve) => db.close(() => resolve()))));
   }
 
   public async disconnect(): Promise<OrmDriver> {
     this.stopHealthCheck();
     this.setState(ConnectionState.Disconnected);
+
+    await this.closeReadPool();
 
     if (!this.Db) {
       return this;

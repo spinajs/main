@@ -258,6 +258,12 @@ export interface IPoolOptions {
 
   /**
    * Maximum concurrent connections. Default 10. Overrides the deprecated PoolLimit.
+   *
+   * SQLite: writes always serialize on one handle — SQLite serializes writers at the file level,
+   * so extra writer handles only produce SQLITE_BUSY. `Max` sizes a pool of READ-ONLY handles
+   * instead ( `Max - 1` of them ) so concurrent SELECTs stop queueing behind each other. Ignored
+   * for `:memory:` and anonymous temporary databases, where each handle would open its own
+   * private database.
    */
   Max?: number;
 
