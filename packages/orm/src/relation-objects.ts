@@ -265,10 +265,17 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
 
   public attach(obj: R | null) {
     this.Value = obj;
-    this._owner.IsDirty = true;
 
-    // TODO hack for dirty props
-    (this._owner as any).__dirty_props__.push(this.Relation?.ForeignKey);
+    // `markDirty` replaces a cast that reached into the owner's private `__dirty_props__`
+    // from outside the class ( A6 ). It also sets IsDirty and, unlike the raw push, will not
+    // record the same column twice — attaching the same target twice used to leave two
+    // entries, so `toSql(true)` reported a duplicated column.
+    const foreignKey = this.Relation?.ForeignKey;
+    if (foreignKey) {
+      this._owner.markDirty(foreignKey);
+    } else {
+      this._owner.IsDirty = true;
+    }
   }
 
   public detach() {

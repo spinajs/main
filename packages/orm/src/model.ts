@@ -565,27 +565,41 @@ export class ModelBase<M = unknown> implements IModelBase {
   public attach(data: ModelBase) {
     // TODO: refactor this, to not check every time for relation
     // do this as map or smth
-    for (const [_, v] of this.ModelDescriptor!.Relations.entries()) {
-      if (v.TargetModel.name === (data as any).constructor.name) {
-        // TODO: refactor this, so we dont update foreign key
-        // instead we must use belongsTo relation on data model to update
-        //(data as any)[v.ForeignKey] = this.PrimaryKeyValue;
+    for (const [, v] of this.ModelDescriptor!.Relations.entries()) {
+      // Constructor identity, not class name. Name matching pushed the row into *every*
+      // relation whose target happened to share a name, so a model with two relations to
+      // the same target received it twice ( B26 ), and it breaks under minification ( A9 ).
+      if (v.TargetModel !== (data as any).constructor) {
+        continue;
+      }
 
-        switch (v.Type) {
-          case RelationType.One:
-            ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
-            this.__dirty_props__.push(v.ForeignKey);
-            break;
-          case RelationType.Many:
-            // attach to related model too
-            const rel = [...data.ModelDescriptor!.Relations.entries()].find((e) => e[1].ForeignKey === v.ForeignKey);
-            if (rel) {
-              (data as any)[rel[0]].Value = this;
-            }
-          case RelationType.ManyToMany:
-            ((this as any)[v.Name] as Relation<ModelBase, ModelBase, typeof ModelBase>).push(data);
-            break;
+      switch (v.Type) {
+        case RelationType.One:
+          ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
+          this.markDirty(v.ForeignKey);
+          break;
+
+        case RelationType.Many: {
+          // Set the child's back-reference to this owner, when the child declares one.
+          const rel = [...data.ModelDescriptor!.Relations.entries()].find((e) => e[1].ForeignKey === v.ForeignKey);
+          if (rel) {
+            (data as any)[rel[0]].Value = this;
+          }
+
+          ((this as any)[v.Name] as Relation<ModelBase, ModelBase, typeof ModelBase>).push(data);
+          break;
         }
+
+        case RelationType.ManyToMany:
+          // No back-reference: the link lives in the junction table, not on the target row.
+          // The `push` is written out again rather than shared with the Many case above —
+          // the two are only coincidentally similar, and the missing `break` that used to
+          // join them was one reordering away from silently breaking.
+          ((this as any)[v.Name] as Relation<ModelBase, ModelBase, typeof ModelBase>).push(data);
+          break;
+
+        default:
+          break;
       }
     }
 
