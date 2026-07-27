@@ -1647,6 +1647,19 @@ export interface ITransactionOptions {
 }
 
 /**
+ * Canonicalizes `(model constructor, primary key)` to one instance for the duration of a
+ * `save()` graph walk or a transaction. See `IdentityMap` in `identity-map.ts`.
+ */
+export interface IIdentityMap {
+  get(model: Constructor<ModelBase>, pk: unknown): ModelBase | undefined;
+  has(model: Constructor<ModelBase>, pk: unknown): boolean;
+  /** Registers `model`, returning the canonical instance for its identity. */
+  add(model: ModelBase): ModelBase;
+  readonly Size: number;
+  clear(): void;
+}
+
+/**
  * Per-transaction state carried through `AsyncLocalStorage`.
  *
  * `connection` is the driver's own connection handle type and is absent for drivers with a
@@ -1656,4 +1669,10 @@ export interface ITransactionOptions {
 export interface ITransactionContext {
   connection?: unknown;
   depth: number;
+
+  /**
+   * Identity map shared by every `save()` that runs inside this transaction. Created lazily
+   * by the first `save()` and discarded with the context, so nothing survives the commit.
+   */
+  IdentityMap?: IIdentityMap;
 }

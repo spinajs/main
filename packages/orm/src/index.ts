@@ -23,6 +23,7 @@ export * from './types.js';
 export * from './hydrators.js';
 export * from './dehydrators.js';
 export * from './snapshot.js';
+export * from './identity-map.js';
 export * from './driver.js';
 export * from './wrappers.js';
 export * from './fp.js';
