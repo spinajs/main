@@ -24,6 +24,8 @@ import { ModelWithScopeQueryScope } from './mocks/models/ModelWithScope.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators.js';
 import { ModelWithScope } from './mocks/models/ModelWithScope.js';
 import { DateTime } from 'luxon';
+import { UuidConverter } from '../src/converters.js';
+import { _update } from '../src/fp.js';
 
 chai.use(chaiAsPromised);
 chai.use(chaiSubset);
@@ -422,6 +424,41 @@ describe('General model tests', () => {
     expect(result).instanceof(Model1);
   });
 
+  it('a query-produced model records a dirty prop exactly once', async () => {
+    await db();
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([
+          {
+            Id: 1,
+          },
+        ]);
+      }),
+    );
+
+    const model = await Model1.get(1);
+
+    // start from a clean dirty state, then mutate a single column
+    model.IsDirty = false;
+    model.Bar = 'changed';
+
+    expect((model as any).__dirty_props__.length).to.eq(1);
+  });
+
+  it('refresh clears dirty state', async () => {
+    await db();
+
+    const model = new Model1({ Id: 1 });
+    const fresh = new Model1({ Id: 999, Bar: 'refreshed' });
+    sinon.stub(model, 'fresh').resolves(fresh);
+
+    await model.refresh();
+
+    expect(model.IsDirty).to.be.false;
+    expect((model as any).__dirty_props__.length).to.eq(0);
+  });
+
   it('Find mixin should work', async () => {
     // @ts-ignore
     const orm = await db();
@@ -519,6 +556,36 @@ describe('General model tests', () => {
       }),
     );
     return expect(Model1.where({ Id: 1 }).firstOrThrow(new Error('Not found'))).to.be.rejectedWith(Error, 'Not found');
+  });
+
+  it('orThrow should throw the factory-built error on empty result', async () => {
+    await db();
+
+    sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([]);
+      }),
+    );
+
+    return expect(Model1.where({ Id: 1 }).orThrow(() => new Error('boom'))).to.be.rejectedWith(Error, 'boom');
+  });
+
+  it('orThrow should resolve when the result is not empty', async () => {
+    await db();
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([{ Id: 1 }]);
+      }),
+    );
+
+    const result = await Model1.where({ Id: 1 }).orThrow(() => new Error('boom'));
+    expect(result).to.be.not.null;
   });
 
   it('Should compare two models by primary key', async () => {
@@ -953,10 +1020,13 @@ describe('General model tests', () => {
     expect(descriptor).to.include({
       Connection: 'sqlite',
       TableName: 'TestTable1',
-      PrimaryKey: 'Id',
       Name: 'Model1',
     });
-    
+
+    // PrimaryKey is a string[] since composite-key support (I2); `include` compares strictly,
+    // so it cannot carry an array and the key is asserted separately.
+    expect(descriptor.PrimaryKey).to.deep.equal(['Id']);
+
     expect(descriptor.SoftDelete).to.deep.equal({
       DeletedAt: 'DeletedAt',
     });
@@ -981,10 +1051,11 @@ describe('General model tests', () => {
     expect(descriptor).to.include({
       Connection: 'SampleConnection1',
       TableName: 'TestTable2',
-      PrimaryKey: 'Id',
       Name: 'Model2',
     });
-    
+
+    expect(descriptor.PrimaryKey).to.deep.equal(['Id']);
+
     expect(descriptor.SoftDelete).to.deep.equal({
       DeletedAt: 'DeletedAt',
     });
@@ -1068,6 +1139,54 @@ describe('General model tests', () => {
     expect(spy.calledOnce).to.be.true;
     expect(spy2.calledOnce).to.be.true;
     expect(spy3.calledOnce).to.be.true;
+  });
+
+  it('static count() should return the numeric count ( B3 )', async () => {
+    // @ts-ignore
+    await db();
+
+    sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({ expression: '', bindings: [] });
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(Promise.resolve([{ count: 5 }]));
+
+    const c = await (RawModel as any).count();
+    expect(c).to.eq(5);
+  });
+
+  it('static count() should return 0 when there are no rows ( B3 )', async () => {
+    // @ts-ignore
+    await db();
+
+    sinon.stub(FakeSelectQueryCompiler.prototype, 'compile').returns({ expression: '', bindings: [] });
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(Promise.resolve([]));
+
+    const c = await (RawModel as any).count();
+    expect(c).to.eq(0);
+  });
+
+  it('static destroy() with no arguments should throw ( B4a )', async () => {
+    // @ts-ignore
+    await db();
+
+    expect(() => (RawModel as any).destroy()).to.throw(/primary keys/);
+  });
+
+  it('static destroy(null) should throw ( B4a )', async () => {
+    // @ts-ignore
+    await db();
+
+    expect(() => (RawModel as any).destroy(null)).to.throw(/primary keys/);
+  });
+
+  it('_update fp helper should resolve a clean ( no-op ) model instead of rejecting ( B11 )', async () => {
+    // @ts-ignore
+    await db();
+
+    const model = new RawModel();
+    model.PrimaryKeyValue = 1;
+    model.IsDirty = false;
+
+    const result = await _update()(model as any);
+    expect(result).to.eq(model);
   });
 });
 
@@ -1195,6 +1314,18 @@ describe('Model discrimination tests', () => {
     expect(result[0]).instanceOf(ModelDiscBase);
     expect(result[1]).instanceOf(ModelDisc2);
     expect(result[2]).instanceOf(ModelDisc1);
+  });
+});
+
+describe('UuidConverter', () => {
+  it('fromDB returns null for null/undefined', () => {
+    expect(new UuidConverter().fromDB(null as any)).to.be.null;
+    expect(new UuidConverter().fromDB(undefined as any)).to.be.null;
+  });
+
+  it('fromDB returns canonical dashed uuid for a valid buffer ( B15b )', () => {
+    const buffer = Buffer.from('0102030405060708090a0b0c0d0e0f10', 'hex');
+    expect(new UuidConverter().fromDB(buffer)).to.eq('01020304-0506-0708-090a-0b0c0d0e0f10');
   });
 });
 

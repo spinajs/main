@@ -88,7 +88,17 @@ export class RelationResolverHydrator extends ArgHydrator {
         }
 
         const model = rel.target();
-        const by = rel.by ?? model.getModelDescriptor().PrimaryKey;
+        const descriptor = model.getModelDescriptor();
+
+        // `PrimaryKey` is `string[]` since composite keys landed. A DTO relation field carries
+        // ONE value, so it cannot address a composite key — fail with a clear message instead
+        // of building a nonsense WHERE. Same contract as @FromModel route params, which ask for
+        // `queryField`; here the escape hatch is `by` on the relation decorator.
+        if (!rel.by && (descriptor.PrimaryKey?.length ?? 0) !== 1) {
+          throw new InvalidOperation(`model ${descriptor.Name} has a composite primary key (${(descriptor.PrimaryKey ?? []).join(', ')}); set \`by\` on the relation to select a single lookup column`);
+        }
+
+        const by = rel.by ?? descriptor.PrimaryKey[0];
         const resolved = await (model as any)
           .where({ [by]: value })
           .firstOrThrow(new OrmNotFoundException(`${model.name} referenced by '${rel.field}' not found`));

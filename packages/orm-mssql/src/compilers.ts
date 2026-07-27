@@ -1,7 +1,7 @@
 import { Configuration } from '@spinajs/configuration';
 import { IContainer, Inject, NewInstance } from '@spinajs/di';
 import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler } from '@spinajs/orm-sql';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, escapeIdentifier } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 @NewInstance()
@@ -47,7 +47,7 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
       USING (SELECT * FROM ${table} WHERE ${this._builder.getColumn().map((c) => {
         return `${c} = ?`;
       })}) as source
-      ON (target.${descriptor!.PrimaryKey} = source.${descriptor!.PrimaryKey})
+      ON (target.${descriptor!.PrimaryKey[0]} = source.${descriptor!.PrimaryKey[0]})
       WHEN MATCHED
         THEN UPDATE
             SET ${columns}
@@ -146,7 +146,7 @@ export class MsSqlOrderByCompiler extends SqlOrderByQueryCompiler {
     const bindings = [] as unknown[];
 
     if (sort) {
-      stmt = ` ORDER BY \`${sort.column}\` ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`;
+      stmt = ` ORDER BY ${escapeIdentifier(sort.column)} ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`;
     }
 
     return {
@@ -235,17 +235,17 @@ export class MsSqlTableAliasCompiler implements TableAliasCompiler {
     let table = '';
 
     if (builder.Database) {
-      table += `\`${builder.Database}\`.`;
+      table += `${escapeIdentifier(builder.Database)}.`;
     }
 
     if (builder.Driver.Options.Options?.Schema) {
-      table += `\`${builder.Driver.Options.Options?.Schema}\`.`;
+      table += `${escapeIdentifier(builder.Driver.Options.Options?.Schema)}.`;
     }
 
-    table += `\`${tbl ? tbl : builder.Table}\``;
+    table += escapeIdentifier(tbl ? tbl : builder.Table);
 
     if (builder.TableAlias) {
-      table += ` as \`${builder.TableAlias}\``;
+      table += ` as ${escapeIdentifier(builder.TableAlias)}`;
     }
 
     return table;

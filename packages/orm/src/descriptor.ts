@@ -8,7 +8,8 @@ export function createDefaultModelDescriptor(): IModelDescriptor {
     Converters: new Map(),
     Columns: [],
     Connection: null,
-    PrimaryKey: '',
+    PrimaryKey: [],
+    PrimaryKeyGeneration: new Map(),
     SoftDelete: {
       DeletedAt: '',
     },
@@ -38,6 +39,9 @@ export function extractModelDescriptorInherited(targetOrForward: any): IModelDes
     return null;
   }
 
+  // Only the NEAREST own descriptor is collapsed onto a fresh default, and every stored
+  // descriptor is already collapsed, so array fields ( Columns, PrimaryKey ) gain no duplicate
+  // per inheritance level - the de-duplication the name-keyed reader needed is now structural.
   return {
     ...collapseInheritedDescriptor(target, MODEL_DESCTRIPTION_SYMBOL, createDefaultModelDescriptor),
     // Name is always this class's own, never inherited - the merger would
@@ -53,5 +57,10 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor |
     return null;
   }
 
+  // master's own-metadata-per-class read. MUST stay paired with the write side in
+  // decorators.ts `_getMetadataFrom`, which replaced the old name-keyed container —
+  // that container collapsed two classes sharing a name into one slot (A9 in the
+  // ORM analysis). Reading name-keyed here against an own-metadata write returns null
+  // for every model.
   return (Reflect.getOwnMetadata(MODEL_DESCTRIPTION_SYMBOL, target) as IModelDescriptor) ?? null;
 }

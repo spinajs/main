@@ -1,5 +1,6 @@
 import { IMappableService } from '@spinajs/di';
 import { AsyncService } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { fs, IStat, URI } from '@spinajs/fs';
 import { Config } from '@spinajs/configuration';

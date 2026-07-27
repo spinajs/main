@@ -26,9 +26,9 @@ export abstract class ExistsRelationHandler {
  * Falls back to the source descriptor's `TableName` when neither the builder nor its parent
  * has an alias set, matching the legacy behaviour of `whereExist` / `whereNotExists`.
  */
-function sourcePKeyRef(builder: WhereBuilder<any>, tDesc: { TableName: string; PrimaryKey: string }): string {
+function sourcePKeyRef(builder: WhereBuilder<any>, tDesc: { TableName: string; PrimaryKey: string[] }): string {
   const sourceAlias = builder.TableAlias ?? tDesc.TableName;
-  return `\`${sourceAlias}\`.\`${tDesc.PrimaryKey}\``;
+  return `\`${sourceAlias}\`.\`${tDesc.PrimaryKey[0]}\``;
 }
 
 @Injectable(ExistsRelationHandler)
@@ -37,13 +37,13 @@ export class OneExistsRelationHandler extends ExistsRelationHandler {
     return RelationType.One;
   }
 
-  public apply<R>(builder: WhereBuilder<any>, rel: IRelationDescriptor, relationName: string, callback?: WhereFunction<R>): undefined {
+  public apply<R>(builder: WhereBuilder<any>, rel: IRelationDescriptor, _relationName: string, callback?: WhereFunction<R>): undefined {
     builder.whereNotNull(rel.ForeignKey);
 
     // simply use right join for condition check
     if (callback) {
       // TODO: cast fix
-      (builder as any).rightJoin(rel.TargetModel, callback.bind(relationName));
+      (builder as any).rightJoin(rel.TargetModel, callback);
     }
     return undefined;
   }

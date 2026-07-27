@@ -22,6 +22,8 @@ import { ModelNested2 } from './mocks/models/ModelNested2.js';
 import { Dataset, ManyQueryRelationList, OneToManyRelationList, SingleRelation } from '../src/relation-objects.js';
 import './../src/bootstrap.js';
 import { QueryRelationModel } from './mocks/models/QueryRelationModel.js';
+import { Model, Connection, Primary, BelongsTo } from '../src/decorators.js';
+import { ModelBase } from '../src/model.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -605,6 +607,34 @@ describe('Orm relations tests', () => {
     expect(desc!.SourceModel?.name).to.eq('RelationModel1');
   });
 
+  it('BelongsTo default primary key comes from the TARGET model ( B22 )', async () => {
+    @Connection('sqlite')
+    @Model('B22TargetTable')
+    // @ts-ignore
+    class B22Target extends ModelBase {
+      @Primary()
+      public Guid: string; // PK deliberately NOT named "Id"
+    }
+
+    @Connection('sqlite')
+    @Model('B22SourceTable')
+    // @ts-ignore
+    class B22Source extends ModelBase {
+      @Primary()
+      public Id: number;
+
+      // no explicit primaryKey passed -> must default to the target's PK ("Guid"), not the source's ("Id")
+      @BelongsTo(B22Target)
+      public Target: SingleRelation<B22Target>;
+    }
+
+    const descriptor = extractModelDescriptor(B22Source);
+    const rel = descriptor!.Relations.get('Target');
+
+    expect(rel!.PrimaryKey).to.eq('Guid');
+    expect(rel!.ForeignKey).to.eq('target_id');
+  });
+
   it('HasMany relation decorator', async () => {
     const descriptor = extractModelDescriptor(RelationModel2);
 
@@ -839,6 +869,78 @@ describe('Orm relations tests', () => {
 
     expect(result.Owner instanceof SingleRelation).to.be.true;
     expect(result.Owner.Value!.Owner instanceof SingleRelation).to.be.true;
+  });
+
+  it('SingleRelation.remove should destroy the related model then detach', async () => {
+    await db();
+
+    sinon.stub(FakeSqliteDriver.prototype, '_execute_for_test').returns(
+      new Promise((res) => {
+        res([
+          {
+            Id: 1,
+            Property1: 'property1',
+            OwnerId: 2,
+            '$Owner$.Id': 2,
+            '$Owner$.Property2': 'property2',
+          },
+        ]);
+      }),
+    );
+
+    const result = await RelationModel1.where({ Id: 1 }).populate('Owner').first();
+    const rel = result.Owner as SingleRelation<RelationModel2>;
+
+    expect(rel.Value).to.be.not.null;
+
+    const destroyStub = sinon.stub(rel.Value!, 'destroy').resolves();
+    const updateStub = sinon.stub(result, 'update').resolves();
+
+    await rel.remove();
+
+    expect(destroyStub.calledOnce).to.be.true;
+    expect(updateStub.calledOnce).to.be.true;
+    expect(rel.Value).to.be.null;
+  });
+
+  it('extractModelDescriptor returns null for an undecorated class', async () => {
+    class Undecorated {}
+    expect(extractModelDescriptor(Undecorated)).to.be.null;
+  });
+
+  it('whereExist with callback on a belongsTo relation compiles without throwing', async () => {
+    await db();
+
+    const query = RelationModel1.where({ Id: 1 });
+
+    expect(() => {
+      query.whereExist('Owner', function () {
+        this.where('Property2', 'test');
+      });
+    }).to.not.throw();
+
+    expect(query.JoinStatements.length).to.be.greaterThan(0);
+  });
+
+  it('dehydrate does not crash when a One-relation property is null', async () => {
+    await db();
+
+    const model = new RelationModel1({ Id: 1 });
+    (model as any).Owner = null;
+
+    expect(() => model.dehydrateWithRelations()).to.not.throw();
+    expect(() => model.toSql()).to.not.throw();
+  });
+
+  it('DbPropertyHydrator hydrates a primary key of 0', async () => {
+    await db();
+
+    const hydrator = await DI.resolve(DbPropertyHydrator);
+    const model = new Model1();
+
+    hydrator.hydrate(model, { Id: 0 });
+
+    expect(model.Id).to.eq(0);
   });
 
   it('OneToMany relation should be dehydrated', async () => {
@@ -1180,6 +1282,40 @@ describe('Orm relations tests', () => {
     expect(result.ManyOwners.length).to.eq(2);
 
     callback.restore();
+  });
+
+  it('update() re-parents a clean child: assigns FK first, then persists it ( B20 )', async () => {
+    await db();
+
+    const owner = new Model1({ Id: 10 });
+
+    // a child previously belonging to another owner ( OwnerId=99 ), loaded clean from db
+    const child = new Model1({ Id: 5 });
+    (child as any).OwnerId = 99;
+    child.IsDirty = false;
+
+    const list = new OneToManyRelationList(
+      owner,
+      {
+        TargetModel: Model1 as any,
+        TargetModelType: Model1,
+        Name: 'Children',
+        Type: RelationType.Many,
+        SourceModel: null as any,
+        ForeignKey: 'OwnerId',
+        PrimaryKey: 'Id',
+        Recursive: false,
+      },
+      [child],
+    );
+
+    const insertStub = sinon.stub(child, 'insert').resolves({} as any);
+
+    await list.update();
+
+    // FK rewritten to the new owner AND the re-parented child was persisted
+    expect((child as any).OwnerId).to.eq(10);
+    expect(insertStub.calledOnce).to.be.true;
   });
 
   it('should find diff  in oneToMany', async () => {

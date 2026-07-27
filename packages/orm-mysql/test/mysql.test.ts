@@ -4,6 +4,10 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 
 import { ICompilerOutput, InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
+// Registers the concrete Log implementation. `Orm` types its logger as the ABSTRACT `Log`
+// from @spinajs/log-common, so without this nothing satisfies it and `Orm.createConnections`
+// dies on `this.Log.trace is not a function`. orm-sqlite's suites already do this.
+import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 
@@ -35,7 +39,10 @@ export class ConnectionConf extends FrameworkConfiguration {
           // },
         ],
 
-        rules: [{ name: '*', level: 'trace', target: 'Console' }],
+        // 'Empty', not 'Console' — the Console target above is commented out, so this rule
+        // named a target that does not exist. The old log stack ignored that; master's
+        // resolveLogTargets throws `No target matching rule *`. Keep tests silent anyway.
+        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
       db: {
         Migration: {
@@ -366,7 +373,7 @@ describe('MySql transactions', () => {
   });
 
   it('should commit transaction on success', async () => {
-    const result =  await db().Connections.get('mysql')!.transaction(async () => {
+    await db().Connections.get('mysql')!.transaction(async () => {
       await db().Connections.get('mysql')!.insert().into('user_test').values({
         Name: 'transaction_user_1',
         Password: 'password1',
@@ -379,8 +386,6 @@ describe('MySql transactions', () => {
         CreatedAt: '2024-01-01',
       });
     });
-
-    await result.commit();
 
     const users = await User.all();
     expect(users.length).to.eq(2);
@@ -435,14 +440,12 @@ describe('MySql transactions', () => {
   });
 
   it('should handle transaction with model operations', async () => {
-    const result = await db().Connections.get('mysql')!.transaction(async () => {
+    await db().Connections.get('mysql')!.transaction(async () => {
       await User.create({
         Name: 'model_transaction_user',
         Password: 'password',
       });
     });
-
-    await result.commit();
 
     const user = await User.where('Name', 'model_transaction_user').first();
     expect(user).to.not.be.undefined;
@@ -468,12 +471,12 @@ describe('MySql transactions', () => {
   });
 
   it('should handle empty transaction callback', async () => {
-    await expect((await db().Connections.get('mysql')!.transaction()).commit()).to.be.fulfilled;
+    await expect(db().Connections.get('mysql')!.transaction(async () => { })).to.be.fulfilled;
   });
 
   it('should handle multiple sequential transactions', async () => {
     // First transaction
-    const  res = await db().Connections.get('mysql')!.transaction(async () => {
+    await db().Connections.get('mysql')!.transaction(async () => {
       await db().Connections.get('mysql')!.insert().into('user_test').values({
         Name: 'seq_transaction_1',
         Password: 'password',
@@ -484,16 +487,13 @@ describe('MySql transactions', () => {
 
 
     // Second transaction
-    const res2 = await db().Connections.get('mysql')!.transaction(async () => {
+    await db().Connections.get('mysql')!.transaction(async () => {
       await db().Connections.get('mysql')!.insert().into('user_test').values({
         Name: 'seq_transaction_2',
         Password: 'password',
         CreatedAt: '2024-01-01',
       });
     });
-
-    await res.commit();
-    await res2.commit();
 
     const users = await User.all();
     expect(users.length).to.eq(2);

@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Container, Inject, NewInstance, Constructor, IContainer, DI, Injectable, isConstructor, Class } from '@spinajs/di';
-import { InvalidArgument, MethodNotImplemented, InvalidOperation } from '@spinajs/exceptions';
+import { InvalidArgument, MethodNotImplemented, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
@@ -70,82 +70,99 @@ export class Builder<T = any> implements IBuilder<T> {
     this._queryMiddlewares = DI.resolve(Array.ofType(QueryMiddleware));
   }
 
-  then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
-    return this._driver
-      .execute(this)
-      .then((result: T) => {
-        try {
-          if (this._asRaw) {
-            onfulfilled?.(result);
-            return;
-          }
+  /**
+   * Memoized result of {@link execute}. A builder executes at most once; awaiting
+   * it again resolves with the same value instead of re-running the query.
+   * Call `clone()` first if you genuinely need a second round-trip.
+   */
+  protected _executionPromise: Promise<T> | null = null;
 
-          let transformedResult = result;
+  /**
+   * The execution engine. Sends the compiled query to the driver, applies the
+   * result middlewares, hydrates models and awaits the post-hydration middlewares.
+   *
+   * Always *returns* its value — the caller's promise chain is what propagates it.
+   * Subclasses override this (not `execute()`) so that their extra work also lands
+   * inside the memo.
+   */
+  protected async _run(): Promise<T> {
+    const result = (await this._driver.execute(this)) as T;
 
-          // if we have something to transform ...
-          if (transformedResult) {
-            this._middlewares.forEach((m) => {
-              Object.assign(transformedResult, m.afterQuery(transformedResult));
-            });
-          }
+    // Snapshot the pipeline once, *after* the driver call: compiling the query is what
+    // registers the relation middlewares (the driver calls `toDB()`), so this is the first
+    // point at which the list is complete. Everything below runs against this immutable copy,
+    // so a middleware registered later cannot change the pipeline mid-flight, and — crucially —
+    // we never call `Array.prototype.reverse()` on `this._middlewares`, which mutates in place
+    // and used to flip `modelCreation` resolution order on every execution ( B8 ).
+    const middlewares = [...this._middlewares];
+    const creationOrder = [...middlewares].reverse();
 
-          if (this._model && !this._nonSelect) {
-            // TODO: rething this casting
-            const models = (transformedResult as unknown as any[]).map((r) => {
-              let model = null;
-              for (const middleware of this._middlewares.reverse()) {
-                model = middleware.modelCreation(r);
-                if (model !== null) {
-                  break;
-                }
-              }
+    if (this._asRaw) {
+      return result;
+    }
 
-              if (model === null) {
-                model = DI.resolve<ModelBase>('__orm_model_factory__', [this._model]);
-              }
+    const transformedResult = result;
 
-              model.hydrate(r);
-              model.IsDirty = false;
-              return model;
-            });
+    // if we have something to transform ...
+    if (transformedResult) {
+      middlewares.forEach((m) => {
+        Object.assign(transformedResult, m.afterQuery(transformedResult));
+      });
+    }
 
-            const afterMiddlewarePromises = this._middlewares.reduce((prev, current) => {
-              return prev.concat([current.afterHydration(models)]);
-            }, [] as Array<Promise<any[] | void>>);
-
-            if (this._middlewares.length > 0) {
-              Promise.all(afterMiddlewarePromises).then(() => {
-                try {
-                  onfulfilled?.(models as unknown as T);
-                } catch (err) {
-                  if (onrejected) {
-                    onrejected(err);
-                  } else {
-                    throw err;
-                  }
-                }
-              }, onrejected);
-            } else {
-              onfulfilled?.(models as unknown as T);
-            }
-          } else {
-            onfulfilled?.(transformedResult);
-          }
-        } catch (err) {
-          if (onrejected) {
-            onrejected(err);
-          } else {
-            throw err;
+    if (this._model && !this._nonSelect) {
+      // TODO: rething this casting
+      const models = (transformedResult as unknown as any[]).map((r) => {
+        let model = null;
+        for (const middleware of creationOrder) {
+          model = middleware.modelCreation(r);
+          if (model !== null) {
+            break;
           }
         }
-      })
-      .catch((err) => {
-        if (onrejected) {
-          onrejected(err);
-        } else {
-          throw err;
+
+        if (model === null) {
+          model = DI.resolve<ModelBase>('__orm_model_factory__', [this._model]);
         }
-      }) as Promise<any>;
+
+        model.hydrate(r);
+        model.IsDirty = false;
+        return model;
+      });
+
+      if (middlewares.length > 0) {
+        await Promise.all(middlewares.map((m) => m.afterHydration(models)));
+      }
+
+      return models as unknown as T;
+    }
+
+    return transformedResult;
+  }
+
+  /**
+   * Executes the query. The single entry point for execution — `then()` delegates here.
+   * The underlying work runs exactly once per builder instance; subsequent calls resolve
+   * with the memoized result.
+   */
+  public execute(): Promise<T> {
+    if (!this._executionPromise) {
+      this._executionPromise = this._run();
+    }
+
+    return this._executionPromise;
+  }
+
+  then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null): PromiseLike<TResult1 | TResult2> {
+    return this.execute().then(onfulfilled, onrejected);
+  }
+
+  public catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null): Promise<T | TResult> {
+    return this.execute().catch(onrejected);
+  }
+
+  public finally(onfinally?: (() => void) | null): Promise<T> {
+    return this.execute().finally(onfinally);
   }
 
   public middleware(middleware: IBuilderMiddleware<T>) {
@@ -302,7 +319,7 @@ export class LimitBuilder<T> implements ILimitBuilder<T> {
     const result = (await this) as any;
     if (result === undefined || (Array.isArray(result) && result.length === 0)) {
       if (typeof error === 'function') {
-        error = error(
+        throw error(
           (this as unknown as SelectQueryBuilder).toDB()
         );
       } else
@@ -334,13 +351,10 @@ export class LimitBuilder<T> implements ILimitBuilder<T> {
 
 @NewInstance()
 export class OrderByBuilder implements IOrderByBuilder {
-  protected _sort: ISort;
+  protected _sorts: ISort[];
 
   constructor() {
-    this._sort = {
-      column: '',
-      order: SortOrder.ASC,
-    };
+    this._sorts = [];
   }
 
   public order(column: string, direction: SortOrder) {
@@ -357,10 +371,10 @@ export class OrderByBuilder implements IOrderByBuilder {
       return this;
     }
 
-    this._sort = {
+    this._sorts.push({
       column,
       order: direction,
-    };
+    });
     return this;
   }
 
@@ -373,10 +387,10 @@ export class OrderByBuilder implements IOrderByBuilder {
       return this;
     }
 
-    this._sort = {
+    this._sorts.push({
       column,
       order: SortOrder.ASC,
-    };
+    });
     return this;
   }
 
@@ -389,15 +403,27 @@ export class OrderByBuilder implements IOrderByBuilder {
       return this;
     }
 
-    this._sort = {
+    this._sorts.push({
       column,
       order: SortOrder.DESC,
-    };
+    });
     return this;
   }
 
+  /**
+   * Returns the FIRST sort entry (or null) for backward compat with dialect
+   * packages that emit a single ORDER BY column. Use getSorts() for all entries.
+   */
   public getSort() {
-    return this._sort.column.trim() !== '' ? this._sort : null;
+    const sort = this._sorts.find((s) => s.column.trim() !== '');
+    return sort ?? null;
+  }
+
+  /**
+   * Returns all sort entries (multi-column ORDER BY), skipping empty columns.
+   */
+  public getSorts(): ISort[] {
+    return this._sorts.filter((s) => s.column.trim() !== '');
   }
 }
 
@@ -694,7 +720,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   public clone<P extends IWhereBuilder<any>>(_parent: P): WhereBuilder<T> {
     // TODO: fix this cast
     const builder = new WhereBuilder<T>(_parent as any);
-    builder._statements = this._statements.map((s) => s.clone(builder));
+    builder._statements = this._statements.map((s) => {
+      const cloned = s.clone(builder);
+      // preserve the per-statement boolean connector (clone() rebuilds the
+      // statement from scratch and would otherwise reset it to the AND default)
+      cloned.Boolean = s.Boolean;
+      return cloned;
+    });
     builder._boolean = this._boolean;
     builder._model = this._model;
     builder._tableAlias = this.TableAlias;
@@ -702,6 +734,20 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return builder;
   }
 
+
+  /**
+   * Pushes a statement onto this builder, stamping it with the currently pending
+   * boolean connector (set by {@link orWhere}/{@link andWhere}). The pending
+   * connector applies to the NEXT pushed statement only and resets to AND
+   * afterwards, so `where(a).where(b).orWhere(c).where(d)` compiles to
+   * `a AND b OR c AND d` rather than rewriting the whole clause.
+   */
+  protected pushStatement(statement: IQueryStatement): this {
+    statement.Boolean = this._boolean;
+    this._statements.push(statement);
+    this._boolean = WhereBoolean.AND;
+    return this;
+  }
 
   public when(condition: boolean, callback?: WhereFunction<T>, callbackElse?: WhereFunction<T>): this {
     if (condition) {
@@ -751,7 +797,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     }
 
     if (column instanceof RawQuery) {
-      this.Statements.push(this._container.resolve<RawQueryStatement>(RawQueryStatement, [column.Query, column.Bindings, self.TableAlias]));
+      this.pushStatement(this._container.resolve<RawQueryStatement>(RawQueryStatement, [column.Query, column.Bindings, self.TableAlias]));
       return this;
     }
 
@@ -760,12 +806,12 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       const builder = new WhereBuilder(this);
       column.call(builder);
 
-      self.Statements.push(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self.TableAlias]));
+      self.pushStatement(this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [builder, self.TableAlias]));
       return this;
     }
 
     if (column instanceof Lazy) {
-      this.Statements.push(this._container.resolve<LazyQueryStatement>(LazyQueryStatement, [column, this]));
+      this.pushStatement(this._container.resolve<LazyQueryStatement>(LazyQueryStatement, [column, this]));
       return this;
     }
 
@@ -803,7 +849,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         return this.whereNull(c);
       }
 
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, this]));
+      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, SqlOperator.EQ, sVal, this]));
 
       return self;
     }
@@ -828,14 +874,18 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       }
 
       if (sVal === null) {
-        return this.whereNull(c);
+        const op = String(o).toLowerCase();
+        // where(col, '=', null) => IS NULL ; where(col, '!=' / '<>', null) => IS NOT NULL
+        if (op === SqlOperator.EQ) {
+          return this.whereNull(c);
+        }
+        if (op === SqlOperator.NOT || op === SqlOperator.NOT_2) {
+          return this.whereNotNull(c);
+        }
+        throw new InvalidArgument(`operator ${o} cannot be used with null value ( only =, !=, <> are allowed )`);
       }
 
-      if (sVal === null) {
-        return o === SqlOperator.NOT_NULL ? this.whereNotNull(c) : this.whereNull(c);
-      }
-
-      self._statements.push(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
+      self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
 
       return this;
     }
@@ -857,9 +907,9 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     for (const key of Object.keys(obj).filter((x) => obj[x] !== undefined)) {
       const val = obj[key];
       if (Array.isArray(val)) {
-        if (val.length !== 0) {
-          this.whereIn(key, val);
-        }
+        // empty array => SQL `IN ()` semantics => match nothing (FALSE),
+        // never "no condition" (which would match everything)
+        this.whereIn(key, val);
       } else if (val === null) {
         this.whereNull(key);
       } else this.andWhere(key, SqlOperator.EQ, val);
@@ -869,13 +919,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this]));
+    this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NOT_NULL, null, this]));
 
     return this;
   }
 
   public whereNull(column: string): this {
-    this._statements.push(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this]));
+    this.pushStatement(this._container.resolve<WhereStatement>(WhereStatement, [column, SqlOperator.NULL, null, this]));
     return this;
   }
 
@@ -884,12 +934,18 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, false, this]));
+    // `IN ()` matches nothing in SQL; compile an empty set to FALSE rather than
+    // emitting no condition (which would silently match every row).
+    if (Array.isArray(val) && val.length === 0) {
+      this.where(false);
+      return this;
+    }
+    this.pushStatement(this._container.resolve<InStatement>(InStatement, [column, val, false, this]));
     return this;
   }
 
   public whereNotIn(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InStatement>(InStatement, [column, val, true, this]));
+    this.pushStatement(this._container.resolve<InStatement>(InStatement, [column, val, true, this]));
     return this;
   }
 
@@ -915,7 +971,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
    */
   protected buildExistsClause<R>(query: ISelectQueryBuilder | string, negated: boolean, callback?: WhereFunction<R>): this {
     if (typeof query !== 'string') {
-      this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, negated]));
+      this.pushStatement(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [query, negated]));
       return this;
     }
 
@@ -932,29 +988,29 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
     const subquery = handler.apply(this, rel, query, callback);
     if (subquery) {
-      this._statements.push(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [subquery, negated]));
+      this.pushStatement(this._container.resolve<ExistsQueryStatement>(ExistsQueryStatement, [subquery, negated]));
     }
 
     return this;
   }
 
   public whereBetween(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, false, this.TableAlias]));
+    this.pushStatement(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, false, this.TableAlias]));
     return this;
   }
 
   public whereNotBetween(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, true, this.TableAlias]));
+    this.pushStatement(this._container.resolve<BetweenStatement>(BetweenStatement, [column, val, true, this.TableAlias]));
     return this;
   }
 
   public whereInSet(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this.TableAlias]));
+    this.pushStatement(this._container.resolve<InSetStatement>(InSetStatement, [column, val, false, this.TableAlias]));
     return this;
   }
 
   public whereNotInSet(column: string, val: any[]): this {
-    this._statements.push(this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this.TableAlias]));
+    this.pushStatement(this._container.resolve<InSetStatement>(InSetStatement, [column, val, true, this.TableAlias]));
     return this;
   }
 
@@ -981,7 +1037,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
    * order by query props
    */
-  protected _sort: ISort;
+  protected _sorts: ISort[];
 
   /**
    * where query props
@@ -1028,10 +1084,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     this._boolean = WhereBoolean.AND;
 
-    this._sort = {
-      column: '',
-      order: SortOrder.NONE,
-    };
+    this._sorts = [];
 
     this._first = false;
     this._limit = {
@@ -1078,12 +1131,21 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     // Clone statements with mapped WhereBuilder references
     builder._statements = this._statements.map(c => c.clone(builder));
 
+    // Clone group-by statements (previously dropped, silently losing GROUP BY
+    // on a cloned query — eg. orm-api count-pagination clones the builder).
+    builder._groupStatements = this._groupStatements.map(c => c.clone(builder));
+
+    // Carry relations and result middlewares over. These hold live objects and
+    // are shared the same way mergeRelations()/mergeBuilder() already share them.
+    builder._relations = [...this._relations];
+    builder._middlewares = [...this._middlewares];
+
     /**
      * ------------------------------------------------------------------
      */
 
     builder._limit = { ...this._limit };
-    builder._sort = { ...this._sort };
+    builder._sorts = this._sorts.map((s) => ({ ...s }));
     builder._boolean = this._boolean;
     builder._distinct = this._distinct;
     builder._table = this._table;
@@ -1209,10 +1271,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._columns = this._columns.concat(builder._columns);
     this._cteStatement = builder._cteStatement;
     this._distinct = builder._distinct;
-    this._sort = {
-      column: builder._sort.column !== '' ? builder._sort.column : this._sort.column,
-      order: builder._sort.order !== '' ? builder._sort.order : this._sort.order,
-    };
+    // Fold the merged builder's sorts into this query's sorts (multi-column
+    // ORDER BY). If the merged builder has no sorts, this keeps our own.
+    this._sorts = this._sorts.concat(builder._sorts.map((s) => ({ ...s })));
     // `includeStatements: false` is used by JoinStatement so that a join
     // callback's WHERE conditions are NOT folded into the main query's WHERE
     // (which silently turns a LEFT JOIN into an inner filter). The join emits
@@ -1232,6 +1293,25 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const stms = callback ? builder._statements.filter(callback) : builder._statements;
     this._joinStatements = this._joinStatements.concat(builder._joinStatements);
     this._statements = this._statements.concat(stms);
+  }
+
+  /**
+   * Includes soft-deleted rows in the result set by removing the default
+   * `DeletedAt IS NULL` filter added by createQuery for @SoftDelete models.
+   */
+  public withDeleted(): this {
+    const descriptor = extractModelDescriptor(this._model);
+    const deletedAt = descriptor?.SoftDelete?.DeletedAt;
+
+    if (!deletedAt) {
+      return this;
+    }
+
+    this._statements = this._statements.filter((s) => {
+      return !(s instanceof WhereStatement && s.Column === deletedAt && s.Operator === SqlOperator.NULL);
+    });
+
+    return this;
   }
 
   public min(column: string, as?: string): this {
@@ -1288,45 +1368,34 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public async all(): Promise<T> {
-    return await this;
+    return await this.execute();
   }
 
   public async resultExists(): Promise<boolean> {
-    return this.then((res) => {
-      if (Array.isArray(res)) {
-        return res.length > 0;
-      }
+    const res = await this.execute();
 
-      return res !== undefined && res !== null;
-    });
+    if (Array.isArray(res)) {
+      return res.length > 0;
+    }
+
+    return res !== undefined && res !== null;
   }
 
-  public then<TResult1 = T, TResult2 = never>(onfulfilled?: (value: T) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
+  /**
+   * Overrides the engine rather than `execute()` so that the query middlewares and the
+   * `takeFirst()` unwrapping happen *inside* the memo: `beforeQueryExecution` now fires
+   * once per builder instead of once per await.
+   */
+  protected async _run(): Promise<T> {
     this._queryMiddlewares.forEach((x) => x.beforeQueryExecution(this));
 
-    return super.then((result: T) => {
-      if (this._first) {
-        if (Array.isArray(result)) {
-          if (result.length !== 0) {
-            return onfulfilled?.(result[0]) as TResult1 | PromiseLike<TResult1>;
-          } else {
-            try {
-              return onfulfilled?.(undefined as unknown as T) as TResult1 | PromiseLike<TResult1>;
-            } catch (err) {
-              onrejected?.(err);
-            }
-          }
-        } else {
-          return onfulfilled?.(result) as TResult1 | PromiseLike<TResult1>;
-        }
-      } else {
-        return onfulfilled?.(result) as TResult1 | PromiseLike<TResult1>;
-      }
-    }, onrejected) as PromiseLike<TResult1 | TResult2>;
-  }
+    const result = await super._run();
 
-  public async execute(): Promise<T> {
-    return (await this) as any;
+    if (this._first && Array.isArray(result)) {
+      return (result.length !== 0 ? result[0] : undefined) as T;
+    }
+
+    return result;
   }
 }
 
@@ -1412,7 +1481,11 @@ export class OnDuplicateQueryBuilder {
     return this;
   }
 
-  public then<TResult1, TResult2 = never>(onfulfilled?: (value: any) => TResult1 | PromiseLike<TResult1>, onrejected?: (reason: any) => TResult2 | PromiseLike<TResult2>): PromiseLike<TResult1 | TResult2> {
+  public execute(): Promise<any> {
+    return this._parent.execute();
+  }
+
+  public then<TResult1, TResult2 = never>(onfulfilled?: ((value: any) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null): PromiseLike<TResult1 | TResult2> {
     return this._parent.then(onfulfilled, onrejected);
   }
 
@@ -1500,6 +1573,11 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     return this._replace;
   }
 
+  /** Columns requested via {@link returning}. Empty when no RETURNING clause was asked for. */
+  public get Returning() {
+    return this._returning ?? [];
+  }
+
   constructor(container: Container, driver: OrmDriver, model: Constructor<any>) {
     super(container, driver, model);
 
@@ -1525,8 +1603,23 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     return this;
   }
 
+  /**
+   * Asks the dialect to echo the given columns of every inserted row back.
+   *
+   * @throws NotSupported on drivers whose `supportedFeatures().insertReturning` is false —
+   *         silently doing nothing is how this API was a no-op on MySQL and MSSQL for years.
+   */
   public returning(columns: string[]) {
+    if (!this.Driver.supportedFeatures().insertReturning) {
+      throw new NotSupported(`driver ${this.Driver.Options.Driver} does not support RETURNING on INSERT`);
+    }
+
     this._returning = columns;
+
+    // onDuplicate() sets Upsert unconditionally and wins if it runs afterwards.
+    if (this.QueryContext === QueryContext.Insert) {
+      this.QueryContext = QueryContext.InsertReturning;
+    }
 
     return this;
   }
@@ -1724,6 +1817,13 @@ export class ColumnQueryBuilder {
   public Type: ColumnType;
   public Args: any[];
 
+  /**
+   * When false the column compiler must not emit an inline PRIMARY KEY; the table compiler
+   * emits a table-level constraint instead. Dialects that cannot express a composite key
+   * inline ( SQLite ) clear this. Defaults to true.
+   */
+  public InlinePrimaryKey: boolean;
+
   constructor(protected container: IContainer, name: string, type: ColumnType, ...args: any[]) {
     this.Name = name;
     this.Type = type;
@@ -1735,6 +1835,7 @@ export class ColumnQueryBuilder {
     this.Comment = '';
     this.Unique = false;
     this.Unsigned = false;
+    this.InlinePrimaryKey = true;
 
     this.Args.push(...args);
   }
@@ -1987,10 +2088,11 @@ export class TableQueryBuilder extends QueryBuilder {
   public string: (name: string, length?: number) => ColumnQueryBuilder;
 
   /**
-   * Alias for string(name, 36 )
+   * Alias for binary(name, 16 ) - uuids are stored as 16-byte BINARY to match
+   * the UuidConverter ( which writes a dashed uuid as a 16-byte buffer ).
    */
   public uuid(name: string) {
-    return this.string(name, 36);
+    return this.binary(name, 16);
   }
 
   public float: (name: string, precision?: number, scale?: number) => ColumnQueryBuilder;
@@ -2478,6 +2580,17 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
 
   qr.middleware(new DiscriminationMapMiddleware(dsc));
   qr.setTable(dsc.TableName);
+
+  // Soft-delete read filtering: by default exclude rows that have been soft
+  // deleted (DeletedAt IS NOT NULL). SelectQueryBuilder.withDeleted() removes
+  // this default statement to include soft-deleted rows again.
+  // Guarded on the DeletedAt column actually being present in the model's
+  // reflected columns — a filter on a column the schema does not expose is
+  // impossible anyway, and the guard keeps queries working when table info
+  // has not (yet) surfaced the column.
+  if (qr instanceof SelectQueryBuilder && dsc.SoftDelete?.DeletedAt && dsc.Columns?.some((c) => c.Name === dsc.SoftDelete.DeletedAt)) {
+    (qr as unknown as SelectQueryBuilder).whereNull(dsc.SoftDelete.DeletedAt);
+  }
 
   if (driver.Options.Database) {
     qr.database(driver.Options.Database);

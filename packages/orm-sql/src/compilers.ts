@@ -3,10 +3,38 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler, LazyQueryStatement, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import _ from 'lodash';
+
+/**
+ * Central identifier escaping for the MySQL-flavoured dialect.
+ *
+ * Wraps a table/column/alias/schema name in backticks and escapes any embedded
+ * backtick by doubling it (the MySQL rule). For a normal identifier (no special
+ * characters) the output is byte-identical to the previous raw interpolation
+ * (`` `${name}` ``), so existing generated SQL is unchanged; only names that
+ * actually contain a backtick produce different — and now safe — output.
+ *
+ * Dialects that quote differently (e.g. `[name]` with `]`-doubling) override
+ * this by shadowing the relevant compiler/statement, the same way
+ * {@link SqlTableAliasCompiler} is already overridden per driver.
+ */
+export function escapeIdentifier(name: string): string {
+  return '`' + String(name).replace(/`/g, '``') + '`';
+}
+
+/**
+ * Escapes a DDL string *literal* (SET/ENUM member, COMMENT, CHARACTER SET,
+ * COLLATE, string DEFAULT). These are single-quoted string literals, NOT
+ * identifiers, so the correct escaping is doubling embedded single quotes.
+ * Returns the value WITHOUT the surrounding quotes so callers keep their exact
+ * quoting; for a value with no quote the output is byte-identical.
+ */
+export function escapeStringLiteral(value: string): string {
+  return String(value).replace(/'/g, "''");
+}
 
 @NewInstance()
 export class SqlTableAliasCompiler implements TableAliasCompiler {
@@ -14,13 +42,13 @@ export class SqlTableAliasCompiler implements TableAliasCompiler {
     let table = '';
 
     if (builder.Database) {
-      table += `\`${builder.Database}\`.`;
+      table += `${escapeIdentifier(builder.Database)}.`;
     }
 
-    table += `\`${tbl ? tbl : builder.Table}\``;
+    table += escapeIdentifier(tbl ? tbl : builder.Table);
 
     if (builder.TableAlias) {
-      table += ` as \`${builder.TableAlias}\``;
+      table += ` as ${escapeIdentifier(builder.TableAlias)}`;
     }
 
     return table;
@@ -32,7 +60,7 @@ export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQue
   constructor(protected _builder: T, protected _container: IContainer) {
     super();
 
-    if (_builder === null && _builder === undefined) {
+    if (_builder === null || _builder === undefined) {
       throw new InvalidArgument('builder cannot be null or undefined');
     }
   }
@@ -66,12 +94,12 @@ export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
   }
 
   public compile(): ICompilerOutput {
-    const sort = this._builder.getSort();
+    const sorts = this._builder.getSorts();
     let stmt = '';
     const bindings: string[] = [];
 
-    if (sort) {
-      stmt = ` ORDER BY \`${sort.column}\` ${sort.order}`;
+    if (sorts.length > 0) {
+      stmt = ` ORDER BY ${sorts.map((s) => `${escapeIdentifier(s.column)} ${s.order}`).join(', ')}`;
     }
 
     return {
@@ -111,7 +139,7 @@ export class SqlForeignKeyQueryCompiler implements ForeignKeyQueryCompiler {
   }
 
   public compile(): ICompilerOutput {
-    const exprr = `FOREIGN KEY (${this._builder.ForeignKeyField}) REFERENCES ${this._builder.Table}(${this._builder.PrimaryKey}) ON DELETE ${this._builder.OnDeleteAction} ON UPDATE ${this._builder.OnUpdateAction}`;
+    const exprr = `FOREIGN KEY (${escapeIdentifier(this._builder.ForeignKeyField)}) REFERENCES ${escapeIdentifier(this._builder.Table)}(${escapeIdentifier(this._builder.PrimaryKey)}) ON DELETE ${this._builder.OnDeleteAction} ON UPDATE ${this._builder.OnUpdateAction}`;
 
     return {
       bindings: [],
@@ -194,52 +222,78 @@ export class SqlColumnsCompiler implements IColumnsCompiler {
 @NewInstance()
 export class SqlWhereCompiler implements IWhereCompiler {
   public where(builder: IWhereBuilder<unknown>) {
-    const where: string[] = [];
     const bindings: any[] = [];
 
-    const lazyBindings = builder.Statements.filter((x: WhereStatement) => x instanceof LazyQueryStatement).map((x : LazyQueryStatement) => x.build());
-    builder.Statements.filter((x: WhereStatement) => !x.IsAggregate).filter(x => !(x instanceof LazyQueryStatement))
-      .map((x) => {
-        return x.build();
-      })
-      .concat(lazyBindings)
-      .forEach((r) => {
-        where.push(...r.Statements);
+    // Lazy statements must be built FIRST: their build() may have side effects
+    // that append further statements to the builder (e.g. a correlated EXISTS
+    // sub-query registers its correlation predicate lazily). Building them now and
+    // reusing the result guarantees the side effect runs exactly once, and lets the
+    // non-lazy pass below pick up any statements the lazy build appended. The lazy
+    // results are then emitted after the non-lazy ones (preserving legacy ordering).
+    const lazyEntries = (builder.Statements.filter((x) => x instanceof LazyQueryStatement) as unknown as LazyQueryStatement[]).map((stmt) => ({
+      boolean: (stmt as unknown as IQueryStatement).Boolean,
+      result: stmt.build(),
+    }));
 
-        if (Array.isArray(r.Bindings)) {
-          bindings.push(...r.Bindings);
-        }
-      });
+    const nonLazyEntries = builder.Statements
+      .filter((x: WhereStatement) => !x.IsAggregate)
+      .filter((x) => !(x instanceof LazyQueryStatement))
+      .map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
 
-  
     return {
       bindings,
-      expression: where.join(` ${builder.Op.toUpperCase()} `),
+      expression: joinBuiltStatements(nonLazyEntries.concat(lazyEntries), bindings),
     };
   }
+}
+
+interface IBuiltStatement {
+  boolean: WhereBoolean;
+  result: IQueryStatementResult;
+}
+
+/**
+ * Joins a list of already-built where/having statements into a single SQL
+ * expression, prefixing every statement after the first with its OWN boolean
+ * connector. This yields correct mixed grouping such as
+ * `a AND b OR c` for `where(a).where(b).orWhere(c)`, instead of applying a single
+ * builder-level connector uniformly. Bindings are collected in statement order.
+ */
+function joinBuiltStatements(statements: IBuiltStatement[], bindings: any[]): string {
+  const parts: string[] = [];
+
+  statements.forEach(({ boolean, result }) => {
+    if (Array.isArray(result.Bindings)) {
+      bindings.push(...result.Bindings);
+    }
+
+    // A single statement always builds to one fragment; guard multi-fragment
+    // statements by joining them with AND (they carry no per-fragment connector).
+    const fragment = result.Statements.join(' AND ');
+    if (fragment === '') {
+      return;
+    }
+
+    if (parts.length === 0) {
+      parts.push(fragment);
+    } else {
+      parts.push(`${(boolean ?? WhereBoolean.AND).toUpperCase()} ${fragment}`);
+    }
+  });
+
+  return parts.join(' ');
 }
 
 @NewInstance()
 export class SqlHavingCompiler implements IHavingCompiler {
   public having(builder: IWhereBuilder<unknown>) {
-    const where: string[] = [];
     const bindings: any[] = [];
 
-    builder.Statements.filter((x: WhereStatement) => x.IsAggregate)
-      .map((x) => {
-        return x.build();
-      })
-      .forEach((r) => {
-        where.push(...r.Statements);
-
-        if (Array.isArray(r.Bindings)) {
-          bindings.push(...r.Bindings);
-        }
-      });
+    const aggregates = builder.Statements.filter((x: WhereStatement) => x.IsAggregate).map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
 
     return {
       bindings,
-      expression: where.join(` ${builder.Op.toUpperCase()} `),
+      expression: joinBuiltStatements(aggregates, bindings),
     };
   }
 }
@@ -366,7 +420,7 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
     for (const prop of Object.keys(this._builder.Value)) {
       const v = (this._builder.Value as never)[`${prop}`] as any;
 
-      exprr.push(`\`${prop}\` = ?`);
+      exprr.push(`${escapeIdentifier(prop)} = ?`);
 
       bindings = bindings.concat(this.tryConvertValue(v));
     }
@@ -436,22 +490,22 @@ export class SqlOnDuplicateQueryCompiler implements OnDuplicateQueryCompiler {
       .getColumnsToUpdate()
       .map((c: string | RawQuery): string => {
         if (_.isString(c)) {
-          return `\`${c}\` = ?`;
+          // Reference the row being inserted via VALUES(col) instead of
+          // re-binding one specific row's value. Binding `parent.Values[0]`
+          // applied the FIRST row's values to every conflicting row in a
+          // multi row upsert.
+          return `${escapeIdentifier(c)} = VALUES(${escapeIdentifier(c)})`;
         } else {
           return c.Query;
         }
       })
       .join(',');
 
-    const parent = this._builder.getParent() as InsertQueryBuilder;
-
-    const valueMap = parent.getColumns().map((c: ColumnStatement) => c.Column);
-    const bindings = this._builder.getColumnsToUpdate().map((c: string | RawQuery): any => {
-      if (_.isString(c)) {
-        return parent.Values[0][valueMap.indexOf(c)];
-      } else {
-        return c.Bindings;
-      }
+    // Only RawQuery update columns contribute bindings - VALUES(col) needs
+    // none. flatMap keeps raw bindings flat; returning the array itself
+    // nested them and shifted every following placeholder.
+    const bindings = _.flatMap(this._builder.getColumnsToUpdate(), (c: string | RawQuery): any[] => {
+      return _.isString(c) ? [] : c.Bindings ?? [];
     });
 
     return {
@@ -474,7 +528,7 @@ export class SqlIndexQueryCompiler extends IndexQueryCompiler {
   public compile(): ICompilerOutput {
     return {
       bindings: [],
-      expression: `CREATE ${this._builder.Unique ? 'UNIQUE ' : ''}INDEX \`${this._builder.Name}\` ON \`${this._builder.Table}\` (${this._builder.Columns.map((c) => `\`${c}\``).join(',')});`,
+      expression: `CREATE ${this._builder.Unique ? 'UNIQUE ' : ''}INDEX ${escapeIdentifier(this._builder.Name)} ON ${escapeIdentifier(this._builder.Table)} (${this._builder.Columns.map((c) => escapeIdentifier(c)).join(',')});`,
     };
   }
 }
@@ -511,46 +565,71 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
     };
   }
 
+  /**
+   * Indices of the columns that take part in this INSERT.
+   *
+   * An auto increment primary key is omitted only when NO row supplies a value
+   * for it. If at least one row supplies one the column stays, and the rows
+   * that don't emit NULL so the engine assigns the value.
+   *
+   * Both {@link columns} and {@link values} MUST derive their shape from this
+   * single decision - deciding per-row in one place and per-batch in the other
+   * produced value tuples whose arity did not match the column list.
+   */
+  protected keptColumnIndices(): number[] {
+    return this._builder
+      .getColumns()
+      .map((c, i) => ({ c, i }))
+      .filter(({ c, i }) => {
+        const descriptor = (c as ColumnStatement).Descriptor;
+        if (descriptor && descriptor.AutoIncrement && descriptor.PrimaryKey) {
+          return this._builder.Values.some((x) => x[i] !== undefined && x[i] !== null);
+        }
+        return true;
+      })
+      .map(({ i }) => i);
+  }
+
   protected values() {
     if (this._builder.Values.length === 0) {
       throw new InvalidArgument('values count invalid');
     }
 
+    const kept = this.keptColumnIndices();
     const bindings: any[] = [];
     let data = 'VALUES ';
 
     data += this._builder.Values.map((val) => {
-      const toInsert = val
-        .filter((v, i) => {
-          // eslint-disable-next-line security/detect-object-injection
-          const descriptor = (this._builder.getColumns()[i] as ColumnStatement).Descriptor;
-          if (descriptor) {
-            if (!descriptor.Nullable && (v === null || v === undefined) && !descriptor.AutoIncrement) {
-              throw new InvalidArgument(`value column ${descriptor.Name} cannot be null`);
-            }
+      const toInsert = kept.map((i) => {
+        // eslint-disable-next-line security/detect-object-injection
+        const v = val[i];
+        // eslint-disable-next-line security/detect-object-injection
+        const descriptor = (this._builder.getColumns()[i] as ColumnStatement).Descriptor;
 
-            if (descriptor.AutoIncrement && descriptor.PrimaryKey) {
-              if (v !== undefined && v !== null) {
-                return true;
-              }
-              return false;
-            }
+        if (descriptor) {
+          if (!descriptor.Nullable && (v === null || v === undefined) && !descriptor.AutoIncrement) {
+            throw new InvalidArgument(`value column ${descriptor.Name} cannot be null`);
           }
 
-          return true;
-        })
-        .map((v) => {
-          if (v === undefined) {
-            return 'DEFAULT';
-          }
-
-          if (v === null) {
+          // Auto increment PK this row does not supply. NULL (not DEFAULT) lets
+          // the engine assign it and is portable - sqlite does not accept the
+          // DEFAULT keyword inside a VALUES tuple.
+          if (descriptor.AutoIncrement && descriptor.PrimaryKey && (v === undefined || v === null)) {
             return 'NULL';
           }
+        }
 
-          bindings.push(this.tryConvertValue(v));
-          return '?';
-        });
+        if (v === undefined) {
+          return 'DEFAULT';
+        }
+
+        if (v === null) {
+          return 'NULL';
+        }
+
+        bindings.push(this.tryConvertValue(v));
+        return '?';
+      });
       return `(` + toInsert.join(',') + ')';
     }).join(',');
 
@@ -561,23 +640,15 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
   }
 
   protected columns() {
-    const columns = this._builder
-      .getColumns()
-      .filter((c, i) => {
-        const descriptor = (c as ColumnStatement).Descriptor;
-        if (descriptor && descriptor.AutoIncrement && descriptor.PrimaryKey) {
-          if (this._builder.Values.every((x) => x[i] !== undefined && x[i] !== null)) {
-            return true;
-          }
-          return false;
-        }
-        return true;
+    const columns = this.keptColumnIndices()
+      .map((i) => {
+        // eslint-disable-next-line security/detect-object-injection
+        return (this._builder.getColumns()[i] as ColumnStatement).Column;
       })
       .map((c) => {
-        return (c as ColumnStatement).Column;
-      })
-      .map((c) => {
-        return `\`${c instanceof RawQuery ? c.Query : c}\``;
+        // RawQuery columns carry raw SQL - preserve the existing (unescaped)
+        // backtick wrapping. String columns go through the identifier escaper.
+        return c instanceof RawQuery ? `\`${c.Query}\`` : escapeIdentifier(c as string);
       });
 
     if (columns.length === 0) {
@@ -724,7 +795,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
             expression: `SELECT * FROM ${_tblName}`,
           };
 
-      const fExprr = `INSERT INTO \`${this.builder.Table}\` ${fOut.expression}`;
+      const fExprr = `INSERT INTO ${escapeIdentifier(this.builder.Table)} ${fOut.expression}`;
 
       return [
         out1,
@@ -909,7 +980,7 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
 
   protected _primaryKeys() {
     const _keys = this.builder.Columns.filter((x) => x.PrimaryKey)
-      .map((c) => `\`${c.Name}\``)
+      .map((c) => escapeIdentifier(c.Name))
       .join(',');
 
     if (!_.isEmpty(_keys)) {
@@ -927,7 +998,7 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
 @NewInstance()
 export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
   protected _statementsMappings = {
-    set: (builder: ColumnQueryBuilder) => `SET(${builder.Args[0].map((a: string) => `'${a}\'`).join(',')})`,
+    set: (builder: ColumnQueryBuilder) => `SET(${builder.Args[0].map((a: string) => `'${escapeStringLiteral(a)}'`).join(',')})`,
     string: (builder: ColumnQueryBuilder) => `VARCHAR(${builder.Args[0] ? builder.Args[0] : 255})`,
     boolean: () => `BOOLEAN`,
     float: (builder: ColumnQueryBuilder) => {
@@ -937,8 +1008,8 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     },
     double: (builder: ColumnQueryBuilder) => this._statementsMappings.float(builder),
     decimal: (builder: ColumnQueryBuilder) => this._statementsMappings.float(builder),
-    enum: (builder: ColumnQueryBuilder) => `${builder.Type.toUpperCase()}(${builder.Args[0].map((a: any) => `'${a}'`).join(',')})`,
-    binary: (builder: ColumnQueryBuilder) => `BINARY(${builder.Args[0] ?? 255}`,
+    enum: (builder: ColumnQueryBuilder) => `${builder.Type.toUpperCase()}(${builder.Args[0].map((a: any) => `'${escapeStringLiteral(a)}'`).join(',')})`,
+    binary: (builder: ColumnQueryBuilder) => `BINARY(${builder.Args[0] ?? 255})`,
     smallint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     tinyint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
     mediumint: (builder: ColumnQueryBuilder) => builder.Type.toUpperCase(),
@@ -960,12 +1031,12 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
 
     // COLUMN ADDITIONA PROPS
     unsigned: () => 'UNSIGNED',
-    charset: (builder: ColumnQueryBuilder) => `CHARACTER SET '${builder.Charset}'`,
-    collation: (builder: ColumnQueryBuilder) => `COLLATE '${builder.Collation}'`,
+    charset: (builder: ColumnQueryBuilder) => `CHARACTER SET '${escapeStringLiteral(builder.Charset)}'`,
+    collation: (builder: ColumnQueryBuilder) => `COLLATE '${escapeStringLiteral(builder.Collation)}'`,
     notnull: () => `NOT NULL`,
     default: () => this._defaultCompiler(),
     autoincrement: () => `AUTO_INCREMENT`,
-    comment: (builder: ColumnQueryBuilder) => `COMMENT '${builder.Comment}'`,
+    comment: (builder: ColumnQueryBuilder) => `COMMENT '${escapeStringLiteral(builder.Comment)}'`,
   };
 
   constructor(protected builder: ColumnQueryBuilder) {
@@ -977,7 +1048,7 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
   public compile(): ICompilerOutput {
     const _stmt: string[] = [];
 
-    _stmt.push(`\`${this.builder.Name}\``);
+    _stmt.push(escapeIdentifier(this.builder.Name));
     _stmt.push(this._statementsMappings[this.builder.Type](this.builder));
 
     if (this.builder.Unsigned) {
@@ -1019,7 +1090,7 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
     }
 
     if (_.isString(this.builder.Default.Value)) {
-      _stmt = `DEFAULT '${this.builder.Default.Value.trim()}'`;
+      _stmt = `DEFAULT '${escapeStringLiteral(this.builder.Default.Value.trim())}'`;
     } else if (_.isNumber(this.builder.Default.Value)) {
       _stmt = `DEFAULT ${this.builder.Default.Value}`;
     } else if (this.builder.Default.Query instanceof RawQuery) {
@@ -1073,7 +1144,9 @@ export class SqlAlterColumnQueryCompiler extends AlterColumnQueryCompiler {
    * parent AlterTableQueryCompiler filters such columns out.
    */
   protected _add(definition: string): string | null {
-    return `ADD ${definition} ${this.builder.AfterColumn ? `AFTER \`${this.builder.AfterColumn}\`` : ''}`;
+    // escapeIdentifier, not raw backticks: an identifier containing a backtick would
+    // otherwise terminate the quote and splice arbitrary SQL into the DDL ( A3 ).
+    return `ADD ${definition} ${this.builder.AfterColumn ? `AFTER ${escapeIdentifier(this.builder.AfterColumn)}` : ''}`;
   }
 
   protected _modify(definition: string): string | null {
@@ -1081,7 +1154,7 @@ export class SqlAlterColumnQueryCompiler extends AlterColumnQueryCompiler {
   }
 
   protected _rename(): string | null {
-    return `RENAME COLUMN \`${this.builder.OldName}\` TO \`${this.builder.Name}\``;
+    return `RENAME COLUMN ${escapeIdentifier(this.builder.OldName)} TO ${escapeIdentifier(this.builder.Name)}`;
   }
 
   public compile(): ICompilerOutput {

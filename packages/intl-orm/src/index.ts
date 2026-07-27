@@ -59,7 +59,15 @@ export class IntlModelRelation extends NativeOrmRelation {
   }
 
   public compile(): void {
+    // guarded like every other relation: `toDB()` calls compile(), so without this a query
+    // compiled twice would register the translation middleware twice ( B19 )
+    if (this._compiled) {
+      return;
+    }
+
     this._query.middleware(new IntlModelMiddleware(this._lang, this._relationQuery, this._mDescriptor, this.parentRelation!));
+
+    this._compiled = true;
   }
 
   public translate(_lang: string) {
@@ -82,7 +90,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
     const self = this;
     const pks = data.map((d) => {
       // do this as one pass
-      return (d as any)[this._description.PrimaryKey];
+      return (d as any)[this._description.PrimaryKey[0]];
     });
 
     const hydrateMiddleware = {
@@ -96,7 +104,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
         data.forEach((d) => {
           let val = d as any;
           const relData = relationData.filter((rd) => {
-            return (rd as any)['ResourceId'] === val[self._description.PrimaryKey];
+            return (rd as any)['ResourceId'] === val[self._description.PrimaryKey[0]];
           });
 
           relData.forEach((rd: IntlResource) => {

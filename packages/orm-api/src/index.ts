@@ -1,7 +1,7 @@
 import { Orm, ModelBase, OrmException, SelectQueryBuilder, extractModelDescriptor, RelationType } from '@spinajs/orm';
 import { IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest, RouteArgs } from '@spinajs/http';
 import { IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
-import { FromModelOptions } from './interfaces.js';
+import { FromModelOptions, _assertSingleColumnKey } from './interfaces.js';
 
 @Injectable()
 export class AsDbModel extends RouteArgs {
@@ -66,7 +66,7 @@ export class FromDbModel extends RouteArgs {
     const descriptor = extractModelDescriptor(param.RuntimeType);
     query.setTable(descriptor!.TableName, `$${descriptor!.TableName}`);
     query.where(function() {
-      this.where(descriptor!.PrimaryKey, pkValue);
+      this.where(_assertSingleColumnKey(descriptor!), pkValue);
     });
 
     /**
