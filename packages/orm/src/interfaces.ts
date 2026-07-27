@@ -538,6 +538,21 @@ export enum RelationType {
   Virtual
 }
 
+/**
+ * What `save()` does with a row that was removed from a relation.
+ *
+ * - `nullify` — clear the child's foreign key, leaving the row. The default.
+ * - `delete` — delete the child row.
+ * - `soft-delete` — stamp the child's `@SoftDelete` column. Requires the target to carry one.
+ * - `disable` — do nothing; the caller manages orphans by hand.
+ */
+export enum OrphanPolicy {
+  Nullify = 'nullify',
+  Delete = 'delete',
+  SoftDelete = 'soft-delete',
+  Disable = 'disable',
+}
+
 export type ForwardRefFunction = () => Constructor<ModelBase>;
 
 /**
@@ -622,6 +637,12 @@ export interface IRelationDescriptor {
    * Is this relation recursive ? Used for hierarchical / paren one-to-one relations
    */
   Recursive: boolean;
+
+  /**
+   * What happens to a member removed from this relation during `save()`.
+   * Unset means "decide from the foreign key's nullability" — see `resolveOrphanPolicy`.
+   */
+  Orphan?: OrphanPolicy;
 
   /**
    * Relation factory, sometimes we dont want to create standard relation object
