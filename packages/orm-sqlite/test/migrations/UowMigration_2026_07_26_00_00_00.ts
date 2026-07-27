@@ -1,0 +1,63 @@
+/* eslint-disable prettier/prettier */
+import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
+
+@Migration('sqlite')
+export class UowMigration_2026_07_26_00_00_00 extends OrmMigration {
+  public async up(connection: OrmDriver): Promise<void> {
+    await connection.schema().createTable('uow_client', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('Name');
+    });
+
+    await connection.schema().createTable('uow_order', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.int('Total');
+      table.int('client_id');
+    });
+
+    await connection.schema().createTable('uow_order_item', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('Sku');
+      table.int('Qty');
+      table.int('order_id');
+    });
+
+    // order_id is NOT NULL on purpose: this is what makes the default orphan policy
+    // escalate from nullify to delete for the StrictItems relation.
+    await connection.schema().createTable('uow_strict_item', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('Sku');
+      table.int('order_id').notNull();
+    });
+
+    await connection.schema().createTable('uow_tag', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('Name');
+    });
+
+    await connection.schema().createTable('uow_order_tag', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.int('order_id');
+      table.int('tag_id');
+    });
+
+    await connection.schema().createTable('uow_node', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('Name');
+      table.int('parent_id');
+    });
+
+    await connection.schema().createTable('uow_cycle_a', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.int('b_id');
+    });
+
+    await connection.schema().createTable('uow_cycle_b', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.int('a_id');
+    });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  public async down(_connection: OrmDriver): Promise<void> {}
+}
