@@ -2,7 +2,6 @@
 import { IRelationDescriptor, IModelDescriptor, RelationType, IBuilderMiddleware, ISelectQueryBuilder } from './interfaces.js';
 import { ModelBase } from './model.js';
 import _ from 'lodash';
-import { uniqueBy } from '@spinajs/util';
 import { ManyQueryRelationList, ManyToManyRelationList, OneToManyRelationList, SingleQueryRelation } from './relation-objects.js';
 import { BelongsToRelation, NativeOrmRelation } from './relations.js';
 import { DI } from '@spinajs/di';
@@ -55,6 +54,13 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
               d[self._description.Name] = DI.resolve(self._description.RelationClass, [d, self._description, relData]);
             }
           }
+
+          // The contents came from the database, so this relation is populated — even when
+          // the batched query returned no rows for this particular owner. `Populated` is what
+          // tells "loaded and empty" from "never loaded", and unit-of-work `save()` skips the
+          // latter entirely ( the empty-array anti-footgun ).
+          d[self._description.Name].Populated = true;
+          d.snapshotRelation(self._description.Name);
         });
       },
     };
@@ -186,7 +192,18 @@ export class VirtualRelationMiddleware implements IBuilderMiddleware {
 }
 
 export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) { }
+  /**
+   * @param _relationQuery - the join query through the junction table
+   * @param _description - the *synthetic* owner -> junction descriptor built by
+   *        `ManyToManyRelation.compile()`. It says `Type: Many` and its `ForeignKey` is the
+   *        junction's source column, which is what the row-matching below needs.
+   * @param _targetModelDescriptor - descriptor of the model on the far side of the junction
+   * @param _relationDescriptor - the model's own `@HasManyToMany` descriptor. Optional so no
+   *        existing caller breaks, but without it the `ManyToManyRelationList` handed to the
+   *        user carries the synthetic descriptor instead — no `JunctionModel`, no junction
+   *        key names — and `sync()` / `update()` / the set operations all fail on it.
+   */
+  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor, protected _relationDescriptor?: IRelationDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -211,7 +228,15 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 
         data.forEach((d) => {
           const relData = relationData.filter((rd) => (rd as any).JunctionModel[self._description.ForeignKey] === (d as any)[self._description.PrimaryKey]);
-          (d as any)[self._description.Name] = new ManyToManyRelationList(d, self._description, relData);
+          // The real @HasManyToMany descriptor, not the synthetic join one — see the
+          // constructor doc. Falls back to the synthetic descriptor so a caller that does
+          // not supply it keeps the previous ( broken but unchanged ) behaviour.
+          const list = new ManyToManyRelationList(d, self._relationDescriptor ?? self._description, relData);
+          // See the note in HasManyRelationMiddleware: loaded-and-empty must be
+          // distinguishable from never-loaded.
+          list.Populated = true;
+          (d as any)[self._description.Name] = list;
+          d.snapshotRelation(self._description.Name);
         });
 
         relationData.forEach((d) => delete (d as any).JunctionModel);
@@ -252,22 +277,33 @@ export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
   }
   afterHydration(data: ModelBase<unknown>[]): Promise<void | any[]> {
     const relData = data.map((d: any) => d[this._description.Name as any].Value).filter((x) => x !== null && x !== undefined);
-    const middlewares = ((this.relation as any)._relationQuery.Relations as any[])
-      .map((x) => {
-        return x._query._middlewares;
-      })
-      .reduce((prev, current) => {
-        return prev.concat(current);
-      }, []);
 
-    // HACK
-    // TODO: this is only temporary solution to execute only unique middlewares.
-    // Somewhere else in code is bug that causes multiple same middlewares to be added to the query
+    // Every relation created on a builder stores that builder as `_query`
+    // ( SelectQueryBuilder._getRelationInstance passes `this` ), so N nested relations under
+    // one belongsTo all point at the *same* `_middlewares` array. Concatenating per relation
+    // therefore repeated the whole array N times — the duplication a `_.uniqBy` on relation
+    // name used to paper over, too coarsely ( it collapsed two genuinely distinct middlewares
+    // that happened to share a relation name ) and unsafely
+    // ( BelongsToRelationResultTransformMiddleware has no `_description` at all, and
+    // DiscriminationMapMiddleware's is an IModelDescriptor, so the key compared a *model*
+    // name against a *relation* name ).
     //
-    // Check hasmanytomany relation with multiple nested belongs to relation to see the bug
+    // Collect each distinct middleware object once, in first-seen order.
+    const seen = new Set<IBuilderMiddleware>();
+    const middlewares: IBuilderMiddleware[] = [];
+
+    for (const relation of (this.relation as any)._relationQuery.Relations as any[]) {
+      for (const middleware of (relation._query?._middlewares ?? []) as IBuilderMiddleware[]) {
+        if (!seen.has(middleware)) {
+          seen.add(middleware);
+          middlewares.push(middleware);
+        }
+      }
+    }
+
     return Promise.all(
-      uniqueBy(middlewares, (x: { _description: { Name: string } }) => x._description.Name).map((x: any) => {
-        return x.afterHydration(relData);
+      middlewares.map((x) => {
+        return x.afterHydration(relData as ModelBase[]);
       }),
     );
   }
@@ -276,7 +312,12 @@ export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
 export class BelongsToRelationResultTransformMiddleware implements IBuilderMiddleware {
   public afterQuery(data: any[]): any[] {
     return data.map((d) => {
-      const transformedData = Object.assign(d);
+      // A real copy. `Object.assign(d)` with one argument returns `d` itself, so this used
+      // to nest keys into and delete keys from the caller's own row object. The pipeline
+      // writes whatever this returns back into the result array
+      // ( builders.ts, `Object.assign(transformedResult, m.afterQuery(...))` ), so returning
+      // fresh objects is transparent to everything downstream.
+      const transformedData = { ...d };
       for (const key in transformedData) {
         if (key.startsWith('$')) {
           this.setDeep(transformedData, this.keyTransform(key), d[key]);

@@ -85,7 +85,11 @@ export class OneToManyRelationHydrator extends ModelHydrator {
         });
 
         const rel = new OneToManyRelationList(target, val, mapRel);
+        // Only reached under `values[key] != null`, i.e. only when the row actually carried
+        // relation data — so this never marks a relation the query did not ask for.
+        rel.Populated = true;
         entity[key] = rel;
+        target.snapshotRelation(key);
         delete (target as any)[val.ForeignKey];
       }
     }
@@ -125,7 +129,11 @@ export class OneToOneRelationHydrator extends ModelHydrator {
         }
 
         const rel = new SingleRelation(target, val.TargetModel, val, tEntity);
+        // Same guard as OneToManyRelationHydrator: `values[key] != null` means the query
+        // joined this relation in.
+        rel.Populated = true;
         entity[key] = rel;
+        target.snapshotRelation(key);
       }
     }
   }

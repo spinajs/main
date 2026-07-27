@@ -369,7 +369,7 @@ export class ManyToManyRelation extends NativeOrmRelation {
     (this._joinQuery as any).mergeBuilder(this._relationQuery);
     (this._joinQuery as any).mergeRelations(this._relationQuery);
 
-    this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor));
+    this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor, this._description));
 
     this._compiled = true;
   }
