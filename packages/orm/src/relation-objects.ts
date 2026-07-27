@@ -284,6 +284,7 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
       this.Value = await query.firstOrFail();
     }
     this.Populated = true;
+    this._owner.snapshotRelation(this.Relation!.Name);
   }
 }
 
@@ -485,6 +486,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     }
 
     this.Populated = true;
+    this.Owner.snapshotRelation(this.Relation.Name);
   }
 
   // public async add(obj: T | T[], mode?: InsertBehaviour): Promise<void> {
@@ -554,6 +556,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     }
 
     this.Populated = true;
+    this.Owner.snapshotRelation(this.Relation.Name);
   }
 
   /**
