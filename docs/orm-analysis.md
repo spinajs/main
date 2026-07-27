@@ -636,3 +636,209 @@ because it has RETURNING.
   machine, every failure a `before each` hook that cannot reach an MSSQL instance. The package
   compiles and typechecks, and its contract changes (`insertReturning`, `insertIdIsFirstOfBatch`,
   `PrimaryKey[0]`) are mechanical, but nothing here is evidence that MSSQL works.
+
+---
+
+## 10. Changelog — branch `orm-uow` (unit-of-work persistence)
+
+Forked from `orm-foundation` @ `6b3a05462`. Implements U1-U7 of
+[the uow spec](superpowers/specs/2026-07-25-orm-uow-design.md).
+
+**Branch context.** `orm-infra` had already landed on this branch when implementation started,
+so the plan's line citations and its single-column `IModelDescriptor.PrimaryKey` assumption were
+both stale. The unit-of-work pipeline is therefore **composite-key aware throughout**, built on
+the existing `primary-keys.ts` helpers: `pkKeyString` for identity-map keys, `wherePk` /
+`whereAnyPk` for predicates, `pkValueOf` / `setPkValue` for access.
+
+Suite deltas against a baseline measured on this branch before any source change. Every
+remaining failing title is a **subset** of the baseline — no new failures in any package:
+
+| Package | Baseline | After | New tests |
+| --- | --- | --- | --- |
+| `orm` | 159 pass / 2 fail | **246 pass / 2 fail** | snapshot, model snapshot, identity map, subject, sorter, orphan policy, row transform, belongsTo middleware |
+| `orm-sql` | 177 pass / 7 fail | **177 pass / 7 fail** | — |
+| `orm-sqlite` | 75 pass / 8 fail | **212 pass / 1 fail** | fixtures, Populated, snapshot capture, subject building, executor, save, anti-footgun, relation atomicity, attach, static populate, m2m set ops, markDirty, single-relation populate, nested relations |
+| `orm-sqlite` (integration) | 7 pass / 0 fail | **10 pass / 0 fail** | on-disk `save()` atomicity |
+| `orm-mysql` | 14 pass / 9 fail | **31 pass / 4 fail** | — (integration only) |
+| `orm-mysql` (integration) | 21 pass / 0 fail | **26 pass / 0 fail** | live-MySQL `save()` |
+| `orm-mssql` | 0 pass / 4 fail | **0 pass / 4 fail** | — (compile-verified only) |
+
+Seven of the baseline's failures were **fixed** as a side effect and so are absent from the
+"after" column: six `orm-sqlite` relation failures (belongsTo populate, relation set/update,
+union, diff) by the `SqliteModelToSqlConverter` fix below, and `Static method populate on
+oneToMany` by the static-`populate()` work. The `orm-mysql` unit deltas are environmental — its
+remaining four failures are `Too many connections` against the container's connection cap,
+exactly as at baseline.
+
+### What landed
+
+- **U1 — snapshot on hydrate.** Every model hydrated from a query records a value-copy of its
+  columns (`packages/orm/src/snapshot.ts`, `ModelBase.takeSnapshot`), and every populated
+  relation records its member primary keys. The copy is a copy, not an alias: `Buffer`, `Date`,
+  arrays and plain objects are cloned, and `snapshotEquals` compares luxon `DateTime` by instant
+  and `Buffer` by content. `changedColumns()` is the diff, and a write that restores a column's
+  original value produces no UPDATE.
+- **U1 prerequisite — `Populated` on the eager path.** The flag was only ever set by the lazy
+  `relation.populate()` methods; nothing set it when a query eagerly loaded a relation, so it
+  could not distinguish anything. It is now set by `HasManyRelationMiddleware`,
+  `HasManyToManyRelationMiddleware`, `OneToManyRelationHydrator` and `OneToOneRelationHydrator`.
+- **U2 — identity map.** `IdentityMap`, keyed on constructor identity plus primary key, scoped
+  to one `save()` graph walk and shared across saves inside one transaction via
+  `ITransactionContext.IdentityMap`. Discarded with the transaction; no cross-request caching.
+  Composite keys are rendered part-by-part and length-prefixed, because `String([1,2])` and
+  `String(['1,2'])` are both the same string.
+- **U3 — subjects.** `Subject` / `SubjectSet` and a `SubjectBuilder` with one delta builder per
+  relation kind: `belongsTo` records a pending foreign key, `hasMany` diffs membership,
+  `manyToMany` diffs junction rows, `Query` and `Virtual` produce nothing.
+- **U4 — topological ordering.** `SubjectSorter` runs Kahn's algorithm over row-level
+  foreign-key dependencies. A cycle among rows of the same model is broken by deferring the
+  self-foreign-key to a follow-up UPDATE; any other cycle raises `OrmCycleException` naming the
+  models involved.
+- **U5 — executor.** `SubjectExecutor` runs inserts (generated keys read back and stamped onto
+  dependent rows), then updates restricted to changed columns, then junction inserts and
+  deletes, then the orphan policy. Key backfill mirrors `ModelBase.insert()`'s orm-infra
+  behaviour — client-side keys first, `assigned` keys asserted before touching the database,
+  RETURNING requested where the dialect supports it. Orphan policy is `nullify` by default,
+  escalating to `delete` only when the child's foreign key is *reflected* as NOT NULL;
+  `soft-delete` and `disable` are available on the decorator.
+- **U6 — `save()`.** `ModelBase.save(options?)` with `{ reload?, chunk? }`, wrapping the whole
+  graph in one `OrmDriver.transaction()`.
+- **U7 — relation defects.** Duplicate nested-relation middleware execution (root cause fixed,
+  `_.uniqBy` workaround removed), `attach()`'s undocumented switch fallthrough and name-based
+  relation matching, static `populate()`'s unimplemented many-to-many branch,
+  `ManyToManyRelationList.union`/`intersection`/`diff`, `SingleRelation.populate()`'s join
+  column, and `SingleRelation.attach()`'s reach into the owner's private dirty-column list.
+
+### Defects found while implementing, not in the plan
+
+Each was blocking a task's stated deliverable, so each is fixed here rather than deferred:
+
+- **`SqliteModelToSqlConverter` dropped foreign-key columns.** Its column loop excludes
+  relation-managed FK columns, and its relation loop wrote the column only when the `belongsTo`
+  had a loaded `Value` — the base `StandardModelToSqlConverter` grew a raw-column fallback for
+  exactly this, the sqlite override did not. A row whose owner changed silently kept its old
+  foreign key on sqlite. **This also fixed six pre-existing suite failures.**
+- **`Relation` had no `Symbol.species`.** `Array` methods that derive a new collection call
+  `new this.constructor[Symbol.species](len)`, which invoked the `Relation` constructor with no
+  descriptor and threw dereferencing the target model — so `order.Items.splice(0, 1)` was
+  unusable. Deriving plain arrays is also the right semantics: a slice of a relation is a list
+  of models, not a relation. (The hand-written `map()` override predates this and worked around
+  the same thing for one method.)
+- **An eagerly-populated `ManyToManyRelationList` carried the wrong descriptor.**
+  `ManyToManyRelation.compile()` builds a synthetic owner-to-junction descriptor (`Type: Many`,
+  no `JunctionModel`) for the join query and handed that same object to the relation list, so
+  `sync()` / `update()` died on a missing junction model for every eager m2m relation.
+- **Static `populate()`'s `RelationType.One` branch was doubly broken.** It passed
+  `descriptor.PrimaryKey` — a `string[]` since composite keys landed — straight to `where()`,
+  compiling to `column 0 not exists in model ...`; and it supplied no join columns at all, so
+  the LEFT JOIN referenced an undefined column.
+- **`SubjectSorter` excluded promotable no-ops.** Only `Update` subjects reached the update
+  phase, but a clean child re-parented to another owner classifies as `None` and only becomes an
+  UPDATE once the executor writes the new owner key and re-reads the diff. `None` subjects
+  carrying a pending foreign key are now included; `updatePayload` returns null for any whose
+  diff is still empty, so nothing is emitted for them.
+- **`save({ reload: true })` was specified backwards.** The plan moved only the *baseline*, which
+  leaves the model holding the stale hydration value — so the diff reports current-to-stale and
+  the UPDATE clobbers whatever another process wrote, the exact opposite of the stated intent.
+  `reload` is now a three-way merge: a column the caller did not edit is reset on the model as
+  well as in the baseline, so it drops out of the diff. Still last-write-wins, not conflict
+  detection.
+
+### Breaking / behaviour changes
+
+1. **`Populated` is now true after an eager `populate()`.** Any code branching on
+   `relation.Populated` to mean "was loaded lazily" changes meaning.
+2. **Relation `sync()`, `update()`, `SingleRelation.set()` and `SingleRelation.remove()` are
+   transactional.** Each is now one transaction (a savepoint when nested). A driver that cannot
+   begin a transaction will now fail on these paths instead of writing partially.
+3. **`attach()` matches relations by constructor identity, not class name.** A model with two
+   relations to the same target no longer receives the row in both; a duplicated class
+   definition across bundles no longer matches.
+4. **`SingleRelation.populate()` joins on `Relation.PrimaryKey`.** A `@BelongsTo` with an
+   explicit third argument previously loaded the wrong row through the lazy path; it now
+   matches the eager path.
+5. **Static `Model.populate(relation, owner)` returns a builder for many-to-many** instead of
+   `undefined`, and its return type narrowed from `SelectQueryBuilder | undefined` to
+   `SelectQueryBuilder`.
+6. **`ManyToManyRelationList.union`/`intersection`/`diff` no longer throw.**
+7. **`BelongsToRelationResultTransformMiddleware.afterQuery` returns new row objects** instead
+   of mutating the rows it was handed.
+8. **`IModelBase` gained `save`, `Snapshot`, `takeSnapshot`, `snapshotRelation`,
+   `clearSnapshot`, `changedColumns` and `markDirty`.** A class implementing `IModelBase`
+   without extending `ModelBase` must add them.
+9. **`save()` rejects a graph that spans two connections** rather than committing part of it.
+10. **`Relation[Symbol.species]` is `Array`.** `filter`, `slice`, `concat` and `splice` on a
+    relation now return plain arrays instead of throwing.
+11. **Sqlite payloads now include a `belongsTo` foreign key read from the raw column** when the
+    relation has no loaded `Value`. A row whose FK column was written directly is now persisted
+    rather than silently dropped.
+
+### Known cost of the anti-footgun guarantee
+
+Pushing onto a relation that was never populated is a **no-op** — `save()` cannot tell that
+array from an unloaded one, and treating it as authoritative is exactly the TypeORM behaviour
+this branch exists to avoid. Populate first:
+
+```ts
+const order = await Order.query().where({ Id: 1 }).populate('Items').first();
+order.Items.push(new OrderItem({ Sku: 'A' }));
+await order.save();
+```
+
+or, on an already-loaded model, `await order.Items.populate()`.
+
+### Deferred, with reasons
+
+- **Explicit deletion of a graph member.** `save()` has no `markForDeletion()`; every row it
+  removes is removed by an orphan policy. Steps 4 and 5 of the spec's executor list therefore
+  collapsed into one ordered orphan phase. Adding an explicit deletion marker is a separate,
+  additive change.
+- **Wrapping single-statement `ModelBase` writes in a transaction.** `insert()`, `update()`,
+  `destroy()` and `insertOrUpdate()` each issue exactly one statement and are already atomic;
+  a BEGIN/COMMIT pair per row would cost a round trip for nothing.
+- **Genuine batched multi-row saves.** `chunk` bounds junction inserts and orphan key lists
+  only. Batched inserts for auto-increment models cannot read back individual generated keys,
+  and throughput work is `orm-perf`'s (overview §3.3).
+- **General foreign-key cycle breaking.** Only same-model cycles are deferred. Breaking an
+  arbitrary cycle by deferring any nullable foreign key is possible but was not required by the
+  spec, and an error naming the models is a better default than a silently reordered write.
+- **`PrimaryKeyValue`'s setter propagation for `RelationType.One`** writes the new key onto the
+  `SingleRelation` wrapper rather than anywhere persisted. The executor resolves foreign keys
+  itself and does not use it. Left unchanged: it has no test coverage and no bearing on `save()`.
+- **`orm-sqlite`'s one remaining failure**, `Model should populate recursive relations`, is
+  pre-existing and untouched by this branch.
+
+### MySQL integration suite status
+
+**Ran against a live server** (MySQL 8.4 via `docker compose --profile test up -d mysql`):
+26 passing, 0 failing across all three `orm-mysql` integration suites, of which 5 are the new
+`save()` cases. The migration declares real `FOREIGN KEY` constraints on purpose — SQLite does
+not enforce them without `PRAGMA foreign_keys`, so this is what actually proves the topological
+insert order rather than merely exercising it.
+
+Two environment details, both already encoded by the sibling suites: the migration ledger table
+is shared with them (`@Migration` registers globally, so a private ledger re-runs their
+migrations and fails on an already-existing table), and cleanup uses `DELETE` rather than
+`truncate()` because MySQL refuses to `TRUNCATE` any table named in a foreign-key constraint.
+
+### Consumer re-verification
+
+`orm-mssql`, `orm-api`, `orm-http`, `intl-orm`, `queue-orm-transport` and `orm-threading` all
+compile. Their suites show the same pass/fail as before this branch — verified by checking out
+the pre-change source, rebuilding and re-running: `orm-api` 2/4, `orm-http` 6/2, `intl-orm` 0/1,
+with identical error messages, all DI-bootstrap issues unrelated to the ORM.
+
+No source outside `packages/orm/src` reads the private dirty-column list or `.Populated`. The
+one `attach()` call site (`orm-api`'s `Create.ts`) builds its models with
+`new rDescriptor.TargetModel(x)`, so the constructor-identity match holds.
+`packages/queue-orm-transport/test/uowCompat.test.ts` pins the relation-object surface that
+package depends on.
+
+### Environment note for a fresh worktree
+
+Two committed-package `lib/` trees are stale relative to their `src/` and stop `orm-sqlite` from
+running at all until rebuilt: `packages/http` (its built `responses.js` imports
+`fast-xml-parser`, which no source references and which is not a declared dependency) and
+`packages/orm-http` (its built `dto-relation.js` imports `getInheritedDescriptor`, which
+`@spinajs/di` does not export). `npm run build --workspace=@spinajs/http` and the same for
+`@spinajs/orm-http` clear both. No source change was needed.
