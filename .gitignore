@@ -61,7 +61,7 @@ jspm_packages/
 tsconfig.tsbuildinfo
 
 # doc ( generated typedoc output, per package )
-packages/*/docs/
+packages/*/api-docs/
 
 lib/
  
@@ -84,3 +84,6 @@ packages/orm-http/test/cache/
 
 # agent worktree pointers (local only)
 .claude/worktrees/
+
+# docs:check scratch (scripts/check-doc-samples.mjs)
+.tmp/

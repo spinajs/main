@@ -24,7 +24,7 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
-    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "build-docs": "rimraf api-docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
