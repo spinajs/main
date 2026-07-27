@@ -1,9 +1,10 @@
 /* eslint-disable prettier/prettier */
 import { extractModelDescriptor } from './descriptor.js';
+import { identityKey } from './identity-map.js';
 import { IIdentityMap, RelationType } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import { SingleRelation } from './relation-objects.js';
-import { Subject, SubjectOperation, SubjectSet } from './subject.js';
+import { IRelationDelta, Subject, SubjectOperation, SubjectSet } from './subject.js';
 
 /**
  * Turns a mutated object graph into a `SubjectSet` — the complete, unordered description of
@@ -130,6 +131,7 @@ export class SubjectBuilder {
 
     for (const subject of set.Subjects) {
       this.buildBelongsTo(subject);
+      this.buildHasMany(subject, set);
     }
 
     return set;
@@ -153,6 +155,52 @@ export class SubjectBuilder {
       }
 
       subject.PendingForeignKeys.push({ Column: relation.ForeignKey, Target: rel.Value as ModelBase });
+    }
+  }
+
+  /**
+   * Diffs each populated `hasMany` on `subject` against the owner's relation snapshot and
+   * records the owner's foreign key as pending on every member that stays.
+   *
+   * A relation with `Populated === false` is skipped entirely — that is the anti-footgun
+   * guarantee, and it is why a freshly constructed model with `Items: OrderItem[] = []`
+   * deletes nothing.
+   *
+   * Both new *and* kept members get the pending foreign key. That is what makes re-parenting
+   * work: a clean child moved to another owner has its key rewritten and is promoted from a
+   * no-op to an UPDATE, instead of keeping its old owner id in the database ( B20 ).
+   */
+  protected buildHasMany(subject: Subject, set: SubjectSet): void {
+    for (const [name, relation] of subject.Descriptor.Relations) {
+      if (relation.Type !== RelationType.Many) {
+        continue;
+      }
+
+      // eslint-disable-next-line security/detect-object-injection
+      const rel = (subject.Model as any)[name];
+      if (!rel || rel.Populated !== true) {
+        continue;
+      }
+
+      const members = [...(rel as Iterable<ModelBase>)];
+      const snapshotKeys = subject.Model.Snapshot?.Relations.get(name) ?? [];
+      const presentKeys = new Set(members.map((m) => identityKey(m.PrimaryKeyValue)).filter((k) => k !== null));
+
+      const delta: IRelationDelta = {
+        Descriptor: relation,
+        Added: members.filter((m) => m.Snapshot === null),
+        Kept: members.filter((m) => m.Snapshot !== null),
+        RemovedKeys: snapshotKeys.filter((k) => !presentKeys.has(identityKey(k)!)),
+      };
+
+      subject.RelationDeltas.push(delta);
+
+      for (const member of members) {
+        const memberSubject = set.find(member);
+        if (memberSubject) {
+          memberSubject.PendingForeignKeys.push({ Column: relation.ForeignKey, Target: subject.Model });
+        }
+      }
     }
   }
 }

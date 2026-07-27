@@ -85,6 +85,21 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
 
   protected Model: Constructor<R> | ForwardRefFunction;
 
+  /**
+   * Array methods that derive a new collection ( `splice`, `filter`, `slice`, `concat`, … )
+   * construct `new this.constructor[Symbol.species](len)` by default. That would call this
+   * class's constructor with no relation descriptor, and the very next line dereferences
+   * `this.Relation.TargetModel` — so `order.Items.splice(0, 1)` threw
+   * `Cannot read properties of undefined (reading 'TargetModel')`.
+   *
+   * Deriving plain arrays is also the right semantics: a slice of a relation is a list of
+   * models, not a relation with an owner. ( The hand-written `map()` below predates this and
+   * worked around the same thing for one method. )
+   */
+  static get [Symbol.species]() {
+    return Array;
+  }
+
   constructor(protected Owner: O, protected Relation: IRelationDescriptor, objects?: R[]) {
     super();
 

@@ -148,3 +148,124 @@ describe('SubjectBuilder - traversal and classification', function () {
     expect(set.Subjects.every((s) => s.Descriptor.Name !== undefined)).to.equal(true);
   });
 });
+
+describe('SubjectBuilder - hasMany delta', function () {
+  this.timeout(10000);
+
+  before(() => registerUowConnection());
+  beforeEach(async () => {
+    await bootUow();
+  });
+  afterEach(() => DI.clearCache());
+
+  async function seedOrderWithItems() {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+    await UowOrderItem.insert({ Sku: 'B', Qty: 2, order_id: 1 });
+    return await UowOrder.where({ Id: 1 }).populate('Items').first();
+  }
+
+  it('reports no delta when nothing changed', async () => {
+    const order = await seedOrderWithItems();
+
+    const set = builder().build(order);
+    const delta = set.find(order)!.RelationDeltas.find((d: any) => d.Descriptor.Name === 'Items')!;
+
+    expect(delta.Added).to.deep.equal([]);
+    expect(delta.RemovedKeys).to.deep.equal([]);
+    expect(delta.Kept.length).to.equal(2);
+  });
+
+  it('puts a brand new child in Added', async () => {
+    const order = await seedOrderWithItems();
+    const fresh = new UowOrderItem({ Sku: 'C', Qty: 3 });
+    order.Items.push(fresh);
+
+    const delta = builder().build(order).find(order)!.RelationDeltas.find((d: any) => d.Descriptor.Name === 'Items')!;
+
+    expect(delta.Added).to.deep.equal([fresh]);
+    expect(delta.RemovedKeys).to.deep.equal([]);
+  });
+
+  it('puts a spliced-out child key in RemovedKeys', async () => {
+    const order = await seedOrderWithItems();
+    const removed = order.Items[1];
+    order.Items.splice(1, 1);
+
+    const delta = builder().build(order).find(order)!.RelationDeltas.find((d: any) => d.Descriptor.Name === 'Items')!;
+
+    expect(delta.RemovedKeys).to.deep.equal([removed.Id]);
+    expect(delta.Kept.length).to.equal(1);
+  });
+
+  it('stamps the owner foreign key as pending on every added and kept child', async () => {
+    const order = await seedOrderWithItems();
+    const fresh = new UowOrderItem({ Sku: 'C', Qty: 3 });
+    order.Items.push(fresh);
+
+    const set = builder().build(order);
+
+    for (const child of [...order.Items]) {
+      const fks = set.find(child)!.PendingForeignKeys.filter((f: any) => f.Column === 'order_id');
+      expect(fks.length, `child ${child.Sku}`).to.equal(1);
+      expect(fks[0].Target).to.equal(order);
+    }
+  });
+
+  it('treats a re-parented clean child as Kept and promotes it to an update', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrder.insert({ Total: 20 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+
+    const source = await UowOrder.where({ Id: 1 }).populate('Items').first();
+    const target = await UowOrder.where({ Id: 2 }).populate('Items').first();
+
+    const moved = source.Items[0];
+    source.Items.splice(0, 1);
+    target.Items.push(moved);
+
+    expect(moved.IsDirty).to.equal(false);
+
+    const set = builder().build(target);
+    const delta = set.find(target)!.RelationDeltas.find((d: any) => d.Descriptor.Name === 'Items')!;
+
+    expect(delta.Kept).to.deep.equal([moved]);
+    expect(set.find(moved)!.PendingForeignKeys[0].Target).to.equal(target);
+  });
+
+  it('produces no delta for a hasMany that was never populated', async () => {
+    const order = (await UowOrder.where({ Id: 1 }).first().catch(() => null)) ?? new UowOrder({ Total: 1 });
+    order.Items.push(new UowOrderItem({ Sku: 'X', Qty: 1 }));
+
+    const subject = builder().build(order).find(order)!;
+
+    expect(subject.RelationDeltas.find((d: any) => d.Descriptor.Name === 'Items')).to.equal(undefined);
+  });
+
+  it('reports every member as Added for a populated but previously empty relation', async () => {
+    await UowOrder.insert({ Total: 10 });
+    const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+
+    expect(order.Items.length).to.equal(0);
+    expect(order.Items.Populated).to.equal(true);
+
+    const a = new UowOrderItem({ Sku: 'A', Qty: 1 });
+    order.Items.push(a);
+
+    const delta = builder().build(order).find(order)!.RelationDeltas.find((d: any) => d.Descriptor.Name === 'Items')!;
+
+    expect(delta.Added).to.deep.equal([a]);
+    expect(delta.RemovedKeys).to.deep.equal([]);
+  });
+
+  it('reports every key as removed when a populated relation is emptied', async () => {
+    const order = await seedOrderWithItems();
+    const keys = order.Items.map((i: any) => i.Id);
+    order.Items.empty();
+
+    const delta = builder().build(order).find(order)!.RelationDeltas.find((d: any) => d.Descriptor.Name === 'Items')!;
+
+    expect([...delta.RemovedKeys].sort()).to.deep.equal([...keys].sort());
+    expect(delta.Kept).to.deep.equal([]);
+  });
+});
