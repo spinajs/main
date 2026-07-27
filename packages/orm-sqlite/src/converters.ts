@@ -34,8 +34,18 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
 
     for (const val of relArr) {
       if (val.Type === RelationType.One) {
-        if ((model as any)[val.Name].Value) {
+        if ((model as any)[val.Name]?.Value) {
           (obj as any)[val.ForeignKey] = (model as any)[val.Name].Value.PrimaryKeyValue;
+        } else if ((model as any)[val.ForeignKey] != null) {
+          // Fallback: when the BelongsTo SingleRelation has no Value (e.g. the relation was
+          // never populated, or the foreign key was written directly), fall back to the raw
+          // FK column. Without this the column is dropped from every payload, because the
+          // filter above already excluded it as relation-managed - so a row whose owner
+          // changed would silently keep its old foreign key.
+          //
+          // Mirrors StandardModelToSqlConverter in @spinajs/orm, which grew this branch
+          // while this override did not.
+          (obj as any)[val.ForeignKey] = (model as any)[val.ForeignKey];
         }
       }
 

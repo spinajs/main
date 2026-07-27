@@ -126,6 +126,18 @@ describe('SubjectSorter', () => {
     expect(plan.Updates).to.deep.equal([]);
   });
 
+  // A clean child re-parented to another owner classifies as None - its own columns still
+  // match its snapshot. It only becomes an UPDATE once the executor writes the new owner key
+  // onto it, so it has to reach the update phase to be reconsidered at all.
+  it('keeps a no-op subject that carries a pending foreign key in Updates', () => {
+    const set = new SubjectSet();
+    const owner = update(set, 'Owner', 2);
+    const child = set.add(new Subject(new Row(1) as any, desc('Child'), SubjectOperation.None));
+    needs(child, 'owner_id', owner);
+
+    expect(new SubjectSorter().sort(set).Updates).to.deep.equal([owner, child]);
+  });
+
   it('passes junctions through untouched', () => {
     const set = new SubjectSet();
     const j = { Descriptor: {}, JunctionDescriptor: {}, Owner: {}, Added: [], RemovedKeys: [] } as any;

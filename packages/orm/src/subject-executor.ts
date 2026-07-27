@@ -1,8 +1,10 @@
 /* eslint-disable prettier/prettier */
-import { createQuery, InsertQueryBuilder } from './builders.js';
+import { DateTime } from 'luxon';
+import _ from 'lodash';
+import { createQuery, InsertQueryBuilder, UpdateQueryBuilder } from './builders.js';
 import { OrmException } from './exceptions.js';
 import { IInsertResult, ISaveOptions, ISaveResult, ServerResponseMapper } from './interfaces.js';
-import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue } from './primary-keys.js';
+import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue, wherePk } from './primary-keys.js';
 import { ISortedPlan } from './subject-sorter.js';
 import { Subject } from './subject.js';
 
@@ -35,6 +37,7 @@ export class SubjectExecutor {
     };
 
     await this.runInserts(plan, result);
+    await this.runUpdates(plan, result);
 
     return result;
   }
@@ -80,6 +83,67 @@ export class SubjectExecutor {
 
     model.IsDirty = false;
     subject.Model.takeSnapshot();
+  }
+
+  /**
+   * Runs every update, including the follow-up updates that carry deferred self-referencing
+   * foreign keys.
+   *
+   * A subject whose payload comes out empty emits nothing. This is the single place that
+   * decides whether a row actually changed: pending foreign keys are written onto the model
+   * first and `changedColumns()` is read afterwards, so a re-parented child that was clean
+   * when the subjects were built is caught here and nowhere else.
+   */
+  protected async runUpdates(plan: ISortedPlan, result: ISaveResult): Promise<void> {
+    for (const subject of plan.Updates) {
+      const payload = this.updatePayload(subject);
+      if (payload === null) {
+        continue;
+      }
+
+      const { query } = createQuery(subject.Model.constructor, UpdateQueryBuilder);
+      const update = (query as UpdateQueryBuilder<unknown>).update(payload);
+      wherePk(update, subject.Descriptor, subject.Model.PrimaryKeyValue);
+      await update;
+
+      subject.Model.IsDirty = false;
+      subject.Model.takeSnapshot();
+
+      result.Updated += 1;
+    }
+  }
+
+  /**
+   * The column payload for one UPDATE, or `null` when there is nothing to write.
+   *
+   * The primary key columns are excluded: writing them is a no-op at best and, for a model
+   * whose key column differs from its snapshot for any other reason, a silent identity change.
+   *
+   * @param subject - an update subject, or an insert subject with deferred foreign keys
+   */
+  protected updatePayload(subject: Subject): Record<string, unknown> | null {
+    // Resolve every foreign key onto the model first, so the diff below sees them.
+    for (const fk of subject.PendingForeignKeys.concat(subject.DeferredForeignKeys)) {
+      (subject.Model as any)[fk.Column] = fk.Target.PrimaryKeyValue;
+    }
+
+    const keyColumns = pkColumns(subject.Descriptor);
+    const changed = subject.Model.changedColumns().filter((c) => !keyColumns.includes(c));
+    if (changed.length === 0) {
+      return null;
+    }
+
+    const updatedAt = subject.Descriptor.Timestamps?.UpdatedAt;
+    if (updatedAt) {
+      (subject.Model as any)[updatedAt] = DateTime.now();
+      if (!changed.includes(updatedAt)) {
+        changed.push(updatedAt);
+      }
+    }
+
+    subject.ChangedColumns = changed;
+
+    return _.pick(subject.Model.toSql() as Record<string, unknown>, changed);
   }
 
   /**

@@ -121,3 +121,109 @@ describe('SubjectExecutor - insert phase', function () {
     expect(result).to.deep.equal({ Inserted: 0, Updated: 0, Deleted: 0, SoftDeleted: 0, JunctionInserted: 0, JunctionDeleted: 0 });
   });
 });
+
+describe('SubjectExecutor - update phase', function () {
+  this.timeout(10000);
+
+  before(() => registerUowConnection());
+  beforeEach(async () => {
+    await bootUow();
+  });
+  afterEach(() => DI.clearCache());
+
+  it('updates only the changed column', async () => {
+    await UowOrder.insert({ Total: 10, client_id: 3 });
+    const order = await UowOrder.where({ Id: 1 }).first();
+    order.Total = 99;
+
+    const capture = captureStatements();
+    const result = await run(order);
+    capture.restore();
+
+    const updates = capture.statements.filter((s) => s.context === QueryContext.Update);
+    expect(updates).to.have.length(1);
+    expect(updates[0].expression).to.contain('`Total`');
+    expect(updates[0].expression).to.not.contain('`client_id`');
+    expect(result.Updated).to.equal(1);
+    expect((await rows('uow_order'))[0].Total).to.equal(99);
+  });
+
+  it('leaves the updated model clean and re-snapshotted', async () => {
+    await UowOrder.insert({ Total: 10 });
+    const order = await UowOrder.where({ Id: 1 }).first();
+    order.Total = 99;
+
+    await run(order);
+
+    expect(order.IsDirty).to.equal(false);
+    expect(order.changedColumns()).to.deep.equal([]);
+  });
+
+  it('emits no statement for a model whose write restored the original value', async () => {
+    await UowOrder.insert({ Total: 10 });
+    const order = await UowOrder.where({ Id: 1 }).first();
+    order.Total = 99;
+    order.Total = 10;
+
+    const capture = captureStatements();
+    const result = await run(order);
+    capture.restore();
+
+    expect(capture.statements).to.have.length(0);
+    expect(result.Updated).to.equal(0);
+  });
+
+  it('persists a re-parented clean child through the update phase', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrder.insert({ Total: 20 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+
+    const source = await UowOrder.where({ Id: 1 }).populate('Items').first();
+    const target = await UowOrder.where({ Id: 2 }).populate('Items').first();
+
+    const moved = source.Items[0];
+    source.Items.splice(0, 1);
+    target.Items.push(moved);
+
+    expect(moved.IsDirty).to.equal(false);
+
+    const result = await run(target);
+
+    expect(result.Updated).to.equal(1);
+    expect((await rows('uow_order_item'))[0].order_id).to.equal(2);
+  });
+
+  it('applies a deferred self-referencing foreign key as a follow-up UPDATE', async () => {
+    const a = new UowNode({ Name: 'a' });
+    const b = new UowNode({ Name: 'b' });
+    a.Parent.attach(b);
+    b.Parent.attach(a);
+
+    const capture = captureStatements();
+    await run(a);
+    capture.restore();
+
+    const updates = capture.statements.filter((s) => s.context === QueryContext.Update);
+    expect(updates.length).to.be.greaterThan(0);
+    expect(updates[0].expression).to.contain('`parent_id`');
+
+    const persisted = await rows('uow_node');
+    const rowA = persisted.find((n: any) => n.Name === 'a');
+    const rowB = persisted.find((n: any) => n.Name === 'b');
+    expect(rowA.parent_id).to.equal(rowB.Id);
+    expect(rowB.parent_id).to.equal(rowA.Id);
+  });
+
+  it('writes an update WHERE clause keyed on the primary key', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrder.insert({ Total: 20 });
+    const order = await UowOrder.where({ Id: 2 }).first();
+    order.Total = 99;
+
+    await run(order);
+
+    const persisted = await rows('uow_order');
+    expect(persisted.find((o: any) => o.Id === 1).Total).to.equal(10);
+    expect(persisted.find((o: any) => o.Id === 2).Total).to.equal(99);
+  });
+});

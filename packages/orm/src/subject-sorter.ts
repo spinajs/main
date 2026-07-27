@@ -35,7 +35,15 @@ export class SubjectSorter {
     const ordered = this.order(inserts);
 
     const deferred = ordered.filter((s) => s.DeferredForeignKeys.length > 0);
-    const updates = set.Subjects.filter((s) => s.Operation === SubjectOperation.Update).concat(deferred);
+
+    // `None` subjects that carry a pending foreign key are candidates for promotion: a clean
+    // child re-parented to another owner in this graph classifies as `None` ( its columns match
+    // its snapshot ) and only becomes an UPDATE once the executor writes the new owner key onto
+    // it and re-reads the diff. Excluding them here would lose the move entirely.
+    //
+    // Including them is safe and cheap: `SubjectExecutor.updatePayload` returns null — and the
+    // executor emits nothing — for any subject whose diff is still empty afterwards.
+    const updates = set.Subjects.filter((s) => s.Operation === SubjectOperation.Update || (s.Operation === SubjectOperation.None && s.PendingForeignKeys.length > 0)).concat(deferred);
 
     return {
       Inserts: ordered,
