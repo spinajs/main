@@ -2,7 +2,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration } from '@spinajs/configuration';
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { Orm, QueryContext } from '@spinajs/orm';
+import sinon from 'sinon';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '../src/index.js';
 import { ConnectionConf, db } from './common.js';
@@ -49,4 +50,33 @@ export async function bootUow(): Promise<Orm> {
 /** Raw row read, bypassing the model layer — used to assert what actually reached the database. */
 export async function rows(table: string): Promise<any[]> {
   return (await db().Connections.get('sqlite')!.select().from(table).asRaw<any[]>()) as any[];
+}
+
+export interface ICapturedStatement {
+  context: QueryContext;
+  expression: string;
+  bindings: any[];
+}
+
+/**
+ * Records every statement the driver executes, in order, with its compiled SQL.
+ *
+ * Spies on `OrmDriver.execute` rather than on a dialect compiler so the assertions stay
+ * valid whichever compiler subclass the driver resolves. `toDB()` is idempotent thanks to
+ * the `_compiled` guard on every relation kind, so compiling here and again inside the real
+ * `execute` is safe.
+ */
+export function captureStatements(): { statements: ICapturedStatement[]; restore: () => void } {
+  const statements: ICapturedStatement[] = [];
+  const driver: any = db().Connections.get('sqlite')!;
+  const original = driver.execute.bind(driver);
+
+  const stub = sinon.stub(driver, 'execute').callsFake(async (builder: any) => {
+    const compiled = builder.toDB();
+    const out = Array.isArray(compiled) ? compiled[0] : compiled;
+    statements.push({ context: builder.QueryContext, expression: out?.expression ?? '', bindings: out?.bindings ?? [] });
+    return await original(builder);
+  });
+
+  return { statements, restore: () => stub.restore() };
 }

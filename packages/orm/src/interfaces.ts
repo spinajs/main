@@ -572,6 +572,38 @@ export interface IInsertResult extends IUpdateResult {
   Returning: any[];
 }
 
+/**
+ * Options for `ModelBase.save()`.
+ */
+export interface ISaveOptions {
+  /**
+   * Re-read the current database state of every already-persisted model in the graph inside
+   * the transaction and diff against that, instead of against the snapshot taken at
+   * hydration. Costs one SELECT per involved table; use it when another process may have
+   * changed the same rows since they were loaded.
+   */
+  reload?: boolean;
+
+  /**
+   * Maximum number of rows per batched statement — junction inserts and the key lists of
+   * orphan statements. Defaults to 100. Rows whose primary key the database generates are
+   * always inserted one statement at a time so the generated key can be read back exactly.
+   */
+  chunk?: number;
+}
+
+/**
+ * What one `save()` actually did.
+ */
+export interface ISaveResult {
+  Inserted: number;
+  Updated: number;
+  Deleted: number;
+  SoftDeleted: number;
+  JunctionInserted: number;
+  JunctionDeleted: number;
+}
+
 export interface IRelationDescriptor {
   /**
    * Name of relations, defaults for property name in model that owns relation
