@@ -68,7 +68,17 @@ describe("SqlDriver.execute perf instrumentation", () => {
   beforeEach(() => {
     DI.clearCache();
     DI.register(RecordingSink).as(PerfSink);
-    sink = DI.resolve(Array.ofType(PerfSink))[0] as RecordingSink;
+
+    // Pick OUR sink out of the set rather than trusting index 0. `@spinajs/telemetry`
+    // self-registers InMemoryPerfSink and PromMetricSink via `@Injectable(PerfSink)`, so as
+    // soon as anything in the run pulls that package in, index 0 is one of those and this
+    // read handed back a sink with no `metrics` array.
+    const found = (DI.resolve(Array.ofType(PerfSink)) as PerfSink[]).find((s): s is RecordingSink => s instanceof RecordingSink);
+    if (!found) {
+      throw new Error('RecordingSink was registered but not resolved through Array.ofType(PerfSink)');
+    }
+    sink = found;
+
     Perf.refreshSinks();
   });
 

@@ -6,17 +6,25 @@ import { IModelDescriptor, IRelationDescriptor, OrphanPolicy } from './interface
  * Decides what to do with a row removed from `relation`.
  *
  * An explicit policy on the decorator always wins. With no explicit policy the default is
- * `nullify`, falling back to `delete` only when the child's foreign key demonstrably cannot
- * hold NULL: the column must be present in the target descriptor, be reflected from the
- * database ( `NativeType` non-empty ) and be declared non-nullable.
+ * `nullify` — the only non-destructive answer.
  *
- * The conservative guard matters because `_prepareColumnDesc` defaults `Nullable` to `false`
- * for a decorator-declared column, so a model whose table info has not been loaded would
- * otherwise report every column as non-nullable and silently escalate to DELETE. A `nullify`
- * the database rejects is a loud, recoverable failure; a wrong DELETE is not.
+ * When the child's foreign key demonstrably cannot hold NULL ( the column is present in the
+ * target descriptor, reflected from the database with a non-empty `NativeType`, and declared
+ * non-nullable ) `nullify` cannot work either. This used to silently escalate to DELETE.
+ * It now throws: destroying rows is not something to infer from a schema detail the developer
+ * never pointed at. The same reasoning the old code gave for its conservative guard applies
+ * here — *"a `nullify` the database rejects is a loud, recoverable failure; a wrong DELETE is
+ * not"* — and an unasked-for DELETE is the unrecoverable branch, so it must be declared.
+ *
+ * The reflection guard still matters in the other direction: `_prepareColumnDesc` defaults
+ * `Nullable` to `false` for a decorator-declared column, so a model whose table info has not
+ * been loaded reports every column as non-nullable. Without the `NativeType` check that
+ * would turn every unreflected model into a hard error.
  *
  * @param relation - the hasMany / manyToMany relation the member was removed from
  * @param target - descriptor of the model on the other side of that relation
+ * @throws OrmException when no policy is declared and `nullify` cannot be applied, or when
+ *         `soft-delete` is declared on a model with no `@SoftDelete` column
  */
 export function resolveOrphanPolicy(relation: IRelationDescriptor, target: IModelDescriptor): OrphanPolicy {
   const policy = relation.Orphan ?? defaultPolicy(relation, target);
@@ -36,10 +44,18 @@ function defaultPolicy(relation: IRelationDescriptor, target: IModelDescriptor):
   }
 
   // An unreflected column carries `Nullable: false` from the decorator defaults, which says
-  // nothing about the database. Only escalate when the database actually told us.
+  // nothing about the database. Only act on what the database actually told us.
   if (!column.NativeType) {
     return OrphanPolicy.Nullify;
   }
 
-  return column.Nullable ? OrphanPolicy.Nullify : OrphanPolicy.Delete;
+  if (column.Nullable) {
+    return OrphanPolicy.Nullify;
+  }
+
+  throw new OrmException(
+    `relation ${relation.Name} on ${target.Name} removes rows whose foreign key ${relation.ForeignKey} is NOT NULL, so the default orphan policy 'nullify' cannot be applied. ` +
+      `Declare what should happen explicitly: @HasMany(..., { orphan: OrphanPolicy.Delete }) to remove the row, OrphanPolicy.SoftDelete to stamp it, or OrphanPolicy.Disable to leave it alone. ` +
+      `Removing rows is never inferred from schema nullability.`,
+  );
 }

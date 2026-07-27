@@ -21,7 +21,10 @@ export class UnitOfWork {
    * Persists everything reachable from `root` atomically.
    *
    * @param root - the model `save()` was called on
-   * @param options - `reload` to diff against current database state, `chunk` to bound batch size
+   * @param options - `reload` to diff against current database state; `chunk` to bound the row
+   *        count of the statements that ARE batched — junction inserts and the key lists of
+   *        orphan statements. It does not apply to model inserts: those run one statement per
+   *        row so each generated key can be read back exactly. See {@link ISaveOptions}.
    */
   public static async save(root: ModelBase, options?: ISaveOptions): Promise<ISaveResult> {
     const descriptor = extractModelDescriptor(root.constructor);
@@ -151,10 +154,11 @@ export class UnitOfWork {
 
         const baseline = model.Snapshot!.Columns;
         const current = snapshotFromRow(descriptor, row);
+        const converterOf = new Map((descriptor.Columns ?? []).map((c) => [c.Name, c.Converter]));
 
         for (const [name, value] of current) {
           // eslint-disable-next-line security/detect-object-injection
-          const callerEdited = !snapshotEquals(baseline.get(name), (model as any)[name]);
+          const callerEdited = !snapshotEquals(baseline.get(name), (model as any)[name], converterOf.get(name));
 
           if (!callerEdited) {
             // Untouched by this caller: adopt the database's value so it is neither written

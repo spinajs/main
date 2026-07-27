@@ -3,7 +3,6 @@ import { AsyncService } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 import { fs, IStat, URI } from '@spinajs/fs';
-import { Config } from '@spinajs/configuration';
 import { readFile, stat as localStat } from 'fs/promises';
 import { normalize } from 'path';
 import { IRenderOptions } from './progress.js';

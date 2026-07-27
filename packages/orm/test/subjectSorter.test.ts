@@ -166,4 +166,43 @@ describe('SubjectSorter', () => {
 
     expect(new SubjectSorter().sort(set).Orphans).to.deep.equal([childOrphan, parentOrphan]);
   });
+
+  /**
+   * The sorter used to rebuild the whole dependency map and re-filter every insert on each
+   * pass, so a chain — the shape a self-referencing tree produces — cost O(V^2 * E). A 2000-node
+   * chain is 2000 passes over 2000 subjects; the timeout is what makes the difference visible
+   * rather than merely slow.
+   */
+  it('orders a deep dependency chain in linear time', function () {
+    this.timeout(2000);
+
+    const set = new SubjectSet();
+    const chain: Subject[] = [];
+
+    for (let i = 0; i < 2000; i++) {
+      const node = insert(set, `N${i}`);
+      if (i > 0) {
+        needs(node, 'parent_id', chain[i - 1]);
+      }
+      chain.push(node);
+    }
+
+    const ordered = new SubjectSorter().sort(set).Inserts;
+
+    expect(ordered).to.have.length(2000);
+    expect(ordered).to.deep.equal(chain);
+  });
+
+  it('counts two foreign keys onto the same parent as one dependency', () => {
+    const set = new SubjectSet();
+    const parent = insert(set, 'Parent');
+    const child = insert(set, 'Child');
+
+    // Both columns point at the SAME row. Counting the in-degree per foreign key rather than
+    // per distinct target would leave a counter stuck at 1 and report a phantom cycle.
+    needs(child, 'created_by', parent);
+    needs(child, 'updated_by', parent);
+
+    expect(new SubjectSorter().sort(set).Inserts).to.deep.equal([parent, child]);
+  });
 });

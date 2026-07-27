@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import _ from 'lodash';
 import { DateTime } from 'luxon';
-import { IModelDescriptor } from './interfaces.js';
+import { IModelDescriptor, IValueConverter } from './interfaces.js';
 
 /**
  * The diff baseline for one model instance.
@@ -26,15 +26,35 @@ export function createSnapshot(): IModelSnapshot {
 }
 
 /**
+ * Marker held in a snapshot in place of a value the ORM cannot copy.
+ *
+ * A baseline that ALIASES a mutable object is the worst possible answer: the baseline
+ * mutates along with the model, the diff comes out empty, and `save()` silently drops the
+ * caller's edit. This marker is never equal to anything, so such a column is reported as
+ * changed on every save — a redundant write instead of a lost one. A converter opts out of
+ * the redundancy by implementing `snapshotValue` / `snapshotEquals`.
+ */
+export const UNCOPYABLE = Symbol('spinajs.orm.snapshot.uncopyable');
+
+/**
  * Takes a value copy suitable for a diff baseline.
  *
  * Immutable values (primitives, luxon `DateTime`) are returned as-is. Everything the ORM can
  * put in a column and that can be mutated in place — `Buffer` (binary/UUID columns), `Date`,
- * arrays and plain objects (JSON columns) — is copied. Class instances the ORM does not own
- * are returned as-is: cloning them could break invariants, and a converter that produces one
- * is responsible for its own equality via `snapshotEquals`.
+ * arrays and plain objects (JSON columns) — is copied.
+ *
+ * A mutable instance of a class the ORM does not own cannot be copied safely: cloning it
+ * could break its invariants. Such a value is replaced by {@link UNCOPYABLE} unless its
+ * column's converter supplies a `snapshotValue` hook.
+ *
+ * @param value - the in-memory column value
+ * @param converter - the column's converter, when it has one
  */
-export function snapshotValue(value: unknown): unknown {
+export function snapshotValue(value: unknown, converter?: IValueConverter | null): unknown {
+  if (converter?.snapshotValue) {
+    return converter.snapshotValue(value);
+  }
+
   if (value === null || value === undefined) {
     return value;
   }
@@ -60,15 +80,29 @@ export function snapshotValue(value: unknown): unknown {
     return _.cloneDeep(value);
   }
 
-  return value;
+  return UNCOPYABLE;
 }
 
 /**
  * Value equality for a diff. Deliberately stricter than `==`: `null` and `undefined` are
  * different (one is "explicitly cleared", the other "never set"), and `0`/`''`/`false` are
  * never equal to each other.
+ *
+ * @param a - baseline value
+ * @param b - current value
+ * @param converter - the column's converter, when it has one
  */
-export function snapshotEquals(a: unknown, b: unknown): boolean {
+export function snapshotEquals(a: unknown, b: unknown, converter?: IValueConverter | null): boolean {
+  if (converter?.snapshotEquals) {
+    return converter.snapshotEquals(a, b);
+  }
+
+  // Set by `snapshotValue` for a value it could not copy. Never equal to anything, so the
+  // column is always reported as changed rather than silently never written.
+  if (a === UNCOPYABLE || b === UNCOPYABLE) {
+    return false;
+  }
+
   if (a === b) {
     return true;
   }
@@ -113,7 +147,7 @@ export function snapshotFromRow(descriptor: IModelDescriptor, row: Record<string
     const raw = row[c.Name];
     const converted = c.Converter ? c.Converter.fromDB(raw, row, descriptor.Converters.get(c.Name)?.Options) : raw;
 
-    columns.set(c.Name, snapshotValue(converted));
+    columns.set(c.Name, snapshotValue(converted, c.Converter));
   }
 
   return columns;

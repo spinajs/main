@@ -1,8 +1,12 @@
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { DI } from '@spinajs/di';
+import * as chai from 'chai';
 import { expect } from 'chai';
+import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+
+chai.use(chaiAsPromised);
 import { IdentityMap, OrphanPolicy, QueryContext, SubjectBuilder, SubjectExecutor, SubjectSorter } from '@spinajs/orm';
 import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowNode, UowOrder, UowOrderItem, UowOrderTag, UowStrictItem, UowTag } from './uowFixture.js';
 
@@ -368,16 +372,36 @@ describe('SubjectExecutor - orphan phase', function () {
     }
   });
 
-  it('deletes rather than nullifies when the foreign key is reflected NOT NULL', async () => {
+  it('refuses to guess a policy when the foreign key is reflected NOT NULL', async () => {
     await UowOrder.insert({ Total: 10 });
     await UowStrictItem.insert({ Sku: 'S', order_id: 1 });
     const order = await UowOrder.where({ Id: 1 }).populate('StrictItems').first();
 
     order.StrictItems.empty();
-    const result = await run(order);
 
-    expect(result.Deleted).to.equal(1);
-    expect(await rows('uow_strict_item')).to.have.length(0);
+    // The row survives: refusing is a recoverable failure, an unasked-for DELETE is not.
+    await expect(run(order)).to.be.rejectedWith(/NOT NULL/);
+    expect(await rows('uow_strict_item')).to.have.length(1);
+  });
+
+  it('deletes when the relation declares the delete policy explicitly', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowStrictItem.insert({ Sku: 'S', order_id: 1 });
+    const order = await UowOrder.where({ Id: 1 }).populate('StrictItems').first();
+
+    const relation = order.ModelDescriptor!.Relations.get('StrictItems')!;
+    const previous = relation.Orphan;
+    relation.Orphan = OrphanPolicy.Delete;
+
+    try {
+      order.StrictItems.empty();
+      const result = await run(order);
+
+      expect(result.Deleted).to.equal(1);
+      expect(await rows('uow_strict_item')).to.have.length(0);
+    } finally {
+      relation.Orphan = previous;
+    }
   });
 
   it('does nothing under the disable policy', async () => {

@@ -6,6 +6,6 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "references": [{ "path": "../configuration/tsconfig.mjs.json" }, { "path": "../di/tsconfig.mjs.json" }, { "path": "../log/tsconfig.mjs.json" }, { "path": "../rbac/tsconfig.mjs.json" }]
 }
-

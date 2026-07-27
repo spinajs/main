@@ -7,14 +7,10 @@
     "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [
-    { "path": "../di/tsconfig.mjs.json" },
+  "references": [{ "path": "../di/tsconfig.mjs.json" },
     { "path": "../exceptions/tsconfig.mjs.json" },
     { "path": "../log-common/tsconfig.mjs.json" },
     { "path": "../orm/tsconfig.mjs.json" },
     { "path": "../queue/tsconfig.mjs.json" },
-    { "path": "../threading/tsconfig.mjs.json" }
-
-
-  ]
+    { "path": "../threading/tsconfig.mjs.json" }, { "path": "../util/tsconfig.mjs.json" }]
 }

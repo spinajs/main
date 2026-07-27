@@ -102,6 +102,17 @@ describe('Mysql connection test', () => {
     
   });
 
+  afterEach(async () => {
+    // Every beforeEach resolves a FRESH Orm, which opens a new mysql2 pool per configured
+    // connection. `DI.clearCache()` only drops the container's reference, so each test used to
+    // strand its pools for the life of the process. Two connections at the default pool Max of
+    // 10 is 20 sockets per test against a server capped at 32 — the suite exhausted
+    // max_connections within a few tests and every later hook died on "Too many connections".
+    // Orm.dispose() stops the health-check probe and disconnects every pool.
+    await (DI.get(Orm) as any)?.dispose();
+    DI.clearCache();
+  });
+
   it('Should connect', async () => {
     const result = await db().Connections.get('mysql')!.ping();
     expect(result).to.equal(true);
@@ -116,6 +127,17 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
     await DI.resolve(Orm);
     
     await db().Connections.get('mysql')!.truncate('user_test');
+  });
+
+  afterEach(async () => {
+    // Every beforeEach resolves a FRESH Orm, which opens a new mysql2 pool per configured
+    // connection. `DI.clearCache()` only drops the container's reference, so each test used to
+    // strand its pools for the life of the process. Two connections at the default pool Max of
+    // 10 is 20 sockets per test against a server capped at 32 — the suite exhausted
+    // max_connections within a few tests and every later hook died on "Too many connections".
+    // Orm.dispose() stops the health-check probe and disconnects every pool.
+    await (DI.get(Orm) as any)?.dispose();
+    DI.clearCache();
   });
 
   it('Should migrate', async () => {
@@ -198,6 +220,17 @@ describe('mysql model functions', () => {
    
     await db().Connections.get('mysql')!.truncate('user_test');
 
+  });
+
+  afterEach(async () => {
+    // Every beforeEach resolves a FRESH Orm, which opens a new mysql2 pool per configured
+    // connection. `DI.clearCache()` only drops the container's reference, so each test used to
+    // strand its pools for the life of the process. Two connections at the default pool Max of
+    // 10 is 20 sockets per test against a server capped at 32 — the suite exhausted
+    // max_connections within a few tests and every later hook died on "Too many connections".
+    // Orm.dispose() stops the health-check probe and disconnects every pool.
+    await (DI.get(Orm) as any)?.dispose();
+    DI.clearCache();
   });
 
   it('should model create', async () => {
@@ -285,8 +318,15 @@ describe('MySql queries', () => {
  
   });
 
-  after(async () => {
-    await db().Connections.get('mysql')!.disconnect();
+  afterEach(async () => {
+    // Every beforeEach resolves a FRESH Orm, which opens a new mysql2 pool per configured
+    // connection. `DI.clearCache()` only drops the container's reference, so each test used to
+    // strand its pools for the life of the process. Two connections at the default pool Max of
+    // 10 is 20 sockets per test against a server capped at 32 — the suite exhausted
+    // max_connections within a few tests and every later hook died on "Too many connections".
+    // Orm.dispose() stops the health-check probe and disconnects every pool.
+    await (DI.get(Orm) as any)?.dispose();
+    DI.clearCache();
   });
 
   it('should select and sort', async () => {
@@ -368,8 +408,15 @@ describe('MySql transactions', () => {
  
   });
 
-  after(async () => {
-    await db().Connections.get('mysql')!.disconnect();
+  afterEach(async () => {
+    // Every beforeEach resolves a FRESH Orm, which opens a new mysql2 pool per configured
+    // connection. `DI.clearCache()` only drops the container's reference, so each test used to
+    // strand its pools for the life of the process. Two connections at the default pool Max of
+    // 10 is 20 sockets per test against a server capped at 32 — the suite exhausted
+    // max_connections within a few tests and every later hook died on "Too many connections".
+    // Orm.dispose() stops the health-check probe and disconnects every pool.
+    await (DI.get(Orm) as any)?.dispose();
+    DI.clearCache();
   });
 
   it('should commit transaction on success', async () => {
@@ -512,9 +559,15 @@ describe('MySql cross-schema whereExists', () => {
     
   });
 
-  after(async () => {
-    await db().Connections.get('mysql')!.disconnect();
-    await db().Connections.get('mysql-2')!.disconnect();
+  afterEach(async () => {
+    // Every beforeEach resolves a FRESH Orm, which opens a new mysql2 pool per configured
+    // connection. `DI.clearCache()` only drops the container's reference, so each test used to
+    // strand its pools for the life of the process. Two connections at the default pool Max of
+    // 10 is 20 sockets per test against a server capped at 32 — the suite exhausted
+    // max_connections within a few tests and every later hook died on "Too many connections".
+    // Orm.dispose() stops the health-check probe and disconnects every pool.
+    await (DI.get(Orm) as any)?.dispose();
+    DI.clearCache();
   });
 
   it('should generate SQL with schema prefix when whereExists uses relation in different schema', async () => {

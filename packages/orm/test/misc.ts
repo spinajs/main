@@ -82,6 +82,30 @@ const TEST_TABLE_INFO: Record<string, IColumnDescriptor[]> = {
       Aggregate: false,
       Virtual: false,
     },
+    {
+      // Owning side of RelationModel2.Many ( @HasMany(Model1, { foreignKey: 'RelId2' }) ).
+      // The relation always named this column, but the mocked table info never listed it, so
+      // every query the relation built referenced a column the model did not have.
+      Type: 'INT',
+      MaxLength: 0,
+      Comment: '',
+      DefaultValue: null,
+      NativeType: 'INT',
+      Unsigned: false,
+      Nullable: true,
+      PrimaryKey: false,
+      AutoIncrement: false,
+      Name: 'RelId2',
+      Converter: null,
+      Schema: 'sqlite',
+      Unique: false,
+      Uuid: false,
+      Ignore: false,
+      IsForeignKey: true,
+      ForeignKeyDescription: null,
+      Aggregate: false,
+      Virtual: false,
+    },
   ],
   TestTable2: [
     {

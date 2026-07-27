@@ -1,4 +1,4 @@
-import { ModelBase, OrmException, extractModelDescriptor, IDeleteQueryBuilder, IQueryBuilder, ISelectQueryBuilder, IUpdateQueryBuilder } from '@spinajs/orm';
+import { ModelBase, OrmException, extractModelDescriptor, wherePk, IDeleteQueryBuilder, IQueryBuilder, ISelectQueryBuilder, IUpdateQueryBuilder } from '@spinajs/orm';
 import { IRbacModelDescriptor } from './interfaces.js';
 import type { User } from './models/User.js';
 
@@ -51,10 +51,13 @@ function rbacDescriptor(model: unknown): IRbacModelDescriptor {
     return (modelOrPrimaryKey as any)[descriptor.OwnerField] === user.PrimaryKeyValue;
   }
 
-  const found = await (this as any)
-    .where(descriptor.PrimaryKey, modelOrPrimaryKey)
-    .where(descriptor.OwnerField, user.PrimaryKeyValue)
-    .first();
+  // `descriptor.PrimaryKey` is a string[] since the composite-key refactor, so it cannot be
+  // handed to `where()` as a column name — that took the whereObject path and filtered on
+  // nothing. `wherePk` is the ORM's single home for key predicates and handles both shapes.
+  const query = (this as any).query();
+  wherePk(query, descriptor, modelOrPrimaryKey);
+
+  const found = await query.where(descriptor.OwnerField, user.PrimaryKeyValue).first();
 
   return found !== undefined && found !== null;
 };

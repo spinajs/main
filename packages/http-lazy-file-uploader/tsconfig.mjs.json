@@ -10,5 +10,5 @@
     }
   },
   "include": ["src/**/*"],
-  "references": [ { "path": "../util/tsconfig.mjs.json" },{ "path": "../configuration/tsconfig.mjs.json" }, { "path": "../di/tsconfig.mjs.json" }, { "path": "../exceptions/tsconfig.mjs.json" }, { "path": "../log/tsconfig.mjs.json" },  { "path": "../fs/tsconfig.mjs.json" }, { "path": "../log-common/tsconfig.mjs.json"}]
+  "references": [{ "path": "../util/tsconfig.mjs.json" },{ "path": "../configuration/tsconfig.mjs.json" }, { "path": "../di/tsconfig.mjs.json" }, { "path": "../exceptions/tsconfig.mjs.json" }, { "path": "../log/tsconfig.mjs.json" },  { "path": "../fs/tsconfig.mjs.json" }, { "path": "../log-common/tsconfig.mjs.json"}, { "path": "../cli/tsconfig.mjs.json" }, { "path": "../http/tsconfig.mjs.json" }, { "path": "../queue/tsconfig.mjs.json" }]
 }

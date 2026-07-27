@@ -64,3 +64,6 @@ tsconfig.tsbuildinfo
 docs
 
 lib
+
+# scratch files written by the ftp integration tests
+test/temp

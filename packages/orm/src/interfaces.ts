@@ -166,14 +166,25 @@ export interface DbServerResponse {
   Returning: any[];
 }
 
-export abstract class ServerResponseMapper {
+/**
+ * Normalizes a driver's raw insert response into {@link DbServerResponse}.
+ *
+ * Every driver MUST register an implementation against this token in its container — the
+ * shape of an insert response is dialect-specific and there is no meaningful default.
+ * Declared as a concrete class that throws rather than as an abstract method, so a container
+ * missing the registration reports which contract was not implemented instead of dying with
+ * `read is not a function` several frames deep inside a result middleware.
+ */
+export class ServerResponseMapper {
   /**
    * Normalizes a driver's raw insert response.
    *
    * @param response - whatever the driver's executeOnDb resolved with
    * @param pkNames - primary key column names, used to read a key out of RETURNING rows
    */
-  public abstract read(response: any, pkNames?: string[]): DbServerResponse;
+  public read(_response: any, _pkNames?: string[]): DbServerResponse {
+    throw new MethodNotImplemented(`no ServerResponseMapper is registered for this connection. Every driver must register one: container.register(MyMapper).as(ServerResponseMapper)`);
+  }
 }
 
 export abstract class DefaultValueBuilder<T> {
@@ -968,6 +979,32 @@ export interface IValueConverter {
    * @param value - value to convert
    */
   fromDB(value: any, rawData: any, options: any): any;
+
+  /**
+   * Value copy of `value` to hold as the `save()` diff baseline, for a converter whose
+   * runtime type the ORM cannot copy on its own.
+   *
+   * Implement this together with {@link snapshotEquals} whenever `fromDB` returns a MUTABLE
+   * instance of a class the ORM does not own. Without it the baseline can only either alias
+   * the live object — making the diff permanently empty, so edits to the column are silently
+   * never written — or treat the column as always-changed. The ORM takes the second, loud
+   * option; this hook is how a converter opts into a precise diff instead.
+   *
+   * Immutable value types (the column always gets a fresh instance on assignment) need
+   * neither hook: reference equality already answers the question.
+   *
+   * @param value - the converted, in-memory column value
+   */
+  snapshotValue?(value: any): any;
+
+  /**
+   * Diff equality for two values produced by this converter — the baseline from
+   * {@link snapshotValue} and the model's current value.
+   *
+   * @param a - baseline value
+   * @param b - current value
+   */
+  snapshotEquals?(a: any, b: any): boolean;
 }
 
 /**
@@ -1168,6 +1205,13 @@ export interface IWithRecursiveBuilder {
   CteRecursive: IQueryStatement | undefined;
 
   withRecursive(recKeyName: string, pkKeyName: string): this;
+
+  /**
+   * Drops the recursive CTE, so this builder compiles as a plain SELECT. Used on the clones
+   * that make up the CTE's own anchor and recursive members, which must not be recursive
+   * themselves.
+   */
+  clearRecursive(): this;
 }
 
 export interface IGroupByBuilder {
@@ -1488,8 +1532,37 @@ export interface IBuilderMiddleware<T = any[]> {
   afterHydration(data: ModelBase[]): Promise<any[] | void>;
 }
 
+/**
+ * Hooks into the lifetime of every query builder. Both hooks run for EVERY builder type —
+ * select, insert, update and delete.
+ *
+ * The two differ in what the query is guaranteed to contain, and that difference is
+ * load-bearing rather than stylistic:
+ *
+ * - `afterQueryCreation` runs from the builder's CONSTRUCTOR. The model and the query context
+ *   are set; nothing the caller does afterwards has happened yet — no `where()`, no
+ *   `update()`, no `values()`. It is the place to ADD a constraint (rbac appends its owner
+ *   `WHERE` here) and the wrong place to read or amend the payload, which does not exist yet.
+ * - `beforeQueryExecution` runs once per builder, immediately before the driver is called, so
+ *   the query is complete. It is the place to inspect or rewrite what is about to be written
+ *   (rbac stamps the owner column of an INSERT here, because a value written at construction
+ *   would be overwritten by the caller's own `values()` call).
+ *
+ * A middleware that throws from either hook aborts the query.
+ */
 export abstract class QueryMiddleware {
+  /**
+   * Called from the builder's constructor, before the caller has added anything to it.
+   *
+   * @param query - the freshly constructed builder
+   */
   abstract afterQueryCreation(query: QueryBuilder): void;
+
+  /**
+   * Called once per builder immediately before execution, with the query fully assembled.
+   *
+   * @param query - the completed builder
+   */
   abstract beforeQueryExecution(query: QueryBuilder): void;
 }
 

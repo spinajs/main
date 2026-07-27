@@ -248,15 +248,14 @@ export class SqliteOrmDriver extends SqlDriver {
     await new Promise<void>((resolve, reject) => {
       this.Db = new sqlite3.Database(filename, (err: unknown) => {
         if (err) {
-          // Clean up the database handle if connection fails
-          if (this.Db) {
-            this.Db.close(() => {
-              this.Db = null as any;
-              reject(err);
-            });
-          } else {
-            reject(err);
-          }
+          // Drop the handle, do NOT close it. sqlite3 never invokes the close callback for a
+          // database that failed to open, so closing here left this promise unsettled and
+          // `connect()` hung forever — an app pointed at a bad path, an unreadable file or a
+          // missing directory waited indefinitely instead of being told SQLITE_CANTOPEN.
+          // sqlite3 has already released whatever it allocated for a failed open; there is
+          // nothing here for us to clean up.
+          this.Db = null as any;
+          reject(err);
           return;
         }
 

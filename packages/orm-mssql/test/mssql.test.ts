@@ -6,6 +6,10 @@ import { MsSqlOrmDriver } from './../src/index.js';
 import { mergeArrays } from './util.js';
 import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm, OrmException } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
+// Registers the logging implementation the framework's `@Logger` decorator resolves. Without
+// it every `this.Log.*` call is a TypeError — Orm.createConnections died on `Log.trace` before
+// it ever reached the database.
+import '@spinajs/log';
 import { DateTime } from 'luxon';
 
 import './migrations/TestMigration_2022_02_08_01_13_00.js';

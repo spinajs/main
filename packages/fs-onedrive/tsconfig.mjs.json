@@ -9,8 +9,7 @@
   "include": [
     "src/**/*"
   ],
-  "references": [
-    {
+  "references": [{
       "path": "../configuration/tsconfig.mjs.json"
     },
     {
@@ -21,6 +20,5 @@
     },
     {
       "path": "../log/tsconfig.mjs.json"
-    },
-  ]
+    }, { "path": "../exceptions/tsconfig.mjs.json" }, { "path": "../log-common/tsconfig.mjs.json" }]
 }

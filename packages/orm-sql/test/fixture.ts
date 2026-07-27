@@ -3,7 +3,7 @@
 /* eslint-disable prettier/prettier */
 
 import { SqlDropEventQueryCompiler, SqlDropTableQueryCompiler, SqlEventQueryCompiler, SqlTableHistoryQueryCompiler, SqlOnDuplicateQueryCompiler, SqlIndexQueryCompiler, SqlWithRecursiveCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlColumnQueryCompiler, SqlOrderByQueryCompiler, SqlAlterColumnQueryCompiler, SqlTableCloneQueryCompiler, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlTableAliasCompiler, SqlTruncateTableQueryCompiler, SqlRawSchemaQueryCompiler } from './../src/compilers.js';
-import { OrmDriver, IColumnDescriptor, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, RecursiveQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByStatement, GroupByQueryCompiler, DateTimeWrapper, DateWrapper, ITransactionContext, ITransactionOptions, AlterColumnQueryCompiler, TableCloneQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter, DropTableCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, TimeValueConverter, RawSchemaQueryCompiler } from '@spinajs/orm';
+import { OrmDriver, IColumnDescriptor, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, RecursiveQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByStatement, GroupByQueryCompiler, DateTimeWrapper, DateWrapper, ITransactionContext, ITransactionOptions, AlterColumnQueryCompiler, TableCloneQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter, DropTableCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, TimeValueConverter, RawSchemaQueryCompiler, ServerResponseMapper } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper } from '../src/statements.js';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -20,6 +20,20 @@ export function mergeArrays(target: any, source: any) {
 
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
+}
+
+/**
+ * Minimal stand-in for a driver's insert-response mapper: the plain
+ * `{ RowsAffected, LastInsertId }` packet every SQL driver's non-RETURNING path produces.
+ */
+export class FakeServerResponseMapper extends ServerResponseMapper {
+  public read(data: any) {
+    return {
+      RowsAffected: data?.RowsAffected ?? 0,
+      LastInsertId: data?.LastInsertId ?? 0,
+      Returning: Array.isArray(data?.Returning) ? data.Returning : [],
+    };
+  }
 }
 
 export class FakeSqliteDriver extends SqlDriver {
@@ -100,6 +114,10 @@ export class FakeSqliteDriver extends SqlDriver {
     this.Container.register(SqlColumnRawStatement).as(ColumnRawStatement);
     this.Container.register(SqlWhereQueryStatement).as(WhereQueryStatement);
     this.Container.register(SqlWithRecursiveStatement).as(WithRecursiveStatement);
+
+    // Every real driver registers a response mapper; the fake one never did, so an insert
+    // resolved the unimplemented base and blew up inside the result middleware.
+    this.Container.register(FakeServerResponseMapper).as(ServerResponseMapper);
     this.Container.register(SqlGroupByStatement).as(GroupByStatement);
     this.Container.register(SqlDateTimeWrapper).as(DateTimeWrapper);
     this.Container.register(SqlDateWrapper).as(DateWrapper);

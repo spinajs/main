@@ -2,7 +2,8 @@ import { __translate, __translateNumber, __translateL, __translateH } from '@spi
 import { IOFail } from '@spinajs/exceptions';
 import * as pug from 'pug';
 import _ from 'lodash';
-import { ensureParentDir, TemplateRenderer } from '@spinajs/templates';
+import * as fs from 'fs';
+import { CompiledTemplateRenderer, ensureParentDir, TemplateRenderer } from '@spinajs/templates';
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';

@@ -204,7 +204,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     const snapshot = createSnapshot();
 
     for (const c of this.ModelDescriptor?.Columns ?? []) {
-      snapshot.Columns.set(c.Name, snapshotValue((this as any)[c.Name]));
+      snapshot.Columns.set(c.Name, snapshotValue((this as any)[c.Name], c.Converter));
     }
 
     this.__snapshot__ = snapshot;
@@ -267,7 +267,38 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     const snapshot = this.__snapshot__;
-    return columns.filter((c) => !snapshotEquals(snapshot.Columns.get(c.Name), (this as any)[c.Name])).map((c) => c.Name);
+    return columns.filter((c) => !snapshotEquals(snapshot.Columns.get(c.Name), (this as any)[c.Name], c.Converter)).map((c) => c.Name);
+  }
+
+  /**
+   * Foreign-key columns a relation object reported as rewritten, via {@link markDirty}.
+   *
+   * These are the only columns the snapshot diff cannot see. `SingleRelation.attach()` stores
+   * the new target on the relation wrapper and marks the foreign key dirty, but never writes
+   * the column on the model — the value is materialised from the relation later, by
+   * `StandardModelToSqlConverter`. So `changedColumns()` compares the column against its
+   * snapshot, finds it untouched, and reports no change even though the relation was
+   * re-pointed. Detaching a relation and calling `update()` would then emit nothing at all.
+   *
+   * Restricted to declared relation foreign keys on purpose. `__dirty_props__` also collects
+   * ordinary property writes, and folding those in wholesale would undo the precision the
+   * diff exists for: a column written A -> B -> A is in `__dirty_props__` but has no net
+   * change, and must not be written back.
+   */
+  protected relationDirtyColumns(): string[] {
+    const descriptor = this.ModelDescriptor;
+    if (!descriptor) {
+      return [];
+    }
+
+    const relationKeys = new Set<string>();
+    for (const [, relation] of descriptor.Relations) {
+      if (relation.ForeignKey) {
+        relationKeys.add(relation.ForeignKey);
+      }
+    }
+
+    return this.__dirty_props__.filter((p) => relationKeys.has(p));
   }
 
   /**
@@ -684,9 +715,22 @@ export class ModelBase<M = unknown> implements IModelBase {
     return await query;
   }
 
+  /**
+   * Writes the columns that differ from the snapshot.
+   *
+   * The change set comes from `changedColumns()` — the snapshot diff — and not from the
+   * proxy's `__dirty_props__`, which records a property as dirty on ANY write including one
+   * that puts the original value straight back. `save()` has always used the diff, and
+   * `changedColumns()` documents it as the more precise answer; this path used the imprecise
+   * one, so the same edit produced a different UPDATE depending on which method you called.
+   *
+   * A model with no snapshot ( never hydrated ) reports every column as changed, which is the
+   * right answer: there is no baseline to be more precise than.
+   *
+   * @param data - optional patch hydrated onto the model first
+   */
   public async update(data?: Partial<this>) {
-    const { query } = this.createUpdateQuery();
-    let result = {
+    const result = {
       RowsAffected: 0,
       LastInsertId: 0,
     };
@@ -695,22 +739,34 @@ export class ModelBase<M = unknown> implements IModelBase {
       this.hydrate(data);
     }
 
-    // if no changes, return without update
-    if (this.IsDirty === false) {
+    const keyColumns = this.ModelDescriptor!.PrimaryKey ?? [];
+    const changed = _.union(this.changedColumns(), this.relationDirtyColumns()).filter((c) => !keyColumns.includes(c));
+
+    // Nothing to write. Checked against the diff, so re-assigning a column its current value
+    // no longer produces an UPDATE that sets it to what it already was.
+    if (changed.length === 0) {
+      this.IsDirty = false;
       return result;
     }
 
-    if (this.ModelDescriptor!.Timestamps.UpdatedAt) {
-      (this as any)[this.ModelDescriptor!.Timestamps.UpdatedAt] = DateTime.now();
+    const updatedAt = this.ModelDescriptor!.Timestamps.UpdatedAt;
+    if (updatedAt) {
+      (this as any)[updatedAt] = DateTime.now();
+      if (!changed.includes(updatedAt)) {
+        changed.push(updatedAt);
+      }
     }
 
-    query.update(this.toSql(true));
+    const { query } = this.createUpdateQuery();
+    query.update(_.pick(this.toSql() as Record<string, unknown>, changed));
     wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
-    result = await query;
+
+    const updateResult = await query;
 
     this.IsDirty = false;
+    this.takeSnapshot();
 
-    return result;
+    return updateResult;
   }
 
   /**

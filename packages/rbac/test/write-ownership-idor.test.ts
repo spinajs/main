@@ -96,14 +96,15 @@ describe('Ownership enforcement on write queries (IDOR regression)', function ()
     expect(victimAfter.Value).to.eq('victim');
   });
 
-  it('DELETE with :own scope cannot delete another user\'s row via an OR lookup', async () => {
+  it('DELETE with :own scope cannot delete another user\'s row in a multi-key destroy', async () => {
     const { attacker, attackerRow, victimRow } = await seed();
     const store = DI.resolve(AsyncLocalStorage);
 
+    // The attacker asks for both rows by key. `destroy()` refuses an unbounded DELETE, so
+    // this is the real attack shape: a bounded key set that reaches beyond the caller. The
+    // ownership middleware has to AND its owner constraint onto it.
     await store.run({ User: new User({ Id: attacker.Id, Role: ['owner'] }) }, async () => {
-      await ResourceModel.destroy().where(function () {
-        this.where('Id', attackerRow.Id).orWhere('Id', victimRow.Id);
-      });
+      await ResourceModel.destroy([attackerRow.Id, victimRow.Id]);
     });
 
     const attackerAfter = await ResourceModel.where({ Id: attackerRow.Id }).first();

@@ -57,6 +57,10 @@ describe('model generated queries', () => {
     expect(updateSpy.returnValues[1].expression).to.eq('UPDATE `TestTable1` SET `Bar` = ? WHERE `Id` IS NULL');
   });
 
+  // A condition supplied through a join callback belongs in the JOIN's ON clause, not the
+  // main WHERE — folding it into WHERE silently narrows an outer join to an inner one. These
+  // expectations predate that fix (#84) and still spelled the old, wrong form; the guard for
+  // the corrected behaviour is queryBuilder.test.ts "left join with callback stays a LEFT JOIN".
   it('Should model query join work', async () => {
 
     const tableInfoStub = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
@@ -112,8 +116,8 @@ describe('model generated queries', () => {
       })
       .toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT * FROM `TestTable3` as `$TestTable3$` INNER JOIN `TestTable4` as `$Model4$` ON `$TestTable3$`.Id = `$Model4$`.model3_id WHERE ( `$Model4$`.`Bar` = ? )');
-    expect(result2.expression).to.equal('SELECT * FROM `TestTable3` as `$TestTable3$` LEFT JOIN `TestTable4` as `$Model4$` ON `$TestTable3$`.Id = `$Model4$`.model3_id WHERE ( `$Model4$`.`Bar` = ? )');
+    expect(result.expression).to.equal('SELECT * FROM `TestTable3` as `$TestTable3$` INNER JOIN `TestTable4` as `$Model4$` ON `$TestTable3$`.Id = `$Model4$`.model3_id AND ( `$Model4$`.`Bar` = ? )');
+    expect(result2.expression).to.equal('SELECT * FROM `TestTable3` as `$TestTable3$` LEFT JOIN `TestTable4` as `$Model4$` ON `$TestTable3$`.Id = `$Model4$`.model3_id AND ( `$Model4$`.`Bar` = ? )');
   });
 
   it('model should execute scope function', async () => {
@@ -197,7 +201,7 @@ describe('model generated queries', () => {
     }).toDB() as ICompilerOutput;
 
 
-    expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id WHERE ( `$UserMetadata$`.`Key` = ? )');
+    expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id AND ( `$UserMetadata$`.`Key` = ? )');
     expect(result.bindings![0]).to.eq('user:niceName');
   });
 
@@ -263,7 +267,7 @@ describe('model generated queries', () => {
       this.where('Value', 'testValue');
     }).toDB() as ICompilerOutput;
 
-    expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id WHERE ( `$UserMetadata$`.`Key` = ? ) AND EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `$users$`.`Id` )');
+    expect(result.expression).to.equal('SELECT `$users$`.*,`$UserMetadata$`.`Value` as `user:niceName` FROM `users` as `$users$` LEFT JOIN `users_metadata` as `$UserMetadata$` ON `$users$`.Id = `$UserMetadata$`.user_id AND ( `$UserMetadata$`.`Key` = ? ) WHERE EXISTS ( SELECT * FROM `users_metadata` as `users_metadata_exists` WHERE `users_metadata_exists`.`Key` = ? AND `users_metadata_exists`.`Value` = ? AND user_id = `$users$`.`Id` )');
     expect(result.bindings![0]).to.eq('user:niceName');
     expect(result.bindings![1]).to.eq('user:niceName');
     expect(result.bindings![2]).to.eq('testValue');
@@ -343,7 +347,7 @@ describe('model generated queries', () => {
       this.where('Id', 1);
     }).toDB() as ICompilerOutput;
 
-    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id WHERE ( `$RelationModel4$`.`Id` = ? ) AND owner_id = `RelationTable3`.`Id` )');
+    expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE owner_id = `RelationTable3`.`Id` )');
     expect(q.bindings![0]).to.eq(1);
   });
 

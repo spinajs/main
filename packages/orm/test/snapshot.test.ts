@@ -2,7 +2,7 @@
 import { expect } from 'chai';
 import 'mocha';
 import { DateTime } from 'luxon';
-import { createSnapshot, snapshotEquals, snapshotValue } from '../src/snapshot.js';
+import { createSnapshot, snapshotEquals, snapshotValue, UNCOPYABLE } from '../src/snapshot.js';
 
 describe('snapshot primitives', () => {
   describe('snapshotValue', () => {
@@ -104,6 +104,57 @@ describe('snapshot primitives', () => {
       const s = createSnapshot();
       expect(s.Columns.size).to.equal(0);
       expect(s.Relations.size).to.equal(0);
+    });
+  });
+
+  /**
+   * A mutable instance of a class the ORM does not own used to be stored in the snapshot BY
+   * REFERENCE. The baseline then mutated along with the model, the diff came out empty, and
+   * the caller's edit was silently never written — the exact failure the module header warns
+   * about. It is now marked uncopyable (always dirty) unless a converter says otherwise.
+   */
+  describe('uncopyable values', () => {
+    class Money {
+      constructor(public amount: number) {}
+    }
+
+    it('does not alias a class instance it cannot copy', () => {
+      const live = new Money(10);
+      const baseline = snapshotValue(live);
+
+      expect(baseline).to.equal(UNCOPYABLE);
+      expect(baseline).to.not.equal(live);
+    });
+
+    it('reports an uncopyable column as changed rather than silently clean', () => {
+      const live = new Money(10);
+      const baseline = snapshotValue(live);
+
+      // Same object, never touched — still reported as changed. A redundant write is the
+      // deliberate trade against a silently lost one.
+      expect(snapshotEquals(baseline, live)).to.equal(false);
+
+      live.amount = 20;
+      expect(snapshotEquals(baseline, live)).to.equal(false);
+    });
+
+    it('lets a converter opt into a precise diff', () => {
+      const converter = {
+        toDB: (v: any) => v,
+        fromDB: (v: any) => v,
+        snapshotValue: (v: Money) => new Money(v.amount),
+        snapshotEquals: (a: Money, b: Money) => a.amount === b.amount,
+      };
+
+      const live = new Money(10);
+      const baseline = snapshotValue(live, converter) as Money;
+
+      expect(baseline).to.be.instanceOf(Money);
+      expect(baseline).to.not.equal(live);
+      expect(snapshotEquals(baseline, live, converter)).to.equal(true);
+
+      live.amount = 20;
+      expect(snapshotEquals(baseline, live, converter)).to.equal(false);
     });
   });
 });

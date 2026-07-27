@@ -405,8 +405,19 @@ describe('User model tests', function () {
       expect(user.DeletedAt).to.be.null;
       await user.destroy();
 
-      const user2 = await User.get(1);
+      // Reads now filter `DeletedAt IS NULL` by default, so the soft-deleted row is
+      // invisible to a plain get() — that is the point of the soft delete. `withDeleted()`
+      // is the documented opt-out and the only way to observe the stamp.
+      const user2 = await User.query().withDeleted().where('Id', 1).first();
+      expect(user2).to.be.not.undefined;
       expect(user2.DeletedAt).to.be.not.null;
+    });
+
+    it('Should hide soft deleted rows from normal reads', async () => {
+      const user = await User.get(1);
+      await user.destroy();
+
+      expect(await User.get(1)).to.be.undefined;
     });
 
     it('To json should hide password', async () => {

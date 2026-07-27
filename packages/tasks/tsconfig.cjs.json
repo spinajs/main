@@ -6,13 +6,10 @@
     "module": "commonjs"
   },
   "include": ["src/**/*"],
-  "references": [
-    { "path": "../di/tsconfig.cjs.json" },
+  "references": [{ "path": "../di/tsconfig.cjs.json" },
     { "path": "../exceptions/tsconfig.cjs.json" },
     { "path": "../log-common/tsconfig.cjs.json" },
     { "path": "../orm/tsconfig.cjs.json" },
     { "path": "../queue/tsconfig.cjs.json" },
-    { "path": "../threading/tsconfig.cjs.json" }
-
-  ]
+    { "path": "../threading/tsconfig.cjs.json" }, { "path": "../util/tsconfig.cjs.json" }]
 }

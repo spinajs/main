@@ -54,8 +54,17 @@ export class SubjectSorter {
   }
 
   /**
-   * Kahn's algorithm over the insert subjects. Stable: the ready queue is seeded and refilled
-   * in the subjects' own order, so a dependency-free graph comes out exactly as it went in.
+   * Kahn's algorithm over the insert subjects, in O(V + E).
+   *
+   * Each subject carries a count of how many not-yet-emitted subjects it must follow, plus the
+   * list of subjects waiting on IT. Emitting a subject decrements its dependents' counters and
+   * moves any that reach zero onto the ready queue, so no pass ever rescans the whole graph.
+   * The previous shape rebuilt the entire dependency map and re-filtered every insert on every
+   * pass — O(V² · E) on a deep chain, which is exactly the shape `deferSelfReferences` exists
+   * to serve ( a self-referencing tree inserted parent-by-parent ).
+   *
+   * Stable: the queue is seeded and refilled in the subjects' own order, so a dependency-free
+   * graph comes out exactly as it went in.
    */
   protected order(inserts: Subject[]): Subject[] {
     const byModel = new Map<ModelBase, Subject>();
@@ -66,52 +75,92 @@ export class SubjectSorter {
     const remaining = new Set<Subject>(inserts);
     const output: Subject[] = [];
 
-    for (;;) {
-      const dependencies = this.dependencies(remaining, byModel);
-      const ready = inserts.filter((s) => remaining.has(s) && dependencies.get(s)!.size === 0);
+    let { pending, dependents } = this.buildDegrees(inserts, byModel, remaining);
+    let ready = inserts.filter((s) => pending.get(s) === 0);
 
+    while (output.length < inserts.length) {
       if (ready.length === 0) {
-        if (remaining.size === 0) {
-          return output;
-        }
-
+        // Nothing can proceed. Either a genuine cycle, or a self-referencing one that can be
+        // broken by deferring the offending column to a follow-up UPDATE. Deferring mutates
+        // PendingForeignKeys, so the degrees are recomputed once — at most once per cycle
+        // broken, not once per emitted subject.
         if (!this.deferSelfReferences(remaining, byModel)) {
           const names = [...remaining].map((s) => s.Descriptor.Name);
           throw new OrmCycleException(`cannot order INSERTs: foreign-key cycle between models ${[...new Set(names)].join(' -> ')}. Break the cycle by saving one side first, or make one of the foreign keys deferrable by pointing it at the same model.`);
         }
 
+        ({ pending, dependents } = this.buildDegrees(inserts, byModel, remaining));
+        ready = inserts.filter((s) => remaining.has(s) && pending.get(s) === 0);
         continue;
       }
 
-      for (const s of ready) {
+      const next = ready;
+      ready = [];
+
+      for (const s of next) {
         output.push(s);
         remaining.delete(s);
-      }
 
-      if (remaining.size === 0) {
-        return output;
+        for (const dependent of dependents.get(s) ?? []) {
+          if (!remaining.has(dependent)) {
+            continue;
+          }
+
+          const left = pending.get(dependent)! - 1;
+          pending.set(dependent, left);
+
+          if (left === 0) {
+            ready.push(dependent);
+          }
+        }
       }
     }
+
+    return output;
   }
 
-  /** For each remaining subject, the remaining subjects it must follow. */
-  protected dependencies(remaining: Set<Subject>, byModel: Map<ModelBase, Subject>): Map<Subject, Set<Subject>> {
-    const map = new Map<Subject, Set<Subject>>();
+  /**
+   * In-degree per remaining subject, and the reverse edges needed to decrement them.
+   *
+   * `pending` counts DISTINCT targets: two foreign keys on one subject pointing at the same
+   * target are one dependency, and counting them twice would leave a counter that never
+   * reaches zero and a spurious cycle report.
+   */
+  protected buildDegrees(inserts: Subject[], byModel: Map<ModelBase, Subject>, remaining: Set<Subject>) {
+    const pending = new Map<Subject, number>();
+    const dependents = new Map<Subject, Subject[]>();
 
-    for (const s of remaining) {
-      const deps = new Set<Subject>();
+    for (const s of inserts) {
+      pending.set(s, 0);
+    }
+
+    for (const s of inserts) {
+      if (!remaining.has(s)) {
+        continue;
+      }
+
+      const seen = new Set<Subject>();
 
       for (const fk of s.PendingForeignKeys) {
         const target = byModel.get(fk.Target);
-        if (target && target !== s && remaining.has(target)) {
-          deps.add(target);
+
+        if (!target || target === s || !remaining.has(target) || seen.has(target)) {
+          continue;
+        }
+
+        seen.add(target);
+        pending.set(s, pending.get(s)! + 1);
+
+        const list = dependents.get(target);
+        if (list) {
+          list.push(s);
+        } else {
+          dependents.set(target, [s]);
         }
       }
-
-      map.set(s, deps);
     }
 
-    return map;
+    return { pending, dependents };
   }
 
   /**

@@ -95,6 +95,15 @@ describe('save() atomicity on disk', function () {
       await orm.Connections.get('sqlite')?.disconnect();
     }
     DI.clearCache();
+
+    // `DI.clearCache()` only drops resolved INSTANCES — the registration survives, and the
+    // container resolves the LAST type registered for a token. `Registry.register` also
+    // de-duplicates, so a later suite re-registering its own ConnectionConf is a no-op and
+    // cannot win the token back. Leaving this registration in place therefore pointed every
+    // subsequent suite at `dbFile` — a path inside the temp directory removed on the next
+    // line. Unregister explicitly so the leak cannot outlive the suite that created it.
+    DI.unregister(UowIntegrationConf);
+
     rmSync(dbDir, { recursive: true, force: true });
   });
 

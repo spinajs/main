@@ -5,6 +5,8 @@ import 'mocha';
 import { IModelDescriptor, IRelationDescriptor, OrphanPolicy, RelationType } from '../src/interfaces.js';
 import { resolveOrphanPolicy } from '../src/orphan.js';
 import { _prepareColumnDesc } from '../src/decorators.js';
+import { SubjectExecutor } from '../src/subject-executor.js';
+import { IOrphanDelta } from '../src/subject.js';
 
 function relation(over: Partial<IRelationDescriptor> = {}): IRelationDescriptor {
   return {
@@ -45,11 +47,21 @@ describe('resolveOrphanPolicy', () => {
     expect(resolveOrphanPolicy(relation(), target(true, true))).to.equal(OrphanPolicy.Nullify);
   });
 
-  it('falls back to delete when the foreign key is reflected and not nullable', () => {
-    expect(resolveOrphanPolicy(relation(), target(false, true))).to.equal(OrphanPolicy.Delete);
+  it('refuses to guess when the foreign key is reflected and not nullable', () => {
+    // Used to silently escalate to DELETE. Removing rows now has to be declared: inferring
+    // data destruction from a NOT NULL constraint the developer never pointed at is the one
+    // branch that cannot be undone.
+    expect(() => resolveOrphanPolicy(relation(), target(false, true))).to.throw(/NOT NULL/);
+  });
+
+  it('names the escape hatches when it refuses', () => {
+    expect(() => resolveOrphanPolicy(relation(), target(false, true))).to.throw(/OrphanPolicy\.Delete/);
+    expect(() => resolveOrphanPolicy(relation(), target(false, true))).to.throw(/OrphanPolicy\.Disable/);
   });
 
   it('keeps nullify when the foreign key column is not reflected', () => {
+    // `_prepareColumnDesc` defaults Nullable to false, so an unreflected model would report
+    // every column as NOT NULL and turn every relation into the hard error above.
     expect(resolveOrphanPolicy(relation(), target(false, false))).to.equal(OrphanPolicy.Nullify);
   });
 
@@ -77,5 +89,42 @@ describe('resolveOrphanPolicy', () => {
 
   it('throws for soft-delete when the target has no DeletedAt column', () => {
     expect(() => resolveOrphanPolicy(relation({ Orphan: OrphanPolicy.SoftDelete }), target(true, true))).to.throw(/soft-delete/);
+  });
+});
+
+/**
+ * `delete` and `destroy()` must mean the same thing for the same model. `ModelBase.destroy()`
+ * stamps `DeletedAt` on a `@SoftDelete` model instead of issuing a DELETE; an orphan taking
+ * the hard-delete branch made the outcome depend on which code path reached the row.
+ */
+describe('SubjectExecutor.effectivePolicy', () => {
+  class Executor extends SubjectExecutor {
+    public policyOf(delta: IOrphanDelta) {
+      return this.effectivePolicy(delta);
+    }
+  }
+
+  function delta(policy: OrphanPolicy, softDelete?: string): IOrphanDelta {
+    return {
+      Descriptor: relation(),
+      TargetDescriptor: target(true, true, softDelete),
+      Policy: policy,
+      PrimaryKeys: [1],
+    };
+  }
+
+  const executor = new Executor({});
+
+  it('degrades delete to soft-delete when the target declares @SoftDelete', () => {
+    expect(executor.policyOf(delta(OrphanPolicy.Delete, 'DeletedAt'))).to.equal(OrphanPolicy.SoftDelete);
+  });
+
+  it('keeps a hard delete when the target has no @SoftDelete column', () => {
+    expect(executor.policyOf(delta(OrphanPolicy.Delete))).to.equal(OrphanPolicy.Delete);
+  });
+
+  it('leaves nullify and disable alone', () => {
+    expect(executor.policyOf(delta(OrphanPolicy.Nullify, 'DeletedAt'))).to.equal(OrphanPolicy.Nullify);
+    expect(executor.policyOf(delta(OrphanPolicy.Disable, 'DeletedAt'))).to.equal(OrphanPolicy.Disable);
   });
 });

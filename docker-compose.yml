@@ -43,5 +43,53 @@ services:
       retries: 20
       start_period: 30s
 
+  mssql:
+    profiles: ['test']
+    # The orm-mssql suite connects to localhost:1433 as `sa` with the password below
+    # ( packages/orm-mssql/test/mssql.test.ts ). Without this service those tests fail on
+    # "Could not connect (sequence)" — there was never a fixture for them.
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: spinajs-orm-test-mssql
+    restart: unless-stopped
+    environment:
+      # Required by the image; running it means accepting Microsoft's EULA.
+      ACCEPT_EULA: 'Y'
+      # Must match packages/orm-mssql/test/mssql.test.ts, and satisfy SQL Server's own
+      # complexity rules ( upper, lower, digit, symbol, 8+ chars ).
+      MSSQL_SA_PASSWORD: 'yourStrong(!)Password'
+      MSSQL_PID: 'Developer'
+    ports:
+      - '1433:1433'
+    volumes:
+      - mssql-data:/var/opt/mssql
+      - ./scripts/docker/mssql-init:/init:ro
+    healthcheck:
+      # `-C` trusts the self-signed cert the container generates; without it sqlcmd 18+
+      # refuses the connection and the healthcheck never goes green.
+      test: ['CMD-SHELL', '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -Q "SELECT 1" || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  # One-shot: creates the schemas the suite expects, then exits. The SQL Server image runs
+  # nothing from a mount the way the mysql image runs /docker-entrypoint-initdb.d, so the
+  # init has to be driven from outside once the server reports healthy.
+  mssql-init:
+    profiles: ['test']
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: spinajs-orm-test-mssql-init
+    restart: 'no'
+    depends_on:
+      mssql:
+        condition: service_healthy
+    volumes:
+      - ./scripts/docker/mssql-init:/init:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - '/opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P "yourStrong(!)Password" -C -i /init/01-create-databases.sql'
+
 volumes:
   mysql-data:
+  mssql-data:

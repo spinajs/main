@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Log } from '@spinajs/log';
+import { Log } from '@spinajs/log-common';
 import { Cli, CommanderError } from './index.js';
 import { Configuration } from '@spinajs/configuration-common';
 import './args.js';

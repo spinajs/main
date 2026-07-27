@@ -7,11 +7,9 @@
     "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [
-    { "path": "../configuration/tsconfig.mjs.json" },
+  "references": [{ "path": "../configuration/tsconfig.mjs.json" },
     { "path": "../di/tsconfig.mjs.json" },
     { "path": "../templates/tsconfig.mjs.json"},
-    { "path": "../templates-puppeteer/tsconfig.mjs.json"}
-  ]
+    { "path": "../templates-puppeteer/tsconfig.mjs.json"}, { "path": "../cli/tsconfig.mjs.json" }, { "path": "../log-common/tsconfig.mjs.json" }]
 }
 

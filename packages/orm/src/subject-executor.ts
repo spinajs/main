@@ -47,6 +47,12 @@ export class SubjectExecutor {
   /**
    * Inserts every insert subject in the order the sorter produced, reading each generated key
    * back before moving on so the next subject's foreign keys can be resolved.
+   *
+   * One statement per row, deliberately, and NOT subject to `options.chunk`: a batched
+   * multi-row INSERT can only return keys where the dialect supports RETURNING or where
+   * `insertIdIsFirstOfBatch` holds, and a subject's key is needed by the very next subject in
+   * the order. Batching here is a real feature — it has to carry the per-dialect key-backfill
+   * rules with it — not something to fold into the chunking used for junction and orphan rows.
    */
   protected async runInserts(plan: ISortedPlan, result: ISaveResult): Promise<void> {
     for (const subject of plan.Inserts) {
@@ -288,8 +294,8 @@ export class SubjectExecutor {
    * these builders are unfiltered — which is what stamping an already-soft-deleted row needs.
    */
   protected async runOrphans(plan: ISortedPlan, result: ISaveResult): Promise<void> {
-    const updates = plan.Orphans.filter((o) => o.Policy === OrphanPolicy.Nullify || o.Policy === OrphanPolicy.SoftDelete);
-    const deletes = plan.Orphans.filter((o) => o.Policy === OrphanPolicy.Delete);
+    const updates = plan.Orphans.filter((o) => this.effectivePolicy(o) !== OrphanPolicy.Delete);
+    const deletes = plan.Orphans.filter((o) => this.effectivePolicy(o) === OrphanPolicy.Delete);
 
     for (const delta of updates) {
       await this.updateOrphans(delta, result);
@@ -300,8 +306,26 @@ export class SubjectExecutor {
     }
   }
 
+  /**
+   * The policy actually applied to `delta`.
+   *
+   * `delete` on a model that declares `@SoftDelete` degrades to `soft-delete`, so orphaning a
+   * row and calling `destroy()` on it mean the same thing. `ModelBase.destroy()` has always
+   * stamped `DeletedAt` rather than issuing a DELETE for such a model; an orphan taking the
+   * other branch made "delete this row" depend on which code path reached it, and hard-erased
+   * rows the model had declared should never be hard-erased.
+   */
+  protected effectivePolicy(delta: IOrphanDelta): OrphanPolicy {
+    if (delta.Policy === OrphanPolicy.Delete && delta.TargetDescriptor.SoftDelete?.DeletedAt) {
+      return OrphanPolicy.SoftDelete;
+    }
+
+    return delta.Policy;
+  }
+
   protected async updateOrphans(delta: IOrphanDelta, result: ISaveResult): Promise<void> {
-    const payload = delta.Policy === OrphanPolicy.Nullify ? { [delta.Descriptor.ForeignKey]: null } : { [delta.TargetDescriptor.SoftDelete!.DeletedAt]: DateTime.now() };
+    const policy = this.effectivePolicy(delta);
+    const payload = policy === OrphanPolicy.Nullify ? { [delta.Descriptor.ForeignKey]: null } : { [delta.TargetDescriptor.SoftDelete!.DeletedAt]: DateTime.now() };
 
     for (const batch of this.chunked(delta.PrimaryKeys)) {
       const { query } = createQuery(delta.Descriptor.TargetModel, UpdateQueryBuilder);
@@ -309,7 +333,7 @@ export class SubjectExecutor {
       whereAnyPk(update, delta.TargetDescriptor, batch);
       await update;
 
-      if (delta.Policy === OrphanPolicy.Nullify) {
+      if (policy === OrphanPolicy.Nullify) {
         result.Updated += batch.length;
       } else {
         result.SoftDeleted += batch.length;

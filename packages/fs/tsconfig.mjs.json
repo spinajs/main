@@ -8,5 +8,5 @@
   },
   "include": ["src/**/*"],
   "typeRoots": ["node_modules/@types", "./src/typings"],
-  "references": [{ "path": "../exceptions/tsconfig.mjs.json" }, {"path": "../util/tsconfig.mjs.json"}, { "path": "../log-common/tsconfig.mjs.json" },  { "path": "../threading/tsconfig.mjs.json" }]
+  "references": [{ "path": "../exceptions/tsconfig.mjs.json" }, {"path": "../util/tsconfig.mjs.json"}, { "path": "../log-common/tsconfig.mjs.json" },  { "path": "../threading/tsconfig.mjs.json" }, { "path": "../configuration/tsconfig.mjs.json" }, { "path": "../di/tsconfig.mjs.json" }, { "path": "../cli/tsconfig.mjs.json" }]
 }

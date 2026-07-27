@@ -59,11 +59,43 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
   }
 
   public build(): IQueryStatementResult {
-    const initialQuery = this._query.clone().clearJoins().toDB();
+    // `clearRecursive()` on both clones is what stops this from recursing forever. `clone()`
+    // carries `_cteStatement` over, so a clone compiled here would re-enter the recursive
+    // compiler, which clones again — toDB -> compile -> recursive -> build -> toDB, until the
+    // stack ran out. The anchor and recursive members of a CTE are plain SELECTs by
+    // definition; neither may carry the CTE that contains it.
+    const initialQuery = this._query.clone().clearRecursive().clearJoins().toDB();
 
-    const joinStmt = this.container.resolve(JoinStatement, [this._query, this._query.Model, 'recursive_cte', JoinMethod.RECURSIVE, this._pkName, this._rcKeyName, '$recursive$', '$recursive_cte$']);
+    // Built from a named options object. This call site still passed the eight POSITIONAL
+    // arguments of a signature `JoinStatement` no longer has — its constructor takes one
+    // options object — so `_options` was the query builder itself and every field the join
+    // needed read back `undefined`.
+    //
+    // `joinTableDriver` has to be supplied explicitly: the join target is `recursive_cte`, a
+    // common table expression rather than a model, so there is no descriptor to read a driver
+    // from. It is the source query's own driver by construction — a CTE lives in the same
+    // statement, and therefore the same connection, as the query that declares it.
+    const joinStmt = this.container.resolve(JoinStatement, [
+      {
+        builder: this._query,
+        sourceModel: this._query.Model,
+        joinTable: 'recursive_cte',
+        joinTableDriver: this._query.Driver,
+        method: JoinMethod.RECURSIVE,
+        // The ON clause renders as `<recursing table>.<sourceTablePrimaryKey> =
+        // <cte>.<joinTableForeignKey>`. A descendant walk has to match the CHILD's foreign key
+        // against the PARENT row already in the CTE — `category.parent_id = cte.Id`. Passing
+        // them the other way round produced `category.Id = cte.parent_id`, which walks towards
+        // ancestors: the opposite of what a `@Recursive() @HasMany` relation means, and it
+        // returned nothing for a root row whose own parent_id is NULL.
+        sourceTablePrimaryKey: this._rcKeyName,
+        joinTableForeignKey: this._pkName,
+        sourceTableAlias: '$recursive$',
+        joinTableAlias: '$recursive_cte$',
+      },
+    ]);
     this._query.JoinStatements.push(joinStmt);
-    const additionalQuery = this._query.clone().clearWhere().setAlias('$recursive$').toDB();
+    const additionalQuery = this._query.clone().clearRecursive().clearWhere().setAlias('$recursive$').toDB();
     const cte_columns = this._query
       .getColumns()
       .map((c: ColumnStatement) => c.Column)

@@ -7,14 +7,12 @@
     "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [
-    { "path": "../configuration/tsconfig.mjs.json" },
+  "references": [{ "path": "../configuration/tsconfig.mjs.json" },
     { "path": "../di/tsconfig.mjs.json" },
     { "path": "../telemetry-common/tsconfig.mjs.json" },
     { "path": "../exceptions/tsconfig.mjs.json" },
     { "path": "../log/tsconfig.mjs.json" },
     { "path": "../reflection/tsconfig.mjs.json" },
-    { "path": "../validation/tsconfig.mjs.json" }
-  ]
+    { "path": "../validation/tsconfig.mjs.json" }, { "path": "../configuration-common/tsconfig.mjs.json" }, { "path": "../log-common/tsconfig.mjs.json" }, { "path": "../util/tsconfig.mjs.json" }]
 }
 

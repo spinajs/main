@@ -86,6 +86,13 @@ export class Builder<T = any> implements IBuilder<T> {
    * inside the memo.
    */
   protected async _run(): Promise<T> {
+    // Fires for EVERY builder type, not just SELECT. This used to live on
+    // `SelectQueryBuilder._run`, so an INSERT/UPDATE/DELETE never reached a
+    // `beforeQueryExecution` hook at all — which silently disabled any middleware that
+    // needs the finished query (rbac's insert-ownership check is exactly that: the payload
+    // does not exist until `values()` has been called, long after construction).
+    this._queryMiddlewares.forEach((x) => x.beforeQueryExecution(this as unknown as QueryBuilder));
+
     const result = (await this._driver.execute(this)) as T;
 
     // Snapshot the pipeline once, *after* the driver call: compiling the query is what
@@ -685,6 +692,24 @@ export class WithRecursiveBuilder implements IWithRecursiveBuilder {
 
   public withRecursive(rcKeyName: string, pkName: string) {
     this._cteStatement = this._container.resolve<WithRecursiveStatement>(WithRecursiveStatement, ['cte', this, rcKeyName, pkName]);
+    return this;
+  }
+
+  /**
+   * Drops the recursive CTE from this builder.
+   *
+   * `WithRecursiveStatement.build()` compiles two CLONES of the owning query — the anchor
+   * member and the recursive member of the CTE. `clone()` copies `_cteStatement`, so each
+   * clone was still marked recursive and compiling it re-entered `build()`, which cloned
+   * again: an unbounded mutual recursion between `toDB()` and the recursive compiler that
+   * ended in a stack overflow rather than a query. The two member queries are by definition
+   * not themselves recursive, so the statement clears the flag on its clones.
+   *
+   * Named alongside `clearJoins()` / `clearWhere()`, which `build()` already uses to strip the
+   * parts of the parent query each member must not inherit.
+   */
+  public clearRecursive() {
+    this._cteStatement = undefined;
     return this;
   }
 }
@@ -1399,13 +1424,11 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   /**
-   * Overrides the engine rather than `execute()` so that the query middlewares and the
-   * `takeFirst()` unwrapping happen *inside* the memo: `beforeQueryExecution` now fires
-   * once per builder instead of once per await.
+   * Overrides the engine rather than `execute()` so that the `takeFirst()` unwrapping
+   * happens *inside* the memo. `beforeQueryExecution` is dispatched by `Builder._run()`
+   * for every builder type, so it still fires once per builder rather than once per await.
    */
   protected async _run(): Promise<T> {
-    this._queryMiddlewares.forEach((x) => x.beforeQueryExecution(this));
-
     const result = await super._run();
 
     if (this._first && Array.isArray(result)) {
@@ -1603,6 +1626,38 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     this._values = [];
 
     this.QueryContext = QueryContext.Insert;
+
+    // Inserts get the same middleware pass as the other three builders. Note that a
+    // middleware which needs to see or amend the row payload must use
+    // `beforeQueryExecution` instead — at construction time `values()` has not been called.
+    this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
+  }
+
+  /**
+   * Forces `column` to `value` on every row of the payload, overwriting whatever the caller
+   * supplied.
+   *
+   * This is the write path for a policy that must not be negotiable — rbac's `createOwn`
+   * ownership stamp. `values()` cannot serve: it appends rows and takes the column list from
+   * its own argument, so calling it a second time adds a row rather than amending the
+   * existing ones.
+   *
+   * @param column - column to overwrite on every row
+   * @param value - value to force
+   */
+  public forceColumn(column: string, value: unknown): this {
+    const existing = this._columns.findIndex((c) => !(c.Column instanceof RawQuery) && c.Column === column);
+
+    if (existing === -1) {
+      this.columns([...this._columns.filter((c) => !(c.Column instanceof RawQuery)).map((c) => c.Column as string), column]);
+      this._values.forEach((row) => row.push(value));
+      return this;
+    }
+
+    // eslint-disable-next-line security/detect-object-injection
+    this._values.forEach((row) => (row[existing] = value));
+
+    return this;
   }
 
   /**

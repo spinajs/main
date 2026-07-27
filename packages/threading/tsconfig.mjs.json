@@ -7,9 +7,8 @@
     "moduleResolution": "node16"
   },
   "include": ["src/**/*"],
-  "references": [
-      { "path": "../exceptions/tsconfig.mjs.json" },
+  "references": [{ "path": "../exceptions/tsconfig.mjs.json" },
       { "path": "../di/tsconfig.mjs.json" },
       { "path": "../log-common/tsconfig.mjs.json" 
-    }]
+    }, { "path": "../util/tsconfig.mjs.json" }]
 }

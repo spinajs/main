@@ -1,4 +1,4 @@
-import { Log, Logger } from '@spinajs/log';
+import { Log, Logger } from '@spinajs/log-common';
 import { CliCommand, Command, Option } from '../index.js';
 import { Configuration } from '@spinajs/configuration-common';
 import { Autoinject } from '@spinajs/di';

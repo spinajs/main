@@ -7,8 +7,7 @@
     "moduleResolution": "node"
   },
   "include": ["src/**/*"],
-  "references": [
-    { "path": "../configuration/tsconfig.cjs.json" },
+  "references": [{ "path": "../configuration/tsconfig.cjs.json" },
     { "path": "../configuration-common/tsconfig.cjs.json" },
     { "path": "../configuration-db-source/tsconfig.cjs.json" },
     { "path": "../di/tsconfig.cjs.json" },
@@ -18,6 +17,5 @@
     { "path": "../orm/tsconfig.cjs.json" },
     { "path": "../rbac/tsconfig.cjs.json" },
     { "path": "../rbac-http/tsconfig.cjs.json" },
-    { "path": "../validation/tsconfig.cjs.json" }
-  ]
+    { "path": "../validation/tsconfig.cjs.json" }, { "path": "../orm-http/tsconfig.cjs.json" }]
 }

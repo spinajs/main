@@ -939,14 +939,20 @@ describe('Select query builder', () => {
     expect(result.expression).to.equal('SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE DATETIME(`CreatedAt`) < ?');
   });
 
+  // The ON operands render source-side first, like every other join the compiler emits:
+  // `roles.parent_id = recursive_cte.id`. These expectations previously spelled the same
+  // predicate the other way round, and the implementation emitted a DIFFERENT predicate
+  // altogether ( `roles.id = recursive_cte.parent_id` ), which walks towards ancestors and
+  // returned nothing for a root row. Semantics verified end-to-end by orm-sqlite's
+  // "Model should populate recursive relations".
   it('withRecursion simple', () => {
     const result = sqb().withRecursive('parent_id', 'id').from('roles').columns(['id', 'parent_id', 'slug']).toDB();
-    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(id,parent_id,slug) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive_cte$`.id = `$recursive$`.parent_id ) SELECT * FROM recursive_cte');
+    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(id,parent_id,slug) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive$`.parent_id = `$recursive_cte$`.id ) SELECT * FROM recursive_cte');
   });
 
   it('withRecursion with where', () => {
     const result = sqb().withRecursive('parent_id', 'id').from('roles').columns(['id', 'parent_id', 'slug']).where('id', 2).toDB();
-    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(id,parent_id,slug) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE `id` = ? UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive_cte$`.id = `$recursive$`.parent_id ) SELECT * FROM recursive_cte');
+    expect(result.expression).to.equal('WITH RECURSIVE recursive_cte(id,parent_id,slug) AS ( SELECT `id`,`parent_id`,`slug` FROM `roles` WHERE `id` = ? UNION ALL SELECT `$recursive$`.`id`,`$recursive$`.`parent_id`,`$recursive$`.`slug` FROM `roles` as `$recursive$` INNER JOIN `recursive_cte` as `$recursive_cte$` ON `$recursive$`.parent_id = `$recursive_cte$`.id ) SELECT * FROM recursive_cte');
     expect(result.bindings).to.be.an('array').to.include(2);
   });
 

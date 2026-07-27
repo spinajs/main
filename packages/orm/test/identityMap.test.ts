@@ -3,14 +3,47 @@
 import { expect } from 'chai';
 import 'mocha';
 import { IdentityMap, identityKey } from '../src/identity-map.js';
+import 'reflect-metadata';
+import { createDefaultModelDescriptor } from '../src/descriptor.js';
+import { MODEL_DESCTRIPTION_SYMBOL } from '../src/symbols.js';
 
-/** Minimal stand-ins: the identity map only ever reads `constructor` and `PrimaryKeyValue`. */
+/**
+ * Minimal stand-ins. Undecorated classes have no table to unify on, so each keeps its own
+ * bucket — the identity map falls back to the constructor for them.
+ */
 class Alpha {
   constructor(public PrimaryKeyValue: any) {}
 }
 class Beta {
   constructor(public PrimaryKeyValue: any) {}
 }
+
+/**
+ * Two constructors, one table — the `@DiscriminationMap` shape.
+ *
+ * The descriptor is attached directly rather than via `@Model`, because the decorators also
+ * register the class in the global model registry and `model.test.ts` counts the models
+ * loaded from disk.
+ */
+function asModel<T extends object>(ctor: T, table: string): T {
+  const descriptor = createDefaultModelDescriptor();
+  descriptor.TableName = table;
+  descriptor.Name = table;
+  Reflect.defineMetadata(MODEL_DESCTRIPTION_SYMBOL, descriptor, ctor);
+  return ctor;
+}
+
+class Vehicle {
+  constructor(public PrimaryKeyValue: any) {}
+}
+class Car extends Vehicle {}
+class Garage {
+  constructor(public PrimaryKeyValue: any) {}
+}
+
+asModel(Vehicle, 'vehicle');
+asModel(Car, 'vehicle');
+asModel(Garage, 'garage');
 
 describe('IdentityMap', () => {
   it('returns undefined for an unknown key', () => {
@@ -170,6 +203,38 @@ describe('IdentityMap', () => {
       // A single-column key is read as a scalar everywhere in the ORM, so both spellings
       // must land on the same entry.
       expect(identityKey([1])).to.equal(identityKey(1));
+    });
+  });
+
+  /**
+   * A `@DiscriminationMap` produces several constructors for ONE table, and a subclass
+   * instance is still the same row. `SubjectBuilder.buildOrphans` has always keyed on the
+   * table for exactly this reason; the identity map keyed on the constructor, so the two
+   * disagreed and a row reached once as its base class and once as its subclass produced two
+   * entries — and two conflicting subjects for one row.
+   */
+  describe('rows of one table reached through different constructors', () => {
+    it('canonicalizes a discriminated subclass onto the same entry as its base', () => {
+      const map = new IdentityMap();
+      const base = new Vehicle(1) as any;
+      const sub = new Car(1) as any;
+
+      expect(map.add(base)).to.equal(base);
+      expect(map.add(sub)).to.equal(base);
+      expect(map.Size).to.equal(1);
+    });
+
+    it('still separates models that map to different tables', () => {
+      const map = new IdentityMap();
+      const car = new Car(1) as any;
+      const other = new Garage(1) as any;
+
+      map.add(car);
+      map.add(other);
+
+      expect(map.Size).to.equal(2);
+      expect(map.get(Car as any, 1)).to.equal(car);
+      expect(map.get(Garage as any, 1)).to.equal(other);
     });
   });
 });

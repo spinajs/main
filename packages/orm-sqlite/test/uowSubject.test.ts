@@ -391,15 +391,36 @@ describe('SubjectBuilder - orphan resolution', function () {
     expect(orphans[0].TargetDescriptor.TableName).to.equal('uow_order_item');
   });
 
-  it('falls back to delete when the foreign key is reflected NOT NULL', async () => {
+  it('refuses to guess a policy when the foreign key is reflected NOT NULL', async () => {
     await UowOrder.insert({ Total: 10 });
     await UowStrictItem.insert({ Sku: 'S', order_id: 1 });
     const order = await UowOrder.where({ Id: 1 }).populate('StrictItems').first();
 
     order.StrictItems.empty();
 
-    const orphan = builder().build(order).Orphans.find((o: any) => o.Descriptor.Name === 'StrictItems')!;
-    expect(orphan.Policy).to.equal(OrphanPolicy.Delete);
+    // Used to silently escalate to DELETE. `nullify` genuinely cannot be applied to a NOT NULL
+    // column, but inferring "destroy the row" from that is not something the developer asked
+    // for — the relation has to declare it.
+    expect(() => builder().build(order)).to.throw(/NOT NULL/);
+  });
+
+  it('takes an explicit delete policy on a NOT NULL foreign key', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowStrictItem.insert({ Sku: 'S', order_id: 1 });
+    const order = await UowOrder.where({ Id: 1 }).populate('StrictItems').first();
+
+    const relation = order.ModelDescriptor!.Relations.get('StrictItems')!;
+    const previous = relation.Orphan;
+    relation.Orphan = OrphanPolicy.Delete;
+
+    try {
+      order.StrictItems.empty();
+
+      const orphan = builder().build(order).Orphans.find((o: any) => o.Descriptor.Name === 'StrictItems')!;
+      expect(orphan.Policy).to.equal(OrphanPolicy.Delete);
+    } finally {
+      relation.Orphan = previous;
+    }
   });
 
   it('produces no orphan delta when nothing was removed', async () => {

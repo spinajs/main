@@ -92,6 +92,14 @@ describe('SQLite transaction contract (integration)', function () {
   after(async () => {
     await driver().disconnect();
     DI.clearCache();
+
+    // `DI.clearCache()` drops resolved instances but keeps registrations, and the container
+    // resolves the LAST type registered for a token. `Registry.register` de-duplicates, so a
+    // later suite re-registering its own ConnectionConf is a no-op and cannot take the token
+    // back. Left in place, this registration pointed every later suite at `dbFile` — inside
+    // the directory removed on the next line.
+    DI.unregister(IntegrationConf);
+
     rmSync(dbDir, { recursive: true, force: true });
   });
 

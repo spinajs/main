@@ -81,3 +81,6 @@ packages/orm-http/test/cache/
 
 # superpowers SDD scratch (local only)
 .superpowers/
+
+# agent worktree pointers (local only)
+.claude/worktrees/
