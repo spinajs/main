@@ -380,16 +380,42 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     }
   }
 
-  public intersection(_obj: T[], _callback?: (a: T, b: T) => boolean): T[] {
-    throw new Error('Method not implemented.');
+  /**
+   * Calculates intersection between data in this relation and provided dataset
+   *
+   * `[...this]` rather than `this`: these delegate into lodash, and `Relation extends Array`
+   * with a three-argument constructor, so anything that derives a new collection has to work
+   * on a plain array. ( `OneToManyRelationList` sidesteps the same problem by overriding
+   * `filter`/`map`; this class has no such overrides. )
+   *
+   * @param obj - dataset to compare with
+   * @param callback - compare function, if not set the target model's primary key is used
+   * @returns members present in both sets
+   */
+  public intersection(obj: T[], callback?: (a: T, b: T) => boolean): T[] {
+    return Dataset.intersection(obj, callback)([...this], this.TargetModelDescriptor!.PrimaryKey);
   }
 
-  public union(_obj: T[], _mode?: InsertBehaviour): void {
-    throw new Error('Method not implemented.');
+  /**
+   * Appends `obj` to this relation. Shorthand for push — nothing is removed and nothing is
+   * written to the database until `sync()`, `update()` or `save()` runs.
+   *
+   * @param obj - members to add
+   */
+  public union(obj: T[], _mode?: InsertBehaviour): void {
+    this.push(...obj);
   }
 
-  public diff(_obj: T[], _callback?: (a: T, b: T) => boolean): T[] {
-    throw new Error('Method not implemented.');
+  /**
+   * Calculates the symmetric difference between this relation and `dataset` — members of this
+   * relation that are not in the dataset, plus members of the dataset that are not in this
+   * relation.
+   *
+   * @param obj - dataset to compare with
+   * @param callback - compare function, if not set the target model's primary key is used
+   */
+  public diff(obj: T[], callback?: (a: T, b: T) => boolean): T[] {
+    return Dataset.diff(obj, callback)([...this], this.TargetModelDescriptor!.PrimaryKey);
   }
 
   /**
