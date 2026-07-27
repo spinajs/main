@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
@@ -13,6 +13,7 @@ import { Wrap } from './statements.js';
 import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
 import { createSnapshot, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
+import { UnitOfWork } from './unit-of-work.js';
 
 import { DI, isConstructor, IContainer, Constructor, isClass } from '@spinajs/di';
 
@@ -762,6 +763,27 @@ export class ModelBase<M = unknown> implements IModelBase {
       return await this.update();
     }
     return await this.insert();
+  }
+
+  /**
+   * Persists this model and everything reachable from it in one transaction.
+   *
+   * The graph is diffed against the snapshots taken when it was loaded, sorted so that a
+   * parent is inserted before any child that references it, and executed as inserts, then
+   * updates restricted to the columns that actually changed, then junction rows, then the
+   * orphan policy of every relation that lost a member.
+   *
+   * A relation that was never populated is invisible: `Items: OrderItem[] = []` on a freshly
+   * constructed model deletes nothing. That is the deliberate divergence from TypeORM.
+   *
+   * @param options - `{ reload: true }` to diff against current database state instead of the
+   *                  hydration snapshot; `{ chunk: n }` to bound batched statement size.
+   */
+  public async save(options?: ISaveOptions): Promise<ISaveResult> {
+    // `UnitOfWork` is referenced only inside this body, never at module-evaluation time, so
+    // the model.ts -> unit-of-work.ts -> ... -> model.ts cycle stays safe under ESM. Do not
+    // move this into a field initializer or an extends clause.
+    return await UnitOfWork.save(this, options);
   }
 
   /**

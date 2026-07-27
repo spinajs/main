@@ -29,6 +29,7 @@ export * from './subject.js';
 export * from './subject-builder.js';
 export * from './subject-sorter.js';
 export * from './subject-executor.js';
+export * from './unit-of-work.js';
 export * from './driver.js';
 export * from './wrappers.js';
 export * from './fp.js';

@@ -760,6 +760,11 @@ export interface IModelBase {
   /** Records `prop` as changed and marks the model dirty. */
   markDirty(prop: string): void;
 
+  /**
+   * Persists this model and everything reachable from it in one transaction.
+   */
+  save(options?: ISaveOptions): Promise<ISaveResult>;
+
   getFlattenRelationModels(): IModelBase[];
 
   /**
