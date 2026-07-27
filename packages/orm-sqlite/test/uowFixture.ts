@@ -17,6 +17,7 @@ import './models/uow/UowTag.js';
 import './models/uow/UowOrderTag.js';
 import './models/uow/UowNode.js';
 import './models/uow/UowCycle.js';
+import './models/uow/UowAltKey.js';
 
 export { UowClient } from './models/uow/UowClient.js';
 export { UowOrder } from './models/uow/UowOrder.js';
@@ -26,6 +27,7 @@ export { UowTag } from './models/uow/UowTag.js';
 export { UowOrderTag } from './models/uow/UowOrderTag.js';
 export { UowNode } from './models/uow/UowNode.js';
 export { UowCycleA, UowCycleB } from './models/uow/UowCycle.js';
+export { UowAltOwner, UowAltTarget } from './models/uow/UowAltKey.js';
 
 /** Registers the sqlite connection. Call once from `before()`. */
 export function registerUowConnection(): void {

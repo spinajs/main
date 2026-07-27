@@ -59,6 +59,18 @@ export class UowMigration_2026_07_26_00_00_00 extends OrmMigration {
       table.int('Id').primaryKey().autoIncrement().unique();
       table.int('a_id');
     });
+
+    // A belongsTo whose declared join column is NOT the target's primary key.
+    await connection.schema().createTable('uow_alt_target', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Code');
+      table.string('Label');
+    });
+
+    await connection.schema().createTable('uow_alt_owner', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('target_code');
+    });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function

@@ -304,17 +304,24 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
     });
   }
 
+  /**
+   * Loads the model this relation points at.
+   *
+   * Queries the target table directly, filtered on the column the relation declares as its
+   * join key ( `Relation.PrimaryKey` ) — the same column `BelongsToRelation.compile()` joins
+   * on for the eager path. It is *not* the target model's own primary key: `@BelongsTo`
+   * accepts an explicit third argument for exactly this case, and the two only coincide
+   * because the decorator defaults one from the other, which is why filtering on the target
+   * PK went unnoticed.
+   *
+   * @param callback - optional callback applied to the target query
+   */
   public async populate(callback?: (this: SelectQueryBuilder<this>) => void): Promise<void> {
-    /**
-     * Do little cheat - we construct query that loads initial model with given relation.
-     * Then we only assign relation property.
-     *
-     * TODO: create only relation query without loading its owner.
-     */
-
     const query = createQuery(this.Relation!.TargetModel, SelectQueryBuilder<ModelBase>).query;
-    const desc = extractModelDescriptor(this.Relation!.TargetModel);
-    query.where({ [desc!.PrimaryKey[0]]: (this._owner as any)[this.Relation!.ForeignKey] });
+    const targetDescriptor = extractModelDescriptor(this.Relation!.TargetModel);
+    const joinColumn = this.Relation!.PrimaryKey || targetDescriptor!.PrimaryKey[0];
+
+    query.where({ [joinColumn]: (this._owner as any)[this.Relation!.ForeignKey] });
 
     if (callback) {
       callback.apply(query);
