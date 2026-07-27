@@ -12,6 +12,12 @@ import { MethodNotImplemented } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 import { Relation } from './relation-objects.js';
 import { Lazy } from '@spinajs/util';
+// imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
+// `resilience.js`, and exporting the same name from both is an ambiguous re-export.
+import { IConnectionResilienceOptions } from './resilience.js';
+// Type-only: `snapshot.ts` imports IModelDescriptor from here, so a value import would close
+// the cycle. Keep this import type-only.
+import type { IModelSnapshot } from './snapshot.js';
 
 export enum QueryContext {
   Insert,
@@ -23,6 +29,9 @@ export enum QueryContext {
 
   // Insert or UPDATE
   Upsert,
+
+  /** INSERT that carries a RETURNING clause and therefore resolves with rows, not a status packet. */
+  InsertReturning,
 }
 
 export enum ColumnAlterationType {
@@ -37,6 +46,29 @@ export interface ISupportedFeature {
    * To execute tasks accoriding to schedule in DB.
    */
   events: boolean;
+
+  /** Can this dialect echo inserted rows back via RETURNING / OUTPUT on a plain INSERT? */
+  insertReturning: boolean;
+
+  /**
+   * Does the identity value reported after a multi-row `INSERT ... VALUES` name the key of the
+   * FIRST row of that statement, with the remaining rows following contiguously?
+   *
+   * MySQL: **true**. InnoDB treats a statement whose row count is known before execution — every
+   * `INSERT ... VALUES (…), (…)` the builder can produce — as a *simple insert*, reserves one
+   * contiguous block of auto-increment values under a short mutex, and `LAST_INSERT_ID()` reports
+   * the first of them. This holds under `innodb_autoinc_lock_mode = 2`, the MySQL 8 default; the
+   * documented "values may not be contiguous" caveat is about *bulk* inserts (`INSERT … SELECT`,
+   * row count unknown) and about mixed-mode inserts where some rows carry an explicit key.
+   *
+   * MSSQL: **false**. `SCOPE_IDENTITY()` returns the LAST identity generated in the scope.
+   * SQLite: **false**. `sqlite3_last_insert_rowid()` is likewise the last row, not the first —
+   * SQLite gets its keys from RETURNING instead.
+   *
+   * Optional and defaulting to false, so a custom driver that does not set it simply opts out of
+   * the batch key backfill rather than getting wrong keys.
+   */
+  insertIdIsFirstOfBatch?: boolean;
 }
 
 export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> extends Array<R> {
@@ -120,7 +152,7 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
    *
    * @param dataset - data for replace.
    */
-  set(obj: R[] | ((data: R[], pKey: string) => R[])): void;
+  set(obj: R[] | ((data: R[], pKey: string[]) => R[])): void;
 
   /**
    * Populates this relation ( loads all data related to owner of this relation)
@@ -129,10 +161,19 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
 }
 
 export interface DbServerResponse {
+  RowsAffected: number;
   LastInsertId: number;
+  Returning: any[];
 }
+
 export abstract class ServerResponseMapper {
-  public abstract read(response: any, pkName?: string): DbServerResponse;
+  /**
+   * Normalizes a driver's raw insert response.
+   *
+   * @param response - whatever the driver's executeOnDb resolved with
+   * @param pkNames - primary key column names, used to read a key out of RETURNING rows
+   */
+  public abstract read(response: any, pkNames?: string[]): DbServerResponse;
 }
 
 export abstract class DefaultValueBuilder<T> {
@@ -210,13 +251,56 @@ export enum MigrationTransactionMode {
 }
 
 /**
+ * Connection pool sizing and timeouts.
+ */
+export interface IPoolOptions {
+  /**
+   * Connections kept open when idle. Default 0.
+   */
+  Min?: number;
+
+  /**
+   * Maximum concurrent connections. Default 10. Overrides the deprecated PoolLimit.
+   *
+   * SQLite: writes always serialize on one handle — SQLite serializes writers at the file level,
+   * so extra writer handles only produce SQLITE_BUSY. `Max` sizes a pool of READ-ONLY handles
+   * instead ( `Max - 1` of them ) so concurrent SELECTs stop queueing behind each other. Ignored
+   * for `:memory:` and anonymous temporary databases, where each handle would open its own
+   * private database.
+   */
+  Max?: number;
+
+  /**
+   * Milliseconds an idle connection is kept before being closed. Default 30000.
+   */
+  IdleTimeout?: number;
+
+  /**
+   * Milliseconds to wait for a free connection before failing. Default 10000.
+   */
+  AcquireTimeout?: number;
+}
+
+/**
  * Configuration options to set in configuration file and used in OrmDriver
  */
 export interface IDriverOptions {
   /**
-   * Max connections limit
+   * Max connections limit.
+   *
+   * @deprecated use `Pool.Max`. Still honoured when `Pool.Max` is absent.
    */
   PoolLimit?: number;
+
+  /**
+   * Connection pool sizing and timeouts.
+   */
+  Pool?: IPoolOptions;
+
+  /**
+   * Reconnect and health-check behaviour.
+   */
+  Resilience?: IConnectionResilienceOptions;
 
   /**
    * Database name associated with this connection
@@ -335,11 +419,35 @@ export interface IValueConverterDescriptor {
 /**
  * Describes model, used internally
  */
+/**
+ * How a primary key column gets its value.
+ * - `auto`     — the database assigns it ( identity / auto-increment column ). Default.
+ * - `uuid`     — generated client-side immediately before insert, so the value is known
+ *                without a round-trip.
+ * - `assigned` — the caller supplies it; inserting without one is an error.
+ */
+export type PrimaryKeyGeneration = 'auto' | 'uuid' | 'assigned';
+
+export interface IPrimaryKeyOptions {
+  generated?: PrimaryKeyGeneration;
+}
+
 export interface IModelDescriptor {
   /**
-   * Primary key name
+   * Primary key column names, in declaration order. Empty when the model has no @Primary().
+   * A single-column key is a one-element array and must compile to exactly the SQL it did
+   * when this field was a plain string.
    */
-  PrimaryKey: string;
+  PrimaryKey: string[];
+
+  /**
+   * Generation strategy per primary key column, keyed by column name. Absent means `auto`.
+   *
+   * A Map rather than an array because `extractModelDescriptorInherited`'s merger has a
+   * dedicated `_.isMap` branch that merges cleanly, unlike the array branch which
+   * concatenates ( the duplication trap fixed in Task 3 ).
+   */
+  PrimaryKeyGeneration: Map<string, PrimaryKeyGeneration>;
 
   /**
    * Connection name, must be avaible in db config
@@ -430,6 +538,21 @@ export enum RelationType {
   Virtual
 }
 
+/**
+ * What `save()` does with a row that was removed from a relation.
+ *
+ * - `nullify` — clear the child's foreign key, leaving the row. The default.
+ * - `delete` — delete the child row.
+ * - `soft-delete` — stamp the child's `@SoftDelete` column. Requires the target to carry one.
+ * - `disable` — do nothing; the caller manages orphans by hand.
+ */
+export enum OrphanPolicy {
+  Nullify = 'nullify',
+  Delete = 'delete',
+  SoftDelete = 'soft-delete',
+  Disable = 'disable',
+}
+
 export type ForwardRefFunction = () => Constructor<ModelBase>;
 
 /**
@@ -438,6 +561,47 @@ export type ForwardRefFunction = () => Constructor<ModelBase>;
 export interface IUpdateResult {
   RowsAffected: number;
   LastInsertId: number;
+}
+
+/**
+ * Result of an INSERT. Extends IUpdateResult so existing RowsAffected / LastInsertId readers
+ * keep working. `LastInsertId` is 0 when the dialect reports no identity value ( uuid and
+ * assigned keys ); `Returning` holds the rows the dialect echoed back, empty when unsupported.
+ */
+export interface IInsertResult extends IUpdateResult {
+  Returning: any[];
+}
+
+/**
+ * Options for `ModelBase.save()`.
+ */
+export interface ISaveOptions {
+  /**
+   * Re-read the current database state of every already-persisted model in the graph inside
+   * the transaction and diff against that, instead of against the snapshot taken at
+   * hydration. Costs one SELECT per involved table; use it when another process may have
+   * changed the same rows since they were loaded.
+   */
+  reload?: boolean;
+
+  /**
+   * Maximum number of rows per batched statement — junction inserts and the key lists of
+   * orphan statements. Defaults to 100. Rows whose primary key the database generates are
+   * always inserted one statement at a time so the generated key can be read back exactly.
+   */
+  chunk?: number;
+}
+
+/**
+ * What one `save()` actually did.
+ */
+export interface ISaveResult {
+  Inserted: number;
+  Updated: number;
+  Deleted: number;
+  SoftDeleted: number;
+  JunctionInserted: number;
+  JunctionDeleted: number;
 }
 
 export interface IRelationDescriptor {
@@ -507,6 +671,12 @@ export interface IRelationDescriptor {
   Recursive: boolean;
 
   /**
+   * What happens to a member removed from this relation during `save()`.
+   * Unset means "decide from the foreign key's nullability" — see `resolveOrphanPolicy`.
+   */
+  Orphan?: OrphanPolicy;
+
+  /**
    * Relation factory, sometimes we dont want to create standard relation object
    */
   Factory?: (model: ModelBase<unknown>, relation: IRelationDescriptor, container: IContainer, data: any[]) => Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>;
@@ -562,13 +732,38 @@ export interface IModelStatic extends Constructor<ModelBase<unknown>> {
 export interface IModelBase {
   ModelDescriptor: IModelDescriptor | null;
   Container: IContainer;
-  PrimaryKeyName: string;
+  PrimaryKeyName: string[];
   PrimaryKeyValue: any;
 
   /**
    * Marks model as dirty. It means that model have unsaved changes
    */
   IsDirty: boolean;
+
+  /**
+   * Diff baseline captured at hydration, or null for a model that has never been in the database.
+   */
+  Snapshot: IModelSnapshot | null;
+
+  /** Captures the current column values as the diff baseline. */
+  takeSnapshot(): void;
+
+  /** Captures relation `name`'s current member primary keys into the baseline. */
+  snapshotRelation(name: string): void;
+
+  /** Discards the diff baseline. */
+  clearSnapshot(): void;
+
+  /** Column names whose current value differs from the baseline. */
+  changedColumns(): string[];
+
+  /** Records `prop` as changed and marks the model dirty. */
+  markDirty(prop: string): void;
+
+  /**
+   * Persists this model and everything reachable from it in one transaction.
+   */
+  save(options?: ISaveOptions): Promise<ISaveResult>;
 
   getFlattenRelationModels(): IModelBase[];
 
@@ -871,6 +1066,7 @@ export interface IOrderByBuilder {
   orderByDescending(column: string): this;
   order(column: string, direction: SortOrder): this;
   getSort(): ISort | null;
+  getSorts(): ISort[];
 }
 
 export interface IColumnsBuilder {
@@ -1037,6 +1233,15 @@ export interface IJoinBuilder {
 export interface IBuilder<T> extends PromiseLike<T> {
   middleware(middleware: IBuilderMiddleware<T>): this;
   toDB(): ICompilerOutput | ICompilerOutput[];
+
+  /**
+   * Executes the query and resolves with its result.
+   *
+   * The single execution entry point — `then()` delegates to it. Execution is memoized:
+   * a builder runs at most once, and awaiting it again resolves with the same result.
+   * Use `clone()` when a second round-trip is intended.
+   */
+  execute(): Promise<T>;
 }
 
 export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T> { }
@@ -1058,6 +1263,11 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   setTable(table: string, alias?: string): this;
   distinct(): this;
   clone(): this;
+
+  /**
+   * Includes soft-deleted rows (@SoftDelete models) that are excluded by default.
+   */
+  withDeleted(): this;
 
   /**
    * Returns true/false if query result exists in db
@@ -1477,4 +1687,50 @@ export interface IJoinStatementOptions<R = ModelBase> {
 export interface ITransaction {
   commit(): Promise<void>;
   rollback(): Promise<void>;
+}
+
+/**
+ * SQL standard transaction isolation levels. Which of these a driver actually honours is
+ * declared per driver in `OrmDriver.SupportedIsolationLevels`; requesting one that is not
+ * listed is rejected rather than silently ignored.
+ */
+export type IsolationLevel = 'READ UNCOMMITTED' | 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE';
+
+export interface ITransactionOptions {
+  /**
+   * Isolation level for the outermost transaction. Ignored by nested calls, which map onto
+   * savepoints inside the enclosing transaction and therefore inherit its isolation.
+   */
+  isolation?: IsolationLevel;
+}
+
+/**
+ * Canonicalizes `(model constructor, primary key)` to one instance for the duration of a
+ * `save()` graph walk or a transaction. See `IdentityMap` in `identity-map.ts`.
+ */
+export interface IIdentityMap {
+  get(model: Constructor<ModelBase>, pk: unknown): ModelBase | undefined;
+  has(model: Constructor<ModelBase>, pk: unknown): boolean;
+  /** Registers `model`, returning the canonical instance for its identity. */
+  add(model: ModelBase): ModelBase;
+  readonly Size: number;
+  clear(): void;
+}
+
+/**
+ * Per-transaction state carried through `AsyncLocalStorage`.
+ *
+ * `connection` is the driver's own connection handle type and is absent for drivers with a
+ * single shared handle (SQLite). `depth` counts savepoints taken so far, 0 at the outermost
+ * transaction; it is used to mint unique savepoint names.
+ */
+export interface ITransactionContext {
+  connection?: unknown;
+  depth: number;
+
+  /**
+   * Identity map shared by every `save()` that runs inside this transaction. Created lazily
+   * by the first `save()` and discarded with the context, so nothing survives the commit.
+   */
+  IdentityMap?: IIdentityMap;
 }

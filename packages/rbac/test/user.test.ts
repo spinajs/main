@@ -1,5 +1,6 @@
 import { BasicPasswordProvider } from '../src/password.js';
-import { DI } from '@spinajs/di';
+import { Bootstrapper, DI } from '@spinajs/di';
+import { AccessControl } from 'accesscontrol';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserMetadata } from '../src/index.js';
@@ -31,6 +32,11 @@ describe('User model tests', function () {
   });
 
   beforeEach(async () => {
+    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+    for (const b of bootstrappers) {
+      await b.bootstrap();
+    }
+
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
     await DI.resolve(Orm);
   });
@@ -106,23 +112,89 @@ describe('User model tests', function () {
       expect(user2.Role.length).to.be.eq(2);
     });
 
-    it('canReadAny should work', async () => {});
+    it('Should convert roles to and from string to array', async () => {
+      const user = new User({
+        Email: 'roles@test.pl',
+        Login: 'roles user',
+        IsActive: true,
+        Uuid: TEST_USER_UUID_2,
+        Password: 'test',
+        Role: ['admin', 'user', 'editor'],
+      });
 
-    it('canUpdateAny should work', async () => {});
+      await user.insert();
 
-    it('canDeleteAny should work', async () => {});
+      // Role is stored as a delimited string (@Set) and must hydrate back to an array
+      const reloaded = await User.get(user.Id);
+      expect(reloaded.Role).to.be.an('array');
+      expect(reloaded.Role).to.have.members(['admin', 'user', 'editor']);
+    });
+  });
 
-    it('canCreateAny should work', async () => {});
+  describe('Permission checks (can*)', () => {
+    beforeEach(() => {
+      // editor has full :any grants on Article; viewer only has read:own
+      const ac = DI.get<AccessControl>('AccessControl')!;
+      ac.setGrants({
+        editor: {
+          Article: {
+            'create:any': ['*'],
+            'read:any': ['*'],
+            'update:any': ['*'],
+            'delete:any': ['*'],
+          },
+        },
+        viewer: {
+          Article: {
+            'read:own': ['*'],
+          },
+        },
+      });
+    });
 
-    it('canReadOwn should work', async () => {});
+    const editor = () => new User({ Role: ['editor'] });
+    const viewer = () => new User({ Role: ['viewer'] });
 
-    it('canUpdateOwn should work', async () => {});
+    it('canReadAny should work', () => {
+      expect(editor().canReadAny('Article').granted).to.be.true;
+      expect(viewer().canReadAny('Article').granted).to.be.false;
+    });
 
-    it('canDeleteOwn should work', async () => {});
+    it('canUpdateAny should work', () => {
+      expect(editor().canUpdateAny('Article').granted).to.be.true;
+      expect(viewer().canUpdateAny('Article').granted).to.be.false;
+    });
 
-    it('canCreateOwn should work', async () => {});
+    it('canDeleteAny should work', () => {
+      expect(editor().canDeleteAny('Article').granted).to.be.true;
+      expect(viewer().canDeleteAny('Article').granted).to.be.false;
+    });
 
-    it('Should convert roles to and from string to array', async () => {});
+    it('canCreateAny should work', () => {
+      expect(editor().canCreateAny('Article').granted).to.be.true;
+      expect(viewer().canCreateAny('Article').granted).to.be.false;
+    });
+
+    it('canReadOwn should work', () => {
+      // an :any grant implies :own
+      expect(editor().canReadOwn('Article').granted).to.be.true;
+      expect(viewer().canReadOwn('Article').granted).to.be.true;
+    });
+
+    it('canUpdateOwn should work', () => {
+      expect(editor().canUpdateOwn('Article').granted).to.be.true;
+      expect(viewer().canUpdateOwn('Article').granted).to.be.false;
+    });
+
+    it('canDeleteOwn should work', () => {
+      expect(editor().canDeleteOwn('Article').granted).to.be.true;
+      expect(viewer().canDeleteOwn('Article').granted).to.be.false;
+    });
+
+    it('canCreateOwn should work', () => {
+      expect(editor().canCreateOwn('Article').granted).to.be.true;
+      expect(viewer().canCreateOwn('Article').granted).to.be.false;
+    });
   });
 
   describe('User metadata', () => {

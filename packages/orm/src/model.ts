@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, ITransaction } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
@@ -12,13 +12,16 @@ import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from '.
 import { Wrap } from './statements.js';
 import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
+import { createSnapshot, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
+import { UnitOfWork } from './unit-of-work.js';
 
-import { DI, isConstructor, IContainer, Constructor, isClass } from '@spinajs/di';
+import { DI, isConstructor, IContainer, Constructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
-import { extractModelDescriptor } from './descriptor.js';
+import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
+import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
 
 const MODEL_PROXY_HANDLER = {
   set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
@@ -52,8 +55,18 @@ export function updateModelDescriptor(targetOrForward: any, callback: (descripto
     return;
   }
 
-  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
-  callback(metadata[target.name]);
+  // Must go through getInheritedDescriptor like every other write of this
+  // symbol - it hands back the class's OWN descriptor, so mutating it here
+  // cannot leak into the base class ( eg. assigning the driver to a subclass )
+  const descriptor = getInheritedDescriptor<IModelDescriptor>(target, MODEL_DESCTRIPTION_SYMBOL, createDefaultModelDescriptor);
+
+  // Name is this class's own, never inherited from the base. Matters when this
+  // is the FIRST access for the class: the descriptor is created by collapsing
+  // the chain, and the merger keeps the ancestor's non-empty Name over the
+  // default '' ( eg. a subclass would be stored under its parent's name )
+  descriptor.Name = target.name;
+
+  callback(descriptor);
 }
 
 export class ModelBase<M = unknown> implements IModelBase {
@@ -80,6 +93,14 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
 
   private __dirty_props__: string[] = [];
+
+  /**
+   * Diff baseline, captured when this instance was hydrated from a database row.
+   * `null` means "this model has never been in the database", which is what `save()`
+   * uses to classify it as an INSERT — not the presence of a primary key, because
+   * `setDefaults()` pre-fills @Uuid keys on construction.
+   */
+  private __snapshot__: IModelSnapshot | null = null;
 
   /**
    * List of hidden properties from JSON / dehydrations
@@ -115,33 +136,158 @@ export class ModelBase<M = unknown> implements IModelBase {
     return this._container;
   }
 
-  public get PrimaryKeyName() {
+  /**
+   * Primary key column names of this model. One element for the common single-column case.
+   */
+  public get PrimaryKeyName(): string[] {
     return this.ModelDescriptor!.PrimaryKey;
   }
 
+  /**
+   * Primary key value: a scalar for a single-column key, a tuple in key order for a composite key.
+   */
   public get PrimaryKeyValue() {
-    return (this as any)[this.PrimaryKeyName];
+    return pkValueOf(this, this.ModelDescriptor!);
   }
 
+  /**
+   * Accepts a scalar for a single-column key, and an array in key order or an object keyed by
+   * column name for a composite key. Cascades the new value into loaded relations exactly as
+   * before, using the single-column relation key ( relations join on one column pair ).
+   */
   public set PrimaryKeyValue(newVal: any) {
-    (this as any)[this.PrimaryKeyName] = newVal;
+    setPkValue(this, this.ModelDescriptor!, newVal);
 
     this.ModelDescriptor!.Relations.forEach((r) => {
       const rel = (this as any)[r.Name];
       if (!rel) return;
 
+      // A relation's ForeignKey names ONE column, so it can only carry a single-column key.
+      // Cascading a composite parent key into children is not expressible and is skipped.
+      if (isCompositePk(this.ModelDescriptor!)) {
+        return;
+      }
+
+      const scalar = pkValueOf(this, this.ModelDescriptor!);
+
       switch (r.Type) {
         case RelationType.One:
-          (rel as any)[r.ForeignKey] = newVal;
+          (rel as any)[r.ForeignKey] = scalar;
           break;
         case RelationType.Many:
-          (rel as any[]).forEach((rVal) => (rVal[r.ForeignKey] = newVal));
+          (rel as any[]).forEach((rVal) => (rVal[r.ForeignKey] = scalar));
           break;
         case RelationType.ManyToMany:
           // TODO: rethink this
           break;
       }
     });
+  }
+
+  /**
+   * The diff baseline for this instance, or `null` when it has never been hydrated from
+   * the database. Read-only from the outside: mutate it only through `takeSnapshot()`,
+   * `snapshotRelation()` and `clearSnapshot()`.
+   */
+  public get Snapshot(): IModelSnapshot | null {
+    return this.__snapshot__;
+  }
+
+  /**
+   * Captures the current value of every column as the diff baseline, discarding any
+   * previous baseline and any relation keys recorded against it.
+   *
+   * Values are copied, never aliased — see `snapshotValue`. An aliased snapshot makes
+   * every diff empty and `save()` a silent no-op.
+   */
+  public takeSnapshot(): void {
+    const snapshot = createSnapshot();
+
+    for (const c of this.ModelDescriptor?.Columns ?? []) {
+      snapshot.Columns.set(c.Name, snapshotValue((this as any)[c.Name]));
+    }
+
+    this.__snapshot__ = snapshot;
+  }
+
+  /**
+   * Records the primary keys of the members currently in relation `name` as that
+   * relation's baseline. A no-op when the model has no snapshot — an unhydrated model
+   * has nothing to diff against and its relations are all "new".
+   *
+   * @param name - relation property name, as declared on the model descriptor
+   */
+  public snapshotRelation(name: string): void {
+    if (!this.__snapshot__) {
+      return;
+    }
+
+    const relation = (this as any)[name];
+
+    if (relation === null || relation === undefined) {
+      return;
+    }
+
+    if (relation instanceof SingleRelation) {
+      const value = relation.Value;
+      this.__snapshot__.Relations.set(name, value ? [value.PrimaryKeyValue] : []);
+      return;
+    }
+
+    if (typeof relation[Symbol.iterator] === 'function') {
+      this.__snapshot__.Relations.set(
+        name,
+        [...(relation as Iterable<ModelBase>)].map((m) => m.PrimaryKeyValue),
+      );
+    }
+  }
+
+  /**
+   * Discards the diff baseline. After this the model is treated as brand new by `save()`.
+   */
+  public clearSnapshot(): void {
+    this.__snapshot__ = null;
+  }
+
+  /**
+   * Names of the columns whose current value differs from the snapshot.
+   *
+   * With no snapshot every column is reported as changed, which is the right answer for a
+   * model that is about to be inserted.
+   *
+   * This is deliberately independent of `__dirty_props__`: the proxy records a property as
+   * dirty on any write, including one that puts the original value back, so the snapshot
+   * diff is the more precise answer and the one the UPDATE payload is built from.
+   */
+  public changedColumns(): string[] {
+    const columns = this.ModelDescriptor?.Columns ?? [];
+
+    if (!this.__snapshot__) {
+      return columns.map((c) => c.Name);
+    }
+
+    const snapshot = this.__snapshot__;
+    return columns.filter((c) => !snapshotEquals(snapshot.Columns.get(c.Name), (this as any)[c.Name])).map((c) => c.Name);
+  }
+
+  /**
+   * Records `prop` as changed and marks the model dirty.
+   *
+   * This is the supported way for relation objects to report that they rewrote one of the
+   * owner's foreign keys. It replaces the `(owner as any).__dirty_props__.push(...)` casts
+   * that reached into a private field from outside the class ( A6 ).
+   *
+   * The push comes before `IsDirty = true` so the method stays correct even if the
+   * `IsDirty` setter ever starts clearing `__dirty_props__` on a truthy assignment too.
+   *
+   * @param prop - column name
+   */
+  public markDirty(prop: string): void {
+    if (!this.__dirty_props__.includes(prop)) {
+      this.__dirty_props__.push(prop);
+    }
+
+    this.IsDirty = true;
   }
 
   public valueOf() {
@@ -392,7 +538,12 @@ export class ModelBase<M = unknown> implements IModelBase {
     throw new Error('Not implemented');
   }
 
-  public static transaction<T extends typeof ModelBase>(this: T, _callback: (trx: OrmDriver) => Promise<void>): Promise<ITransaction> {
+  /**
+   * Runs `_callback` inside a transaction on this model's connection. The transaction commits
+   * when the callback resolves and rolls back when it throws — see `OrmDriver.transaction`.
+   * Resolves with whatever the callback returned.
+   */
+  public static transaction<T extends typeof ModelBase, R>(this: T, _callback: (trx: OrmDriver) => Promise<R>): Promise<R> {
     throw new Error('Not implemented');
   }
 
@@ -424,27 +575,41 @@ export class ModelBase<M = unknown> implements IModelBase {
   public attach(data: ModelBase) {
     // TODO: refactor this, to not check every time for relation
     // do this as map or smth
-    for (const [_, v] of this.ModelDescriptor!.Relations.entries()) {
-      if (v.TargetModel.name === (data as any).constructor.name) {
-        // TODO: refactor this, so we dont update foreign key
-        // instead we must use belongsTo relation on data model to update
-        //(data as any)[v.ForeignKey] = this.PrimaryKeyValue;
+    for (const [, v] of this.ModelDescriptor!.Relations.entries()) {
+      // Constructor identity, not class name. Name matching pushed the row into *every*
+      // relation whose target happened to share a name, so a model with two relations to
+      // the same target received it twice ( B26 ), and it breaks under minification ( A9 ).
+      if (v.TargetModel !== (data as any).constructor) {
+        continue;
+      }
 
-        switch (v.Type) {
-          case RelationType.One:
-            ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
-            this.__dirty_props__.push(v.ForeignKey);
-            break;
-          case RelationType.Many:
-            // attach to related model too
-            const rel = [...data.ModelDescriptor!.Relations.entries()].find((e) => e[1].ForeignKey === v.ForeignKey);
-            if (rel) {
-              (data as any)[rel[0]].Value = this;
-            }
-          case RelationType.ManyToMany:
-            ((this as any)[v.Name] as Relation<ModelBase, ModelBase, typeof ModelBase>).push(data);
-            break;
+      switch (v.Type) {
+        case RelationType.One:
+          ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
+          this.markDirty(v.ForeignKey);
+          break;
+
+        case RelationType.Many: {
+          // Set the child's back-reference to this owner, when the child declares one.
+          const rel = [...data.ModelDescriptor!.Relations.entries()].find((e) => e[1].ForeignKey === v.ForeignKey);
+          if (rel) {
+            (data as any)[rel[0]].Value = this;
+          }
+
+          ((this as any)[v.Name] as Relation<ModelBase, ModelBase, typeof ModelBase>).push(data);
+          break;
         }
+
+        case RelationType.ManyToMany:
+          // No back-reference: the link lives in the junction table, not on the target row.
+          // The `push` is written out again rather than shared with the Many case above —
+          // the two are only coincidentally similar, and the missing `break` that used to
+          // join them was one reordering away from silently breaking.
+          ((this as any)[v.Name] as Relation<ModelBase, ModelBase, typeof ModelBase>).push(data);
+          break;
+
+        default:
+          break;
       }
     }
 
@@ -488,10 +653,15 @@ export class ModelBase<M = unknown> implements IModelBase {
    * deletes enitt from db. If model have SoftDelete decorator, model is marked as deleted
    */
   public async destroy() {
-    if (!this.PrimaryKeyValue) {
+    // A composite key is a tuple, and a tuple is ALWAYS truthy - so the old `!pk` guard
+    // would happily issue a DELETE for a model whose key columns are still unset.
+    const pk = this.PrimaryKeyValue;
+    const missing = Array.isArray(pk) ? pk.some((v) => v === null || v === undefined) : !pk;
+    if (missing) {
       return;
     }
-    const result = await (this.constructor as any).destroy(this.PrimaryKeyValue);
+
+    const result = await (this.constructor as any).destroy(pk);
 
     this.IsDirty = false;
 
@@ -509,7 +679,9 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     const { query } = this.createUpdateQuery();
-    return await query.update(this.toSql()).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    query.update(this.toSql());
+    wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
+    return await query;
   }
 
   public async update(data?: Partial<this>) {
@@ -532,7 +704,9 @@ export class ModelBase<M = unknown> implements IModelBase {
       (this as any)[this.ModelDescriptor!.Timestamps.UpdatedAt] = DateTime.now();
     }
 
-    result = await query.update(this.toSql(true)).where(this.PrimaryKeyName, this.PrimaryKeyValue);
+    query.update(this.toSql(true));
+    wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
+    result = await query;
 
     this.IsDirty = false;
 
@@ -544,6 +718,11 @@ export class ModelBase<M = unknown> implements IModelBase {
    * primary key exists
    */
   public async insert(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
+    // Both run BEFORE the query is built, so an `assigned` key that was never supplied fails
+    // without touching the database.
+    generateClientSideKeys(this, this.ModelDescriptor!);
+    assertAssignedKeys(this, this.ModelDescriptor!);
+
     const { query, description } = this.createInsertQuery();
     const sResponseMapper = query.Container.resolve(ServerResponseMapper);
 
@@ -559,15 +738,30 @@ export class ModelBase<M = unknown> implements IModelBase {
         break;
     }
 
+    // Only an `auto` key needs the database to tell us what it became. Asking for RETURNING
+    // where the dialect supports it beats reading an identity counter, and is the shape
+    // orm-uow needs to backfill cascaded children.
+    const needsKeyBack = pkColumns(description).some((c) => pkGeneration(description, c) === 'auto');
+    if (needsKeyBack && insertBehaviour !== InsertBehaviour.InsertOrUpdate && query.Driver.supportedFeatures().insertReturning) {
+      query.returning(pkColumns(description));
+    }
+
     query.middleware({
-      afterQuery: (data: IUpdateResult) => {
-        const response = sResponseMapper.read(data, this.PrimaryKeyName);
-        // if already exists do not overwrite
-        // sometimes we have models with primary key as string etc
-        // and not autoincrement
-        if (!this.PrimaryKeyValue) {
-          this.PrimaryKeyValue = response.LastInsertId;
+      afterQuery: (data: IInsertResult) => {
+        const response = sResponseMapper.read(data, pkColumns(description));
+
+        if ((response.Returning ?? []).length !== 0) {
+          setPkValue(this, description, pkValueOf(response.Returning[0], description));
+        } else if (needsKeyBack) {
+          // Do not overwrite a key the caller already supplied ( uuid / assigned strategies ).
+          // Same tuple-truthiness trap as destroy().
+          const current = this.PrimaryKeyValue;
+          const missing = Array.isArray(current) ? current.some((v) => v === null || v === undefined) : !current;
+          if (missing) {
+            this.PrimaryKeyValue = response.LastInsertId;
+          }
         }
+
         return data;
       },
       modelCreation: (): any => null,
@@ -593,6 +787,27 @@ export class ModelBase<M = unknown> implements IModelBase {
       return await this.update();
     }
     return await this.insert();
+  }
+
+  /**
+   * Persists this model and everything reachable from it in one transaction.
+   *
+   * The graph is diffed against the snapshots taken when it was loaded, sorted so that a
+   * parent is inserted before any child that references it, and executed as inserts, then
+   * updates restricted to the columns that actually changed, then junction rows, then the
+   * orphan policy of every relation that lost a member.
+   *
+   * A relation that was never populated is invisible: `Items: OrderItem[] = []` on a freshly
+   * constructed model deletes nothing. That is the deliberate divergence from TypeORM.
+   *
+   * @param options - `{ reload: true }` to diff against current database state instead of the
+   *                  hydration snapshot; `{ chunk: n }` to bound batched statement size.
+   */
+  public async save(options?: ISaveOptions): Promise<ISaveResult> {
+    // `UnitOfWork` is referenced only inside this body, never at module-evaluation time, so
+    // the model.ts -> unit-of-work.ts -> ... -> model.ts cycle stays safe under ESM. Do not
+    // move this into a field initializer or an extends clause.
+    return await UnitOfWork.save(this, options);
   }
 
   /**
@@ -626,6 +841,8 @@ export class ModelBase<M = unknown> implements IModelBase {
     for (const c of this.ModelDescriptor!.Columns) {
       (this as any)[c.Name] = (model as any)[c.Name];
     }
+
+    this.IsDirty = false;
   }
 
   public toJSON() {
@@ -643,6 +860,10 @@ export class ModelBase<M = unknown> implements IModelBase {
         (this as any)[c.Name] = c.DefaultValue;
       }
     });
+
+    // `uuid` primary keys are generated at construction so the value is available to callers
+    // and to cascaded children before the row ever reaches the database.
+    generateClientSideKeys(this, this.ModelDescriptor!);
 
     if (this.ModelDescriptor!.Timestamps.CreatedAt) {
       (this as any)[this.ModelDescriptor!.Timestamps.CreatedAt] = DateTime.now();
@@ -681,9 +902,66 @@ export class ModelBase<M = unknown> implements IModelBase {
 }
 
 
+/**
+ * Decides whether a multi-row insert's generated keys can be read off `LastInsertId + index` on a
+ * dialect that has no RETURNING.
+ *
+ * The premise is a documented MySQL guarantee, not a guess. InnoDB splits inserts into *simple*
+ * ones — row count known before execution, which is exactly what `INSERT INTO t (…) VALUES (…),
+ * (…)` is, and the only shape {@link InsertQueryBuilder} can build — and *bulk* ones
+ * (`INSERT … SELECT`), where it is not. For a simple insert InnoDB reserves one contiguous block
+ * of N auto-increment values under a short mutex it releases immediately, so the k-th row of the
+ * statement gets `LAST_INSERT_ID() + k`. This holds under `innodb_autoinc_lock_mode = 2`, the
+ * MySQL 8 default, and was verified against a live server. The "values may not be contiguous"
+ * caveat in the MySQL manual is about bulk inserts and about mixed-mode inserts.
+ *
+ * The guards below rule out every case where the mapping stops being positional.
+ */
+function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], response: DbServerResponse, features: ISupportedFeature, insertBehaviour: InsertBehaviour): boolean {
+  // Only a dialect whose reported id is the FIRST of the block can be walked forwards. MSSQL's
+  // SCOPE_IDENTITY() and SQLite's last_insert_rowid() report the LAST one.
+  if (!features.insertIdIsFirstOfBatch) {
+    return false;
+  }
+
+  // One database-generated identity column, or there is no counter to walk. A composite key has
+  // no single identity column, and uuid / assigned keys are already set by this point.
+  const keys = pkColumns(description);
+  if (keys.length !== 1 || pkGeneration(description, keys[0]) !== 'auto') {
+    return false;
+  }
+
+  // INSERT IGNORE / REPLACE / ON DUPLICATE KEY UPDATE are mixed-mode: rows can be skipped,
+  // replaced or updated rather than inserted, so the k-th allocated id stops belonging to the
+  // k-th input row. ( The array path rejects these outright today; this keeps the invariant
+  // local to the decision rather than depending on a check three hundred lines away. )
+  if (insertBehaviour !== InsertBehaviour.None) {
+    return false;
+  }
+
+  // No identity value reported at all.
+  if (typeof response.LastInsertId !== 'number' || !Number.isFinite(response.LastInsertId) || response.LastInsertId <= 0) {
+    return false;
+  }
+
+  // The server must confirm it inserted exactly one row per row we sent. Anything else means
+  // rows were skipped or the statement did something other than a plain multi-row insert.
+  if (response.RowsAffected !== rows.length) {
+    return false;
+  }
+
+  // A batch where SOME rows carry an explicit key is a mixed-mode insert: InnoDB allocates
+  // auto-increment values only for the rows that omitted one, so index arithmetic would both
+  // mis-key the generated rows and overwrite the supplied ones.
+  return rows.every((v) => v instanceof ModelBase && (v.PrimaryKeyValue === null || v.PrimaryKeyValue === undefined));
+}
+
 function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuilder<any>, model: ModelBase) {
-  if (description.PrimaryKey) {
-    query.where(description.PrimaryKey, model.PrimaryKeyValue);
+  // NOTE: `if (description.PrimaryKey)` used to be false for the '' default. An empty ARRAY is
+  // truthy, so this must be an explicit length check or no-primary-key models would stop
+  // falling back to their unique columns.
+  if (hasPk(description)) {
+    wherePk(query, description, model.PrimaryKeyValue);
   } else {
     const unique = description.Columns.filter((x) => x.Unique);
     if (unique.length !== 0) {
@@ -697,17 +975,19 @@ function _preparePkWhere(description: IModelDescriptor, query: ISelectQueryBuild
 }
 
 function _prepareOrderBy(description: IModelDescriptor, query: IOrderByBuilder, order?: SortOrder) {
-  if (description.PrimaryKey) {
-    query.order(description.PrimaryKey, order ?? SortOrder.DESC);
-  } else {
-    const unique = description.Columns.filter((c) => c.Unique);
-    if (unique.length !== 0) {
-      unique.forEach((c) => query.order(c.Name, order ?? SortOrder.DESC));
-    } else if (description.Timestamps?.CreatedAt) {
-      query.order(description.Timestamps.CreatedAt, order ?? SortOrder.DESC);
-    } else if (description.Timestamps?.UpdatedAt) {
-      query.order(description.Timestamps.UpdatedAt, order ?? SortOrder.DESC);
-    }
+  // orderByPk emits one ORDER BY term per key column and reports whether the model has a
+  // primary key at all - see the note in _preparePkWhere on why a length check is required.
+  if (orderByPk(query, description, order ?? SortOrder.DESC)) {
+    return;
+  }
+
+  const unique = description.Columns.filter((c) => c.Unique);
+  if (unique.length !== 0) {
+    unique.forEach((c) => query.order(c.Name, order ?? SortOrder.DESC));
+  } else if (description.Timestamps?.CreatedAt) {
+    query.order(description.Timestamps.CreatedAt, order ?? SortOrder.DESC);
+  } else if (description.Timestamps?.UpdatedAt) {
+    query.order(description.Timestamps.UpdatedAt, order ?? SortOrder.DESC);
   }
 }
 
@@ -764,7 +1044,9 @@ export const MODEL_STATIC_MIXINS = {
     return driver;
   },
 
-  populate(this: ModelBase, relation: string, owner: ModelBase | number | string): SelectQueryBuilder | undefined {
+  // Every branch now returns a builder or throws, so the `| undefined` is gone — it only ever
+  // described the unimplemented ManyToMany case. This matches ModelBase.populate's static stub.
+  populate(this: ModelBase, relation: string, owner: ModelBase | number | string): SelectQueryBuilder {
     //TODO: fix cast
     const modelDescriptor = (this as any).getModelDescriptor() as IModelDescriptor;
 
@@ -789,7 +1071,7 @@ export const MODEL_STATIC_MIXINS = {
     };
 
     switch (relationDescriptor.Type) {
-      case RelationType.One:
+      case RelationType.One: {
         const { query: JoinQuery } = createQuery(relationDescriptor.SourceModel!, SelectQueryBuilder);
 
         // NOTE: we could use simple right join, but we use LEFT JOIN
@@ -802,21 +1084,61 @@ export const MODEL_STATIC_MIXINS = {
           joinModel: relationDescriptor.TargetModel,
           queryCallback: function () {
             this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
-          }
-        });
+          },
+          // Both were omitted, so the join compiled to `$source$.undefined`. A belongsTo
+          // joins the owner's ForeignKey to the target's PrimaryKey — the same derivation
+          // SelectQueryBuilder uses for RelationType.One.
+          sourceTablePrimaryKey: relationDescriptor.ForeignKey,
+          joinTableForeignKey: relationDescriptor.PrimaryKey,
+        } as any);
 
-        JoinQuery.where(relationDescriptor.SourceModel!.getModelDescriptor().PrimaryKey, owner);
+        // `wherePk`, not `where(descriptor.PrimaryKey, ...)`: PrimaryKey is a string[] since
+        // composite keys landed, and passing the array as a column name compiled to
+        // `column 0 not exists in model ...`.
+        wherePk(JoinQuery, relationDescriptor.SourceModel!.getModelDescriptor(), owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
         JoinQuery.middleware(hydrateMiddleware);
         return JoinQuery;
-      case RelationType.ManyToMany:
+      }
 
-        break
+      case RelationType.ManyToMany: {
+        // Was a bare `break`, so this returned undefined and every caller crashed on the
+        // result. Read the junction table, join the target, and project the target's columns
+        // — the same shape ManyToManyRelation.compile() builds. A sub-query would be more
+        // direct but `whereIn` takes value arrays only.
+        if (!relationDescriptor.JunctionModel) {
+          throw new OrmException(`relation ${relation} on ${modelDescriptor.Name} has no junction model`);
+        }
+
+        const { query: junctionQuery } = createQuery(relationDescriptor.JunctionModel, SelectQueryBuilder);
+
+        junctionQuery.clearColumns();
+        junctionQuery.leftJoin({
+          joinModel: relationDescriptor.TargetModel,
+          queryCallback: function () {
+            this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+          },
+          sourceTablePrimaryKey: relationDescriptor.JunctionModelTargetModelFKey_Name,
+          joinTableForeignKey: relationDescriptor.ForeignKey,
+        } as any);
+
+        junctionQuery.where(relationDescriptor.JunctionModelSourceModelFKey_Name!, owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
+        junctionQuery.middleware(hydrateMiddleware);
+
+        return junctionQuery;
+      }
+
+      case RelationType.Virtual:
       case RelationType.Query:
         throw new OrmException(`Query population for relation type ${RelationType[relationDescriptor.Type]} is not supported yet`);
-      case RelationType.Many:
+
+      case RelationType.Many: {
         const { query } = createQuery(relationDescriptor.TargetModel, SelectQueryBuilder);
         query.where(relationDescriptor.ForeignKey, owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
         return query;
+      }
+
+      default:
+        throw new OrmException(`unknown relation type ${relationDescriptor.Type} for relation ${relation} on ${modelDescriptor.Name}`);
     }
   },
 
@@ -878,6 +1200,13 @@ export const MODEL_STATIC_MIXINS = {
         throw new OrmException(`insert behaviour is not supported with arrays`);
       }
 
+      // Run the key strategies over every element BEFORE any SQL is built, so a missing
+      // `assigned` key fails with a clear message instead of a NOT NULL violation.
+      (data as Array<InstanceType<T>>).forEach((d) => {
+        generateClientSideKeys(d, description);
+        assertAssignedKeys(d, description);
+      });
+
       query.values(
         (data as Array<InstanceType<T>>).map((d) => {
           if (d instanceof ModelBase) {
@@ -899,6 +1228,9 @@ export const MODEL_STATIC_MIXINS = {
           break;
       }
 
+      generateClientSideKeys(data, description);
+      assertAssignedKeys(data, description);
+
       if (data instanceof ModelBase) {
         query.values(data.toSql());
       } else {
@@ -906,18 +1238,40 @@ export const MODEL_STATIC_MIXINS = {
       }
     }
 
+    const autoKey = pkColumns(description).some((c) => pkGeneration(description, c) === 'auto');
+    if (autoKey && query.Driver.supportedFeatures().insertReturning) {
+      query.returning(pkColumns(description));
+    }
+
     const iMidleware = {
-      afterQuery: (result: IUpdateResult) => {
-        const response = sResponseMapper.read(result);
-        if (Array.isArray(data)) {
-          (data as Array<InstanceType<T>>).forEach((v, idx) => {
+      afterQuery: (result: IInsertResult) => {
+        const response = sResponseMapper.read(result, pkColumns(description));
+        const rows = Array.isArray(data) ? (data as Array<InstanceType<T>>) : [data as InstanceType<T>];
+
+        if ((response.Returning ?? []).length === rows.length) {
+          // Authoritative: the database told us every key it assigned, in insert order.
+          rows.forEach((v, idx) => {
             if (v instanceof ModelBase) {
-              v.PrimaryKeyValue = v.PrimaryKeyValue ?? response.LastInsertId + idx;
+              setPkValue(v, description, pkValueOf(response.Returning[idx], description));
             }
           });
-        } else if (data instanceof ModelBase) {
-          (data as InstanceType<T>).PrimaryKeyValue = (data as InstanceType<T>).PrimaryKeyValue ?? response.LastInsertId;
+        } else if (autoKey && rows.length === 1) {
+          // One row, one identity value - safe.
+          const v = rows[0];
+          if (v instanceof ModelBase && !v.PrimaryKeyValue) {
+            v.PrimaryKeyValue = response.LastInsertId;
+          }
+        } else if (_canBackfillContiguousKeys(description, rows, response, query.Driver.supportedFeatures(), insertBehaviour)) {
+          // Multi-row `INSERT ... VALUES` on a dialect with no RETURNING whose identity value is
+          // the first of the statement's contiguous block. See _canBackfillContiguousKeys.
+          rows.forEach((v, idx) => {
+            (v as ModelBase).PrimaryKeyValue = response.LastInsertId + idx;
+          });
         }
+        // Anything else — a dialect whose insert id names the last row, a batch that mixed
+        // supplied and generated keys, a statement the server did not insert one row per input
+        // row for — cannot be mapped positionally, so nothing is assigned. Callers needing the
+        // keys there must re-select or insert the models one at a time.
 
         return result;
       },
@@ -932,18 +1286,16 @@ export const MODEL_STATIC_MIXINS = {
 
   async find<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey;
     query.select('*');
-    query.whereIn(pkey, pks);
+    whereAnyPk(query, description, pks);
     return await (query as SelectQueryBuilder<Array<InstanceType<T>>>);
   },
 
   async findOrFail<T extends typeof ModelBase>(this: T, pks: any[]): Promise<Array<InstanceType<T>>> {
     const { query, description, model } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey;
 
     query.select('*');
-    query.whereIn(pkey, pks);
+    whereAnyPk(query, description, pks);
 
     const result = await (query as SelectQueryBuilder<Array<InstanceType<T>>>);
 
@@ -956,10 +1308,9 @@ export const MODEL_STATIC_MIXINS = {
 
   async get<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey;
 
     query.select('*');
-    query.where(pkey, pk);
+    wherePk(query, description, pk);
 
     _prepareOrderBy(description, query);
 
@@ -968,10 +1319,9 @@ export const MODEL_STATIC_MIXINS = {
 
   async getOrFail<T extends typeof ModelBase>(this: T, pk: any): Promise<InstanceType<T>> {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
-    const pkey = description.PrimaryKey;
 
     query.select('*');
-    query.where(pkey, pk);
+    wherePk(query, description, pk);
 
     _prepareOrderBy(description, query);
 
@@ -980,6 +1330,10 @@ export const MODEL_STATIC_MIXINS = {
 
   destroy<T extends typeof ModelBase>(pks?: any | any[]): IWhereBuilder<InstanceType<T>> {
     const description = _descriptor(this)!;
+
+    if (pks === undefined || pks === null) {
+      throw new OrmException('Cannot destroy without primary keys ( unbounded DELETE/UPDATE ). Use truncate() to clear the whole table.');
+    }
 
     const data = Array.isArray(pks) ? pks : [pks];
     if (data.length === 0) {
@@ -995,7 +1349,7 @@ export const MODEL_STATIC_MIXINS = {
     }
 
     if (pks) {
-      query.whereIn(description.PrimaryKey, data);
+      whereAnyPk(query as unknown as IWhereBuilder<any>, description, data);
     }
 
     return query;
@@ -1011,8 +1365,8 @@ export const MODEL_STATIC_MIXINS = {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
 
     // pk constrain
-    if (description.PrimaryKey && pk !== null) {
-      query.where(description.PrimaryKey, pk);
+    if (hasPk(description) && pk !== null) {
+      wherePk(query, description, pk);
     }
 
     // check for all unique columns ( unique constrain )
@@ -1052,13 +1406,15 @@ export const MODEL_STATIC_MIXINS = {
     if (!entity) {
 
       const toHydrate = data ?? {};
-      const primaryKey = description.Columns.find((c) => c.PrimaryKey);
-      // remove primary key from data to hydrate
-      // we dont want to set primary key on new model if not exists
-      // and autoincrement is set
-      if (primaryKey?.AutoIncrement) {
-        delete (toHydrate as any)[description.PrimaryKey];
-      }
+      // Do not carry an auto-increment key into a brand new model; the engine assigns it.
+      // Every key column is checked, not just the first, so a composite key with an
+      // auto-increment member is stripped correctly.
+      pkColumns(description).forEach((name) => {
+        const col = description.Columns.find((c) => c.Name === name);
+        if (col?.AutoIncrement) {
+          delete (toHydrate as any)[name];
+        }
+      });
 
       entity = new (Function.prototype.bind.apply(this))(toHydrate);
       return entity;
@@ -1070,11 +1426,14 @@ export const MODEL_STATIC_MIXINS = {
   async exists<T extends typeof ModelBase>(this: T, pk: any) {
     const { query, description } = createQuery(this as any, SelectQueryBuilder);
     // pk constrain
-    if (description.PrimaryKey && pk !== null) {
-      query.where(description.PrimaryKey, pk);
+    if (hasPk(description) && pk !== null) {
+      wherePk(query, description, pk);
     }
 
-    const result = await query.clearColumns().select(description.PrimaryKey).first();
+    const q = query.clearColumns();
+    pkColumns(description).forEach((c) => q.select(c));
+
+    const result = await q.first();
     if (result) {
       return true;
     }
@@ -1161,9 +1520,8 @@ export const MODEL_STATIC_MIXINS = {
       callback(query);
     }
 
-    return await (
-      await query.asRaw<{ count: number }>()
-    ).count;
+    const row = await query.takeFirst().asRaw<{ count: number }>();
+    return row?.count ?? 0;
   },
 
   async transaction<T extends typeof ModelBase>(this: T, callback: (trx: OrmDriver) => Promise<void>) {
@@ -1173,8 +1531,7 @@ export const MODEL_STATIC_MIXINS = {
 };
 
 export const _modelProxyFactory = (_c: IContainer, model: Constructor<ModelBase>) => {
-  const mInstance = new model();
-  return new Proxy(mInstance, MODEL_PROXY_HANDLER);
+  return new model();
 };
 
 DI.register(_modelProxyFactory).as('__orm_model_factory__');

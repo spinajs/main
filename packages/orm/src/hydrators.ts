@@ -22,14 +22,24 @@ export class DbPropertyHydrator extends ModelHydrator {
     keys.forEach((k) => {
       // skip if column is primary key & is null
       // we dont want to override pkey of target model
-      if (k === descriptor.PrimaryKey && !values[k]) {
+      if (descriptor.PrimaryKey.includes(k) && (values[k] === null || values[k] === undefined)) {
         return;
       }
 
       const column = descriptor.Columns?.find((c) => c.Name === k);
 
       if (values[k] !== undefined) {
-        (target as any)[k] = column?.Converter ? column.Converter.fromDB(values[k], values, descriptor.Converters.get(column.Name)?.Options) : values[k];
+        const incoming = values[k];
+
+        // A relation FK column may receive either a raw scalar id or an
+        // already-resolved model instance (eg. from a DTO @Relation field).
+        // When a model instance arrives, translate it to its primary key value
+        // so the FK column stores the id, not the object.
+        if (incoming instanceof ModelBase) {
+          (target as any)[k] = incoming.PrimaryKeyValue;
+        } else {
+          (target as any)[k] = column?.Converter ? column.Converter.fromDB(incoming, values, descriptor.Converters.get(column.Name)?.Options) : incoming;
+        }
       }
     });
   }
@@ -75,7 +85,11 @@ export class OneToManyRelationHydrator extends ModelHydrator {
         });
 
         const rel = new OneToManyRelationList(target, val, mapRel);
+        // Only reached under `values[key] != null`, i.e. only when the row actually carried
+        // relation data — so this never marks a relation the query did not ask for.
+        rel.Populated = true;
         entity[key] = rel;
+        target.snapshotRelation(key);
         delete (target as any)[val.ForeignKey];
       }
     }
@@ -97,6 +111,16 @@ export class OneToOneRelationHydrator extends ModelHydrator {
 
       if (values[key] != null) {
         const entity = target as any;
+
+        // Accept an already-resolved model instance passed under the relation
+        // name: attach it directly and translate its PK into the FK column,
+        // instead of trying to re-hydrate it from a plain data object.
+        if (values[key] instanceof ModelBase) {
+          entity[key] = new SingleRelation(target, val.TargetModel, val, values[key]);
+          (target as any)[val.ForeignKey] = values[key].PrimaryKeyValue;
+          continue;
+        }
+
         let tEntity = undefined;
         if (!Object.values(values[key]).every((x) => x === null)) {
           tEntity = !isConstructor(val.TargetModel) ? new ((val.TargetModel as ForwardRefFunction)())() : new (val.TargetModel as any)();
@@ -105,7 +129,11 @@ export class OneToOneRelationHydrator extends ModelHydrator {
         }
 
         const rel = new SingleRelation(target, val.TargetModel, val, tEntity);
+        // Same guard as OneToManyRelationHydrator: `values[key] != null` means the query
+        // joined this relation in.
+        rel.Populated = true;
         entity[key] = rel;
+        target.snapshotRelation(key);
       }
     }
   }

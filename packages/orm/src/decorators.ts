@@ -1,14 +1,14 @@
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
-import { Constructor, DI, IContainer } from '@spinajs/di';
-import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
+import { Constructor, DI, IContainer, getInheritedDescriptor } from '@spinajs/di';
+import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
 import { ManyQueryRelationList, Relation } from './relation-objects.js';
 import { Orm } from './orm.js';
 import { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
-import { extractModelDescriptor, extractModelDescriptorInherited } from './descriptor.js';
+import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
 
 export { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 
@@ -36,40 +36,67 @@ export function _prepareColumnDesc(initialize: Partial<IColumnDescriptor>): ICol
   }, initialize);
 }
 
-function _getMetadataFrom(target: any) {
-  let metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target) ?? {};
+/**
+ * Resolves the single column a relation joins on. A relation's PrimaryKey / ForeignKey each
+ * name exactly one column ( the JOIN compiler emits a one-column ON predicate ), so a composite
+ * primary key has no defensible default and must be named explicitly by the developer.
+ */
+export function _relationDefaultKey(descriptor: IModelDescriptor, relationName: string, optionName: string): string {
+  const keys = descriptor.PrimaryKey ?? [];
 
-  /**
-   * NOTE:
-   * We hold metadata information as poperty of object stored by normal metadata.
-   * This way we can avoid overwritting metadata properties by inherited classes.
-   *
-   * Eg. given class hierarchy:
-   *
-   *  @Decorator({ a: 1})
-   *  class A {}
-   *
-   *  @Decorator({ a: 2})
-   *  class B extends A {}
-   *
-   *  @Decorator({ a: 3})
-   *  class C extends A {}
-   *
-   *  Normally metadata is created for class A due import order. Reflect.metadata() searches in prototype chain, so
-   *  when class B gets decorator executed it will find already defined from class A. Then class C decorator will overwrite
-   *  decorator for class A ( B decorator is lost ).
-   *
-   *  This is becouse decorator is saerched in protype chain of object.
-   *
-   *  When we need metadata value, we collapse this object with proper inheritance object
-   */
-
-  if (!metadata.hasOwnProperty(target.name)) {
-    metadata[target.name] = extractModelDescriptorInherited(target);
+  if (keys.length > 1) {
+    throw new InvalidOperation(`relation ${relationName} cannot default its join column: model ${descriptor.Name} has a composite primary key (${keys.join(', ')}). Pass ${optionName} explicitly.`);
   }
-  Reflect.defineMetadata(MODEL_DESCTRIPTION_SYMBOL, metadata, target);
 
-  return metadata[target.name];
+  return keys[0];
+}
+
+function _getMetadataFrom(target: any) {
+  // Sampled BEFORE getInheritedDescriptor, which stores own metadata as a side
+  // effect - so this is only true on the very first decorator to touch `target`.
+  const isFirstDecorator = !Reflect.getOwnMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
+
+  // Own metadata per class - see @spinajs/di getInheritedDescriptor. Replaces
+  // the previous name-keyed container, which collapsed two classes sharing a
+  // name into a single slot.
+  const descriptor = getInheritedDescriptor<IModelDescriptor>(target, MODEL_DESCTRIPTION_SYMBOL, createDefaultModelDescriptor);
+
+  // Name is this class's own, never inherited from the base
+  descriptor.Name = target.name;
+
+  if (isFirstDecorator) {
+    detachInheritedModelMembers(descriptor);
+  }
+
+  return descriptor;
+}
+
+/**
+ * The collapse merger ( @spinajs/di ) rebuilds Columns / Relations and the
+ * option objects one level deep, but their ELEMENTS stay shared by reference
+ * with the parent model. Decorators such as @Ignore / @Uuid ( `columnDesc.Ignore = true` ),
+ * @Recursive ( `relation.Recursive = true` ) and @CreatedAt / @SoftDelete /
+ * @DiscriminationMap ( `model.<option>.<field> = ...` ) mutate a found element
+ * in place - on an INHERITED member that would write straight through to the
+ * base model's descriptor. Give this class its own shallow copies of exactly
+ * the structures that get mutated in place. ( same hazard @spinajs/http closes
+ * with detachInheritedRoutes; Converters / JunctionModelProperties are only
+ * ever set/pushed with fresh values, so they need no copy. )
+ */
+function detachInheritedModelMembers(descriptor: IModelDescriptor) {
+  descriptor.Columns = descriptor.Columns.map((c) => ({ ...c }));
+  // NOT `{ ...relation }`. A relation descriptor may carry a lazily-defined `PrimaryKey`
+  // accessor ( @BelongsTo / @HasManyToMany with a string target model, which cannot be
+  // resolved until the Orm is up ). Spreading INVOKES that getter — here, at decoration
+  // time, when DI.get(Orm) is still undefined — and then freezes whatever it returned into
+  // a plain value, defeating the laziness even when it does not throw. Copying property
+  // descriptors detaches the mutable data properties ( Recursive, etc. ) while leaving
+  // accessors as accessors.
+  descriptor.Relations = new Map([...descriptor.Relations].map(([name, relation]) => [name, Object.create(Object.getPrototypeOf(relation) as object, Object.getOwnPropertyDescriptors(relation)) as IRelationDescriptor]));
+  descriptor.Timestamps = { ...descriptor.Timestamps };
+  descriptor.SoftDelete = { ...descriptor.SoftDelete };
+  descriptor.Archived = { ...descriptor.Archived };
+  descriptor.DiscriminationMap = { ...descriptor.DiscriminationMap };
 }
 
 export function extractDecoratorPropertyDescriptor(callback: (model: IModelDescriptor, target: any, propertyKey: string, indexOrDescriptor: number | PropertyDescriptor) => void): any {
@@ -221,11 +248,21 @@ export function Archived() {
 }
 
 /**
- * Makrs field as primary key
+ * Marks a field as part of the primary key. Applying it to more than one property of the same
+ * model declares a composite key; the columns are ordered by decorator evaluation order.
+ *
+ * NOTE: @Primary() is additive across an inheritance chain. A subclass cannot *replace* a base
+ * class's primary key, only extend it. Declare @Primary() on every key column of the concrete model.
+ *
+ * @param options.generated - key generation strategy, defaults to `auto` ( database identity ).
  */
-export function Primary() {
+export function Primary(options?: IPrimaryKeyOptions) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
-    model.PrimaryKey = propertyKey;
+    if (!model.PrimaryKey.includes(propertyKey)) {
+      model.PrimaryKey.push(propertyKey);
+    }
+
+    model.PrimaryKeyGeneration.set(propertyKey, options?.generated ?? 'auto');
   });
 }
 
@@ -320,18 +357,38 @@ export const forwardRef = (fn: () => any): IForwardReference => ({
  */
 export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignKey?: string, primaryKey?: string) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    const targetModelDesc = extractModelDescriptor(target);
-
-    model.Relations.set(propertyKey, {
+    const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Type: RelationType.One,
       SourceModel: target,
       TargetModelType: targetModel,
       TargetModel: undefined as any,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
-      PrimaryKey: primaryKey ?? targetModelDesc?.PrimaryKey ?? model.PrimaryKey,
+      // default PK must come from the TARGET model, not the source ( fixed below )
+      PrimaryKey: primaryKey ?? _relationDefaultKey(model, propertyKey, 'primaryKey'),
       Recursive: false,
-    });
+    };
+
+    if (!primaryKey) {
+      if (typeof targetModel === 'string') {
+        // target resolved by name at runtime - read its PK lazily ( same pattern as HasManyToMany )
+        const getModel = function () {
+          return extractModelDescriptor(DI.get(Orm)!.Models.find((x) => x.name === targetModel)!.type);
+        };
+
+        Object.defineProperty(descriptor, 'PrimaryKey', {
+          get: function () {
+            const target = getModel();
+            return target ? _relationDefaultKey(target, propertyKey, 'primaryKey') : _relationDefaultKey(model, propertyKey, 'primaryKey');
+          },
+        });
+      } else {
+        const targetModelDesc = extractModelDescriptor(targetModel);
+        descriptor.PrimaryKey = targetModelDesc ? _relationDefaultKey(targetModelDesc, propertyKey, 'primaryKey') : _relationDefaultKey(model, propertyKey, 'primaryKey');
+      }
+    }
+
+    model.Relations.set(propertyKey, descriptor);
   });
 }
 
@@ -399,7 +456,7 @@ export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: str
       TargetModelType: forwardRef.forwardRef,
       TargetModel: undefined as any,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
-      PrimaryKey: primaryKey ?? model.PrimaryKey,
+      PrimaryKey: primaryKey ?? _relationDefaultKey(model, propertyKey, 'primaryKey'),
       Recursive: false,
     });
   });
@@ -445,11 +502,24 @@ export interface IHasManyToManyDecoratorOptions extends IRelationDecoratorOption
    * Sometimes right side of junction relation not exists and we want to filter it out
    */
   joinMode?: 'LeftJoin' | 'RightJoin';
+
+  /**
+   * What `save()` does with a member removed from this relation. For many-to-many this
+   * governs the *target* row: the junction row is always deleted. Defaults to `nullify`,
+   * which for a junction relation means "unlink only, leave the target row alone".
+   */
+  orphan?: OrphanPolicy;
 }
 
 export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
   foreignKey?: string;
   primaryKey?: string;
+
+  /**
+   * What `save()` does with a child removed from this relation. Defaults to `nullify`,
+   * escalating to `delete` when the foreign key is reflected as NOT NULL.
+   */
+  orphan?: OrphanPolicy;
 }
 
 /**
@@ -471,8 +541,9 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       TargetModelType: targetModel,
       TargetModel: undefined as any,
       ForeignKey: options ? options.foreignKey ?? `${model.Name.toLowerCase()}_id` : `${model.Name.toLowerCase()}_id`,
-      PrimaryKey: options ? options.primaryKey ?? model.PrimaryKey : model.PrimaryKey,
+      PrimaryKey: options?.primaryKey ?? _relationDefaultKey(model, propertyKey, 'options.primaryKey'),
       Recursive: false,
+      Orphan: options?.orphan,
       Factory: options?.factory ? options.factory : undefined,
       RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_factory__', [type]),
     });
@@ -487,8 +558,8 @@ export function Historical(targetModel: Constructor<ModelBase>) {
       SourceModel: target,
       TargetModelType: targetModel,
       TargetModel: undefined as any,
-      ForeignKey: model.PrimaryKey,
-      PrimaryKey: model.PrimaryKey,
+      ForeignKey: _relationDefaultKey(model, propertyKey, 'primaryKey'),
+      PrimaryKey: _relationDefaultKey(model, propertyKey, 'primaryKey'),
       Recursive: false,
     });
   });
@@ -505,13 +576,14 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
     const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Recursive: false,
+      Orphan: options?.orphan,
       Type: RelationType.ManyToMany,
       SourceModel: target,
       TargetModelType: targetModel,
       TargetModel: undefined as any,
       ForeignKey: '',
       // ForeignKey: options?.targetModelPKey ?? targetModelDescriptor.PrimaryKey,
-      PrimaryKey: options?.sourceModelPKey ?? model.PrimaryKey,
+      PrimaryKey: options?.sourceModelPKey ?? _relationDefaultKey(model, propertyKey, 'options.sourceModelPKey'),
       JunctionModel: junctionModel,
       // JunctionModelTargetModelFKey_Name: options?.junctionModelTargetPk ?? `${targetModelDescriptor.Name.toLowerCase()}_id`,
       JunctionModelTargetModelFKey_Name: '',
@@ -543,7 +615,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
       });
     } else {
       const targetModelDescriptor = extractModelDescriptor(targetModel);
-      descriptor.ForeignKey = options?.targetModelPKey ?? targetModelDescriptor!.PrimaryKey;
+      descriptor.ForeignKey = options?.targetModelPKey ?? _relationDefaultKey(targetModelDescriptor!, propertyKey, 'options.targetModelPKey');
       descriptor.JunctionModelTargetModelFKey_Name = options?.junctionModelTargetPk ?? `${targetModelDescriptor!.Name.toLowerCase()}_id`;
     }
 

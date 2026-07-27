@@ -39,13 +39,9 @@ export function _get_entity<T extends ModelBase>(idOrEntity: number | T, c: Cons
  */
 export function _update<T extends ModelBase>(data?: Partial<T>): (data: T) => Promise<T> {
   return (model: T) => {
-    return model.update(data).then((res: IUpdateResult) => {
-      if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
-        return Promise.reject(new ErrorCode(E_ORM_CODES.E_NO_ROWS_AFFECTED));
-      }
-
-      return model;
-    });
+    // A clean model short-circuits to { RowsAffected: 0 } - that is a no-op success,
+    // not a failure, so we always resolve the model.
+    return model.update(data).then(() => model);
   };
 }
 
@@ -62,7 +58,9 @@ export function _insert<T extends ModelBase>(behaviour?: InsertBehaviour): (mode
         return Promise.resolve(model);
       }
       return (model[0].constructor as typeof ModelBase).insert(model, behaviour).then((res: IUpdateResult) => {
-        if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
+        // `uuid` and `assigned` primary keys report LastInsertId 0 on a successful insert, so
+        // only RowsAffected signals failure. See @Primary({ generated }) in the ORM docs.
+        if (res.RowsAffected <= 0) {
           return Promise.reject(new ErrorCode(E_ORM_CODES.E_NO_ROWS_AFFECTED));
         }
 
@@ -71,7 +69,7 @@ export function _insert<T extends ModelBase>(behaviour?: InsertBehaviour): (mode
     }
 
     return model.insert(behaviour).then((res: IUpdateResult) => {
-      if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
+      if (res.RowsAffected <= 0) {
         return Promise.reject(new ErrorCode(E_ORM_CODES.E_NO_ROWS_AFFECTED));
       }
 
@@ -82,13 +80,8 @@ export function _insert<T extends ModelBase>(behaviour?: InsertBehaviour): (mode
 
 export function _insertOrUpdate<T extends ModelBase>(): (model: T) => Promise<T> {
   return (model: T) => {
-    return model.insertOrUpdate().then((res: IUpdateResult) => {
-      if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
-        return Promise.reject(new ErrorCode(E_ORM_CODES.E_NO_ROWS_AFFECTED));
-      }
-
-      return model;
-    });
+    // insertOrUpdate on a clean model is a no-op success (RowsAffected 0) - resolve the model.
+    return model.insertOrUpdate().then(() => model);
   }
 }
 
@@ -101,7 +94,7 @@ export function _insertOrUpdate<T extends ModelBase>(): (model: T) => Promise<T>
 export function _delete<T extends ModelBase>(): (model: T) => Promise<T> {
   return (model: T) => {
     return model.destroy().then((res: IUpdateResult) => {
-      if (res.LastInsertId <= 0 || res.RowsAffected <= 0) {
+      if (res.RowsAffected <= 0) {
         return Promise.reject(new ErrorCode(E_ORM_CODES.E_NO_ROWS_AFFECTED));
       }
 

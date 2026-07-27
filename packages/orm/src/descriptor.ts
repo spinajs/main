@@ -1,25 +1,15 @@
-import { isConstructor } from "@spinajs/di";
+import { isConstructor, collapseInheritedDescriptor } from '@spinajs/di';
 import { IModelDescriptor } from "./interfaces.js";
 import { MODEL_DESCTRIPTION_SYMBOL } from "./symbols.js";
-import _ from "lodash";
 
-
-function getConstructorChain(obj: any) {
-  var cs = [obj.name],
-    pt = obj;
-  do {
-    if ((pt = Object.getPrototypeOf(pt))) cs.push(pt.name || null);
-  } while (pt != null);
-  return cs.filter((x) => x !== 'Function' && x !== 'Object' && x !== null);
-}
-
-function createDefaultModelDescriptor(): IModelDescriptor {
+export function createDefaultModelDescriptor(): IModelDescriptor {
   return {
     Driver: null,
     Converters: new Map(),
     Columns: [],
     Connection: null,
-    PrimaryKey: '',
+    PrimaryKey: [],
+    PrimaryKeyGeneration: new Map(),
     SoftDelete: {
       DeletedAt: '',
     },
@@ -49,47 +39,28 @@ export function extractModelDescriptorInherited(targetOrForward: any): IModelDes
     return null;
   }
 
-  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
-
-  // we want collapse metadata vals in reverse order ( base class first )
-  const inheritanceChain = getConstructorChain(target).reverse();
-  const merger = (a: any, b: any) => {
-    if (_.isArray(a) || _.isArray(b)) {
-      return [...(a ?? []), ...(b ?? [])];
-    }
-
-    if (!(_.isNil(a) || _.isEmpty(a)) && (_.isNil(b) || _.isEmpty(b))) {
-      return a;
-    }
-
-    if (_.isMap(a)) {
-      return new Map([...a, ...b]);
-    }
-
-    return b;
-  };
-
+  // Only the NEAREST own descriptor is collapsed onto a fresh default, and every stored
+  // descriptor is already collapsed, so array fields ( Columns, PrimaryKey ) gain no duplicate
+  // per inheritance level - the de-duplication the name-keyed reader needed is now structural.
   return {
-    ...createDefaultModelDescriptor(),
-    ...(metadata ? inheritanceChain.reduce((prev, c) => {
-      return {
-        ..._.assignWith(prev, metadata[c], merger),
-        Converters: new Map([...(prev.Converters ?? []), ...(metadata[c] ? metadata[c].Converters : [])]),
-      };
-    }, {}) : {}),
-    ...{
-      Name: target.name
-    }
-  }
+    ...collapseInheritedDescriptor(target, MODEL_DESCTRIPTION_SYMBOL, createDefaultModelDescriptor),
+    // Name is always this class's own, never inherited - the merger would
+    // otherwise keep the parent's non-empty name over the child's default ''
+    Name: target.name,
+  };
 }
 
 export function extractModelDescriptor(targetOrForward: any): IModelDescriptor | null {
   const target = !isConstructor(targetOrForward) && targetOrForward ? targetOrForward() : targetOrForward;
+
   if (!target) {
     return null;
   }
 
-  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
-
-  return metadata[target.name];
+  // master's own-metadata-per-class read. MUST stay paired with the write side in
+  // decorators.ts `_getMetadataFrom`, which replaced the old name-keyed container —
+  // that container collapsed two classes sharing a name into one slot (A9 in the
+  // ORM analysis). Reading name-keyed here against an own-metadata write returns null
+  // for every model.
+  return (Reflect.getOwnMetadata(MODEL_DESCTRIPTION_SYMBOL, target) as IModelDescriptor) ?? null;
 }

@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 
-import { Metrics, TelemetryMiddleware, metricsHandler, statsHandler } from './../src/index.js';
+import { Metrics, TelemetryStore, metricsHandler, statsHandler } from './../src/index.js';
 
 function fakeRes() {
   return {
@@ -32,14 +32,14 @@ describe('endpoints — metricsHandler', () => {
 });
 
 describe('endpoints — statsHandler', () => {
-  it('writes JSON with `all` + `timeline` from the middleware lifetime stats', () => {
-    const mw = new TelemetryMiddleware();
-    mw.RequestStats.countResponse(200, 5);
+  it('writes JSON with `all` + `timeline` from the store lifetime stats', () => {
+    const store = new TelemetryStore();
+    store.RequestStats.countResponse(200, 5);
     // default bucketMs is 60_000, so ts 42_000 -> bucket key floor(42000/60000) = 0
-    mw.Timeline.record(200, 5, 42_000);
+    store.Timeline.record(200, 5, 42_000);
 
     const res = fakeRes();
-    statsHandler(mw)({}, res as any);
+    statsHandler(store)({}, res as any);
 
     const ctCall = res.setHeader.getCalls().find((c) => c.args[0] === 'Content-Type');
     expect(ctCall!.args[1]).to.contain('application/json');

@@ -54,7 +54,11 @@ export class UserController extends BaseController {
     if (sId) {
       const session = await this.SessionProvider.restore(sId);
       if (session) {
-        session.Data.set('User', user.dehydrate());
+        // Session stores the user UUID (see LoginController) — RbacUserFactory
+        // resolves the user from it on each request. Storing a dehydrated object
+        // here would break that lookup and log the user out on the next request.
+        session.Data.set('User', user.Uuid);
+        await this.SessionProvider.save(session);
       }
     }
 

@@ -2,7 +2,7 @@ import { __translate, __translateNumber, __translateL, __translateH } from '@spi
 import { IOFail } from '@spinajs/exceptions';
 import * as pug from 'pug';
 import _ from 'lodash';
-import { CompiledTemplateRenderer, TemplateRenderer } from '@spinajs/templates';
+import { ensureParentDir, TemplateRenderer } from '@spinajs/templates';
 
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
@@ -42,5 +42,18 @@ export class PugRenderer extends CompiledTemplateRenderer<pug.compileTemplate> {
       __l: __translateL,
       __h: __translateH,
     });
+  }
+
+  /**
+   * Render and write the result to `filePath`, creating the parent directory if
+   * it does not exist. Same contract as {@link CompiledTemplateRenderer.renderToFile};
+   * pug cannot inherit it because it compiles from a PATH ( so that include /
+   * extends resolve against the filesystem ) rather than from a source string.
+   */
+  public async renderToFile(templateName: string, model: unknown, filePath: string, language?: string): Promise<void> {
+    const content = await this.render(templateName, model, language);
+
+    ensureParentDir(filePath);
+    fs.writeFileSync(filePath, content);
   }
 }

@@ -14,7 +14,7 @@ import { QueryArgs } from '../../dto/QueryArgs.js';
 import { QueryFilter } from '../../dto/QueryFilter.js';
 import { QueryIncludes } from '../../dto/QueryIncludes.js';
 import { FindModelType } from '../../policies/FindModelType.js';
-import { Crud } from './../../interfaces.js';
+import { Crud, _assertSingleColumnKey } from './../../interfaces.js';
 
 @BasePath('crud')
 @Policy(FindModelType)
@@ -103,12 +103,12 @@ export class CrudRead extends Crud {
     const { query, permission } = this.getSafeQuery(model, user);
     const result = await query
       .select('*')
-      .where(descriptor.PrimaryKey, id)
+      .where(_assertSingleColumnKey(descriptor), id)
       .populate(includes)
       .firstOrThrow(
         new ResourceNotFound(`Record with id ${id} not found`, {
           Resource: model.name,
-          [descriptor.PrimaryKey]: id,
+          [_assertSingleColumnKey(descriptor)]: id,
         }),
       );
 
@@ -130,18 +130,18 @@ export class CrudRead extends Crud {
     if (!pExists) {
       throw new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        [mDescriptor.PrimaryKey]: id,
+        [_assertSingleColumnKey(mDescriptor)]: id,
       });
     }
 
     const result = await query
       .select('*')
       .populate(includes)
-      .where(rmDescriptor.PrimaryKey, relationId)
+      .where(_assertSingleColumnKey(rmDescriptor), relationId)
       .firstOrThrow(
         new ResourceNotFound(`Record with id ${relationId} not found`, {
           Resource: rDescriptor.TargetModel.name,
-          [rmDescriptor.PrimaryKey]: relationId,
+          [_assertSingleColumnKey(rmDescriptor)]: relationId,
         }),
       );
 
@@ -162,7 +162,7 @@ export class CrudRead extends Crud {
     if (!pExists) {
       throw new ResourceNotFound(`Record with id ${id} not found`, {
         Resource: model.name,
-        [mDescriptor.PrimaryKey]: id,
+        [_assertSingleColumnKey(mDescriptor)]: id,
       });
     }
 

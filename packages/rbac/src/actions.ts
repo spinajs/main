@@ -6,7 +6,8 @@ import { _ev } from '@spinajs/queue';
 import { USER_COMMON_METADATA, User, UserBase } from './models/User.js';
 import { _cfg, _service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
-import { Constructor } from '@spinajs/di';
+import { Constructor, DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
 import { UserEvent } from './events/UserEvent.js';
 import { AuthProvider, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
@@ -285,6 +286,21 @@ export async function deactivate(identifier: number | string | User): Promise<vo
 export type CreateMiddleware = (u: User) => Promise<User> | User;
 
 /**
+ * Reads a create-middleware list from configuration.
+ *
+ * NOTE: we deliberately do NOT use `_cfg(path, [])` here. `_cfg` wraps its
+ * result in `_non_nil()`, which rejects empty arrays — so an unset or
+ * empty `beforeCreate` / `afterCreate` (the default in the shipped config)
+ * would throw and break user creation. Reading the value directly keeps an
+ * empty list as a valid "no middleware" result.
+ */
+function _create_middleware(path: string): CreateMiddleware[] {
+  const cfg = DI.get(Configuration);
+  const mw = cfg?.get<CreateMiddleware[]>(path, []);
+  return Array.isArray(mw) ? mw : [];
+}
+
+/**
  * Creates a new user account.
  *
  * Validates and normalises inputs, hashes the password, inserts the user record,
@@ -329,11 +345,7 @@ export async function create(email: string, login: string, password: string, rol
       ),
 
     // run before create middleware
-    (u: User) =>
-      _chain(
-        _cfg<CreateMiddleware[]>('rbac.actions.create.beforeCreate', []),
-        (beforeCreate: CreateMiddleware[]) => _chain(u, ...beforeCreate)
-      ),
+    (u: User) => _chain(u, ..._create_middleware('rbac.actions.create.beforeCreate')),
 
     // insert to db
     _insert(),
@@ -343,11 +355,7 @@ export async function create(email: string, login: string, password: string, rol
       async (u: User) => u),
 
     // run after create middleware
-    (u: User) =>
-      _chain(
-        _cfg<CreateMiddleware[]>('rbac.actions.create.afterCreate', []),
-        (afterCreate: CreateMiddleware[]) => _chain(u, ...afterCreate)
-      ),
+    (u: User) => _chain(u, ..._create_middleware('rbac.actions.create.afterCreate')),
 
     // send event
     _user_ev(UserCreated, (u: User) => u.toJSON()),
@@ -458,12 +466,23 @@ export async function ban(identifier: number | string | User, reason?: string, d
 export async function unban(identifier: number | string | User): Promise<User> {
   return _chain(
     _user(identifier),
-    (u: User) => {
+
+    // guard must return the user so the chain can keep flowing it downstream
+    _tap(async (u: User) => {
       if (!u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
         throw new ErrorCode(E_CODES.E_USER_BANNED, `User is already unbanned`, { user: u });
       }
-    },
-    _set_user_meta('/^user:ban/', null),
+    }),
+
+    // actually remove the ban metadata from the DB. Assigning a regex-like
+    // string key never cleared anything; delete() removes each key from store.
+    _tap(async (u: User) => {
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_IS_BANNED);
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_START_DATE);
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_DURATION);
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_REASON);
+    }),
+
     _user_ev(UserUnbanned),
   );
 }
@@ -476,7 +495,7 @@ export async function unban(identifier: number | string | User): Promise<User> {
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
 export async function passwordChangeRequest(identifier: number | string | User) {
-  const pwdWaitTime = await _cfg<number>('rbac.password.reset_wait_time')();
+  const pwdWaitTime = await _cfg<number>('rbac.password.passwordResetWaitTime')();
 
   return _chain(
     _user(identifier),
@@ -502,7 +521,7 @@ export async function confirmPasswordReset(identifier: number | string | User, n
     _user(identifier),
     _tap((u: User) =>
       _chain(u, _zip(_get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE), _get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME)), ([dueDate, waitTime]: [DateTime, number]) => {
-        if (dueDate.plus(waitTime) < DateTime.now()) {
+        if (dueDate.plus({ seconds: waitTime }) < DateTime.now()) {
           throw new ErrorCode(E_CODES.E_TOKEN_EXPIRED, `Password change token expired, token expiration date is: ${dueDate.toISO()}`, {
             dueDate,
             waitTime,

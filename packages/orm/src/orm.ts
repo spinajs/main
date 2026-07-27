@@ -68,7 +68,7 @@ export class Orm extends AsyncService {
         };
 
         if (driver.Options.Migration?.Transaction?.Mode === MigrationTransactionMode.PerMigration) {
-          await (await driver.transaction(trFunction)).commit();
+          await driver.transaction(trFunction);
         } else {
           await trFunction(driver);
         }
@@ -108,7 +108,7 @@ export class Orm extends AsyncService {
         };
 
         if (driver.Options.Migration?.Transaction?.Mode === MigrationTransactionMode.PerMigration) {
-          await (await driver.transaction(trFunction)).commit();
+          await driver.transaction(trFunction);
         } else {
           await trFunction(driver);
         }
@@ -357,6 +357,10 @@ export class Orm extends AsyncService {
       }
 
       this.Connections.set(c.Name, driver);
+
+      // a connection that was healthy at boot says nothing about one whose server has since
+      // restarted, so the probe keeps running for the lifetime of the connection
+      driver.startHealthCheck();
       this.Log.success(`Created ORM connection ${c.Name} with parameters ${connectionInfo}`);
     }
 
@@ -476,7 +480,13 @@ export class Orm extends AsyncService {
 
       const exists = await cn.select().from(migrationTableName).where({ Migration: m.name }).orderByDescending('CreatedAt').first();
 
-      if (!exists) {
+      // up() must run only for migrations NOT yet recorded; down() must run only
+      // for migrations that ARE recorded (previously applied). The gate was
+      // inverted for down, which skipped applied migrations and ran down() on
+      // never-applied ones.
+      const shouldRun = down ? Boolean(exists) : !exists;
+
+      if (shouldRun) {
         const migration = await this.Container.resolve<OrmMigration>(m.type, [cn]);
 
         this.Log.info(`Setting up migration ${m.name} from file ${m.file} created at ${m.created} mode: ${down ? 'migrate down' : 'migrate up'}`);
@@ -488,6 +498,7 @@ export class Orm extends AsyncService {
 
   public async dispose(): Promise<void> {
     for (const [, value] of this.Connections) {
+      value.stopHealthCheck();
       await value.disconnect();
     }
   }
