@@ -252,9 +252,15 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
     this.Value = object;
   }
 
+  /**
+   * Attaches `obj` and persists the owner. One transaction, so the attach and the owner
+   * update cannot half-apply. Nested inside a caller's transaction this takes a savepoint.
+   */
   public async set(obj: R) {
-    this.attach(obj);
-    await this._owner.update();
+    await this._owner.driver().transaction(async () => {
+      this.attach(obj);
+      await this._owner.update();
+    });
   }
 
   public attach(obj: R | null) {
@@ -269,11 +275,18 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
     this.attach(null);
   }
 
+  /**
+   * Deletes the related row and clears the owner's foreign key. One transaction: these used
+   * to be two independent statements, so a throw between them left the owner pointing at a
+   * row that no longer exists.
+   */
   public async remove() {
-    const val = this.Value;
-    this.detach();
-    await val?.destroy();
-    await this._owner.update();
+    await this._owner.driver().transaction(async () => {
+      const val = this.Value;
+      this.detach();
+      await val?.destroy();
+      await this._owner.update();
+    });
   }
 
   public async populate(callback?: (this: SelectQueryBuilder<this>) => void): Promise<void> {
@@ -451,10 +464,15 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     *  Sets foreign key to relational data
     *
     *  Inserts or updates models that are dirty only.
+    *
+    *  One transaction: the junction upserts and the orphan delete used to be independent
+    *  statements. Nested inside a caller's transaction this takes a savepoint.
     */
   public async sync() {
-    await this.update();
-    await this._dbDiff(this);
+    await this.Driver.transaction(async () => {
+      await this._update();
+      await this._dbDiff(this);
+    });
   }
 
   /**
@@ -463,6 +481,13 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
    * Only dirty models are updated.
    */
   public async update() {
+    await this.Driver.transaction(async () => {
+      await this._update();
+    });
+  }
+
+  /** The write itself, without a transaction of its own, so `sync()` can share one. */
+  protected async _update() {
     for (const f of this) {
       const junctionEntry = new this.Relation.JunctionModel!();
       const desc = junctionEntry.ModelDescriptor;
@@ -580,10 +605,17 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    *  Sets foreign key to relational data
    *
    *  Inserts or updates models that are dirty only.
+   *
+   *  The whole synchronization is one transaction: the orphan delete used to run as an
+   *  independent statement, so a throw between it and the writes left the database
+   *  inconsistent with the in-memory graph. Nested inside a caller's transaction this takes
+   *  a savepoint rather than opening a second one.
    */
   public async sync() {
-    await this.update();
-    await this._dbDiff(this);
+    await this.Driver.transaction(async () => {
+      await this._update();
+      await this._dbDiff(this);
+    });
   }
 
   /**
@@ -592,6 +624,13 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * Only dirty models are updated.
    */
   public async update() {
+    await this.Driver.transaction(async () => {
+      await this._update();
+    });
+  }
+
+  /** The write itself, without a transaction of its own, so `sync()` can share one. */
+  protected async _update() {
     // Assign foreign keys BEFORE computing the dirty set. A child re-parented to
     // this owner needs its FK rewritten and persisted; if we snapshot `dirty`
     // first, a previously-clean child keeps its old FK in the DB and a following

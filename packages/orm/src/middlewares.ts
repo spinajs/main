@@ -192,7 +192,18 @@ export class VirtualRelationMiddleware implements IBuilderMiddleware {
 }
 
 export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
-  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor) { }
+  /**
+   * @param _relationQuery - the join query through the junction table
+   * @param _description - the *synthetic* owner -> junction descriptor built by
+   *        `ManyToManyRelation.compile()`. It says `Type: Many` and its `ForeignKey` is the
+   *        junction's source column, which is what the row-matching below needs.
+   * @param _targetModelDescriptor - descriptor of the model on the far side of the junction
+   * @param _relationDescriptor - the model's own `@HasManyToMany` descriptor. Optional so no
+   *        existing caller breaks, but without it the `ManyToManyRelationList` handed to the
+   *        user carries the synthetic descriptor instead — no `JunctionModel`, no junction
+   *        key names — and `sync()` / `update()` / the set operations all fail on it.
+   */
+  constructor(protected _relationQuery: ISelectQueryBuilder, protected _description: IRelationDescriptor, protected _targetModelDescriptor: IModelDescriptor, protected _relationDescriptor?: IRelationDescriptor) {}
 
   public afterQuery(data: any[]): any[] {
     return data;
@@ -217,7 +228,10 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 
         data.forEach((d) => {
           const relData = relationData.filter((rd) => (rd as any).JunctionModel[self._description.ForeignKey] === (d as any)[self._description.PrimaryKey]);
-          const list = new ManyToManyRelationList(d, self._description, relData);
+          // The real @HasManyToMany descriptor, not the synthetic join one — see the
+          // constructor doc. Falls back to the synthetic descriptor so a caller that does
+          // not supply it keeps the previous ( broken but unchanged ) behaviour.
+          const list = new ManyToManyRelationList(d, self._relationDescriptor ?? self._description, relData);
           // See the note in HasManyRelationMiddleware: loaded-and-empty must be
           // distinguishable from never-loaded.
           list.Populated = true;
