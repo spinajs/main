@@ -54,6 +54,13 @@ export class HasManyRelationMiddleware implements IBuilderMiddleware {
               d[self._description.Name] = DI.resolve(self._description.RelationClass, [d, self._description, relData]);
             }
           }
+
+          // The contents came from the database, so this relation is populated — even when
+          // the batched query returned no rows for this particular owner. `Populated` is what
+          // tells "loaded and empty" from "never loaded", and unit-of-work `save()` skips the
+          // latter entirely ( the empty-array anti-footgun ).
+          d[self._description.Name].Populated = true;
+          d.snapshotRelation(self._description.Name);
         });
       },
     };
@@ -210,7 +217,12 @@ export class HasManyToManyRelationMiddleware implements IBuilderMiddleware {
 
         data.forEach((d) => {
           const relData = relationData.filter((rd) => (rd as any).JunctionModel[self._description.ForeignKey] === (d as any)[self._description.PrimaryKey]);
-          (d as any)[self._description.Name] = new ManyToManyRelationList(d, self._description, relData);
+          const list = new ManyToManyRelationList(d, self._description, relData);
+          // See the note in HasManyRelationMiddleware: loaded-and-empty must be
+          // distinguishable from never-loaded.
+          list.Populated = true;
+          (d as any)[self._description.Name] = list;
+          d.snapshotRelation(self._description.Name);
         });
 
         relationData.forEach((d) => delete (d as any).JunctionModel);
