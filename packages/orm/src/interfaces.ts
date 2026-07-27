@@ -15,6 +15,9 @@ import { Lazy } from '@spinajs/util';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
 import { IConnectionResilienceOptions } from './resilience.js';
+// Type-only: `snapshot.ts` imports IModelDescriptor from here, so a value import would close
+// the cycle. Keep this import type-only.
+import type { IModelSnapshot } from './snapshot.js';
 
 export enum QueryContext {
   Insert,
@@ -683,6 +686,26 @@ export interface IModelBase {
    * Marks model as dirty. It means that model have unsaved changes
    */
   IsDirty: boolean;
+
+  /**
+   * Diff baseline captured at hydration, or null for a model that has never been in the database.
+   */
+  Snapshot: IModelSnapshot | null;
+
+  /** Captures the current column values as the diff baseline. */
+  takeSnapshot(): void;
+
+  /** Captures relation `name`'s current member primary keys into the baseline. */
+  snapshotRelation(name: string): void;
+
+  /** Discards the diff baseline. */
+  clearSnapshot(): void;
+
+  /** Column names whose current value differs from the baseline. */
+  changedColumns(): string[];
+
+  /** Records `prop` as changed and marks the model dirty. */
+  markDirty(prop: string): void;
 
   getFlattenRelationModels(): IModelBase[];
 

@@ -12,6 +12,7 @@ import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from '.
 import { Wrap } from './statements.js';
 import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
+import { createSnapshot, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
 
 import { DI, isConstructor, IContainer, Constructor, isClass } from '@spinajs/di';
 
@@ -81,6 +82,14 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
 
   private __dirty_props__: string[] = [];
+
+  /**
+   * Diff baseline, captured when this instance was hydrated from a database row.
+   * `null` means "this model has never been in the database", which is what `save()`
+   * uses to classify it as an INSERT — not the presence of a primary key, because
+   * `setDefaults()` pre-fills @Uuid keys on construction.
+   */
+  private __snapshot__: IModelSnapshot | null = null;
 
   /**
    * List of hidden properties from JSON / dehydrations
@@ -162,6 +171,112 @@ export class ModelBase<M = unknown> implements IModelBase {
           break;
       }
     });
+  }
+
+  /**
+   * The diff baseline for this instance, or `null` when it has never been hydrated from
+   * the database. Read-only from the outside: mutate it only through `takeSnapshot()`,
+   * `snapshotRelation()` and `clearSnapshot()`.
+   */
+  public get Snapshot(): IModelSnapshot | null {
+    return this.__snapshot__;
+  }
+
+  /**
+   * Captures the current value of every column as the diff baseline, discarding any
+   * previous baseline and any relation keys recorded against it.
+   *
+   * Values are copied, never aliased — see `snapshotValue`. An aliased snapshot makes
+   * every diff empty and `save()` a silent no-op.
+   */
+  public takeSnapshot(): void {
+    const snapshot = createSnapshot();
+
+    for (const c of this.ModelDescriptor?.Columns ?? []) {
+      snapshot.Columns.set(c.Name, snapshotValue((this as any)[c.Name]));
+    }
+
+    this.__snapshot__ = snapshot;
+  }
+
+  /**
+   * Records the primary keys of the members currently in relation `name` as that
+   * relation's baseline. A no-op when the model has no snapshot — an unhydrated model
+   * has nothing to diff against and its relations are all "new".
+   *
+   * @param name - relation property name, as declared on the model descriptor
+   */
+  public snapshotRelation(name: string): void {
+    if (!this.__snapshot__) {
+      return;
+    }
+
+    const relation = (this as any)[name];
+
+    if (relation === null || relation === undefined) {
+      return;
+    }
+
+    if (relation instanceof SingleRelation) {
+      const value = relation.Value;
+      this.__snapshot__.Relations.set(name, value ? [value.PrimaryKeyValue] : []);
+      return;
+    }
+
+    if (typeof relation[Symbol.iterator] === 'function') {
+      this.__snapshot__.Relations.set(
+        name,
+        [...(relation as Iterable<ModelBase>)].map((m) => m.PrimaryKeyValue),
+      );
+    }
+  }
+
+  /**
+   * Discards the diff baseline. After this the model is treated as brand new by `save()`.
+   */
+  public clearSnapshot(): void {
+    this.__snapshot__ = null;
+  }
+
+  /**
+   * Names of the columns whose current value differs from the snapshot.
+   *
+   * With no snapshot every column is reported as changed, which is the right answer for a
+   * model that is about to be inserted.
+   *
+   * This is deliberately independent of `__dirty_props__`: the proxy records a property as
+   * dirty on any write, including one that puts the original value back, so the snapshot
+   * diff is the more precise answer and the one the UPDATE payload is built from.
+   */
+  public changedColumns(): string[] {
+    const columns = this.ModelDescriptor?.Columns ?? [];
+
+    if (!this.__snapshot__) {
+      return columns.map((c) => c.Name);
+    }
+
+    const snapshot = this.__snapshot__;
+    return columns.filter((c) => !snapshotEquals(snapshot.Columns.get(c.Name), (this as any)[c.Name])).map((c) => c.Name);
+  }
+
+  /**
+   * Records `prop` as changed and marks the model dirty.
+   *
+   * This is the supported way for relation objects to report that they rewrote one of the
+   * owner's foreign keys. It replaces the `(owner as any).__dirty_props__.push(...)` casts
+   * that reached into a private field from outside the class ( A6 ).
+   *
+   * The push comes before `IsDirty = true` so the method stays correct even if the
+   * `IsDirty` setter ever starts clearing `__dirty_props__` on a truthy assignment too.
+   *
+   * @param prop - column name
+   */
+  public markDirty(prop: string): void {
+    if (!this.__dirty_props__.includes(prop)) {
+      this.__dirty_props__.push(prop);
+    }
+
+    this.IsDirty = true;
   }
 
   public valueOf() {
