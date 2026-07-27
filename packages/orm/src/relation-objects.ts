@@ -263,17 +263,25 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
     });
   }
 
+  /**
+   * Points this relation at `obj` and records the owner's foreign key as changed.
+   *
+   * Uses the model's own `markDirty` rather than an `any` cast into the owner's private
+   * dirty-column list, which is what this used to do ( A6 ). `markDirty` de-duplicates and
+   * owns the `IsDirty` flag, so repeated attaches record the column once.
+   *
+   * @param obj - the related model, or null to clear the relation
+   */
   public attach(obj: R | null) {
     this.Value = obj;
 
-    // `markDirty` replaces a cast that reached into the owner's private `__dirty_props__`
-    // from outside the class ( A6 ). It also sets IsDirty and, unlike the raw push, will not
-    // record the same column twice — attaching the same target twice used to leave two
-    // entries, so `toSql(true)` reported a duplicated column.
     const foreignKey = this.Relation?.ForeignKey;
+
     if (foreignKey) {
       this._owner.markDirty(foreignKey);
     } else {
+      // A query relation has no descriptor and therefore no foreign-key column, but the
+      // owner still changed.
       this._owner.IsDirty = true;
     }
   }
