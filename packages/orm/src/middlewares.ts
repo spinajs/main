@@ -287,7 +287,12 @@ export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
 export class BelongsToRelationResultTransformMiddleware implements IBuilderMiddleware {
   public afterQuery(data: any[]): any[] {
     return data.map((d) => {
-      const transformedData = Object.assign(d);
+      // A real copy. `Object.assign(d)` with one argument returns `d` itself, so this used
+      // to nest keys into and delete keys from the caller's own row object. The pipeline
+      // writes whatever this returns back into the result array
+      // ( builders.ts, `Object.assign(transformedResult, m.afterQuery(...))` ), so returning
+      // fresh objects is transparent to everything downstream.
+      const transformedData = { ...d };
       for (const key in transformedData) {
         if (key.startsWith('$')) {
           this.setDeep(transformedData, this.keyTransform(key), d[key]);
