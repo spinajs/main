@@ -8,7 +8,11 @@ describe('Session provider tests', () => {
   before(async () => {
     DI.register(MemorySessionStore).as(SessionProvider);
     DI.register(TestConfiguration).as(Configuration);
+  });
 
+  beforeEach(async () => {
+    // Re-resolve Configuration after each clearCache so the SessionProvider base
+    // can autoinject its expiration strategy (rbac.session.expiration).
     await DI.resolve(Configuration);
   });
 

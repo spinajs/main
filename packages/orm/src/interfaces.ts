@@ -15,6 +15,9 @@ import { Lazy } from '@spinajs/util';
 // imported, deliberately NOT re-exported: `index.ts` does `export *` on both this file and
 // `resilience.js`, and exporting the same name from both is an ambiguous re-export.
 import { IConnectionResilienceOptions } from './resilience.js';
+// Type-only: `snapshot.ts` imports IModelDescriptor from here, so a value import would close
+// the cycle. Keep this import type-only.
+import type { IModelSnapshot } from './snapshot.js';
 
 export enum QueryContext {
   Insert,
@@ -535,6 +538,21 @@ export enum RelationType {
   Virtual
 }
 
+/**
+ * What `save()` does with a row that was removed from a relation.
+ *
+ * - `nullify` — clear the child's foreign key, leaving the row. The default.
+ * - `delete` — delete the child row.
+ * - `soft-delete` — stamp the child's `@SoftDelete` column. Requires the target to carry one.
+ * - `disable` — do nothing; the caller manages orphans by hand.
+ */
+export enum OrphanPolicy {
+  Nullify = 'nullify',
+  Delete = 'delete',
+  SoftDelete = 'soft-delete',
+  Disable = 'disable',
+}
+
 export type ForwardRefFunction = () => Constructor<ModelBase>;
 
 /**
@@ -552,6 +570,38 @@ export interface IUpdateResult {
  */
 export interface IInsertResult extends IUpdateResult {
   Returning: any[];
+}
+
+/**
+ * Options for `ModelBase.save()`.
+ */
+export interface ISaveOptions {
+  /**
+   * Re-read the current database state of every already-persisted model in the graph inside
+   * the transaction and diff against that, instead of against the snapshot taken at
+   * hydration. Costs one SELECT per involved table; use it when another process may have
+   * changed the same rows since they were loaded.
+   */
+  reload?: boolean;
+
+  /**
+   * Maximum number of rows per batched statement — junction inserts and the key lists of
+   * orphan statements. Defaults to 100. Rows whose primary key the database generates are
+   * always inserted one statement at a time so the generated key can be read back exactly.
+   */
+  chunk?: number;
+}
+
+/**
+ * What one `save()` actually did.
+ */
+export interface ISaveResult {
+  Inserted: number;
+  Updated: number;
+  Deleted: number;
+  SoftDeleted: number;
+  JunctionInserted: number;
+  JunctionDeleted: number;
 }
 
 export interface IRelationDescriptor {
@@ -621,6 +671,12 @@ export interface IRelationDescriptor {
   Recursive: boolean;
 
   /**
+   * What happens to a member removed from this relation during `save()`.
+   * Unset means "decide from the foreign key's nullability" — see `resolveOrphanPolicy`.
+   */
+  Orphan?: OrphanPolicy;
+
+  /**
    * Relation factory, sometimes we dont want to create standard relation object
    */
   Factory?: (model: ModelBase<unknown>, relation: IRelationDescriptor, container: IContainer, data: any[]) => Relation<ModelBase<unknown>, ModelBase<unknown>, typeof ModelBase<ModelBase<unknown>>>;
@@ -683,6 +739,31 @@ export interface IModelBase {
    * Marks model as dirty. It means that model have unsaved changes
    */
   IsDirty: boolean;
+
+  /**
+   * Diff baseline captured at hydration, or null for a model that has never been in the database.
+   */
+  Snapshot: IModelSnapshot | null;
+
+  /** Captures the current column values as the diff baseline. */
+  takeSnapshot(): void;
+
+  /** Captures relation `name`'s current member primary keys into the baseline. */
+  snapshotRelation(name: string): void;
+
+  /** Discards the diff baseline. */
+  clearSnapshot(): void;
+
+  /** Column names whose current value differs from the baseline. */
+  changedColumns(): string[];
+
+  /** Records `prop` as changed and marks the model dirty. */
+  markDirty(prop: string): void;
+
+  /**
+   * Persists this model and everything reachable from it in one transaction.
+   */
+  save(options?: ISaveOptions): Promise<ISaveResult>;
 
   getFlattenRelationModels(): IModelBase[];
 
@@ -1624,6 +1705,19 @@ export interface ITransactionOptions {
 }
 
 /**
+ * Canonicalizes `(model constructor, primary key)` to one instance for the duration of a
+ * `save()` graph walk or a transaction. See `IdentityMap` in `identity-map.ts`.
+ */
+export interface IIdentityMap {
+  get(model: Constructor<ModelBase>, pk: unknown): ModelBase | undefined;
+  has(model: Constructor<ModelBase>, pk: unknown): boolean;
+  /** Registers `model`, returning the canonical instance for its identity. */
+  add(model: ModelBase): ModelBase;
+  readonly Size: number;
+  clear(): void;
+}
+
+/**
  * Per-transaction state carried through `AsyncLocalStorage`.
  *
  * `connection` is the driver's own connection handle type and is absent for drivers with a
@@ -1633,4 +1727,10 @@ export interface ITransactionOptions {
 export interface ITransactionContext {
   connection?: unknown;
   depth: number;
+
+  /**
+   * Identity map shared by every `save()` that runs inside this transaction. Created lazily
+   * by the first `save()` and discarded with the context, so nothing survives the commit.
+   */
+  IdentityMap?: IIdentityMap;
 }

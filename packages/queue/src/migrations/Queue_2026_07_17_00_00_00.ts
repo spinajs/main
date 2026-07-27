@@ -14,6 +14,16 @@ import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
 @Migration('queue')
 export class Queue_2026_07_17_00_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
+    // sqlite renders enum as unconstrained TEXT and has no MODIFY COLUMN, so there is
+    // nothing to widen there. Emitting the MODIFY anyway produces a MySQL-flavoured
+    // `ALTER TABLE ... MODIFY ... ENUM(...)` that sqlite rejects, so skip it explicitly
+    // ( mirrors the guard in Queue_2026_07_02, and matches this migration's documented
+    // "no-op on sqlite" contract above ).
+    const isSqlite = connection.Options.Driver.toLowerCase().includes('sqlite');
+    if (isSqlite) {
+      return;
+    }
+
     await connection.schema().alterTable('queue_jobs', (table) => {
       // `.default().value('created')` returns the ColumnQueryBuilder, which has no
       // `.modify()` - that lives on AlterColumnQueryBuilder. So `.modify()` must be

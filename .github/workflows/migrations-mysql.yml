@@ -1,0 +1,96 @@
+name: queue migrations (mysql)
+
+# First CI in this repo. Purpose: actually execute the queue migrations' MySQL-specific
+# branches ( esp. Queue_2026_07_02 / Queue_2026_07_17 restating the Status default across
+# MySQL's destructive MODIFY COLUMN, and the ENUM widening ) against a real mysql:8.0 -
+# these paths never run on the sqlite test suites and were previously verified by inspection only.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'packages/queue/**'
+      - 'packages/orm/**'
+      - 'packages/orm-mysql/**'
+      - 'packages/orm-sql/**'
+      - '.github/workflows/migrations-mysql.yml'
+  pull_request:
+    paths:
+      - 'packages/queue/**'
+      - 'packages/orm/**'
+      - 'packages/orm-mysql/**'
+      - 'packages/orm-sql/**'
+      - '.github/workflows/migrations-mysql.yml'
+
+jobs:
+  # Broker-free queue suites on sqlite. Runs with no service container so the workflow is
+  # useful even for changes that don't touch MySQL behaviour.
+  sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # ts-mocha type-resolves workspace deps ( @spinajs/* ) via their built lib/mjs outputs,
+      # which a fresh `npm ci` checkout does not have. `tsc -b` on the queue mjs project builds
+      # it plus its whole project-reference graph ( util, configuration, di, exceptions, log, orm ).
+      # The ESM test loader ( ts-node/esm ) resolves each @spinajs/* import to its lib/mjs, so only
+      # the mjs outputs are needed - no cjs build required.
+      - name: build queue + deps (mjs)
+        run: npx tsc -b packages/queue/tsconfig.mjs.json
+
+      - name: run broker-free queue suites (sqlite)
+        working-directory: packages/queue
+        run: npx ts-mocha -p tsconfig.json test/tracking.test.ts test/emit.test.ts test/jobmodel.test.ts test/core.test.ts
+
+  mysql:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: spinajs_queue_test
+        ports:
+          - 3306:3306
+        # wait until mysqld actually answers before the job runs, not just until the container starts
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # Same rationale as the sqlite job, but the MySQL suite also imports @spinajs/orm-mysql
+      # ( which pulls in @spinajs/orm-sql ). Passing both mjs projects to `tsc -b` builds the
+      # union of their reference graphs - everything the test needs, and nothing more.
+      - name: build queue + orm-mysql + deps (mjs)
+        run: npx tsc -b packages/queue/tsconfig.mjs.json packages/orm-mysql/tsconfig.mjs.json
+
+      - name: run mysql migration suite
+        working-directory: packages/queue
+        env:
+          SPINAJS_TEST_MYSQL_HOST: 127.0.0.1
+          SPINAJS_TEST_MYSQL_PORT: 3306
+          SPINAJS_TEST_MYSQL_USER: root
+          SPINAJS_TEST_MYSQL_PASSWORD: root
+          SPINAJS_TEST_MYSQL_DB: spinajs_queue_test
+        run: npx ts-mocha -p tsconfig.json test/migrations.mysql.test.ts

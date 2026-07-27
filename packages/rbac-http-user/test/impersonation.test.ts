@@ -79,16 +79,19 @@ class TestSessionProvider extends SessionProvider<ISession> {
   public async delete(): Promise<void> {
     /* noop */
   }
-  public async save(idOrSession: ISession | string): Promise<void> {
-    if (typeof idOrSession !== 'string') this.Saved.push(idOrSession);
+  public async save(session: ISession): Promise<void> {
+    this.Saved.push(session);
   }
-  public async touch(): Promise<void> {
+  public async touch(): Promise<boolean> {
+    return false;
+  }
+  public async deleteByUser(): Promise<void> {
     /* noop */
+  }
+  public async listByUser(): Promise<ISession[]> {
+    return [];
   }
   public async truncate(): Promise<void> {
-    /* noop */
-  }
-  public async logsOut(): Promise<void> {
     /* noop */
   }
 }

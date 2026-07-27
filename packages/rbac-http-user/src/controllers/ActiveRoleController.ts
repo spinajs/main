@@ -1,6 +1,6 @@
 import { SwitchRoleDto } from '../dto/switchRole-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, BadRequestResponse, Unauthorized, Policy } from '@spinajs/http';
-import { AccessControl, AuthProvider, PasswordProvider, SessionProvider, _unwindGrants } from '@spinajs/rbac';
+import { AccessControl, AuthProvider, PasswordProvider, SessionProvider, _unwindGrants, regenerateSession, sessionCookieMaxAge } from '@spinajs/rbac';
 import type { ISession, User } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
@@ -29,6 +29,9 @@ export class ActiveRoleController extends BaseController {
 
   @Config('rbac.roleSwitch.requirePassword', { defaultValue: [] as string[] })
   protected RolesRequiringPassword: string[];
+
+  @Config('rbac.session.cookie', {})
+  protected SessionCookieConfig: any;
 
   /**
    * Get active role
@@ -92,9 +95,25 @@ export class ActiveRoleController extends BaseController {
     }
 
     session.Data.set('ActiveRole', payload.Role);
-    await this.SessionProvider.save(session);
 
-    return new Ok(this.buildResponse(payload.Role));
+    // Privilege elevation — regenerate the session id to defend against session
+    // fixation, and reset the ssid cookie to the new id.
+    const regenerated = await regenerateSession(this.SessionProvider, session);
+
+    return new Ok(this.buildResponse(payload.Role), {
+      Coockies: [
+        {
+          Name: 'ssid',
+          Value: regenerated.SessionId,
+          Options: {
+            signed: true,
+            httpOnly: true,
+            maxAge: sessionCookieMaxAge(regenerated),
+            ...this.SessionCookieConfig,
+          },
+        },
+      ],
+    });
   }
 
   protected buildResponse(activeRole: string): IActiveRoleResponse {

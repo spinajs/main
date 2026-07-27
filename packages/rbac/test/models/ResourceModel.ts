@@ -12,4 +12,6 @@ export class ResourceModel extends ModelBase {
     @ResourceOwner()
     public UserId : number;
 
+    public Value: string;
+
 }

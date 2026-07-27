@@ -60,6 +60,7 @@
     "@spinajs/fs": "^2.0.481",
     "@spinajs/log": "^2.0.481",
     "@spinajs/templates": "^2.0.481",
+    "@spinajs/util": "^2.0.481",
     "luxon": "^3.6.1",
     "nodemailer": "^6.9.0"
   },

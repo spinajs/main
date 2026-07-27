@@ -1,11 +1,11 @@
 import { TokenDto } from './../dto/token-dto.js';
 import { BaseController, BasePath, Ok, Post, Get, ForbiddenResponse } from '@spinajs/http';
-import { ISession, SessionProvider, User as UserModel, _user_ev, _user_update, _unwindGrants, AccessControl } from '@spinajs/rbac';
+import { ISession, SessionProvider, User as UserModel, _user_ev, _user_update, _unwindGrants, AccessControl, regenerateSession, sessionCookieMaxAge } from '@spinajs/rbac';
 import { Session } from "@spinajs/rbac-http";
 import { Body, Policy } from '@spinajs/http';
 import _ from 'lodash';
 import { TwoFacRouteEnabled } from '../policies/2FaPolicy.js';
-import { AutoinjectService, _service } from '@spinajs/configuration';
+import { AutoinjectService, Config, _service } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
 import { QueueService } from '@spinajs/queue';
 import { _chain, _check_arg, _non_empty, _non_null, _tap, _trim, _use } from '@spinajs/util';
@@ -31,6 +31,9 @@ export class TwoFactorAuthController extends BaseController {
 
     @AutoinjectService('rbac.session')
     protected SessionProvider: SessionProvider;
+
+    @Config('rbac.session.cookie', {})
+    protected SessionCookieConfig: any;
 
     @Autoinject(AccessControl)
     protected AC: AccessControl;
@@ -89,30 +92,49 @@ export class TwoFactorAuthController extends BaseController {
     public async verifyToken(@User() logged: UserModel, @Body() token: TokenDto, @Session() session: ISession): Promise<Ok<IUserWithGrants> | ForbiddenResponse> {
 
         try {
-            await auth2Fa(logged, token.Token);
+            await this.verifyTwoFactorToken(logged, token.Token);
 
             // 2fa complete, mark as authorized
             // fron now on user is considered authorized
             session.Data.set('Authorized', true);
             session.Data.delete('TwoFactorAuth');
-            await this.SessionProvider.save(session);
+
+            // Privilege elevation (login -> authorized) — regenerate the session
+            // id to defend against session fixation and reset the ssid cookie.
+            const regenerated = await regenerateSession(this.SessionProvider, session);
 
             this._log.trace('User logged in, 2fa authorized', {
                 Uuid: logged.Uuid
             });
 
 
-            const grants = this.AC.getGrants();
-            const userGrants = logged.Role.map(r => _unwindGrants(r, grants));
-            const combinedGrants = Object.assign({}, ...userGrants);
-
+            // Mirror the login response shape: resolve grants for the session's
+            // active role (falling back to the first role) and include ActiveRole,
+            // instead of flattening every role with no ActiveRole reported.
+            const activeRole = (session.Data.get('ActiveRole') as string | undefined) ?? logged.Role?.[0];
+            const combinedGrants = activeRole ? _unwindGrants(activeRole, this.AC.getGrants()) : {};
 
             return new Ok({
                 ...logged.dehydrateWithRelations({
                     dateTimeFormat: "iso"
                 }),
+                Role: logged.Role,
+                ActiveRole: activeRole,
                 Grants: combinedGrants,
-            } as unknown as IUserWithGrants);
+            } as unknown as IUserWithGrants, {
+                Coockies: [
+                    {
+                        Name: 'ssid',
+                        Value: regenerated.SessionId,
+                        Options: {
+                            signed: true,
+                            httpOnly: true,
+                            maxAge: sessionCookieMaxAge(regenerated),
+                            ...this.SessionCookieConfig,
+                        },
+                    },
+                ],
+            });
         }
         catch (err) {
 
@@ -129,5 +151,14 @@ export class TwoFactorAuthController extends BaseController {
                 },
             });
         }
+    }
+
+    /**
+     * Verifies the supplied TOTP token against the user's 2FA secret. Wraps the
+     * module-level `auth2Fa` action in a protected method so tests can stub the
+     * verification without a TOTP/DB setup.
+     */
+    protected verifyTwoFactorToken(user: UserModel, token: string): Promise<void> {
+        return auth2Fa(user, token) as Promise<void>;
     }
 }

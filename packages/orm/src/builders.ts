@@ -127,6 +127,23 @@ export class Builder<T = any> implements IBuilder<T> {
 
         model.hydrate(r);
         model.IsDirty = false;
+
+        // This is the one point at which the instance's columns hold exactly what the
+        // database returned, so it is the diff baseline for `save()`. Relation members
+        // are attached later by the afterHydration middlewares below, which record their
+        // own member keys into this same snapshot.
+        model.takeSnapshot();
+
+        // Nested relation data that arrived on the row itself ( belongsTo LEFT JOIN,
+        // and hasMany arrays passed straight to hydrate ) was attached by the hydrators
+        // inside `hydrate()` above — i.e. before the snapshot existed, so their own
+        // `snapshotRelation` calls no-opped. Record those relations now.
+        for (const name of (model.ModelDescriptor?.Relations ?? new Map()).keys()) {
+          if ((model as any)[name]?.Populated) {
+            model.snapshotRelation(name);
+          }
+        }
+
         return model;
       });
 
@@ -1428,6 +1445,11 @@ export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     };
 
     this.QueryContext = QueryContext.Delete;
+
+    // Query middlewares (e.g. rbac ownership enforcement) must run for deletes
+    // too, not only selects — otherwise :own permission constraints are never
+    // applied and any row can be deleted.
+    this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
   }
 
   public toDB(): ICompilerOutput {
@@ -1512,6 +1534,11 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     this._statements = [];
 
     this.QueryContext = QueryContext.Update;
+
+    // Query middlewares (e.g. rbac ownership enforcement) must run for updates
+    // too, not only selects — otherwise :own permission constraints are never
+    // applied and any row can be updated.
+    this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
   }
 
   public in(name: string) {

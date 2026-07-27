@@ -8,12 +8,17 @@ import { Log } from '@spinajs/log';
 import './auth.js';
 import './password.js';
 import './session.js';
+import './session-expiration.js';
+import './session-codec.js';
+import './ownership.js';
 import { User } from './models/User.js';
 
 export * from './interfaces.js';
 export * from './auth.js';
 export * from './password.js';
 export * from './session.js';
+export * from './session-expiration.js';
+export * from './session-codec.js';
 export * from './models/User.js';
 export * from './models/UserMetadata.js';
 export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
@@ -24,6 +29,7 @@ export * from './decorators.js';
 export * from './util.js';
 export * from './profile.js';
 export * from './impersonation.js';
+export * from './ownership.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;

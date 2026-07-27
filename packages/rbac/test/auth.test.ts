@@ -1,5 +1,5 @@
 import { BasicPasswordProvider } from '../src/password.js';
-import { DI } from '@spinajs/di';
+import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User } from '../src/index.js';
@@ -26,6 +26,11 @@ describe('Authorization provider tests', () => {
   });
 
   beforeEach(async () => {
+    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+    for (const b of bootstrappers) {
+      await b.bootstrap();
+    }
+
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
     await DI.resolve(Orm);
   });

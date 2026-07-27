@@ -61,7 +61,12 @@ async function session() {
   return DI.resolve(DynamoDbSessionProvider);
 }
 
-describe('dynamodb session provider', function () {
+// Live-DynamoDB integration test. Requires a local DynamoDB on http://localhost:8000,
+// so it is skipped by default. Run it explicitly with DYNAMO_INTEGRATION=1. The
+// fake-backed conformance run in `session-provider.test.ts` is the source of truth.
+const RUN_INTEGRATION = process.env.DYNAMO_INTEGRATION === '1';
+
+(RUN_INTEGRATION ? describe : describe.skip)('dynamodb session provider (integration)', function () {
   this.timeout(10000);
 
   beforeEach(async () => {
@@ -91,9 +96,9 @@ describe('dynamodb session provider', function () {
     const r = await s.restore('a');
 
     expect(r).to.be.not.null;
-    expect(r.SessionId).to.eq('a');
-    expect(r.Data.has('foo')).to.be.true;
-    expect(r.Data.get('foo')).to.eq('bar');
+    expect(r!.SessionId).to.eq('a');
+    expect(r!.Data.has('foo')).to.be.true;
+    expect(r!.Data.get('foo')).to.eq('bar');
   });
 
   it('should update session', async () => {
@@ -110,13 +115,13 @@ describe('dynamodb session provider', function () {
     await s.save(sS);
 
     let r = await s.restore('a');
-    expect(r.Data.get('foo')).to.eq('bar');
+    expect(r!.Data.get('foo')).to.eq('bar');
 
     sS.Data.set('foo', 'bar 2');
 
     await s.save(sS);
     r = await s.restore('a');
-    expect(r.Data.get('foo')).to.eq('bar 2');
+    expect(r!.Data.get('foo')).to.eq('bar 2');
   });
 
   it('should delete session', async () => {
@@ -164,9 +169,9 @@ describe('dynamodb session provider', function () {
 
     const sR2 = await s.restore('a');
 
-    expect(sR2.Expiration!.toMillis() === date2.toMillis());
-    expect(sR.Expiration!.toMillis() === date.toMillis());
-    expect(sR2.Expiration!.toMillis() > sR.Expiration!.toMillis());
+    expect(sR2!.Expiration!.toMillis() === date2.toMillis());
+    expect(sR!.Expiration!.toMillis() === date.toMillis());
+    expect(sR2!.Expiration!.toMillis() > sR!.Expiration!.toMillis());
   });
   it('should return null when session expired', async () => {
     const s = await session();

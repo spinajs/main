@@ -1,4 +1,4 @@
-import { ISession, SessionProvider, User } from '@spinajs/rbac';
+import { ISession, SessionProvider, User, sessionCookieMaxAge } from '@spinajs/rbac';
 import { Autoinject, DI, Injectable } from '@spinajs/di';
 import 'reflect-metadata';
 import * as express from 'express';
@@ -11,6 +11,9 @@ export class RbacMiddleware extends ServerMiddleware {
   @Config('http.cookie.secret')
   protected CoockieSecret: string;
 
+  @Config('rbac.session.cookie', {})
+  protected SessionCookieConfig: any;
+
   @Autoinject()
   protected SessionProvider: SessionProvider;
 
@@ -21,7 +24,7 @@ export class RbacMiddleware extends ServerMiddleware {
   }
 
   public before(): (req: sRequest, res: express.Response, next: express.NextFunction) => void {
-    return async (req: sRequest, _res: express.Response, next: express.NextFunction) => {
+    return async (req: sRequest, res: express.Response, next: express.NextFunction) => {
       try {
         let session: ISession | null = null;
         if (req.cookies?.ssid) {
@@ -51,6 +54,21 @@ export class RbacMiddleware extends ServerMiddleware {
           req.storage.ActiveRole = sessionActiveRole && req.storage.User.Role.includes(sessionActiveRole)
             ? sessionActiveRole
             : req.storage.User.Role?.[0];
+
+          // Sliding renewal: touch the session on every authenticated request.
+          // The store recomputes Expiration via the configured strategy and
+          // returns true only when it actually changed (sliding modes); under
+          // absolute expiration it returns false and performs no write, so we
+          // leave the cookie untouched.
+          const renewed = await this.SessionProvider.touch(session);
+          if (renewed) {
+            res.cookie('ssid', session.SessionId, {
+              signed: true,
+              httpOnly: true,
+              maxAge: sessionCookieMaxAge(session),
+              ...this.SessionCookieConfig,
+            });
+          }
         } else {
           req.storage.User = DI.resolve<User>('RbacGuestUserFactory');
           req.storage.ActiveRole = req.storage.User.Role?.[0];

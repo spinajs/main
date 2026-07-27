@@ -121,8 +121,14 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
         defaultRole: 'guest',
         session: {
-          // 2h session expiration  time
-          expiration: 120,
+          service: 'MemorySessionStore',
+          // expiration strategy (units: minutes)
+          expiration: {
+            service: 'SlidingCappedExpiration',
+            ttl: 120,
+            maxLifetime: 1440,
+          },
+          cookie: {},
         },
         auth: {
           service: 'SimpleDbAuthProvider',
@@ -136,8 +142,8 @@ export class TestConfiguration extends FrameworkConfiguration {
               // UNCOMMENT ONE OF BELOW OR MODIFY
               // VALIDATION RULE IS JSON SCHEMA
 
-              // Minimum eight characters, at least one letter and one number
-              pattern: '^(?=.*[A-Za-z])(?=.*d)[A-Za-zd]{8,}$',
+              // Minimum eight characters, at least one number
+              pattern: '^(?=.*\\d).{8,}$',
 
               // Minimum eight characters, at least one letter, one number and one special character:
               // pattern: '^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$',

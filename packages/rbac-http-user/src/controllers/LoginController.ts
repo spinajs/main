@@ -1,6 +1,6 @@
 import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, Unauthorized, Policy } from '@spinajs/http';
-import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants } from '@spinajs/rbac';
+import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants, sessionCookieMaxAge } from '@spinajs/rbac';
 import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -26,11 +26,6 @@ export class LoginController extends BaseController {
 
   @AutoinjectService('rbac.session')
   protected SessionProvider: SessionProvider;
-
-  @Config('rbac.session.expiration', {
-    defaultValue: 120,
-  })
-  protected SessionExpirationTime: number;
 
   @Config('rbac.twoFactorAuth.enabled', {
     defaultValue: false,
@@ -73,23 +68,6 @@ export class LoginController extends BaseController {
       const user = await login(credentials.Email, credentials.Password);
       const session = new UserSession();
 
-      const coockies = [
-        {
-          Name: 'ssid',
-          Value: session.SessionId,
-          Options: {
-            signed: true,
-            httpOnly: true,
-
-            // set expiration time in ms
-            maxAge: this.SessionExpirationTime * 1000,
-
-            // any optopnal cookie options
-            // or override default ones
-            ...this.SessionCookieConfig
-          },
-        },
-      ];
       let result: ILoginResponse;
 
       session.Data.set('User', user.Uuid);
@@ -107,11 +85,6 @@ export class LoginController extends BaseController {
       //              user is automatically authorized at login
       session.Data.set('Logged', true);
       session.UserId = user.Id;
-
-      // set expiration time ( default val in config )
-      session.extend();
-
-
 
       if (this.TwoFactorAuthForceUser && !user.Metadata['2fa:enabled']) {
         this._log.trace('User logged in, 2fa init required', {
@@ -155,7 +128,27 @@ export class LoginController extends BaseController {
         Uuid: user.Uuid
       });
 
+      // save() schedules the session's initial expiration via the configured
+      // strategy; the cookie maxAge is then derived from that real expiry (B1),
+      // no longer the bogus `expiration * 1000` (~2 min) value.
       await this.SessionProvider.save(session);
+
+      const coockies = [
+        {
+          Name: 'ssid',
+          Value: session.SessionId,
+          Options: {
+            signed: true,
+            httpOnly: true,
+
+            // cookie lifetime tracks the session's real expiration
+            maxAge: sessionCookieMaxAge(session),
+
+            // any optional cookie options / override default ones
+            ...this.SessionCookieConfig
+          },
+        },
+      ];
 
       return new Ok(result, {
         Coockies: coockies
