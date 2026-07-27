@@ -1034,7 +1034,9 @@ export const MODEL_STATIC_MIXINS = {
     return driver;
   },
 
-  populate(this: ModelBase, relation: string, owner: ModelBase | number | string): SelectQueryBuilder | undefined {
+  // Every branch now returns a builder or throws, so the `| undefined` is gone — it only ever
+  // described the unimplemented ManyToMany case. This matches ModelBase.populate's static stub.
+  populate(this: ModelBase, relation: string, owner: ModelBase | number | string): SelectQueryBuilder {
     //TODO: fix cast
     const modelDescriptor = (this as any).getModelDescriptor() as IModelDescriptor;
 
@@ -1059,7 +1061,7 @@ export const MODEL_STATIC_MIXINS = {
     };
 
     switch (relationDescriptor.Type) {
-      case RelationType.One:
+      case RelationType.One: {
         const { query: JoinQuery } = createQuery(relationDescriptor.SourceModel!, SelectQueryBuilder);
 
         // NOTE: we could use simple right join, but we use LEFT JOIN
@@ -1072,21 +1074,61 @@ export const MODEL_STATIC_MIXINS = {
           joinModel: relationDescriptor.TargetModel,
           queryCallback: function () {
             this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
-          }
-        });
+          },
+          // Both were omitted, so the join compiled to `$source$.undefined`. A belongsTo
+          // joins the owner's ForeignKey to the target's PrimaryKey — the same derivation
+          // SelectQueryBuilder uses for RelationType.One.
+          sourceTablePrimaryKey: relationDescriptor.ForeignKey,
+          joinTableForeignKey: relationDescriptor.PrimaryKey,
+        } as any);
 
-        JoinQuery.where(relationDescriptor.SourceModel!.getModelDescriptor().PrimaryKey, owner);
+        // `wherePk`, not `where(descriptor.PrimaryKey, ...)`: PrimaryKey is a string[] since
+        // composite keys landed, and passing the array as a column name compiled to
+        // `column 0 not exists in model ...`.
+        wherePk(JoinQuery, relationDescriptor.SourceModel!.getModelDescriptor(), owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
         JoinQuery.middleware(hydrateMiddleware);
         return JoinQuery;
-      case RelationType.ManyToMany:
+      }
 
-        break
+      case RelationType.ManyToMany: {
+        // Was a bare `break`, so this returned undefined and every caller crashed on the
+        // result. Read the junction table, join the target, and project the target's columns
+        // — the same shape ManyToManyRelation.compile() builds. A sub-query would be more
+        // direct but `whereIn` takes value arrays only.
+        if (!relationDescriptor.JunctionModel) {
+          throw new OrmException(`relation ${relation} on ${modelDescriptor.Name} has no junction model`);
+        }
+
+        const { query: junctionQuery } = createQuery(relationDescriptor.JunctionModel, SelectQueryBuilder);
+
+        junctionQuery.clearColumns();
+        junctionQuery.leftJoin({
+          joinModel: relationDescriptor.TargetModel,
+          queryCallback: function () {
+            this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+          },
+          sourceTablePrimaryKey: relationDescriptor.JunctionModelTargetModelFKey_Name,
+          joinTableForeignKey: relationDescriptor.ForeignKey,
+        } as any);
+
+        junctionQuery.where(relationDescriptor.JunctionModelSourceModelFKey_Name!, owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
+        junctionQuery.middleware(hydrateMiddleware);
+
+        return junctionQuery;
+      }
+
+      case RelationType.Virtual:
       case RelationType.Query:
         throw new OrmException(`Query population for relation type ${RelationType[relationDescriptor.Type]} is not supported yet`);
-      case RelationType.Many:
+
+      case RelationType.Many: {
         const { query } = createQuery(relationDescriptor.TargetModel, SelectQueryBuilder);
         query.where(relationDescriptor.ForeignKey, owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
         return query;
+      }
+
+      default:
+        throw new OrmException(`unknown relation type ${relationDescriptor.Type} for relation ${relation} on ${modelDescriptor.Name}`);
     }
   },
 
