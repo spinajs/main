@@ -3,8 +3,8 @@
 import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import 'mocha';
-import { IdentityMap, QueryContext, SubjectBuilder, SubjectExecutor, SubjectSorter } from '@spinajs/orm';
-import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowNode, UowOrder, UowOrderItem } from './uowFixture.js';
+import { IdentityMap, OrphanPolicy, QueryContext, SubjectBuilder, SubjectExecutor, SubjectSorter } from '@spinajs/orm';
+import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowNode, UowOrder, UowOrderItem, UowOrderTag, UowStrictItem, UowTag } from './uowFixture.js';
 
 /** Builds, sorts and executes a graph outside any transaction — the executor under test only. */
 async function run(root: any) {
@@ -225,5 +225,199 @@ describe('SubjectExecutor - update phase', function () {
     const persisted = await rows('uow_order');
     expect(persisted.find((o: any) => o.Id === 1).Total).to.equal(10);
     expect(persisted.find((o: any) => o.Id === 2).Total).to.equal(99);
+  });
+});
+
+describe('SubjectExecutor - junction phase', function () {
+  this.timeout(10000);
+
+  before(() => registerUowConnection());
+  beforeEach(async () => {
+    await bootUow();
+  });
+  afterEach(() => DI.clearCache());
+
+  async function seeded() {
+    await UowOrder.insert({ Total: 10 });
+    await UowTag.insert({ Name: 'red' });
+    await UowTag.insert({ Name: 'blue' });
+    await UowOrderTag.insert({ order_id: 1, tag_id: 1 });
+    return await UowOrder.where({ Id: 1 }).populate('Tags').first();
+  }
+
+  it('inserts a junction row for an added existing tag', async () => {
+    const order = await seeded();
+    const blue = await UowTag.where({ Id: 2 }).first();
+    order.Tags.push(blue);
+
+    const result = await run(order);
+
+    expect(result.JunctionInserted).to.equal(1);
+    const links = await rows('uow_order_tag');
+    expect(links.map((l: any) => l.tag_id).sort()).to.deep.equal([1, 2]);
+  });
+
+  it('inserts the new tag row before its junction row', async () => {
+    const order = await seeded();
+    order.Tags.push(new UowTag({ Name: 'green' }));
+
+    const capture = captureStatements();
+    await run(order);
+    capture.restore();
+
+    const inserts = insertsOf(capture.statements);
+    const tagAt = inserts.findIndex((s) => s.expression.includes('uow_tag'));
+    const linkAt = inserts.findIndex((s) => s.expression.includes('uow_order_tag'));
+
+    expect(tagAt).to.be.greaterThan(-1);
+    expect(linkAt).to.be.greaterThan(tagAt);
+    expect((await rows('uow_order_tag')).length).to.equal(2);
+  });
+
+  it('deletes only the junction row when a tag is removed, never the tag', async () => {
+    const order = await seeded();
+    order.Tags.empty();
+
+    const result = await run(order);
+
+    expect(result.JunctionDeleted).to.equal(1);
+    expect(await rows('uow_order_tag')).to.have.length(0);
+    expect(await rows('uow_tag')).to.have.length(2);
+  });
+
+  it('scopes the junction delete to this owner', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrder.insert({ Total: 20 });
+    await UowTag.insert({ Name: 'red' });
+    await UowOrderTag.insert({ order_id: 1, tag_id: 1 });
+    await UowOrderTag.insert({ order_id: 2, tag_id: 1 });
+
+    const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+    order.Tags.empty();
+
+    await run(order);
+
+    const links = await rows('uow_order_tag');
+    expect(links).to.have.length(1);
+    expect(links[0].order_id).to.equal(2);
+  });
+
+  it('batches junction inserts to the configured chunk size', async () => {
+    await UowOrder.insert({ Total: 10 });
+    for (let i = 1; i <= 5; i += 1) {
+      await UowTag.insert({ Name: `t${i}` });
+    }
+
+    const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+    order.Tags.push(...(await UowTag.all()));
+
+    const set = new SubjectBuilder(new IdentityMap()).build(order);
+    const plan = new SubjectSorter().sort(set);
+
+    const capture = captureStatements();
+    await new SubjectExecutor({ chunk: 2 }).execute(plan);
+    capture.restore();
+
+    const junctionInserts = insertsOf(capture.statements).filter((s) => s.expression.includes('uow_order_tag'));
+    expect(junctionInserts).to.have.length(3); // 2 + 2 + 1
+    expect(await rows('uow_order_tag')).to.have.length(5);
+  });
+});
+
+describe('SubjectExecutor - orphan phase', function () {
+  this.timeout(10000);
+
+  before(() => registerUowConnection());
+  beforeEach(async () => {
+    await bootUow();
+  });
+  afterEach(() => DI.clearCache());
+
+  it('deletes an orphan under the delete policy', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+    const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+
+    order.Items.empty();
+    const result = await run(order);
+
+    expect(result.Deleted).to.equal(1);
+    expect(await rows('uow_order_item')).to.have.length(0);
+  });
+
+  it('nullifies an orphan under the nullify policy', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+    const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+
+    const relation = order.ModelDescriptor!.Relations.get('Items')!;
+    const previous = relation.Orphan;
+    relation.Orphan = OrphanPolicy.Nullify;
+
+    try {
+      order.Items.empty();
+      const result = await run(order);
+
+      expect(result.Updated).to.equal(1);
+      expect(result.Deleted).to.equal(0);
+      const items = await rows('uow_order_item');
+      expect(items).to.have.length(1);
+      expect(items[0].order_id).to.equal(null);
+    } finally {
+      relation.Orphan = previous;
+    }
+  });
+
+  it('deletes rather than nullifies when the foreign key is reflected NOT NULL', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowStrictItem.insert({ Sku: 'S', order_id: 1 });
+    const order = await UowOrder.where({ Id: 1 }).populate('StrictItems').first();
+
+    order.StrictItems.empty();
+    const result = await run(order);
+
+    expect(result.Deleted).to.equal(1);
+    expect(await rows('uow_strict_item')).to.have.length(0);
+  });
+
+  it('does nothing under the disable policy', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+    const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+
+    const relation = order.ModelDescriptor!.Relations.get('Items')!;
+    const previous = relation.Orphan;
+    relation.Orphan = OrphanPolicy.Disable;
+
+    try {
+      order.Items.empty();
+      const result = await run(order);
+
+      expect(result.Deleted).to.equal(0);
+      expect(await rows('uow_order_item')).to.have.length(1);
+    } finally {
+      relation.Orphan = previous;
+    }
+  });
+
+  it('chunks the key list of an orphan delete', async () => {
+    await UowOrder.insert({ Total: 10 });
+    for (let i = 1; i <= 5; i += 1) {
+      await UowOrderItem.insert({ Sku: `s${i}`, Qty: 1, order_id: 1 });
+    }
+
+    const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+    order.Items.empty();
+
+    const set = new SubjectBuilder(new IdentityMap()).build(order);
+    const plan = new SubjectSorter().sort(set);
+
+    const capture = captureStatements();
+    await new SubjectExecutor({ chunk: 2 }).execute(plan);
+    capture.restore();
+
+    const deletes = capture.statements.filter((s) => s.context === QueryContext.Delete);
+    expect(deletes).to.have.length(3);
+    expect(await rows('uow_order_item')).to.have.length(0);
   });
 });

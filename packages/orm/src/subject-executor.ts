@@ -1,12 +1,12 @@
 /* eslint-disable prettier/prettier */
 import { DateTime } from 'luxon';
 import _ from 'lodash';
-import { createQuery, InsertQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from './builders.js';
 import { OrmException } from './exceptions.js';
-import { IInsertResult, ISaveOptions, ISaveResult, ServerResponseMapper } from './interfaces.js';
-import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue, wherePk } from './primary-keys.js';
+import { IInsertResult, ISaveOptions, ISaveResult, OrphanPolicy, ServerResponseMapper } from './interfaces.js';
+import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
 import { ISortedPlan } from './subject-sorter.js';
-import { Subject } from './subject.js';
+import { IJunctionDelta, IOrphanDelta, Subject } from './subject.js';
 
 /** Rows per batched statement when the caller does not say. */
 export const DEFAULT_SAVE_CHUNK = 100;
@@ -38,6 +38,8 @@ export class SubjectExecutor {
 
     await this.runInserts(plan, result);
     await this.runUpdates(plan, result);
+    await this.runJunctions(plan, result);
+    await this.runOrphans(plan, result);
 
     return result;
   }
@@ -212,6 +214,117 @@ export class SubjectExecutor {
     }
 
     setPkValue(subject.Model, descriptor, lastInsertId);
+  }
+
+  /**
+   * Creates and destroys junction rows.
+   *
+   * Rows are written column-first rather than through the junction model, so a junction model
+   * is not required to declare `@BelongsTo` on both sides — `ManyToManyRelationList.update()`
+   * does require that, and none of the existing junction fixtures satisfy it.
+   *
+   * Inserts run before deletes so that re-linking the same pair inside one save cannot
+   * momentarily violate a unique constraint on the junction table in the other order.
+   */
+  protected async runJunctions(plan: ISortedPlan, result: ISaveResult): Promise<void> {
+    for (const delta of plan.Junctions) {
+      await this.insertJunctionRows(delta, result);
+      await this.deleteJunctionRows(delta, result);
+    }
+  }
+
+  protected async insertJunctionRows(delta: IJunctionDelta, result: ISaveResult): Promise<void> {
+    if (delta.Added.length === 0) {
+      return;
+    }
+
+    const sourceColumn = delta.Descriptor.JunctionModelSourceModelFKey_Name;
+    const targetColumn = delta.Descriptor.JunctionModelTargetModelFKey_Name;
+
+    if (!sourceColumn || !targetColumn) {
+      throw new OrmException(`manyToMany relation ${delta.Descriptor.Name} has no junction foreign-key column names`);
+    }
+
+    const ownerKey = delta.Owner.PrimaryKeyValue;
+
+    for (const batch of this.chunked(delta.Added)) {
+      const values = batch.map((target) => ({
+        [sourceColumn]: ownerKey,
+        [targetColumn]: target.PrimaryKeyValue,
+      }));
+
+      const { query } = createQuery(delta.Descriptor.JunctionModel!, InsertQueryBuilder);
+      await query.values(values);
+
+      result.JunctionInserted += values.length;
+    }
+  }
+
+  protected async deleteJunctionRows(delta: IJunctionDelta, result: ISaveResult): Promise<void> {
+    if (delta.RemovedKeys.length === 0) {
+      return;
+    }
+
+    const sourceColumn = delta.Descriptor.JunctionModelSourceModelFKey_Name!;
+    const targetColumn = delta.Descriptor.JunctionModelTargetModelFKey_Name!;
+    const ownerKey = delta.Owner.PrimaryKeyValue;
+
+    for (const batch of this.chunked(delta.RemovedKeys)) {
+      const { query } = createQuery(delta.Descriptor.JunctionModel!, DeleteQueryBuilder);
+      await (query as DeleteQueryBuilder<unknown>).where(sourceColumn, ownerKey).whereIn(targetColumn, batch);
+
+      result.JunctionDeleted += batch.length;
+    }
+  }
+
+  /**
+   * Applies the orphan policy to every detached row.
+   *
+   * `nullify` and `soft-delete` run first as UPDATEs, then `delete` runs as DELETEs, and the
+   * deltas arrive from the sorter already ordered children-before-parents so a delete cannot
+   * strand a foreign key.
+   *
+   * `createQuery` only adds the default `DeletedAt IS NULL` filter to a SelectQueryBuilder, so
+   * these builders are unfiltered — which is what stamping an already-soft-deleted row needs.
+   */
+  protected async runOrphans(plan: ISortedPlan, result: ISaveResult): Promise<void> {
+    const updates = plan.Orphans.filter((o) => o.Policy === OrphanPolicy.Nullify || o.Policy === OrphanPolicy.SoftDelete);
+    const deletes = plan.Orphans.filter((o) => o.Policy === OrphanPolicy.Delete);
+
+    for (const delta of updates) {
+      await this.updateOrphans(delta, result);
+    }
+
+    for (const delta of deletes) {
+      await this.deleteOrphans(delta, result);
+    }
+  }
+
+  protected async updateOrphans(delta: IOrphanDelta, result: ISaveResult): Promise<void> {
+    const payload = delta.Policy === OrphanPolicy.Nullify ? { [delta.Descriptor.ForeignKey]: null } : { [delta.TargetDescriptor.SoftDelete!.DeletedAt]: DateTime.now() };
+
+    for (const batch of this.chunked(delta.PrimaryKeys)) {
+      const { query } = createQuery(delta.Descriptor.TargetModel, UpdateQueryBuilder);
+      const update = (query as UpdateQueryBuilder<unknown>).update(payload);
+      whereAnyPk(update, delta.TargetDescriptor, batch);
+      await update;
+
+      if (delta.Policy === OrphanPolicy.Nullify) {
+        result.Updated += batch.length;
+      } else {
+        result.SoftDeleted += batch.length;
+      }
+    }
+  }
+
+  protected async deleteOrphans(delta: IOrphanDelta, result: ISaveResult): Promise<void> {
+    for (const batch of this.chunked(delta.PrimaryKeys)) {
+      const { query } = createQuery(delta.Descriptor.TargetModel, DeleteQueryBuilder);
+      whereAnyPk(query as DeleteQueryBuilder<unknown>, delta.TargetDescriptor, batch);
+      await query;
+
+      result.Deleted += batch.length;
+    }
   }
 
   /** Rows per batched statement. */
