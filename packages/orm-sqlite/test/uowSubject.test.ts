@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import 'mocha';
 import { IdentityMap, SubjectBuilder, SubjectOperation } from '@spinajs/orm';
-import { bootUow, registerUowConnection, UowClient, UowOrder, UowOrderItem, UowTag } from './uowFixture.js';
+import { bootUow, registerUowConnection, UowClient, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
 
 function builder() {
   return new SubjectBuilder(new IdentityMap());
@@ -267,5 +267,101 @@ describe('SubjectBuilder - hasMany delta', function () {
 
     expect([...delta.RemovedKeys].sort()).to.deep.equal([...keys].sort());
     expect(delta.Kept).to.deep.equal([]);
+  });
+});
+
+describe('SubjectBuilder - manyToMany junction delta', function () {
+  this.timeout(10000);
+
+  before(() => registerUowConnection());
+  beforeEach(async () => {
+    await bootUow();
+  });
+  afterEach(() => DI.clearCache());
+
+  async function seedOrderWithTags() {
+    await UowOrder.insert({ Total: 10 });
+    await UowTag.insert({ Name: 'red' });
+    await UowTag.insert({ Name: 'blue' });
+    await UowOrderTag.insert({ order_id: 1, tag_id: 1 });
+    await UowOrderTag.insert({ order_id: 1, tag_id: 2 });
+    return await UowOrder.where({ Id: 1 }).populate('Tags').first();
+  }
+
+  it('reports no junction delta when membership is unchanged', async () => {
+    const order = await seedOrderWithTags();
+
+    const set = builder().build(order);
+    const delta = set.Junctions.find((j: any) => j.Descriptor.Name === 'Tags')!;
+
+    expect(delta.Added).to.deep.equal([]);
+    expect(delta.RemovedKeys).to.deep.equal([]);
+  });
+
+  it('reports an added existing tag as a junction insert and does not touch the tag row', async () => {
+    const order = await seedOrderWithTags();
+    await UowTag.insert({ Name: 'green' });
+    const green = await UowTag.where({ Id: 3 }).first();
+
+    order.Tags.push(green);
+
+    const set = builder().build(order);
+    const delta = set.Junctions.find((j: any) => j.Descriptor.Name === 'Tags')!;
+
+    expect(delta.Added).to.deep.equal([green]);
+    expect(set.find(green)!.Operation).to.equal(SubjectOperation.None);
+  });
+
+  it('reports a brand new tag as both an insert subject and a junction insert', async () => {
+    const order = await seedOrderWithTags();
+    const fresh = new UowTag({ Name: 'fresh' });
+
+    order.Tags.push(fresh);
+
+    const set = builder().build(order);
+
+    expect(set.find(fresh)!.Operation).to.equal(SubjectOperation.Insert);
+    expect(set.Junctions.find((j: any) => j.Descriptor.Name === 'Tags')!.Added).to.deep.equal([fresh]);
+  });
+
+  it('reports a removed tag as a junction delete keyed by the target primary key', async () => {
+    const order = await seedOrderWithTags();
+    const removed = order.Tags[0];
+    order.Tags.splice(0, 1);
+
+    const delta = builder().build(order).Junctions.find((j: any) => j.Descriptor.Name === 'Tags')!;
+
+    expect(delta.RemovedKeys).to.deep.equal([removed.Id]);
+  });
+
+  it('carries the junction descriptor and owner on the delta', async () => {
+    const order = await seedOrderWithTags();
+
+    const delta = builder().build(order).Junctions.find((j: any) => j.Descriptor.Name === 'Tags')!;
+
+    expect(delta.Owner).to.equal(order);
+    expect(delta.JunctionDescriptor.TableName).to.equal('uow_order_tag');
+    expect(delta.Descriptor.JunctionModelSourceModelFKey_Name).to.equal('order_id');
+    expect(delta.Descriptor.JunctionModelTargetModelFKey_Name).to.equal('tag_id');
+  });
+
+  it('produces no junction delta for a manyToMany that was never populated', async () => {
+    await UowOrder.insert({ Total: 10 });
+    const order = await UowOrder.where({ Id: 1 }).first();
+
+    order.Tags.push(new UowTag({ Name: 'ignored' }));
+
+    expect(builder().build(order).Junctions.length).to.equal(0);
+  });
+
+  it('produces an empty junction delta rather than none for a populated empty relation', async () => {
+    await UowOrder.insert({ Total: 10 });
+    const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+
+    expect(order.Tags.Populated).to.equal(true);
+
+    const delta = builder().build(order).Junctions.find((j: any) => j.Descriptor.Name === 'Tags')!;
+    expect(delta.Added).to.deep.equal([]);
+    expect(delta.RemovedKeys).to.deep.equal([]);
   });
 });

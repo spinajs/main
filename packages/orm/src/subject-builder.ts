@@ -4,7 +4,8 @@ import { identityKey } from './identity-map.js';
 import { IIdentityMap, RelationType } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import { SingleRelation } from './relation-objects.js';
-import { IRelationDelta, Subject, SubjectOperation, SubjectSet } from './subject.js';
+import { OrmException } from './exceptions.js';
+import { IJunctionDelta, IRelationDelta, Subject, SubjectOperation, SubjectSet } from './subject.js';
 
 /**
  * Turns a mutated object graph into a `SubjectSet` — the complete, unordered description of
@@ -132,6 +133,7 @@ export class SubjectBuilder {
     for (const subject of set.Subjects) {
       this.buildBelongsTo(subject);
       this.buildHasMany(subject, set);
+      this.buildManyToMany(subject, set);
     }
 
     return set;
@@ -201,6 +203,57 @@ export class SubjectBuilder {
           memberSubject.PendingForeignKeys.push({ Column: relation.ForeignKey, Target: subject.Model });
         }
       }
+    }
+  }
+
+  /**
+   * Diffs each populated `manyToMany` against the owner's relation snapshot into junction
+   * rows to create and destroy.
+   *
+   * Only the *junction* row is created or destroyed. A target that is new gets its own insert
+   * subject from `collect()` so its key exists before the junction row references it; a target
+   * that is merely unlinked is left completely alone — removing a tag from an order must
+   * never delete the tag.
+   */
+  protected buildManyToMany(subject: Subject, set: SubjectSet): void {
+    for (const [name, relation] of subject.Descriptor.Relations) {
+      if (relation.Type !== RelationType.ManyToMany) {
+        continue;
+      }
+
+      // eslint-disable-next-line security/detect-object-injection
+      const rel = (subject.Model as any)[name];
+      if (!rel || rel.Populated !== true) {
+        continue;
+      }
+
+      if (!relation.JunctionModel) {
+        throw new OrmException(`manyToMany relation ${relation.Name} on ${subject.Descriptor.Name} has no junction model`);
+      }
+
+      const junctionDescriptor = extractModelDescriptor(relation.JunctionModel);
+      if (!junctionDescriptor) {
+        throw new OrmException(`junction model ${relation.JunctionModel.name} for relation ${relation.Name} has no model descriptor`);
+      }
+
+      const members = [...(rel as Iterable<ModelBase>)];
+      const snapshotKeys = subject.Model.Snapshot?.Relations.get(name) ?? [];
+      const snapshotSet = new Set(snapshotKeys.map((k) => identityKey(k)).filter((k) => k !== null));
+      const presentKeys = new Set(members.map((m) => identityKey(m.PrimaryKeyValue)).filter((k) => k !== null));
+
+      const delta: IJunctionDelta = {
+        Descriptor: relation,
+        JunctionDescriptor: junctionDescriptor,
+        Owner: subject.Model,
+        // A member with no key yet cannot have been linked before, so it is always an add.
+        Added: members.filter((m) => {
+          const key = identityKey(m.PrimaryKeyValue);
+          return key === null || !snapshotSet.has(key);
+        }),
+        RemovedKeys: snapshotKeys.filter((k) => !presentKeys.has(identityKey(k)!)),
+      };
+
+      set.Junctions.push(delta);
     }
   }
 }
