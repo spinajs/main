@@ -1,11 +1,12 @@
 /* eslint-disable prettier/prettier */
 import { extractModelDescriptor } from './descriptor.js';
 import { identityKey } from './identity-map.js';
-import { IIdentityMap, RelationType } from './interfaces.js';
+import { IIdentityMap, OrphanPolicy, RelationType } from './interfaces.js';
 import type { ModelBase } from './model.js';
+import { resolveOrphanPolicy } from './orphan.js';
 import { SingleRelation } from './relation-objects.js';
 import { OrmException } from './exceptions.js';
-import { IJunctionDelta, IRelationDelta, Subject, SubjectOperation, SubjectSet } from './subject.js';
+import { IJunctionDelta, IOrphanDelta, IRelationDelta, Subject, SubjectOperation, SubjectSet } from './subject.js';
 
 /**
  * Turns a mutated object graph into a `SubjectSet` — the complete, unordered description of
@@ -136,6 +137,8 @@ export class SubjectBuilder {
       this.buildManyToMany(subject, set);
     }
 
+    this.buildOrphans(set);
+
     return set;
   }
 
@@ -254,6 +257,73 @@ export class SubjectBuilder {
       };
 
       set.Junctions.push(delta);
+    }
+  }
+
+  /**
+   * Turns every `hasMany` removal recorded during the diff into an orphan action.
+   *
+   * Runs once over the whole set rather than per relation, because the decision needs global
+   * information: a child removed from one owner and pushed onto another is a re-parent, not
+   * an orphan, and only a set-wide view can tell the two apart. Every key that has a live
+   * subject of the same target model in this graph is therefore subtracted.
+   */
+  protected buildOrphans(set: SubjectSet): void {
+    // Primary keys, per target model, that are alive somewhere in this graph. Keyed on
+    // TableName rather than on the constructor: a discrimination map can produce several
+    // constructors for one table, and a subclass instance is still the same row.
+    const alive = new Map<string, Set<string>>();
+
+    for (const subject of set.Subjects) {
+      const key = identityKey(subject.Model.PrimaryKeyValue);
+      if (key === null) {
+        continue;
+      }
+
+      const table = subject.Descriptor.TableName;
+      if (!alive.has(table)) {
+        alive.set(table, new Set<string>());
+      }
+
+      alive.get(table)!.add(key);
+    }
+
+    for (const subject of set.Subjects) {
+      for (const delta of subject.RelationDeltas) {
+        if (delta.RemovedKeys.length === 0) {
+          continue;
+        }
+
+        const targetDescriptor = extractModelDescriptor(delta.Descriptor.TargetModel);
+        if (!targetDescriptor) {
+          throw new OrmException(`relation ${delta.Descriptor.Name} on ${subject.Descriptor.Name} has an unresolved target model`);
+        }
+
+        const policy = resolveOrphanPolicy(delta.Descriptor, targetDescriptor);
+        if (policy === OrphanPolicy.Disable) {
+          continue;
+        }
+
+        const survivors = alive.get(targetDescriptor.TableName) ?? new Set<string>();
+        const keys = delta.RemovedKeys.filter((k) => {
+          const key = identityKey(k);
+          return key !== null && !survivors.has(key);
+        });
+
+        // Drop an empty list rather than emitting a statement with `IN ()`.
+        if (keys.length === 0) {
+          continue;
+        }
+
+        const orphan: IOrphanDelta = {
+          Descriptor: delta.Descriptor,
+          TargetDescriptor: targetDescriptor,
+          Policy: policy,
+          PrimaryKeys: keys,
+        };
+
+        set.Orphans.push(orphan);
+      }
     }
   }
 }

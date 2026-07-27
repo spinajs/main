@@ -3,8 +3,8 @@
 import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import 'mocha';
-import { IdentityMap, SubjectBuilder, SubjectOperation } from '@spinajs/orm';
-import { bootUow, registerUowConnection, UowClient, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
+import { IdentityMap, OrphanPolicy, SubjectBuilder, SubjectOperation } from '@spinajs/orm';
+import { bootUow, registerUowConnection, UowClient, UowOrder, UowOrderItem, UowOrderTag, UowStrictItem, UowTag } from './uowFixture.js';
 
 function builder() {
   return new SubjectBuilder(new IdentityMap());
@@ -363,5 +363,120 @@ describe('SubjectBuilder - manyToMany junction delta', function () {
     const delta = builder().build(order).Junctions.find((j: any) => j.Descriptor.Name === 'Tags')!;
     expect(delta.Added).to.deep.equal([]);
     expect(delta.RemovedKeys).to.deep.equal([]);
+  });
+});
+
+describe('SubjectBuilder - orphan resolution', function () {
+  this.timeout(10000);
+
+  before(() => registerUowConnection());
+  beforeEach(async () => {
+    await bootUow();
+  });
+  afterEach(() => DI.clearCache());
+
+  it('resolves an explicit delete policy', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+    const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+
+    const removedId = order.Items[0].Id;
+    order.Items.empty();
+
+    const orphans = builder().build(order).Orphans;
+
+    expect(orphans.length).to.equal(1);
+    expect(orphans[0].Policy).to.equal(OrphanPolicy.Delete);
+    expect(orphans[0].PrimaryKeys).to.deep.equal([removedId]);
+    expect(orphans[0].TargetDescriptor.TableName).to.equal('uow_order_item');
+  });
+
+  it('falls back to delete when the foreign key is reflected NOT NULL', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowStrictItem.insert({ Sku: 'S', order_id: 1 });
+    const order = await UowOrder.where({ Id: 1 }).populate('StrictItems').first();
+
+    order.StrictItems.empty();
+
+    const orphan = builder().build(order).Orphans.find((o: any) => o.Descriptor.Name === 'StrictItems')!;
+    expect(orphan.Policy).to.equal(OrphanPolicy.Delete);
+  });
+
+  it('produces no orphan delta when nothing was removed', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+    const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+
+    expect(builder().build(order).Orphans).to.deep.equal([]);
+  });
+
+  it('does not orphan a child that was re-parented to another owner in the same graph', async () => {
+    await UowClient.insert({ Name: 'acme' });
+    await UowOrder.insert({ Total: 10, client_id: 1 });
+    await UowOrder.insert({ Total: 20, client_id: 1 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+
+    const client = await UowClient.where({ Id: 1 }).populate('Orders').first();
+    const [first, second] = [...client.Orders];
+    await first.Items.populate();
+    await second.Items.populate();
+
+    const moved = first.Items[0];
+    first.Items.splice(0, 1);
+    second.Items.push(moved);
+
+    const set = builder().build(client);
+
+    expect(set.Orphans).to.deep.equal([]);
+    expect(set.find(moved)!.PendingForeignKeys.some((f: any) => f.Column === 'order_id' && f.Target === second)).to.equal(true);
+  });
+
+  it('still orphans a removed child when the graph has no new owner for it', async () => {
+    await UowClient.insert({ Name: 'acme' });
+    await UowOrder.insert({ Total: 10, client_id: 1 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+
+    const client = await UowClient.where({ Id: 1 }).populate('Orders').first();
+    const order = client.Orders[0];
+    await order.Items.populate();
+
+    const removedId = order.Items[0].Id;
+    order.Items.splice(0, 1);
+
+    const set = builder().build(client);
+
+    expect(set.Orphans.length).to.equal(1);
+    expect(set.Orphans[0].PrimaryKeys).to.deep.equal([removedId]);
+  });
+
+  it('produces nothing at all for the disable policy', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+    const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+
+    const relation = order.ModelDescriptor!.Relations.get('Items')!;
+    const previous = relation.Orphan;
+    relation.Orphan = OrphanPolicy.Disable;
+
+    try {
+      order.Items.empty();
+      expect(builder().build(order).Orphans).to.deep.equal([]);
+    } finally {
+      relation.Orphan = previous;
+    }
+  });
+
+  it('never produces an orphan delta for a manyToMany', async () => {
+    await UowOrder.insert({ Total: 10 });
+    await UowTag.insert({ Name: 'red' });
+    await UowOrderTag.insert({ order_id: 1, tag_id: 1 });
+
+    const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+    order.Tags.empty();
+
+    const set = builder().build(order);
+
+    expect(set.Orphans).to.deep.equal([]);
+    expect(set.Junctions[0].RemovedKeys).to.deep.equal([1]);
   });
 });
