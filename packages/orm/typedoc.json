@@ -1,6 +1,6 @@
 {
     "mode": "modules",
-    "out": "docs",
+    "out": "api-docs",
     "name": "spine",
     "theme": "default",
     "ignoreCompilerErrors": "true",
