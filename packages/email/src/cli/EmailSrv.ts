@@ -12,6 +12,6 @@ export class EmailServer extends CliCommand {
   protected EmailService: EmailService;
 
   public async execute(): Promise<void> {
-    await this.EmailService.processDefferedEmails();
+    await this.EmailService.processDeferredEmails();
   }
 }

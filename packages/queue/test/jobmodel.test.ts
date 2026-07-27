@@ -11,7 +11,7 @@ chai.use(chaiAsPromised);
 
 // Broker-free coverage for the queue schema: an in-memory sqlite DB with the
 // queue migrations applied, verifying the Phase/Message progress columns.
-class ConnectionConf extends FrameworkConfiguration {
+class JobModelConnectionConf extends FrameworkConfiguration {
   protected onLoad() {
     return {
       logger: {
@@ -42,7 +42,7 @@ describe('JobModel progress columns', function () {
 
   beforeEach(async () => {
     DI.clearCache();
-    DI.register(ConnectionConf).as(Configuration);
+    DI.register(JobModelConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
     // runs the queue migrations (incl. the Phase/Message column migration)
     await DI.resolve(Orm);
@@ -77,5 +77,22 @@ describe('JobModel progress columns', function () {
     const row = await JobModel.where({ JobId: 'job-2' }).firstOrFail();
     expect(row.Phase ?? null).to.eq(null);
     expect(row.Message ?? null).to.eq(null);
+  });
+
+  // The consumer now sets Status = 'created' explicitly on first insert rather than relying on
+  // the DB column default ( which MySQL's MODIFY COLUMN can drop, and which sqlite stores as a
+  // quoted literal ). This guards that an explicitly-assigned 'created' round-trips cleanly,
+  // so job tracking never depends on dialect-specific default handling.
+  it("persists an explicitly-set 'created' Status cleanly on first insert", async () => {
+    const job = new JobModel();
+    job.JobId = 'job-3';
+    job.Name = 'CreatedStatusJob';
+    job.Connection = 'queue';
+    job.Status = 'created';
+    job.Progress = 0;
+    await job.insert();
+
+    const row = await JobModel.where({ JobId: 'job-3' }).firstOrFail();
+    expect(row.Status).to.eq('created');
   });
 });

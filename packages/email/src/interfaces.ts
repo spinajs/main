@@ -141,6 +141,12 @@ export interface IEmail {
   emailId?: string;
 
   /**
+   * Per-email override of the queue-level retry count used when the email is sent deferred.
+   * Falls back to `email.retry.count` configuration when not set.
+   */
+  retryCount?: number;
+
+  /**
    * Email delivery schedule. If we want to repeat email, schedule to send at specific time, send delayed etc..
    */
   schedule?: {
@@ -171,15 +177,29 @@ export interface IEmail {
 export interface EmailConfiguration {
   connections: EmailConnectionOptions[];
   defaultConnection: string;
+
+  /**
+   * Default queue-level retry policy for deferred emails.
+   */
+  retry?: {
+    /**
+     * How many times a deferred email job is retried on failure. Defaults to 3.
+     */
+    count?: number;
+  };
 }
 
 export interface EmailConnectionOptions {
-  sender: string;
+  /**
+   * DI service name of the {@link EmailSender} implementation handling this connection.
+   * Selected via {@link AutoinjectService} ( reads the `service` key of each connection entry ).
+   */
+  service: string;
   name: string;
   host?: string;
   port?: number;
   user?: string;
-  pass?: string;
+  password?: string;
   ssl?: boolean;
 
   templates?: {
@@ -195,6 +215,25 @@ export interface EmailConnectionOptions {
      * defalt `from` adress, can be override when sending
      */
     mailFrom?: string;
+  };
+
+  /**
+   * In-process SMTP send resilience ( retry / timeout ) applied by transports when
+   * talking to the SMTP server, independent of the queue-level job retry.
+   */
+  resilience?: {
+    /**
+     * How many times the transport retries a failed SMTP send.
+     */
+    retries?: number;
+    /**
+     * Delay ( ms ) between SMTP send retries.
+     */
+    delay?: number;
+    /**
+     * Timeout ( ms ) for a single SMTP send attempt.
+     */
+    timeout?: number;
   };
 
   /**
@@ -238,5 +277,5 @@ export abstract class EmailService extends AsyncService {
   /**
    * Subscribte to queue for emails to send
    */
-  public abstract processDefferedEmails(): Promise<void>;
+  public abstract processDeferredEmails(): Promise<void>;
 }

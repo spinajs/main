@@ -1,6 +1,7 @@
 import { DI } from '@spinajs/di';
-import { QueueJob, Job } from '@spinajs/queue';
-import { EmailService, IEmail, IEmailAttachement } from '../interfaces.js';
+import { QueueJob, Job, QueueService, IJobFailureContext } from '@spinajs/queue';
+import { EmailService, IEmail, IEmailAttachement, IEmailTemplate } from '../interfaces.js';
+import { EmailSendFailed } from '../events/EmailSendFailed.js';
 
 /**
  * Job for sending emails in background
@@ -13,7 +14,7 @@ export class EmailSend extends QueueJob implements IEmail {
   public from: string;
   public connection: string;
   public attachements?: IEmailAttachement[];
-  public template?: string;
+  public template?: string | IEmailTemplate;
   public templateId?: string;
   public model?: unknown;
   public text?: string;
@@ -30,5 +31,11 @@ export class EmailSend extends QueueJob implements IEmail {
     return {
       result: true,
     };
+  }
+
+  public async onFailed(err: unknown, ctx: IJobFailureContext) {
+    if (!ctx.isFinal) return;
+    const queue = await DI.resolve(QueueService);
+    await queue.emit(new EmailSendFailed(this, err, ctx));
   }
 }

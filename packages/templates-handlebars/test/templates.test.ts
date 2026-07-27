@@ -111,4 +111,14 @@ describe('templates', () => {
     expect(result).to.eq('       world        \r\n               world\r\n');
 
   });
+
+  it('should not mutate the caller model', async () => {
+    const t = await tp();
+    const m: Record<string, unknown> = { a: 1 };
+
+    await t.render(dir('templates/template.handlebars'), m, 'en');
+
+    expect(Object.keys(m)).to.eql(['a']);
+    expect(m.a).to.eq(1);
+  });
 });

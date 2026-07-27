@@ -11,6 +11,11 @@ const queue = {
       },
     ],
 
+    // Skip re-executing a job whose tracking row ( queue_jobs ) is already terminal
+    // ( success / error / dead ). Messaging is at-least-once, so duplicates happen on
+    // consumer crash and broker failover - dedup keeps jobs idempotent. Defaults to true.
+    deduplicate: true,
+
     // Periodic cleanup of tracked jobs ( queue_jobs rows ). The `service` selects the
     // JobRetentionService implementation; swap it to plug in a custom purge strategy.
     // Disabled by default - set `enabled: true` and a `maxAge` ( ms ) to opt in.

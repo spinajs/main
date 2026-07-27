@@ -4,7 +4,14 @@ const CONFIGURATION_SCHEMA = {
   description: 'Email smtp transport configuration option validation',
   type: 'object',
   properties: {
-    queue: 'string',
+    queue: { type: 'string' },
+    templateFs: { type: 'string' },
+    retry: {
+      type: 'object',
+      properties: {
+        count: { type: 'number' },
+      },
+    },
     connections: {
       type: 'array',
       uniqueItems: true,
@@ -17,9 +24,17 @@ const CONFIGURATION_SCHEMA = {
           user: { type: 'string' },
           password: { type: 'string' },
           name: { type: 'string' },
-          sender: { type: 'string' },
+          service: { type: 'string' },
           options: {
             type: 'object',
+          },
+          resilience: {
+            type: 'object',
+            properties: {
+              retries: { type: 'number' },
+              delay: { type: 'number' },
+              timeout: { type: 'number' },
+            },
           },
           defaults: {
             type: 'object',
@@ -28,10 +43,10 @@ const CONFIGURATION_SCHEMA = {
             },
           },
         },
+        required: ['name', 'service'],
       },
     },
   },
-  required: ['name', 'sender'],
 };
 
 export default CONFIGURATION_SCHEMA;
