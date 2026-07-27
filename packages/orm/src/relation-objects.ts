@@ -85,6 +85,21 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
 
   protected Model: Constructor<R> | ForwardRefFunction;
 
+  /**
+   * Array methods that derive a new collection ( `splice`, `filter`, `slice`, `concat`, … )
+   * construct `new this.constructor[Symbol.species](len)` by default. That would call this
+   * class's constructor with no relation descriptor, and the very next line dereferences
+   * `this.Relation.TargetModel` — so `order.Items.splice(0, 1)` threw
+   * `Cannot read properties of undefined (reading 'TargetModel')`.
+   *
+   * Deriving plain arrays is also the right semantics: a slice of a relation is a list of
+   * models, not a relation with an owner. ( The hand-written `map()` below predates this and
+   * worked around the same thing for one method. )
+   */
+  static get [Symbol.species]() {
+    return Array;
+  }
+
   constructor(protected Owner: O, protected Relation: IRelationDescriptor, objects?: R[]) {
     super();
 
@@ -237,41 +252,76 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
     this.Value = object;
   }
 
+  /**
+   * Attaches `obj` and persists the owner. One transaction, so the attach and the owner
+   * update cannot half-apply. Nested inside a caller's transaction this takes a savepoint.
+   */
   public async set(obj: R) {
-    this.attach(obj);
-    await this._owner.update();
+    await this._owner.driver().transaction(async () => {
+      this.attach(obj);
+      await this._owner.update();
+    });
   }
 
+  /**
+   * Points this relation at `obj` and records the owner's foreign key as changed.
+   *
+   * Uses the model's own `markDirty` rather than an `any` cast into the owner's private
+   * dirty-column list, which is what this used to do ( A6 ). `markDirty` de-duplicates and
+   * owns the `IsDirty` flag, so repeated attaches record the column once.
+   *
+   * @param obj - the related model, or null to clear the relation
+   */
   public attach(obj: R | null) {
     this.Value = obj;
-    this._owner.IsDirty = true;
 
-    // TODO hack for dirty props
-    (this._owner as any).__dirty_props__.push(this.Relation?.ForeignKey);
+    const foreignKey = this.Relation?.ForeignKey;
+
+    if (foreignKey) {
+      this._owner.markDirty(foreignKey);
+    } else {
+      // A query relation has no descriptor and therefore no foreign-key column, but the
+      // owner still changed.
+      this._owner.IsDirty = true;
+    }
   }
 
   public detach() {
     this.attach(null);
   }
 
+  /**
+   * Deletes the related row and clears the owner's foreign key. One transaction: these used
+   * to be two independent statements, so a throw between them left the owner pointing at a
+   * row that no longer exists.
+   */
   public async remove() {
-    const val = this.Value;
-    this.detach();
-    await val?.destroy();
-    await this._owner.update();
+    await this._owner.driver().transaction(async () => {
+      const val = this.Value;
+      this.detach();
+      await val?.destroy();
+      await this._owner.update();
+    });
   }
 
+  /**
+   * Loads the model this relation points at.
+   *
+   * Queries the target table directly, filtered on the column the relation declares as its
+   * join key ( `Relation.PrimaryKey` ) — the same column `BelongsToRelation.compile()` joins
+   * on for the eager path. It is *not* the target model's own primary key: `@BelongsTo`
+   * accepts an explicit third argument for exactly this case, and the two only coincide
+   * because the decorator defaults one from the other, which is why filtering on the target
+   * PK went unnoticed.
+   *
+   * @param callback - optional callback applied to the target query
+   */
   public async populate(callback?: (this: SelectQueryBuilder<this>) => void): Promise<void> {
-    /**
-     * Do little cheat - we construct query that loads initial model with given relation.
-     * Then we only assign relation property.
-     *
-     * TODO: create only relation query without loading its owner.
-     */
-
     const query = createQuery(this.Relation!.TargetModel, SelectQueryBuilder<ModelBase>).query;
-    const desc = extractModelDescriptor(this.Relation!.TargetModel);
-    query.where({ [desc!.PrimaryKey[0]]: (this._owner as any)[this.Relation!.ForeignKey] });
+    const targetDescriptor = extractModelDescriptor(this.Relation!.TargetModel);
+    const joinColumn = this.Relation!.PrimaryKey || targetDescriptor!.PrimaryKey[0];
+
+    query.where({ [joinColumn]: (this._owner as any)[this.Relation!.ForeignKey] });
 
     if (callback) {
       callback.apply(query);
@@ -284,6 +334,7 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
       this.Value = await query.firstOrFail();
     }
     this.Populated = true;
+    this._owner.snapshotRelation(this.Relation!.Name);
   }
 }
 
@@ -344,16 +395,42 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     }
   }
 
-  public intersection(_obj: T[], _callback?: (a: T, b: T) => boolean): T[] {
-    throw new Error('Method not implemented.');
+  /**
+   * Calculates intersection between data in this relation and provided dataset
+   *
+   * `[...this]` rather than `this`: these delegate into lodash, and `Relation extends Array`
+   * with a three-argument constructor, so anything that derives a new collection has to work
+   * on a plain array. ( `OneToManyRelationList` sidesteps the same problem by overriding
+   * `filter`/`map`; this class has no such overrides. )
+   *
+   * @param obj - dataset to compare with
+   * @param callback - compare function, if not set the target model's primary key is used
+   * @returns members present in both sets
+   */
+  public intersection(obj: T[], callback?: (a: T, b: T) => boolean): T[] {
+    return Dataset.intersection(obj, callback)([...this], this.TargetModelDescriptor!.PrimaryKey);
   }
 
-  public union(_obj: T[], _mode?: InsertBehaviour): void {
-    throw new Error('Method not implemented.');
+  /**
+   * Appends `obj` to this relation. Shorthand for push — nothing is removed and nothing is
+   * written to the database until `sync()`, `update()` or `save()` runs.
+   *
+   * @param obj - members to add
+   */
+  public union(obj: T[], _mode?: InsertBehaviour): void {
+    this.push(...obj);
   }
 
-  public diff(_obj: T[], _callback?: (a: T, b: T) => boolean): T[] {
-    throw new Error('Method not implemented.');
+  /**
+   * Calculates the symmetric difference between this relation and `dataset` — members of this
+   * relation that are not in the dataset, plus members of the dataset that are not in this
+   * relation.
+   *
+   * @param obj - dataset to compare with
+   * @param callback - compare function, if not set the target model's primary key is used
+   */
+  public diff(obj: T[], callback?: (a: T, b: T) => boolean): T[] {
+    return Dataset.diff(obj, callback)([...this], this.TargetModelDescriptor!.PrimaryKey);
   }
 
   /**
@@ -435,10 +512,15 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     *  Sets foreign key to relational data
     *
     *  Inserts or updates models that are dirty only.
+    *
+    *  One transaction: the junction upserts and the orphan delete used to be independent
+    *  statements. Nested inside a caller's transaction this takes a savepoint.
     */
   public async sync() {
-    await this.update();
-    await this._dbDiff(this);
+    await this.Driver.transaction(async () => {
+      await this._update();
+      await this._dbDiff(this);
+    });
   }
 
   /**
@@ -447,6 +529,13 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
    * Only dirty models are updated.
    */
   public async update() {
+    await this.Driver.transaction(async () => {
+      await this._update();
+    });
+  }
+
+  /** The write itself, without a transaction of its own, so `sync()` can share one. */
+  protected async _update() {
     for (const f of this) {
       const junctionEntry = new this.Relation.JunctionModel!();
       const desc = junctionEntry.ModelDescriptor;
@@ -485,6 +574,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     }
 
     this.Populated = true;
+    this.Owner.snapshotRelation(this.Relation.Name);
   }
 
   // public async add(obj: T | T[], mode?: InsertBehaviour): Promise<void> {
@@ -554,6 +644,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     }
 
     this.Populated = true;
+    this.Owner.snapshotRelation(this.Relation.Name);
   }
 
   /**
@@ -562,10 +653,17 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    *  Sets foreign key to relational data
    *
    *  Inserts or updates models that are dirty only.
+   *
+   *  The whole synchronization is one transaction: the orphan delete used to run as an
+   *  independent statement, so a throw between it and the writes left the database
+   *  inconsistent with the in-memory graph. Nested inside a caller's transaction this takes
+   *  a savepoint rather than opening a second one.
    */
   public async sync() {
-    await this.update();
-    await this._dbDiff(this);
+    await this.Driver.transaction(async () => {
+      await this._update();
+      await this._dbDiff(this);
+    });
   }
 
   /**
@@ -574,6 +672,13 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * Only dirty models are updated.
    */
   public async update() {
+    await this.Driver.transaction(async () => {
+      await this._update();
+    });
+  }
+
+  /** The write itself, without a transaction of its own, so `sync()` can share one. */
+  protected async _update() {
     // Assign foreign keys BEFORE computing the dirty set. A child re-parented to
     // this owner needs its FK rewritten and persisted; if we snapshot `dirty`
     // first, a previously-clean child keeps its old FK in the DB and a following

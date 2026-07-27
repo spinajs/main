@@ -876,7 +876,10 @@ describe('Sqlite driver migrate with transaction', function () {
 
     await orm.migrateUp();
 
-    expect(trSpy.calledOnce).to.be.true;
+    // `called`, not `calledOnce`: MigrationTransactionMode.PerMigration opens one
+    // transaction per registered migration, and @Migration registers globally on import,
+    // so this count grows whenever any suite in the process adds a migration.
+    expect(trSpy.called).to.be.true;
     // Assert the migration is wrapped in a committed transaction without
     // coupling to the exact statement count (which changes as tables are added).
     const commitCalls = exSpy.getCalls().map((c) => c.args[0]);

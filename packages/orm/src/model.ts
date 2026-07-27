@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
@@ -12,6 +12,8 @@ import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from '.
 import { Wrap } from './statements.js';
 import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
+import { createSnapshot, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
+import { UnitOfWork } from './unit-of-work.js';
 
 import { DI, isConstructor, IContainer, Constructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 
@@ -93,6 +95,14 @@ export class ModelBase<M = unknown> implements IModelBase {
   private __dirty_props__: string[] = [];
 
   /**
+   * Diff baseline, captured when this instance was hydrated from a database row.
+   * `null` means "this model has never been in the database", which is what `save()`
+   * uses to classify it as an INSERT — not the presence of a primary key, because
+   * `setDefaults()` pre-fills @Uuid keys on construction.
+   */
+  private __snapshot__: IModelSnapshot | null = null;
+
+  /**
    * List of hidden properties from JSON / dehydrations
    * eg. password field of user
    */
@@ -172,6 +182,112 @@ export class ModelBase<M = unknown> implements IModelBase {
           break;
       }
     });
+  }
+
+  /**
+   * The diff baseline for this instance, or `null` when it has never been hydrated from
+   * the database. Read-only from the outside: mutate it only through `takeSnapshot()`,
+   * `snapshotRelation()` and `clearSnapshot()`.
+   */
+  public get Snapshot(): IModelSnapshot | null {
+    return this.__snapshot__;
+  }
+
+  /**
+   * Captures the current value of every column as the diff baseline, discarding any
+   * previous baseline and any relation keys recorded against it.
+   *
+   * Values are copied, never aliased — see `snapshotValue`. An aliased snapshot makes
+   * every diff empty and `save()` a silent no-op.
+   */
+  public takeSnapshot(): void {
+    const snapshot = createSnapshot();
+
+    for (const c of this.ModelDescriptor?.Columns ?? []) {
+      snapshot.Columns.set(c.Name, snapshotValue((this as any)[c.Name]));
+    }
+
+    this.__snapshot__ = snapshot;
+  }
+
+  /**
+   * Records the primary keys of the members currently in relation `name` as that
+   * relation's baseline. A no-op when the model has no snapshot — an unhydrated model
+   * has nothing to diff against and its relations are all "new".
+   *
+   * @param name - relation property name, as declared on the model descriptor
+   */
+  public snapshotRelation(name: string): void {
+    if (!this.__snapshot__) {
+      return;
+    }
+
+    const relation = (this as any)[name];
+
+    if (relation === null || relation === undefined) {
+      return;
+    }
+
+    if (relation instanceof SingleRelation) {
+      const value = relation.Value;
+      this.__snapshot__.Relations.set(name, value ? [value.PrimaryKeyValue] : []);
+      return;
+    }
+
+    if (typeof relation[Symbol.iterator] === 'function') {
+      this.__snapshot__.Relations.set(
+        name,
+        [...(relation as Iterable<ModelBase>)].map((m) => m.PrimaryKeyValue),
+      );
+    }
+  }
+
+  /**
+   * Discards the diff baseline. After this the model is treated as brand new by `save()`.
+   */
+  public clearSnapshot(): void {
+    this.__snapshot__ = null;
+  }
+
+  /**
+   * Names of the columns whose current value differs from the snapshot.
+   *
+   * With no snapshot every column is reported as changed, which is the right answer for a
+   * model that is about to be inserted.
+   *
+   * This is deliberately independent of `__dirty_props__`: the proxy records a property as
+   * dirty on any write, including one that puts the original value back, so the snapshot
+   * diff is the more precise answer and the one the UPDATE payload is built from.
+   */
+  public changedColumns(): string[] {
+    const columns = this.ModelDescriptor?.Columns ?? [];
+
+    if (!this.__snapshot__) {
+      return columns.map((c) => c.Name);
+    }
+
+    const snapshot = this.__snapshot__;
+    return columns.filter((c) => !snapshotEquals(snapshot.Columns.get(c.Name), (this as any)[c.Name])).map((c) => c.Name);
+  }
+
+  /**
+   * Records `prop` as changed and marks the model dirty.
+   *
+   * This is the supported way for relation objects to report that they rewrote one of the
+   * owner's foreign keys. It replaces the `(owner as any).__dirty_props__.push(...)` casts
+   * that reached into a private field from outside the class ( A6 ).
+   *
+   * The push comes before `IsDirty = true` so the method stays correct even if the
+   * `IsDirty` setter ever starts clearing `__dirty_props__` on a truthy assignment too.
+   *
+   * @param prop - column name
+   */
+  public markDirty(prop: string): void {
+    if (!this.__dirty_props__.includes(prop)) {
+      this.__dirty_props__.push(prop);
+    }
+
+    this.IsDirty = true;
   }
 
   public valueOf() {
@@ -459,27 +575,41 @@ export class ModelBase<M = unknown> implements IModelBase {
   public attach(data: ModelBase) {
     // TODO: refactor this, to not check every time for relation
     // do this as map or smth
-    for (const [_, v] of this.ModelDescriptor!.Relations.entries()) {
-      if (v.TargetModel.name === (data as any).constructor.name) {
-        // TODO: refactor this, so we dont update foreign key
-        // instead we must use belongsTo relation on data model to update
-        //(data as any)[v.ForeignKey] = this.PrimaryKeyValue;
+    for (const [, v] of this.ModelDescriptor!.Relations.entries()) {
+      // Constructor identity, not class name. Name matching pushed the row into *every*
+      // relation whose target happened to share a name, so a model with two relations to
+      // the same target received it twice ( B26 ), and it breaks under minification ( A9 ).
+      if (v.TargetModel !== (data as any).constructor) {
+        continue;
+      }
 
-        switch (v.Type) {
-          case RelationType.One:
-            ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
-            this.__dirty_props__.push(v.ForeignKey);
-            break;
-          case RelationType.Many:
-            // attach to related model too
-            const rel = [...data.ModelDescriptor!.Relations.entries()].find((e) => e[1].ForeignKey === v.ForeignKey);
-            if (rel) {
-              (data as any)[rel[0]].Value = this;
-            }
-          case RelationType.ManyToMany:
-            ((this as any)[v.Name] as Relation<ModelBase, ModelBase, typeof ModelBase>).push(data);
-            break;
+      switch (v.Type) {
+        case RelationType.One:
+          ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
+          this.markDirty(v.ForeignKey);
+          break;
+
+        case RelationType.Many: {
+          // Set the child's back-reference to this owner, when the child declares one.
+          const rel = [...data.ModelDescriptor!.Relations.entries()].find((e) => e[1].ForeignKey === v.ForeignKey);
+          if (rel) {
+            (data as any)[rel[0]].Value = this;
+          }
+
+          ((this as any)[v.Name] as Relation<ModelBase, ModelBase, typeof ModelBase>).push(data);
+          break;
         }
+
+        case RelationType.ManyToMany:
+          // No back-reference: the link lives in the junction table, not on the target row.
+          // The `push` is written out again rather than shared with the Many case above —
+          // the two are only coincidentally similar, and the missing `break` that used to
+          // join them was one reordering away from silently breaking.
+          ((this as any)[v.Name] as Relation<ModelBase, ModelBase, typeof ModelBase>).push(data);
+          break;
+
+        default:
+          break;
       }
     }
 
@@ -657,6 +787,27 @@ export class ModelBase<M = unknown> implements IModelBase {
       return await this.update();
     }
     return await this.insert();
+  }
+
+  /**
+   * Persists this model and everything reachable from it in one transaction.
+   *
+   * The graph is diffed against the snapshots taken when it was loaded, sorted so that a
+   * parent is inserted before any child that references it, and executed as inserts, then
+   * updates restricted to the columns that actually changed, then junction rows, then the
+   * orphan policy of every relation that lost a member.
+   *
+   * A relation that was never populated is invisible: `Items: OrderItem[] = []` on a freshly
+   * constructed model deletes nothing. That is the deliberate divergence from TypeORM.
+   *
+   * @param options - `{ reload: true }` to diff against current database state instead of the
+   *                  hydration snapshot; `{ chunk: n }` to bound batched statement size.
+   */
+  public async save(options?: ISaveOptions): Promise<ISaveResult> {
+    // `UnitOfWork` is referenced only inside this body, never at module-evaluation time, so
+    // the model.ts -> unit-of-work.ts -> ... -> model.ts cycle stays safe under ESM. Do not
+    // move this into a field initializer or an extends clause.
+    return await UnitOfWork.save(this, options);
   }
 
   /**
@@ -893,7 +1044,9 @@ export const MODEL_STATIC_MIXINS = {
     return driver;
   },
 
-  populate(this: ModelBase, relation: string, owner: ModelBase | number | string): SelectQueryBuilder | undefined {
+  // Every branch now returns a builder or throws, so the `| undefined` is gone — it only ever
+  // described the unimplemented ManyToMany case. This matches ModelBase.populate's static stub.
+  populate(this: ModelBase, relation: string, owner: ModelBase | number | string): SelectQueryBuilder {
     //TODO: fix cast
     const modelDescriptor = (this as any).getModelDescriptor() as IModelDescriptor;
 
@@ -918,7 +1071,7 @@ export const MODEL_STATIC_MIXINS = {
     };
 
     switch (relationDescriptor.Type) {
-      case RelationType.One:
+      case RelationType.One: {
         const { query: JoinQuery } = createQuery(relationDescriptor.SourceModel!, SelectQueryBuilder);
 
         // NOTE: we could use simple right join, but we use LEFT JOIN
@@ -931,21 +1084,61 @@ export const MODEL_STATIC_MIXINS = {
           joinModel: relationDescriptor.TargetModel,
           queryCallback: function () {
             this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
-          }
-        });
+          },
+          // Both were omitted, so the join compiled to `$source$.undefined`. A belongsTo
+          // joins the owner's ForeignKey to the target's PrimaryKey — the same derivation
+          // SelectQueryBuilder uses for RelationType.One.
+          sourceTablePrimaryKey: relationDescriptor.ForeignKey,
+          joinTableForeignKey: relationDescriptor.PrimaryKey,
+        } as any);
 
-        JoinQuery.where(relationDescriptor.SourceModel!.getModelDescriptor().PrimaryKey, owner);
+        // `wherePk`, not `where(descriptor.PrimaryKey, ...)`: PrimaryKey is a string[] since
+        // composite keys landed, and passing the array as a column name compiled to
+        // `column 0 not exists in model ...`.
+        wherePk(JoinQuery, relationDescriptor.SourceModel!.getModelDescriptor(), owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
         JoinQuery.middleware(hydrateMiddleware);
         return JoinQuery;
-      case RelationType.ManyToMany:
+      }
 
-        break
+      case RelationType.ManyToMany: {
+        // Was a bare `break`, so this returned undefined and every caller crashed on the
+        // result. Read the junction table, join the target, and project the target's columns
+        // — the same shape ManyToManyRelation.compile() builds. A sub-query would be more
+        // direct but `whereIn` takes value arrays only.
+        if (!relationDescriptor.JunctionModel) {
+          throw new OrmException(`relation ${relation} on ${modelDescriptor.Name} has no junction model`);
+        }
+
+        const { query: junctionQuery } = createQuery(relationDescriptor.JunctionModel, SelectQueryBuilder);
+
+        junctionQuery.clearColumns();
+        junctionQuery.leftJoin({
+          joinModel: relationDescriptor.TargetModel,
+          queryCallback: function () {
+            this.select(new RawQuery(`\`${this.TableAlias}\`.*`));
+          },
+          sourceTablePrimaryKey: relationDescriptor.JunctionModelTargetModelFKey_Name,
+          joinTableForeignKey: relationDescriptor.ForeignKey,
+        } as any);
+
+        junctionQuery.where(relationDescriptor.JunctionModelSourceModelFKey_Name!, owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
+        junctionQuery.middleware(hydrateMiddleware);
+
+        return junctionQuery;
+      }
+
+      case RelationType.Virtual:
       case RelationType.Query:
         throw new OrmException(`Query population for relation type ${RelationType[relationDescriptor.Type]} is not supported yet`);
-      case RelationType.Many:
+
+      case RelationType.Many: {
         const { query } = createQuery(relationDescriptor.TargetModel, SelectQueryBuilder);
         query.where(relationDescriptor.ForeignKey, owner instanceof ModelBase ? owner.PrimaryKeyValue : owner);
         return query;
+      }
+
+      default:
+        throw new OrmException(`unknown relation type ${relationDescriptor.Type} for relation ${relation} on ${modelDescriptor.Name}`);
     }
   },
 

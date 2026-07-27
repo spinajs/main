@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer, getInheritedDescriptor } from '@spinajs/di';
-import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions } from './interfaces.js';
+import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
@@ -502,11 +502,24 @@ export interface IHasManyToManyDecoratorOptions extends IRelationDecoratorOption
    * Sometimes right side of junction relation not exists and we want to filter it out
    */
   joinMode?: 'LeftJoin' | 'RightJoin';
+
+  /**
+   * What `save()` does with a member removed from this relation. For many-to-many this
+   * governs the *target* row: the junction row is always deleted. Defaults to `nullify`,
+   * which for a junction relation means "unlink only, leave the target row alone".
+   */
+  orphan?: OrphanPolicy;
 }
 
 export interface IHasManyDecoratorOptions extends IRelationDecoratorOptions {
   foreignKey?: string;
   primaryKey?: string;
+
+  /**
+   * What `save()` does with a child removed from this relation. Defaults to `nullify`,
+   * escalating to `delete` when the foreign key is reflected as NOT NULL.
+   */
+  orphan?: OrphanPolicy;
 }
 
 /**
@@ -530,6 +543,7 @@ export function HasMany(targetModel: Constructor<ModelBase> | string, options?: 
       ForeignKey: options ? options.foreignKey ?? `${model.Name.toLowerCase()}_id` : `${model.Name.toLowerCase()}_id`,
       PrimaryKey: options?.primaryKey ?? _relationDefaultKey(model, propertyKey, 'options.primaryKey'),
       Recursive: false,
+      Orphan: options?.orphan,
       Factory: options?.factory ? options.factory : undefined,
       RelationClass: options?.type ? options.type : () => DI.resolve('__orm_relation_has_many_factory__', [type]),
     });
@@ -562,6 +576,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
     const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Recursive: false,
+      Orphan: options?.orphan,
       Type: RelationType.ManyToMany,
       SourceModel: target,
       TargetModelType: targetModel,
