@@ -1,5 +1,6 @@
 import { User } from './models/User.js';
 import { AsyncService } from '@spinajs/di';
+import { AutoinjectService } from '@spinajs/configuration';
 import { IDeleteQueryBuilder, IModelDescriptor, IQueryBuilder, ISelectQueryBuilder, IUpdateQueryBuilder, ModelBase } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
@@ -45,33 +46,44 @@ export interface ISession {
   SessionId: string;
 
   /**
-   * Expiration date. After that date session is invalid
+   * User id that owns this session. Single source of truth for ownership.
+   * 0 / -1 = anonymous.
    */
-  Expiration?: DateTime;
+  UserId: number;
 
   /**
-   * Session creation date. After that date session is invalid
+   * Session creation date.
    */
   Creation: DateTime;
+
+  /**
+   * Absolute expiration instant. After that date session is invalid.
+   * `undefined` = never expires.
+   */
+  Expiration?: DateTime;
 
   /**
    * Data holds by session
    */
   Data: Map<string, unknown>;
+}
+
+/**
+ * Configurable session expiration strategy. Resolved by config service name at
+ * `rbac.session.expiration.service`, mirroring the `rbac.password` pattern.
+ *
+ * Units for all shipped strategies are MINUTES.
+ */
+export abstract class SessionExpirationProvider {
+  /**
+   * Expiration to set when a session is first created. `undefined` = never expires.
+   */
+  public abstract initial(session: ISession): DateTime | undefined;
 
   /**
-   * User id that owns this session
+   * Expiration to set when a session is renewed (touch).
    */
-  UserId: number;
-
-  /**
-   *
-   * Extends session lifetime
-   *
-   * @param seconds  - how mutch to extend, if value not provided, default value from config is used
-   */
-  extend(seconds?: number): void;
-  
+  public abstract renew(session: ISession): DateTime | undefined;
 }
 
 /**
@@ -206,62 +218,88 @@ export abstract class FederatedAuthProvider<C, U = User> {
   public abstract authenticate(credentials: C): Promise<U>;
 }
 
-export abstract class SessionProvider<T = ISession> extends AsyncService {
+export abstract class SessionProvider<T extends ISession = ISession> extends AsyncService {
   /**
-   *
-   * Load session from store. If not exists or expired returns null
+   * Expiration strategy, resolved by config service name at
+   * `rbac.session.expiration`. Every store shares the same strategy so
+   * expiration semantics are uniform across providers.
+   */
+  @AutoinjectService('rbac.session.expiration')
+  protected Expiration!: SessionExpirationProvider;
+
+  /**
+   * Load session from store. Returns `null` when the session is missing OR
+   * expired — providers MUST treat an expired row as absent.
    *
    * @param sessionId - session identifier
    */
   public abstract restore(sessionId: string): Promise<T | null>;
 
   /**
-   *
-   * Deletes session from store
-   *
-   * @param sessionId - session to delete
-   */
-  public abstract delete(sessionId: string): Promise<void>;
-
-  /**
-   *
-   * Adds or updates session in store
+   * Upsert a session. MUST persist `session.Expiration` verbatim (never
+   * recompute it for an already-scheduled session). A brand-new session with
+   * no expiration set yet is given its initial expiration via the strategy.
    *
    * @param session - session to update / insert
    */
   public abstract save(session: ISession): Promise<void>;
 
   /**
+   * Recompute `Expiration` via the strategy; if it changed, persist and report
+   * `true` so the caller refreshes the cookie. If unchanged (e.g. under
+   * `AbsoluteExpiration`), skip the write and return `false`.
    *
-   * Updates session data for given id
-   *
-   * @param id - session id
-   * @param data  - key - value pair of data
+   * @param session - session to renew
    */
-  public abstract save(id: string, data: object): Promise<void>;
+  public abstract touch(session: ISession): Promise<boolean>;
 
   /**
+   * Deletes a single session from store.
    *
-   * Updates only EXPIRATION TIME of session, not changing other data
-   *
-   * @param session - session to update
+   * @param sessionId - session to delete
    */
-  public abstract touch(session: ISession): Promise<void>;
+  public abstract delete(sessionId: string): Promise<void>;
 
   /**
+   * Log a user out of all devices. Keyed on numeric `UserId` in every store.
    *
-   * Deletes all session table data
+   * @param userId - numeric owner id
+   */
+  public abstract deleteByUser(userId: number): Promise<void>;
+
+  /**
+   * All live (non-expired) sessions for a user — powers "active devices" and
+   * selective revoke.
    *
+   * @param userId - numeric owner id
+   */
+  public abstract listByUser(userId: number): Promise<ISession[]>;
+
+  /**
+   * Deletes all session table data.
    */
   public abstract truncate(): Promise<void>;
 
   /**
-   * 
-   * Deletes all sessions for given user ( logs out user from all devices )
-   * 
-   * @param user 
+   * Sets the initial expiration on a freshly created session.
    */
-  public abstract logsOut(user: User): Promise<void>;
+  protected applyInitialExpiration(s: ISession): void {
+    s.Expiration = this.Expiration.initial(s);
+  }
+
+  /**
+   * Sets the renewed expiration on a session being touched.
+   */
+  protected applyRenewedExpiration(s: ISession): void {
+    s.Expiration = this.Expiration.renew(s);
+  }
+
+  /**
+   * True when the session carries an expiration in the past.
+   */
+  protected isExpired(s: ISession): boolean {
+    return !!s.Expiration && s.Expiration <= DateTime.now();
+  }
 }
 
 export enum AthenticationErrorCodes {

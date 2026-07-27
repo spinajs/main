@@ -1,111 +1,157 @@
 import { DateTime } from 'luxon';
 import { SessionProvider, ISession } from './interfaces.js';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
 import { v4 as uuidv4 } from 'uuid';
-import _ from 'lodash';
-import { User } from './models/User.js';
 
 /**
  * Session base class
  */
 @NewInstance()
 export class UserSession implements ISession {
-  @Config('rbac.session.expiration')
-  protected SessionExpirationTime: number;
-
   public SessionId: string = uuidv4();
 
   /**
-   * Expiration time for session, if null it does not expire
+   * User id that owns this session. Single source of truth for ownership.
    */
-  public Expiration: DateTime | undefined = undefined;
-
-  public Data: Map<string, unknown> = new Map();
+  public UserId: number;
 
   public Creation: DateTime = DateTime.now();
 
   /**
-   * User id that owns this session
+   * Expiration time for session, if undefined it does not expire.
+   * Set by the SessionProvider through the configured expiration strategy.
    */
-  public UserId: number;
+  public Expiration: DateTime | undefined = undefined;
+
+  public Data: Map<string, unknown> = new Map();
 
   constructor(session?: Partial<ISession>) {
     if (session) {
       Object.assign(this, session);
     }
   }
-
-  /**
-   * Extends lifetime of session
-   *
-   * @param seconds - hom mutch to extend
-   */
-  public extend(seconds?: number) {
-    this.Expiration = DateTime.now().plus({ seconds: seconds ? seconds : this.SessionExpirationTime });
-  }
 }
 
 /**
- * Simple session storage in memory, for testing or rapid prototyping
+ * Derives the `ssid` cookie `maxAge` (milliseconds) from a session's real
+ * `Expiration` (fixes B1 — the cookie previously always died at
+ * `expiration * 1000` ms i.e. ~2 minutes). Returns `undefined` for a
+ * never-expiring session (a session cookie), and never a negative value.
+ *
+ * @param session - the session whose expiry drives the cookie lifetime
+ */
+export function sessionCookieMaxAge(session: ISession): number | undefined {
+  if (!session.Expiration) {
+    return undefined;
+  }
+  return Math.max(0, Math.floor(session.Expiration.diff(DateTime.now()).milliseconds));
+}
+
+/**
+ * Session-fixation protection helper. Mints a NEW session id, copies the
+ * ownership identity and data across, deletes the old id and persists the new
+ * one. Apply on privilege elevation (login already mints a fresh session, but
+ * 2FA-authorize and role-switch elevate an existing one).
+ *
+ * The returned session carries a new `SessionId` so the caller can reset the
+ * `ssid` cookie. `Expiration` is left unset so `save` schedules a fresh one via
+ * the configured strategy (`Creation` is preserved, so a capped lifetime window
+ * is not extended).
+ *
+ * @param provider - the active session store
+ * @param session - the session to regenerate
+ */
+export async function regenerateSession(provider: SessionProvider, session: ISession): Promise<ISession> {
+  const regenerated = new UserSession({
+    UserId: session.UserId,
+    Creation: session.Creation,
+    Data: new Map(session.Data),
+  });
+
+  await provider.delete(session.SessionId);
+  await provider.save(regenerated);
+
+  return regenerated;
+}
+
+/**
+ * Simple session storage in memory, for testing or rapid prototyping.
+ * Keeps live session objects (no serialization).
  */
 @Injectable(SessionProvider)
 export class MemorySessionStore extends SessionProvider<ISession> {
-
   protected Sessions: Map<string, ISession> = new Map<string, ISession>();
+
+  public async restore(sessionId: string): Promise<ISession | null> {
+    const session = this.Sessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    // an expired row is treated as absent (and evicted)
+    if (this.isExpired(session)) {
+      this.Sessions.delete(sessionId);
+      return null;
+    }
+
+    return session;
+  }
+
+  public async save(session: ISession): Promise<void> {
+    // A brand-new session without a scheduled expiration gets its initial
+    // expiration from the strategy. An already-scheduled expiration is
+    // persisted verbatim (fixes B3 — never recompute on every save).
+    if (session.Expiration === undefined) {
+      this.applyInitialExpiration(session);
+    }
+
+    this.Sessions.set(session.SessionId, session);
+  }
+
+  public async touch(session: ISession): Promise<boolean> {
+    const current = session.Expiration;
+    const renewed = this.Expiration.renew(session);
+
+    // no change (e.g. AbsoluteExpiration) — skip the write, report false
+    if (this.expirationEquals(current, renewed)) {
+      return false;
+    }
+
+    session.Expiration = renewed;
+    this.Sessions.set(session.SessionId, session);
+    return true;
+  }
+
+  public async delete(sessionId: string): Promise<void> {
+    this.Sessions.delete(sessionId);
+  }
+
+  public async deleteByUser(userId: number): Promise<void> {
+    for (const [key, session] of this.Sessions.entries()) {
+      if (session.UserId === userId) {
+        this.Sessions.delete(key);
+      }
+    }
+  }
+
+  public async listByUser(userId: number): Promise<ISession[]> {
+    const result: ISession[] = [];
+    for (const session of this.Sessions.values()) {
+      if (session.UserId === userId && !this.isExpired(session)) {
+        result.push(session);
+      }
+    }
+    return result;
+  }
 
   public async truncate(): Promise<void> {
     this.Sessions = new Map<string, ISession>();
   }
 
-  public async touch(session: ISession): Promise<void> {
-    return this.save(session);
-  }
-
-  public async restore(sessionId: string): Promise<ISession | null> {
-    if (this.Sessions.has(sessionId)) {
-      const session = this.Sessions.get(sessionId)!;
-      if (!session.Expiration || session.Expiration > DateTime.now()) {
-        return session;
-      }
-      return null;
+  private expirationEquals(a: DateTime | undefined, b: DateTime | undefined): boolean {
+    if (a === undefined || b === undefined) {
+      return a === b;
     }
-
-    return null;
-  }
-
-  public async delete(sessionId: string): Promise<void> {
-    if (this.Sessions.has(sessionId)) {
-      this.Sessions.delete(sessionId);
-    }
-  }
-
-  public async save(idOrSession: ISession | string, data?: object): Promise<void> {
-    if (_.isString(idOrSession)) {
-      const s = this.Sessions.get(idOrSession)!;
-
-      for (const key in data) {
-        s.Data.set(key, (data as any)[key]);
-      }
-    } else {
-      this.Sessions.set(idOrSession.SessionId, idOrSession);
-    }
-  }
-
-  public logsOut(user: User): Promise<void> {
-
-    const sessionsToDelete: string[] = [];
-
-    for (const [key, session] of this.Sessions.entries()) {
-      if (session.UserId === user.Id) {
-        sessionsToDelete.push(key);
-      }
-    }
-
-    for (const sessionId of sessionsToDelete) {
-      this.Sessions.delete(sessionId);
-    }
-
-    return Promise.resolve();
+    return a.toMillis() === b.toMillis();
   }
 }

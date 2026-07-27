@@ -64,26 +64,33 @@ class TestPasswordProvider extends PasswordProvider {
 
 class TestSessionProvider extends SessionProvider<ISession> {
   public Saved: ISession[] = [];
+  public Deleted: string[] = [];
+  public Store = new Map<string, ISession>();
 
-  public async restore(_id: string): Promise<ISession | null> {
-    return null;
+  public async restore(id: string): Promise<ISession | null> {
+    return this.Store.get(id) ?? null;
   }
-  public async delete(_id: string): Promise<void> {
-    /* noop */
+  public async delete(id: string): Promise<void> {
+    this.Deleted.push(id);
+    this.Store.delete(id);
   }
-  public async save(idOrSession: ISession | string, _data?: object): Promise<void> {
-    if (typeof idOrSession !== 'string') {
-      this.Saved.push(idOrSession);
+  public async save(session: ISession): Promise<void> {
+    this.Saved.push(session);
+    this.Store.set(session.SessionId, session);
+  }
+  public async touch(_s: ISession): Promise<boolean> {
+    return false;
+  }
+  public async deleteByUser(userId: number): Promise<void> {
+    for (const [key, s] of this.Store.entries()) {
+      if (s.UserId === userId) this.Store.delete(key);
     }
   }
-  public async touch(_s: ISession): Promise<void> {
-    /* noop */
+  public async listByUser(userId: number): Promise<ISession[]> {
+    return [...this.Store.values()].filter((s) => s.UserId === userId);
   }
   public async truncate(): Promise<void> {
-    /* noop */
-  }
-  public async logsOut(): Promise<void> {
-    /* noop */
+    this.Store.clear();
   }
 }
 
@@ -199,12 +206,36 @@ describe('ActiveRoleController', function () {
 
       expect(result).to.be.instanceOf(Ok);
       expect(session.Data.get('ActiveRole')).to.equal('admin');
-      // Real SessionProvider stub stored the session
+      // Session is regenerated on role switch (session-fixation protection):
+      // a new session is saved and it carries the switched ActiveRole.
       expect(sessionProvider.Saved).to.have.lengthOf(1);
-      expect(sessionProvider.Saved[0]).to.equal(session);
+      expect(sessionProvider.Saved[0].Data.get('ActiveRole')).to.equal('admin');
 
       const body = data(result);
       expect(body.ActiveRole).to.equal('admin');
+    });
+
+    it('regenerates the session on switch: new id issued, old id deleted, ssid cookie reset', async () => {
+      const user = buildUser(['admin', 'user']);
+      const session = buildSession('user');
+      const oldId = session.SessionId;
+      const dto = new SwitchRoleDto({ Role: 'admin' });
+
+      const result = await controller.switchActiveRole(user, session, dto);
+
+      expect(result).to.be.instanceOf(Ok);
+
+      // old session invalidated, new one persisted with a different id
+      expect(sessionProvider.Deleted).to.include(oldId);
+      expect(sessionProvider.Saved).to.have.lengthOf(1);
+      const regenerated = sessionProvider.Saved[0];
+      expect(regenerated.SessionId).to.not.equal(oldId);
+
+      // the response resets the ssid cookie to the regenerated id
+      const cookies = (result as any).options?.Coockies ?? [];
+      expect(cookies).to.have.lengthOf(1);
+      expect(cookies[0].Name).to.equal('ssid');
+      expect(cookies[0].Value).to.equal(regenerated.SessionId);
     });
 
     it('returns BadRequest when requested role is not assigned to the user', async () => {

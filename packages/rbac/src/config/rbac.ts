@@ -221,9 +221,19 @@ const rbac = {
     session: {
       service: 'MemorySessionStore',
 
-      // 2h session expiration  time
-      // time in minutes
-      expiration: 120,
+      /**
+       * Session expiration strategy. Selected by `service` (one of
+       * AbsoluteExpiration | SlidingExpiration | SlidingCappedExpiration).
+       * Each strategy reads only the keys it uses. Units are MINUTES.
+       */
+      expiration: {
+        service: 'SlidingCappedExpiration',
+        ttl: 120, // minutes
+        maxLifetime: 1440, // minutes (SlidingCappedExpiration only)
+      },
+
+      // passthrough express cookie options
+      cookie: {},
     },
 
     /**

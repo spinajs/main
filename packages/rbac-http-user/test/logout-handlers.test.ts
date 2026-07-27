@@ -59,12 +59,13 @@ class LogoutTestSessionProvider extends SessionProvider<ISession> {
   public static Deleted: string[] = [];
   public async restore(): Promise<ISession | null> { return null; }
   public async delete(id: string): Promise<void> { LogoutTestSessionProvider.Deleted.push(id); }
-  public async save(idOrSession: ISession | string): Promise<void> {
-    if (typeof idOrSession !== 'string') LogoutTestSessionProvider.Saved.push(idOrSession);
+  public async save(session: ISession): Promise<void> {
+    LogoutTestSessionProvider.Saved.push(session);
   }
-  public async touch(): Promise<void> { /* noop */ }
+  public async touch(): Promise<boolean> { return false; }
+  public async deleteByUser(): Promise<void> { /* noop */ }
+  public async listByUser(): Promise<ISession[]> { return []; }
   public async truncate(): Promise<void> { /* noop */ }
-  public async logsOut(): Promise<void> { /* noop */ }
 }
 
 class LogoutTestAuthProvider extends AuthProvider {

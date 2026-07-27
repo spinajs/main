@@ -1,97 +1,135 @@
-import { SessionProvider, ISession, UserSession, User } from '@spinajs/rbac';
+import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/rbac';
 import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession.js';
 import { InsertBehaviour } from '@spinajs/orm';
 import { Config } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
-import _ from 'lodash';
-import { replacer } from '@spinajs/util';
 
 export * from './models/DbSession.js';
 export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_01_01.js';
 
+/**
+ * Relational-db backed session store. Conforms to the `@spinajs/rbac`
+ * `SessionProvider` contract: ownership is the numeric `UserId`, expiration is
+ * owned by the injected strategy (`this.Expiration`) and persisted verbatim, and
+ * `Data` is (de)serialized with the shared session codec.
+ */
 @Injectable(SessionProvider)
 export class DbSessionStore extends SessionProvider {
   @Logger('db-session-store')
   protected Log: Log;
 
-  @Config('rbac.session.db.cleanupInteval', {
+  /**
+   * How often expired rows are swept, in milliseconds. Reads the correctly
+   * spelled `rbac.session.db.cleanupInterval` key (fixes B2 — the historic typo
+   * `cleanupInteval` meant the configured value was ignored).
+   */
+  @Config('rbac.session.db.cleanupInterval', {
     defaultValue: 100000,
   })
-  protected CleanupInterval: any;
-
-  @Config('rbac.session.expiration')
-  protected DefaultExpirationTime: number;
+  protected CleanupInterval: number;
 
   public async resolve() {
-    setInterval(async () => {
+    const timer = setInterval(async () => {
       const c = await DbSession.destroy().where('Expiration', '<=', DateTime.now());
 
       this.Log.info(`Cleaned up expired session, count: ${c.RowsAffected}`);
     }, this.CleanupInterval);
+
+    // do not keep the process alive solely for the cleanup timer
+    timer.unref?.();
   }
 
   public async restore(sessionId: string): Promise<ISession | null> {
-    const session = await DbSession.where({
+    const row = await DbSession.where({
       SessionId: sessionId,
     }).first();
 
-    if (!session) {
+    if (!row) {
       return null;
     }
 
-    if (session.Expiration < DateTime.now()) {
+    const session = this.toSession(row);
+
+    // an expired row is treated as absent
+    if (this.isExpired(session)) {
       return null;
     }
 
-    const sData = JSON.parse(session.Data);
+    return session;
+  }
 
-    return new UserSession({
+  public async save(session: ISession): Promise<void> {
+    // Persist `Expiration` verbatim (fixes B3). Only a brand-new session with no
+    // scheduled expiration is given its initial expiry via the strategy.
+    if (session.Expiration === undefined) {
+      this.applyInitialExpiration(session);
+    }
+
+    const s = await DbSession.getOrNew({
       SessionId: session.SessionId,
-      Creation: session.CreatedAt,
-      Data: new Map(Object.entries(sData)),
-      Expiration: session.Expiration,
     });
+
+    s.SessionId = session.SessionId;
+    s.CreatedAt = session.Creation;
+    // column is nullable; a never-expiring session persists a NULL Expiration
+    s.Expiration = (session.Expiration ?? null) as DateTime;
+    s.UserId = session.UserId;
+    s.Data = encodeSessionData(session.Data);
+
+    await s.insert(InsertBehaviour.InsertOrUpdate);
+  }
+
+  public async touch(session: ISession): Promise<boolean> {
+    const current = session.Expiration;
+    const renewed = this.Expiration.renew(session);
+
+    // unchanged (e.g. AbsoluteExpiration) — skip the write, report false
+    if (this.expirationEquals(current, renewed)) {
+      return false;
+    }
+
+    session.Expiration = renewed;
+    await DbSession.update({
+      Expiration: renewed,
+    }).where('SessionId', session.SessionId);
+
+    return true;
   }
 
   public async delete(sessionId: string): Promise<void> {
     await DbSession.destroy(sessionId);
   }
 
-  public async save(sessionOrId: string | ISession, data?: object): Promise<void> {
-
-    const sessionId = _.isString(sessionOrId) ? sessionOrId : sessionOrId.SessionId;
-    const userId = _.isString(sessionOrId) ? null : sessionOrId.UserId;
-    const sData: Map<string, unknown> = _.isString(sessionOrId) ? data as any : sessionOrId.Data;
-    let sCreationTime = DateTime.now();
-    let sExpirationTime = DateTime.now().plus({ minutes: this.DefaultExpirationTime });
-
-    const s = await DbSession.getOrNew({
-      SessionId: sessionId,
-      CreatedAt: sCreationTime,
-      Expiration: sExpirationTime,
-      UserId: userId as any
-    });
-    s.Data = JSON.stringify(Object.fromEntries(sData), replacer);
-    await s.insert(InsertBehaviour.InsertOrUpdate);
+  public async deleteByUser(userId: number): Promise<void> {
+    await DbSession.destroy().where('UserId', userId);
   }
 
-  public async touch(session: ISession): Promise<void> {
-    await DbSession.update({
-      Expiration: session.Expiration,
-    }).where('SessionId', session.SessionId);
-  }
+  public async listByUser(userId: number): Promise<ISession[]> {
+    const rows = await DbSession.where('UserId', userId);
 
-  public async logsOut(user: User): Promise<void> {
-    const sessionsToDelete = await DbSession.where('UserId', user.Id);
-
-    if (sessionsToDelete.length > 0) {
-      await DbSession.destroy(sessionsToDelete.map((x) => x.SessionId));
-    }
+    return rows.map((r) => this.toSession(r)).filter((s) => !this.isExpired(s));
   }
 
   public async truncate(): Promise<void> {
     await DbSession.truncate();
+  }
+
+  private toSession(row: DbSession): ISession {
+    return new UserSession({
+      SessionId: row.SessionId,
+      UserId: row.UserId,
+      Creation: row.CreatedAt,
+      Expiration: row.Expiration ?? undefined,
+      Data: decodeSessionData(row.Data),
+    });
+  }
+
+  private expirationEquals(a: DateTime | undefined, b: DateTime | undefined): boolean {
+    if (a === undefined || b === undefined) {
+      return a === b;
+    }
+    return a.toMillis() === b.toMillis();
   }
 }

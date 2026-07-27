@@ -1,18 +1,28 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { join, normalize, resolve } from 'path';
 import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { DI } from '@spinajs/di';
-import '../src';
+import { DI, Bootstrapper } from '@spinajs/di';
+import '../src/index.js';
 import { DbSessionStore } from '../src/index.js';
 import { UserSession as Session } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { runSessionProviderConformance, IConformanceExpiration } from '../../rbac/test/conformance/session-provider-conformance.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
+
+// Current expiration strategy config the ConnectionConf will publish. The
+// conformance factory swaps this per strategy before (re)resolving DI.
+let CURRENT_EXPIRATION: IConformanceExpiration = { service: 'SlidingExpiration', ttl: 60 };
+
+export function mergeArrays(target: any, source: any) {
+  if (_.isArray(target)) {
+    return target.concat(source);
+  }
+}
 
 export class ConnectionConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -26,6 +36,7 @@ export class ConnectionConf extends FrameworkConfiguration {
             db: {
               cleanupInterval: 1000,
             },
+            expiration: CURRENT_EXPIRATION,
           },
         },
         db: {
@@ -66,186 +77,86 @@ export class ConnectionConf extends FrameworkConfiguration {
   }
 }
 
-export function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
+async function boot() {
+  DI.clearCache();
+
+  // importing @spinajs/rbac registers ORM query middleware that depends on the
+  // AccessControl instance provided by RbacBootstrapper — run bootstrappers as a
+  // real app would before touching the Orm.
+  const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+  for (const b of bootstrappers) {
+    await b.bootstrap();
   }
-}
 
-export function dir(path: string) {
-  return resolve(normalize(join(process.cwd(), 'test', path)));
-}
-
-async function session() {
+  await DI.resolve(Configuration);
+  await DI.resolve(Orm);
   return DI.resolve(DbSessionStore);
 }
 
+async function makeProvider(expiration: IConformanceExpiration) {
+  CURRENT_EXPIRATION = expiration;
+  return boot();
+}
+
 describe('db session provider', function () {
-  this.timeout(10000);
+  this.timeout(15000);
 
   before(() => {
     DI.register(ConnectionConf).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
   });
 
-  beforeEach(async () => {
-    DI.clearCache();
-    await DI.resolve(Configuration);
-    await DI.resolve(Orm);
-  });
+  // Full provider contract under multiple expiration strategies (E — reused kit).
+  runSessionProviderConformance(makeProvider);
 
-  afterEach(async () => {
-    const s = await session();
-    await s.truncate();
-  });
+  describe('DbSessionStore regressions', () => {
+    it('reads the correctly-spelled rbac.session.db.cleanupInterval config key (B2)', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
 
-  after(() => {
-    process.exit(0);
-  });
-
-  it('should insert session', async () => {
-    const s = await session();
-    const d = new Map<string, string>();
-    d.set('foo', 'bar');
-
-    await s.save(
-      new Session({
-        Data: d,
-        SessionId: 'a',
-        Expiration: DateTime.now().plus({ second: 10 }),
-      }),
-    );
-
-    const r = await s.restore('a');
-
-    expect(r).to.be.not.null;
-    expect(r!.SessionId).to.eq('a');
-    expect(r!.Data.has('foo')).to.be.true;
-    expect(r!.Data.get('foo')).to.eq('bar');
-  });
-
-  it('should update session', async () => {
-    const s = await session();
-    const d = new Map<string, string>();
-    d.set('foo', 'bar');
-
-    const sS = new Session({
-      Data: d,
-      SessionId: 'a',
-      Expiration: DateTime.now().plus({ second: 10 }),
+      // The fixture sets cleanupInterval = 1000. With the historic typo
+      // (`cleanupInteval`) the store would read nothing and fall back to the
+      // 100000 default. Reading the configured value proves the key is fixed.
+      expect((store as any).CleanupInterval).to.equal(1000);
     });
 
-    await s.save(sS);
+    it('save preserves an already-set Expiration exactly, under sliding mode (B3)', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
 
-    let r = await s.restore('a');
-    expect(r!.Data.get('foo')).to.eq('bar');
+      const fixed = DateTime.fromISO('2031-05-06T07:08:09.000Z');
+      const session = new Session({
+        SessionId: 'b3-verbatim',
+        UserId: 3,
+        Expiration: fixed,
+        Data: new Map<string, unknown>([['foo', 'bar']]),
+      });
 
-    sS.Data.set('foo', 'bar 2');
+      await store.save(session);
+      const restored = await store.restore('b3-verbatim');
 
-    await s.save(sS);
-    r = await s.restore('a');
-    expect(r!.Data.get('foo')).to.eq('bar 2');
-  });
-
-  it('should delete session', async () => {
-    const s = await session();
-    const d = new Map<string, string>();
-    d.set('foo', 'bar');
-
-    await s.save(
-      new Session({
-        Data: d,
-        SessionId: 'a',
-        Expiration: DateTime.now().plus({ second: 10 }),
-      }),
-    );
-
-    let r = await s.restore('a');
-
-    expect(r).to.be.not.null;
-
-    await s.delete('a');
-    r = await s.restore('a');
-
-    expect(r).to.be.null;
-  });
-  it('should touch session', async () => {
-    const s = await session();
-
-    const d = new Map<string, string>();
-    d.set('foo', 'bar');
-
-    const date = DateTime.now().plus({ second: 10 });
-    const date2 = date.plus({ second: 100 });
-    const sI = new Session({
-      Data: d,
-      SessionId: 'a',
-      Expiration: date,
+      expect(restored).to.not.be.null;
+      expect(restored!.Expiration!.toMillis()).to.equal(fixed.toMillis());
     });
 
-    await s.save(sI);
+    it('assigns an initial expiration only when a brand-new session has none', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
 
-    const sR = await s.restore('a');
+      const session = new Session({
+        SessionId: 'b3-initial',
+        UserId: 4,
+        Expiration: undefined,
+        Data: new Map<string, unknown>(),
+      });
 
-    sI.Expiration = date2;
-    await s.touch(sI);
+      await store.save(session);
+      const restored = await store.restore('b3-initial');
 
-    const sR2 = await s.restore('a');
-
-    expect(sR2!.Expiration!.toMillis() === date2.toMillis());
-    expect(sR!.Expiration!.toMillis() === date.toMillis());
-    expect(sR2!.Expiration!.toMillis() > sR!.Expiration!.toMillis());
-  });
-  it('should return null when session expired', async () => {
-    const s = await session();
-
-    const d = new Map<string, string>();
-    d.set('foo', 'bar');
-
-    await s.save(
-      new Session({
-        Data: d,
-        SessionId: 'a',
-        Expiration: DateTime.now().plus({ second: 2 }),
-      }),
-    );
-
-    await s.save(
-      new Session({
-        Data: d,
-        SessionId: 'b',
-        Expiration: DateTime.now().plus({ second: 10 }),
-      }),
-    );
-
-    const result = await new Promise((resolve) => {
-      setTimeout(async () => {
-        const sI = await s.restore('a');
-        resolve(sI);
-      }, 5000);
+      expect(restored).to.not.be.null;
+      expect(restored!.Expiration, 'strategy should have scheduled an initial expiry').to.not.be.undefined;
+      // sliding ttl = 60 minutes
+      const diff = Math.abs(restored!.Expiration!.toMillis() - DateTime.now().plus({ minutes: 60 }).toMillis());
+      expect(diff).to.be.lessThan(5000);
     });
-
-    const result2 = await s.restore('b');
-
-    expect(result).to.be.null;
-    expect(result2).to.be.not.null;
-  });
-
-  it('should return null if session not exist', async () => {
-    const s = await session();
-
-    const d = new Map<string, string>();
-    d.set('foo', 'bar');
-
-    await s.save(
-      new Session({
-        Data: d,
-        SessionId: 'a',
-        Expiration: DateTime.now().plus({ second: 10 }),
-      }),
-    );
-
-    const sI = await s.restore('b');
-    expect(sI).to.be.null;
   });
 });
