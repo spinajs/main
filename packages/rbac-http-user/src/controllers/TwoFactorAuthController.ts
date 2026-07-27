@@ -102,15 +102,18 @@ export class TwoFactorAuthController extends BaseController {
             });
 
 
-            const grants = this.AC.getGrants();
-            const userGrants = logged.Role.map(r => _unwindGrants(r, grants));
-            const combinedGrants = Object.assign({}, ...userGrants);
-
+            // Mirror the login response shape: resolve grants for the session's
+            // active role (falling back to the first role) and include ActiveRole,
+            // instead of flattening every role with no ActiveRole reported.
+            const activeRole = (session.Data.get('ActiveRole') as string | undefined) ?? logged.Role?.[0];
+            const combinedGrants = activeRole ? _unwindGrants(activeRole, this.AC.getGrants()) : {};
 
             return new Ok({
                 ...logged.dehydrateWithRelations({
                     dateTimeFormat: "iso"
                 }),
+                Role: logged.Role,
+                ActiveRole: activeRole,
                 Grants: combinedGrants,
             } as unknown as IUserWithGrants);
         }

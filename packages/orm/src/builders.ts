@@ -1445,6 +1445,11 @@ export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     };
 
     this.QueryContext = QueryContext.Delete;
+
+    // Query middlewares (e.g. rbac ownership enforcement) must run for deletes
+    // too, not only selects — otherwise :own permission constraints are never
+    // applied and any row can be deleted.
+    this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
   }
 
   public toDB(): ICompilerOutput {
@@ -1529,6 +1534,11 @@ export class UpdateQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
     this._statements = [];
 
     this.QueryContext = QueryContext.Update;
+
+    // Query middlewares (e.g. rbac ownership enforcement) must run for updates
+    // too, not only selects — otherwise :own permission constraints are never
+    // applied and any row can be updated.
+    this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
   }
 
   public in(name: string) {

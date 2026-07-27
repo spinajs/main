@@ -13,7 +13,7 @@ export class BanUser extends CliCommand {
 
   public async execute(idOrUuid: string, banOrUnban: boolean, duration: number, reason: string): Promise<void> {
     try {
-      (await banOrUnban) ? ban(idOrUuid, reason, duration) : unban(idOrUuid);
+      await (banOrUnban ? ban(idOrUuid, reason, duration) : unban(idOrUuid));
 
       this.Log.success(`User ${idOrUuid} ${banOrUnban ? 'banned' : 'unbanned'}`);
     } catch (e: any) {

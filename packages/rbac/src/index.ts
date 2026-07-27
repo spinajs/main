@@ -8,6 +8,7 @@ import { Log } from '@spinajs/log';
 import './auth.js';
 import './password.js';
 import './session.js';
+import './ownership.js';
 import { User } from './models/User.js';
 
 export * from './interfaces.js';
@@ -24,6 +25,7 @@ export * from './decorators.js';
 export * from './util.js';
 export * from './profile.js';
 export * from './impersonation.js';
+export * from './ownership.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;

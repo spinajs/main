@@ -1,6 +1,6 @@
 import { Post, BasePath, Ok, Del, Body, Get, Query, Param, Policy, BaseController, Patch } from '@spinajs/http';
 import { User as UserModel, UserMetadata } from '@spinajs/rbac';
-import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
 import { AsModel, PaginationDTO, OrderDTO, Filter, IFilterRequest, FromModel } from '@spinajs/orm-http';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
 import { InsertBehaviour, SortOrder } from '@spinajs/orm';
@@ -181,12 +181,17 @@ export class UserMetadataController extends BaseController {
     @Get("metadata")
     @Permission(['readOwn'])
     public async readMeta(
+        @User() user: UserModel,
         @Query() pagination?: PaginationDTO,
         @Query() order?: OrderDTO,
         @Filter(FilterableUserMetadata)
         filter?: IFilterRequest,
     ) {
-        return new Ok(FilterableUserMetadata.select().filter(filter?.filters ?? [], filter?.op)
+        // Explicit owner scoping: the rbac query middleware does not enforce
+        // ownership for the metadata model (queries resolve to the unsafe base
+        // model without an @OrmResource), so every own-route filters by the
+        // authenticated user's id directly.
+        return new Ok(FilterableUserMetadata.select().where('user_id', user.Id).filter(filter?.filters ?? [], filter?.op)
             .take(pagination?.limit ?? 0)
             .skip((pagination?.limit ?? 0) * (pagination?.page ?? 0))
             .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC)
@@ -205,9 +210,10 @@ export class UserMetadataController extends BaseController {
      */
     @Get("metadata/:key")
     @Permission(['readOwn'])
-    public async getMeta(@Param() key: string) {
+    public async getMeta(@User() user: UserModel, @Param() key: string) {
         return new Ok(UserMetadata.where({
             Key: key,
+            user_id: user.Id,
         }).firstOrFail());
     }
 
@@ -221,8 +227,12 @@ export class UserMetadataController extends BaseController {
      */
     @Post("metadata")
     @Permission(['updateOwn'])
-    public async addMetadata(@AsModel() metadata: UserMetadata) {
+    public async addMetadata(@User() user: UserModel, @AsModel() metadata: UserMetadata) {
+        // force ownership to the authenticated user — never trust a user_id
+        // supplied in the request body
+        metadata.user_id = user.Id;
         await metadata.insert(InsertBehaviour.InsertOrUpdate);
+        return new Ok();
     }
 
     /**
@@ -238,12 +248,20 @@ export class UserMetadataController extends BaseController {
      */
     @Patch('metadata/:meta')
     @Permission(['updateOwn'])
-    public async updateMetadata(@Param() meta: string, @Body() data: UserMetadataDto) {
+    public async updateMetadata(@User() user: UserModel, @Param() meta: string, @Body() data: UserMetadataDto) {
+        // The Key/Id lookup is grouped and AND-ed with an explicit ownership
+        // filter. Without the grouping the flat "Key = ? OR Id = ? AND user_id = ?"
+        // binds as "Key = ? OR (Id = ? AND user_id = ?)", letting any user update
+        // another user's metadata by its Key. Scoping by user_id explicitly (not
+        // relying on the query middleware, which does not fire for this model)
+        // keeps the update owner-bound.
         await UserMetadata.update({
             Key: data.Key,
             Value: data.Value,
             Type: data.Type
-        }).where("Key", meta).orWhere("Id", meta);
+        }).where(function () {
+            this.where("Key", meta).orWhere("Id", meta);
+        }).andWhere('user_id', user.Id);
 
         return new Ok();
     }
@@ -260,9 +278,10 @@ export class UserMetadataController extends BaseController {
      */
     @Del('metadata/:meta')
     @Permission(['deleteOwn'])
-    public async deleteMetadata(@Param() meta: number) {
+    public async deleteMetadata(@User() user: UserModel, @Param() meta: number) {
         await UserMetadata.destroy().where({
-            Id: meta
+            Id: meta,
+            user_id: user.Id,
         });
 
         return new Ok();

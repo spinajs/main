@@ -261,7 +261,25 @@ export class UserBase extends ModelBase<UserBase> {
   }
 
   public get IsBanned(): boolean {
-    return this.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] === true;
+    if (this.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] !== true) {
+      return false;
+    }
+
+    const start = this.Metadata[USER_COMMON_METADATA.USER_BAN_START_DATE];
+    const duration = this.Metadata[USER_COMMON_METADATA.USER_BAN_DURATION];
+
+    // no start/duration recorded -> treat as a permanent ban
+    if (!start || duration === null || duration === undefined) {
+      return true;
+    }
+
+    const startDt = start instanceof DateTime ? start : DateTime.fromISO(String(start));
+    if (!startDt.isValid) {
+      return true;
+    }
+
+    // ban is still active only until start + duration (seconds) elapses
+    return startDt.plus({ seconds: Number(duration) }) > DateTime.now();
   }
 
   public dehydrateWithRelations(options?: IDehydrateOptions): ModelDataWithRelationData<this> {

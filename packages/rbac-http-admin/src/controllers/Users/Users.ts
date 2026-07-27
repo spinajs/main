@@ -257,8 +257,12 @@ export class Users extends BaseController {
   ) {
 
     const temporaryPassword = this.PasswordProvider.generate();
-    const u = await create(data.Email, data.Login, temporaryPassword, [data.Role], undefined, data.Metadata);
-    return new Ok(u);
+    const { User: created } = await create(data.Email, data.Login, temporaryPassword, [data.Role], undefined, data.Metadata);
+
+    // NOTE: create() returns { User, Password } where Password is the plaintext
+    // temporary password. It must NOT be sent in the response — return only the
+    // created user (dehydrated, so the hash and internal id stay hidden too).
+    return new Ok(created.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
 
