@@ -277,22 +277,33 @@ export class BelongsToPopulateDataMiddleware implements IBuilderMiddleware {
   }
   afterHydration(data: ModelBase<unknown>[]): Promise<void | any[]> {
     const relData = data.map((d: any) => d[this._description.Name as any].Value).filter((x) => x !== null && x !== undefined);
-    const middlewares = ((this.relation as any)._relationQuery.Relations as any[])
-      .map((x) => {
-        return x._query._middlewares;
-      })
-      .reduce((prev, current) => {
-        return prev.concat(current);
-      }, []);
 
-    // HACK
-    // TODO: this is only temporary solution to execute only unique middlewares.
-    // Somewhere else in code is bug that causes multiple same middlewares to be added to the query
+    // Every relation created on a builder stores that builder as `_query`
+    // ( SelectQueryBuilder._getRelationInstance passes `this` ), so N nested relations under
+    // one belongsTo all point at the *same* `_middlewares` array. Concatenating per relation
+    // therefore repeated the whole array N times — the duplication a `_.uniqBy` on relation
+    // name used to paper over, too coarsely ( it collapsed two genuinely distinct middlewares
+    // that happened to share a relation name ) and unsafely
+    // ( BelongsToRelationResultTransformMiddleware has no `_description` at all, and
+    // DiscriminationMapMiddleware's is an IModelDescriptor, so the key compared a *model*
+    // name against a *relation* name ).
     //
-    // Check hasmanytomany relation with multiple nested belongs to relation to see the bug
+    // Collect each distinct middleware object once, in first-seen order.
+    const seen = new Set<IBuilderMiddleware>();
+    const middlewares: IBuilderMiddleware[] = [];
+
+    for (const relation of (this.relation as any)._relationQuery.Relations as any[]) {
+      for (const middleware of (relation._query?._middlewares ?? []) as IBuilderMiddleware[]) {
+        if (!seen.has(middleware)) {
+          seen.add(middleware);
+          middlewares.push(middleware);
+        }
+      }
+    }
+
     return Promise.all(
-      _.uniqBy(middlewares, (x: { _description: { Name: string } }) => x._description.Name).map((x: any) => {
-        return x.afterHydration(relData);
+      middlewares.map((x) => {
+        return x.afterHydration(relData as ModelBase[]);
       }),
     );
   }
