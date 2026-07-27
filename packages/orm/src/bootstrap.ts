@@ -1,15 +1,16 @@
 import { Constructor, Container, DI } from '@spinajs/di';
 import { ManyToManyRelationList, OneToManyRelationList } from './relation-objects.js';
-import { NullOrmMetricsSink, OrmMetricsSink } from './metrics.js';
 
 /**
- * Default pool-telemetry sink: discards everything, so an app that wants no metrics pays nothing.
- * Register `PromOrmMetricsSink` from `@spinajs/metrics` over it to publish to prometheus.
+ * Pool telemetry needs no registration: the ORM publishes into the `Metrics` singleton from
+ * `@spinajs/telemetry-common`, which self-registers via its own `@Injectable()` and owns a private
+ * prom-client registry. `@spinajs/telemetry` re-exports that very class, so its `/metrics`
+ * endpoint renders the same registry the ORM writes to.
  *
- * The dependency deliberately runs metrics -> orm and never the other way: `@spinajs/metrics`
- * depends on `@spinajs/http`, and putting the HTTP stack underneath the ORM inverts the graph.
+ * The dependency runs orm -> telemetry-common and never orm -> telemetry: the latter pulls in
+ * `@spinajs/http`, and putting the HTTP stack underneath every database connection inverts the
+ * graph. Same reason `configuration-common` and `log-common` exist.
  */
-DI.register(NullOrmMetricsSink).as(OrmMetricsSink);
 
 /**
  * Register default relation type factory

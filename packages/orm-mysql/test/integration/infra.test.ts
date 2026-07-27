@@ -12,7 +12,8 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { ConnectionState, Orm, OrmMetricsSink, ORM_METRIC_ACQUIRE_SECONDS, ORM_METRIC_POOL_SIZE, QueryContext } from '@spinajs/orm';
+import { ConnectionState, Orm, ORM_METRIC_ACQUIRE_SECONDS, ORM_METRIC_POOL_SIZE, QueryContext } from '@spinajs/orm';
+import { Metrics } from '@spinajs/telemetry-common';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { execSync } from 'child_process';
@@ -91,21 +92,14 @@ class InfraConf extends FrameworkConfiguration {
   }
 }
 
-/** Records everything the ORM publishes, so the metrics seam is proven end to end. */
-class RecordingSink extends OrmMetricsSink {
-  public gauges: Array<{ name: string; labels: Record<string, string>; value: number }> = [];
-  public observations: Array<{ name: string; seconds: number }> = [];
-
-  public gauge(name: string, _help: string, labels: Record<string, string>, value: number): void {
-    this.gauges.push({ name, labels, value });
-  }
-
-  public observe(name: string, _help: string, _labels: Record<string, string>, seconds: number): void {
-    this.observations.push({ name, seconds });
-  }
+/**
+ * The shared telemetry registry the ORM publishes into — a `@Singleton()`, so this resolves the
+ * same instance the driver writes to. Reading the rendered exposition text proves the seam end to
+ * end, through the real prom-client objects rather than a stand-in sink.
+ */
+function metrics(): Metrics {
+  return DI.get(Metrics) ?? DI.resolve(Metrics);
 }
-
-const sink = new RecordingSink();
 
 function db() {
   return DI.get(Orm)!;
@@ -149,7 +143,6 @@ describe('MySQL integration - orm-infra', function () {
     DI.clearCache();
     DI.register(InfraConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
-    DI.register(() => sink).as(OrmMetricsSink);
 
     await DI.resolve(Orm);
     await db().migrateUp();
@@ -257,17 +250,14 @@ describe('MySQL integration - orm-infra', function () {
     expect(m.InUse).to.be.at.least(0);
   });
 
-  it('the metrics sink receives pool gauges and acquire observations', async () => {
-    sink.gauges.length = 0;
-    sink.observations.length = 0;
-
+  it('the telemetry registry receives pool gauges and acquire observations', async () => {
     await MysqlAutoKey.count();
     driver().publishPoolMetrics();
 
-    expect(sink.observations.map((o) => o.name)).to.include(ORM_METRIC_ACQUIRE_SECONDS);
-    const size = sink.gauges.find((g) => g.name === ORM_METRIC_POOL_SIZE);
-    expect(size).to.not.be.undefined;
-    expect(size!.labels).to.deep.equal({ connection: 'mysql' });
+    const out = await metrics().render();
+
+    expect(out).to.match(new RegExp(`^${ORM_METRIC_ACQUIRE_SECONDS}_count\\{connection="mysql"\\} [1-9]`, 'm'));
+    expect(out).to.match(new RegExp(`^${ORM_METRIC_POOL_SIZE}\\{connection="mysql"\\} `, 'm'));
   });
 
   it('a query error is not retried', async () => {

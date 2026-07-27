@@ -51,6 +51,7 @@
     "@spinajs/configuration": "^2.0.481",
     "@spinajs/di": "^2.0.481",
     "@spinajs/exceptions": "^2.0.481",
+    "@spinajs/util": "^2.0.481",
     "@spinajs/http": "^2.0.481",
     "@spinajs/intl": "^2.0.481",
     "@spinajs/log-common": "^2.0.481",

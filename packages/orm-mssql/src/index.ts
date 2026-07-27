@@ -1,7 +1,6 @@
 import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { LogLevel } from '@spinajs/log-common';
 
 import { SqlDriver } from '@spinajs/orm-sql';
 import mssql from 'mssql';
@@ -34,7 +33,9 @@ function msSqlEscapeIdentifier(name: string): string {
 @NewInstance()
 export class MsSqlOrmDriver extends SqlDriver {
   protected _connectionPool: mssql.ConnectionPool = null as any;
-  protected _executionId = 0;
+  // `_executionId` went with the per-driver query timing master centralised, and
+  // `TransactionStorage` moved up to OrmDriver so ambient-connection propagation is part of
+  // the contract rather than each driver's own business.
 
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
@@ -42,80 +43,46 @@ export class MsSqlOrmDriver extends SqlDriver {
     super(Object.assign({ AliasSeparator: '#' }, options));
   }
 
-  private getNextExecutionId(): number {
-    this._executionId = (this._executionId + 1) % Number.MAX_SAFE_INTEGER;
-    return this._executionId;
-  }
-
   public async executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
-    const tName = `query-${this.getNextExecutionId()}`;
     let finalQuery = stmt.replaceAll('`', '');
 
-    this.Log.timeStart(`query-${tName}`);
+    // Check if we're inside a transaction context and use that request.
+    // The context comes from the base driver; only this driver's `_begin` populates it, so
+    // it must be narrowed from ITransactionContext to read `request`.
+    const txContext = this.TransactionStorage.getStore() as IMsSqlTransactionContext | undefined;
+    const req = txContext?.request ?? this._connectionPool.request();
+    let idx = 0;
+    let i = 0;
 
-    try {
-      // Check if we're inside a transaction context and use that request.
-      // The context comes from the base driver; only this driver's `_begin` populates it.
-      const txContext = this.TransactionStorage.getStore() as IMsSqlTransactionContext | undefined;
-      const req = txContext?.request ?? this._connectionPool.request();
-      let idx = 0;
-      let i = 0;
+    // No try/finally here any more: it only ever existed to bracket this driver's own
+    // timeStart/timeEnd logging, which master centralised into `Perf.measure('orm.query')`.
+    /**
+     * Brute force replacement ? for @parameters
+     * MSSQL driver requires named parameters in query string
+     */
+    while ((idx = finalQuery.indexOf('?')) !== -1) {
+      finalQuery = finalQuery.substring(0, idx) + `@p${i}` + finalQuery.substring(idx + 1, finalQuery.length);
+      req.input(`p${i}`, params[i]);
+      i++;
+    }
 
-      /**
-       * Brute force replacement ? for @parameters
-       * MSSQL driver requires named parameters in query string
-       */
-      while ((idx = finalQuery.indexOf('?')) !== -1) {
-        finalQuery = finalQuery.substring(0, idx) + `@p${i}` + finalQuery.substring(idx + 1, finalQuery.length);
-        req.input(`p${i}`, params[i]);
-        i++;
-      }
+    const result = await req.query(finalQuery);
 
-      const result = await req.query(finalQuery);
-
-      const tDiff = this.Log.timeEnd(`query-${tName}`);
-      void this.Log.write({
-        Level: LogLevel.Trace,
-        Variables: {
-          error: undefined,
-          message: `Executed: ${finalQuery}, bindings: ${params ? params.join(',') : 'none'}`,
-          logger: this.Log.Name,
-          level: 'TRACE',
-          duration: tDiff,
-        },
-      });
-
-      switch (context) {
-        case QueryContext.Update:
-        case QueryContext.Delete:
-          return {
-            RowsAffected: result.rowsAffected[0],
-          };
-        case QueryContext.Insert:
-          return {
-            RowsAffected: result.rowsAffected[0],
-            // SCOPE_IDENTITY() path; MSSQL keeps no RETURNING rows here.
-            LastInsertId: result.recordset?.[0]?.ID ?? 0,
-            Returning: [],
-          };
-        default:
-          return result.recordset;
-      }
-    } catch (err) {
-      const tDiff = this.Log.timeEnd(`query-${tName}`);
-
-      void this.Log.write({
-        Level: LogLevel.Error,
-        Variables: {
-          error: err,
-          message: `Failed: ${finalQuery}, bindings: ${params ? params.join(',') : 'none'}`,
-          logger: this.Log.Name,
-          level: 'Error',
-          duration: tDiff,
-        },
-      });
-
-      throw err;
+    switch (context) {
+      case QueryContext.Update:
+      case QueryContext.Delete:
+        return {
+          RowsAffected: result.rowsAffected[0],
+        };
+      case QueryContext.Insert:
+        return {
+          RowsAffected: result.rowsAffected[0],
+          // SCOPE_IDENTITY() path; MSSQL keeps no RETURNING rows here.
+          LastInsertId: result.recordset?.[0]?.ID ?? 0,
+          Returning: [],
+        };
+      default:
+        return result.recordset;
     }
   }
 

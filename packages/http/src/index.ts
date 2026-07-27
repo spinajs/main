@@ -16,3 +16,4 @@ export * from './middlewares/Compression.js';
 export * from './middlewares/Cors.js';
 export * from './middlewares/SlowRequestWarning.js';
 export * from './middlewares/ServerTiming.js';
+export * from './middlewares/PerfRollup.js';

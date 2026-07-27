@@ -15,12 +15,12 @@ import { Relation, SingleRelation } from './relation-objects.js';
 import { createSnapshot, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
 
-import { DI, isConstructor, IContainer, Constructor, isClass } from '@spinajs/di';
+import { DI, isConstructor, IContainer, Constructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
-import { extractModelDescriptor } from './descriptor.js';
+import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
 import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
 
 const MODEL_PROXY_HANDLER = {
@@ -55,8 +55,18 @@ export function updateModelDescriptor(targetOrForward: any, callback: (descripto
     return;
   }
 
-  const metadata = Reflect.getMetadata(MODEL_DESCTRIPTION_SYMBOL, target);
-  callback(metadata[target.name]);
+  // Must go through getInheritedDescriptor like every other write of this
+  // symbol - it hands back the class's OWN descriptor, so mutating it here
+  // cannot leak into the base class ( eg. assigning the driver to a subclass )
+  const descriptor = getInheritedDescriptor<IModelDescriptor>(target, MODEL_DESCTRIPTION_SYMBOL, createDefaultModelDescriptor);
+
+  // Name is this class's own, never inherited from the base. Matters when this
+  // is the FIRST access for the class: the descriptor is created by collapsing
+  // the chain, and the merger keeps the ancestor's non-empty Name over the
+  // default '' ( eg. a subclass would be stored under its parent's name )
+  descriptor.Name = target.name;
+
+  callback(descriptor);
 }
 
 export class ModelBase<M = unknown> implements IModelBase {
