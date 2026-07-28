@@ -6,7 +6,7 @@ import 'mocha';
 import { createHash } from 'node:crypto';
 import * as sinon from 'sinon';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeTableQueryCompiler, FakeColumnQueryCompiler, FakeTableExistsCompiler, FakeDefaultValueBuilder, TEST_TABLE_INFO } from './misc.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, TableExistsCompiler, DefaultValueBuilder, DefaultMigrationService, MIGRATION_TABLE_NAME, migrationChecksum, OrmMigration, MigrationTransactionMode, IMigrationRecord, IMigrationUnit } from '../src/index.js';
+import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, TableExistsCompiler, DefaultValueBuilder, DefaultMigrationService, MIGRATION_TABLE_NAME, migrationChecksum, OrmMigration, MigrationTransactionMode, IMigrationRecord, IMigrationUnit, OrmException } from '../src/index.js';
 import { TableQueryBuilder, AlterTableQueryBuilder, RawSchemaQueryBuilder, SelectQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
 import '../src/bootstrap.js';
@@ -239,6 +239,7 @@ describe('DefaultMigrationService up', () => {
       await svc.up([unit(MigB_2021_01_02_00_00_00)]);
       expect.fail('should have thrown');
     } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
       expect(e.message).to.contain('MigA_2021_01_01_00_00_00');
       expect(e.message).to.contain('resolve');
     }
@@ -256,6 +257,7 @@ describe('DefaultMigrationService up', () => {
       await svc.up([unit(MigA_2021_01_01_00_00_00)]);
       expect.fail('should have thrown');
     } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
       expect(e.message).to.contain('ddl exploded');
     }
 
@@ -320,12 +322,93 @@ describe('DefaultMigrationService up', () => {
       await svc.up([unit(MigA_2021_01_01_00_00_00)]);
       expect.fail('should have thrown');
     } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
       expect(e.message).to.contain('ddl exploded');
     }
 
     const failureWrite = seen.find((s) => s.logs);
     expect(failureWrite, 'expected a failure row').to.not.be.undefined;
     expect(failureWrite!.inTransaction, 'failure row must be written outside the rolled-back transaction').to.be.false;
+  });
+
+  it('PerMigration wraps each migration in its own transaction, transaction=false runs outside', async () => {
+    const driver = await makeDriver();
+    driver.Options.Migration = { ...driver.Options.Migration, Transaction: { Mode: MigrationTransactionMode.PerMigration } };
+    stubDb([]);
+
+    class NoTxPerMig_2021_01_03_00_00_00 extends OrmMigration {
+      public transaction = false;
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    const inTransaction: Record<string, boolean> = {};
+    const track = (name: string) => async (c: OrmDriver) => {
+      inTransaction[name] = c.CurrentTransaction !== undefined;
+    };
+    sinon.stub(MigA_2021_01_01_00_00_00.prototype, 'up').callsFake(track('MigA'));
+    sinon.stub(MigB_2021_01_02_00_00_00.prototype, 'up').callsFake(track('MigB'));
+    sinon.stub(NoTxPerMig_2021_01_03_00_00_00.prototype, 'up').callsFake(track('NoTx'));
+
+    const tr = sinon.spy(FakeSqliteDriver.prototype, 'transaction');
+    const svc = new DefaultMigrationService(driver);
+
+    const executed = await svc.up([unit(MigA_2021_01_01_00_00_00), unit(MigB_2021_01_02_00_00_00), unit(NoTxPerMig_2021_01_03_00_00_00)]);
+
+    // one transaction per wrapped migration - 1 would mean PerRun's shared transaction, 3 would
+    // mean the opt-out was ignored
+    expect(tr.callCount).to.eq(2);
+    expect(inTransaction).to.eql({ MigA: true, MigB: true, NoTx: false });
+    expect(executed.map((e) => e.constructor.name)).to.eql(['MigA_2021_01_01_00_00_00', 'MigB_2021_01_02_00_00_00', 'NoTxPerMig_2021_01_03_00_00_00']);
+  });
+
+  it('a rolled-back migration whose retry fails is left blocking the next run', async () => {
+    const driver = await makeDriver();
+    driver.Options.Migration = { ...driver.Options.Migration, Transaction: { Mode: MigrationTransactionMode.PerMigration } };
+
+    // applied once and later rolled back, so it is pending again while still carrying the old
+    // FinishedAt / RolledBackAt timestamps
+    const table = [row({ Migration: 'MigA_2021_01_01_00_00_00', FinishedAt: now, RolledBackAt: now, Batch: 2 })];
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        return table.map((r) => ({ ...r }));
+      }
+      // writes issued inside the failing transaction vanish with it - that is what a rollback
+      // does, and it is exactly how the reset upsertStart() wrote gets lost. Only one row lives
+      // in this table, so the where clause needs no modelling.
+      if (b instanceof UpdateQueryBuilder && b.Table === MIGRATION_TABLE_NAME && driver.CurrentTransaction === undefined) {
+        Object.assign(table[0], b.Value as any);
+      }
+      return [{ 1: 1 }];
+    });
+    const upA = sinon.stub(MigA_2021_01_01_00_00_00.prototype, 'up').rejects(new Error('ddl exploded'));
+    const svc = new DefaultMigrationService(driver);
+
+    try {
+      await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+      expect.fail('should have thrown');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('ddl exploded');
+    }
+
+    upA.resetHistory();
+
+    // the half-applied migration must now block every later run instead of quietly retrying
+    try {
+      await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+      expect.fail('the half-applied migration should have blocked the run');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('MigA_2021_01_01_00_00_00');
+      expect(e.message).to.contain('resolve');
+    }
+
+    expect(upA.called, 'a blocked run must not re-run the migration').to.be.false;
+
+    // because the recorded state is the blocking one: FinishedAt NULL *and* Logs set
+    expect(table[0].FinishedAt, 'the failure row must not keep the earlier attempt FinishedAt').to.be.null;
+    expect(table[0].Logs).to.contain('ddl exploded');
   });
 
   it('warns when the recorded checksum no longer matches the migration source', async () => {

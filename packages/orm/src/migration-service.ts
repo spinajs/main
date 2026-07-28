@@ -195,14 +195,20 @@ export class DefaultMigrationService extends OrmMigrationService {
   }
 
   /**
-   * Records why a migration died. The row keeps `FinishedAt` NULL, which is what blocks every
-   * later run until someone resolves it.
+   * Records why a migration died. Failed state is `FinishedAt` NULL *and* `Logs` set - the pair
+   * `assertNoFailed` matches on - so this write establishes both rather than assuming the row
+   * already carries a NULL `FinishedAt`.
+   *
+   * It cannot assume it: a migration that was applied and later rolled back is pending again
+   * while still holding the old `FinishedAt`/`RolledBackAt` timestamps, and the reset
+   * `upsertStart` issued for the retry is inside the transaction that just unwound. Writing only
+   * `Logs` would leave `FinishedAt` set, and a half-applied migration would slip past the block.
    */
   protected async markFailed(name: string, err: Error): Promise<void> {
     await this.driver
       .update()
       .in(this.table)
-      .update({ Logs: `${err.message}\n${err.stack ?? ''}` })
+      .update({ Logs: `${err.message}\n${err.stack ?? ''}`, FinishedAt: null, RolledBackAt: null })
       .where({ Migration: name });
   }
 
@@ -311,7 +317,9 @@ export class DefaultMigrationService extends OrmMigrationService {
 
       const startAndRun = async (u: IMigrationUnit) => {
         const migration = instanceOf(u);
-        const existing = (await this.records()).find((r) => r.Migration === u.name);
+        // the snapshot taken at the top of the run is still accurate here: a unit appears at
+        // most once in `pending`, and nothing writes its row before this point
+        const existing = records.find((r) => r.Migration === u.name);
         await this.upsertStart(u.name, existing);
 
         this.warnOnChecksumDrift(u, records);
@@ -328,16 +336,25 @@ export class DefaultMigrationService extends OrmMigrationService {
        * trace of what broke.
        */
       const recordFailure = async (name: string, err: unknown) => {
-        const fresh = (await this.records()).find((r) => r.Migration === name);
+        try {
+          // deliberately re-read rather than reuse the run's snapshot: this has to observe
+          // post-rollback state, which may have lost the row `upsertStart` inserted
+          const fresh = (await this.records()).find((r) => r.Migration === name);
 
-        if (!fresh) {
-          await this.upsertStart(name, undefined);
+          if (!fresh) {
+            await this.upsertStart(name, undefined);
+          }
+
+          await this.markFailed(name, err as Error);
+        } catch (bookkeeping) {
+          // the likeliest reason up() died is a connection that is now gone, which kills this
+          // write too. The migration error is what the caller needs; losing it to a secondary
+          // failure would hide both the migration name and the root cause.
+          this.Log.error(`Migration ${name} on connection ${this.driver.Options.Name} failed, and the failure row could not be written: ${(bookkeeping as Error).message}. The tracking table may not reflect that this migration is half-applied - verify it by hand.`);
         }
-
-        await this.markFailed(name, err as Error);
       };
 
-      const failure = (name: string, err: unknown) => new OrmException(`Migration ${name} failed on connection ${this.driver.Options.Name}: ${(err as Error).message}`, this.driver.Options, undefined, undefined, err);
+      const failure = (name: string, err: unknown) => new OrmException(`Migration ${name} failed on connection ${this.driver.Options.Name}: ${(err as Error).message}`, undefined, undefined, undefined, err);
 
       const execute = async (u: IMigrationUnit, wrap: boolean) => {
         try {
