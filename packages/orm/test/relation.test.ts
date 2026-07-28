@@ -13,6 +13,7 @@ import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQu
 import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import { extractModelDescriptor } from './../src/descriptor.js';
+import { ExistsQueryStatement } from '../src/statements.js';
 import { RelationModel1 } from './mocks/models/RelationModel1.js';
 import { BelongsToRelation, OneToManyRelation } from '../src/relations.js';
 import { Orm } from '../src/orm.js';
@@ -908,7 +909,7 @@ describe('Orm relations tests', () => {
     expect(extractModelDescriptor(Undecorated)).to.be.null;
   });
 
-  it('whereExist with callback on a belongsTo relation compiles without throwing', async () => {
+  it('whereExist with callback on a belongsTo relation correlates instead of joining', async () => {
     await db();
 
     const query = RelationModel1.where({ Id: 1 });
@@ -919,7 +920,12 @@ describe('Orm relations tests', () => {
       });
     }).to.not.throw();
 
-    expect(query.JoinStatements.length).to.be.greaterThan(0);
+    // A correlated EXISTS, not a right join. The join form only ever worked on selects —
+    // update and delete builders have no join methods — and it leaked the joined table's
+    // columns into the outer result while turning an existence test into a row-multiplying
+    // join.
+    expect(query.JoinStatements.length).to.eq(0);
+    expect(query.Statements.filter((s) => s instanceof ExistsQueryStatement).length).to.eq(1);
   });
 
   it('dehydrate does not crash when a One-relation property is null', async () => {

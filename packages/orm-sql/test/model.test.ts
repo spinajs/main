@@ -2,7 +2,7 @@ import { ICompilerOutput } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-floating-promises */
 
-import { SqlInsertQueryCompiler, SqlUpdateQueryCompiler } from './../src/compilers.js';
+import { SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlUpdateQueryCompiler } from './../src/compilers.js';
 import { DI } from '@spinajs/di';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
 import { Configuration } from '@spinajs/configuration';
@@ -15,7 +15,7 @@ import chaiAsPromised from 'chai-as-promised';
 import './Models/JoinModel.js';
 import { Model1 } from './Models/Model1.js';
 import { Model2 } from './Models/Model2.js';
-import './Models/RelationModel.js';
+import { RelationModel } from './Models/RelationModel.js';
 import './Models/RelationModel2.js';
 import './Models/RelationModel3.js';
 import './Models/RelationModel4.js';
@@ -357,6 +357,135 @@ describe('model generated queries', () => {
     const q = RelationModel3.select().whereNotExists('Models').toDB() as ICompilerOutput;
 
     expect(q.expression).to.equal('SELECT * FROM `RelationTable3` WHERE NOT EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` WHERE owner_id = `RelationTable3`.`Id` )');
+  });
+
+  /**
+   * `whereExist` on a belongsTo used to mutate the OUTER builder with a right join, so it
+   * only ever worked on selects — `UpdateQueryBuilder` mixes in `WhereBuilder` alone and
+   * `DeleteQueryBuilder` adds only `LimitBuilder`, neither of which defines `rightJoin`.
+   * The rbac middleware runs on all three builder types, so a model reaching ownership
+   * through a belongsTo threw a TypeError the moment it was updated or deleted.
+   */
+  describe('whereExists on a belongsTo relation', () => {
+    /** The `RelationModel -> Group -> Models` chain, as an rbac hook would write it. */
+    function ownedByGroupMember(this: any) {
+      this.whereExist('Group', function (this: any) {
+        this.whereExist('Models', function (this: any) {
+          this.where('Id', 1);
+        });
+      });
+    }
+
+    function column(Name: string, Type = 'INT'): any {
+      return {
+        Type,
+        MaxLength: 0,
+        Comment: '',
+        DefaultValue: null,
+        NativeType: Type,
+        Unsigned: false,
+        Nullable: true,
+        PrimaryKey: false,
+        AutoIncrement: false,
+        Name,
+        Converter: null,
+        Schema: 'sqlite',
+        Unique: false,
+        Uuid: false,
+        Ignore: false,
+        IsForeignKey: false,
+        ForeignKeyDescription: null,
+        Aggregate: false,
+        Virtual: false,
+      };
+    }
+
+    beforeEach(() => {
+      // FakeSqliteDriver reports no columns at all, so the undecorated properties these
+      // cases filter on have to come from somewhere for WhereStatement's column check.
+      const info = sinon.stub(FakeSqliteDriver.prototype, 'tableInfo');
+      info.withArgs('RelationTable', undefined).resolves([column('group_id')]);
+      info.withArgs('RelationTable3', undefined).resolves([column('RelationProperty3', 'VARCHAR')]);
+    });
+
+    it('correlates with a sub-query instead of joining', async () => {
+      await DI.resolve(Orm);
+
+      const q = RelationModel.select()
+        .whereExist('Group', function () {
+          this.where('RelationProperty3', 'test');
+        })
+        .toDB() as ICompilerOutput;
+
+      expect(q.expression).to.equal('SELECT * FROM `RelationTable` WHERE `group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE `RelationTable3_exists`.`RelationProperty3` = ? AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
+      expect(q.bindings![0]).to.eq('test');
+    });
+
+    it('correlates against the outer alias when one is set', async () => {
+      await DI.resolve(Orm);
+
+      const q = RelationModel.select()
+        .setAlias('r')
+        .whereExist('Group', function () {
+          this.where('RelationProperty3', 'test');
+        })
+        .toDB() as ICompilerOutput;
+
+      expect(q.expression).to.equal('SELECT `r`.* FROM `RelationTable` as `r` WHERE `r`.`group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE `RelationTable3_exists`.`RelationProperty3` = ? AND `RelationTable3_exists`.`Id` = `r`.`group_id` )');
+    });
+
+    it('negates the whole sub-query for whereNotExists', async () => {
+      await DI.resolve(Orm);
+
+      const q = RelationModel.select()
+        .whereNotExists('Group', function () {
+          this.where('RelationProperty3', 'test');
+        })
+        .toDB() as ICompilerOutput;
+
+      expect(q.expression).to.equal('SELECT * FROM `RelationTable` WHERE `group_id` IS NOT NULL AND NOT EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE `RelationTable3_exists`.`RelationProperty3` = ? AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
+    });
+
+    it('emits no sub-query without a callback', async () => {
+      await DI.resolve(Orm);
+
+      // a belongsTo with a non-null FK always has its parent row, so the FK check is enough
+      const q = RelationModel.select().whereExist('Group').toDB() as ICompilerOutput;
+
+      expect(q.expression).to.equal('SELECT * FROM `RelationTable` WHERE `group_id` IS NOT NULL');
+    });
+
+    it('nests through a following manyToMany', async () => {
+      await DI.resolve(Orm);
+
+      // ownership two relations away - yourscreen's ContentEntries -> EntriesGroup -> Owners
+      const q = RelationModel.select();
+      ownedByGroupMember.call(q);
+
+      expect((q.toDB() as ICompilerOutput).expression).to.equal('SELECT * FROM `RelationTable` WHERE `group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE owner_id = `RelationTable3_exists`.`Id` ) AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
+    });
+
+    it('compiles the same chain on a DELETE builder', async () => {
+      await DI.resolve(Orm);
+      const spy = sinon.spy(SqlDeleteQueryCompiler.prototype, 'compile');
+
+      const q = RelationModel.destroy([1, 2]);
+      ownedByGroupMember.call(q);
+      await q;
+
+      expect(spy.returnValues[0].expression).to.equal('DELETE FROM `RelationTable` WHERE `Id` IN (?,?) AND `group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE owner_id = `RelationTable3_exists`.`Id` ) AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
+    });
+
+    it('compiles the same chain on an UPDATE builder', async () => {
+      await DI.resolve(Orm);
+      const spy = sinon.spy(SqlUpdateQueryCompiler.prototype, 'compile');
+
+      const q = RelationModel.update({ fK_Id: 5 } as any);
+      ownedByGroupMember.call(q);
+      await q;
+
+      expect(spy.returnValues[0].expression).to.equal('UPDATE `RelationTable` SET `fK_Id` = ? WHERE `group_id` IS NOT NULL AND EXISTS ( SELECT * FROM `RelationTable3` as `RelationTable3_exists` WHERE EXISTS ( SELECT * FROM `JoinTable` as `JoinTable_exists` RIGHT JOIN `RelationTable4` as `$RelationModel4$` ON `JoinTable_exists`.target_id = `$RelationModel4$`.Id AND ( `$RelationModel4$`.`Id` = ? ) WHERE owner_id = `RelationTable3_exists`.`Id` ) AND `RelationTable3_exists`.`Id` = `RelationTable`.`group_id` )');
+    });
   });
 
 
