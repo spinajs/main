@@ -1,29 +1,30 @@
 import { Post, BasePath, Ok, Del, Body, Get, Query, Param, Policy, BaseController, Patch } from '@spinajs/http';
 import { User as UserModel, UserMetadata } from '@spinajs/rbac';
+import { Autoinject } from '@spinajs/di';
 import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
 import { AsModel, PaginationDTO, OrderDTO, Filter, IFilterRequest, FromModel } from '@spinajs/orm-http';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
-import { InsertBehaviour, SortOrder } from '@spinajs/orm';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
-
-/**
- * Fallback page size. A request without a `limit` used to reach `take(0)`,
- * which the query builder rejects ( "take count should be a positive number" ),
- * so plain listing requests failed instead of returning the first page.
- */
-const DEFAULT_PAGE_SIZE = 10;
+import { UserMetadataService } from '../services/UserMetadataService.js';
 
 /**
  * User metadata management.
  * Provides CRUD operations for key-value metadata entries attached to user accounts.
  * Admin routes operate on any user (identified by UUID), while own routes operate on the
  * currently authenticated user's metadata.
+ *
+ * Both families delegate to {@link UserMetadataService}, which owns the owner
+ * scoping — the only thing that ever differed between them is where the owner
+ * id comes from.
  * @tags User Metadata
  */
 @BasePath('user')
 @Resource('user.metadata')
 @Policy(AuthorizedPolicy)
 export class UserMetadataController extends BaseController {
+
+    @Autoinject(UserMetadataService)
+    protected Metadata: UserMetadataService;
 
     /**
      * List metadata for a specific user (admin)
@@ -48,15 +49,7 @@ export class UserMetadataController extends BaseController {
         @Filter(FilterableUserMetadata)
         filter?: IFilterRequest,
     ) {
-        const limit = pagination?.limit || DEFAULT_PAGE_SIZE;
-
-        return new Ok(FilterableUserMetadata.select().where({
-            user_id: user.Id
-        }).filter(filter?.filters ?? [], filter?.op)
-            .take(limit)
-            .skip(limit * (pagination?.page ?? 0))
-            .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC)
-        );
+        return new Ok(this.Metadata.list(user.Id, pagination, order, filter));
     }
 
 
@@ -76,10 +69,7 @@ export class UserMetadataController extends BaseController {
     public async getUserMeta(
         @FromModel({ queryField: "Uuid" }) user: UserModel,
         @Param() key: string) {
-        return new Ok(UserMetadata.where({
-            Key: key,
-            user_id: user.Id
-        }).firstOrFail());
+        return new Ok(this.Metadata.getByKey(user.Id, key));
     }
 
     /**
@@ -98,8 +88,7 @@ export class UserMetadataController extends BaseController {
         @FromModel({ queryField: "Uuid" }) user: UserModel,
         @AsModel() metadata: UserMetadata) {
 
-        metadata.User.attach(user);
-        await metadata.insert(InsertBehaviour.InsertOrUpdate);
+        await this.Metadata.upsert(user.Id, metadata);
         return new Ok();
     }
 
@@ -127,11 +116,11 @@ export class UserMetadataController extends BaseController {
         }) meta: UserMetadata,
         @FromModel({ queryField: "Uuid" }) _user: UserModel,
         @Body() data: UserMetadataDto) {
-        await meta.update({
-            Key: data.Key,
-            Value: data.Value,
-            Type: data.Type
-        })
+
+        // @FromModel already resolved the entry within the addressed user's
+        // scope ( so a miss is a 404 ); the write still goes through the
+        // owner-scoped service so the predicate is not restated here.
+        await this.Metadata.update(_user.Id, meta.Id, data);
 
         return new Ok();
     }
@@ -152,28 +141,10 @@ export class UserMetadataController extends BaseController {
     public async deleteUserMetadata(
         @FromModel({ queryField: "Uuid" }) user: UserModel,
         @Param() meta: number) {
-        // NOTE: destroy() refuses to build an unbounded DELETE, so the entry id
-        // goes in as the primary key and ownership is AND-ed on top of it —
-        // deleting by id alone would let any user id delete anybody's entry.
-        await UserMetadata.destroy(meta).andWhere('user_id', user.Id);
+        await this.Metadata.delete(user.Id, meta);
 
         return new Ok();
     }
-
-    /**
-     * List own metadata
-     * Returns a paginated, filtered, and ordered list of metadata entries for the authenticated user.
-     * @security cookieAuth
-     * @param pagination.page Page number (zero-based)
-     * @param pagination.limit Number of entries per page
-     * @param order.column Column to sort by (default: Id)
-     * @param order.order Sort direction: ASC or DESC (default: DESC)
-     * @returns {IUserMetadataEntry[]} Paginated list of own metadata entries
-     * @response 401 Unauthorized — valid session required
-     * @response 403 Forbidden — readOwn permission required
-     */
-
-
 
     /**
      * List own metadata
@@ -196,17 +167,7 @@ export class UserMetadataController extends BaseController {
         @Filter(FilterableUserMetadata)
         filter?: IFilterRequest,
     ) {
-        // Explicit owner scoping: the rbac query middleware does not enforce
-        // ownership for the metadata model (queries resolve to the unsafe base
-        // model without an @OrmResource), so every own-route filters by the
-        // authenticated user's id directly.
-        const limit = pagination?.limit || DEFAULT_PAGE_SIZE;
-
-        return new Ok(FilterableUserMetadata.select().where('user_id', user.Id).filter(filter?.filters ?? [], filter?.op)
-            .take(limit)
-            .skip(limit * (pagination?.page ?? 0))
-            .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC)
-        );
+        return new Ok(this.Metadata.list(user.Id, pagination, order, filter));
     }
 
     /**
@@ -222,10 +183,7 @@ export class UserMetadataController extends BaseController {
     @Get("metadata/:key")
     @Permission(['readOwn'])
     public async getMeta(@User() user: UserModel, @Param() key: string) {
-        return new Ok(UserMetadata.where({
-            Key: key,
-            user_id: user.Id,
-        }).firstOrFail());
+        return new Ok(this.Metadata.getByKey(user.Id, key));
     }
 
     /**
@@ -239,10 +197,7 @@ export class UserMetadataController extends BaseController {
     @Post("metadata")
     @Permission(['updateOwn'])
     public async addMetadata(@User() user: UserModel, @AsModel() metadata: UserMetadata) {
-        // force ownership to the authenticated user — never trust a user_id
-        // supplied in the request body
-        metadata.user_id = user.Id;
-        await metadata.insert(InsertBehaviour.InsertOrUpdate);
+        await this.Metadata.upsert(user.Id, metadata);
         return new Ok();
     }
 
@@ -260,19 +215,7 @@ export class UserMetadataController extends BaseController {
     @Patch('metadata/:meta')
     @Permission(['updateOwn'])
     public async updateMetadata(@User() user: UserModel, @Param() meta: string, @Body() data: UserMetadataDto) {
-        // The Key/Id lookup is grouped and AND-ed with an explicit ownership
-        // filter. Without the grouping the flat "Key = ? OR Id = ? AND user_id = ?"
-        // binds as "Key = ? OR (Id = ? AND user_id = ?)", letting any user update
-        // another user's metadata by its Key. Scoping by user_id explicitly (not
-        // relying on the query middleware, which does not fire for this model)
-        // keeps the update owner-bound.
-        await UserMetadata.update({
-            Key: data.Key,
-            Value: data.Value,
-            Type: data.Type
-        }).where(function () {
-            this.where("Key", meta).orWhere("Id", meta);
-        }).andWhere('user_id', user.Id);
+        await this.Metadata.update(user.Id, meta, data);
 
         return new Ok();
     }
@@ -290,7 +233,7 @@ export class UserMetadataController extends BaseController {
     @Del('metadata/:meta')
     @Permission(['deleteOwn'])
     public async deleteMetadata(@User() user: UserModel, @Param() meta: number) {
-        await UserMetadata.destroy(meta).andWhere('user_id', user.Id);
+        await this.Metadata.delete(user.Id, meta);
 
         return new Ok();
     }

@@ -1,7 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
-import * as cs from 'cookie-signature';
 
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
@@ -23,7 +22,6 @@ import { DbTestConfiguration } from './db-common.js';
  * against a real user row and a real session provider.
  */
 
-const COOKIE_SECRET = 'rbac-http-user-db-test-secret';
 const body = async <T = any>(r: any): Promise<T> => await r.responseData;
 
 describe('UserController (database backed)', function () {
@@ -123,7 +121,10 @@ describe('UserController (database backed)', function () {
       session.Data.set('User', 'stale');
       await sessionStore.save(session);
 
-      await controller.refresh(await reload(), cs.sign(session.SessionId, COOKIE_SECRET));
+      // `@Cookie(true)` unsigns before the handler sees it, so the handler is
+      // called with the plain session id — the same value the framework
+      // extractor produces from the signed cookie.
+      await controller.refresh(await reload(), session.SessionId);
 
       const stored = await sessionStore.restore(session.SessionId);
       expect(stored!.Data.get('User')).to.eq(USER_UUID);
@@ -131,8 +132,15 @@ describe('UserController (database backed)', function () {
   });
 
   describe('getGrants', () => {
+    /** Session carrying an ActiveRole, as the rbac middleware would leave it. */
+    const sessionWith = (activeRole?: string) => {
+      const s = new UserSession();
+      if (activeRole) s.Data.set('ActiveRole', activeRole);
+      return s;
+    };
+
     it('returns the grants of the roles the user has', async () => {
-      const result = await controller.getGrants(await reload());
+      const result = await controller.getGrants(await reload(), sessionWith('user'));
       const grants = await body<any>(result);
 
       expect(result).to.be.instanceOf(Ok);
@@ -141,10 +149,30 @@ describe('UserController (database backed)', function () {
     });
 
     it('does not leak grants of roles the user does not have', async () => {
-      const grants = await body<any>(await controller.getGrants(await reload()));
+      const grants = await body<any>(await controller.getGrants(await reload(), sessionWith('user')));
 
       // `users` is granted to admin only in the test configuration
       expect(grants).to.not.have.property('users');
+    });
+
+    it('falls back to the first assigned role when the session names no active role', async () => {
+      const grants = await body<any>(await controller.getGrants(await reload(), sessionWith()));
+
+      expect(grants).to.have.property('user.metadata');
+    });
+
+    it('reports only the active role — not the union of every assigned role', async () => {
+      // A multi-role user acting as 'user' must not be told about the grants
+      // of 'admin': enforcement resolves ActiveRole, so reporting the union
+      // advertises actions the server would refuse.
+      const multiRole = await reload();
+      multiRole.Role = ['user', 'admin'];
+
+      const asUser = await body<any>(await controller.getGrants(multiRole, sessionWith('user')));
+      const asAdmin = await body<any>(await controller.getGrants(multiRole, sessionWith('admin')));
+
+      expect(asUser, 'acting as user must not expose the admin-only resource').to.not.have.property('users');
+      expect(asAdmin, 'acting as admin must expose the admin-only resource').to.have.property('users');
     });
   });
 

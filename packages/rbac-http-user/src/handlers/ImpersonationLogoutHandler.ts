@@ -1,8 +1,6 @@
-import { Injectable } from '@spinajs/di';
-import { AutoinjectService } from '@spinajs/configuration';
-import { SessionProvider, User, UserImpersonationEnded } from '@spinajs/rbac';
-import { _ev } from '@spinajs/queue';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { LogoutHandler, ILogoutContext, ILogoutResult } from '../logout.js';
+import { ImpersonationService } from '../services/ImpersonationService.js';
 
 /**
  * Logout handler that detects an active impersonation and reverts it instead
@@ -13,40 +11,32 @@ import { LogoutHandler, ILogoutContext, ILogoutResult } from '../logout.js';
 export class ImpersonationLogoutHandler extends LogoutHandler {
   public Priority = 10;
 
-  @AutoinjectService('rbac.session')
-  protected SessionProvider!: SessionProvider;
+  @Autoinject(ImpersonationService)
+  protected Impersonation: ImpersonationService;
 
   public async handle(context: ILogoutContext): Promise<ILogoutResult | null> {
-    const session = context.Session;
-    if (!session) return null;
-
-    const impersonatorUuid = session.Data.get('Impersonator') as string | undefined;
-    if (!impersonatorUuid) return null;
-
-    const original = await User.getByUuid(impersonatorUuid);
-
-    session.Data.set('User', original.Uuid);
-    session.Data.delete('Impersonator');
-    session.Data.delete('ImpersonationStartedAt');
-    const restoredActiveRole = (session.Data.get('OriginalActiveRole') as string | undefined) ?? original.Role?.[0];
-    if (restoredActiveRole) {
-      session.Data.set('ActiveRole', restoredActiveRole);
+    if (!this.Impersonation.isActive(context.Session)) {
+      return null;
     }
-    session.Data.delete('OriginalActiveRole');
 
-    await this.SessionProvider.save(session);
-    await this.emitEvent(original, context.User);
+    const result = await this.Impersonation.revert(context.Session, context.User);
 
-    // Take ownership of the response: no cookie change — the original user's
-    // session continues.
-    return { Body: { ImpersonationEnded: true } };
-  }
+    switch (result.Status) {
+      case 'reverted':
+        // Take ownership of the response: no cookie change — the original
+        // user's session continues.
+        return { Body: { ImpersonationEnded: true } };
 
-  /**
-   * Hook for tests to intercept event emission without stubbing the module-level
-   * `_ev` ESM binding.
-   */
-  protected emitEvent(original: User, target: User): Promise<void> {
-    return _ev(new UserImpersonationEnded(original, target))();
+      case 'impersonator-gone':
+        // The impersonator's account disappeared mid-impersonation. The stale
+        // block has been cleared, but there is no identity left to hand the
+        // session back to — defer to the default handler so the session is
+        // destroyed and the caller is logged out properly. Reverting used to
+        // dereference the missing user here and answer a logout with a 500.
+        return null;
+
+      default:
+        return null;
+    }
   }
 }

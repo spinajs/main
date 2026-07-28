@@ -3,11 +3,8 @@ import { BaseController, BasePath, Post, Del, Body, Ok, Get, BadRequestResponse,
 import {
   AccessControl,
   PasswordProvider,
-  SessionProvider,
   User,
   UserImpersonationStarted,
-  UserImpersonationEnded,
-  _unwindGrants,
   canImpersonate,
 } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
@@ -24,6 +21,8 @@ import {
   IImpersonationState,
   IUserWithGrants,
 } from '@spinajs/rbac-http';
+import { ImpersonationService } from '../services/ImpersonationService.js';
+import { buildUserWithGrants, grantsFor } from '../services/grants.js';
 
 const IMPERSONATE_RESOURCE = 'user:impersonate';
 
@@ -46,8 +45,8 @@ export class ImpersonationController extends BaseController {
   @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;
 
-  @AutoinjectService('rbac.session')
-  protected SessionProvider: SessionProvider;
+  @Autoinject(ImpersonationService)
+  protected Impersonation: ImpersonationService;
 
   @Config('rbac.impersonation.requirePassword', { defaultValue: true })
   protected RequirePassword: boolean;
@@ -104,7 +103,7 @@ export class ImpersonationController extends BaseController {
   ): Promise<
     Ok<IImpersonationResponse> | BadRequestResponse | Unauthorized | ForbiddenResponse | NotFound | Conflict
   > {
-    if (session?.Data.get('Impersonator')) {
+    if (this.Impersonation.isActive(session)) {
       return new Conflict({
         error: {
           code: 'E_IMPERSONATION_ACTIVE',
@@ -166,27 +165,15 @@ export class ImpersonationController extends BaseController {
       }
     }
 
-    // Persist impersonation state. We keep the impersonator's previous
-    // ActiveRole so it can be restored on stop; effective ActiveRole becomes
-    // the target's first role.
+    // Persist impersonation state. The service keeps the impersonator's
+    // previous ActiveRole so it can be restored on stop; effective ActiveRole
+    // becomes the target's first role.
     const startedAt = DateTime.now().toISO()!;
-    const previousActiveRole = session.Data.get('ActiveRole') as string | undefined;
+    const targetActiveRole = await this.Impersonation.start(session, caller, target, startedAt);
 
-    session.Data.set('Impersonator', caller.Uuid);
-    session.Data.set('User', target.Uuid);
-    session.Data.set('ImpersonationStartedAt', startedAt);
-    if (previousActiveRole !== undefined) {
-      session.Data.set('OriginalActiveRole', previousActiveRole);
-    }
-    const targetActiveRole = target.Role?.[0];
-    if (targetActiveRole) {
-      session.Data.set('ActiveRole', targetActiveRole);
-    }
-
-    await this.SessionProvider.save(session);
     await this.emitEvent(new UserImpersonationStarted(caller, target));
 
-    return new Ok(this.buildResponse(target, caller, targetActiveRole!, startedAt));
+    return new Ok(this.buildResponse(target, caller, targetActiveRole, startedAt));
   }
 
   /**
@@ -202,54 +189,31 @@ export class ImpersonationController extends BaseController {
     @UserRouteArg() target: User,
     @SessionRouteArg() session: ISession,
   ): Promise<Ok<IUserWithGrants> | BadRequestResponse> {
-    const impersonatorUuid = session?.Data.get('Impersonator') as string | undefined;
-    if (!impersonatorUuid) {
+    const result = await this.Impersonation.revert(session, target);
+
+    if (result.Status === 'not-impersonating') {
       return new BadRequestResponse({
         error: { code: 'E_NO_IMPERSONATION', message: 'No impersonation is currently in progress' },
       });
     }
 
-    const original = await this.loadOriginal(impersonatorUuid);
-    if (!original) {
-      // Stale session referencing a deleted impersonator — destroy the
-      // impersonation block to recover but report an error so the caller
-      // can re-authenticate.
-      session.Data.delete('Impersonator');
-      session.Data.delete('ImpersonationStartedAt');
-      session.Data.delete('OriginalActiveRole');
-      await this.SessionProvider.save(session);
+    if (result.Status === 'impersonator-gone') {
+      // Stale session referencing a deleted impersonator. The service already
+      // cleared the impersonation block to recover; report an error so the
+      // caller can re-authenticate.
       return new BadRequestResponse({
         error: { code: 'E_IMPERSONATOR_GONE', message: 'Original user no longer exists' },
       });
     }
 
-    // Restore the original session state.
-    session.Data.set('User', original.Uuid);
-    session.Data.delete('Impersonator');
-    session.Data.delete('ImpersonationStartedAt');
-
-    const restoredActiveRole = (session.Data.get('OriginalActiveRole') as string | undefined) ?? original.Role?.[0];
-    if (restoredActiveRole) {
-      session.Data.set('ActiveRole', restoredActiveRole);
-    }
-    session.Data.delete('OriginalActiveRole');
-
-    await this.SessionProvider.save(session);
-    await this.emitEvent(new UserImpersonationEnded(original, target));
-
-    const grants = restoredActiveRole ? _unwindGrants(restoredActiveRole, this.AC.getGrants()) : {};
-    return new Ok({
-      ...(original.dehydrateWithRelations({ dateTimeFormat: 'iso' }) as any),
-      ActiveRole: restoredActiveRole,
-      Grants: grants,
-    } as IUserWithGrants);
+    return new Ok(buildUserWithGrants(result.Original, result.ActiveRole, this.AC));
   }
 
   /**
    * Emit an impersonation lifecycle event. Wrapped in a protected method so
    * tests can intercept without stubbing module-level ESM bindings.
    */
-  protected emitEvent(event: UserImpersonationStarted | UserImpersonationEnded): Promise<void> {
+  protected emitEvent(event: UserImpersonationStarted): Promise<void> {
     return _ev(event)();
   }
 
@@ -261,22 +225,18 @@ export class ImpersonationController extends BaseController {
     return User.query().whereUuid(uuid).populate('Metadata').notDeleted().first() as Promise<User | undefined>;
   }
 
-  /**
-   * Load the original (impersonator) user. Extracted for the same reason as
-   * loadTarget — keeps the controller easy to test in isolation.
-   */
-  protected loadOriginal(uuid: string): Promise<User | undefined> {
-    return User.getByUuid(uuid) as Promise<User | undefined>;
-  }
-
-  protected buildResponse(target: User, impersonator: User, activeRole: string, startedAt: string): IImpersonationResponse {
-    const grants = activeRole ? _unwindGrants(activeRole, this.AC.getGrants()) : {};
+  protected buildResponse(
+    target: User,
+    impersonator: User,
+    activeRole: string | undefined,
+    startedAt: string,
+  ): IImpersonationResponse {
     return {
       User: target.dehydrateWithRelations({ dateTimeFormat: 'iso' }) as any,
       Impersonator: impersonator.dehydrateWithRelations({ dateTimeFormat: 'iso' }) as any,
       ActiveRole: activeRole,
-      Grants: grants,
+      Grants: grantsFor(this.AC, activeRole),
       StartedAt: startedAt,
-    };
+    } as IImpersonationResponse;
   }
 }

@@ -41,29 +41,20 @@ const rbacHttp = {
       forceUser: false,
       service: 'Default2FaToken',
     },
-    fingerprint: {
-      enabled: false,
-      maxDevices: 3,
-      service: 'FingerprintJs',
-    },
     session: {
       cookie: {
         sameSite: 'lax'
       }
     },
     password: {
-      // password reset token ttl in minutes
-      tokenTTL: 60,
+      // NOTE: the password reset token's lifetime is `rbac.password.passwordResetWaitTime`
+      // ( seconds, defined by @spinajs/rbac ) — this package does not restate it.
 
       /**
        * Block account after invalid login attempts
        */
       blockAfterAttempts: 3,
     },
-    /**
-     * Should federated login be enabled ? eg. facebook
-     */
-    allowFederated: false,
   },
   http: {
     // middlewares: [

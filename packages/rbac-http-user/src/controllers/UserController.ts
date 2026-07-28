@@ -1,13 +1,13 @@
 import { PasswordDto } from '../dto/password-dto.js';
-import { User as UserModel, PasswordProvider, SessionProvider, passwordMatch, changePassword, _unwindGrants, _combineGrants, AccessControl } from '@spinajs/rbac';
+import { User as UserModel, PasswordProvider, SessionProvider, passwordMatch, changePassword, AccessControl } from '@spinajs/rbac';
+import type { ISession } from '@spinajs/rbac';
 import { BaseController, BasePath, Get, Ok, Body, Patch, Cookie, Policy } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
-import * as cs from 'cookie-signature';
 import _ from 'lodash';
-import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap, Session as SessionRouteArg } from '@spinajs/rbac-http';
 import { _chain, _either } from '@spinajs/util';
+import { activeRoleOf, grantsFor } from '../services/grants.js';
 
 
 
@@ -23,9 +23,6 @@ import { _chain, _either } from '@spinajs/util';
 export class UserController extends BaseController {
   @Autoinject()
   protected PasswordProvider: PasswordProvider;
-
-  @Config('http.cookie.secret')
-  protected CoockieSecret: string;
 
   @Autoinject()
   protected SessionProvider: SessionProvider;
@@ -44,15 +41,16 @@ export class UserController extends BaseController {
    */
   @Get()
   @Permission(['readOwn'])
-  public async refresh(@User() user: UserModel, @Cookie() ssid: string) {
+  public async refresh(@User() user: UserModel, @Cookie(true) ssid: string) {
     // get user data from db
     await user.refresh();
     await user.Metadata.populate();
 
-    // refresh session data from DB
-    const sId: string | false = cs.unsign(ssid, this.CoockieSecret);
-    if (sId) {
-      const session = await this.SessionProvider.restore(sId);
+    // `@Cookie(true)` hands over the already-unsigned session id — the previous
+    // unsigned read plus a hand-rolled `cookie-signature` call duplicated what
+    // the framework's own extractor does, secret lookup included.
+    if (ssid) {
+      const session = await this.SessionProvider.restore(ssid);
       if (session) {
         // Session stores the user UUID (see LoginController) — RbacUserFactory
         // resolves the user from it on each request. Storing a dehydrated object
@@ -62,30 +60,31 @@ export class UserController extends BaseController {
       }
     }
 
-    return new Ok(user.dehydrate());
+    // Same shape as every other user-bearing response ( login, whoami, 2FA
+    // verify ): relations included and DateTime rendered as ISO strings. Plain
+    // `dehydrate()` dropped Role/Metadata and emitted raw DateTime objects, so
+    // a client refreshing its profile got a different user than it logged in with.
+    return new Ok(user.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
   /**
    * Get current user grants
-   * Returns the flattened RBAC grants for the authenticated user, combining all roles
-   * the user is assigned to into a single permission map keyed by resource.
+   * Returns the flattened RBAC grants in effect for the authenticated user — those of
+   * the session's active role, resolved through its inheritance chain. Switching the
+   * active role (`POST /auth/active-role`) changes what this returns.
    * @security cookieAuth
-   * @returns {IGrantsMap} Combined RBAC grants map: resource → action → permission descriptor
+   * @returns {IGrantsMap} RBAC grants map for the active role: resource → action → permission descriptor
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — insufficient permissions
    */
   @Get("grants")
   @Permission(['readOwn'])
-  public async getGrants(@User() user: UserModel): Promise<Ok<IGrantsMap>> {
-
-    const grants = this.AC.getGrants();
-    const userGrants = user.Role.map(r => _unwindGrants(r, grants));
-
-    // Object.assign merges at the resource level, so a role naming a resource an earlier role
-    // also names would drop that role's actions on it — _combineGrants merges per action.
-    const combinedGrants = _combineGrants(...userGrants);
-
-    return new Ok(combinedGrants);
+  public async getGrants(@User() user: UserModel, @SessionRouteArg() session: ISession): Promise<Ok<IGrantsMap>> {
+    // Enforcement is bound to the session's ActiveRole, so reporting the union
+    // of every assigned role told clients about actions the server would then
+    // refuse — a user holding both 'admin' and 'user' saw admin grants while
+    // acting as 'user'. Resolve exactly what the middleware resolves.
+    return new Ok(grantsFor(this.AC, activeRoleOf(user, session)));
   }
 
 

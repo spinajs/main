@@ -1,7 +1,8 @@
-import { Injectable } from '@spinajs/di';
-import { AutoinjectService, Config } from '@spinajs/configuration';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { AutoinjectService } from '@spinajs/configuration';
 import { SessionProvider } from '@spinajs/rbac';
 import { LogoutHandler, ILogoutContext, ILogoutResult } from '../logout.js';
+import { SessionCookieFactory } from '../services/SessionCookies.js';
 
 /**
  * Default logout handler: deletes the session and clears the ssid cookie.
@@ -15,8 +16,8 @@ export class DefaultLogoutHandler extends LogoutHandler {
   @AutoinjectService('rbac.session')
   protected SessionProvider!: SessionProvider;
 
-  @Config('rbac.session.cookie', {})
-  protected SessionCookieConfig!: Record<string, unknown>;
+  @Autoinject(SessionCookieFactory)
+  protected SessionCookies!: SessionCookieFactory;
 
   public async handle(context: ILogoutContext): Promise<ILogoutResult | null> {
     if (!context.Ssid) {
@@ -28,17 +29,7 @@ export class DefaultLogoutHandler extends LogoutHandler {
 
     return {
       Body: null,
-      Cookies: [
-        {
-          Name: 'ssid',
-          Value: '',
-          Options: {
-            httpOnly: true,
-            maxAge: 0,
-            ...this.SessionCookieConfig,
-          },
-        },
-      ],
+      Cookies: [this.SessionCookies.clear()],
     };
   }
 }
