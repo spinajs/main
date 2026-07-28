@@ -1,6 +1,7 @@
 import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, Unauthorized, Policy } from '@spinajs/http';
-import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants, sessionCookieMaxAge } from '@spinajs/rbac';
+import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants, sessionCookieMaxAge, AthenticationErrorCodes } from '@spinajs/rbac';
+import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -155,7 +156,23 @@ export class LoginController extends BaseController {
       });
 
     } catch (err) {
-      this._log.error(err);
+      // Only real authentication failures map to 401. ErrorCode comes from the
+      // AuthProvider ( bad credentials / banned / inactive ), InvalidArgument
+      // from the `_check_arg` guards ( empty or malformed email / password ).
+      // Anything else — db down, session store failure, misconfiguration — was
+      // previously masked as "login or password incorrect", hiding real
+      // outages behind a 401. Those are rethrown so the http error handler
+      // maps them to a 500 and logs the full stack.
+      const isAuthFailure = err instanceof ErrorCode || err instanceof InvalidArgument;
+
+      if (!isAuthFailure) {
+        this._log.error(err as Error, `Login failed unexpectedly for ${credentials?.Email}`);
+        throw err;
+      }
+
+      const reason = err instanceof ErrorCode ? AthenticationErrorCodes[err.code] ?? err.code : 'E_INVALID_ARGUMENT';
+
+      this._log.warn(err as Error, `Login failed for ${credentials?.Email}: ${reason}`);
 
       return new Unauthorized({
         error: {
