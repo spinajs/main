@@ -127,8 +127,7 @@ export abstract class WhereQueryStatement extends QueryStatement {
 
 @NewInstance()
 export abstract class LazyQueryStatement extends QueryStatement {
-
-  constructor(protected callback: Lazy<unknown>, protected context : unknown) {
+  constructor(protected callback: Lazy<unknown>, protected context: unknown) {
     super();
   }
 
@@ -161,7 +160,6 @@ export abstract class WhereStatement extends QueryStatement {
     return this._isAggregate;
   }
 
-
   constructor(column: string | Wrap, operator: SqlOperator, value: any, builder: WhereBuilder<unknown>) {
     super();
     this._column = column;
@@ -184,7 +182,6 @@ export abstract class WhereStatement extends QueryStatement {
 
       this._isAggregate = columnDesc?.Aggregate ?? false;
     }
-
   }
 
   public abstract build(): IQueryStatementResult;
@@ -215,25 +212,21 @@ export abstract class WrapStatement {
 }
 
 @NewInstance()
-export abstract class DateWrapper extends WrapStatement { }
+export abstract class DateWrapper extends WrapStatement {}
 
 @NewInstance()
-export abstract class DateTimeWrapper extends WrapStatement { }
+export abstract class DateTimeWrapper extends WrapStatement {}
 
 @NewInstance()
 export abstract class JoinStatement extends QueryStatement {
-
   protected _whereBuilder: SelectQueryBuilder<any>;
 
   protected _container: IContainer;
 
-
   constructor(protected _options: IJoinStatementOptions) {
     super(_options.sourceTableAlias);
 
-
     if ((_.isFunction(_options.callback) || _options.callback instanceof Lazy) && _options.joinModel) {
-
       const joinModelDescriptor = extractModelDescriptor(_options.joinModel);
       const driver = joinModelDescriptor!.Driver!;
       const container = joinModelDescriptor!.Driver!.Container;
@@ -242,7 +235,7 @@ export abstract class JoinStatement extends QueryStatement {
       this._whereBuilder.database(driver.Options.Database!);
       this._whereBuilder.where(_options.callback!);
 
-      if(_options.queryCallback){
+      if (_options.queryCallback) {
         _options.queryCallback.call(this._whereBuilder);
       }
 
@@ -300,6 +293,20 @@ export abstract class ExistsQueryStatement extends SelectQueryStatement {
   public abstract build(): IQueryStatementResult;
 }
 
+/**
+ * Membership test against a `@Set()` column — a single column holding several values
+ * joined by {@link SET_DELIMITER} ( see the SetValueConverter ).
+ *
+ * There is no portable SQL for this. MySQL has `FIND_IN_SET`, SQLite has `instr`,
+ * MSSQL has `CHARINDEX`, and the shared implementation falls back to `LIKE`. Each
+ * driver therefore registers its own subclass; whatever a driver does not register
+ * resolves to the portable one, which is correct everywhere and merely slower.
+ *
+ * The value rules below are shared because they are a property of the STORAGE
+ * FORMAT, not of any dialect: a value containing the delimiter cannot be
+ * represented in such a column at all, and every implementation must refuse it
+ * rather than emit a query that matches neighbouring entries.
+ */
 @NewInstance()
 export abstract class InSetStatement extends QueryStatement {
   protected _val: any[];
@@ -315,6 +322,72 @@ export abstract class InSetStatement extends QueryStatement {
   }
 
   public abstract build(): IQueryStatementResult;
+
+  /**
+   * The values to test, as strings, after rejecting anything the storage format
+   * cannot express.
+   *
+   * A value containing the delimiter is refused instead of being searched for:
+   * `whereInSet('Role', ['admin,user'])` can only ever be a caller mistake, and
+   * every implementation of this statement — `FIND_IN_SET` included — would
+   * answer it by matching a row holding `admin` next to `user`.
+   */
+  protected values(): string[] {
+    return this._val.map((v) => {
+      if (v === null || v === undefined) {
+        throw new InvalidArgument(`set membership value cannot be null or undefined ( column ${this._column} )`);
+      }
+
+      const value = String(v);
+
+      if (value.includes(SET_DELIMITER)) {
+        throw new InvalidArgument(`set membership value "${value}" contains the set delimiter "${SET_DELIMITER}" and cannot be stored in, or matched against, column ${this._column}`);
+      }
+
+      return value;
+    });
+  }
+
+  /**
+   * Joins the per-value expressions into one statement.
+   *
+   * Negation is per value and AND-ed: "in none of these", which is the mirror of
+   * the OR-ed positive form.
+   */
+  protected combine(expressions: string[]): string {
+    if (expressions.length === 0) {
+      // An empty value list matches nothing, and its negation matches
+      // everything. Spelled out so the caller gets a valid query rather than an
+      // empty parenthesis the driver rejects.
+      return this._not ? '(1 = 1)' : '(1 = 0)';
+    }
+
+    return this._not ? `(${expressions.map((e) => `NOT ${e}`).join(' AND ')})` : `(${expressions.join(' OR ')})`;
+  }
+}
+
+/**
+ * Delimiter a `@Set()` column is stored with. Must agree with the SetValueConverter,
+ * which joins on it.
+ */
+export const SET_DELIMITER = ',';
+
+/**
+ * Escape character for the LIKE patterns of the portable membership test.
+ *
+ * NOT a backslash: MySQL treats a backslash as an escape inside string literals of
+ * its own, so `ESCAPE '\'` is a syntax error there and `ESCAPE '\\'` means something
+ * different again depending on `NO_BACKSLASH_ESCAPES`. A character with no special
+ * meaning in any of the three dialects avoids the whole question.
+ */
+export const LIKE_ESCAPE_CHARACTER = '~';
+
+/**
+ * Escapes the LIKE metacharacters of a value that is going to be embedded in a
+ * pattern, so a role literally named `admin_1` does not also match `adminX1`.
+ */
+export function escapeLikeValue(value: string): string {
+  return value.replace(new RegExp(`[${LIKE_ESCAPE_CHARACTER}%_]`, 'g'), (c) => `${LIKE_ESCAPE_CHARACTER}${c}`);
 }
 @NewInstance()
 export abstract class ColumnStatement extends QueryStatement {

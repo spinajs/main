@@ -14,11 +14,11 @@ export * from './compilers.js';
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
-import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
+import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { SqlLiteJoinStatement } from './statements.js';
+import { SqlLiteJoinStatement, SqliteInSetStatement } from './statements.js';
 import { ResourceDuplicated } from '@spinajs/exceptions';
 import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types.js';
 import { format } from '@spinajs/configuration';
@@ -353,6 +353,18 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqliteModelToSqlConverter).as(ModelToSqlConverter);
     this.Container.register(SqliteServerResponseMapper).as(ServerResponseMapper);
+    this.Container.register(SqliteInSetStatement).as(InSetStatement);
+
+    // SQLite accepts MySQL's backticks. Registered explicitly rather than inherited:
+    // nothing dialect-specific is registered in the shared base any more.
+    this.Container.register(BacktickIdentifierQuoter).as(IdentifierQuoter);
+
+    // Shared implementations that happen to be valid SQLite, claimed explicitly.
+    // `CREATE TABLE ... LIKE` is deliberately NOT among them: SQLite has no such
+    // statement, so a table clone now fails saying so instead of sending MySQL DDL.
+    this.Container.register(SqlLimitQueryCompiler).as(LimitQueryCompiler);
+    this.Container.register(SqlWithRecursiveCompiler).as(RecursiveQueryCompiler);
+    this.Container.register(SqlAlterTableQueryCompiler).as(AlterTableQueryCompiler);
   }
 
   protected async _begin(_options?: ITransactionOptions): Promise<ITransactionContext> {
@@ -397,7 +409,13 @@ export class SqliteOrmDriver extends SqlDriver {
    * @param _schema - optional schema name
    */
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
-    const converters = this.Container.get<Map<string, any>>('__orm_db_value_converters__')!;
+    // Empty map, not a non-null assertion: the default converters are registered
+    // AFTER migrations run ( see Orm.resolve ), so a migration inspecting the
+    // schema — the one place introspection is genuinely needed — reached a
+    // container entry that does not exist yet and died on `undefined.get`.
+    // Without a converter the raw default value is reported, which is exactly
+    // what the fallback below already does for unknown types.
+    const converters = this.Container.get<Map<string, any>>('__orm_db_value_converters__') ?? new Map<string, any>();
 
     const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${name});`, [] as any, QueryContext.Select)) as ITableInfo[];
 

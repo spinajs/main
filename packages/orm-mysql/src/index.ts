@@ -5,11 +5,12 @@ import { Injectable, NewInstance } from '@spinajs/di';
 // emit the same query twice. QueryBuilder / TransactionCallback / ITransaction are gone with
 // the old `{ commit, rollback }` transaction shape this branch replaced. ConnectionState /
 // IPoolMetrics are orm-infra's connection-resilience + pool-telemetry work.
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics } from '@spinajs/orm';
-import { escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler } from '@spinajs/orm';
+import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlColumnQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
 import { MySqlTableExistsCompiler } from './compilers.js';
+import { MySqlInSetStatement } from './statements.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
 import { Client as SSHClient } from 'ssh2';
 import fs from 'fs';
@@ -183,6 +184,33 @@ export class MySqlOrmDriver extends SqlDriver {
 
     this.Container.register(MySqlTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(MysqlServerResponseMapper).as(ServerResponseMapper);
+
+    // FIND_IN_SET moved here out of @spinajs/orm-sql, where every other driver
+    // inherited it and produced SQL their database has no function for.
+    this.Container.register(MySqlInSetStatement).as(InSetStatement);
+
+    /**
+     * The MySQL dialect, registered where it belongs.
+     *
+     * These classes are implemented in `@spinajs/orm-sql` and used to be registered by
+     * its `SqlDriver` — so every driver that did not override them inherited MySQL's
+     * SQL under a neutral class name. They emit `ON DUPLICATE KEY UPDATE`,
+     * `AUTO_INCREMENT`, `CHANGE COLUMN`, `CREATE EVENT`, MySQL trigger syntax and
+     * `CURRENT_DATE()`; MySQL is the database that understands all of it.
+     */
+    this.Container.register(BacktickIdentifierQuoter).as(IdentifierQuoter);
+    this.Container.register(SqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
+    this.Container.register(SqlColumnQueryCompiler).as(ColumnQueryCompiler);
+    this.Container.register(SqlAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
+    this.Container.register(SqlAlterTableQueryCompiler).as(AlterTableQueryCompiler);
+    this.Container.register(SqlTableCloneQueryCompiler).as(TableCloneQueryCompiler);
+    this.Container.register(SqlLimitQueryCompiler).as(LimitQueryCompiler);
+    this.Container.register(SqlTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
+    this.Container.register(SqlWithRecursiveCompiler).as(RecursiveQueryCompiler);
+    this.Container.register(SqlDefaultValueBuilder).as(DefaultValueBuilder);
+    this.Container.register(SqlDropEventQueryCompiler).as(DropEventQueryCompiler);
+    this.Container.register(SqlEventQueryCompiler).as(EventQueryCompiler);
+    this.Container.register(SqlTableHistoryQueryCompiler).as(TableHistoryQueryCompiler);
   }
 
   /**
@@ -318,8 +346,6 @@ export class MySqlOrmDriver extends SqlDriver {
     } else {
       indexInfo = (await this.executeOnDb(`SHOW INDEXES FROM ${escapeId(name)}`, [], QueryContext.Select)) as IIndexInfo[];
     }
-
-
 
     return tblInfo.map((r: ITableColumnInfo) => {
       const isPrimary = indexInfo.find((c) => c.Key_name === 'PRIMARY' && c.Column_name === r.COLUMN_NAME) !== undefined;
@@ -499,7 +525,7 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
         host: this.Options.SSH!.Host,
         port: this.Options.SSH!.Port,
         username: this.Options.SSH!.User,
-        privateKey: fs.readFileSync(this.Options.SSH!.PrivateKey!),
+        privateKey: fs.readFileSync(this.Options.SSH!.PrivateKey),
       });
     });
   }

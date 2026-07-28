@@ -1,12 +1,13 @@
-import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from '@spinajs/orm';
+import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, IdentifierQuoter, TruncateTableQueryCompiler } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
-import { SqlDriver } from '@spinajs/orm-sql';
+import { SqlDriver, SqlTruncateTableQueryCompiler } from '@spinajs/orm-sql';
 import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
 import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler } from './compilers.js';
 import { MssqlModelDehydrator } from './dehydrator.js';
+import { BracketIdentifierQuoter, MsSqlInSetStatement } from './statements.js';
 import { MsSqlDatetimeValueConverter } from './converters.js';
 
 export interface IMsSqlTransactionContext extends ITransactionContext {
@@ -88,7 +89,19 @@ export class MsSqlOrmDriver extends SqlDriver {
 
   public supportedFeatures(): ISupportedFeature {
     return {
-      events: true,
+      /**
+       * FALSE, and it always was in practice. This driver registers no event or
+       * table-history compiler, so both fell through to the shared ones — which
+       * emit MySQL's `CREATE EVENT` and MySQL trigger syntax, and every one of
+       * them would have been rejected by SQL Server. Scheduling on this platform
+       * is SQL Server Agent, and history is a temporal table; until this driver
+       * implements them, claiming support only means the failure happens later
+       * and further from its cause.
+       *
+       * The dialect contract check is what surfaced this — it saw the shared
+       * MySQL event compiler answering for a driver whose dialect is `mssql`.
+       */
+      events: false,
       insertReturning: false,
       // SCOPE_IDENTITY() reports the LAST identity generated in the scope, so a multi-row insert
       // cannot be walked forwards from it. MSSQL opts out of the batch key backfill.
@@ -107,7 +120,7 @@ export class MsSqlOrmDriver extends SqlDriver {
 
   public async connect(): Promise<OrmDriver> {
     try {
-      this._connectionPool = (await mssql.connect({
+      this._connectionPool = await mssql.connect({
         user: this.Options.User,
         password: this.Options.Password,
         database: this.Options.Database,
@@ -122,7 +135,7 @@ export class MsSqlOrmDriver extends SqlDriver {
           idleTimeoutMillis: this.resolvedPoolOptions().IdleTimeout,
           acquireTimeoutMillis: this.resolvedPoolOptions().AcquireTimeout,
         },
-      })) as mssql.ConnectionPool;
+      });
 
       await this.executeOnDb(`USE ${this.Options.Database}`, [], QueryContext.Schema);
 
@@ -155,6 +168,17 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(MsSqlDatetimeValueConverter).as(DatetimeValueConverter);
     this.Container.register(MsSqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
+    this.Container.register(MsSqlInSetStatement).as(InSetStatement);
+
+    // Brackets, not the backticks this driver used to inherit from the shared layer.
+    this.Container.register(BracketIdentifierQuoter).as(IdentifierQuoter);
+
+    // `TRUNCATE TABLE` is valid T-SQL, so the shared compiler is claimed explicitly.
+    // `CHANGE COLUMN`, `ALTER TABLE ... RENAME TO`, `CREATE TABLE ... LIKE`,
+    // `WITH RECURSIVE` and `CURRENT_DATE()` are NOT T-SQL and are left unregistered:
+    // those features now fail with a DI error naming the abstraction instead of
+    // reaching SQL Server as MySQL syntax.
+    this.Container.register(SqlTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
   }
 
   public async disconnect(): Promise<OrmDriver> {

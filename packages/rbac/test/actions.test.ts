@@ -109,6 +109,24 @@ describe('User model tests', function () {
     expect(Password).to.be.a('string');
   });
 
+  /**
+   * Regression: the model declared `RegisteredAt` and `create()` stamped it, but
+   * the initial migration never created the column — and the ORM writes only
+   * columns the table description reports, so the value was dropped silently on
+   * every single insert.
+   */
+  it('Should persist the registration date of a created user', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await create('registered@wp.pl', 'registered', 'bbbb', ['admin']);
+
+    // read back from the database, not from the in-memory model
+    const user = await User.query().whereAnything('registered@wp.pl').firstOrFail();
+
+    expect(user.RegisteredAt, 'RegisteredAt must survive the insert').to.be.not.null;
+    expect(user.RegisteredAt.isValid).to.eq(true);
+  });
+
   it('Should create user with metadata', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 

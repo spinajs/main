@@ -58,45 +58,36 @@ export enum E_CODES {
  */
 export function _get_system_user() {
   return _chain(
-    _zip(
-      _cfg<string>('rbac.systemRole'),
-      _cfg<string>('rbac.roleColumn'),
-    ),
+    _zip(_cfg<string>('rbac.systemRole'), _cfg<string>('rbac.roleColumn')),
     ([systemRole, roleColumn]: [string, string]) => {
       const s = _check_arg(_trim(), _non_empty())(systemRole, 'rbac.systemRole');
       const c = _check_arg(_trim(), _non_empty())(roleColumn, 'rbac.roleColumn');
 
-      return [s, c]
+      return [s, c];
     },
-    ([systemRole, roleColumn]: [string, string]) =>
-      User.query()
-        .where(roleColumn, systemRole)
-        .firstOrFail(),
+    ([systemRole, roleColumn]: [string, string]) => User.query().where(roleColumn, systemRole).firstOrFail(),
   );
 }
 
 /**
- * 
+ *
  * Gets users by role helper func.
- * 
- * @param role user role 
- * @returns 
+ *
+ * @param role user role
+ * @returns
  */
 export function _get_users_by_role(role: string[]) {
   return () => User.select().withRole(role);
 }
 
-
-
 /**
- * 
+ *
  * Gets rbac user model
- * 
- * @param user 
- * @returns 
+ *
+ * @param user
+ * @returns
  */
 export function _get_user(user: User | number | string) {
-
   if (_.isString(user)) {
     return async () => User.where('Uuid', user).firstOrFail();
   }
@@ -107,8 +98,6 @@ export function _get_user(user: User | number | string) {
 
   return () => Promise.resolve(user);
 }
-
-
 
 /**
  * Sets metadata key-value pairs on a user.
@@ -241,9 +230,9 @@ export function _user(identifier: number | string | User): () => Promise<User> {
 /**
  * Unsafe user retrieval. It does not chack for rbac permission, to this
  * function can read ANY user in system. USE IT CAREFULLY
- * 
- * @param identifier 
- * @returns 
+ *
+ * @param identifier
+ * @returns
  */
 export function _user_unsafe(identifier: number | string | User): () => Promise<User> {
   const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
@@ -252,7 +241,7 @@ export function _user_unsafe(identifier: number | string | User): () => Promise<
     return () => Promise.resolve(id);
   }
 
-  return () => UserBase.query().whereAnything(id).populate("Metadata").firstOrFail();
+  return () => UserBase.query().whereAnything(id).populate('Metadata').firstOrFail();
 }
 
 /**
@@ -389,9 +378,11 @@ export async function create(email: string, login: string, password: string, rol
     // insert to db
     _insert(),
 
-    _either(() => metadata !== undefined,  
+    _either(
+      () => metadata !== undefined,
       _set_user_meta(metadata ? Object.entries(metadata).map(([key, value]) => ({ key, value })) : []),
-      async (u: User) => u),
+      async (u: User) => u,
+    ),
 
     // run after create middleware
     (u: User) => _chain(u, ..._create_middleware('rbac.actions.create.afterCreate')),
@@ -419,6 +410,14 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
   return _chain(
     _user(identifier),
     _tap((u: User) => u.destroy()),
+
+    // Same reason a deactivation revokes: the account may no longer act. A live
+    // session outlasting the deletion is worse here than there — the session
+    // middleware resolves its user through `isActiveUser()`, which no longer
+    // matches a soft-deleted row, so every request from that session dies in
+    // the middleware instead of being cleanly logged out.
+    _revoke_sessions(),
+
     _user_ev(UserDeleted),
     _user_email('deleted'),
   );
@@ -428,11 +427,11 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
  * Grants an additional role to a user.
  * The role is added only if not already present. Emits a {@link UserRoleGranted} event.
  *
- * @param identifier - numeric id or uuid / email / login string
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  * @param role - role name to grant
  * @returns the updated {@link User}
  */
-export async function grant(identifier: number | string, role: string): Promise<User> {
+export async function grant(identifier: number | string | User, role: string): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
   return _chain(
@@ -627,8 +626,12 @@ export async function confirmPasswordReset(identifier: number | string | User, n
  * @param b - value supplied by the caller
  */
 function _secure_compare(a: string, b: string): boolean {
-  const ha = createHash('sha256').update(a ?? '').digest();
-  const hb = createHash('sha256').update(b ?? '').digest();
+  const ha = createHash('sha256')
+    .update(a ?? '')
+    .digest();
+  const hb = createHash('sha256')
+    .update(b ?? '')
+    .digest();
 
   // hashing first makes both operands the same length, which timingSafeEqual
   // requires and which also stops the length itself from leaking

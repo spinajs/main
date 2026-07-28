@@ -9,13 +9,12 @@ import _ from 'lodash';
 import { _cfg } from '@spinajs/configuration';
 
 export class UserQueryScopes implements QueryScope {
-
   /**
-   * 
+   *
    * Fetch users with specified role. If user has more roles and one of them is matching it will be included as well
-   * 
+   *
    * @param role  one of user roles. If user has this role it will be included in result. If user has more roles and one of them is matching it will be included as well
-   * @returns 
+   * @returns
    */
   public withRole(this: ISelectQueryBuilder<User[]> & UserQueryScopes, roles: string[]) {
     const r = _check_arg(_trim(), _non_empty())(roles, 'roles');
@@ -23,20 +22,20 @@ export class UserQueryScopes implements QueryScope {
   }
 
   /**
-   * 
+   *
    * Finds users with specified metadata key and value. If user has more metadata and one of them is matching it will be included as well
-   * 
+   *
    * @param key metada key
    * @param value metadata value
-   * @returns 
+   * @returns
    */
   public whereMetadata(this: ISelectQueryBuilder<User[]> & UserQueryScopes, key: string, value: any) {
     const k = _check_arg(_or(_is_object(_non_nil()), _is_string(_trim(), _non_empty())))(key, 'key');
     const v = _check_arg(_non_nil())(value, 'value');
 
-    return this.whereExist("Metadata", function () {
-      this.where("Key", k);
-      this.where("Value", v);
+    return this.whereExist('Metadata', function () {
+      this.where('Key', k);
+      this.where('Value', v);
     });
   }
 
@@ -55,8 +54,7 @@ export class UserQueryScopes implements QueryScope {
           this.where(new RawQuery('user_id = Id'));
         }),
       )
-      .selectCount()
-
+      .selectCount();
 
     return banned > 0;
   }
@@ -181,6 +179,23 @@ export enum USER_COMMON_METADATA {
 }
 
 /**
+ * Metadata that decides whether somebody gets INTO an account, and therefore must
+ * never travel out of one — not to the account owner and not to an administrator
+ * reading the record through the API.
+ *
+ * `user:pwd_reset:token` is the sharp one: it is a bearer credential for
+ * `POST /auth/password/reset`, and the reset can be requested for anybody without
+ * being logged in at all. Handing it back in a user payload turns "read a user"
+ * into "take over that user". Ban and lockout state are here for a smaller reason
+ * — they tell an attacker exactly how much of the throttle they have burned.
+ *
+ * Applied to {@link UserMetadataBase._hiddenKeys} by the rbac bootstrapper, so it
+ * covers every `dehydrateWithRelations` in every package. Keys that a client
+ * legitimately needs ( avatar, phone, ... ) are deliberately absent.
+ */
+export const USER_SECURITY_METADATA_KEYS: string[] = [USER_COMMON_METADATA.USER_2FA_TOKEN, USER_COMMON_METADATA.USER_PWD_RESET, USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, USER_COMMON_METADATA.USER_BAN_IS_BANNED, USER_COMMON_METADATA.USER_BAN_START_DATE, USER_COMMON_METADATA.USER_BAN_DURATION, USER_COMMON_METADATA.USER_BAN_REASON, USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS, USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
+
+/**
  * Base model for users used by auth and ACL system
  *
  * To add / extend fields simply extend this model and register as default user model in ACL service
@@ -260,12 +275,12 @@ export class UserBase extends ModelBase<UserBase> {
 
   /**
    * User additional information. Can be anything
-   * 
+   *
    * We use unsafe model couse its relation. It will only load meta related
    * to owner user anyway
    */
   @HasMany(UserMetadataBase, {
-    foreignKey: "user_id"
+    foreignKey: 'user_id',
   })
   public Metadata!: MetadataRelation<UserMetadataBase, User>;
 
@@ -296,14 +311,13 @@ export class UserBase extends ModelBase<UserBase> {
   }
 
   public dehydrateWithRelations(options?: IDehydrateOptions): ModelDataWithRelationData<this> {
-
-    const base = super.dehydrateWithRelations(options) as any as ModelDataWithRelationData<UserBase>
+    const base = super.dehydrateWithRelations(options) as any as ModelDataWithRelationData<UserBase>;
 
     /**
      * Hide meta keys we dont want to show publicly
      */
     if (base.Metadata) {
-      base.Metadata = base.Metadata.filter(m => !UserMetadataBase._hiddenKeys.includes(m.Key)) as any
+      base.Metadata = base.Metadata.filter((m) => !UserMetadataBase._hiddenKeys.includes(m.Key)) as any;
     }
 
     return base as any;
@@ -424,8 +438,4 @@ export class UserBase extends ModelBase<UserBase> {
  */
 @Connection('default')
 @Model('users')
-export class User extends UserBase {
-
-}
-
-
+export class User extends UserBase {}
