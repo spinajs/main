@@ -1,5 +1,5 @@
 import { PasswordDto } from '../dto/password-dto.js';
-import { User as UserModel, PasswordProvider, SessionProvider, passwordMatch, changePassword, _unwindGrants, AccessControl } from '@spinajs/rbac';
+import { User as UserModel, PasswordProvider, SessionProvider, passwordMatch, changePassword, _unwindGrants, _combineGrants, AccessControl } from '@spinajs/rbac';
 import { BaseController, BasePath, Get, Ok, Body, Patch, Cookie, Policy } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
@@ -80,7 +80,10 @@ export class UserController extends BaseController {
 
     const grants = this.AC.getGrants();
     const userGrants = user.Role.map(r => _unwindGrants(r, grants));
-    const combinedGrants = Object.assign({}, ...userGrants);
+
+    // Object.assign merges at the resource level, so a role naming a resource an earlier role
+    // also names would drop that role's actions on it — _combineGrants merges per action.
+    const combinedGrants = _combineGrants(...userGrants);
 
     return new Ok(combinedGrants);
   }
