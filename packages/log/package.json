@@ -23,6 +23,7 @@
   },
   "type": "module",
   "private": false,
+  "publishConfig": { "access": "public" },
   "engines": {
     "node": ">=16.11"
   },
