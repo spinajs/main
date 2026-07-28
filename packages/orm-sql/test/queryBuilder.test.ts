@@ -1787,6 +1787,19 @@ describe('Identifier escaping ( A3 )', () => {
     expect(result[0].expression).to.contain('FOREIGN KEY (`par``ent_id`) REFERENCES `gr``oup`(`id`)');
   });
 
+  it('quotes each part of a schema-qualified foreign key reference separately', () => {
+    const result = schqb()
+      .createTable('localisation_unavailability', (table: TableQueryBuilder) => {
+        table.int('localisation_id').notNull();
+        table.foreignKey('localisation_id').references('inwentaryzacja.inw_lokalizacje', 'id');
+      })
+      .toDB() as ICompilerOutput[];
+
+    // `schema`.`table`, NOT `schema.table` - the latter is a single identifier and
+    // MySQL fails with "Failed to open the referenced table"
+    expect(result[0].expression).to.contain('REFERENCES `inwentaryzacja`.`inw_lokalizacje`(`id`)');
+  });
+
   it('escapes single quotes in a SET member string literal', () => {
     const result = schqb()
       .createTable('users', (table: TableQueryBuilder) => {

@@ -1,6 +1,6 @@
 import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Get, Ok, Patch, Policy, Post, Query } from '@spinajs/http';
-import { SortOrder } from '@spinajs/orm';
+import { SortOrder, SqlOperator } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { create, PasswordProvider, User } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
@@ -83,19 +83,26 @@ const USER_FILTER: IColumnFilter<User>[] = [
       return function () {
         this.whereExist("Metadata", function () {
           this.where('Key', "user:niceName");
+
+          // NOTE: `operator` is the filter operator coming from the request
+          // ( eq / neq / like ... ), NOT an SQL one. It has to be translated
+          // before it reaches the query builder, which only understands SQL
+          // operators and would throw `operator eq is invalid` otherwise.
           switch (operator) {
             case 'eq':
+              this.where('Value', SqlOperator.EQ, value)
+              break;
             case 'neq':
-              this.where('Value', operator, value)
+              this.where('Value', SqlOperator.NOT, value)
               break;
             case 'like':
-              this.where('Value', operator, `%${value}%`)
+              this.where('Value', SqlOperator.LIKE, `%${value}%`)
               break;
             case 'b-like':
-              this.where('Value', operator, `%${value}`)
+              this.where('Value', SqlOperator.LIKE, `%${value}`)
               break;
             case 'e-like':
-              this.where('Value', operator, `${value}%`)
+              this.where('Value', SqlOperator.LIKE, `${value}%`)
               break;
 
           }

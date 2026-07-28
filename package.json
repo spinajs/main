@@ -6,6 +6,9 @@
     "pretest": "tsc -b tsconfig.build.json",
     "test": "npm run test --workspace=packages",
     "build": "npm run clean && tsc -b tsconfig.build.json &&  tsc -b tsconfig.build.cjs.json && npm run copy-static && npm run prepare-module-support",
+    "watch": "tsc -b tsconfig.build.json tsconfig.build.cjs.json --watch --preserveWatchOutput",
+    "watch:esm": "tsc -b tsconfig.build.json --watch --preserveWatchOutput",
+    "watch:cjs": "tsc -b tsconfig.build.cjs.json --watch --preserveWatchOutput",
     "publish": "npm run build && node scripts/publish-all.mjs",
     "publish:dry-run": "node scripts/publish-all.mjs --dry-run",
     "copy-static": "cpx packages/http/src/views/**/* packages/http/lib/views &&  cpx packages/http/src/static/**/* packages/http/lib/static && cpx \"packages/http-swagger/src/views/**/*.{pug,js}\" packages/http-swagger/lib/views",
@@ -18,7 +21,7 @@
   "overrides": {
     "luxon": "^3.6.1"
   },
-  "devDependencies": {
+"devDependencies": {
     "@types/bunyan": "^1.8.8",
     "@types/chai": "^4.3.4",
     "@types/chai-as-promised": "^7.1.5",

@@ -119,12 +119,18 @@ export class UserQueryScopes implements QueryScope {
    * @returns
    */
   public whereAnything(this: ISelectQueryBuilder<User[] | User> & UserQueryScopes, identifier: string | number) {
-    identifier = _check_arg(_or(_is_number(_gt(0)), _to_int(), _is_string(_trim(), _non_empty())))(identifier, 'identifier');
+    identifier = _check_arg(_or(_is_number(_gt(0)), _is_string(_trim(), _non_empty())))(identifier, 'identifier');
+
+    // NOTE: `_to_int()` used to sit in the check list above, and parseInt()
+    // happily turns "9f8e7d6c-…" into 9 — so every uuid ( or login ) starting
+    // with a digit was looked up as an Id and simply not found. Only a string
+    // that is a number END TO END may be treated as an id.
+    const id = typeof identifier === 'number' ? identifier : /^\d+$/.test(identifier) ? Number.parseInt(identifier, 10) : null;
 
     return this.when(
-      typeof identifier === 'number',
+      id !== null,
       function () {
-        this.where('Id', identifier);
+        this.where('Id', id);
       },
       function () {
         this.where('Uuid', identifier).orWhere('Email', identifier).orWhere('Login', identifier);

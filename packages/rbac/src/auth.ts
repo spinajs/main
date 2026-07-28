@@ -38,19 +38,23 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
     _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
     _check_arg(_trim(), _non_empty(), _max_length(64))(password, 'password');
 
-    const user = await UserBase.query().whereEmail(email).notDeleted().populate('Metadata').firstOrThrow(new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS));
+    // NOTE: every ErrorCode below carries an explicit message. `Error` with an
+    // empty message logs as a blank line ( the default layout renders
+    // `${message} ... ${error:message}` ), which made failed logins show up as
+    // `ERROR  Exception:  (http)` with nothing to go on.
+    const user = await UserBase.query().whereEmail(email).notDeleted().populate('Metadata').firstOrThrow(new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS, 'no user with given email'));
 
     const valid = await this.PasswordProvider.verify(user.Password, password);
     if (!valid) {
-      throw new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS);
+      throw new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS, 'invalid password');
     }
 
     if (user.IsBanned) {
-      throw new ErrorCode(AthenticationErrorCodes.E_USER_BANNED);
+      throw new ErrorCode(AthenticationErrorCodes.E_USER_BANNED, 'user is banned');
     }
 
     if (!user.IsActive) {
-      throw new ErrorCode(AthenticationErrorCodes.E_USER_NOT_ACTIVE);
+      throw new ErrorCode(AthenticationErrorCodes.E_USER_NOT_ACTIVE, 'user is not active');
     }
 
     return user;
