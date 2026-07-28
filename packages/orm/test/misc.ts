@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { ITransactionContext, ITransactionOptions, ValueConverter } from './../src/interfaces.js';
 import { join, normalize, resolve } from 'path';
-import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder } from '../src/index.js';
+import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder, DefaultValueBuilder, RawQuery } from '../src/index.js';
 import { OrmDriver } from './../src/driver.js';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -17,7 +17,7 @@ export function dir(path: string) {
 }
 
 // Table info mapping for test models
-const TEST_TABLE_INFO: Record<string, IColumnDescriptor[]> = {
+export const TEST_TABLE_INFO: Record<string, IColumnDescriptor[]> = {
   TestTable1: [
     {
       Type: 'INT',
@@ -1222,6 +1222,38 @@ export class FakeColumnQueryCompiler extends ColumnQueryCompiler {
       expression: null,
       bindings: null,
     };
+  }
+}
+
+/**
+ * `ColumnQueryBuilder.default()` resolves DefaultValueBuilder from the container, and the
+ * concrete implementation ships with the dialect packages ( orm-sql, orm-sqlite ... ) - the
+ * abstract one here would resolve to itself and blow up on the first `value()` call. Register
+ * this as DefaultValueBuilder in any orm test that builds a column with a default.
+ */
+export class FakeDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
+  constructor(protected Owner: T) {
+    super();
+  }
+
+  public date(): T {
+    this.Query = RawQuery.create('(CURRENT_DATE())');
+    return this.Owner;
+  }
+
+  public dateTime(): T {
+    this.Query = RawQuery.create('CURRENT_TIMESTAMP');
+    return this.Owner;
+  }
+
+  public value(val: string | number): T {
+    this.Value = val;
+    return this.Owner;
+  }
+
+  public raw(query: RawQuery): T {
+    this.Query = query;
+    return this.Owner;
   }
 }
 
