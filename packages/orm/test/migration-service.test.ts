@@ -486,6 +486,147 @@ describe('DefaultMigrationService down/resolve/status', () => {
     expect(exec.getCalls().some((c) => c.args[0] instanceof DeleteQueryBuilder)).to.be.true;
   });
 
+  it('down() under PerRun wraps the rollback in one transaction, transaction=false runs outside', async () => {
+    const driver = await makeDriver();
+    // replaced rather than mutated in place: Options.Migration is the object the Configuration
+    // handed out, and mutating it would leak the mode into every later resolve
+    driver.Options.Migration = { ...driver.Options.Migration, Transaction: { Mode: MigrationTransactionMode.PerRun } };
+
+    class NoTxDownRun_2021_01_03_00_00_00 extends OrmMigration {
+      public transaction = false;
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', Batch: 1 }), row({ Migration: 'MigB_2021_01_02_00_00_00', Batch: 1 }), row({ Migration: 'NoTxDownRun_2021_01_03_00_00_00', Batch: 1 })]);
+
+    // a transaction count alone cannot tell "MigB+MigA wrapped, NoTx outside" from "all three
+    // wrapped" - so record whether each down() actually saw an ambient transaction
+    const inTransaction: Record<string, boolean> = {};
+    const track = (name: string) => async (c: OrmDriver) => {
+      inTransaction[name] = c.CurrentTransaction !== undefined;
+    };
+    sinon.stub(MigA_2021_01_01_00_00_00.prototype, 'down').callsFake(track('MigA'));
+    sinon.stub(MigB_2021_01_02_00_00_00.prototype, 'down').callsFake(track('MigB'));
+    sinon.stub(NoTxDownRun_2021_01_03_00_00_00.prototype, 'down').callsFake(track('NoTx'));
+
+    const tr = sinon.spy(FakeSqliteDriver.prototype, 'transaction');
+    const svc = new DefaultMigrationService(driver);
+
+    const executed = await svc.down([unit(MigA_2021_01_01_00_00_00), unit(MigB_2021_01_02_00_00_00), unit(NoTxDownRun_2021_01_03_00_00_00)]);
+
+    // segmented like up(), not refused: a PerRun connection holding one opted-out migration
+    // must still be able to roll the whole batch back
+    expect(tr.callCount).to.eq(1); // MigB+MigA in one tx; NoTx outside
+    expect(inTransaction).to.eql({ NoTx: false, MigB: true, MigA: true });
+    expect(executed.map((e) => e.constructor.name)).to.eql(['NoTxDownRun_2021_01_03_00_00_00', 'MigB_2021_01_02_00_00_00', 'MigA_2021_01_01_00_00_00']);
+  });
+
+  it('down() under PerMigration wraps each rollback in its own transaction, transaction=false runs outside', async () => {
+    const driver = await makeDriver();
+    driver.Options.Migration = { ...driver.Options.Migration, Transaction: { Mode: MigrationTransactionMode.PerMigration } };
+
+    class NoTxDownMig_2021_01_03_00_00_00 extends OrmMigration {
+      public transaction = false;
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', Batch: 1 }), row({ Migration: 'MigB_2021_01_02_00_00_00', Batch: 1 }), row({ Migration: 'NoTxDownMig_2021_01_03_00_00_00', Batch: 1 })]);
+
+    const inTransaction: Record<string, boolean> = {};
+    const track = (name: string) => async (c: OrmDriver) => {
+      inTransaction[name] = c.CurrentTransaction !== undefined;
+    };
+    sinon.stub(MigA_2021_01_01_00_00_00.prototype, 'down').callsFake(track('MigA'));
+    sinon.stub(MigB_2021_01_02_00_00_00.prototype, 'down').callsFake(track('MigB'));
+    sinon.stub(NoTxDownMig_2021_01_03_00_00_00.prototype, 'down').callsFake(track('NoTx'));
+
+    const tr = sinon.spy(FakeSqliteDriver.prototype, 'transaction');
+    const svc = new DefaultMigrationService(driver);
+
+    const executed = await svc.down([unit(MigA_2021_01_01_00_00_00), unit(MigB_2021_01_02_00_00_00), unit(NoTxDownMig_2021_01_03_00_00_00)]);
+
+    // one transaction per wrapped migration - 1 would mean PerRun's shared transaction, 3 would
+    // mean the opt-out was ignored
+    expect(tr.callCount).to.eq(2);
+    expect(inTransaction).to.eql({ NoTx: false, MigB: true, MigA: true });
+    expect(executed.map((e) => e.constructor.name)).to.eql(['NoTxDownMig_2021_01_03_00_00_00', 'MigB_2021_01_02_00_00_00', 'MigA_2021_01_01_00_00_00']);
+  });
+
+  it('a failing down() is wrapped with the migration name and connection', async () => {
+    const driver = await makeDriver();
+    stubDb([row({ Migration: 'MigB_2021_01_02_00_00_00', Batch: 1 })]);
+    sinon.stub(MigB_2021_01_02_00_00_00.prototype, 'down').rejects(new Error('drop exploded'));
+    const svc = new DefaultMigrationService(driver);
+
+    try {
+      await svc.down([unit(MigB_2021_01_02_00_00_00)]);
+      expect.fail('should have thrown');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('MigB_2021_01_02_00_00_00');
+      expect(e.message, 'the operator needs to know which connection died').to.contain('sqlite');
+      expect(e.message).to.contain('drop exploded');
+    }
+  });
+
+  it('down() that reverts but cannot remove its row says so loudly', async () => {
+    const driver = await makeDriver();
+    // default mode is None, so nothing unwinds the successful down() when the delete dies
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        return [row({ Migration: 'MigB_2021_01_02_00_00_00', Batch: 1 })];
+      }
+      if (b instanceof DeleteQueryBuilder) {
+        throw new Error('row lock timeout');
+      }
+      return [{ 1: 1 }];
+    });
+    const dB = sinon.spy(MigB_2021_01_02_00_00_00.prototype, 'down');
+    const svc = new DefaultMigrationService(driver);
+    const error = sinon.spy((svc as any).Log, 'error');
+
+    try {
+      await svc.down([unit(MigB_2021_01_02_00_00_00)]);
+      expect.fail('should have thrown');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('MigB_2021_01_02_00_00_00');
+      expect(e.message).to.contain('row lock timeout');
+    }
+
+    expect(dB.calledOnce, 'the schema really was reverted before the delete failed').to.be.true;
+
+    const loud = error.getCalls().find((c) => String(c.args[0]).includes('MigB_2021_01_02_00_00_00'));
+    expect(loud, 'expected a loud log about the reverted-but-still-recorded migration').to.not.be.undefined;
+    expect(String(loud!.args[0])).to.contain('still reports this migration as applied');
+  });
+
+  it('down() warns about the failed and orphaned rows it steps around', async () => {
+    const driver = await makeDriver();
+    stubDb([
+      row({ Migration: 'MigA_2021_01_01_00_00_00', Batch: 1 }),
+      row({ Migration: 'Ghost_2020_12_31_00_00_00', Batch: 1 }), // applied, but its class is gone
+      row({ Migration: 'MigB_2021_01_02_00_00_00', FinishedAt: null, Logs: 'kaboom' }), // failed
+    ]);
+    const dA = sinon.spy(MigA_2021_01_01_00_00_00.prototype, 'down');
+    const svc = new DefaultMigrationService(driver);
+    const warn = sinon.spy((svc as any).Log, 'warn');
+
+    const executed = await svc.down([unit(MigA_2021_01_01_00_00_00)]);
+
+    expect(dA.calledOnce, 'the rollback still runs what it can').to.be.true;
+    expect(executed).to.have.length(1);
+
+    const orphan = warn.getCalls().find((c) => String(c.args[0]).includes('Ghost_2020_12_31_00_00_00'));
+    expect(orphan, 'expected a warning naming the row no registered migration matches').to.not.be.undefined;
+
+    const failed = warn.getCalls().find((c) => String(c.args[0]).includes('MigB_2021_01_02_00_00_00'));
+    expect(failed, 'expected a warning naming the failed row the rollback skipped').to.not.be.undefined;
+    expect(String(failed!.args[0])).to.contain('resolve');
+  });
+
   it('resolve applied / rolled-back mutate the failed row', async () => {
     const driver = await makeDriver();
     const exec = stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', FinishedAt: null, Logs: 'x' })]);
@@ -550,6 +691,41 @@ describe('DefaultMigrationService down/resolve/status', () => {
 
     expect(upA.calledOnce, 'the resolved migration must be runnable again').to.be.true;
     expect(executed).to.have.length(1);
+  });
+
+  it('resolving as applied stamps a real batch and checksum, so the next default down() reaches it', async () => {
+    const driver = await makeDriver();
+    // MigA died on its very first attempt: upsertStart inserted Batch 0 and markFinished never
+    // ran. MigB is a healthy row from an earlier run, and it is what pushes max(Batch) past 0
+    const table = [row({ Migration: 'MigA_2021_01_01_00_00_00', FinishedAt: null, Logs: 'kaboom', Batch: 0 }), row({ Migration: 'MigB_2021_01_02_00_00_00', Batch: 1 })];
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        return table.map((r) => ({ ...r }));
+      }
+      // resolve() is the only statement in this test that updates the table, and it targets
+      // MigA - so the where clause needs no modelling
+      if (b instanceof UpdateQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        Object.assign(table[0], b.Value as any);
+      }
+      return [{ 1: 1 }];
+    });
+    const dA = sinon.spy(MigA_2021_01_01_00_00_00.prototype, 'down');
+    const dB = sinon.spy(MigB_2021_01_02_00_00_00.prototype, 'down');
+    const svc = new DefaultMigrationService(driver);
+
+    await svc.resolve('MigA_2021_01_01_00_00_00', 'applied', unit(MigA_2021_01_01_00_00_00));
+
+    expect(table[0].FinishedAt).to.be.instanceOf(Date);
+    // left at 0 it would sit below every real batch and never be picked by a default down()
+    expect(table[0].Batch, 'a hand-resolved row must carry a real batch').to.eq(2);
+    expect(table[0].Checksum, 'without a checksum drift can never be detected for it').to.eq(migrationChecksum(MigA_2021_01_01_00_00_00));
+
+    const executed = await svc.down([unit(MigA_2021_01_01_00_00_00), unit(MigB_2021_01_02_00_00_00)]);
+
+    expect(dA.calledOnce, 'the resolved migration must be reachable without { all: true }').to.be.true;
+    expect(dB.called, 'only the last batch rolls back by default').to.be.false;
+    expect(executed.map((e) => e.constructor.name)).to.eql(['MigA_2021_01_01_00_00_00']);
   });
 
   it('status() merges registry with records', async () => {

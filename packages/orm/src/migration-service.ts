@@ -96,8 +96,11 @@ export abstract class OrmMigrationService {
   /**
    * Forces a migration's recorded state without running it - the escape hatch for a
    * run that died halfway and left the table lying.
+   *
+   * `unit` is optional so callers that only know a name (the CLI, the runner facade) keep
+   * working; passing it lets an `'applied'` resolution stamp the checksum as a real run would.
    */
-  public abstract resolve(name: string, action: MigrationResolveAction): Promise<void>;
+  public abstract resolve(name: string, action: MigrationResolveAction, unit?: IMigrationUnit): Promise<void>;
 }
 
 export class DefaultMigrationService extends OrmMigrationService {
@@ -426,6 +429,15 @@ export class DefaultMigrationService extends OrmMigrationService {
       const records = await this.records();
       const appliedRows = records.filter((r) => r.FinishedAt && !r.RolledBackAt);
 
+      // a failed row is not applied, so it is simply absent from the set below. Deliberate -
+      // down() is a recovery path and blocking it would leave operators with only resolve() -
+      // but silently stepping around it hides that the connection stays blocked afterwards
+      const failedRows = records.filter((r) => !r.FinishedAt && r.Logs);
+
+      if (failedRows.length > 0) {
+        this.Log.warn(`Migration(s) ${failedRows.map((r) => r.Migration).join(', ')} on connection ${this.driver.Options.Name} are in failed state and are skipped by this rollback - the schema may end up reverted while every later up() stays blocked. Run orm.Migration.resolve('${failedRows[0].Migration}', 'applied') or ('rolled-back') to clear it.`);
+      }
+
       if (appliedRows.length === 0) {
         return [];
       }
@@ -437,6 +449,15 @@ export class DefaultMigrationService extends OrmMigrationService {
       if (!options?.all) {
         const lastBatch = Math.max(...appliedRows.map((r) => r.Batch ?? 0));
         target = appliedRows.filter((r) => (r.Batch ?? 0) === lastBatch);
+      }
+
+      // a row with no registered unit can never be rolled back - its class is gone, so there is
+      // no down() to run and dropping the row alone would lie about the schema. Nothing can be
+      // done about it here, but returning [] without a word leaves it applied forever
+      const orphans = target.filter((r) => !units.some((u) => u.name === r.Migration));
+
+      if (orphans.length > 0) {
+        this.Log.warn(`Migration(s) ${orphans.map((r) => r.Migration).join(', ')} on connection ${this.driver.Options.Name} are recorded as applied but no registered migration matches them (file deleted or renamed). They cannot be rolled back and stay applied - restore the migration file, or remove the row by hand once the schema is undone.`);
       }
 
       // newest first - a migration has to be undone before the one it was built on top of.
@@ -465,13 +486,46 @@ export class DefaultMigrationService extends OrmMigrationService {
           await migration.down(this.driver);
         }
 
-        // the row is dropped rather than stamped RolledBackAt: a deleted row and a
-        // rolled-back one are both "pending" to `up()`, and dropping keeps the table
-        // holding only migrations that are actually present in the database
-        await this.driver.del().from(this.table).where({ Migration: u.name });
+        try {
+          // the row is dropped rather than stamped RolledBackAt: a deleted row and a
+          // rolled-back one are both "pending" to `up()`, and dropping keeps the table
+          // holding only migrations that are actually present in the database
+          await this.driver.del().from(this.table).where({ Migration: u.name });
+        } catch (err) {
+          // down() already succeeded, so outside a transaction the schema is reverted while
+          // the row still claims the migration is applied - the one state nothing downstream
+          // can detect. Inside a transaction the wrapper unwinds both, so it is not a lie there
+          if (!options?.fake && this.driver.CurrentTransaction === undefined) {
+            this.Log.error(`Migration ${u.name} on connection ${this.driver.Options.Name}: down() completed but its tracking row could not be removed (${(err as Error).message}). The schema is reverted while the table still reports this migration as applied - delete the row from ${this.table} by hand, or every later up() will skip it.`);
+          }
+
+          throw err;
+        }
 
         executed.push(migration);
         this.Log.info(`Migration ${u.name}: ${options?.fake ? 'faked (record removed without executing)' : 'down() success !'}`);
+      };
+
+      /**
+       * No `Logs` row is written on a failed rollback, unlike `up()`: `Logs` set with a NULL
+       * `FinishedAt` is the state `assertNoFailed` blocks on, and stamping it here would take a
+       * connection whose only remaining recovery path is `down()` and lock that path shut too.
+       * The name and connection are carried on the exception instead.
+       */
+      const failure = (name: string, err: unknown) => new OrmException(`Migration ${name} failed to roll back on connection ${this.driver.Options.Name}: ${(err as Error).message}`, undefined, undefined, undefined, err);
+
+      const execute = async (u: IMigrationUnit, wrap: boolean) => {
+        try {
+          if (wrap) {
+            await this.driver.transaction(async () => {
+              await runOne(u);
+            });
+          } else {
+            await runOne(u);
+          }
+        } catch (err) {
+          throw failure(u.name, err);
+        }
       };
 
       const mode = this.transactionMode();
@@ -479,35 +533,47 @@ export class DefaultMigrationService extends OrmMigrationService {
       if (options?.fake) {
         // nothing is executed, so there is no schema change worth wrapping
         for (const u of toRun) {
-          await runOne(u);
+          await execute(u, false);
         }
       } else if (mode === MigrationTransactionMode.PerRun) {
-        // checked before the transaction opens: discovering the opt-out halfway through
-        // would mean running - and then rolling back - work that was never going to commit
-        const blocker = toRun.find(optedOut);
+        // one transaction per stretch of consecutive non-opted-out migrations, exactly as `up()`
+        // segments. Refusing the whole rollback instead would leave a PerRun connection holding
+        // one `transaction = false` migration able to up() but never able to down() as a whole
+        const queue = [...toRun];
 
-        if (blocker) {
-          throw new OrmException(`Migration ${blocker.name} has transaction=false and cannot take part in a PerRun rollback - roll it back on its own, or switch this connection to PerMigration.`);
-        }
+        while (queue.length > 0) {
+          const head = queue.shift() as IMigrationUnit;
 
-        await this.driver.transaction(async () => {
-          for (const u of toRun) {
-            await runOne(u);
+          if (optedOut(head)) {
+            await execute(head, false);
+            continue;
           }
-        });
+
+          const segment = [head];
+          while (queue.length > 0 && !optedOut(queue[0])) {
+            segment.push(queue.shift() as IMigrationUnit);
+          }
+
+          let current = head;
+
+          try {
+            await this.driver.transaction(async () => {
+              for (const u of segment) {
+                current = u;
+                await runOne(u);
+              }
+            });
+          } catch (err) {
+            throw failure(current.name, err);
+          }
+        }
       } else if (mode === MigrationTransactionMode.PerMigration) {
         for (const u of toRun) {
-          if (optedOut(u)) {
-            await runOne(u);
-          } else {
-            await this.driver.transaction(async () => {
-              await runOne(u);
-            });
-          }
+          await execute(u, !optedOut(u));
         }
       } else {
         for (const u of toRun) {
-          await runOne(u);
+          await execute(u, false);
         }
       }
 
@@ -539,9 +605,10 @@ export class DefaultMigrationService extends OrmMigrationService {
     });
   }
 
-  public async resolve(name: string, action: MigrationResolveAction): Promise<void> {
+  public async resolve(name: string, action: MigrationResolveAction, unit?: IMigrationUnit): Promise<void> {
     await this.ensureStorage();
-    const rec = (await this.records()).find((r) => r.Migration === name);
+    const records = await this.records();
+    const rec = records.find((r) => r.Migration === name);
 
     // only a row in the failed state may be forced - anything else is either healthy or
     // absent, and rewriting it would destroy state nobody asked to lose
@@ -550,8 +617,25 @@ export class DefaultMigrationService extends OrmMigrationService {
     }
 
     if (action === 'applied') {
-      await this.driver.update().in(this.table).update({ FinishedAt: new Date() }).where({ Migration: name });
-      this.Log.info(`Migration ${name} resolved as applied`);
+      // A batch has to be stamped here, exactly as `markFinished` would have: `upsertStart`
+      // inserts `Batch: 0` and a first-time failure never reached `markFinished`, so a row
+      // resolved without this stays at 0. `down()`'s default target is max(Batch) among applied
+      // rows, so a batch-0 row is silently excluded from every default rollback the moment any
+      // other row carries a real batch - reachable only via `{ all: true }`. Same rule as `up()`:
+      // one past the highest applied batch, which also puts it in the next default rollback.
+      const batch = Math.max(0, ...records.filter((r) => r.FinishedAt && !r.RolledBackAt).map((r) => r.Batch ?? 0)) + 1;
+      const patch: Partial<IMigrationRecord> = { FinishedAt: new Date(), Batch: batch };
+
+      // The checksum can only come from the migration class, which this call does not have
+      // unless the caller supplies it. Without it the column stays NULL and drift can never be
+      // reported for this migration - a NULL is preferable to inventing a fingerprint for
+      // source that was never verified against the database.
+      if (unit) {
+        patch.Checksum = migrationChecksum(unit.type);
+      }
+
+      await this.driver.update().in(this.table).update(patch).where({ Migration: name });
+      this.Log.info(`Migration ${name} resolved as applied (batch ${batch})${unit ? '' : ' - Checksum left NULL, drift cannot be detected for it'}`);
     } else {
       // Logs is cleared, not merely annotated with RolledBackAt. Failed state is the pair
       // `FinishedAt` NULL *and* `Logs` set, and a rolled-back resolution leaves FinishedAt
