@@ -106,7 +106,7 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
    * owner column stamped earlier. Reads and writes keep their where-clause injection at
    * construction, where it has always been.
    */
-  beforeQueryExecution(builder: QueryBuilder<any>): void {
+  async beforeQueryExecution(builder: QueryBuilder<any>): Promise<void> {
     if (!(builder instanceof InsertQueryBuilder)) {
       return;
     }
@@ -130,12 +130,16 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
     /**
      * Model can take over insert-time ownership itself. No fallback to the generic `rbac`
      * here — see {@link rbacHook}.
+     *
+     * Awaited: unlike the where-clause hooks, an insert rule usually cannot be decided from
+     * the payload alone — "is this the caller's group?" is a lookup. Dropping the returned
+     * promise would let the row land before the answer came back.
      */
     const rbacFunc = rbacHook(builder.Model, context.hook, false);
 
     if (rbacFunc) {
       this.Log.trace(`Applying custom ${context.hook} func for ${resource}`);
-      rbacFunc.call(builder, context.user);
+      await rbacFunc.call(builder, context.user);
       return;
     }
 

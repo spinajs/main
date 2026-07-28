@@ -1561,9 +1561,13 @@ export abstract class QueryMiddleware {
   /**
    * Called once per builder immediately before execution, with the query fully assembled.
    *
+   * May be async. Hooks are awaited in registration order, so one that has to consult the
+   * database before deciding — an rbac rule whose ownership lives in another table — can
+   * do so and still abort the query by throwing.
+   *
    * @param query - the completed builder
    */
-  abstract beforeQueryExecution(query: QueryBuilder): void;
+  abstract beforeQueryExecution(query: QueryBuilder): void | Promise<void>;
 }
 
 export abstract class ModelMiddleware {

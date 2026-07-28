@@ -91,7 +91,14 @@ export class Builder<T = any> implements IBuilder<T> {
     // `beforeQueryExecution` hook at all — which silently disabled any middleware that
     // needs the finished query (rbac's insert-ownership check is exactly that: the payload
     // does not exist until `values()` has been called, long after construction).
-    this._queryMiddlewares.forEach((x) => x.beforeQueryExecution(this as unknown as QueryBuilder));
+    //
+    // Awaited in sequence, not `forEach`ed: a hook that needs a database round-trip to
+    // decide — an rbac rule whose ownership lives in another table — could otherwise only
+    // return a promise into the void, and the query would execute anyway. For a security
+    // check that is the difference between enforcing and pretending to.
+    for (const middleware of this._queryMiddlewares) {
+      await middleware.beforeQueryExecution(this as unknown as QueryBuilder);
+    }
 
     const result = (await this._driver.execute(this)) as T;
 
@@ -1631,6 +1638,28 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     // middleware which needs to see or amend the row payload must use
     // `beforeQueryExecution` instead — at construction time `values()` has not been called.
     this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
+  }
+
+  /**
+   * The value of `column` on every row about to be inserted, in row order. Empty when the
+   * payload does not carry that column at all.
+   *
+   * The read counterpart of {@link forceColumn}, and the only sane way for a
+   * `beforeQueryExecution` hook to inspect what is being written: the payload lives in two
+   * parallel structures ( `_columns` and one array per row ), so every caller would
+   * otherwise repeat the same index lookup.
+   *
+   * @param column - column to read off each row
+   */
+  public getColumnValues(column: string): unknown[] {
+    const index = this._columns.findIndex((c) => !(c.Column instanceof RawQuery) && c.Column === column);
+
+    if (index === -1) {
+      return [];
+    }
+
+    // eslint-disable-next-line security/detect-object-injection
+    return this._values.map((row) => row[index]);
   }
 
   /**

@@ -13,7 +13,7 @@ import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 
 import './migration/rbac.migration.js';
-import { AllHooksModel, GenericHookModel, HOOK_CALLS, InheritedHookModel, PartialHookModel, resetHookCalls } from './models/HookModels.js';
+import { AllHooksModel, AsyncCreateHookModel, GenericHookModel, HOOK_CALLS, InheritedHookModel, PartialHookModel, resetHookCalls } from './models/HookModels.js';
 import { ResourceModel } from './models/ResourceModel.js';
 
 chai.use(chaiAsPromised);
@@ -200,6 +200,65 @@ describe('Per-operation rbac hooks', function () {
       const row = await GenericHookModel.where('Value', 'no-create-hook').firstOrFail();
       expect(row.UserId).to.eq(owner.Id);
     });
+  });
+
+  /**
+   * `beforeQueryExecution` used to be dispatched with `forEach`, so a hook that returned a
+   * promise had it dropped on the floor and the INSERT went ahead regardless. For a
+   * security check that is the difference between enforcing and pretending to — and insert
+   * ownership is exactly the case that needs IO, since there is no WHERE clause to carry it.
+   */
+  describe('async rbacCreate', () => {
+    it('is awaited before the row is written', async () => {
+      grant({ r: { HookAsync: { 'create:own': ['*'] } } });
+      const owner = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+      AsyncCreateHookModel.AllowedOwners = [owner.Id];
+
+      await as(owner, 'r', async () => {
+        await new AsyncCreateHookModel({ UserId: owner.Id, Value: 'from-payload' } as any).insert();
+      });
+
+      expect(HOOK_CALLS).to.eql(['rbacCreate:start', 'rbacCreate:allow']);
+
+      // the value the hook wrote AFTER its await is the one that landed
+      const row = await AsyncCreateHookModel.where('Value', `checked-for-${owner.Id}`).firstOrFail();
+      expect(row.UserId).to.eq(owner.Id);
+    });
+
+    it('aborts the insert when it rejects after its await', async () => {
+      grant({ r: { HookAsync: { 'create:own': ['*'] } } });
+      const owner = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+      AsyncCreateHookModel.AllowedOwners = [owner.Id];
+
+      await expect(
+        as(owner, 'r', async () => {
+          await new AsyncCreateHookModel({ UserId: owner.Id + 999, Value: 'forged' } as any).insert();
+        }),
+      ).to.be.rejectedWith(/is not assigned to this user/);
+
+      expect(HOOK_CALLS).to.eql(['rbacCreate:start', 'rbacCreate:reject']);
+      expect(await AsyncCreateHookModel.where('Value', 'forged').first()).to.be.undefined;
+    });
+
+    it('getColumnValues reads the payload the hook is about to write', async () => {
+      grant({ r: { HookAsync: { 'create:own': ['*'] } } });
+      const owner = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+      AsyncCreateHookModel.AllowedOwners = [owner.Id, owner.Id + 1];
+
+      // a multi-row insert: the hook must see BOTH owners, not just the first row's
+      await as(owner, 'r', () =>
+        AsyncCreateHookModel.insert([
+          { UserId: owner.Id, Value: 'a' },
+          { UserId: owner.Id + 1, Value: 'b' },
+        ] as any),
+      );
+
+      expect(HOOK_CALLS).to.eql(['rbacCreate:start', 'rbacCreate:allow']);
+
+      const rows = await AsyncCreateHookModel.where('Value', `checked-for-${owner.Id}`);
+      expect(rows.map((x) => x.UserId).sort()).to.eql([owner.Id, owner.Id + 1]);
+    });
+
   });
 
   describe('unchanged behaviour', () => {

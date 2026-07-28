@@ -1,4 +1,5 @@
 import { Connection, InsertQueryBuilder, IWhereBuilder, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Forbidden } from '@spinajs/exceptions';
 import { OrmResource, ResourceOwner } from '../../src/decorators.js';
 import type { User } from '../../src/models/User.js';
 
@@ -120,3 +121,41 @@ export class PartialHookModel extends ModelBase {
 @Model('test')
 @OrmResource('HookInherited')
 export class InheritedHookModel extends AllHooksModel {}
+
+/**
+ * `rbacCreate` that has to consult the database before it can decide — the realistic shape,
+ * since insert ownership normally lives in another table. If the middleware dropped the
+ * returned promise instead of awaiting it, the row would land before the check finished.
+ */
+@Connection('default')
+@Model('test')
+@OrmResource('HookAsync')
+export class AsyncCreateHookModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+
+  /** Ids this hook will accept, so a test can steer it without a second table. */
+  public static AllowedOwners: number[] = [];
+
+  public static async rbacCreate(this: InsertQueryBuilder, user: User) {
+    HOOK_CALLS.push('rbacCreate:start');
+
+    const requested = this.getColumnValues('UserId');
+
+    // a real round-trip, so the hook only resolves after IO has actually happened
+    const allowed = await Promise.resolve(AsyncCreateHookModel.AllowedOwners);
+
+    if (requested.some((r) => !allowed.includes(r as number))) {
+      HOOK_CALLS.push('rbacCreate:reject');
+      throw new Forbidden(`owner ${requested.join(',')} is not assigned to this user`);
+    }
+
+    HOOK_CALLS.push('rbacCreate:allow');
+    this.forceColumn('Value', `checked-for-${user.Id}`);
+  }
+}
