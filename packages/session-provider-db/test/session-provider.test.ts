@@ -5,6 +5,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { DI, Bootstrapper } from '@spinajs/di';
 import '../src/index.js';
 import { DbSessionStore } from '../src/index.js';
+import { DbSession } from '../src/models/DbSession.js';
 import { UserSession as Session } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 import { Orm } from '@spinajs/orm';
@@ -157,6 +158,45 @@ describe('db session provider', function () {
       // sliding ttl = 60 minutes
       const diff = Math.abs(restored!.Expiration!.toMillis() - DateTime.now().plus({ minutes: 60 }).toMillis());
       expect(diff).to.be.lessThan(5000);
+    });
+
+    // Regression: the cleanup timer built its DELETE with
+    // `DbSession.destroy().where(...)`, which throws "Cannot destroy without
+    // primary keys" — so expired sessions piled up forever.
+    it('cleanupExpired removes expired sessions and keeps live ones', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      await store.save(
+        new Session({
+          SessionId: 'expired-one',
+          UserId: 10,
+          Expiration: DateTime.now().minus({ hours: 1 }),
+          Data: new Map<string, unknown>(),
+        }),
+      );
+
+      await store.save(
+        new Session({
+          SessionId: 'live-one',
+          UserId: 11,
+          Expiration: DateTime.now().plus({ hours: 1 }),
+          Data: new Map<string, unknown>(),
+        }),
+      );
+
+      const removed = await store.cleanupExpired();
+
+      expect(removed).to.equal(1);
+      expect(await DbSession.where({ SessionId: 'expired-one' }).first(), 'expired session must be gone').to.not.exist;
+      expect(await DbSession.where({ SessionId: 'live-one' }).first(), 'live session must survive').to.exist;
+    });
+
+    it('cleanupExpired is a no-op when nothing expired', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      expect(await store.cleanupExpired()).to.equal(0);
     });
   });
 });

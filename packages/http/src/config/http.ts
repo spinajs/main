@@ -1,6 +1,6 @@
 import express from 'express';
 import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
+import { configuredCookieParser } from '../cookie.js';
 import compression from 'compression';
 import { join, normalize, resolve } from 'path';
 import os from 'os';
@@ -31,13 +31,6 @@ const http = {
       cli: [...dir('cli')],
     },
   },
-  cookie: {
-    secret: '1234adreewD',
-    options: {
-      maxAge: 900000,
-      httpOnly: true,
-    },
-  },
   fs: {
     providers: [
       // formidable default file provider, incoming
@@ -63,6 +56,22 @@ const http = {
   },
 
   http: {
+    /**
+     * Cookie defaults. This MUST live under `http.` - every consumer reads
+     * `http.cookie.secret` ( responses, @FromCookie, the rbac session middleware ),
+     * and the parser that makes signed cookies work is bound to it.
+     *
+     * Override the secret per app: this default is public, and signed cookies are
+     * only as trustworthy as the key that signs them.
+     */
+    cookie: {
+      secret: '1234adreewD',
+      options: {
+        maxAge: 900000,
+        httpOnly: true,
+      },
+    },
+
     /**
      * File upload default middlewares
      */
@@ -101,7 +110,7 @@ const http = {
         type: ['application/xml', 'text/xml', 'application/*+xml'],
         limit: '5mb',
       }),
-      cookieParser(),
+      configuredCookieParser,
       compression(),
     ],
 

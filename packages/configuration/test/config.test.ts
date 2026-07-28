@@ -4,12 +4,13 @@ import 'mocha';
 import * as chai from 'chai';
 import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { join, normalize } from 'path';
+import { join, normalize, resolve } from 'path';
 import { DI, IMappableService, Injectable } from '@spinajs/di';
 import { Configuration, ConfigVar, ConfigVarProtocol } from '@spinajs/configuration-common';
 
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { AutoinjectService } from './../src/decorators.js';
+import { JsFileSource } from '../src/sources.js';
  
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
@@ -358,5 +359,51 @@ describe('Configuration tests', () => {
 
     expect(instance.Services.get('serv1')!.constructor.name).to.eq('Serv1');
     expect(instance.Services.get('serv2')!.constructor.name).to.eq('Serv2');
+  });
+});
+
+describe('config source search paths', () => {
+  it('finds @spinajs package configs in a workspace root above the app package', () => {
+    // npm workspaces hoist @spinajs to the repo root, so an app at
+    // <root>/packages/<app> has its dependencies two levels up. Config discovery
+    // must reach that without relying on WORKSPACE_ROOT_PATH being set by hand.
+    const source = new JsFileSource() as unknown as { CommonDirs: string[] };
+    const workspaceRoot = resolve(process.cwd(), '..', '..');
+    const expectedPrefix = normalize(join(workspaceRoot, 'node_modules', '@spinajs'));
+
+    const found = source.CommonDirs.some((d) => d.startsWith(expectedPrefix));
+
+    expect(found, `expected a search dir under ${expectedPrefix}, got:\n${source.CommonDirs.join('\n')}`).to.equal(true);
+  });
+});
+
+describe('workspace root detection', () => {
+  const original = process.env.WORKSPACE_ROOT_PATH;
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.WORKSPACE_ROOT_PATH;
+    else process.env.WORKSPACE_ROOT_PATH = original;
+  });
+
+  it('sets WORKSPACE_ROOT_PATH to the hoisting root when it is not provided', () => {
+    // 15 @spinajs package configs build their own paths from
+    // `WORKSPACE_ROOT_PATH ?? process.cwd()`. In a workspace the packages are hoisted
+    // to the repo root, so without this var they resolve to a path that does not
+    // exist - and fsNative then CREATES it, leaving empty dirs that shadow the real
+    // package and break module resolution. Detect the root instead of requiring
+    // every launch script to set it by hand.
+    delete process.env.WORKSPACE_ROOT_PATH;
+
+    new JsFileSource();
+
+    expect(process.env.WORKSPACE_ROOT_PATH).to.equal(resolve(process.cwd(), '..', '..'));
+  });
+
+  it('never overrides an explicitly provided WORKSPACE_ROOT_PATH', () => {
+    process.env.WORKSPACE_ROOT_PATH = 'D:\explicit\root';
+
+    new JsFileSource();
+
+    expect(process.env.WORKSPACE_ROOT_PATH).to.equal('D:\explicit\root');
   });
 });

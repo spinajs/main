@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration-http",
-  "version": "2.0.482",
+  "version": "2.0.483",
   "description": "API for configuration module. Allows to set / get configuration values from db",
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
@@ -51,24 +51,24 @@
     "configuration"
   ],
   "devDependencies": {
-    "@spinajs/fs": "^2.0.482",
+    "@spinajs/fs": "^2.0.483",
     "@spinajs/orm-sqlite": "^3.0.0",
     "@types/lodash": "^4.14.191",
     "@types/luxon": "^3.2.0"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.482",
-    "@spinajs/configuration-common": "^2.0.482",
-    "@spinajs/configuration-db-source": "^2.0.482",
-    "@spinajs/di": "^2.0.482",
-    "@spinajs/exceptions": "^2.0.482",
-    "@spinajs/http": "^2.0.482",
-    "@spinajs/log": "^2.0.482",
+    "@spinajs/configuration": "^2.0.483",
+    "@spinajs/configuration-common": "^2.0.483",
+    "@spinajs/configuration-db-source": "^2.0.483",
+    "@spinajs/di": "^2.0.483",
+    "@spinajs/exceptions": "^2.0.483",
+    "@spinajs/http": "^2.0.483",
+    "@spinajs/log": "^2.0.483",
     "@spinajs/orm": "^3.0.0",
     "@spinajs/orm-http": "^3.0.0",
-    "@spinajs/rbac": "^2.0.482",
-    "@spinajs/rbac-http": "^2.0.482",
-    "@spinajs/validation": "^2.0.482",
+    "@spinajs/rbac": "^2.0.483",
+    "@spinajs/rbac-http": "^2.0.483",
+    "@spinajs/validation": "^2.0.483",
     "lodash": "^4.17.21",
     "luxon": "^3.6.1"
   },

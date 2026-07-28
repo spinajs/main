@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-handlebars",
-  "version": "2.0.482",
+  "version": "2.0.483",
   "description": "Handlebars template renderer for @spinajs/templates (with helpers).",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -13,6 +13,7 @@
   },
   "type": "module",
   "private": false,
+  "publishConfig": { "access": "public" },
   "engines": {
     "node": ">=16.11"
   },
@@ -48,20 +49,20 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/fs": "^2.0.482",
+    "@spinajs/fs": "^2.0.483",
     "@types/luxon": "^3.6.1",
     "@types/mocha": "10.0.1",
     "@types/node": "^22.14.1",
     "@types/pug": "^2.0.6"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.482",
-    "@spinajs/di": "^2.0.482",
-    "@spinajs/exceptions": "^2.0.482",
-    "@spinajs/util": "^2.0.482",
-    "@spinajs/intl": "^2.0.482",
-    "@spinajs/log": "^2.0.482",
-    "@spinajs/templates": "^2.0.482",
+    "@spinajs/configuration": "^2.0.483",
+    "@spinajs/di": "^2.0.483",
+    "@spinajs/exceptions": "^2.0.483",
+    "@spinajs/util": "^2.0.483",
+    "@spinajs/intl": "^2.0.483",
+    "@spinajs/log": "^2.0.483",
+    "@spinajs/templates": "^2.0.483",
     "handlebars": "^4.7.7",
     "tempfile": "4.0.0"
   },

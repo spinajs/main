@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac-http-user",
-  "version": "2.0.482",
+  "version": "2.0.483",
   "description": "HTTP API for basic user tasks ( login, logout, managing user account etc )",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -13,6 +13,7 @@
   },
   "type": "module",
   "private": false,
+  "publishConfig": { "access": "public" },
   "engines": {
     "node": ">=16.11"
   },
@@ -48,15 +49,15 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.482",
-    "@spinajs/di": "^2.0.482",
-    "@spinajs/exceptions": "^2.0.482",
-    "@spinajs/http": "^2.0.482",
-    "@spinajs/log": "^2.0.482",
+    "@spinajs/configuration": "^2.0.483",
+    "@spinajs/di": "^2.0.483",
+    "@spinajs/exceptions": "^2.0.483",
+    "@spinajs/http": "^2.0.483",
+    "@spinajs/log": "^2.0.483",
     "@spinajs/orm": "^3.0.0",
     "@spinajs/orm-http": "^3.0.0",
-    "@spinajs/rbac": "^2.0.482",
-    "@spinajs/rbac-http": "^2.0.482",
+    "@spinajs/rbac": "^2.0.483",
+    "@spinajs/rbac-http": "^2.0.483",
     "otpauth": "9.4.0",
     "luxon": "^3.6.1",
     "uuid": "^9.0.0"

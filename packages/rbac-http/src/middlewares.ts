@@ -27,11 +27,17 @@ export class RbacMiddleware extends ServerMiddleware {
     return async (req: sRequest, res: express.Response, next: express.NextFunction) => {
       try {
         let session: ISession | null = null;
-        if (req.cookies?.ssid) {
-          const ssid: string | false = cs.unsign(req.cookies.ssid, this.CoockieSecret);
-          if (ssid) {
-            session = await this.SessionProvider.restore(ssid);
-          }
+
+        // `ssid` is signed BY HAND ( see http `_setCoockies` ), so it reaches us
+        // unsigned-looking and stays in `req.cookies`. A cookie that was issued
+        // through express's own `signed: true` goes out `s:`-prefixed instead,
+        // and cookie-parser then hands it over in `req.signedCookies` ALREADY
+        // unsigned while deleting it from `req.cookies`. Accept that shape too,
+        // so sessions issued by that path are restored rather than dropped.
+        const ssid: string | false = req.cookies?.ssid ? cs.unsign(req.cookies.ssid, this.CoockieSecret) : (req.signedCookies?.ssid as string | false | undefined) ?? false;
+
+        if (ssid) {
+          session = await this.SessionProvider.restore(ssid);
         }
  
         if (session) {
@@ -62,11 +68,17 @@ export class RbacMiddleware extends ServerMiddleware {
           // leave the cookie untouched.
           const renewed = await this.SessionProvider.touch(session);
           if (renewed) {
-            res.cookie('ssid', session.SessionId, {
-              signed: true,
+            // Signed by hand and handed to express UNSIGNED, exactly like the
+            // login response does through http `_setCoockies`. With express's
+            // `signed: true` the value goes out `s:`-prefixed, cookie-parser
+            // moves it to `req.signedCookies` and deletes it from `req.cookies`
+            // - so every request after the first renewal arrived session-less
+            // and failed with `user not authorized or session expired`.
+            res.cookie('ssid', cs.sign(session.SessionId, this.CoockieSecret), {
               httpOnly: true,
               maxAge: sessionCookieMaxAge(session),
               ...this.SessionCookieConfig,
+              signed: false,
             });
           }
         } else {

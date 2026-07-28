@@ -12,6 +12,24 @@ export * from './statements.js';
 export abstract class SqlDriver extends OrmDriver {
   public abstract executeOnDb(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
 
+  /**
+   * Writes the statement to this connection's OWN log source (`orm-driver-<name>`),
+   * which is what a query log is routed by - independent of `Perf`, which exists to
+   * measure timings and shares its `perf` logger with email and template spans.
+   * Enable per connection with a rule, eg:
+   *
+   *   { name: 'orm-driver-*', level: 'trace', target: 'Console' }
+   *
+   * Bindings go to the structured fields rather than the message: they routinely
+   * hold passwords and personal data, and the message is what lands in plaintext
+   * console output.
+   */
+  protected logQuery(expression: string, bindings: unknown[], builder: Builder<any>) {
+    // `Log` is only assigned in OrmDriver.resolve(), so a driver used before it is
+    // resolved has none. Logging must never be the thing that breaks a query.
+    this.Log?.trace({ sql: expression, bindings, context: String(builder.QueryContext), model: builder.Model?.name }, expression);
+  }
+
   public execute(builder: Builder<any>) {
     try {
       const compiled = builder.toDB();
@@ -20,14 +38,18 @@ export abstract class SqlDriver extends OrmDriver {
       if (Array.isArray(compiled)) {
         // TODO: rethink this cast
         return Promise.all(
-          compiled.map((c) =>
-            Perf.measure('orm.query', () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
+          compiled.map((c) => {
+            this.logQuery(c.expression!, c.bindings!, builder);
+
+            return Perf.measure('orm.query', () => this.executeOnDb(c.expression!, c.bindings!, builder.QueryContext), {
               labels,
               fields: { sql: c.expression, bindings: c.bindings },
-            }),
-          ),
+            });
+          }),
         ) as any;
       } else {
+        this.logQuery(compiled.expression!, compiled.bindings!, builder);
+
         return Perf.measure('orm.query', () => this.executeOnDb(compiled.expression!, compiled.bindings!, builder.QueryContext), {
           labels,
           fields: { sql: compiled.expression, bindings: compiled.bindings },

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-mysql",
-  "version": "2.0.482",
+  "version": "2.0.483",
   "description": "orm mysql integration",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -13,6 +13,7 @@
   },
   "type": "module",
   "private": false,
+  "publishConfig": { "access": "public" },
   "engines": {
     "node": ">=16.11"
   },
@@ -54,12 +55,12 @@
     "chai": "^4.3.7",
     "chai-as-promised": "^7.1.1",
     "@types/ssh2": "^1.5.5",
-    "@spinajs/log": "^2.0.482",
-    "@spinajs/telemetry-common": "^2.0.482"
+    "@spinajs/log": "^2.0.483",
+    "@spinajs/telemetry-common": "^2.0.483"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.482",
-    "@spinajs/di": "^2.0.482",
+    "@spinajs/configuration": "^2.0.483",
+    "@spinajs/di": "^2.0.483",
     "@spinajs/orm": "^3.0.0",
     "@spinajs/orm-sql": "^3.0.0",
     "mysql2": "^3.0.1",

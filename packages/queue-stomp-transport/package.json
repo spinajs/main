@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue-stomp-transport",
-  "version": "2.0.482",
+  "version": "2.0.483",
   "description": "STOMP-over-WebSocket queue transport for SpinaJS. Publishes & consumes jobs/events on a STOMP broker (e.g. ActiveMQ) with reconnect, durable subscriptions and dead-letter routing.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -13,6 +13,7 @@
   },
   "type": "module",
   "private": false,
+  "publishConfig": { "access": "public" },
   "engines": {
     "node": ">=16.11"
   },
@@ -52,14 +53,14 @@
     "@types/node": "^18.11.18"
   },
   "dependencies": {
-    "@spinajs/configuration": "^2.0.482",
-    "@spinajs/di": "^2.0.482",
-    "@spinajs/exceptions": "^2.0.482",
-    "@spinajs/log": "^2.0.482",
-    "@spinajs/queue": "^2.0.482",
+    "@spinajs/configuration": "^2.0.483",
+    "@spinajs/di": "^2.0.483",
+    "@spinajs/exceptions": "^2.0.483",
+    "@spinajs/log": "^2.0.483",
+    "@spinajs/queue": "^2.0.483",
     "@stomp/stompjs": "^6.1.2",
     "websocket": "^1.0.34",
-    "@spinajs/util": "^2.0.482"
+    "@spinajs/util": "^2.0.483"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

@@ -411,7 +411,10 @@ export interface ILogTargetDesc {
 }
 
 export function createLogMessageObject(err: Error | string, message: string | any[], level: LogLevel, logger: string, variables: any, ...args: any[]): ILogEntry {
-  const sMsg = err instanceof Error || !err ? (message as string) : err;
+  // `log.error(err)` ( no message ) is a legal overload, and it used to render
+  // an EMPTY `${message}`. Fall back to the error's own message so a bare
+  // error-only call still says something.
+  const sMsg = err instanceof Error ? ((message as string) ?? err.message) : !err ? (message as string) : err;
   const tMsg = args.length !== 0 ? format(sMsg, ...args) : sMsg;
   const lName = logger ?? message;
 
