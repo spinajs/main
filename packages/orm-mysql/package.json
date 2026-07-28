@@ -61,8 +61,8 @@
   "dependencies": {
     "@spinajs/configuration": "^2.0.484",
     "@spinajs/di": "^2.0.484",
-    "@spinajs/orm": "^3.0.0",
-    "@spinajs/orm-sql": "^3.0.0",
+    "@spinajs/orm": "2.0.484",
+    "@spinajs/orm-sql": "2.0.484",
     "mysql2": "^3.0.1",
     "ssh2": "^1.17.0",
     "asn1": "^0.2.6",

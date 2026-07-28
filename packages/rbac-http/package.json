@@ -54,7 +54,7 @@
     "@spinajs/exceptions": "^2.0.484",
     "@spinajs/http": "^2.0.484",
     "@spinajs/log": "^2.0.484",
-    "@spinajs/orm": "^3.0.0",
+    "@spinajs/orm": "2.0.484",
     "@spinajs/rbac": "^2.0.484",
     "@spinajs/reflection": "^2.0.484",
     "accesscontrol": "^2.2.1",
@@ -62,7 +62,7 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^3.0.0",
+    "@spinajs/orm-sqlite": "2.0.484",
     "@types/uuid": "^9.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

@@ -54,7 +54,7 @@
     "@spinajs/configuration-common": "^2.0.484",
     "@spinajs/di": "^2.0.484",
     "@spinajs/internal-logger": "^2.0.484",
-    "@spinajs/orm": "^3.0.0",
+    "@spinajs/orm": "2.0.484",
     "lodash": "^4.17.21",
     "luxon": "^3.6.1"
   },

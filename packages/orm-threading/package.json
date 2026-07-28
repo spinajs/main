@@ -52,7 +52,7 @@
     "@spinajs/exceptions": "^2.0.484",
     "@spinajs/di": "^2.0.484",
     "@spinajs/log-common": "^2.0.484",
-    "@spinajs/orm": "^3.0.0",
+    "@spinajs/orm": "2.0.484",
     "@spinajs/threading": "^2.0.484",
     "luxon": "3.5.0"
   },

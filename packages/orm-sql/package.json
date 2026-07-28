@@ -53,7 +53,7 @@
   "dependencies": {
     "@spinajs/di": "^2.0.484",
     "@spinajs/log-common": "^2.0.484",
-    "@spinajs/orm": "^3.0.0",
+    "@spinajs/orm": "2.0.484",
     "@spinajs/exceptions": "^2.0.484",
     "luxon": "^3.6.1",
     "typescript-mix": "^3.1.3"

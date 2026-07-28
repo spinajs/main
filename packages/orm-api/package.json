@@ -53,9 +53,9 @@
     "@spinajs/di": "^2.0.484",
     "@spinajs/exceptions": "^2.0.484",
     "@spinajs/http": "^2.0.484",
-    "@spinajs/intl-orm": "^3.0.0",
+    "@spinajs/intl-orm": "2.0.484",
     "@spinajs/log": "^2.0.484",
-    "@spinajs/orm": "^3.0.0",
+    "@spinajs/orm": "2.0.484",
     "@spinajs/validation": "2.0.484",
     "@spinajs/rbac": "^2.0.484",
     "@spinajs/rbac-http": "^2.0.484",
@@ -63,7 +63,7 @@
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "^3.0.0"
+    "@spinajs/orm-sqlite": "2.0.484"
   },
   "gitHead": "b0f038aa2814b69b242ab9a277b26d73d39544d2"
 }
