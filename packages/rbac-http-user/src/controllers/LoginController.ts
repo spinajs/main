@@ -1,11 +1,11 @@
 import { UserLoginDto } from '../dto/userLogin-dto.js';
-import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, Unauthorized, Policy } from '@spinajs/http';
-import { AuthProvider, SessionProvider, login, UserSession, AccessControl, AthenticationErrorCodes } from '@spinajs/rbac';
+import { BaseController, BasePath, Post, Body, Ok, Get, Unauthorized, Policy } from '@spinajs/http';
+import { AuthProvider, SessionProvider, login, UserSession, AccessControl, AthenticationErrorCodes, hashSessionId } from '@spinajs/rbac';
 import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, ILoginResponse, SkipModelPermission } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, SessionId, FromSession, ILoginResponse, SkipModelPermission } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { LogoutHandler, ILogoutContext } from '../logout.js';
@@ -60,7 +60,7 @@ export class LoginController extends BaseController {
    */
   @Post()
   @SkipModelPermission()
-  public async login(@UserRouteArg() logged: User, @Cookie(true) ssid: string, @Body() credentials: UserLoginDto): Promise<Ok<ILoginResponse> | Unauthorized> {
+  public async login(@UserRouteArg() logged: User, @SessionId() ssid: string, @Body() credentials: UserLoginDto): Promise<Ok<ILoginResponse> | Unauthorized> {
     try {
 
       // if logged user is already logged in, delete his session
@@ -128,8 +128,18 @@ export class LoginController extends BaseController {
       // no longer the bogus `expiration * 1000` (~2 min) value.
       await this.SessionProvider.save(session);
 
+      this._log.info(`Session created`, {
+        // never the raw id — a log file must not be a bag of live credentials
+        Session: hashSessionId(session.SessionId),
+        User: user.Uuid,
+      });
+
       return new Ok(result, {
-        Coockies: [this.SessionCookies.issue(session)]
+        Coockies: [this.SessionCookies.issue(session)],
+
+        // The response carries the session id in a Set-Cookie and the user's
+        // own data in the body. Neither may be written to any cache.
+        Headers: [{ Name: 'Cache-Control', Value: 'no-store' }],
       });
 
     } catch (err) {
@@ -166,12 +176,16 @@ export class LoginController extends BaseController {
    * If an impersonation is active, the session is NOT destroyed — instead the
    * impersonation is ended and the original user resumes their session.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
+   *
+   * POST, not GET: under `SameSite=Lax` a cookie rides a top-level cross-site
+   * GET, so a third-party page could log any visitor out simply by linking to
+   * this route.
    * @security cookieAuth
    * @response 401 No active session
    */
-  @Get()
+  @Post()
   @Policy(LoggedPolicy)
-  public async logout(@Cookie(true) ssid: string, @SessionRouteArg() session: ISession, @UserRouteArg() user: User) {
+  public async logout(@SessionId() ssid: string, @SessionRouteArg() session: ISession, @UserRouteArg() user: User) {
     if (!ssid) {
       return new Ok();
     }
@@ -191,7 +205,10 @@ export class LoginController extends BaseController {
     for (const handler of sorted) {
       const result = await handler.handle(ctx);
       if (result) {
-        return new Ok(result.Body ?? null, { Coockies: result.Cookies ?? [] });
+        return new Ok(result.Body ?? null, {
+          Coockies: result.Cookies ?? [],
+          Headers: result.Headers ?? [],
+        });
       }
     }
 

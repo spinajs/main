@@ -74,11 +74,12 @@ class TestPasswordProvider extends PasswordProvider {
 
 class TestSessionProvider extends SessionProvider<ISession> {
   public Saved: ISession[] = [];
+  public Deleted: string[] = [];
   public async restore(): Promise<ISession | null> {
     return null;
   }
-  public async delete(): Promise<void> {
-    /* noop */
+  public async delete(sessionId: string): Promise<void> {
+    this.Deleted.push(sessionId);
   }
   public async save(session: ISession): Promise<void> {
     this.Saved.push(session);
@@ -249,6 +250,22 @@ describe('ImpersonationController', function () {
       expect(s.Data.get('ImpersonationStartedAt')).to.equal(body.StartedAt);
 
       expect(sessionProvider.Saved).to.have.lengthOf(1);
+
+      // Taking on another identity is a privilege change: the id the session
+      // ran under before must not keep working afterwards, and the client is
+      // handed the new one.
+      const rotated = sessionProvider.Saved[0];
+      expect(rotated.SessionId).to.not.equal(s.SessionId);
+      expect(sessionProvider.Deleted).to.deep.equal([s.SessionId]);
+
+      const issued = ((result as any).options?.Coockies ?? [])[0];
+      expect(issued, 'the rotated session id must be returned as a cookie').to.not.be.undefined;
+      expect(issued.Value).to.equal(rotated.SessionId);
+
+      // Ownership follows the identity, so "log this user out everywhere"
+      // aimed at the target also reaches the impersonating session.
+      expect(rotated.UserId).to.equal(target.Id);
+      expect(rotated.Data.get('OriginalUserId')).to.equal(s.UserId);
 
       // UserImpersonationStarted event emitted exactly once with the right pair
       sinon.assert.calledOnce(evStub);

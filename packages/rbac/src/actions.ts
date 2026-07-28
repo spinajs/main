@@ -9,9 +9,10 @@ import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, U
 import { Constructor, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { UserEvent } from './events/UserEvent.js';
-import { AuthProvider, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
+import { AthenticationErrorCodes, AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
 import { ErrorCode } from '@spinajs/exceptions';
+import { createHash, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
@@ -255,6 +256,42 @@ export function _user_unsafe(identifier: number | string | User): () => Promise<
 }
 
 /**
+ * Destroys every session belonging to a user, on every device.
+ *
+ * Called from each action that invalidates what a live session was granted on:
+ * a password change or reset ( the credential behind the session is gone ), a
+ * ban or a deactivation ( the account may no longer act at all ). Without this
+ * an attacker who is already inside keeps their session while the victim
+ * changes the password that was supposed to lock them out.
+ *
+ * Errors are NOT swallowed: a session store that cannot be reached means the
+ * revocation did not happen, and the caller must learn that rather than be told
+ * the account is secure.
+ *
+ * @param user - the user whose sessions are destroyed, or their numeric id
+ */
+export async function revokeUserSessions(user: User | number): Promise<void> {
+  const userId = _.isNumber(user) ? user : user?.Id;
+
+  if (!userId) {
+    return;
+  }
+
+  const provider = await _service('rbac.session', SessionProvider)();
+  await provider.deleteByUser(userId);
+}
+
+/**
+ * Chain step form of {@link revokeUserSessions} — revokes and forwards the user.
+ */
+function _revoke_sessions() {
+  return async (u: User) => {
+    await revokeUserSessions(u);
+    return u;
+  };
+}
+
+/**
  * ===============================================
  * USER ACTIONS
  * ===============================================
@@ -277,7 +314,9 @@ export async function activate(identifier: number | string | User) {
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
 export async function deactivate(identifier: number | string | User): Promise<void> {
-  return _chain(_user(identifier), _user_update({ IsActive: false }), _user_ev(UserDeactivated), _user_email('deactivated'));
+  // Sessions go with the account: a deactivated user must stop acting NOW, not
+  // whenever their session happens to expire.
+  return _chain(_user(identifier), _user_update({ IsActive: false }), _revoke_sessions(), _user_ev(UserDeactivated), _user_email('deactivated'));
 }
 
 /**
@@ -451,6 +490,12 @@ export async function ban(identifier: number | string | User, reason?: string, d
       { key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true },
       { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
     ]),
+
+    // A ban that leaves the banned user's session alive bans nothing until that
+    // session expires — `isActiveUser` does not filter on the ban flag, so the
+    // session would keep resolving happily.
+    _revoke_sessions(),
+
     _user_ev(UserBanned),
     _user_email('banned'),
   );
@@ -519,6 +564,21 @@ export async function passwordChangeRequest(identifier: number | string | User) 
 export async function confirmPasswordReset(identifier: number | string | User, newPassword: string, token: string) {
   return _chain(
     _user(identifier),
+
+    // A reset must not resurrect an account that is banned, deactivated or
+    // deleted — otherwise the reset flow is a way around every one of those
+    // states. Same ErrorCode family the caller already collapses into one
+    // opaque failure, so this does not become an account-state oracle.
+    _tap(async (u: User) => {
+      if (u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
+        throw new ErrorCode(E_CODES.E_USER_BANNED, `Password reset refused: user is banned`, { user: u });
+      }
+
+      if (!u.IsActive || u.DeletedAt) {
+        throw new ErrorCode(E_CODES.E_USER_NOT_ACTIVE, `Password reset refused: user is not active`, { user: u });
+      }
+    }),
+
     _tap((u: User) =>
       _chain(u, _zip(_get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE), _get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME)), ([dueDate, waitTime]: [DateTime, number]) => {
         if (dueDate.plus({ seconds: waitTime }) < DateTime.now()) {
@@ -533,7 +593,7 @@ export async function confirmPasswordReset(identifier: number | string | User, n
     ),
     _tap((u: User) =>
       _chain(u, _get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_TOKEN), async (resetToken: string) => {
-        if (resetToken !== token) {
+        if (!_secure_compare(String(resetToken), token)) {
           throw new ErrorCode(E_CODES.E_TOKEN_INVALID, `Password change token invalid, operation not permitted`, {
             token,
             resetToken,
@@ -543,7 +603,36 @@ export async function confirmPasswordReset(identifier: number | string | User, n
       }),
     ),
     changePassword(newPassword),
+
+    // Burn the token. Validating it and leaving it in place made it a
+    // multi-use credential for the whole `passwordResetWaitTime` window:
+    // anyone who saw the reset mail once could keep re-taking the account.
+    _tap(async (u: User) => {
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_TOKEN);
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE);
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME);
+      await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET);
+    }),
   );
+}
+
+/**
+ * Length-independent, constant-time string comparison for secrets.
+ *
+ * `!==` on a token leaks how many leading characters matched through timing.
+ * The margin is small over a network and the tokens are uuid-shaped, but a
+ * comparison of a secret is the wrong place to rely on that.
+ *
+ * @param a - value read from storage
+ * @param b - value supplied by the caller
+ */
+function _secure_compare(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a ?? '').digest();
+  const hb = createHash('sha256').update(b ?? '').digest();
+
+  // hashing first makes both operands the same length, which timingSafeEqual
+  // requires and which also stops the length itself from leaking
+  return timingSafeEqual(ha, hb);
 }
 
 /**
@@ -571,7 +660,27 @@ export function changePassword(password: string): (u: User) => Promise<User> {
 
       // update password
       ({ pwd }: { pwd: PasswordProvider }) => pwd.hash(password),
-      (hPassword: string) => _chain(u, _update<User>({ Password: hPassword }), _set_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, DateTime.now().toISO()), _user_ev(UserPasswordChanged)),
+      (hPassword: string) =>
+        _chain(
+          u,
+          _update<User>({ Password: hPassword }),
+          _set_user_meta([
+            { key: USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, value: DateTime.now().toISO() },
+
+            // a successful password change clears the login throttle: the
+            // credential the failures were counted against no longer exists
+            { key: USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS, value: 0 },
+            { key: USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL, value: null },
+          ]),
+
+          // Every session was authorized by the OLD password. Whoever holds one
+          // — including whoever the user is changing the password because of —
+          // loses it here. Callers that want the acting user to stay logged in
+          // ( eg. PATCH /user/password ) mint a fresh session afterwards.
+          _revoke_sessions(),
+
+          _user_ev(UserPasswordChanged),
+        ),
     );
   };
 }
@@ -623,11 +732,26 @@ export async function login(identifier: number | string | User, password: string
     _user_unsafe(identifier),
     _catch(
       (u: User) => {
-        return _chain(_service('rbac.auth', AuthProvider), async (sAuth: AuthProvider) => sAuth.authenticate(u.Email, password), _update<User>({ LastLoginAt: DateTime.now() }), _user_ev(UserLogged));
+        return _chain(
+          async () => {
+            // Refuse before the password is even checked, so a locked account
+            // cannot be probed at all during the lockout window.
+            await _assert_not_locked(u);
+            return _service('rbac.auth', AuthProvider)();
+          },
+          async (sAuth: AuthProvider) => sAuth.authenticate(u.Email, password),
+          _update<User>({ LastLoginAt: DateTime.now() }),
+          _clear_login_throttle(),
+          _user_ev(UserLogged),
+        );
       },
       (err, u: User) => {
         return _chain(
           () => u,
+
+          // count the failure and lock the account once the configured
+          // threshold is reached
+          _register_failed_login(err),
 
           // send event of failed login
           _user_ev(UserLoginFailed, err),
@@ -640,4 +764,97 @@ export async function login(identifier: number | string | User, password: string
       },
     ),
   );
+}
+
+/**
+ * Throws when the account is inside a lockout window opened by
+ * {@link _register_failed_login}.
+ *
+ * @param u - user attempting to authenticate
+ */
+async function _assert_not_locked(u: User): Promise<void> {
+  const raw = u?.Metadata?.[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
+
+  if (!raw) {
+    return;
+  }
+
+  const lockedUntil = raw instanceof DateTime ? raw : DateTime.fromISO(String(raw));
+
+  if (lockedUntil.isValid && lockedUntil > DateTime.now()) {
+    throw new ErrorCode(AthenticationErrorCodes.E_LOGIN_ATTEMPTS_EXCEEDED, `Too many failed login attempts, account is temporarily locked until ${lockedUntil.toISO()}`, {
+      user: u,
+      lockedUntil,
+    });
+  }
+}
+
+/**
+ * Clears the failure counter and any expired lock after a successful login.
+ */
+function _clear_login_throttle() {
+  return async (u: User) => {
+    const meta = u?.Metadata;
+
+    if (!meta) {
+      return u;
+    }
+
+    const hasAttempts = Number(meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] ?? 0) > 0;
+    const hasLock = Boolean(meta[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL]);
+
+    if (!hasAttempts && !hasLock) {
+      return u;
+    }
+
+    await meta.delete(USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS);
+    await meta.delete(USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL);
+
+    return u;
+  };
+}
+
+/**
+ * Records one failed authentication and, at `rbac.password.blockAfterAttempts`
+ * consecutive failures, locks the account for `rbac.password.lockoutTime`
+ * seconds.
+ *
+ * `blockAfterAttempts <= 0` disables throttling entirely. A rejection that was
+ * itself the lockout is not counted — otherwise hammering a locked account
+ * would keep extending the lock indefinitely.
+ *
+ * @param err - the error that ended the login attempt
+ */
+function _register_failed_login(err: unknown) {
+  return async (u: User) => {
+    const meta = u?.Metadata;
+
+    if (!meta) {
+      return u;
+    }
+
+    if (err instanceof ErrorCode && err.code === AthenticationErrorCodes.E_LOGIN_ATTEMPTS_EXCEEDED) {
+      return u;
+    }
+
+    const blockAfter = await _cfg<number>('rbac.password.blockAfterAttempts', 5)();
+    const lockoutTime = await _cfg<number>('rbac.password.lockoutTime', 15 * 60)();
+
+    if (!blockAfter || blockAfter <= 0) {
+      return u;
+    }
+
+    const attempts = Number(meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] ?? 0) + 1;
+
+    if (attempts >= blockAfter) {
+      meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] = 0;
+      meta[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL] = DateTime.now().plus({ seconds: lockoutTime }).toISO();
+    } else {
+      meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] = attempts;
+    }
+
+    await meta.update();
+
+    return u;
+  };
 }

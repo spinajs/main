@@ -22,6 +22,7 @@ import {
   IUserWithGrants,
 } from '@spinajs/rbac-http';
 import { ImpersonationService } from '../services/ImpersonationService.js';
+import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { buildUserWithGrants, grantsFor } from '../services/grants.js';
 
 const IMPERSONATE_RESOURCE = 'user:impersonate';
@@ -47,6 +48,9 @@ export class ImpersonationController extends BaseController {
 
   @Autoinject(ImpersonationService)
   protected Impersonation: ImpersonationService;
+
+  @Autoinject(SessionCookieFactory)
+  protected SessionCookies: SessionCookieFactory;
 
   @Config('rbac.impersonation.requirePassword', { defaultValue: true })
   protected RequirePassword: boolean;
@@ -169,11 +173,16 @@ export class ImpersonationController extends BaseController {
     // previous ActiveRole so it can be restored on stop; effective ActiveRole
     // becomes the target's first role.
     const startedAt = DateTime.now().toISO()!;
-    const targetActiveRole = await this.Impersonation.start(session, caller, target, startedAt);
+    const { Session: regenerated, ActiveRole: targetActiveRole } = await this.Impersonation.start(session, caller, target, startedAt);
 
     await this.emitEvent(new UserImpersonationStarted(caller, target));
 
-    return new Ok(this.buildResponse(target, caller, targetActiveRole, startedAt));
+    // The session id changed with the identity — hand the client the new one or
+    // its next request arrives with a session that no longer exists.
+    return new Ok(this.buildResponse(target, caller, targetActiveRole, startedAt), {
+      Coockies: [this.SessionCookies.issue(regenerated)],
+      Headers: [{ Name: 'Cache-Control', Value: 'no-store' }],
+    });
   }
 
   /**
@@ -206,7 +215,10 @@ export class ImpersonationController extends BaseController {
       });
     }
 
-    return new Ok(buildUserWithGrants(result.Original, result.ActiveRole, this.AC));
+    return new Ok(buildUserWithGrants(result.Original, result.ActiveRole, this.AC), {
+      Coockies: [this.SessionCookies.issue(result.Session)],
+      Headers: [{ Name: 'Cache-Control', Value: 'no-store' }],
+    });
   }
 
   /**

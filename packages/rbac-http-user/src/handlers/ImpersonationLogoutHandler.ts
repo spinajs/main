@@ -1,6 +1,7 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { LogoutHandler, ILogoutContext, ILogoutResult } from '../logout.js';
 import { ImpersonationService } from '../services/ImpersonationService.js';
+import { SessionCookieFactory } from '../services/SessionCookies.js';
 
 /**
  * Logout handler that detects an active impersonation and reverts it instead
@@ -14,6 +15,9 @@ export class ImpersonationLogoutHandler extends LogoutHandler {
   @Autoinject(ImpersonationService)
   protected Impersonation: ImpersonationService;
 
+  @Autoinject(SessionCookieFactory)
+  protected SessionCookies: SessionCookieFactory;
+
   public async handle(context: ILogoutContext): Promise<ILogoutResult | null> {
     if (!this.Impersonation.isActive(context.Session)) {
       return null;
@@ -23,9 +27,13 @@ export class ImpersonationLogoutHandler extends LogoutHandler {
 
     switch (result.Status) {
       case 'reverted':
-        // Take ownership of the response: no cookie change — the original
-        // user's session continues.
-        return { Body: { ImpersonationEnded: true } };
+        // Take ownership of the response: the original user's session
+        // continues, under the new id the revert rotated it to.
+        return {
+          Body: { ImpersonationEnded: true },
+          Cookies: [this.SessionCookies.issue(result.Session)],
+          Headers: [{ Name: 'Cache-Control', Value: 'no-store' }],
+        };
 
       case 'impersonator-gone':
         // The impersonator's account disappeared mid-impersonation. The stale

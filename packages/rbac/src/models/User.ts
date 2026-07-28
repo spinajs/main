@@ -171,6 +171,13 @@ export enum USER_COMMON_METADATA {
   USER_PWD_RESET_TOKEN = 'user:pwd_reset:token',
   // reset password last succesyfull  attempt
   USER_PWD_RESET_LAST_ATTEMPT = 'user:pwd_reset:last_attempt',
+
+  /** Login throttling */
+
+  // consecutive failed login attempts since the last success
+  USER_LOGIN_ATTEMPTS = 'user:login:attempts',
+  // ISO instant until which authentication is refused for this account
+  USER_LOGIN_LOCKED_UNTIL = 'user:login:locked_until',
 }
 
 /**

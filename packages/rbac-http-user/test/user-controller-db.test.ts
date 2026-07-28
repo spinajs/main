@@ -177,8 +177,20 @@ describe('UserController (database backed)', function () {
   });
 
   describe('newPassword', () => {
+    /** A live session of this user, as the middleware would have restored it. */
+    const liveSession = async (loaded: User) => {
+      const s = new UserSession();
+      s.UserId = loaded.Id;
+      s.Data.set('User', USER_UUID);
+      s.Data.set('Logged', true);
+      s.Data.set('Authorized', true);
+      await sessionStore.save(s);
+      return s;
+    };
+
     it('changes the password when the old one matches', async () => {
-      const result = await controller.newPassword(await reload(), { OldPassword: 'current123', Password: 'brandnew1', ConfirmPassword: 'brandnew1' } as any);
+      const loaded = await reload();
+      const result = await controller.newPassword(loaded, { OldPassword: 'current123', Password: 'brandnew1', ConfirmPassword: 'brandnew1' } as any, await liveSession(loaded));
       await body(result);
 
       const pwd = DI.resolve(BasicPasswordProvider);
@@ -188,20 +200,53 @@ describe('UserController (database backed)', function () {
       expect(await pwd.verify(updated.Password, 'current123'), 'old password must stop working').to.eq(false);
     });
 
+    it('destroys every session opened with the old password', async () => {
+      const loaded = await reload();
+
+      // the caller's own session plus one from another device
+      const mine = await liveSession(loaded);
+      const otherDevice = await liveSession(loaded);
+
+      await body(await controller.newPassword(loaded, { OldPassword: 'current123', Password: 'brandnew1', ConfirmPassword: 'brandnew1' } as any, mine));
+
+      expect(await sessionStore.restore(mine.SessionId), 'the session the change was made from must not survive').to.be.null;
+      expect(await sessionStore.restore(otherDevice.SessionId), 'a session on another device must not survive').to.be.null;
+    });
+
+    it('issues a fresh session for the caller so the password change does not log them out', async () => {
+      const loaded = await reload();
+      const mine = await liveSession(loaded);
+
+      const result: any = await controller.newPassword(loaded, { OldPassword: 'current123', Password: 'brandnew1', ConfirmPassword: 'brandnew1' } as any, mine);
+      await body(result);
+
+      const issued = (result.options?.Coockies ?? [])[0];
+      expect(issued, 'a replacement session cookie must be returned').to.not.be.undefined;
+      expect(issued.Value).to.not.equal(mine.SessionId);
+
+      const restored = await sessionStore.restore(issued.Value);
+      expect(restored, 'the replacement session must exist in the store').to.not.be.null;
+      expect(restored!.Data.get('User')).to.eq(USER_UUID);
+      expect(restored!.Data.get('Authorized')).to.eq(true);
+    });
+
     it('rejects when the confirmation does not match', async () => {
-      await expect(controller.newPassword(await reload(), { OldPassword: 'current123', Password: 'brandnew1', ConfirmPassword: 'different1' } as any)).to.be.rejected;
+      const loaded = await reload();
+      await expect(controller.newPassword(loaded, { OldPassword: 'current123', Password: 'brandnew1', ConfirmPassword: 'different1' } as any, await liveSession(loaded))).to.be.rejected;
 
       const pwd = DI.resolve(BasicPasswordProvider);
       expect(await pwd.verify((await reload()).Password, 'current123'), 'password must be left alone').to.eq(true);
     });
 
     it('rejects when the old password is wrong', async () => {
-      const result = await controller.newPassword(await reload(), { OldPassword: 'not-my-password', Password: 'brandnew1', ConfirmPassword: 'brandnew1' } as any);
+      const loaded = await reload();
+      const mine = await liveSession(loaded);
 
-      await expect(body(result)).to.be.rejected;
+      await expect(controller.newPassword(loaded, { OldPassword: 'not-my-password', Password: 'brandnew1', ConfirmPassword: 'brandnew1' } as any, mine)).to.be.rejected;
 
       const pwd = DI.resolve(BasicPasswordProvider);
       expect(await pwd.verify((await reload()).Password, 'current123'), 'password must be left alone').to.eq(true);
+      expect(await sessionStore.restore(mine.SessionId), 'a failed attempt must not revoke anything').to.not.be.null;
     });
   });
 });

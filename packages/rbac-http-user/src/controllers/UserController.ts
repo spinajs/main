@@ -1,13 +1,14 @@
 import { PasswordDto } from '../dto/password-dto.js';
-import { User as UserModel, PasswordProvider, SessionProvider, passwordMatch, changePassword, AccessControl } from '@spinajs/rbac';
+import { User as UserModel, PasswordProvider, SessionProvider, UserSession, passwordMatch, changePassword, AccessControl } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
-import { BaseController, BasePath, Get, Ok, Body, Patch, Cookie, Policy } from '@spinajs/http';
+import { BaseController, BasePath, Get, Ok, Body, Patch, Policy } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
 import _ from 'lodash';
-import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap, Session as SessionRouteArg } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap, Session as SessionRouteArg, SessionId as SessionIdArg } from '@spinajs/rbac-http';
 import { _chain, _either } from '@spinajs/util';
 import { activeRoleOf, grantsFor } from '../services/grants.js';
+import { SessionCookieFactory } from '../services/SessionCookies.js';
 
 
 
@@ -30,6 +31,9 @@ export class UserController extends BaseController {
   @Autoinject(AccessControl)
   protected AC: AccessControl;
 
+  @Autoinject(SessionCookieFactory)
+  protected SessionCookies: SessionCookieFactory;
+
   /**
    * Refresh current user profile
    * Reloads the authenticated user's record from the database (including metadata) and
@@ -41,7 +45,7 @@ export class UserController extends BaseController {
    */
   @Get()
   @Permission(['readOwn'])
-  public async refresh(@User() user: UserModel, @Cookie(true) ssid: string) {
+  public async refresh(@User() user: UserModel, @SessionIdArg() ssid: string) {
     // get user data from db
     await user.refresh();
     await user.Metadata.populate();
@@ -99,22 +103,44 @@ export class UserController extends BaseController {
    */
   @Patch('password')
   @Permission(["updateOwn"])
-  public async newPassword(@User() user: UserModel, @Body() pwd: PasswordDto) {
+  public async newPassword(@User() user: UserModel, @Body() pwd: PasswordDto, @SessionRouteArg() session: ISession) {
     if (pwd.Password !== pwd.ConfirmPassword) {
       throw new InvalidArgument('password does not match');
     }
 
-
-    return new Ok(
-      _chain(
-        user,
-        _either(
-          passwordMatch(pwd.OldPassword),
-          changePassword(pwd.Password),
-          () => {
-            throw new InvalidArgument('Old password is incorrect');
-          }),
-      ),
+    await _chain(
+      user,
+      _either(
+        passwordMatch(pwd.OldPassword),
+        changePassword(pwd.Password),
+        () => {
+          throw new InvalidArgument('Old password is incorrect');
+        }),
     );
+
+    // `changePassword` destroys every session of this user — anyone who got in
+    // with the old password is out, which is the whole point. That includes the
+    // caller's own session, so it is replaced here with a brand new one ( a new
+    // id, not the old one revived ) and the client is handed the new cookie.
+    const replacement = new UserSession();
+    replacement.UserId = user.Id;
+
+    if (session) {
+      for (const [key, value] of session.Data) {
+        replacement.Data.set(key, value);
+      }
+    } else {
+      replacement.Data.set('User', user.Uuid);
+      replacement.Data.set('Logged', true);
+      replacement.Data.set('Authorized', true);
+      replacement.Data.set('ActiveRole', user.Role?.[0]);
+    }
+
+    await this.SessionProvider.save(replacement);
+
+    return new Ok(null, {
+      Coockies: [this.SessionCookies.issue(replacement)],
+      Headers: [{ Name: 'Cache-Control', Value: 'no-store' }],
+    });
   }
 }

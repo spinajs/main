@@ -1,10 +1,13 @@
 import { BaseController, BasePath, Body, Get, Ok, Policy, Post, Unauthorized } from '@spinajs/http';
-import { PasswordProvider, User as UserModel } from '@spinajs/rbac';
+import { PasswordProvider, SessionProvider, User as UserModel, regenerateSession } from '@spinajs/rbac';
+import type { ISession } from '@spinajs/rbac';
+import { Autoinject } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
-import { AuthorizedPolicy, IEnable2faResponse, Permission, Resource, User } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, IEnable2faResponse, Permission, Resource, Session as SessionRouteArg, User } from '@spinajs/rbac-http';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { TwoFactorAuthEnabled } from '../policies/2FaPolicy.js';
 import { ConfirmPasswordDto } from '../dto/confirm-password-dto.js';
+import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { disableUser2Fa, enableUser2Fa } from '../actions/2fa.js';
 import { TWO_FA_METATADATA_KEYS } from '../2fa/Default2FaToken.js';
 
@@ -37,6 +40,12 @@ export class TwoFactorAuthUserController extends BaseController {
   @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;
 
+  @AutoinjectService('rbac.session')
+  protected SessionProvider: SessionProvider;
+
+  @Autoinject(SessionCookieFactory)
+  protected SessionCookies: SessionCookieFactory;
+
   /**
    * Get own two-factor status
    * Reports whether the authenticated user currently has a TOTP device enrolled.
@@ -63,7 +72,7 @@ export class TwoFactorAuthUserController extends BaseController {
    */
   @Post('2fa/enable')
   @Permission(['updateOwn'])
-  public async enable(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto): Promise<Ok<IEnable2faResponse> | Unauthorized> {
+  public async enable(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto, @SessionRouteArg() session: ISession): Promise<Ok<IEnable2faResponse> | Unauthorized> {
     if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
       throw new InvalidOperation(`User ${user.Uuid} already has 2fa enabled`);
     }
@@ -80,7 +89,7 @@ export class TwoFactorAuthUserController extends BaseController {
     // themselves out and needs an administrator 2FA reset to recover.
     const result = await this.enrol(user);
 
-    return new Ok({ otp: result as string });
+    return new Ok({ otp: result as string }, await this.rotate(session));
   }
 
   /**
@@ -95,7 +104,7 @@ export class TwoFactorAuthUserController extends BaseController {
    */
   @Post('2fa/disable')
   @Permission(['updateOwn'])
-  public async disable(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto): Promise<Ok | Unauthorized> {
+  public async disable(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto, @SessionRouteArg() session: ISession): Promise<Ok | Unauthorized> {
     if (!user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
       throw new InvalidOperation(`User ${user.Uuid} already has 2fa disabled`);
     }
@@ -106,7 +115,30 @@ export class TwoFactorAuthUserController extends BaseController {
     }
 
     await this.unenrol(user);
-    return new Ok();
+    return new Ok(null, await this.rotate(session));
+  }
+
+  /**
+   * Rotates the session id after the account's authentication requirements
+   * changed, and returns the response options carrying the new cookie.
+   *
+   * Attaching or removing a second factor changes what the session is worth. A
+   * session id that was observed before the change must not keep working after
+   * it.
+   *
+   * @param session - the caller's current session
+   */
+  protected async rotate(session: ISession) {
+    if (!session) {
+      return { Headers: [{ Name: 'Cache-Control', Value: 'no-store' }] };
+    }
+
+    const regenerated = await regenerateSession(this.SessionProvider, session);
+
+    return {
+      Coockies: [this.SessionCookies.issue(regenerated)],
+      Headers: [{ Name: 'Cache-Control', Value: 'no-store' }],
+    };
   }
 
   /**

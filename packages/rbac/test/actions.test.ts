@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, grant, revoke, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, passwordMatch, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, grant, revoke, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, passwordMatch, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware, SessionProvider, UserSession } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
@@ -488,5 +488,162 @@ describe('User model tests', function () {
     const user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
 
     expect(await passwordMatch('not-the-password')(user)).to.eq(false);
+  });
+
+  describe('password reset token', () => {
+    const reload = () => User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+
+    it('is single use — a redeemed token cannot be redeemed again', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await passwordChangeRequest('test@spinajs.pl');
+      const token = (await reload()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      await confirmPasswordReset('test@spinajs.pl', 'brandNew123', token);
+
+      // Whoever saw the reset mail must not be able to keep re-taking the
+      // account for the rest of the wait-time window.
+      await expect(confirmPasswordReset('test@spinajs.pl', 'attacker123', token)).to.be.rejected;
+
+      const pwd = await DI.resolve(BasicPasswordProvider);
+      expect(await pwd.verify((await reload()).Password, 'brandNew123'), 'the first reset must stand').to.be.true;
+    });
+
+    it('is erased from the user metadata once redeemed', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await passwordChangeRequest('test@spinajs.pl');
+      const token = (await reload()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      await confirmPasswordReset('test@spinajs.pl', 'brandNew123', token);
+
+      const meta = (await reload()).Metadata;
+      expect(meta[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN], 'token').to.be.not.ok;
+      expect(meta[USER_COMMON_METADATA.USER_PWD_RESET_START_DATE], 'start date').to.be.not.ok;
+      expect(meta[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME], 'wait time').to.be.not.ok;
+    });
+
+    it('is refused for a banned account', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await passwordChangeRequest('test@spinajs.pl');
+      const token = (await reload()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      await ban('test@spinajs.pl', 'testing', 3600);
+
+      // a reset must not be a way around a ban
+      await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', token)).to.be.rejected;
+    });
+
+    it('is refused for a deactivated account', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await passwordChangeRequest('test@spinajs.pl');
+      const token = (await reload()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      await deactivate('test@spinajs.pl');
+
+      await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', token)).to.be.rejected;
+    });
+  });
+
+  describe('login throttling', () => {
+    const reload = () => User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+
+    const blockAfter = async () => {
+      const cfg = await DI.resolve(Configuration);
+      return cfg.get<number>('rbac.password.blockAfterAttempts', 5);
+    };
+
+    it('counts consecutive failures', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await expect(login('test@spinajs.pl', 'wrong-password')).to.be.rejected;
+
+      expect(Number((await reload()).Metadata[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS])).to.eq(1);
+    });
+
+    it('locks the account after the configured number of failures and refuses the CORRECT password while locked', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      const limit = await blockAfter();
+      for (let i = 0; i < limit; i++) {
+        await expect(login('test@spinajs.pl', 'wrong-password')).to.be.rejected;
+      }
+
+      const locked = (await reload()).Metadata[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
+      expect(locked, 'a lock instant must be recorded').to.be.not.undefined;
+
+      // the whole point: guessing does not become possible again just because
+      // the attacker finally guessed right
+      await expect(login('test@spinajs.pl', 'bbbb')).to.be.rejected;
+    });
+
+    it('clears the counter and the lock on a successful login', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await expect(login('test@spinajs.pl', 'wrong-password')).to.be.rejected;
+      expect(Number((await reload()).Metadata[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS])).to.eq(1);
+
+      await login('test@spinajs.pl', 'bbbb');
+
+      const meta = (await reload()).Metadata;
+      expect(meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS], 'attempt counter').to.be.not.ok;
+      expect(meta[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL], 'lock instant').to.be.not.ok;
+    });
+
+    it('lets an expired lock through', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      const user = await reload();
+      user.Metadata[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL] = DateTime.now().minus({ minutes: 5 }).toISO();
+      await user.Metadata.update();
+
+      await expect(login('test@spinajs.pl', 'bbbb')).to.be.fulfilled;
+    });
+  });
+
+  describe('session revocation', () => {
+    const liveSessionFor = async (email: string) => {
+      const user = await User.query().whereAnything(email).firstOrFail();
+      const provider = await DI.resolve(SessionProvider);
+      const session = new UserSession();
+      session.UserId = user.Id;
+      session.Data.set('User', user.Uuid);
+      await provider.save(session);
+      return { provider, session };
+    };
+
+    it('destroys the sessions of a user whose password changed', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      const { provider, session } = await liveSessionFor('test@spinajs.pl');
+
+      await changePassword('brandNew123')(await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail());
+
+      expect(await provider.restore(session.SessionId), 'a session authorized by the old password must not survive it').to.be.null;
+    });
+
+    it('destroys the sessions of a banned user', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      const { provider, session } = await liveSessionFor('test@spinajs.pl');
+
+      await ban('test@spinajs.pl', 'testing', 3600);
+
+      // isActiveUser does not filter on the ban flag, so a surviving session
+      // would keep working for the whole ban
+      expect(await provider.restore(session.SessionId)).to.be.null;
+    });
+
+    it('destroys the sessions of a deactivated user', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      const { provider, session } = await liveSessionFor('test@spinajs.pl');
+
+      await deactivate('test@spinajs.pl');
+
+      expect(await provider.restore(session.SessionId)).to.be.null;
+    });
   });
 });

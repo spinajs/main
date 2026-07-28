@@ -14,6 +14,7 @@ export * from './controllers/UserMetadataController.js';
 export * from "./controllers/TwoFactorAuthController.js";
 export * from "./controllers/TwoFactorAuthUserController.js";
 export * from "./controllers/PasswordResetController.js";
+export * from "./controllers/SessionsController.js";
 
 export * from "./cli/EnableUser2Fa.js";
 export * from "./2fa/Default2FaToken.js";

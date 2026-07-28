@@ -164,15 +164,24 @@ describe('Logout handler chain', function () {
 
       const result = await handler.handle({ Ssid: 'sid', Session: s, User: target });
 
-      expect(result).to.deep.equal({ Body: { ImpersonationEnded: true } });
+      expect(result!.Body).to.deep.equal({ ImpersonationEnded: true });
       expect(s.Data.get('User')).to.equal('admin-uuid');
       expect(s.Data.has('Impersonator')).to.be.false;
       expect(s.Data.has('ImpersonationStartedAt')).to.be.false;
       expect(s.Data.has('OriginalActiveRole')).to.be.false;
       expect(s.Data.get('ActiveRole')).to.equal('admin');
 
+      // Dropping the target identity is a privilege change: the id the session
+      // ran under while impersonating is destroyed and a new one issued.
       expect(LogoutTestSessionProvider.Saved).to.have.lengthOf(1);
-      expect(LogoutTestSessionProvider.Deleted).to.be.empty;
+      expect(LogoutTestSessionProvider.Deleted).to.deep.equal([s.SessionId]);
+
+      const rotated = LogoutTestSessionProvider.Saved[0];
+      expect(rotated.SessionId).to.not.equal(s.SessionId);
+      expect(rotated.Data.get('User')).to.equal('admin-uuid');
+
+      expect(result!.Cookies).to.have.lengthOf(1);
+      expect(result!.Cookies![0].Value).to.equal(rotated.SessionId);
 
       sinon.assert.calledOnce(evStub);
       const [emittedOriginal, emittedTarget] = evStub.firstCall.args;
