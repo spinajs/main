@@ -1,16 +1,36 @@
-import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder } from '@spinajs/orm';
+import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
-import { SqlWhereCompiler, escapeIdentifier } from './compilers.js';
-import { NewInstance } from '@spinajs/di';
-import { ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InSetStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, Wrap, WrapStatement, ValueConverter, extractModelDescriptor } from '@spinajs/orm';
+import { SqlWhereCompiler } from './compilers.js';
+import { Autoinject, NewInstance } from '@spinajs/di';
+
 import { InvalidArgument } from '@spinajs/exceptions';
 
-function _columnWrap(column: string, tableAlias: string | undefined, isAggregate?: boolean): string {
+/**
+ * Exported so driver packages can wrap a column exactly the way the shared
+ * statements do — a driver writing its own dialect statement must not have to
+ * re-derive alias rules. Quoting itself comes from the driver's own
+ * {@link IdentifierQuoter}, which is why it is a parameter rather than an import.
+ */
+export function _columnWrap(quoter: IdentifierQuoter, column: string, tableAlias: string | undefined, isAggregate?: boolean): string {
   if (tableAlias && !isAggregate) {
-    return `${escapeIdentifier(tableAlias)}.${escapeIdentifier(column)}`;
+    return `${quoter.quote(tableAlias)}.${quoter.quote(column)}`;
   }
 
-  return escapeIdentifier(column);
+  return quoter.quote(column);
+}
+
+
+/**
+ * Copies the injected quoter onto a hand-constructed clone.
+ *
+ * `clone()` builds statements with `new`, which bypasses the container — so property
+ * injection never runs on a clone and `this.Quoter` would be undefined the moment the
+ * cloned statement compiled. Every clone of a statement that quotes anything goes
+ * through here.
+ */
+function _carryQuoter<T extends { Quoter: IdentifierQuoter }>(clone: T, source: { Quoter: IdentifierQuoter }): T {
+  clone.Quoter = source.Quoter;
+  return clone;
 }
 
 @NewInstance()
@@ -110,8 +130,11 @@ export class SqlWithRecursiveStatement extends WithRecursiveStatement {
 
 @NewInstance()
 export class SqlBetweenStatement extends BetweenStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   public clone(): SqlBetweenStatement {
-    return new SqlBetweenStatement(this._column, this._val, this._not, this._tableAlias!);
+    return _carryQuoter(new SqlBetweenStatement(this._column, this._val, this._not, this._tableAlias!), this);
   }
 
   public build(): IQueryStatementResult {
@@ -119,15 +142,18 @@ export class SqlBetweenStatement extends BetweenStatement {
 
     return {
       Bindings: this._val,
-      Statements: [`${_columnWrap(this._column, this._tableAlias)} ${exprr} ? AND ?`],
+      Statements: [`${_columnWrap(this.Quoter, this._column, this._tableAlias)} ${exprr} ? AND ?`],
     };
   }
 }
 
 @NewInstance()
 export class SqlGroupByStatement extends GroupByStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   public clone(): SqlGroupByStatement {
-    return new SqlGroupByStatement(this._expr, this.TableAlias);
+    return _carryQuoter(new SqlGroupByStatement(this._expr, this.TableAlias), this);
   }
 
   build(): IQueryStatementResult {
@@ -139,7 +165,7 @@ export class SqlGroupByStatement extends GroupByStatement {
     } else {
       return {
         Bindings: [],
-        Statements: [escapeIdentifier(this._expr as string)],
+        Statements: [this.Quoter.quote(this._expr)],
       };
     }
   }
@@ -147,13 +173,14 @@ export class SqlGroupByStatement extends GroupByStatement {
 
 @NewInstance()
 export class SqlWhereStatement extends WhereStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
 
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_builder?: T): SqlWhereStatement {
-    return new SqlWhereStatement(
-      this._column,
-      this._operator,
-      this._value,
-      this._builder,
+    return _carryQuoter(
+      new SqlWhereStatement(this._column, this._operator, this._value, this._builder),
+      this,
     );
   }
 
@@ -174,7 +201,7 @@ export class SqlWhereStatement extends WhereStatement {
       const wrapper = this._container.resolve<WrapStatement>(column.Wrapper, [column.Column, this._builder.TableAlias]);
       column = wrapper.wrap();
     } else {
-      column = _columnWrap(column, this._builder.TableAlias, this.IsAggregate);
+      column = _columnWrap(this.Quoter, column, this._builder.TableAlias, this.IsAggregate);
 
       if (val instanceof ModelBase) {
         // A composite key unwraps to a tuple, which would bind an array into a single `?`.
@@ -216,11 +243,17 @@ export class SqlWhereStatement extends WhereStatement {
 
 @NewInstance()
 export class SqlJoinStatement extends JoinStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
-    return new SqlJoinStatement({
-      ...this._options,
-      builder: (parent as SelectQueryBuilder) ?? this._options.builder,
-    })
+    return _carryQuoter(
+      new SqlJoinStatement({
+        ...this._options,
+        builder: (parent as SelectQueryBuilder) ?? this._options.builder,
+      }),
+      this,
+    );
   }
 
   public build(): IQueryStatementResult {
@@ -280,18 +313,18 @@ export class SqlJoinStatement extends JoinStatement {
     if (sourceTableAlias) {
       const sourceDb = sourceModelDriver.Options.Database;
       if (sourceDb) {
-        sourceTable = `${escapeIdentifier(sourceDb)}.${escapeIdentifier(sourceTable)} as ${escapeIdentifier(sourceTableAlias)}`;
+        sourceTable = `${this.Quoter.quote(sourceDb)}.${this.Quoter.quote(sourceTable)} as ${this.Quoter.quote(sourceTableAlias)}`;
       } else {
-        sourceTable = `${escapeIdentifier(sourceTable)} as ${escapeIdentifier(sourceTableAlias)}`;
+        sourceTable = `${this.Quoter.quote(sourceTable)} as ${this.Quoter.quote(sourceTableAlias)}`;
       }
     }
 
     if (joinTableAlias) {
       const joinDb = joinModelDriver.Options.Database;
       if (joinDb) {
-        joinTable = `${escapeIdentifier(joinDb)}.${escapeIdentifier(joinTable)} as ${escapeIdentifier(joinTableAlias)}`;
+        joinTable = `${this.Quoter.quote(joinDb)}.${this.Quoter.quote(joinTable)} as ${this.Quoter.quote(joinTableAlias)}`;
       } else {
-        joinTable = `${escapeIdentifier(joinTable)} as ${escapeIdentifier(joinTableAlias)}`;
+        joinTable = `${this.Quoter.quote(joinTable)} as ${this.Quoter.quote(joinTableAlias)}`;
       }
     }
 
@@ -302,8 +335,8 @@ export class SqlJoinStatement extends JoinStatement {
     // as-is on purpose: they come from validated relation descriptors and the
     // existing suite asserts the unquoted form, so escaping them would change
     // byte output for normal identifiers.
-    const primaryKey = sourceTableAlias ? `${escapeIdentifier(sourceTableAlias)}.${this._options.sourceTablePrimaryKey}` : `${escapeIdentifier(sourceTable)}.${this._options.sourceTablePrimaryKey}`;
-    const foreignKey = joinTableAlias ? `${escapeIdentifier(joinTableAlias)}.${this._options.joinTableForeignKey}` : `${escapeIdentifier(joinTable)}.${this._options.joinTableForeignKey}`;
+    const primaryKey = sourceTableAlias ? `${this.Quoter.quote(sourceTableAlias)}.${this._options.sourceTablePrimaryKey}` : `${this.Quoter.quote(sourceTable)}.${this._options.sourceTablePrimaryKey}`;
+    const foreignKey = joinTableAlias ? `${this.Quoter.quote(joinTableAlias)}.${this._options.joinTableForeignKey}` : `${this.Quoter.quote(joinTable)}.${this._options.joinTableForeignKey}`;
 
     // Conditions supplied via the join callback (e.g. `.leftJoin(rel, b => b.where('Key', 'x'))`)
     // belong in the JOIN's ON clause, not the main WHERE — otherwise an outer
@@ -334,13 +367,16 @@ export class SqlJoinStatement extends JoinStatement {
 
 @NewInstance()
 export class SqlInStatement extends InStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): IQueryStatement {
-    return new SqlInStatement(this._column, this._val, this._not, (parent ?? this._builder) as SelectQueryBuilder);
+    return _carryQuoter(new SqlInStatement(this._column, this._val, this._not, (parent ?? this._builder) as SelectQueryBuilder), this);
   }
 
   public build(): IQueryStatementResult {
     const exprr = this._not ? 'NOT IN' : 'IN';
-    let column = _columnWrap(this._column, this._builder.TableAlias);
+    const column = _columnWrap(this.Quoter, this._column, this._builder.TableAlias);
 
     return {
       Bindings: this._val,
@@ -349,30 +385,56 @@ export class SqlInStatement extends InStatement {
   }
 }
 
+/**
+ * Portable membership test against a delimited `@Set()` column.
+ *
+ * Plain equality plus three LIKE patterns — value alone, first, last, in the middle —
+ * so it needs no dialect function and no string concatenation operator ( `||` on
+ * SQLite, `+` on MSSQL, `CONCAT()` on MySQL: there is no spelling all three accept ).
+ * Every driver that ships with spinajs replaces this with its native form; this is
+ * what an unknown driver gets, and it is correct rather than fast.
+ *
+ * This used to emit `FIND_IN_SET`, which exists only in MySQL — on SQLite and MSSQL
+ * every `whereInSet` ( and therefore every `withRole` ) died with "no such function"
+ * at query time.
+ */
 @NewInstance()
 export class SqlInSetStatement extends InSetStatement {
-  build(): IQueryStatementResult {
-    const column = _columnWrap(this._column, this._tableAlias);
-    const operator = this._not ? '= 0' : '> 0';
-    const connector = this._not ? ' AND ' : ' OR ';
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
 
-    const conditions = this._val.map(() => `FIND_IN_SET(?, ${column}) ${operator}`).join(connector);
+  build(): IQueryStatementResult {
+    const column = _columnWrap(this.Quoter, this._column, this._tableAlias);
+    const bindings: string[] = [];
+
+    const expressions = this.values().map((value) => {
+      const pattern = escapeLikeValue(value);
+
+      // exact ( the column holds this value alone ), first, last, middle
+      bindings.push(value, `${pattern}${SET_DELIMITER}%`, `%${SET_DELIMITER}${pattern}`, `%${SET_DELIMITER}${pattern}${SET_DELIMITER}%`);
+
+      const like = `${column} LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`;
+      return `(${column} = ? OR ${like} OR ${like} OR ${like})`;
+    });
 
     return {
-      Bindings: this._val,
-      Statements: [`(${conditions})`],
+      Bindings: bindings,
+      Statements: [this.combine(expressions)],
     };
   }
 
   public clone(): IQueryStatement {
-    return new SqlInSetStatement(this._column, this._val, this._not, this._tableAlias!);
+    return _carryQuoter(new SqlInSetStatement(this._column, this._val, this._not, this._tableAlias!), this);
   }
 }
 
 @NewInstance()
 export class SqlColumnStatement extends ColumnStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   public clone(): SqlColumnStatement {
-    return new SqlColumnStatement(this._column, this._alias, this._tableAlias!, this.Descriptor);
+    return _carryQuoter(new SqlColumnStatement(this._column, this._alias, this._tableAlias!, this.Descriptor), this);
   }
 
   public build(): IQueryStatementResult {
@@ -381,15 +443,15 @@ export class SqlColumnStatement extends ColumnStatement {
     if (this.IsWildcard) {
       exprr = '*';
     } else {
-      exprr = escapeIdentifier(this._column as string);
+      exprr = this.Quoter.quote(this._column as string);
 
       if (this._alias) {
-        exprr += ` as ${escapeIdentifier(this._alias)}`;
+        exprr += ` as ${this.Quoter.quote(this._alias)}`;
       }
     }
 
     if (this._tableAlias) {
-      exprr = `${escapeIdentifier(this._tableAlias)}.${exprr}`;
+      exprr = `${this.Quoter.quote(this._tableAlias)}.${exprr}`;
     }
 
     return {
@@ -401,8 +463,11 @@ export class SqlColumnStatement extends ColumnStatement {
 
 @NewInstance()
 export class SqlColumnMethodStatement extends ColumnMethodStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   public clone(): SqlColumnMethodStatement {
-    return new SqlColumnMethodStatement(this._column, this._method, this._alias, this._tableAlias!);
+    return _carryQuoter(new SqlColumnMethodStatement(this._column, this._method, this._alias, this._tableAlias!), this);
   }
 
   public build(): IQueryStatementResult {
@@ -411,11 +476,11 @@ export class SqlColumnMethodStatement extends ColumnMethodStatement {
     if (this.IsWildcard) {
       _exprr = `${this._method}(${this._column})`;
     } else {
-      _exprr = `${this._method}(${escapeIdentifier(this._column as string)})`;
+      _exprr = `${this._method}(${this.Quoter.quote(this._column as string)})`;
     }
 
     if (this._alias) {
-      _exprr += ` as ${escapeIdentifier(this._alias)}`;
+      _exprr += ` as ${this.Quoter.quote(this._alias)}`;
     }
 
     return {
@@ -427,22 +492,28 @@ export class SqlColumnMethodStatement extends ColumnMethodStatement {
 
 @NewInstance()
 export abstract class SqlDateWrapper extends DateWrapper {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   public wrap(): string {
     if (this._tableAlias) {
-      return `DATE(${escapeIdentifier(this._tableAlias)}.${escapeIdentifier(this._value as string)})`;
+      return `DATE(${this.Quoter.quote(this._tableAlias)}.${this.Quoter.quote(this._value as string)})`;
     }
 
-    return `DATE(${escapeIdentifier(this._value as string)})`;
+    return `DATE(${this.Quoter.quote(this._value as string)})`;
   }
 }
 
 export abstract class SqlDateTimeWrapper extends DateTimeWrapper {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   public wrap(): string {
     if (this._tableAlias) {
-      return `DATETIME(${escapeIdentifier(this._tableAlias)}.${escapeIdentifier(this._value as string)})`;
+      return `DATETIME(${this.Quoter.quote(this._tableAlias)}.${this.Quoter.quote(this._value as string)})`;
     }
 
-    return `DATETIME(${escapeIdentifier(this._value as string)})`;
+    return `DATETIME(${this.Quoter.quote(this._value as string)})`;
   }
 }
 

@@ -1,13 +1,14 @@
 import { PasswordDto } from '../dto/password-dto.js';
-import { User as UserModel, PasswordProvider, SessionProvider, passwordMatch, changePassword, _unwindGrants, AccessControl } from '@spinajs/rbac';
-import { BaseController, BasePath, Get, Ok, Body, Patch, Cookie, Policy } from '@spinajs/http';
+import { User as UserModel, PasswordProvider, SessionProvider, UserSession, passwordMatch, changePassword, AccessControl } from '@spinajs/rbac';
+import type { ISession } from '@spinajs/rbac';
+import { BaseController, BasePath, Get, Ok, Body, Patch, Policy } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
-import * as cs from 'cookie-signature';
 import _ from 'lodash';
-import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap, Session as SessionRouteArg, SessionId as SessionIdArg } from '@spinajs/rbac-http';
 import { _chain, _either } from '@spinajs/util';
+import { activeRoleOf, grantsFor } from '../services/grants.js';
+import { SessionCookieFactory } from '../services/SessionCookies.js';
 
 
 
@@ -24,14 +25,14 @@ export class UserController extends BaseController {
   @Autoinject()
   protected PasswordProvider: PasswordProvider;
 
-  @Config('http.cookie.secret')
-  protected CoockieSecret: string;
-
   @Autoinject()
   protected SessionProvider: SessionProvider;
 
   @Autoinject(AccessControl)
   protected AC: AccessControl;
+
+  @Autoinject(SessionCookieFactory)
+  protected SessionCookies: SessionCookieFactory;
 
   /**
    * Refresh current user profile
@@ -44,15 +45,16 @@ export class UserController extends BaseController {
    */
   @Get()
   @Permission(['readOwn'])
-  public async refresh(@User() user: UserModel, @Cookie() ssid: string) {
+  public async refresh(@User() user: UserModel, @SessionIdArg() ssid: string) {
     // get user data from db
     await user.refresh();
     await user.Metadata.populate();
 
-    // refresh session data from DB
-    const sId: string | false = cs.unsign(ssid, this.CoockieSecret);
-    if (sId) {
-      const session = await this.SessionProvider.restore(sId);
+    // `@Cookie(true)` hands over the already-unsigned session id — the previous
+    // unsigned read plus a hand-rolled `cookie-signature` call duplicated what
+    // the framework's own extractor does, secret lookup included.
+    if (ssid) {
+      const session = await this.SessionProvider.restore(ssid);
       if (session) {
         // Session stores the user UUID (see LoginController) — RbacUserFactory
         // resolves the user from it on each request. Storing a dehydrated object
@@ -62,27 +64,31 @@ export class UserController extends BaseController {
       }
     }
 
-    return new Ok(user.dehydrate());
+    // Same shape as every other user-bearing response ( login, whoami, 2FA
+    // verify ): relations included and DateTime rendered as ISO strings. Plain
+    // `dehydrate()` dropped Role/Metadata and emitted raw DateTime objects, so
+    // a client refreshing its profile got a different user than it logged in with.
+    return new Ok(user.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
   /**
    * Get current user grants
-   * Returns the flattened RBAC grants for the authenticated user, combining all roles
-   * the user is assigned to into a single permission map keyed by resource.
+   * Returns the flattened RBAC grants in effect for the authenticated user — those of
+   * the session's active role, resolved through its inheritance chain. Switching the
+   * active role (`POST /auth/active-role`) changes what this returns.
    * @security cookieAuth
-   * @returns {IGrantsMap} Combined RBAC grants map: resource → action → permission descriptor
+   * @returns {IGrantsMap} RBAC grants map for the active role: resource → action → permission descriptor
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — insufficient permissions
    */
   @Get("grants")
   @Permission(['readOwn'])
-  public async getGrants(@User() user: UserModel): Promise<Ok<IGrantsMap>> {
-
-    const grants = this.AC.getGrants();
-    const userGrants = user.Role.map(r => _unwindGrants(r, grants));
-    const combinedGrants = Object.assign({}, ...userGrants);
-
-    return new Ok(combinedGrants);
+  public async getGrants(@User() user: UserModel, @SessionRouteArg() session: ISession): Promise<Ok<IGrantsMap>> {
+    // Enforcement is bound to the session's ActiveRole, so reporting the union
+    // of every assigned role told clients about actions the server would then
+    // refuse — a user holding both 'admin' and 'user' saw admin grants while
+    // acting as 'user'. Resolve exactly what the middleware resolves.
+    return new Ok(grantsFor(this.AC, activeRoleOf(user, session)));
   }
 
 
@@ -97,22 +103,44 @@ export class UserController extends BaseController {
    */
   @Patch('password')
   @Permission(["updateOwn"])
-  public async newPassword(@User() user: UserModel, @Body() pwd: PasswordDto) {
+  public async newPassword(@User() user: UserModel, @Body() pwd: PasswordDto, @SessionRouteArg() session: ISession) {
     if (pwd.Password !== pwd.ConfirmPassword) {
       throw new InvalidArgument('password does not match');
     }
 
-
-    return new Ok(
-      _chain(
-        user,
-        _either(
-          passwordMatch(pwd.OldPassword),
-          changePassword(pwd.Password),
-          () => {
-            throw new InvalidArgument('Old password is incorrect');
-          }),
-      ),
+    await _chain(
+      user,
+      _either(
+        passwordMatch(pwd.OldPassword),
+        changePassword(pwd.Password),
+        () => {
+          throw new InvalidArgument('Old password is incorrect');
+        }),
     );
+
+    // `changePassword` destroys every session of this user — anyone who got in
+    // with the old password is out, which is the whole point. That includes the
+    // caller's own session, so it is replaced here with a brand new one ( a new
+    // id, not the old one revived ) and the client is handed the new cookie.
+    const replacement = new UserSession();
+    replacement.UserId = user.Id;
+
+    if (session) {
+      for (const [key, value] of session.Data) {
+        replacement.Data.set(key, value);
+      }
+    } else {
+      replacement.Data.set('User', user.Uuid);
+      replacement.Data.set('Logged', true);
+      replacement.Data.set('Authorized', true);
+      replacement.Data.set('ActiveRole', user.Role?.[0]);
+    }
+
+    await this.SessionProvider.save(replacement);
+
+    return new Ok(null, {
+      Coockies: [this.SessionCookies.issue(replacement)],
+      Headers: [{ Name: 'Cache-Control', Value: 'no-store' }],
+    });
   }
 }

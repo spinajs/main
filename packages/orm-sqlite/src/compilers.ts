@@ -51,6 +51,7 @@ export class SqliteOrderByCompiler extends OrderByQueryCompiler {
 }
 @NewInstance()
 export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
+
   constructor(builder: OnDuplicateQueryBuilder) {
     super(builder);
   }
@@ -181,6 +182,7 @@ export class SqliteInsertQueryCompiler extends SqlInsertQueryCompiler {
 
 @NewInstance()
 export class SqliteColumnCompiler extends SqlColumnQueryCompiler {
+
   public compile(): ICompilerOutput {
     const _stmt: string[] = [];
 

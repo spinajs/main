@@ -4,18 +4,43 @@ import { BasePolicy, Request as sRequest } from '@spinajs/http';
 import { TwoFactorAuthConfig } from '@spinajs/rbac-http';
 import { Forbidden } from '@spinajs/exceptions';
 
-
-export class TwoFacRouteEnabled extends BasePolicy {
+/**
+ * Guards routes that only make sense when 2FA is switched on system-wide.
+ *
+ * This is the whole check for self-service routes: an already authorized user
+ * managing their own TOTP device has no pending 2FA step to look at. The
+ * login-window routes need more — see {@link TwoFacRouteEnabled}.
+ */
+export class TwoFactorAuthEnabled extends BasePolicy {
   @Config('rbac.twoFactorAuth')
   protected TwoFactorConfig: TwoFactorAuthConfig;
 
   public isEnabled(): boolean {
     return true;
   }
-  public execute(req: sRequest): Promise<void> {
+
+  public execute(_req: sRequest): Promise<void> {
     if (this.TwoFactorConfig.enabled === false) {
       throw new InvalidOperation('2 factor auth is not enabled');
     }
+
+    return Promise.resolve();
+  }
+}
+
+/**
+ * Guards the routes that belong to the login-time 2FA step: the caller has
+ * passed password authentication and the session is parked awaiting TOTP
+ * verification.
+ *
+ * Combined with `NotAuthorizedPolicy` this window is deliberately narrow. It is
+ * NOT the right guard for managing a TOTP device — a session sitting in this
+ * window has not proven possession of the second factor yet, so anything it can
+ * reach must not be able to weaken 2FA.
+ */
+export class TwoFacRouteEnabled extends TwoFactorAuthEnabled {
+  public async execute(req: sRequest): Promise<void> {
+    await super.execute(req);
 
     if (!req.storage || !req.storage.Session) {
       throw new InvalidOperation('Session is not set');
@@ -27,7 +52,6 @@ export class TwoFacRouteEnabled extends BasePolicy {
     if (!req.storage.Session?.Data.get('TwoFactorAuth')) {
       throw new Forbidden('user does not have 2fa enabled');
     }
-
 
     return Promise.resolve();
   }

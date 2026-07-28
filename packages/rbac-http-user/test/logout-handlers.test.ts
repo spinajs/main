@@ -146,7 +146,9 @@ describe('Logout handler chain', function () {
 
     it('reverts impersonation, saves session, emits event when active', async () => {
       const handler = (await DI.resolve(ImpersonationLogoutHandler)) as ImpersonationLogoutHandler;
-      const evStub = sinon.stub(handler as any, 'emitEvent').resolves();
+      // the revert path lives in ImpersonationService, shared with
+      // ImpersonationController — stub the emit at that boundary
+      const evStub = sinon.stub((handler as any).Impersonation as any, 'emitEnded').resolves();
 
       const original = makeUser({ Uuid: 'admin-uuid', Role: ['admin'] });
       sinon.stub(User, 'getByUuid').resolves(original);
@@ -162,15 +164,24 @@ describe('Logout handler chain', function () {
 
       const result = await handler.handle({ Ssid: 'sid', Session: s, User: target });
 
-      expect(result).to.deep.equal({ Body: { ImpersonationEnded: true } });
+      expect(result!.Body).to.deep.equal({ ImpersonationEnded: true });
       expect(s.Data.get('User')).to.equal('admin-uuid');
       expect(s.Data.has('Impersonator')).to.be.false;
       expect(s.Data.has('ImpersonationStartedAt')).to.be.false;
       expect(s.Data.has('OriginalActiveRole')).to.be.false;
       expect(s.Data.get('ActiveRole')).to.equal('admin');
 
+      // Dropping the target identity is a privilege change: the id the session
+      // ran under while impersonating is destroyed and a new one issued.
       expect(LogoutTestSessionProvider.Saved).to.have.lengthOf(1);
-      expect(LogoutTestSessionProvider.Deleted).to.be.empty;
+      expect(LogoutTestSessionProvider.Deleted).to.deep.equal([s.SessionId]);
+
+      const rotated = LogoutTestSessionProvider.Saved[0];
+      expect(rotated.SessionId).to.not.equal(s.SessionId);
+      expect(rotated.Data.get('User')).to.equal('admin-uuid');
+
+      expect(result!.Cookies).to.have.lengthOf(1);
+      expect(result!.Cookies![0].Value).to.equal(rotated.SessionId);
 
       sinon.assert.calledOnce(evStub);
       const [emittedOriginal, emittedTarget] = evStub.firstCall.args;
@@ -180,6 +191,42 @@ describe('Logout handler chain', function () {
       // through _ev, but we asserted at the emitEvent boundary, where args
       // are just the two User instances.
       expect(UserImpersonationEnded).to.be.a('function'); // type still resolvable
+    });
+
+    it('defers to the default handler when the impersonator account is gone', async () => {
+      // Regression: the handler used to dereference the missing user and turn
+      // a logout into a 500. There is no identity to hand the session back to,
+      // so the stale block is cleared and the chain continues to the default
+      // handler, which destroys the session and logs the caller out.
+      const handler = (await DI.resolve(ImpersonationLogoutHandler)) as ImpersonationLogoutHandler;
+      const evStub = sinon.stub((handler as any).Impersonation as any, 'emitEnded').resolves();
+
+      sinon.stub(User, 'getByUuid').resolves(undefined as any);
+
+      const s = session({
+        User: 'user-uuid',
+        Impersonator: 'deleted-admin-uuid',
+        ImpersonationStartedAt: '2026-06-01T00:00:00.000Z',
+        OriginalActiveRole: 'admin',
+        ActiveRole: 'user',
+      });
+
+      const result = await handler.handle({
+        Ssid: 'sid',
+        Session: s,
+        User: makeUser({ Uuid: 'user-uuid', Role: ['user'] }),
+      });
+
+      expect(result, 'must defer rather than throw').to.be.null;
+
+      // stale impersonation block cleared so the session stops claiming an
+      // identity that cannot be resolved
+      expect(s.Data.has('Impersonator')).to.be.false;
+      expect(s.Data.has('ImpersonationStartedAt')).to.be.false;
+      expect(s.Data.has('OriginalActiveRole')).to.be.false;
+
+      expect(LogoutTestSessionProvider.Saved).to.have.lengthOf(1);
+      sinon.assert.notCalled(evStub);
     });
   });
 

@@ -1,10 +1,12 @@
 import { SwitchRoleDto } from '../dto/switchRole-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, BadRequestResponse, Unauthorized, Policy } from '@spinajs/http';
-import { AccessControl, AuthProvider, PasswordProvider, SessionProvider, _unwindGrants, regenerateSession, sessionCookieMaxAge } from '@spinajs/rbac';
+import { AccessControl, AuthProvider, PasswordProvider, SessionProvider, regenerateSession } from '@spinajs/rbac';
 import type { ISession, User } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, IActiveRoleResponse } from '@spinajs/rbac-http';
+import { SessionCookieFactory } from '../services/SessionCookies.js';
+import { grantsFor } from '../services/grants.js';
 
 /**
  * Active role endpoints.
@@ -30,8 +32,8 @@ export class ActiveRoleController extends BaseController {
   @Config('rbac.roleSwitch.requirePassword', { defaultValue: [] as string[] })
   protected RolesRequiringPassword: string[];
 
-  @Config('rbac.session.cookie', {})
-  protected SessionCookieConfig: any;
+  @Autoinject(SessionCookieFactory)
+  protected SessionCookies: SessionCookieFactory;
 
   /**
    * Get active role
@@ -101,26 +103,14 @@ export class ActiveRoleController extends BaseController {
     const regenerated = await regenerateSession(this.SessionProvider, session);
 
     return new Ok(this.buildResponse(payload.Role), {
-      Coockies: [
-        {
-          Name: 'ssid',
-          Value: regenerated.SessionId,
-          Options: {
-            signed: true,
-            httpOnly: true,
-            maxAge: sessionCookieMaxAge(regenerated),
-            ...this.SessionCookieConfig,
-          },
-        },
-      ],
+      Coockies: [this.SessionCookies.issue(regenerated)],
     });
   }
 
   protected buildResponse(activeRole: string): IActiveRoleResponse {
-    const grants = activeRole ? _unwindGrants(activeRole, this.AC.getGrants()) : {};
     return {
       ActiveRole: activeRole,
-      Grants: grants,
+      Grants: grantsFor(this.AC, activeRole),
     };
   }
 }

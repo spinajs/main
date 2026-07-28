@@ -152,7 +152,7 @@ export class Orm extends AsyncService {
                   const existingColumn = _.find(descriptor.Columns, { Name: c.Name });
                   if (existingColumn) {
                     // Merge only defined properties from table info
-                    Object.keys(c).forEach(key => {
+                    Object.keys(c).forEach((key) => {
                       const columnKey = key as keyof typeof c;
                       if (c[columnKey] !== undefined) {
                         (existingColumn as any)[columnKey] = c[columnKey];
@@ -210,7 +210,6 @@ export class Orm extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-
     await super.resolve();
 
     await this.createConnections();
