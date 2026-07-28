@@ -15,7 +15,12 @@ import { AuthorizedPolicy, Permission, Resource } from "@spinajs/rbac-http";
 export class Profile extends BaseController {
 
 
-    @AutoinjectService('user.profile')
+    // NOTE: the provider is configured at `rbac.user.profile` ( see the rbac
+    // package config ). Pointing at the unprefixed `user.profile` resolved
+    // nothing — AutoinjectService only warns on a missing path, so the field
+    // stayed undefined and every request died with
+    // "Cannot read properties of undefined (reading 'retrieve')".
+    @AutoinjectService('rbac.user.profile')
     protected ProfileService: UserProfileProvider;
 
     /**

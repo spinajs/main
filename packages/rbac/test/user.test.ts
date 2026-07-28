@@ -75,6 +75,69 @@ describe('User model tests', function () {
       const user = await User.getByUuid(TEST_USER_UUID);
       expect(user).to.be.not.null;
     });
+
+    it('whereAnything should find a user by login', async () => {
+      const user = await User.query().whereAnything('test').first();
+      expect(user).to.be.not.null;
+      expect((user as any).Login).to.eq('test');
+    });
+
+    it('whereAnything should find a user by email', async () => {
+      const user = await User.query().whereAnything('test@spinajs.pl').first();
+      expect(user).to.be.not.null;
+    });
+
+    it('whereAnything should find a user by id', async () => {
+      const known = await User.query().whereLogin('test').firstOrFail();
+
+      const user = await User.query().whereAnything(known.Id).first();
+      expect(user).to.be.not.null;
+      expect((user as any).Id).to.eq(known.Id);
+    });
+
+    it('whereAnything should find a user by a numeric id passed as string', async () => {
+      const known = await User.query().whereLogin('test').firstOrFail();
+
+      const user = await User.query().whereAnything(String(known.Id)).first();
+      expect(user).to.be.not.null;
+      expect((user as any).Id).to.eq(known.Id);
+    });
+
+    // Regression: the identifier was pushed through `_to_int()`, and
+    // parseInt('9f8e7d6c-…') === 9 — so any uuid ( or login ) starting with a
+    // digit was silently looked up as an Id and never found. About two thirds
+    // of real uuid v4 values start with a digit.
+    it('whereAnything should find a user by a uuid that starts with a digit', async () => {
+      const uuid = '9f8e7d6c-1111-4111-8111-999999999999';
+
+      await new User({
+        Email: 'digit-uuid@spinajs.pl',
+        Login: 'digit-uuid',
+        Password: 'test',
+        Uuid: uuid,
+        IsActive: true,
+      }).insert();
+
+      const user = await User.query().whereAnything(uuid).first();
+
+      expect(user, 'a uuid starting with a digit must not be treated as an id').to.be.not.null;
+      expect((user as any).Login).to.eq('digit-uuid');
+    });
+
+    it('whereAnything should find a user by a login that starts with a digit', async () => {
+      await new User({
+        Email: 'digit-login@spinajs.pl',
+        Login: '2fast4you',
+        Password: 'test',
+        Uuid: '11111111-2222-4222-8222-111111111111',
+        IsActive: true,
+      }).insert();
+
+      const user = await User.query().whereAnything('2fast4you').first();
+
+      expect(user).to.be.not.null;
+      expect((user as any).Login).to.eq('2fast4you');
+    });
   });
 
   describe('User roles', () => {

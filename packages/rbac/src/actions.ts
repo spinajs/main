@@ -597,7 +597,12 @@ export function passwordMatch(password: string) {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
   return async (u: User): Promise<boolean> => {
-    return await _chain(u, _service('rbac.password', PasswordProvider), async (sPwd: PasswordProvider, u: User) => sPwd.verify(u.Password, password));
+    // NOTE: _chain forwards exactly ONE value from step to step, so the second
+    // parameter of the last step was always undefined and every call died with
+    // "Cannot read properties of undefined (reading 'Password')" — including
+    // the happy path of PATCH /user/password. The user is taken from the
+    // closure instead.
+    return await _chain(_service('rbac.password', PasswordProvider), async (sPwd: PasswordProvider) => sPwd.verify(u.Password, password));
   };
 }
 

@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, grant, revoke, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, grant, revoke, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, passwordMatch, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
@@ -173,6 +173,55 @@ describe('User model tests', function () {
     // reset config
     config!.set('rbac.actions.create.beforeCreate', []);
     config!.set('rbac.actions.create.afterCreate', []);
+  });
+
+  // Regression: reading the create-middleware lists through `_cfg(path, [])`
+  // ran them through `_non_nil()`, which rejects empty arrays. Since the
+  // shipped config defaults both hooks to `[]`, EVERY user creation failed with
+  // "rbac.actions.create.beforeCreate should not be null, undefined or empty".
+  it('Should create user when create middleware lists are empty', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const config = DI.get(Configuration)!;
+    config.set('rbac.actions.create.beforeCreate', []);
+    config.set('rbac.actions.create.afterCreate', []);
+
+    const { User: U } = await create('empty-mw@wp.pl', 'emptymw', 'bbbb', ['admin']);
+
+    expect(U).to.be.instanceOf(User);
+    const user = await User.query().whereAnything('empty-mw@wp.pl').firstOrFail();
+    expect(user.Login).to.eq('emptymw');
+  });
+
+  // Regression: same root cause, but for apps that never declare `rbac.actions`
+  // at all — the config lookup returns undefined and must be treated as
+  // "no middleware", not as an error.
+  it('Should create user when create middleware config is not declared at all', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const config = DI.get(Configuration)!;
+    config.set('rbac.actions', undefined);
+
+    const { User: U } = await create('no-mw@wp.pl', 'nomw', 'bbbb', ['admin']);
+
+    expect(U).to.be.instanceOf(User);
+    const user = await User.query().whereAnything('no-mw@wp.pl').firstOrFail();
+    expect(user.Login).to.eq('nomw');
+  });
+
+  // Guards against a "fix" that ignores the config shape entirely: a non-array
+  // value must not blow up the create chain either.
+  it('Should ignore malformed (non array) create middleware config', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const config = DI.get(Configuration)!;
+    config.set('rbac.actions.create.beforeCreate', 'not-a-list' as any);
+
+    const { User: U } = await create('bad-mw@wp.pl', 'badmw', 'bbbb', ['admin']);
+
+    expect(U).to.be.instanceOf(User);
+
+    config.set('rbac.actions.create.beforeCreate', []);
   });
 
   it('Shouldn create user with already existing email', async () => {
@@ -423,5 +472,21 @@ describe('User model tests', function () {
     await user.Metadata.update();
 
     await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', token)).to.be.rejected;
+  });
+
+  // Regression: `passwordMatch` used to read the user from the second argument
+  // of a `_chain` step, but _chain forwards a single value — so the check threw
+  // "Cannot read properties of undefined (reading 'Password')" for EVERY
+  // password, and PATCH /user/password could never succeed.
+  it('Should confirm a matching password', async () => {
+    const user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+
+    expect(await passwordMatch('bbbb')(user)).to.eq(true);
+  });
+
+  it('Should not confirm a wrong password', async () => {
+    const user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+
+    expect(await passwordMatch('not-the-password')(user)).to.eq(false);
   });
 });

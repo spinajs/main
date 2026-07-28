@@ -26,6 +26,24 @@ export function escapeIdentifier(name: string): string {
 }
 
 /**
+ * Escapes a possibly schema-qualified table name, quoting each dot-separated part
+ * on its own: `schema.table` becomes `` `schema`.`table` ``, not
+ * `` `schema.table` `` — the latter is a single identifier and MySQL rejects it
+ * with "Failed to open the referenced table".
+ *
+ * Needed because {@link TableQueryBuilder.references} takes the parent table as one
+ * string, so cross-schema foreign keys arrive here already qualified. A dot is
+ * therefore read as a qualifier separator; a table whose name genuinely contains a
+ * dot cannot be expressed through that API (it never could).
+ */
+export function escapeQualifiedIdentifier(name: string): string {
+  return String(name)
+    .split('.')
+    .map((part) => escapeIdentifier(part))
+    .join('.');
+}
+
+/**
  * Escapes a DDL string *literal* (SET/ENUM member, COMMENT, CHARACTER SET,
  * COLLATE, string DEFAULT). These are single-quoted string literals, NOT
  * identifiers, so the correct escaping is doubling embedded single quotes.
@@ -139,7 +157,7 @@ export class SqlForeignKeyQueryCompiler implements ForeignKeyQueryCompiler {
   }
 
   public compile(): ICompilerOutput {
-    const exprr = `FOREIGN KEY (${escapeIdentifier(this._builder.ForeignKeyField)}) REFERENCES ${escapeIdentifier(this._builder.Table)}(${escapeIdentifier(this._builder.PrimaryKey)}) ON DELETE ${this._builder.OnDeleteAction} ON UPDATE ${this._builder.OnUpdateAction}`;
+    const exprr = `FOREIGN KEY (${escapeIdentifier(this._builder.ForeignKeyField)}) REFERENCES ${escapeQualifiedIdentifier(this._builder.Table)}(${escapeIdentifier(this._builder.PrimaryKey)}) ON DELETE ${this._builder.OnDeleteAction} ON UPDATE ${this._builder.OnUpdateAction}`;
 
     return {
       bindings: [],

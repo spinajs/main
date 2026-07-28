@@ -55,10 +55,78 @@ describe("LogMetricSink", () => {
     expect(String(captured[0].Variables.message)).to.match(/Slow orm\.query/);
   });
 
-  it("logs an under-threshold span at trace", () => {
+  it("includes the sql in the message of a slow span", () => {
+    // a bare "Slow orm.query: 251ms" is unactionable - the whole point of the warning
+    // is knowing WHICH query was slow, and console layouts render only the message
+    sink.collect({ name: "orm.query", kind: "span", durationMs: 512, fields: { sql: "SELECT * FROM users WHERE id = ?" } });
+    expect(String(captured[0].Variables.message)).to.contain("SELECT * FROM users WHERE id = ?");
+  });
+
+  it("includes the sql in the message of a failed span", () => {
+    sink.collect({ name: "orm.query", kind: "span", durationMs: 5, error: new Error("boom"), fields: { sql: "DELETE FROM sessions" } });
+    expect(String(captured[0].Variables.message)).to.contain("DELETE FROM sessions");
+  });
+
+  it("collapses whitespace and truncates very long sql", () => {
+    const sql = `SELECT\n   ${'x'.repeat(5000)}`;
+    sink.collect({ name: "orm.query", kind: "span", durationMs: 512, fields: { sql } });
+    const message = String(captured[0].Variables.message);
+    expect(message).to.contain("SELECT x");
+    expect(message).to.not.contain("\n");
+    expect(message.length).to.be.lessThan(3000);
+  });
+
+  it("never puts bindings in the message", () => {
+    sink.collect({ name: "orm.query", kind: "span", durationMs: 512, fields: { sql: "SELECT 1 WHERE pass = ?", bindings: ['sup3rs3cret'] } });
+    expect(String(captured[0].Variables.message)).to.not.contain("sup3rs3cret");
+  });
+
+  /**
+   * `@Config` is a live getter reading DI's current Configuration, so overriding a
+   * perf setting is just a `set()` on it - no need to swap the config class, which
+   * does not reliably replace the already-resolved singleton.
+   */
+  function withPerf(perf: Record<string, unknown>): LogMetricSink {
+    const cfg = DI.get(Configuration)!;
+    for (const [k, v] of Object.entries(perf)) {
+      cfg.set(`logger.perf.${k}`, v);
+    }
+    captured.length = 0;
+    return sink;
+  }
+
+  it("does not log an under-threshold span by default", () => {
+    // a bare "orm.query: 3.0ms" is pure noise - hundreds per request, nothing actionable
     sink.collect({ name: "orm.query", kind: "span", durationMs: 3 });
+    expect(captured).to.have.length(0);
+  });
+
+  it("logs an under-threshold span at trace when logUnderThreshold is on", () => {
+    const s = withPerf({ logUnderThreshold: true });
+    s.collect({ name: "orm.query", kind: "span", durationMs: 3, fields: { sql: "SELECT id FROM campaigns" } });
     expect(captured).to.have.length(1);
     expect(captured[0].Level).to.eq(LogLevel.Trace);
+    expect(String(captured[0].Variables.message)).to.contain("SELECT id FROM campaigns");
+  });
+
+  it("logs under-threshold spans only for the named metrics when given a list", () => {
+    // the perf logger is shared by orm.query, email.send and template.* - a full db
+    // query trace should not drag every other measurement along with it
+    const s = withPerf({ logUnderThreshold: ["orm.query"] });
+
+    s.collect({ name: "orm.query", kind: "span", durationMs: 3, fields: { sql: "SELECT 1" } });
+    s.collect({ name: "template.render", kind: "span", durationMs: 3 });
+    s.collect({ name: "email.send", kind: "span", durationMs: 3 });
+
+    expect(captured).to.have.length(1);
+    expect(String(captured[0].Variables.message)).to.contain("orm.query");
+  });
+
+  it("still logs OVER-threshold spans for metrics absent from the list", () => {
+    const s = withPerf({ logUnderThreshold: ["orm.query"], thresholds: { "template.render": 10, default: 0 } });
+    s.collect({ name: "template.render", kind: "span", durationMs: 50 });
+    expect(captured).to.have.length(1);
+    expect(captured[0].Level).to.eq(LogLevel.Warn);
   });
 
   it("logs a rollup summary at info via onScopeEnd", () => {

@@ -32,13 +32,36 @@ export class DbSessionStore extends SessionProvider {
 
   public async resolve() {
     const timer = setInterval(async () => {
-      const c = await DbSession.destroy().where('Expiration', '<=', DateTime.now());
+      const count = await this.cleanupExpired();
 
-      this.Log.info(`Cleaned up expired session, count: ${c.RowsAffected}`);
+      this.Log.info(`Cleaned up expired session, count: ${count}`);
     }, this.CleanupInterval);
 
     // do not keep the process alive solely for the cleanup timer
     timer.unref?.();
+  }
+
+  /**
+   * Removes every session whose expiration has passed.
+   *
+   * Extracted from the cleanup timer so it can be exercised directly.
+   *
+   * @returns how many sessions were removed
+   */
+  public async cleanupExpired(): Promise<number> {
+    // NOTE: same reason as in deleteByUser — destroy() only builds a DELETE
+    // bounded by primary keys, so the expired rows are looked up first.
+    // `destroy().where(...)` threw on every tick and no session was ever
+    // cleaned up.
+    const expired = await DbSession.where('Expiration', '<=', DateTime.now());
+
+    if (expired.length === 0) {
+      return 0;
+    }
+
+    await DbSession.destroy(expired.map((s) => s.SessionId));
+
+    return expired.length;
   }
 
   public async restore(sessionId: string): Promise<ISession | null> {
@@ -103,7 +126,17 @@ export class DbSessionStore extends SessionProvider {
   }
 
   public async deleteByUser(userId: number): Promise<void> {
-    await DbSession.destroy().where('UserId', userId);
+    // NOTE: destroy() refuses to build an unbounded DELETE, so the sessions of
+    // the user are resolved to their primary keys first. `destroy().where(...)`
+    // threw "Cannot destroy without primary keys", which broke every forced
+    // logout ( admin "log out user" route included ).
+    const sessions = await DbSession.where('UserId', userId);
+
+    if (sessions.length === 0) {
+      return;
+    }
+
+    await DbSession.destroy(sessions.map((s) => s.SessionId));
   }
 
   public async listByUser(userId: number): Promise<ISession[]> {

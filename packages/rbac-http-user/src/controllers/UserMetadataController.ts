@@ -7,6 +7,13 @@ import { InsertBehaviour, SortOrder } from '@spinajs/orm';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
 
 /**
+ * Fallback page size. A request without a `limit` used to reach `take(0)`,
+ * which the query builder rejects ( "take count should be a positive number" ),
+ * so plain listing requests failed instead of returning the first page.
+ */
+const DEFAULT_PAGE_SIZE = 10;
+
+/**
  * User metadata management.
  * Provides CRUD operations for key-value metadata entries attached to user accounts.
  * Admin routes operate on any user (identified by UUID), while own routes operate on the
@@ -41,11 +48,13 @@ export class UserMetadataController extends BaseController {
         @Filter(FilterableUserMetadata)
         filter?: IFilterRequest,
     ) {
+        const limit = pagination?.limit || DEFAULT_PAGE_SIZE;
+
         return new Ok(FilterableUserMetadata.select().where({
             user_id: user.Id
         }).filter(filter?.filters ?? [], filter?.op)
-            .take(pagination?.limit ?? 0)
-            .skip((pagination?.limit ?? 0) * (pagination?.page ?? 0))
+            .take(limit)
+            .skip(limit * (pagination?.page ?? 0))
             .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC)
         );
     }
@@ -143,10 +152,10 @@ export class UserMetadataController extends BaseController {
     public async deleteUserMetadata(
         @FromModel({ queryField: "Uuid" }) user: UserModel,
         @Param() meta: number) {
-        await UserMetadata.destroy().where({
-            Id: meta,
-            user_id: user.Id
-        });
+        // NOTE: destroy() refuses to build an unbounded DELETE, so the entry id
+        // goes in as the primary key and ownership is AND-ed on top of it —
+        // deleting by id alone would let any user id delete anybody's entry.
+        await UserMetadata.destroy(meta).andWhere('user_id', user.Id);
 
         return new Ok();
     }
@@ -191,9 +200,11 @@ export class UserMetadataController extends BaseController {
         // ownership for the metadata model (queries resolve to the unsafe base
         // model without an @OrmResource), so every own-route filters by the
         // authenticated user's id directly.
+        const limit = pagination?.limit || DEFAULT_PAGE_SIZE;
+
         return new Ok(FilterableUserMetadata.select().where('user_id', user.Id).filter(filter?.filters ?? [], filter?.op)
-            .take(pagination?.limit ?? 0)
-            .skip((pagination?.limit ?? 0) * (pagination?.page ?? 0))
+            .take(limit)
+            .skip(limit * (pagination?.page ?? 0))
             .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC)
         );
     }
@@ -279,10 +290,7 @@ export class UserMetadataController extends BaseController {
     @Del('metadata/:meta')
     @Permission(['deleteOwn'])
     public async deleteMetadata(@User() user: UserModel, @Param() meta: number) {
-        await UserMetadata.destroy().where({
-            Id: meta,
-            user_id: user.Id,
-        });
+        await UserMetadata.destroy(meta).andWhere('user_id', user.Id);
 
         return new Ok();
     }

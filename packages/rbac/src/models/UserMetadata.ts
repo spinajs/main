@@ -27,7 +27,13 @@ export class UserMetadataBase extends MetadataModel<UserMetadataBase> {
 }
 
 
+// NOTE: @Model is required next to @OrmResource — without it the Orm never
+// picks this class up as a model, so its descriptor keeps only the columns
+// declared by decorators. Anything relying on the real table description
+// ( insert-or-update conflict columns, primary key aware deletes ) then fails
+// even though the very same table works through UserMetadataBase.
 @Connection('default')
+@Model('users_metadata')
 @OrmResource('user.metadata')
 export class UserMetadata extends UserMetadataBase {
 

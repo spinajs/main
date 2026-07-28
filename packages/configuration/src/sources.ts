@@ -22,6 +22,53 @@ export abstract class BaseFileSource extends ConfigurationSource {
     return 1;
   }
 
+  /**
+   * Walks from `startDir` up to the filesystem root, returning every directory that
+   * contains a `node_modules` folder, nearest first. Used to locate `@spinajs`
+   * package configs wherever the package manager happened to hoist them.
+   */
+  protected static nodeModulesAncestors(startDir: string): string[] {
+    const found: string[] = [];
+    let current = startDir;
+
+    for (;;) {
+      if (fs.existsSync(path.join(current, 'node_modules'))) {
+        found.push(current);
+      }
+
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return found;
+      }
+
+      current = parent;
+    }
+  }
+
+  /**
+   * Nearest ancestor of `startDir` whose `node_modules/@spinajs` actually holds
+   * packages, i.e. where the package manager hoisted them to.
+   *
+   * The directory must be non-empty on purpose: a workspace member often has its own
+   * empty `node_modules/@spinajs` left over from linking, and picking that would be
+   * worse than picking nothing.
+   */
+  protected static findHoistingRoot(startDir: string): string | null {
+    for (const dir of BaseFileSource.nodeModulesAncestors(startDir)) {
+      const scopeDir = path.join(dir, 'node_modules', '@spinajs');
+
+      try {
+        if (fs.readdirSync(scopeDir).length > 0) {
+          return dir;
+        }
+      } catch {
+        // no @spinajs scope here - keep walking up
+      }
+    }
+
+    return null;
+  }
+
   constructor(
     protected RunApp?: string,
     protected CustomConfigPaths?: string[],
@@ -32,28 +79,40 @@ export abstract class BaseFileSource extends ConfigurationSource {
 
     const isESMMode = DI.get<boolean>('__esmMode__');
 
+    // Package configs ( http, fs, rbac, templates, ... ) locate their own assets as
+    // `${WORKSPACE_ROOT_PATH ?? process.cwd()}/node_modules/@spinajs/<pkg>/lib/...`.
+    // In a workspace, cwd is the app package but the dependencies are hoisted to the
+    // repo root, so leaving this unset yields paths that do not exist - and an
+    // fsNative provider CREATES its basePath, leaving empty dirs that shadow the real
+    // package and break module resolution for everything importing it. Detect the
+    // root once here so every package config resolves correctly; an explicitly
+    // provided value always wins.
+    if (!process.env.WORKSPACE_ROOT_PATH) {
+      const hoistingRoot = BaseFileSource.findHoistingRoot(resolve(process.cwd()));
+
+      if (hoistingRoot) {
+        InternalLogger.trace(`WORKSPACE_ROOT_PATH not set, detected hoisting root at ${hoistingRoot}`, 'Configuration');
+        process.env.WORKSPACE_ROOT_PATH = hoistingRoot;
+      }
+    }
+
+    const spinajsConfigGlob = isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config';
+
     this.CommonDirs = [
       // for tests, in src dir
       normalize(join(resolve(process.cwd()), 'src', '/config')),
 
       // other @spinajs modules paths
-      normalize(
-        join(
-          resolve(process.cwd()),
-          isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config',
-        ),
-      ),
-
-      // if we run from local app dir
-      normalize(
-        join(
-          resolve(process.cwd()),
-          '../',
-          isESMMode ? 'node_modules/@spinajs/*/lib/mjs/config' : 'node_modules/@spinajs/*/lib/cjs/config',
-        ),
-      ),
-
-   
+      //
+      // Every ancestor that actually has a node_modules is searched, nearest first,
+      // mirroring how Node itself resolves. Checking only cwd and its parent broke
+      // npm/yarn workspaces: an app at <root>/packages/<app> has its dependencies
+      // hoisted to <root>/node_modules, two levels up, so none of the @spinajs
+      // package configs were ever found. That failed late and cryptically - the
+      // http config never loaded, so controllers could not resolve
+      // `__fs_controller_cache__` and the server never started - and it was only
+      // masked by setting WORKSPACE_ROOT_PATH by hand.
+      ...BaseFileSource.nodeModulesAncestors(resolve(process.cwd())).map((dir) => normalize(join(dir, spinajsConfigGlob))),
     ];
 
     

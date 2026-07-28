@@ -58,6 +58,7 @@
     "@spinajs/orm-http": "^3.0.0",
     "@spinajs/rbac": "^2.0.482",
     "@spinajs/rbac-http": "^2.0.482",
+    "@spinajs/rbac-http-user": "^2.0.482",
     "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },

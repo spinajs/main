@@ -18,7 +18,7 @@
   "overrides": {
     "luxon": "^3.6.1"
   },
-  "devDependencies": {
+"devDependencies": {
     "@types/bunyan": "^1.8.8",
     "@types/chai": "^4.3.4",
     "@types/chai-as-promised": "^7.1.5",
