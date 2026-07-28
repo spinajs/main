@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import * as sinon from 'sinon';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeTableQueryCompiler, FakeColumnQueryCompiler, FakeTableExistsCompiler, FakeDefaultValueBuilder, TEST_TABLE_INFO } from './misc.js';
 import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, TableExistsCompiler, DefaultValueBuilder, DefaultMigrationService, MIGRATION_TABLE_NAME, migrationChecksum, OrmMigration, MigrationTransactionMode, IMigrationRecord, IMigrationUnit, OrmException } from '../src/index.js';
-import { TableQueryBuilder, AlterTableQueryBuilder, RawSchemaQueryBuilder, SelectQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../src/builders.js';
+import { TableQueryBuilder, AlterTableQueryBuilder, RawSchemaQueryBuilder, SelectQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, DeleteQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
 import '../src/bootstrap.js';
 
@@ -127,42 +127,42 @@ class MigB_2021_01_02_00_00_00 extends OrmMigration {
   public async down(_c: OrmDriver) {}
 }
 
+const now = new Date();
+
+const row = (over: Partial<IMigrationRecord>): IMigrationRecord => ({
+  Migration: 'X',
+  CreatedAt: now,
+  StartedAt: now,
+  FinishedAt: now,
+  RolledBackAt: null,
+  Logs: null,
+  Checksum: null,
+  Batch: 1,
+  ...over,
+});
+
+const unit = (t: Class<OrmMigration>): IMigrationUnit => ({
+  name: t.name,
+  created: DateTime.fromFormat(t.name.match(/_(\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2})$/)![1], 'yyyy_MM_dd_HH_mm_ss'),
+  type: t,
+});
+
+/**
+ * Stubs driver execution so a select on the tracking table answers with `rows` and every
+ * other statement ( tableExists probes, DDL, inserts, updates ) reports success. The
+ * returned stub carries the executed builders, which is what the assertions read.
+ */
+function stubDb(rows: IMigrationRecord[]) {
+  return sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+    if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+      return rows;
+    }
+    // one row back = tableExists true, and a harmless result for everything else
+    return [{ 1: 1 }];
+  });
+}
+
 describe('DefaultMigrationService up', () => {
-  const now = new Date();
-
-  const row = (over: Partial<IMigrationRecord>): IMigrationRecord => ({
-    Migration: 'X',
-    CreatedAt: now,
-    StartedAt: now,
-    FinishedAt: now,
-    RolledBackAt: null,
-    Logs: null,
-    Checksum: null,
-    Batch: 1,
-    ...over,
-  });
-
-  const unit = (t: Class<OrmMigration>): IMigrationUnit => ({
-    name: t.name,
-    created: DateTime.fromFormat(t.name.match(/_(\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2})$/)![1], 'yyyy_MM_dd_HH_mm_ss'),
-    type: t,
-  });
-
-  /**
-   * Stubs driver execution so a select on the tracking table answers with `rows` and every
-   * other statement ( tableExists probes, DDL, inserts, updates ) reports success. The
-   * returned stub carries the executed builders, which is what the assertions read.
-   */
-  function stubDb(rows: IMigrationRecord[]) {
-    return sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
-      if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
-        return rows;
-      }
-      // one row back = tableExists true, and a harmless result for everything else
-      return [{ 1: 1 }];
-    });
-  }
-
   before(() => {
     registerFakes();
   });
@@ -423,5 +423,148 @@ describe('DefaultMigrationService up', () => {
     const drift = warn.getCalls().find((c) => String(c.args[0]).includes('MigA_2021_01_01_00_00_00'));
     expect(drift, 'expected a checksum drift warning').to.not.be.undefined;
     expect(String(drift!.args[0])).to.contain('checksum');
+  });
+});
+
+describe('DefaultMigrationService down/resolve/status', () => {
+  before(() => {
+    registerFakes();
+  });
+
+  beforeEach(async () => {
+    await bootstrapAll();
+
+    // tracking table already in its current shape, so ensureStorage() adds nothing to the
+    // executed-builder list these tests assert on
+    TEST_TABLE_INFO[MIGRATION_TABLE_NAME] = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum', 'Batch'].map((Name) => ({ Name })) as any;
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+    sinon.restore();
+    delete TEST_TABLE_INFO[MIGRATION_TABLE_NAME];
+  });
+
+  it('down() reverses only the last batch, in reverse order', async () => {
+    const driver = await makeDriver();
+    stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', Batch: 1 }), row({ Migration: 'MigB_2021_01_02_00_00_00', Batch: 2 })]);
+    const dA = sinon.spy(MigA_2021_01_01_00_00_00.prototype, 'down');
+    const dB = sinon.spy(MigB_2021_01_02_00_00_00.prototype, 'down');
+    const svc = new DefaultMigrationService(driver);
+
+    const executed = await svc.down([unit(MigA_2021_01_01_00_00_00), unit(MigB_2021_01_02_00_00_00)]);
+
+    expect(dA.called).to.be.false;
+    expect(dB.calledOnce).to.be.true;
+    expect(executed).to.have.length(1);
+    expect(executed[0]).to.be.instanceOf(MigB_2021_01_02_00_00_00);
+  });
+
+  it('down({all:true}) reverses everything, newest first', async () => {
+    const driver = await makeDriver();
+    stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', Batch: 1 }), row({ Migration: 'MigB_2021_01_02_00_00_00', Batch: 2 })]);
+    const dA = sinon.spy(MigA_2021_01_01_00_00_00.prototype, 'down');
+    const dB = sinon.spy(MigB_2021_01_02_00_00_00.prototype, 'down');
+    const svc = new DefaultMigrationService(driver);
+
+    const executed = await svc.down([unit(MigA_2021_01_01_00_00_00), unit(MigB_2021_01_02_00_00_00)], { all: true });
+
+    expect(dB.calledBefore(dA)).to.be.true;
+    expect(dA.calledOnce).to.be.true;
+    expect(executed.map((e) => e.constructor.name)).to.eql(['MigB_2021_01_02_00_00_00', 'MigA_2021_01_01_00_00_00']);
+  });
+
+  it('down({fake:true}) removes records without executing', async () => {
+    const driver = await makeDriver();
+    const exec = stubDb([row({ Migration: 'MigB_2021_01_02_00_00_00', Batch: 1 })]);
+    const dB = sinon.spy(MigB_2021_01_02_00_00_00.prototype, 'down');
+    const svc = new DefaultMigrationService(driver);
+
+    await svc.down([unit(MigB_2021_01_02_00_00_00)], { fake: true });
+
+    expect(dB.called).to.be.false;
+    expect(exec.getCalls().some((c) => c.args[0] instanceof DeleteQueryBuilder)).to.be.true;
+  });
+
+  it('resolve applied / rolled-back mutate the failed row', async () => {
+    const driver = await makeDriver();
+    const exec = stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', FinishedAt: null, Logs: 'x' })]);
+    const svc = new DefaultMigrationService(driver);
+
+    await svc.resolve('MigA_2021_01_01_00_00_00', 'applied');
+    let updates = exec.getCalls().filter((c) => c.args[0] instanceof UpdateQueryBuilder);
+    expect(((updates.at(-1)!.args[0] as UpdateQueryBuilder<unknown>).Value as any).FinishedAt).to.be.instanceOf(Date);
+
+    await svc.resolve('MigA_2021_01_01_00_00_00', 'rolled-back');
+    updates = exec.getCalls().filter((c) => c.args[0] instanceof UpdateQueryBuilder);
+    expect(((updates.at(-1)!.args[0] as UpdateQueryBuilder<unknown>).Value as any).RolledBackAt).to.be.instanceOf(Date);
+  });
+
+  it('resolve on unknown or healthy migration throws', async () => {
+    const driver = await makeDriver();
+    stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00' })]); // healthy
+    const svc = new DefaultMigrationService(driver);
+
+    try {
+      await svc.resolve('MigA_2021_01_01_00_00_00', 'applied');
+      expect.fail('should throw');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('not in failed state');
+    }
+
+    try {
+      await svc.resolve('NeverHeardOf_2021_01_09_00_00_00', 'applied');
+      expect.fail('should throw');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('not in failed state');
+    }
+  });
+
+  it('resolving as rolled-back clears the failed state so the next run is not blocked', async () => {
+    const driver = await makeDriver();
+    const table = [row({ Migration: 'MigA_2021_01_01_00_00_00', FinishedAt: null, Logs: 'kaboom' })];
+
+    // only one row lives in this table, so the where clause needs no modelling
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        return table.map((r) => ({ ...r }));
+      }
+      if (b instanceof UpdateQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        Object.assign(table[0], b.Value as any);
+      }
+      return [{ 1: 1 }];
+    });
+    const upA = sinon.stub(MigA_2021_01_01_00_00_00.prototype, 'up').resolves();
+    const svc = new DefaultMigrationService(driver);
+
+    await svc.resolve('MigA_2021_01_01_00_00_00', 'rolled-back');
+
+    // the blocking pair is FinishedAt NULL *and* Logs set, so stamping RolledBackAt alone
+    // leaves the row still blocking - Logs is what has to go for it to be pending again
+    expect(table[0].RolledBackAt).to.be.instanceOf(Date);
+    expect(table[0].Logs, 'a resolved row must no longer look failed').to.be.null;
+
+    const executed = await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+
+    expect(upA.calledOnce, 'the resolved migration must be runnable again').to.be.true;
+    expect(executed).to.have.length(1);
+  });
+
+  it('status() merges registry with records', async () => {
+    const driver = await makeDriver();
+    stubDb([
+      row({ Migration: 'MigA_2021_01_01_00_00_00', Batch: 1, Checksum: 'deadbeef' }), // mismatch
+      row({ Migration: 'MigB_2021_01_02_00_00_00', FinishedAt: null, Logs: 'x' }), // failed
+    ]);
+    const svc = new DefaultMigrationService(driver);
+
+    const st = await svc.status([unit(MigA_2021_01_01_00_00_00), unit(MigB_2021_01_02_00_00_00)]);
+
+    expect(st.find((s) => s.name.startsWith('MigA'))!.applied).to.be.true;
+    expect(st.find((s) => s.name.startsWith('MigA'))!.checksumMismatch).to.be.true;
+    expect(st.find((s) => s.name.startsWith('MigB'))!.failed).to.be.true;
+    expect(st.find((s) => s.name.startsWith('MigB'))!.pending).to.be.false;
   });
 });

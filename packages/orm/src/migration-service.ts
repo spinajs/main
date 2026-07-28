@@ -419,15 +419,146 @@ export class DefaultMigrationService extends OrmMigrationService {
     });
   }
 
-  public async down(): Promise<OrmMigration[]> {
-    throw new OrmException('not implemented');
+  public async down(units: IMigrationUnit[], options?: IMigrationDownOptions): Promise<OrmMigration[]> {
+    await this.ensureStorage();
+
+    return await this.withLock(async () => {
+      const records = await this.records();
+      const appliedRows = records.filter((r) => r.FinishedAt && !r.RolledBackAt);
+
+      if (appliedRows.length === 0) {
+        return [];
+      }
+
+      // default is the last batch alone: one `up` run is one unit of work, so one `down`
+      // undoes exactly that run rather than the whole history
+      let target = appliedRows;
+
+      if (!options?.all) {
+        const lastBatch = Math.max(...appliedRows.map((r) => r.Batch ?? 0));
+        target = appliedRows.filter((r) => (r.Batch ?? 0) === lastBatch);
+      }
+
+      // newest first - a migration has to be undone before the one it was built on top of.
+      // Same-timestamp migrations fall back to reverse name, mirroring the forward order
+      const toRun = units.filter((u) => target.some((r) => r.Migration === u.name)).sort((a, b) => (a.created < b.created ? 1 : a.created > b.created ? -1 : b.name.localeCompare(a.name)));
+
+      if (toRun.length === 0) {
+        return [];
+      }
+
+      // resolved up front, once each - `transaction = false` is an instance field, so the
+      // segmentation below cannot be decided without instances, and resolving again at
+      // execution time would construct every migration twice
+      const instances = new Map<string, OrmMigration>();
+      for (const u of toRun) {
+        instances.set(u.name, await this.driver.Container.resolve<OrmMigration>(u.type, [this.driver]));
+      }
+
+      const optedOut = (u: IMigrationUnit) => this.optedOutOfTransaction(u, instances.get(u.name));
+      const executed: OrmMigration[] = [];
+
+      const runOne = async (u: IMigrationUnit) => {
+        const migration = instances.get(u.name) as OrmMigration;
+
+        if (!options?.fake) {
+          await migration.down(this.driver);
+        }
+
+        // the row is dropped rather than stamped RolledBackAt: a deleted row and a
+        // rolled-back one are both "pending" to `up()`, and dropping keeps the table
+        // holding only migrations that are actually present in the database
+        await this.driver.del().from(this.table).where({ Migration: u.name });
+
+        executed.push(migration);
+        this.Log.info(`Migration ${u.name}: ${options?.fake ? 'faked (record removed without executing)' : 'down() success !'}`);
+      };
+
+      const mode = this.transactionMode();
+
+      if (options?.fake) {
+        // nothing is executed, so there is no schema change worth wrapping
+        for (const u of toRun) {
+          await runOne(u);
+        }
+      } else if (mode === MigrationTransactionMode.PerRun) {
+        // checked before the transaction opens: discovering the opt-out halfway through
+        // would mean running - and then rolling back - work that was never going to commit
+        const blocker = toRun.find(optedOut);
+
+        if (blocker) {
+          throw new OrmException(`Migration ${blocker.name} has transaction=false and cannot take part in a PerRun rollback - roll it back on its own, or switch this connection to PerMigration.`);
+        }
+
+        await this.driver.transaction(async () => {
+          for (const u of toRun) {
+            await runOne(u);
+          }
+        });
+      } else if (mode === MigrationTransactionMode.PerMigration) {
+        for (const u of toRun) {
+          if (optedOut(u)) {
+            await runOne(u);
+          } else {
+            await this.driver.transaction(async () => {
+              await runOne(u);
+            });
+          }
+        }
+      } else {
+        for (const u of toRun) {
+          await runOne(u);
+        }
+      }
+
+      return executed;
+    });
   }
 
-  public async status(): Promise<IMigrationStatusEntry[]> {
-    throw new OrmException('not implemented');
+  public async status(units: IMigrationUnit[]): Promise<IMigrationStatusEntry[]> {
+    await this.ensureStorage();
+    const records = await this.records();
+
+    return units.map((u) => {
+      const rec = records.find((r) => r.Migration === u.name);
+      const applied = !!(rec?.FinishedAt && !rec.RolledBackAt);
+      const failed = !!(rec && !rec.FinishedAt && rec.Logs);
+
+      return {
+        name: u.name,
+        connection: this.driver.Options.Name,
+        applied,
+        failed,
+        rolledBack: !!rec?.RolledBackAt,
+        pending: !applied && !failed,
+        batch: rec?.Batch ?? null,
+        startedAt: rec?.StartedAt ?? null,
+        finishedAt: rec?.FinishedAt ?? null,
+        checksumMismatch: !!(rec?.Checksum && rec.Checksum !== migrationChecksum(u.type)),
+      };
+    });
   }
 
-  public async resolve(): Promise<void> {
-    throw new OrmException('not implemented');
+  public async resolve(name: string, action: MigrationResolveAction): Promise<void> {
+    await this.ensureStorage();
+    const rec = (await this.records()).find((r) => r.Migration === name);
+
+    // only a row in the failed state may be forced - anything else is either healthy or
+    // absent, and rewriting it would destroy state nobody asked to lose
+    if (!rec || rec.FinishedAt || !rec.Logs) {
+      throw new OrmException(`Migration ${name} is not in failed state on connection ${this.driver.Options.Name} - nothing to resolve`);
+    }
+
+    if (action === 'applied') {
+      await this.driver.update().in(this.table).update({ FinishedAt: new Date() }).where({ Migration: name });
+      this.Log.info(`Migration ${name} resolved as applied`);
+    } else {
+      // Logs is cleared, not merely annotated with RolledBackAt. Failed state is the pair
+      // `FinishedAt` NULL *and* `Logs` set, and a rolled-back resolution leaves FinishedAt
+      // NULL - so a row that kept its Logs would still trip `assertNoFailed` and block every
+      // later run, which is the exact thing this call exists to undo.
+      await this.driver.update().in(this.table).update({ RolledBackAt: new Date(), Logs: null }).where({ Migration: name });
+      this.Log.info(`Migration ${name} resolved as rolled-back (pending again)`);
+    }
   }
 }
