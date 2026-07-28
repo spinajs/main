@@ -27,8 +27,19 @@ export abstract class ExistsRelationHandler {
  * has an alias set, matching the legacy behaviour of `whereExist` / `whereNotExists`.
  */
 function sourcePKeyRef(builder: WhereBuilder<any>, tDesc: { TableName: string; PrimaryKey: string[] }): string {
+  return sourceColumnRef(builder, tDesc, tDesc.PrimaryKey[0]);
+}
+
+/**
+ * Resolves an arbitrary correlated column on the source side, eg. `` `entries`.`group_id` ``.
+ *
+ * {@link RelationType.One} correlates on the source's FOREIGN key rather than its primary
+ * key, so it cannot reuse {@link sourcePKeyRef}. Both share the alias resolution: the
+ * builder's alias, its parent's, or the source table name.
+ */
+function sourceColumnRef(builder: WhereBuilder<any>, tDesc: { TableName: string }, column: string): string {
   const sourceAlias = builder.TableAlias ?? tDesc.TableName;
-  return `\`${sourceAlias}\`.\`${tDesc.PrimaryKey[0]}\``;
+  return `\`${sourceAlias}\`.\`${column}\``;
 }
 
 @Injectable(ExistsRelationHandler)
@@ -37,15 +48,46 @@ export class OneExistsRelationHandler extends ExistsRelationHandler {
     return RelationType.One;
   }
 
-  public apply<R>(builder: WhereBuilder<any>, rel: IRelationDescriptor, _relationName: string, callback?: WhereFunction<R>): undefined {
+  public apply<R>(builder: WhereBuilder<any>, rel: IRelationDescriptor, _relationName: string, callback?: WhereFunction<R>): ISelectQueryBuilder | undefined {
     builder.whereNotNull(rel.ForeignKey);
 
-    // simply use right join for condition check
-    if (callback) {
-      // TODO: cast fix
-      (builder as any).rightJoin(rel.TargetModel, callback);
+    // A belongsTo with a non-null FK always has its parent row, so an unconditional check
+    // needs no sub-query at all.
+    if (!callback) {
+      return undefined;
     }
-    return undefined;
+
+    /**
+     * Correlated EXISTS, NOT a join.
+     *
+     * This ran as `builder.rightJoin(...)` on the OUTER builder, which only ever worked on
+     * selects: `UpdateQueryBuilder` mixes in `WhereBuilder` alone and `DeleteQueryBuilder`
+     * adds only `LimitBuilder`, so neither defines `rightJoin`. The rbac middleware runs
+     * `afterQueryCreation` on all three builder types, so any model reaching ownership
+     * through a belongsTo threw a TypeError the moment it was updated or deleted, and had
+     * to hand-roll the correlation in raw SQL instead.
+     *
+     * EXISTS is also the semantics the method name promises: the join form leaked the
+     * joined table's columns into the outer result and turned an existence test into a
+     * row-multiplying join.
+     */
+    const tDesc = (builder.Model as unknown as IModelStatic).getModelDescriptor();
+    const alias = `${rel.TargetModel.getModelDescriptor().TableName}_exists`;
+
+    const relQuery = rel.TargetModel.query().setAlias(alias);
+
+    // lazy, so the outer alias is resolved at compile time - it may be assigned after this
+    // handler runs. Both sides stay alias-qualified so a callback that joins further tables
+    // cannot make the correlation column ambiguous.
+    relQuery.where(
+      Lazy.oF(function () {
+        relQuery.where(new RawQuery(`\`${alias}\`.\`${rel.PrimaryKey}\` = ${sourceColumnRef(builder, tDesc, rel.ForeignKey)}`));
+      }),
+    );
+
+    callback.apply(relQuery);
+
+    return relQuery;
   }
 }
 

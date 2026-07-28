@@ -1172,6 +1172,40 @@ describe('insert query builder', () => {
     expect(result.bindings).to.be.an('array').to.include.members([1, 'spine@spine.pl', 2, 1, 'spine2@spine.pl']);
   });
 
+  /**
+   * The read counterpart of `forceColumn`, for `beforeQueryExecution` hooks that need to
+   * inspect what is about to be written — rbac's `rbacCreate` is the motivating caller.
+   */
+  describe('getColumnValues', () => {
+    it('reads one column off every row, in row order', () => {
+      const q = iqb()
+        .into('users')
+        .values([
+          { id: 1, active: true, email: 'a@spine.pl' },
+          { id: 2, active: false, email: 'b@spine.pl' },
+        ]);
+
+      expect((q as any).getColumnValues('email')).to.eql(['a@spine.pl', 'b@spine.pl']);
+      expect((q as any).getColumnValues('id')).to.eql([1, 2]);
+    });
+
+    it('returns nothing for a column the payload does not carry', () => {
+      const q = iqb().into('users').values({ id: 1, email: 'a@spine.pl' });
+
+      expect((q as any).getColumnValues('nope')).to.eql([]);
+    });
+
+    it('sees a value stamped by forceColumn', () => {
+      const q = iqb()
+        .into('users')
+        .values([{ id: 1, email: 'a@spine.pl' }, { id: 2, email: 'b@spine.pl' }]);
+
+      (q as any).forceColumn('owner_id', 7);
+
+      expect((q as any).getColumnValues('owner_id')).to.eql([7, 7]);
+    });
+  });
+
   it('insert with ignore', () => {
     const result = iqb()
       .into('users')

@@ -59,7 +59,14 @@
     { "path": "packages/configuration-aws-secretmanager-protocol/tsconfig.mjs.json" },
     { "path": "packages/configuration-fs-protocol/tsconfig.mjs.json"},
     { "path": "packages/configuration-http/tsconfig.mjs.json"},
-    { "path": "packages/http-socket/tsconfig.mjs.json"}
+    { "path": "packages/http-socket/tsconfig.mjs.json"},
+    { "path": "packages/fs-ftp/tsconfig.mjs.json" },
+    { "path": "packages/fs-onedrive/tsconfig.mjs.json" },
+    { "path": "packages/http-lazy-file-uploader/tsconfig.mjs.json" },
+    { "path": "packages/log-otlp/tsconfig.mjs.json" },
+    { "path": "packages/queue-amqp-transport/tsconfig.mjs.json" },
+    { "path": "packages/queue-sqs-transport/tsconfig.mjs.json" },
+    { "path": "packages/session-provider-redis/tsconfig.mjs.json" }
 
 
 
