@@ -95,7 +95,7 @@ describe('Orm migrations', () => {
                   Filename: 'foo.sqlite',
                   Name: 'sqlite',
                   Migration: {
-                    Startup: true,
+                    OnStartup: true,
                     Transaction: {
                       Mode: MigrationTransactionMode.PerMigration,
                     },

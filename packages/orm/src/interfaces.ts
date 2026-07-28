@@ -259,6 +259,12 @@ export enum MigrationTransactionMode {
    * On transaction for one migration - every migration has its own
    */
   PerMigration,
+
+  /**
+   * One transaction wraps the whole per-connection run. Migrations with
+   * `transaction = false` run outside it, splitting the run into segments.
+   */
+  PerRun,
 }
 
 /**
@@ -383,9 +389,15 @@ export interface IDriverOptions {
     OnStartup?: boolean;
 
     /**
-     * Migration table name, if not set default is spinajs_orm_migrations
+     * Migration table name, if not set default is spinajs_migration
      */
     Table?: string;
+
+    /**
+     * DI token of an OrmMigrationService implementation used for this
+     * connection. Absent = built-in DefaultMigrationService.
+     */
+    Service?: string;
 
     /**
      * Migration transaction options
@@ -395,6 +407,26 @@ export interface IDriverOptions {
        * How to run migration - with or without transaction
        */
       Mode?: MigrationTransactionMode;
+    };
+
+    /**
+     * Concurrency guard for migration runs.
+     */
+    Lock?: {
+      /**
+       * Default true.
+       */
+      Enabled?: boolean;
+
+      /**
+       * Ms to wait for the lock before failing. Default 30_000.
+       */
+      Timeout?: number;
+
+      /**
+       * Ms after which a held lock counts as stale and is stolen. Default 600_000.
+       */
+      StaleAfter?: number;
     };
   };
 
