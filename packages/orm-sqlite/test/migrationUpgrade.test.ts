@@ -210,8 +210,10 @@ describe('Sqlite migration tracking table upgrade', function () {
     DI.clearCache();
     removeDbFiles();
 
-    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-
+    // No `DI.register(SqliteOrmDriver).as('orm-driver-sqlite')` here: the class carries
+    // `@Injectable('orm-driver-sqlite')` and importing it registers it. An explicit re-register
+    // was inert but unpaired - nothing in `after()` could take it back, because unregistering
+    // the type would also drop the decorator's registration and break every later suite.
     await craftLegacyDatabase();
 
     defineMigrations();
@@ -223,19 +225,25 @@ describe('Sqlite migration tracking table upgrade', function () {
   });
 
   after(async () => {
-    if (orm) {
-      await orm.dispose();
+    // `finally`, because a dispose() that throws must not skip the cleanup below. `@Migration`
+    // and the configuration are registered in the GLOBAL container and mocha runs every file in
+    // one process, so leaking them makes every later suite boot this suite's migrations against
+    // this suite's config - a failure that surfaces in an unrelated file.
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(UpgradeConnectionConf);
+
+      // guarded: a `before` that died before defineMigrations() leaves these undefined, and an
+      // unregister that throws in `after` would bury whatever actually failed
+      [legacyMigrationType, freshMigrationType].filter(Boolean).forEach((t) => DI.unregister(t));
+
+      DI.clearCache();
+
+      removeDbFiles(true);
     }
-
-    DI.unregister(UpgradeConnectionConf);
-
-    // guarded: a `before` that died before defineMigrations() leaves these undefined, and an
-    // unregister that throws in `after` would bury whatever actually failed
-    [legacyMigrationType, freshMigrationType].filter(Boolean).forEach((t) => DI.unregister(t));
-
-    DI.clearCache();
-
-    removeDbFiles(true);
   });
 
   function connection(): OrmDriver {
@@ -347,14 +355,17 @@ describe('Sqlite migration tracking table upgrade', function () {
     expect(fresh!.batch).to.eq(2);
   });
 
+  // MUST RUN LAST - order-terminal. It disposes `orm`, clears the container cache and reassigns
+  // `orm` to a second boot, so every test above it observes the FIRST boot and would see this
+  // one's state instead if mocha reached it earlier. Add new cases above this, never below.
   it('leaves the upgraded table alone on a second boot', async () => {
     // ensureStorage() runs on every boot, and the alter branch is guarded by a column probe -
-    // a probe that missed would re-add columns and fail on the second run.
+    // a probe that missed would re-add columns and fail on the second run. Every boot against an
+    // ALREADY EXISTING tracking table takes that path, and only a second boot can reach it.
     //
-    // This is also the only test that covers `SqliteOrmDriver.tableInfo` being called with NO
-    // value converters registered: the map lives in the container cache, `Orm.registerDefault-
-    // Converters()` fills it only AFTER the boot migration pass, and `DI.clearCache()` below
-    // empties it again. Every boot against an existing tracking table takes that path.
+    // This is the boot that used to crash: `DI.clearCache()` empties the value-converter map, and
+    // `SqliteOrmDriver.tableInfo` reads it from `ensureStorage()`. `Orm.resolve()` now registers
+    // the converters BEFORE the migration pass, so the map is there by the time this runs.
     await orm.dispose();
     DI.clearCache();
 

@@ -153,13 +153,22 @@ export class Orm extends AsyncService {
 
     this.Migration = new MigrationRunner(this);
 
+    // Must precede the migration pass below: `Migration.up()` reaches `ensureStorage()`, which
+    // probes the tracking table with `driver.tableInfo()` - and a driver's `tableInfo()` may read
+    // the '__orm_db_value_converters__' container map that this call is what puts there. Running
+    // it afterwards left that map absent for the whole boot pass, which crashed every restart of
+    // an already-migrated database ( the first boot creates the table and skips the probe, so it
+    // never showed ). Nothing here touches the database or the models, so it is free to move up.
+    this.registerDefaultConverters();
+
     // force: false - the boot run honours each connection's Migration.OnStartup gate. Every
     // other caller ( CLI, an explicit orm.Migration.up() ) defaults to force: true, because
     // asking for a migration by hand is the explicit intent that gate exists to require.
     const executedMigrations = await this.Migration.up(undefined, { force: false });
 
-    this.registerDefaultConverters();
-
+    // reloadTableInfo / wireRelations / applyModelMixins and the data() phase all stay AFTER the
+    // migration pass: up() runs against a schema no model is wired to yet, data() against one
+    // that is.
     await this.reloadTableInfo();
     this.wireRelations();
     this.applyModelMixins();

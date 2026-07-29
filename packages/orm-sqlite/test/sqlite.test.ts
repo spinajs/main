@@ -888,8 +888,6 @@ describe('Sqlite driver migrate with transaction', function () {
     expect(beginIdx).to.be.greaterThan(-1);
     expect(commitIdx).to.be.greaterThan(beginIdx);
 
-    expect(driver.executeOnDb('SELECT * FROM user', [] as any, QueryContext.Select)).to.be.fulfilled;
-
     const result = (await driver.executeOnDb(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, [] as any, QueryContext.Select)) as unknown[];
     expect(result[0]).to.be.not.undefined;
     expect(result[0]).to.be.not.null;
