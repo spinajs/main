@@ -33,7 +33,7 @@ describe('Sqlite - composite primary keys', function () {
     }
 
     await DI.resolve(Orm);
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
   });
 

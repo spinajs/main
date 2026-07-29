@@ -101,7 +101,7 @@ describe('MySQL transaction contract (integration)', function () {
     DI.register(IntegrationConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-    await db().migrateUp();
+    await db().Migration.up();
     // model descriptors get their columns from the live schema; without this the
     // insert compiler has no columns to work with
     await db().reloadTableInfo();

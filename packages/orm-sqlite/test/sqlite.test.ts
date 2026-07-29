@@ -45,7 +45,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
 
     await DI.resolve(Orm);
 
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
   });
 
@@ -54,7 +54,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('Should migrate', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
 
     await db().Connections.get('sqlite')!.select().from('user');
     await expect(db().Connections.get('sqlite')!.select().from('notexisted')).to.be.rejected;
@@ -74,7 +74,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('Should check if table exists', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
 
     const exists = await db().Connections.get('sqlite')!.schema().tableExists('user');
     const notExists = await db().Connections.get('sqlite')!.schema().tableExists('user2');
@@ -84,7 +84,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('should insert query', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
     const iResult = await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
@@ -121,7 +121,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('should delete', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
     await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
@@ -136,7 +136,7 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   });
 
   it('should update', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
     await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
@@ -169,7 +169,7 @@ describe('Sqlite driver migrate', () => {
   });
 
   it('Should migrate create migrate table', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
     const mTable = await db().Connections.get('sqlite')!.tableInfo(TEST_MIGRATION_TABLE_NAME);
     const mResult = await db().Connections.get('sqlite')!.select().from(TEST_MIGRATION_TABLE_NAME).first();
     expect(mTable).to.be.not.null;
@@ -180,14 +180,14 @@ describe('Sqlite driver migrate', () => {
   it('Should not migrate twice', async () => {
     const spy = sinon.spy(TestMigration_2022_02_08_01_13_00.prototype, 'up');
 
-    await db().migrateUp();
-    await db().migrateUp();
+    await db().Migration.up();
+    await db().Migration.up();
 
     expect(spy.calledOnce).to.be.true;
   });
 
   it('Should migrate', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
     await db().Connections.get('sqlite')!.insert().into('user').values({
       Name: 'test',
       Password: 'test_password',
@@ -218,7 +218,7 @@ describe('Sqlite model functions', function () {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     await DI.resolve(Orm);
 
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
   });
 
@@ -725,7 +725,7 @@ describe('Sqlite queries', function () {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     await DI.resolve(Orm);
 
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
   });
 
@@ -831,7 +831,7 @@ describe('Relation tests', function () {
 
   it('Populate belongs to in many to many relation', async () => {
     const db = await DI.resolve(Orm);
-    await db.migrateUp();
+    await db.Migration.up();
     await db.reloadTableInfo();
 
     const result = await Offer.all().populate('Localisations', function () {
@@ -874,7 +874,7 @@ describe('Sqlite driver migrate with transaction', function () {
     const trSpy = sinon.spy(driver, 'transaction');
     const exSpy = sinon.spy(driver, 'executeOnDb');
 
-    await orm.migrateUp();
+    await orm.Migration.up();
 
     // `called`, not `calledOnce`: MigrationTransactionMode.PerMigration opens one
     // transaction per registered migration, and @Migration registers globally on import,
@@ -923,18 +923,37 @@ describe('Sqlite driver migrate with transaction', function () {
     const exSpy = sinon.spy(driver, 'executeOnDb');
 
     try {
-      await orm.migrateUp();
+      await orm.Migration.up();
     } catch {}
 
-    expect(trSpy.calledOnce).to.be.true;
-    expect(exSpy.getCall(3).args[0]).to.eq('BEGIN TRANSACTION');
-    expect(exSpy.getCall(5).args[0]).to.eq('ROLLBACK');
+    try {
+      expect(trSpy.calledOnce).to.be.true;
 
-    expect(driver.executeOnDb('SELECT * FROM user', [] as any, QueryContext.Select)).to.be.rejected;
-    const result = (await driver.executeOnDb(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, [] as any, QueryContext.Select)) as unknown[];
-    expect(result.length).to.be.eq(0);
+      // Positional getCall() indices have to move every time boot adds a statement - creating
+      // the migration lock table shifted them once already. Assert the ordering instead, the
+      // same way the sibling commit test does.
+      const statements = exSpy.getCalls().map((c) => c.args[0]);
+      const beginIdx = statements.indexOf('BEGIN TRANSACTION');
+      const rollbackIdx = statements.indexOf('ROLLBACK');
+      expect(beginIdx).to.be.greaterThan(-1);
+      expect(rollbackIdx).to.be.greaterThan(beginIdx);
 
-    DI.unregister(Fake2Orm);
-    DI.unregister(MigrationFailed_2022_02_08_01_13_00);
+      expect(driver.executeOnDb('SELECT * FROM user', [] as any, QueryContext.Select)).to.be.rejected;
+
+      // The row is no longer absent: the tracking table now keeps a trace of the failure,
+      // written after the transaction unwound. What must still hold is that the migration is
+      // not recorded as APPLIED - FinishedAt stays null and Logs carries the error, which is
+      // exactly the state that blocks further runs until somebody resolves it.
+      const result = (await driver.executeOnDb(`SELECT * FROM ${TEST_MIGRATION_TABLE_NAME}`, [] as any, QueryContext.Select)) as any[];
+      expect(result.length).to.be.eq(1);
+      expect(result[0].Migration).to.eq('MigrationFailed_2022_02_08_01_13_00');
+      expect(result[0].FinishedAt).to.be.null;
+      expect(result[0].Logs).to.be.a('string').and.contain('not_exists');
+    } finally {
+      // @Migration registers into DI globally and mocha runs every file in one process, so
+      // leaking this class makes EVERY later suite boot a migration designed to fail
+      DI.unregister(Fake2Orm);
+      DI.unregister(MigrationFailed_2022_02_08_01_13_00);
+    }
   });
 });

@@ -70,7 +70,7 @@ export class UowIntegrationConf extends FrameworkConfiguration {
               // MySQL driver throws for a missing table where SQLite returns null.
               // The SAME ledger the other two integration suites use. @Migration registers
               // globally on import and mocha loads every file into one process, so
-              // migrateUp() here also sees theirs. With a private ledger it would find no
+              // Migration.up() here also sees theirs. With a private ledger it would find no
               // applied migrations and re-run them, failing on `Table ... already exists`.
               Migration: { Table: 'orm_migrations_integration', OnStartup: true },
             },
@@ -99,7 +99,7 @@ describe('MySQL save() integration', function () {
     DI.register(UowIntegrationConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
   });
 

@@ -43,7 +43,7 @@ export async function bootUow(): Promise<Orm> {
   }
 
   const orm = await DI.resolve(Orm);
-  await db().migrateUp();
+  await db().Migration.up();
   await db().reloadTableInfo();
 
   return orm!;
