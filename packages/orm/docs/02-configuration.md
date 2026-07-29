@@ -33,6 +33,7 @@ export class AppConfiguration extends FrameworkConfiguration {
               OnStartup: true,
               Table: 'spinajs_migration',
               Transaction: { Mode: MigrationTransactionMode.PerMigration },
+              Lock: { Enabled: true, Timeout: 30000, StaleAfter: 600000 },
             },
           },
         ],
@@ -101,14 +102,28 @@ on the first attempt. Details in [13-observability.md](13-observability.md).
 
 ### Migrations — `Migration`
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `OnStartup` | `false` | Run pending migrations when `Orm` resolves. |
-| `Table` | `spinajs_migration` | Table recording applied migrations. Created automatically if absent. |
-| `Transaction.Mode` | `None` | `MigrationTransactionMode.PerMigration` wraps each migration in its own transaction; `None` runs them bare. |
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `OnStartup` | `boolean` | `false` | Run pending migrations when `Orm` resolves. |
+| `Table` | `string` | `spinajs_migration` | Table recording applied migrations. Created — or upgraded from the legacy two-column shape — automatically. A `<Table>_lock` companion is created alongside it. |
+| `Service` | `string` | — | DI token of an `OrmMigrationService` implementation to use for this connection. Absent means the built-in `DefaultMigrationService`. |
+| `Transaction.Mode` | `MigrationTransactionMode` | `None` | `None` runs migrations bare; `PerMigration` wraps each in its own transaction; `PerRun` wraps the whole per-connection run in one. |
+| `Lock.Enabled` | `boolean` | `true` | Take the `<Table>_lock` row for the duration of a run. |
+| `Lock.Timeout` | `number` | `30000` | Milliseconds to wait for the lock before failing the run. |
+| `Lock.StaleAfter` | `number` | `600000` | Milliseconds after which a held lock counts as abandoned and is stolen. |
 
-`OnStartup: false` only suppresses the *automatic* run. An explicit `orm.migrateUp()` passes
+`OnStartup: false` only suppresses the *automatic* run. An explicit `orm.Migration.up()` passes
 `force = true` and runs regardless — that is how the CLI and tests migrate on demand.
+
+`Service` is a **string DI token**, not a class: register your implementation with
+`DI.register(MyService).as('my-token')` and put `'my-token'` here. It is resolved from the
+connection's own child container, with the driver as its constructor argument.
+
+`Lock.StaleAfter` must sit above your longest migration run. It is judged against the migrating
+host's clock, and the lock exists for crash recovery on a single migrating process — concurrent
+migration from several processes is out of scope. `PerRun` splits around any migration declaring
+`transaction = false`. All of this is covered in
+[10-schema-and-migrations.md](10-schema-and-migrations.md).
 
 ### SQL dialect details
 
@@ -160,11 +175,17 @@ discovery, or by importing an index module.
 1. `createConnections()` — resolve each driver, `connect()`, store it, start its health check.
    Then register `db.DefaultConnection` under `default` and wire `db.Aliases`. Finally register
    an `OrmConnection` DI factory so any module can fetch a driver by name.
-2. Register every `__migrations__` and `__models__` type it finds.
-3. `migrateUp(undefined, false)` — apply pending migrations for connections with
+2. Register every `__migrations__` and `__models__` type it finds, and build the `orm.Migration`
+   facade (a `MigrationRunner`) over them — which is why `orm.Migration` does not exist on an
+   unresolved `Orm`.
+3. Register the default value converters (`DateTime`/`Date` → datetime, `Boolean`/`Bool` →
+   boolean, `Time`/`TimeSpan` → time) into `__orm_db_value_converters__`. **This precedes the
+   migration pass on purpose:** that pass probes the migration tracking table with
+   `driver.tableInfo()`, and a driver's `tableInfo()` may read this map. Registering it afterwards
+   left the map absent for the whole boot pass and crashed every restart of an already-migrated
+   database.
+4. `Migration.up(undefined, { force: false })` — apply pending migrations for connections with
    `Migration.OnStartup`.
-4. Register the default value converters (`DateTime`/`Date` → datetime, `Boolean`/`Bool` →
-   boolean, `Time`/`TimeSpan` → time) into `__orm_db_value_converters__`.
 5. `reloadTableInfo()` — for each model, call `driver.tableInfo()`, merge the reflected columns
    over the decorator-declared ones, attach converters, mark relation foreign keys, and build
    `descriptor.Schema` via `buildModelJsonSchema`.
@@ -172,7 +193,10 @@ discovery, or by importing an index module.
    model *name*) to a concrete class. Throws if a target was never registered.
 7. `applyModelMixins()` — bind `MODEL_STATIC_MIXINS` onto every model class. **This is the step
    that makes `User.where(...)` work.**
-8. Run each freshly applied migration's `data()` hook, now that models are usable.
+8. Run the `data()` hook of each migration **step 4 applied**, now that models are usable. Every
+   hook runs even when an earlier one throws, and the failures are reported together. This is the
+   only place `data()` is called — a migration applied later, through `orm.Migration.up()` or the
+   CLI, does not get its `data()` in that process.
 
 ## Getting a connection at runtime
 

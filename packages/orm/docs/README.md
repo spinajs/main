@@ -20,7 +20,7 @@ Start at the top if the ORM is new to you. Each page stands alone once you have 
 | 07 | [Relations](07-relations.md) | `@BelongsTo`, `@HasMany`, `@HasManyToMany`, `@Recursive`, `@Query`, `@Virtual`, populate |
 | 08 | [Unit of work](08-unit-of-work.md) | What `save()` does: subject building, sorting, execution, orphan policy, identity map |
 | 09 | [Transactions](09-transactions.md) | `transaction()`, nesting via savepoints, isolation levels |
-| 10 | [Schema and migrations](10-schema-and-migrations.md) | Migration lifecycle and the complete schema builder surface |
+| 10 | [Schema and migrations](10-schema-and-migrations.md) | The `orm.Migration` facade, batches, locking, failure recovery, and the complete schema builder surface |
 | 11 | [Converters and hydration](11-converters-and-hydration.md) | Value converters, hydrators, dehydrators, model↔SQL conversion |
 | 12 | [Architecture](12-architecture.md) | How a query becomes SQL, the DI registration map, middleware hooks |
 | 13 | [Observability](13-observability.md) | Metrics, connection state, retry and health checks, logging |
@@ -56,6 +56,8 @@ export async function example() {
 - [`@spinajs/orm-sql`](../../orm-sql/docs/) — the shared SQL statement and compiler layer
 - [`@spinajs/orm-sqlite`](../../orm-sqlite/docs/), [`@spinajs/orm-mysql`](../../orm-mysql/docs/),
   [`@spinajs/orm-mssql`](../../orm-mssql/docs/) — dialect drivers
+- [`@spinajs/orm-cli`](../../orm-cli/README.md) — `migrate-up` / `migrate-down` / `migrate-status`
+  / `migrate-resolve` / `migrate-create` over the `orm.Migration` facade
 - [`@spinajs/orm-http`](../../orm-http/docs/) — exposing models over HTTP
 - [`@spinajs/orm-api`](../../orm-api/docs/) — CRUD controller building blocks
 

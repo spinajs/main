@@ -61,20 +61,46 @@ export class CreateShop_2026_07_27_10_00_00 extends OrmMigration {
 ```
 
 `up()` runs during `Orm.resolve()`, before models are wired — that is why `data()` exists as a
-separate hook that runs afterwards, only for migrations applied in that same run.
+separate hook that runs afterwards.
 
-### The lifecycle
+**`data()` belongs to the boot pass, not to the facade.** `Orm.resolve()` collects the migrations
+its own startup run applied and calls their `data()` once models and relations are usable.
+Nothing else does. A migration applied later — `orm.Migration.up()` by hand, or the CLI's
+`migrate-up` against a connection whose `Migration.OnStartup` is off — gets its schema and never
+gets its seed in that process. Every `data()` runs even when an earlier one throws; the failures
+are collected and reported together, because stopping at the first would leave the migrations
+after it recorded as applied and unseeded, with nothing to make a rerun retry them.
 
-For each connection, in migration-timestamp order:
+### The facade: `orm.Migration`
 
-1. Read `Migration.Table` (default `spinajs_migration`). If the table does not exist, create it
-   with a unique `Migration` string column and a `CreatedAt` datetime.
-2. Look for a row naming this migration.
-3. `up()` runs only when **no** row exists; `down()` runs only when one **does**.
-4. Wrap in a transaction when `Migration.Transaction.Mode === PerMigration`.
-5. On `up`, insert the row; on `down`, delete it.
+Everything migration-related hangs off `orm.Migration`, a `MigrationRunner` **assigned inside
+`Orm.resolve()`**, once the connections it dispatches to exist. It is not available on an
+unresolved `Orm`.
 
-`migrateDown` reverses the order.
+| Call | Does |
+| --- | --- |
+| `up(name?, options?)` | Applies every pending migration on every configured connection, or only `name`. |
+| `down(name?, options?)` | Rolls back — **the last batch only**, unless `{ all: true }`. |
+| `status()` | `IMigrationStatusEntry[]`: one entry per registered migration per configured connection. |
+| `resolve(name, 'applied' \| 'rolled-back')` | Forces the recorded state of a **failed** migration. |
+
+| Option | On | Default | Meaning |
+| --- | --- | --- | --- |
+| `force` | `up`, `down` | `true` | Run even for connections whose `Migration.OnStartup` is off. Only the boot pass passes `false`. |
+| `fake` | `up`, `down` | `false` | Record — or drop — the tracking row without executing the migration. |
+| `all` | `down` | `false` | Roll every applied migration back instead of only the last batch. |
+
+`up` and `down` resolve with the `OrmMigration` instances they actually ran, and `[]` when there
+was nothing to do.
+
+A `name` that matches nothing in the registry **throws**, on all of `up`, `down` and `resolve`.
+Returning `[]` would make a typo indistinguishable from "already up to date", and a deploy script
+would read that as success.
+
+> **Breaking change.** `orm.migrateUp()` and `orm.migrateDown()` are gone. `orm.Migration.up()`
+> and `orm.Migration.down()` replace them — and `down()` is *not* a drop-in: it defaults to the
+> last batch, where `migrateDown()` reversed the entire history.
+> `orm.Migration.down(undefined, { all: true })` is the old behaviour.
 
 ### Running them by hand
 
@@ -85,21 +111,387 @@ import { Orm } from '@spinajs/orm';
 export async function migrate() {
   const orm = await DI.resolve(Orm);
 
-  // Everything pending. `force = true` (the default) ignores Migration.OnStartup.
-  const applied = await orm.migrateUp();
+  // Everything pending, on every configured connection. `force` defaults to true,
+  // so Migration.OnStartup is ignored here.
+  const applied = await orm.Migration.up();
 
-  // Just one, by class name.
-  await orm.migrateUp('CreateShop_2026_07_27_10_00_00');
+  // Just one, by class name. An unregistered name throws rather than returning [].
+  await orm.Migration.up('CreateShop_2026_07_27_10_00_00');
 
-  // Roll back.
-  await orm.migrateDown('CreateShop_2026_07_27_10_00_00');
+  // Roll back the LAST BATCH only — one up() run undone.
+  await orm.Migration.down();
+
+  // Roll back the whole history.
+  await orm.Migration.down(undefined, { all: true });
 
   return applied;
 }
 ```
 
-`migrateUp` resolves with the migrations it actually applied. During `Orm.resolve()` it is
-called with `force = false`, so only connections with `Migration.OnStartup` are touched.
+### Reading the state
+
+`status()` never takes the migration lock and never writes: it is a read-only report, and
+blocking it behind a running migration would stall it exactly when somebody is asking what is
+going on. It reports every configured connection, including ones with `Migration.OnStartup` off.
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { IMigrationStatusEntry, Orm } from '@spinajs/orm';
+
+export async function report(): Promise<IMigrationStatusEntry[]> {
+  const orm = await DI.resolve(Orm);
+  const entries = await orm.Migration.status();
+
+  for (const e of entries) {
+    // exactly one of applied / failed / pending is true; rolledBack is orthogonal
+    const state = e.applied ? `applied (batch ${e.batch ?? '-'})` : e.failed ? 'FAILED' : 'pending';
+
+    console.log(`${e.connection} ${e.name} ${state}${e.checksumMismatch ? ' [checksum mismatch]' : ''}`);
+  }
+
+  // the deploy gate: anything not applied is a "no"
+  return entries.filter((e) => e.pending || e.failed);
+}
+```
+
+An `IMigrationStatusEntry` carries `name`, `connection`, `applied`, `failed`, `rolledBack`,
+`pending`, `batch`, `startedAt`, `finishedAt` and `checksumMismatch`. `batch`, `startedAt` and
+`finishedAt` are `null` for a migration that has no row yet; the five flags are always booleans.
+
+### The lifecycle
+
+`Orm.resolve()`, in migration-relevant order:
+
+1. Open every connection.
+2. Register the `__migrations__` and `__models__` classes DI collected; build `orm.Migration`.
+3. **Register the default value converters.** This must precede the migration pass: the pass
+   reaches `ensureStorage()`, which probes the tracking table with `driver.tableInfo()`, and a
+   driver's `tableInfo()` may read the `__orm_db_value_converters__` map that this step is what
+   fills. Running it afterwards crashed every restart of an already-migrated database.
+4. `orm.Migration.up(undefined, { force: false })` — pending migrations, but only on connections
+   whose `Migration.OnStartup` is on.
+5. `reloadTableInfo()`, `wireRelations()`, `applyModelMixins()`.
+6. `data()` for whatever step 4 applied.
+
+Within one run, per connection, in `(timestamp, name)` order:
+
+1. `ensureStorage()` — create the tracking table and its `_lock` companion, or upgrade a legacy
+   one. This happens *before* the lock is taken, because the lock table is one of the tables it
+   creates and cannot guard its own creation; a lost race against another process creating the
+   same table is tolerated, anything else (no permission, dead connection) is rethrown.
+2. Take the migration lock, unless `Migration.Lock.Enabled` is false.
+3. Read every tracking row. **`up()` refuses the whole run if any row is in the failed state.**
+4. `up()` runs for every registered migration with no *applied* row. `down()` runs for every
+   applied row in scope.
+5. Compute the batch number: `max(Batch across applied rows) + 1`.
+6. Wrap according to `Migration.Transaction.Mode`.
+7. On `up`: open the row (`StartedAt` set; `FinishedAt`, `RolledBackAt` and `Logs` cleared), run
+   `up(driver)`, then stamp `FinishedAt`, `Batch` and `Checksum`.
+   On `down`: run `down(driver)`, then **delete** the row.
+8. Release the lock, in a `finally` — a run that throws must not leave the connection locked
+   until the staleness window expires.
+
+`down()` orders newest-first: a migration has to be undone before the one it was built on top of.
+Migrations sharing a timestamp fall back to reverse name order, mirroring the forward order.
+
+### The tracking table
+
+`Migration.Table`, default `spinajs_migration`. Eight columns:
+
+| Column | Holds |
+| --- | --- |
+| `Migration` | The migration class name. Unique. |
+| `CreatedAt` | When the row first appeared. |
+| `StartedAt` | When the most recent attempt began. |
+| `FinishedAt` | When that attempt succeeded. `NULL` while running, and after a failure. |
+| `RolledBackAt` | Set by `resolve(name, 'rolled-back')`. An ordinary rollback deletes the row instead. |
+| `Logs` | The failure message and stack. `NULL` on a healthy row. |
+| `Checksum` | sha256 of the migration class source, as of the run that applied it. |
+| `Batch` | Which `up()` run applied it. |
+
+**Applied** means `FinishedAt NOT NULL AND RolledBackAt NULL` — that pair, not merely "a row
+exists". **Failed** means `FinishedAt NULL AND Logs NOT NULL`. Everything else is pending.
+
+A rollback drops the row rather than stamping it: the table is meant to hold only migrations
+actually present in the database, and a missing row and a rolled-back one both read as pending to
+the next `up()`.
+
+A legacy two-column table (`Migration`, `CreatedAt`) is **upgraded in place** on the first boot
+that sees it — the six new columns are added, then `StartedAt` and `FinishedAt` are backfilled
+from `CreatedAt` and `Batch` from `1`. Nothing is dropped and no row is lost, so a database
+migrated by an older spinajs keeps its history and does not re-run anything.
+
+`<table>_lock` is created alongside it: `Id`, `AcquiredAt`, `Owner`.
+
+### Batches
+
+Every `up()` run stamps one batch number onto the migrations it applied: one past the highest
+`Batch` among the rows that are currently applied. It is written at *finish*, not at start, so a
+migration that never completed carries no batch for a later rollback to pick up.
+
+That gives `down()` its default scope: **the highest batch only**, which is exactly the last
+`up()` run undone.
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
+
+export async function rollback() {
+  const orm = await DI.resolve(Orm);
+
+  // The last batch. If the last `up()` applied four migrations, this undoes those four.
+  await orm.Migration.down();
+
+  // Every applied migration, oldest batch included.
+  await orm.Migration.down(undefined, { all: true });
+
+  // One named migration, wherever it sits.
+  await orm.Migration.down('CreateShop_2026_07_27_10_00_00');
+}
+```
+
+> **Sharp edge on `down(name)`.** The per-connection service is handed a one-element list, so
+> every *other* applied row in the target batch looks unmatched and is warned about as "recorded
+> as applied but no registered migration matches them (file deleted or renamed)". Those rows are
+> healthy, and the remedy that warning suggests — deleting the row by hand — is destructive here.
+> The rollback itself is correct; only the warning lies.
+
+### Failure state and `resolve`
+
+When `up()` throws, the service writes the message and stack into `Logs` and leaves `FinishedAt`
+`NULL`. That row then **blocks every later `up()` on that connection**, with an error naming the
+migration and pointing at `resolve`. A half-applied migration means the database is in a state
+nobody described, and piling more schema changes on top of it is the one thing that must not
+happen.
+
+The failure row is written *after* any wrapping transaction has unwound — written inside it, it
+would be rolled back with everything else and leave no trace of what broke.
+
+Recovery has exactly two answers, and only you know which is true:
+
+| Call | Says | Effect |
+| --- | --- | --- |
+| `resolve(name, 'applied')` | The schema change **is** in the database — you finished it by hand. | Stamps `FinishedAt` and a fresh batch, so the row joins the next default rollback. |
+| `resolve(name, 'rolled-back')` | The change is **not** there. | Stamps `RolledBackAt` and clears `Logs`. The migration is pending again and the next `up()` runs it. |
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
+
+export async function recover(name: string, schemaChangeIsPresent: boolean) {
+  const orm = await DI.resolve(Orm);
+
+  await orm.Migration.resolve(name, schemaChangeIsPresent ? 'applied' : 'rolled-back');
+}
+```
+
+`resolve()` is valid **only** on a row in the failed state; anything healthy or absent is refused
+rather than silently rewritten. Like `status()`, it deliberately does not take the lock — it is
+the recovery path for a run that may well have died holding it.
+
+Two things worth knowing before you rely on the block:
+
+- **It is best-effort.** If the bookkeeping write itself fails — the connection dropped, the
+  table is locked — the error is logged, not raised. The run still fails, but the row that would
+  have blocked the next `up()` was never written. In practice the database has to fail twice, in
+  a specific order; it matters when reading logs after an incident, because a successful
+  `up()` shortly after a failed one is not by itself proof that the failure was resolved.
+- **`down()` does not clear it.** A failed row is not applied, so a rollback simply steps around
+  it — and warns, because the connection stays blocked afterwards. Clear *every* failed row: the
+  block trips on the first one it finds, so resolving one of two changes nothing.
+
+`resolve()` reaches registered migrations only. If the failed migration's class has been deleted,
+delete its row from the tracking table by hand instead.
+
+### Fake runs
+
+`{ fake: true }` writes — or removes — the tracking row without executing the migration. It
+exists for baselining: a database that was brought to its current shape by other means (a hand-run
+SQL script, a dump restored from another system, a migration history that predates spinajs) needs
+the tracking table told so, not the migrations re-run against a schema that already has them.
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
+
+export async function baseline() {
+  const orm = await DI.resolve(Orm);
+
+  // Records every pending migration as applied, in one batch, without running any of them.
+  await orm.Migration.up(undefined, { fake: true });
+
+  // The inverse: drops the last batch's rows without calling any down().
+  await orm.Migration.down(undefined, { fake: true });
+}
+```
+
+A faked `up()` still stamps `Checksum` and a batch number, so the row is indistinguishable from a
+real one afterwards — which is the point. Nothing is wrapped in a transaction, because nothing is
+executed.
+
+### Checksums
+
+`Checksum` is the sha256 of the migration class source, recorded when the migration is applied
+and compared on every later run. `status()` reports the comparison as `checksumMismatch`.
+
+It is **advisory and never blocks.** Transpilation moves the checksum as readily as an edit does
+— a class built by a different TypeScript version, target or minifier produces different source
+text for identical behaviour — so a hard block would false-positive across build environments and
+be turned off within a week. A mismatch is logged as a warning and the run continues.
+
+Read it as "somebody may have edited a migration that is already applied", and check. Editing an
+applied migration is the mistake it is looking for: the tracking row keeps it from re-running, so
+the change silently never reaches any database that already has the old version. Write a new
+migration instead.
+
+### Transaction modes
+
+`Migration.Transaction.Mode`, a `MigrationTransactionMode`:
+
+| Mode | Wraps |
+| --- | --- |
+| `None` | Nothing. **The default.** |
+| `PerMigration` | Each migration in its own transaction. |
+| `PerRun` | One transaction around the whole per-connection run. |
+
+A migration can opt out with a `transaction = false` **instance** property — which is why the run
+resolves every pending migration up front, before it can decide how to wrap anything. (A
+prototype getter or a static of the same name is honoured too, for a migration that must opt out
+without being constructed.) Under `PerRun` the opt-out splits the run into segments: the
+migrations before it share one transaction, it runs bare, and the ones after it share the next.
+Under `PerMigration` it simply runs unwrapped.
+
+```ts sample
+import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
+
+@Migration('default')
+export class RebuildOrderIndex_2026_07_27_19_00_00 extends OrmMigration {
+  /**
+   * An instance field, read off the constructed migration — which is why the runner resolves
+   * every pending migration before it decides how to wrap the run.
+   */
+  public transaction = false;
+
+  public async up(connection: OrmDriver): Promise<void> {
+    await connection.schema().raw('CREATE INDEX idx_orders_total ON orders (Total)');
+  }
+
+  public async down(connection: OrmDriver): Promise<void> {
+    await connection.schema().raw('DROP INDEX idx_orders_total');
+  }
+}
+```
+
+**Transaction modes genuinely protect DML, not DDL.** MySQL commits implicitly on every DDL
+statement, so a `CREATE TABLE` inside a `PerRun` transaction is already committed by the time a
+later migration in the same segment fails — the rollback unwinds the data changes and leaves the
+schema changes standing. Treat the modes as protection for data migrations, and rely on the
+failure row plus `resolve` for schema ones.
+
+### Locking
+
+A run claims the single row of `<table>_lock` by `INSERT` — `Id` is unique, so the database picks
+the winner in one statement rather than a read-then-write that two processes could both pass. The
+row carries `AcquiredAt` and an `Owner` of `hostname:pid`, so a blocked run can say who is
+holding it. The release is unconditional and lives in a `finally`.
+
+| Config | Default | Meaning |
+| --- | --- | --- |
+| `Migration.Lock.Enabled` | `true` | Set false to skip locking entirely. |
+| `Migration.Lock.Timeout` | `30000` | Milliseconds to wait for the lock before failing. |
+| `Migration.Lock.StaleAfter` | `600000` | Milliseconds after which a held lock is treated as abandoned. |
+
+**What this lock is for: a process that crashed mid-run.** Nothing else will ever clear that
+row, so a lock older than `StaleAfter` is deleted and the run retries — at most three times per
+acquire, because a `DELETE` can succeed and remove nothing, and an uncapped stale branch would
+warn and retry forever. A steal is logged loudly: the other reading of a lock that outlasted
+`StaleAfter` is a genuinely long run that is still going, and then two migration runs are in
+flight and somebody has to know.
+
+**What this lock is not: a multi-writer guarantee.** Concurrently migrating the same database
+from several processes is out of scope for this ORM — do not design a deployment around it.
+Staleness is judged against the *client* clock (`AcquiredAt` is written as the migrating host's
+`new Date()` and compared to that host's `Date.now()`), which is sound for the crash-and-restart
+case it exists for, but skewed clocks across hosts steal too early or wait too long.
+
+Two calls deliberately never take the lock: `status()`, because a read-only report must not block
+behind a running migration, and `resolve()`, because it is the recovery path used precisely when
+a run died while holding it.
+
+If a release fails, the error is logged rather than thrown — the migration error is what the
+operator needs, and the likeliest cause of a failed release is the same dead connection that
+killed the run. The lock is left to go stale, or its row is deleted by hand.
+
+### Writing a custom migration service
+
+`OrmMigrationService` is the per-connection execution contract — everything that touches a
+database during a migration run lives there, while `MigrationRunner` only orders the registry and
+groups it by connection. Selecting an implementation per connection is the extension point for
+dialect-specific behaviour: an advisory lock the dialect has natively, a differently shaped
+tracking table, an audit trail.
+
+| Method | Must |
+| --- | --- |
+| `ensureStorage()` | Create or upgrade the tracking tables this connection needs. |
+| `applied()` | Return the rows that finished and were not rolled back. |
+| `up(units, options?)` | Apply the pending ones, and return the instances that ran. |
+| `down(units, options?)` | Roll back, and return the instances that ran. |
+| `status(units)` | One `IMigrationStatusEntry` per unit. |
+| `resolve(name, action, unit?)` | Force a failed migration's recorded state. |
+
+`units` arrives already validated, ordered and filtered to this connection. `DefaultMigrationService`
+is the built-in implementation, and subclassing it is the usual path — extending
+`OrmMigrationService` directly means writing all six methods.
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { DefaultMigrationService, IMigrationDownOptions, IMigrationUnit, OrmMigration } from '@spinajs/orm';
+
+export class AuditedMigrationService extends DefaultMigrationService {
+  public async ensureStorage(): Promise<void> {
+    await super.ensureStorage();
+
+    // `createTableIfAbsent` is inherited: it tolerates another process winning the race.
+    await this.createTableIfAbsent('migration_audit', (t) => {
+      t.increments('Id');
+      t.string('Migration', 255).notNull();
+      t.dateTime('At').notNull();
+    });
+  }
+
+  public async down(units: IMigrationUnit[], options?: IMigrationDownOptions): Promise<OrmMigration[]> {
+    const rolledBack = await super.down(units, options);
+
+    for (const m of rolledBack) {
+      await this.driver.insert().into('migration_audit').values({ Migration: m.constructor.name, At: new Date() });
+    }
+
+    return rolledBack;
+  }
+}
+
+// Migration.Service on the connection names this token.
+DI.register(AuditedMigrationService).as('migration-service-audited');
+```
+
+```ts
+// ...and in the connection's configuration:
+Migration: {
+  Service: 'migration-service-audited',
+}
+```
+
+`this.driver` is the connection the service was constructed for; `Migration.Service` absent means
+`DefaultMigrationService`. See [02-configuration.md](02-configuration.md) for the whole
+`Migration` key.
+
+### The command line
+
+[`@spinajs/orm-cli`](../../orm-cli/README.md) wraps this facade in five commands —
+`migrate-up`, `migrate-down`, `migrate-status`, `migrate-resolve` and `migrate-create` — with
+operator-facing wording and exit codes suitable for a deploy gate. Its README documents the
+options, the exit codes and one example per command; everything on this page about what a run
+*means* applies unchanged there.
 
 ## The schema builder
 
@@ -493,9 +885,16 @@ export function schema() {
 
 ## Writing migrations that survive
 
-- **Do not import models into `up()`.** They are not wired yet. Use `data()`.
-- **Never edit an applied migration.** The recorded row keeps it from re-running; write a new one.
-- **`down()` is not optional** — `migrateDown` calls it, and an empty `down()` silently corrupts
-  the migration table.
+- **Do not import models into `up()`.** They are not wired yet. Use `data()` — and remember it
+  runs only for migrations applied by `Orm.resolve()`'s own boot pass.
+- **Never edit an applied migration.** The recorded row keeps it from re-running, so the edit
+  silently never reaches any database that already has the old version. `Checksum` will warn
+  about it and nothing more. Write a new migration.
+- **`down()` is not optional** — `orm.Migration.down()` calls it, and an empty `down()` deletes
+  the tracking row while leaving the schema in place, which is a lie the next `up()` acts on.
 - **Guard dialect-specific features** with `connection.supportedFeatures()`.
 - **Timestamps order execution**, not file names or discovery order.
+- **Do not lean on transaction modes for DDL.** MySQL commits implicitly on DDL; a failed run
+  leaves the schema changes standing. `status()` and `resolve()` are the recovery path.
+- **Fix a failed migration before anything else.** Its row blocks every later `up()` on that
+  connection until `resolve()` records what actually happened.
