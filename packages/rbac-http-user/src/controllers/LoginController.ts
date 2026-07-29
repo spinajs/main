@@ -220,7 +220,8 @@ export class LoginController extends BaseController {
   /**
    * Get current user
    * Returns the user object associated with the current session along with the
-   * currently active role. Roles the user may switch to are listed in Role.
+   * currently active role and whether the session has completed 2FA (when
+   * required). Roles the user may switch to are listed in Role.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
    * @security cookieAuth
    * @returns {User} User data from the current session
@@ -228,11 +229,12 @@ export class LoginController extends BaseController {
    */
   @Get()
   @Policy(LoggedPolicy)
-  public async whoami(@UserRouteArg() User: User, @FromSession() ActiveRole: string) {
+  public async whoami(@UserRouteArg() User: User, @FromSession() ActiveRole: string, @SessionRouteArg() session: ISession) {
 
     return new Ok({
       ...User.dehydrateWithRelations({ dateTimeFormat: 'iso' }),
       ActiveRole: ActiveRole ?? User.Role?.[0],
+      Authorized: session.Data.get('Authorized') ?? true,
     });
   }
 }
