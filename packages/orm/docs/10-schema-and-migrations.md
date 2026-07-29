@@ -519,15 +519,18 @@ tracking table, an audit trail.
 | Method | Must |
 | --- | --- |
 | `ensureStorage()` | Create or upgrade the tracking tables this connection needs. |
-| `applied()` | Return the rows that finished and were not rolled back. |
 | `up(units, options?)` | Apply the pending ones, and return the instances that ran. |
 | `down(units, options?)` | Roll back, and return the instances that ran. |
 | `status(units)` | One `IMigrationStatusEntry` per unit. |
-| `resolve(name, action, unit?)` | Force a failed migration's recorded state. |
+| `resolve(name, action, unit?)` | Force a failed or interrupted migration's recorded state. |
 
 `units` arrives already validated, ordered and filtered to this connection. `DefaultMigrationService`
 is the built-in implementation, and subclassing it is the usual path — extending
-`OrmMigrationService` directly means writing all six methods.
+`OrmMigrationService` directly means writing all five methods.
+
+`DefaultMigrationService.applied()` returns the raw rows that finished and were not rolled back.
+It is a helper on that class, **not** part of the contract: nothing in the ORM calls it, because
+everything that asks "what is applied?" needs the registry merged in and goes through `status()`.
 
 ```ts sample
 import { DI } from '@spinajs/di';

@@ -4,7 +4,7 @@ import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
 import { FakeSqliteDriver, TEST_TABLE_INFO, bootstrapAll, makeDriver, registerFakes, stubDb } from './misc.js';
-import { DefaultMigrationService, IMigrationRecord, IMigrationRunOptions, IMigrationUnit, MIGRATION_TABLE_NAME, Migration, MigrationRunner, OrmException, OrmMigration, migrationChecksum } from '../src/index.js';
+import { DefaultMigrationService, IMigrationDownOptions, IMigrationRecord, IMigrationRunOptions, IMigrationStatusEntry, IMigrationUnit, MIGRATION_TABLE_NAME, Migration, MigrationResolveAction, MigrationRunner, OrmException, OrmMigration, OrmMigrationService, migrationChecksum } from '../src/index.js';
 import { InsertQueryBuilder, UpdateQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
 import '../src/bootstrap.js';
@@ -361,6 +361,80 @@ describe('MigrationRunner', () => {
 
     expect(MigrationRunnerTest_RecordingService.calls).to.eq(1);
     expect(up.calledOnce, 'a custom service still has to run the migration').to.be.true;
+  });
+
+  it('a service extending OrmMigrationService directly needs only the five methods the runner calls', async () => {
+    const driver = await makeDriver();
+
+    // The point of this test is what is NOT written below: no `applied()`. It used to be abstract
+    // on OrmMigrationService, so this class would not compile without it - and nothing in the ORM,
+    // the runner or the CLI would ever have called the implementation. `status()` is what every
+    // caller that asks "what is applied?" goes through, because they all need the registry merged
+    // in. Extending the abstract class directly, rather than DefaultMigrationService, is what
+    // makes the omission load-bearing: a subclass would inherit the helper and prove nothing.
+    class MigrationRunnerTest_MinimalService extends OrmMigrationService {
+      public static ran: string[] = [];
+
+      public async ensureStorage(): Promise<void> {}
+
+      public async up(units: IMigrationUnit[], _options?: IMigrationRunOptions): Promise<OrmMigration[]> {
+        const instances: OrmMigration[] = [];
+
+        for (const u of units) {
+          const m = await this.driver.Container.resolve<OrmMigration>(u.type, [this.driver]);
+          await m.up(this.driver);
+          MigrationRunnerTest_MinimalService.ran.push(u.name);
+          instances.push(m);
+        }
+
+        return instances;
+      }
+
+      public async down(_units: IMigrationUnit[], _options?: IMigrationDownOptions): Promise<OrmMigration[]> {
+        return [];
+      }
+
+      public async status(units: IMigrationUnit[]): Promise<IMigrationStatusEntry[]> {
+        return units.map((u) => ({
+          name: u.name,
+          connection: this.driver.Options.Name,
+          applied: false,
+          failed: false,
+          rolledBack: false,
+          pending: true,
+          interrupted: false,
+          batch: null,
+          startedAt: null,
+          finishedAt: null,
+          checksumMismatch: false,
+        }));
+      }
+
+      public async resolve(_name: string, _action: MigrationResolveAction, _unit?: IMigrationUnit): Promise<void> {}
+    }
+
+    DI.register(MigrationRunnerTest_MinimalService).as('migration-runner-test-minimal-service');
+    extraRegistrations.push(MigrationRunnerTest_MinimalService);
+
+    driver.Options.Migration = { ...driver.Options.Migration, Service: 'migration-runner-test-minimal-service' };
+
+    @Migration('sqlite')
+    class MigrationRunnerTest_Min_2021_01_01_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    const up = sinon.spy(MigrationRunnerTest_Min_2021_01_01_00_00_00.prototype, 'up');
+    const runner = new MigrationRunner(ormLike([ci(MigrationRunnerTest_Min_2021_01_01_00_00_00)], [['sqlite', driver]]));
+
+    await runner.up();
+
+    expect(MigrationRunnerTest_MinimalService.ran).to.eql(['MigrationRunnerTest_Min_2021_01_01_00_00_00']);
+    expect(up.calledOnce, 'the runner drove a service that implements the contract and nothing more').to.be.true;
+
+    // and the other two entry points reach it as well, so nothing the runner needs was left out
+    expect((await runner.status()).map((s) => s.name)).to.eql(['MigrationRunnerTest_Min_2021_01_01_00_00_00']);
+    expect(await runner.down()).to.eql([]);
   });
 
   it('warns and skips migration whose connection is missing', async () => {

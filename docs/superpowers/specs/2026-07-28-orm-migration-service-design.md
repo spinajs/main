@@ -37,11 +37,11 @@ Two new units inside `@spinajs/orm` (flat file layout, matching the package styl
 
 - `OrmMigrationService` — abstract, per-connection contract. Constructed with the connection's `OrmDriver`. Responsibilities:
   - `ensureStorage()` — create the tracking table if missing; upgrade an existing table (add missing columns, backfill).
-  - `applied()` — list recorded migrations (`IMigrationRecord[]`).
   - `up(migrations, options)` / `down(migrations, options)` — execute given ordered migration units on this connection: gate on recorded state, instantiate via `driver.Container.resolve(type, [driver])`, apply transaction policy, maintain tracking rows (including failure state), stamp batch. Return executed `OrmMigration[]`.
   - `status(migrations)` — merge the registered list with tracking rows into `IMigrationStatusEntry[]`.
-  - `resolve(name, action)` — unblock a failed migration (`'applied'` | `'rolled-back'`).
+  - `resolve(name, action)` — unblock a failed or interrupted migration (`'applied'` | `'rolled-back'`).
   - `acquireLock(options)` / `releaseLock(lock)` — concurrency guard hooks.
+  - **Amended 2026-07-29:** `applied()` (`IMigrationRecord[]`) was specified as part of this contract and shipped as an abstract method with no production caller — `status()` is what the runner, the CLI and every deploy gate use, because they all need the registry merged in. Every custom `Service` had to implement a method nothing would ever call, so it was dropped from the abstract contract and kept as a concrete helper on `DefaultMigrationService`.
 - `DefaultMigrationService extends OrmMigrationService` — built-in implementation (behavior below).
 - Shared consts move here: `MIGRATION_TABLE_NAME`, lock defaults.
 - New types: `IMigrationRecord`, `IMigrationStatusEntry`, option interfaces.

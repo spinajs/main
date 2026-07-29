@@ -103,13 +103,14 @@ export abstract class OrmMigrationService {
 
   /**
    * Creates or upgrades the tracking tables this connection needs.
+   *
+   * NOTE on what is NOT here: `applied()`. It was part of this contract and had no production
+   * caller - `status()` answers "what is applied", per unit and per connection, and is what the
+   * runner, the CLI and every deploy gate go through. An abstract method that every custom
+   * implementation must write and nothing ever calls is a tax with no payer, so it is a concrete
+   * helper on `DefaultMigrationService` instead.
    */
   public abstract ensureStorage(): Promise<void>;
-
-  /**
-   * Migrations that finished successfully and were not rolled back.
-   */
-  public abstract applied(): Promise<IMigrationRecord[]>;
 
   public abstract up(units: IMigrationUnit[], options?: IMigrationRunOptions): Promise<OrmMigration[]>;
   public abstract down(units: IMigrationUnit[], options?: IMigrationDownOptions): Promise<OrmMigration[]>;
@@ -269,6 +270,17 @@ export class DefaultMigrationService extends OrmMigrationService {
     }
   }
 
+  /**
+   * Migrations that finished successfully and were not rolled back - the raw rows, unmerged with
+   * the registry.
+   *
+   * A convenience on this class rather than part of `OrmMigrationService`: nothing in the ORM,
+   * the runner or the CLI calls it, because they all need the registry merged in and go through
+   * `status()`. It is kept because a subclass, a script or a health check reaching for "what does
+   * this connection think it has applied?" should not have to reimplement the applied-gate, and
+   * getting that gate subtly wrong ( "a row exists" rather than `FinishedAt NOT NULL AND
+   * RolledBackAt NULL` ) is the classic way to re-run a migration.
+   */
   public async applied(): Promise<IMigrationRecord[]> {
     return (await this.records()).filter((r) => r.FinishedAt !== null && r.FinishedAt !== undefined && !r.RolledBackAt);
   }
