@@ -267,7 +267,9 @@ export class DefaultMigrationService extends OrmMigrationService {
     const failed = records.find((r) => !r.FinishedAt && r.Logs);
 
     if (failed) {
-      throw new OrmException(`Migration ${failed.Migration} on connection ${this.driver.Options.Name} failed previously and blocks migration runs. Inspect Logs column, fix the database manually, then run orm.Migration.resolve('${failed.Migration}', 'applied') or ('rolled-back').`);
+      throw new OrmException(
+        `Migration ${failed.Migration} on connection ${this.driver.Options.Name} failed previously and blocks migration runs. Inspect Logs column, fix the database manually, then run orm.Migration.resolve('${failed.Migration}', 'applied') or ('rolled-back'). That call reaches registered migrations only - if this one's class is gone, remove its row from ${this.table} by hand instead.`,
+      );
     }
   }
 
@@ -599,7 +601,9 @@ export class DefaultMigrationService extends OrmMigrationService {
       const failedRows = records.filter((r) => !r.FinishedAt && r.Logs);
 
       if (failedRows.length > 0) {
-        this.Log.warn(`Migration(s) ${failedRows.map((r) => r.Migration).join(', ')} on connection ${this.driver.Options.Name} are in failed state and are skipped by this rollback - the schema may end up reverted while every later up() stays blocked. Run orm.Migration.resolve('${failedRows[0].Migration}', 'applied') or ('rolled-back') to clear it.`);
+        // every one of them has to be cleared: assertNoFailed blocks on the first failed row it
+        // finds, so resolving one of two leaves the connection just as blocked as before
+        this.Log.warn(`Migration(s) ${failedRows.map((r) => r.Migration).join(', ')} on connection ${this.driver.Options.Name} are in failed state and are skipped by this rollback - the schema may end up reverted while every later up() stays blocked. Clear each of them with orm.Migration.resolve('${failedRows[0].Migration}', 'applied') or ('rolled-back').`);
       }
 
       if (appliedRows.length === 0) {

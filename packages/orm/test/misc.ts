@@ -1,9 +1,11 @@
 /* eslint-disable prettier/prettier */
 import { ITransactionContext, ITransactionOptions, ValueConverter } from './../src/interfaces.js';
 import { join, normalize, resolve } from 'path';
-import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder, DefaultValueBuilder, RawQuery } from '../src/index.js';
+import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder, DefaultValueBuilder, RawQuery, IMigrationRecord, MIGRATION_TABLE_NAME } from '../src/index.js';
 import { OrmDriver } from './../src/driver.js';
-import { FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Bootstrapper, DI } from '@spinajs/di';
+import * as sinon from 'sinon';
 import _ from 'lodash';
 
 export function mergeArrays(target: any, source: any) {
@@ -1255,6 +1257,62 @@ export class FakeDefaultValueBuilder<T> extends DefaultValueBuilder<T> {
     this.Query = query;
     return this.Owner;
   }
+}
+
+/**
+ * The DI wiring a suite needs before it can resolve a driver: the fake configuration, the fake
+ * driver and every compiler the builders reach for. Shared rather than copied per suite, so a
+ * new fake ( eg. DefaultValueBuilder, which only the dialect packages register for real ) lands
+ * in all of them at once.
+ */
+export function registerFakes() {
+  DI.register(ConnectionConf).as(Configuration);
+  DI.register(FakeSqliteDriver).as('sqlite');
+  DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
+  DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
+  DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
+  DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
+  DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
+  DI.register(FakeColumnQueryCompiler).as(ColumnQueryCompiler);
+  DI.register(FakeTableExistsCompiler).as(TableExistsCompiler);
+  // dialect packages own the concrete DefaultValueBuilder; without one, `default()` resolves
+  // the abstract class and dies on `value()`
+  DI.register(FakeDefaultValueBuilder).as(DefaultValueBuilder);
+}
+
+export async function bootstrapAll() {
+  const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+  for (const b of bootstrappers) await b.bootstrap();
+}
+
+/**
+ * Resolves a driver exactly like Orm does - by the connection's `Driver` token, with that
+ * connection's options straight out of the configuration.
+ */
+export async function makeDriver(connection = 'sqlite'): Promise<FakeSqliteDriver> {
+  const conf = await DI.resolve(Configuration);
+  const opts = conf.get<any[]>('db.Connections').find((c: any) => c.Name === connection);
+
+  if (!opts) {
+    throw new Error(`there is no connection named ${connection} in the test configuration`);
+  }
+
+  return (await DI.resolve<OrmDriver>(opts.Driver as string, [opts])) as FakeSqliteDriver;
+}
+
+/**
+ * Stubs driver execution so a select on the migration tracking table answers with `rows` and
+ * every other statement ( tableExists probes, DDL, inserts, updates ) reports success. The
+ * returned stub carries the executed builders, which is what the assertions read.
+ */
+export function stubDb(rows: IMigrationRecord[]) {
+  return sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+    if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+      return rows;
+    }
+    // one row back = tableExists true, and a harmless result for everything else
+    return [{ 1: 1 }];
+  });
 }
 
 export class FakeServerResponseMapper {

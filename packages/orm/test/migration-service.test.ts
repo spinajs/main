@@ -1,12 +1,11 @@
-import { Configuration } from '@spinajs/configuration';
-import { DI, Bootstrapper, Class } from '@spinajs/di';
+import { DI, Class } from '@spinajs/di';
 import * as chai from 'chai';
 import { DateTime } from 'luxon';
 import 'mocha';
 import { createHash } from 'node:crypto';
 import * as sinon from 'sinon';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeTableQueryCompiler, FakeColumnQueryCompiler, FakeTableExistsCompiler, FakeDefaultValueBuilder, TEST_TABLE_INFO } from './misc.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, TableExistsCompiler, DefaultValueBuilder, DefaultMigrationService, MIGRATION_TABLE_NAME, MIGRATION_LOCK_MAX_STEALS, migrationChecksum, OrmMigration, MigrationTransactionMode, IMigrationRecord, IMigrationUnit, OrmException } from '../src/index.js';
+import { FakeSqliteDriver, TEST_TABLE_INFO, bootstrapAll, makeDriver, registerFakes, stubDb } from './misc.js';
+import { DefaultMigrationService, MIGRATION_TABLE_NAME, MIGRATION_LOCK_MAX_STEALS, migrationChecksum, OrmMigration, MigrationTransactionMode, IMigrationRecord, IMigrationUnit, OrmException } from '../src/index.js';
 import { TableQueryBuilder, AlterTableQueryBuilder, RawSchemaQueryBuilder, SelectQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, DeleteQueryBuilder, TableExistsQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
 import '../src/bootstrap.js';
@@ -14,33 +13,6 @@ import '../src/bootstrap.js';
 const expect = chai.expect;
 
 const LOCK_TABLE = `${MIGRATION_TABLE_NAME}_lock`;
-
-async function makeDriver(): Promise<FakeSqliteDriver> {
-  // resolve driver exactly like Orm does, with the sqlite connection options from ConnectionConf
-  const conf = await DI.resolve(Configuration);
-  const opts = conf.get<any[]>('db.Connections').find((c: any) => c.Name === 'sqlite');
-  return (await DI.resolve<OrmDriver>('sqlite', [opts])) as FakeSqliteDriver;
-}
-
-function registerFakes() {
-  DI.register(ConnectionConf).as(Configuration);
-  DI.register(FakeSqliteDriver).as('sqlite');
-  DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-  DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-  DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-  DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-  DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-  DI.register(FakeColumnQueryCompiler).as(ColumnQueryCompiler);
-  DI.register(FakeTableExistsCompiler).as(TableExistsCompiler);
-  // dialect packages own the concrete DefaultValueBuilder; without one, `default()` resolves
-  // the abstract class and dies on `value()`
-  DI.register(FakeDefaultValueBuilder).as(DefaultValueBuilder);
-}
-
-async function bootstrapAll() {
-  const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-  for (const b of bootstrappers) await b.bootstrap();
-}
 
 describe('DefaultMigrationService storage', () => {
   before(() => {
@@ -203,21 +175,6 @@ const unit = (t: Class<OrmMigration>): IMigrationUnit => ({
   created: DateTime.fromFormat(t.name.match(/_(\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2})$/)![1], 'yyyy_MM_dd_HH_mm_ss'),
   type: t,
 });
-
-/**
- * Stubs driver execution so a select on the tracking table answers with `rows` and every
- * other statement ( tableExists probes, DDL, inserts, updates ) reports success. The
- * returned stub carries the executed builders, which is what the assertions read.
- */
-function stubDb(rows: IMigrationRecord[]) {
-  return sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
-    if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
-      return rows;
-    }
-    // one row back = tableExists true, and a harmless result for everything else
-    return [{ 1: 1 }];
-  });
-}
 
 describe('DefaultMigrationService up', () => {
   before(() => {
