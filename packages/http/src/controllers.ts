@@ -1,22 +1,26 @@
 import Express from 'express';
 
 import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container, Class } from '@spinajs/di';
-import { ListFromFiles } from '@spinajs/reflection';
 import { Logger, Log } from '@spinajs/log';
 import { HttpServer } from './server.js';
 import { uniqueBy } from '@spinajs/util';
-import { DefaultControllerCache } from './cache.js';
+import { DefaultControllerCache, parseFnParamNames } from './cache.js';
 import { BaseController } from './base-controller.js';
+import { ControllerSource } from './controller-sources.js';
+import { ControllerRegistrationException, RouteRegistrationException } from './exceptions.js';
 
 export class Controllers extends AsyncService {
   /**
-   * File-scanned controller types (no instances). Each entry's `type` is
-   * registered as `BaseController` in DI during `resolve()`, then every
-   * controller — file-scanned and bootstrapper-registered alike — is
-   * resolved through `Array.ofType(BaseController)`.
+   * Merged, deduped controller list from all registered
+   * {@link ControllerSource} services (no instances until `resolve()` patches
+   * them in). Kept as a public accessor for API compatibility — http-swagger
+   * and app code read it to enumerate controllers.
    */
-  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.controllers')
-  public Controllers!: Promise<Array<ClassInfo<BaseController>>>;
+  public get Controllers(): Promise<Array<ClassInfo<BaseController>>> {
+    return (this._listed ??= this.listControllers());
+  }
+
+  private _listed?: Promise<Array<ClassInfo<BaseController>>>;
 
   @Logger('http')
   protected Log!: Log;
@@ -47,6 +51,42 @@ export class Controllers extends AsyncService {
   protected RegisteredTypes: Set<Class<BaseController>> = new Set();
 
   /**
+   * Resolves all registered controller discovery services. Override point
+   * for tests and for apps that want full control over discovery.
+   */
+  protected async getSources(): Promise<ControllerSource[]> {
+    return (await DI.resolve(Array.ofType(ControllerSource))) as ControllerSource[];
+  }
+
+  /**
+   * Gathers controllers from every source and dedupes them: for the same
+   * type an entry with a real on-disk file wins over a `<di>` / `<dynamic>`
+   * sentinel (the file path feeds ControllersCache source parsing).
+   */
+  protected async listControllers(): Promise<Array<ClassInfo<BaseController>>> {
+    const sources = await this.getSources();
+    const lists = await Promise.all(sources.map((s) => s.getControllers()));
+
+    const isRealFile = (f: string | undefined) => !!f && !(f.startsWith('<') && f.endsWith('>'));
+    const byType = new Map<Class<BaseController>, ClassInfo<BaseController>>();
+    const untyped: Array<ClassInfo<BaseController>> = [];
+
+    for (const ci of lists.flat()) {
+      if (!ci.type) {
+        untyped.push(ci);
+        continue;
+      }
+
+      const existing = byType.get(ci.type as Class<BaseController>);
+      if (!existing || (!isRealFile(existing.file) && isRealFile(ci.file))) {
+        byType.set(ci.type as Class<BaseController>, ci);
+      }
+    }
+
+    return [...byType.values(), ...untyped];
+  }
+
+  /**
    * Dynamically register a controller after startup. Equivalent to having
    * declared it via @Injectable / file-scan / bootstrapper registration
    * before `resolve()` ran, but usable at any point.
@@ -66,17 +106,27 @@ export class Controllers extends AsyncService {
     }
 
     DI.register(type as any).as(BaseController);
-    const instance = (await DI.resolve(type)) as BaseController;
 
-    const ci = new ClassInfo<BaseController>();
-    ci.name = type.name;
-    ci.type = type;
-    ci.instance = instance;
-    // Source file was captured at decoration time by the route decorators.
-    // Sentinel only if nothing was captured (no route decorators ran).
-    ci.file = instance.Descriptor?.SourceFile ?? '<dynamic>';
+    try {
+      const instance = (await DI.resolve(type)) as BaseController;
 
-    await this.register(ci);
+      const ci = new ClassInfo<BaseController>();
+      ci.name = type.name;
+      ci.type = type;
+      ci.instance = instance;
+      // Source file was captured at decoration time by the route decorators.
+      // Sentinel only if nothing was captured (no route decorators ran).
+      ci.file = instance.Descriptor?.SourceFile ?? '<dynamic>';
+
+      await this.register(ci);
+    } catch (err) {
+      // Roll back so the broken type is not silently mounted by a later
+      // Array.ofType(BaseController) resolve, and so a fixed retry can
+      // register cleanly.
+      DI.unregister(type);
+      DI.uncache(BaseController);
+      throw err;
+    }
   }
 
   public async register(controller: ClassInfo<BaseController>) {
@@ -87,33 +137,44 @@ export class Controllers extends AsyncService {
       return;
     }
 
-    const parameters = await this.ControllersCache.getCache(controller);
     if (!controller.instance) {
-      this.Log.warn(`Controller ${controller.name} in file ${controller.file} is not resolved. Make sure it is decorated with @injectable and has a public constructor without required parameters`);
-      return;
+      throw new ControllerRegistrationException(
+        `Controller ${controller.name} in file ${controller.file} is not resolved. Make sure it is decorated with @injectable and has a public constructor without required parameters`,
+      );
     }
+
+    const parameters = await this.ControllersCache.getCache(controller);
 
     if (!controller.instance.Descriptor) {
       this.Log.warn(`Controller ${controller.name} in file ${controller.file} dont have descriptor or routes defined`);
     } else {
       for (const [name, route] of controller.instance.Descriptor.Routes) {
-        if (parameters[name as string]) {
-          const member = parameters[name as string];
+        let member = parameters[name as string];
 
-          for (const [index, rParam] of route.Parameters) {
-            const pName = member[index];
-            if (pName) {
-              rParam.Name = pName;
-            }
+        if (!member) {
+          const action = (controller.instance as any)[name as string];
+          if (typeof action !== 'function') {
+            throw new RouteRegistrationException(`Controller ${controller.name} does not have member ${String(name)} for route ${route.Path}`);
           }
-        } else {
-          this.Log.error(`Controller ${controller.name} does not have member ${name as string} for route ${route.Path}`);
+
+          // Route inherited from a base class declared in another source file
+          // — the parsed source of THIS class has no such member. Extract
+          // parameter names from the runtime function instead.
+          member = parseFnParamNames(action);
+        }
+
+        for (const [index, rParam] of route.Parameters) {
+          const pName = member[index];
+          if (pName) {
+            rParam.Name = pName;
+          }
         }
       }
 
       if (!controller.instance.Router) {
-        this.Log.warn(`Controller ${controller.name} in file ${controller.file} has no router instance. Check if it extends BaseController and super.resolve() is called in resolve method`);
-        return;
+        throw new ControllerRegistrationException(
+          `Controller ${controller.name} in file ${controller.file} has no router instance. Check if it extends BaseController and super.resolve() is called in resolve method`,
+        );
       }
 
       this.ControllersRouter.use(controller.instance.Router);
@@ -131,18 +192,13 @@ export class Controllers extends AsyncService {
     // which is how `add()` avoids the old Express-stack juggling.
     this.ControllersRouter = Express.Router();
 
-    // Two registration paths converge here:
-    //  1. Directory-scanned controllers (existing behavior). @ListFromFiles
-    //     hands us the class types; we register each as `BaseController` so
-    //     they show up in the DI collection.
-    //  2. Bootstrapper-registered controllers. A package's Bootstrapper can
-    //     conditionally call `DI.register(MyController).as(BaseController)`
-    //     before this service resolves. Those classes are already in the
-    //     collection by the time we get here.
-    // Resolving `Array.ofType(BaseController)` then instantiates everything
-    // in a single pass — file-scanned + bootstrap-registered, with class
-    // identity dedupe (multiple `as(BaseController)` calls for the same type
-    // resolve to one singleton).
+    // Discovery is delegated to ControllerSource services (filesystem scan,
+    // DI registry, custom app sources). All lists are merged and deduped in
+    // listControllers(); each discovered type is registered as
+    // `BaseController` below, then resolving `Array.ofType(BaseController)`
+    // instantiates everything in a single pass with class-identity dedupe
+    // (multiple `as(BaseController)` calls for the same type resolve to one
+    // singleton).
     const listed = await this.Controllers;
 
     // Remember the original file path per type so the second loop can preserve

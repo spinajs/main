@@ -652,7 +652,7 @@ function entityNameRight(name: ts.EntityName): string {
  * preserves the literal signature so we can regex out `(a, b = 1, ...rest)`.
  * Stripped of default values and TypeScript type annotations.
  */
-function parseFnParamNames(fn: Function): string[] {
+export function parseFnParamNames(fn: Function): string[] {
   const src = Function.prototype.toString.call(fn);
   const match = src.match(/^[^(]*\(([\s\S]*?)\)/);
   if (!match) return [];
