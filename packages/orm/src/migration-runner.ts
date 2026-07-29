@@ -3,15 +3,16 @@ import { Log, Logger } from '@spinajs/log-common';
 import { DateTime } from 'luxon';
 import { OrmDriver } from './driver.js';
 import { IMigrationDescriptor, OrmMigration } from './interfaces.js';
-import { MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
+import { MIGRATION_DESCRIPTION_SYMBOL, MIGRATION_FILE_REGEXP } from './symbols.js';
 import { OrmException } from './exceptions.js';
 import { DefaultMigrationService, IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
 
 /**
- * A migration class name carries its own creation timestamp - `SomeName_yyyy_MM_dd_HH_mm_ss` -
- * and that timestamp is the only ordering the runner has.
+ * Re-exported from `./symbols.js` ( a leaf module ) rather than defined here, so this module can
+ * sit in `Orm`'s require cycle without closing it one hop earlier. This is still the import path
+ * the rest of the package - and `@spinajs/orm-cli` - use, and stays that way.
  */
-export const MIGRATION_FILE_REGEXP = /(.*)_([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2})/;
+export { MIGRATION_FILE_REGEXP } from './symbols.js';
 
 /**
  * The slice of `Orm` this facade consumes. Narrow on purpose: the runner is constructible from

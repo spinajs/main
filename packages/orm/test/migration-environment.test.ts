@@ -47,6 +47,13 @@ describe('parseMigrationFileEnv', () => {
     expect(parseMigrationFileEnv(p('migration.spec.ts'))).to.equal(undefined);
   });
 
+  it('treats a stamped .test.ts / .spec.ts as unsuffixed - the anchor alone does not reject these', () => {
+    // 'Foo_2026_07_29_10_00_00' carries the timestamp stamp, so the anchor check passes it
+    // through unchanged: without the carve-out below, this would misread as environment 'test'.
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.test.ts'))).to.equal(undefined);
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.spec.ts'))).to.equal(undefined);
+  });
+
   it('returns undefined for any other dotted non-migration filename (no blocklist needed)', () => {
     expect(parseMigrationFileEnv(p('Bar.stories.ts'))).to.equal(undefined);
     expect(parseMigrationFileEnv(p('helper.mock.ts'))).to.equal(undefined);

@@ -14,7 +14,7 @@ import { buildModelJsonSchema } from './schema.js';
 import { TimeSpan } from '@spinajs/util';
 import { MIGRATION_FILE_REGEXP, MigrationRunner } from './migration-runner.js';
 import { MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
-import { mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
+import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
 
 /**
@@ -363,13 +363,23 @@ export class Orm extends AsyncService {
 
         if (previous.type !== found.type) {
           // two DIFFERENT classes under one name - the runner records migrations by name, so only
-          // one of them can ever be tracked. Nothing here can tell which is meant
+          // one of them can ever be tracked. Nothing here can tell which is meant. The env merge
+          // below is skipped on purpose: merging environments across two unrelated classes would
+          // surface as "the same migration cannot belong to two environments", contradicting the
+          // warning just logged - so the first entry is kept untouched instead.
           this.Log.warn(`Two different migration classes are both named ${found.name} ( ${previous.file} and ${found.file} ) - keeping the first. Rename one of them.`);
+          continue;
         }
+
+        // Prefer a real path over the '<di>' sentinel: each ClassInfo.file is meant to carry the
+        // migration's actual origin, and a DI registration that resolved before the file-scan
+        // source ran must not make the survivor forget the real path the same class was also
+        // discovered at.
+        const file = previous.file === MIGRATION_DI_SOURCE && found.file !== MIGRATION_DI_SOURCE ? found.file : previous.file;
 
         merged.set(found.name, {
           type: previous.type,
-          file: previous.file,
+          file,
           env: mergeMigrationEnv(found.name, { env: previous.env, file: previous.file }, { env, file: found.file }),
         });
       }

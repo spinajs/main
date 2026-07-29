@@ -3,7 +3,7 @@ import { ClassInfo, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 import * as sinon from 'sinon';
-import { Migration, MigrationSource, Orm, OrmDriver, OrmException, OrmMigration } from '../src/index.js';
+import { MIGRATION_DI_SOURCE, Migration, MigrationSource, Orm, OrmDriver, OrmException, OrmMigration } from '../src/index.js';
 import { ConnectionConf, FakeMysqlDriver, bootstrapAll, registerFakes, stubDb } from './misc.js';
 import '../src/bootstrap.js';
 import '@spinajs/log';
@@ -68,6 +68,11 @@ describe('Orm migration environments', () => {
     // `@Migration` registers into the ROOT container and the registration outlives this file -
     // migration.test.ts asserts on how many migrations the Orm found
     DI.unregister(MigrationEnvTest_Decorated_2026_07_29_10_02_00);
+    // registered into the ROOT container in `before()` above - left in place, `EnvConf` (and
+    // whatever `EnvConf.Env` its last test set) would outlive this file as every other suite's
+    // `Configuration`, and the 'mysql' driver every other suite resolves would stay this file's fake
+    DI.unregister(EnvConf);
+    DI.unregister(FakeMysqlDriver);
   });
 
   beforeEach(async () => {
@@ -137,6 +142,66 @@ describe('Orm migration environments', () => {
     const orm = await DI.resolve(Orm);
 
     expect(orm.Migrations.filter((m) => m.name === 'MigrationEnvTest_Always_2026_07_29_10_00_00')).to.have.lengthOf(1);
+  });
+
+  it('prefers a real path over the DI sentinel when the sentinel entry arrives first', async () => {
+    EnvConf.Env = 'prod';
+    FakeMigrationSource.Entries = [
+      // the '<di>' sentinel arrives FIRST here - on order alone, a merge that unconditionally keeps
+      // `previous.file` would let it win over the real path discovered second, contradicting the
+      // intent that every ClassInfo.file carries the migration's actual origin
+      entry(MigrationEnvTest_Always_2026_07_29_10_00_00, MIGRATION_DI_SOURCE),
+      entry(MigrationEnvTest_Always_2026_07_29_10_00_00, '/app/MigrationEnvTest_Always_2026_07_29_10_00_00.js'),
+    ];
+
+    const orm = await DI.resolve(Orm);
+    const found = orm.Migrations.find((m) => m.name === 'MigrationEnvTest_Always_2026_07_29_10_00_00');
+
+    expect(found?.file).to.equal('/app/MigrationEnvTest_Always_2026_07_29_10_00_00.js');
+  });
+
+  it('warns on a genuine name collision without misdiagnosing it as one migration claiming two environments', async () => {
+    EnvConf.Env = 'prod';
+    FakeMigrationSource.Entries = [];
+
+    // primes Orm.prototype's shared `Log` getter - the property decorator caches the resolved
+    // logger on first access, on the PROTOTYPE, so any Orm instance's `.Log` from here on is this
+    // same object and a spy on it observes what the Orm resolved below logs internally
+    const warmup = await DI.resolve(Orm);
+    const warn = sinon.spy((warmup as any).Log, 'warn');
+    DI.clearCache();
+
+    class MigrationEnvTest_CollisionA_2026_07_29_10_03_00 extends OrmMigration {
+      public async up(_c: OrmDriver): Promise<void> {}
+      public async down(_c: OrmDriver): Promise<void> {}
+    }
+
+    class MigrationEnvTest_CollisionB_2026_07_29_10_03_00 extends OrmMigration {
+      public async up(_c: OrmDriver): Promise<void> {}
+      public async down(_c: OrmDriver): Promise<void> {}
+    }
+
+    // two DISTINCT classes forced to share one name - discoverMigrations groups by `found.name`,
+    // which mirrors the class's own `.name` the way every real MigrationSource reports it
+    Object.defineProperty(MigrationEnvTest_CollisionB_2026_07_29_10_03_00, 'name', { value: MigrationEnvTest_CollisionA_2026_07_29_10_03_00.name });
+
+    FakeMigrationSource.Entries = [
+      // unsuffixed, so the kept entry stays visible under any environment - isolating the
+      // assertion below from the env-merge behaviour that finding 5 explicitly skips on this branch
+      entry(MigrationEnvTest_CollisionA_2026_07_29_10_03_00, '/app/MigrationEnvTest_CollisionA_2026_07_29_10_03_00.js'),
+      entry(MigrationEnvTest_CollisionB_2026_07_29_10_03_00, '/app/MigrationEnvTest_CollisionB_2026_07_29_10_03_00.dev.js'),
+    ];
+
+    // must not throw "The same migration cannot belong to two environments" - that would
+    // contradict the collision warning below, since these are two UNRELATED classes, not one
+    // migration declared for two environments
+    const orm = await DI.resolve(Orm);
+
+    expect(warn.getCalls().some((c) => String(c.args[0]).includes('Two different migration classes')), 'expected the collision warning to fire').to.equal(true);
+
+    const survivors = orm.Migrations.filter((m) => m.name === MigrationEnvTest_CollisionA_2026_07_29_10_03_00.name);
+    expect(survivors).to.have.lengthOf(1);
+    expect(survivors[0].type).to.equal(MigrationEnvTest_CollisionA_2026_07_29_10_03_00);
   });
 
   it('honours an Env declared on the decorator alone, with no file suffix in play', async () => {

@@ -1,6 +1,10 @@
 import { normalizeEnvironment } from '@spinajs/configuration-common';
 import { OrmException } from './exceptions.js';
-import { MIGRATION_FILE_REGEXP } from './migration-runner.js';
+// From `./symbols.js` ( a leaf module ), not `./migration-runner.js` - the runner sits in a
+// require cycle with `Orm` ( migration-runner -> migration-service -> driver -> ... -> orm ->
+// migration-environment ), and importing the regexp from there would close that cycle one hop
+// earlier than it already is. See the comment on `MIGRATION_FILE_REGEXP` in symbols.ts.
+import { MIGRATION_FILE_REGEXP } from './symbols.js';
 
 /**
  * `ClassInfo.file` for a migration whose source file could not be determined - registered through
@@ -21,6 +25,9 @@ export const MIGRATION_DI_SOURCE = '<di>';
  *   Foo_2026_07_29_10_00_00.ts        -> undefined  ( every environment )
  *   Foo_2026_07_29_10_00_00.local.ts  -> 'local'
  *   Foo_2026_07_29_10_00_00.dev.ts    -> 'dev'
+ *   Foo_2026_07_29_10_00_00.test.ts   -> undefined  ( a test suite named after its migration,
+ *                                                      carved out below - see its comment )
+ *   Foo_2026_07_29_10_00_00.spec.ts   -> undefined  ( same, .spec naming convention )
  *   migration.test.ts                 -> undefined  ( 'migration' carries no timestamp )
  *   Bar.stories.ts                    -> undefined  ( 'Bar' carries no timestamp )
  *
@@ -50,10 +57,15 @@ export function parseMigrationFileEnv(file: string): string | undefined {
     return undefined;
   }
 
-  // .d.ts is a TypeScript declaration file (routine compilation artifact) generated FOR a
-  // migration - its first segment DOES carry the timestamp, so the anchor check above alone
-  // would not exclude it.
-  if (segments.length === 3 && segments[1] === 'd' && segments[2] === 'ts') {
+  // The anchor above rejects files that are not migrations AT ALL - it cannot tell a migration
+  // file from a file that merely NAMES a migration, because a test suite for
+  // `Foo_2026_07_29_10_00_00.ts` is routinely named `Foo_2026_07_29_10_00_00.test.ts`, which
+  // carries the very same timestamp and so passes the anchor unchanged. `.d.ts` is the same
+  // shape: a compilation artifact generated FOR a migration, stamped with its name. None of these
+  // middle segments is an environment tag - each names a KIND OF FILE the migration produced or
+  // is described by, not where it should run - so they are carved out by name rather than left to
+  // the anchor, which provably cannot reject them.
+  if (segments.length === 3 && segments[2] === 'ts' && ['d', 'test', 'spec'].includes(segments[1])) {
     return undefined;
   }
 
