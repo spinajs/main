@@ -67,7 +67,7 @@ Throw (previously warn/error + skip):
 | Condition | Was | Now |
 |---|---|---|
 | Controller instance not resolved in `register()` | warn + skip | throw `ControllerRegistrationException` |
-| Cached parameter map missing route member | `Log.error` + register with broken arg binding | throw `RouteRegistrationException` |
+| Cached parameter map missing route member | `Log.error` + register with broken arg binding | if the method exists on the instance (route inherited from a base class declared in another file — its `.d.ts` has no inherited members, e.g. orm-api Crud shape) fall back to runtime `Function.toString()` parameter extraction; throw `RouteRegistrationException` only when the method truly does not exist |
 | `route.InternalType === 'unknown'` | warn + `return` (bug: aborts ALL remaining routes) | throw `RouteRegistrationException` |
 | String policy name not resolvable via config | warn + silently drop policy (security hole) | throw `RouteRegistrationException` |
 | `controller.instance.Router` missing after resolve | warn + skip | throw `ControllerRegistrationException` |
@@ -91,6 +91,16 @@ guarded paths in both sync and async branches.
 - `acionWrapper` typo → `actionWrapper`.
 - Duplicate `Request` import (`sRequest` + `Request` from interfaces).
 - Dead `self` aliases after extraction to standalone functions.
+- `RequestId` middleware: `after()` was disabled with a comment claiming the
+  `x-request-id` header moved to `before()`, but `before()` never set it — the
+  header was silently dropped on every response. Now emitted in `before()`.
+
+## Implementation notes
+
+- Full-glob mocha run (`test/**/*.test.ts` in one process) fails with
+  cross-suite DI leakage (`No __file_provider_instance__ registered`) — this
+  is PRE-EXISTING on the baseline commit and unrelated to this refactor. All
+  suites pass when run per-file.
 
 ## Testing
 
