@@ -2,8 +2,10 @@ import { Configuration } from '@spinajs/configuration';
 import { ClassInfo, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import { DiRegistryMigrationSource, FilesystemMigrationSource, MIGRATION_DI_SOURCE, Migration, OrmDriver, OrmMigration } from '../src/index.js';
+import { DEFAULT_MIGRATION_DIRS, DiRegistryMigrationSource, FilesystemMigrationSource, MIGRATION_DI_SOURCE, Migration, OrmDriver, OrmException, OrmMigration } from '../src/index.js';
 import { ConnectionConf, registerFakes } from './misc.js';
 import '@spinajs/log';
 
@@ -114,6 +116,97 @@ describe('FilesystemMigrationSource under local', () => {
 
   it('still excludes another environment\'s', () => {
     expect(found.map((f) => f.name)).to.not.include('OnlyDev_2026_07_29_10_02_00');
+  });
+});
+
+describe('FilesystemMigrationSource default directories', () => {
+  // none of `DEFAULT_MIGRATION_DIRS` exist in this repo, which is exactly why this suite can
+  // safely create and remove one of them ( `dist/migrations`, off this package's own cwd ) for the
+  // lifetime of each test without touching anything a build or another suite depends on.
+  const defaultDir = DEFAULT_MIGRATION_DIRS[2];
+
+  function writeFallbackMigration(name: string): string {
+    const importDir = path.relative(defaultDir, path.join(process.cwd(), 'src')).replace(/\\/g, '/');
+    const file = path.join(defaultDir, `${name}.ts`);
+
+    fs.mkdirSync(defaultDir, { recursive: true });
+    fs.writeFileSync(
+      file,
+      [`import { OrmDriver } from '${importDir}/driver.js';`, `import { OrmMigration } from '${importDir}/interfaces.js';`, '', `export class ${name} extends OrmMigration {`, '  public async up(_connection: OrmDriver): Promise<void> {}', '  public async down(_connection: OrmDriver): Promise<void> {}', '}', ''].join('\n'),
+    );
+
+    return file;
+  }
+
+  it('falls back to the exported defaults when the configured value is empty', async () => {
+    writeFallbackMigration('DefaultDirsFallback_2026_07_29_10_03_00');
+
+    try {
+      MigrationSourcesConf.Dirs = [];
+      const found = await discover();
+
+      expect(found.map((f) => f.name)).to.include('DefaultDirsFallback_2026_07_29_10_03_00');
+    } finally {
+      fs.rmSync(defaultDir, { recursive: true, force: true });
+      MigrationSourcesConf.Dirs = [FIXTURES];
+    }
+  });
+
+  it('a configured directory replaces the defaults rather than adding to them', async () => {
+    writeFallbackMigration('DefaultDirsReplaced_2026_07_29_10_04_00');
+
+    try {
+      MigrationSourcesConf.Dirs = [FIXTURES];
+      const found = await discover();
+
+      // the fixture placed at the default dir must not leak in on top of what was configured
+      expect(found.map((f) => f.name)).to.not.include('DefaultDirsReplaced_2026_07_29_10_04_00');
+      expect(found.map((f) => f.name)).to.include('Always_2026_07_29_10_00_00');
+    } finally {
+      fs.rmSync(defaultDir, { recursive: true, force: true });
+      MigrationSourcesConf.Dirs = [FIXTURES];
+    }
+  });
+});
+
+describe('FilesystemMigrationSource import failures', () => {
+  let scratch: string;
+
+  beforeEach(() => {
+    scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'orm-migration-sources-'));
+    MigrationSourcesConf.Dirs = [scratch];
+  });
+
+  afterEach(() => {
+    fs.rmSync(scratch, { recursive: true, force: true });
+    MigrationSourcesConf.Dirs = [FIXTURES];
+  });
+
+  it('throws when a .js migration fails to import, naming the file', async () => {
+    const brokenFile = path.join(scratch, 'BrokenJs_2026_07_29_10_05_00.js');
+    fs.writeFileSync(brokenFile, "throw new Error('boom - intentional js import failure');\n");
+
+    let caught: unknown;
+
+    try {
+      await discover();
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught, 'a broken .js migration must not be swallowed').to.be.instanceOf(OrmException);
+    expect((caught as OrmException).message).to.contain(brokenFile);
+    expect((caught as OrmException).inner).to.be.instanceOf(Error);
+    expect(((caught as OrmException).inner as Error).message).to.contain('boom - intentional js import failure');
+  });
+
+  it('skips a .ts migration that fails to import, without throwing', async () => {
+    const brokenFile = path.join(scratch, 'BrokenTs_2026_07_29_10_06_00.ts');
+    fs.writeFileSync(brokenFile, "throw new Error('boom - intentional ts import failure');\n");
+
+    const found = await discover();
+
+    expect(found).to.have.lengthOf(0);
   });
 });
 

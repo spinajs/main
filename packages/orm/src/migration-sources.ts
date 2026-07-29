@@ -5,9 +5,18 @@ import glob from 'glob';
 import _ from 'lodash';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { OrmException } from './exceptions.js';
 import { IMigrationDescriptor, OrmMigration } from './interfaces.js';
 import { MIGRATION_DI_SOURCE } from './migration-environment.js';
 import { MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
+
+/**
+ * Fallback for `system.dirs.migrations` when that key is absent or empty - see the comment on it
+ * in `config/orm.ts` for why the defaults live here rather than shipping in the config value
+ * itself. One entry per build layout a project might have been compiled to; a migration reachable
+ * through more than one resolves to the same class name twice and is deduped by `Orm`.
+ */
+export const DEFAULT_MIGRATION_DIRS: string[] = ['src', 'lib', 'dist'].map((d) => path.resolve(path.normalize(path.join(process.cwd(), d, 'migrations'))));
 
 /**
  * Supplies migration types to `Orm`.
@@ -45,11 +54,11 @@ export class FilesystemMigrationSource extends MigrationSource {
   protected Configuration: Configuration;
 
   public async getMigrations(): Promise<Array<ClassInfo<OrmMigration>>> {
-    const dirs = this.Configuration.get<string[]>('system.dirs.migrations', []) ?? [];
+    const configured = this.Configuration.get<string[]>('system.dirs.migrations', []) ?? [];
 
-    if (dirs.length === 0) {
-      return [];
-    }
+    // a configured value REPLACES the defaults rather than adding to them - the config key itself
+    // ships empty for exactly this reason, see `config/orm.ts`
+    const dirs = configured.length > 0 ? configured : DEFAULT_MIGRATION_DIRS;
 
     const env = normalizeEnvironment(this.Configuration.get<string>('process.env.APP_ENV', undefined));
 
@@ -80,12 +89,21 @@ export class FilesystemMigrationSource extends MigrationSource {
       try {
         module = (await DI.__spinajs_require__(file)) as Record<string, unknown>;
       } catch (err) {
-        // reachable in normal operation: the default directories include `src/migrations`, so a
-        // compiled deployment tries the `.ts` copy of every migration and fails. The `.js` copy is
-        // found by the same scan, so warning and moving on is right - throwing would make a
-        // shipped default take the boot down
-        this.Log.warn(`Could not load migration file ${file}: ${(err as Error).message}`);
-        continue;
+        if (path.extname(file) === '.ts') {
+          // reachable in normal operation: the default directories include `src/migrations`, so a
+          // compiled deployment tries the `.ts` copy of every migration and fails to import under
+          // a plain JS runtime. The `.js` copy is found by the same scan, so this is routine, not
+          // a problem - throwing would make a shipped default take the boot down
+          this.Log.trace(`Could not load migration file ${file}: ${(err as Error).message}`);
+          continue;
+        }
+
+        // a compiled migration ( `.js` / `.cjs` / `.mjs` ) that fails to import is not the same
+        // case - a syntax error, a broken relative import, a module body that throws. Swallowing
+        // it down to a warning would let discovery report "no pending migrations" and let a
+        // deployment proceed against an unmigrated schema, so this one is not tolerated: throw
+        // with the original error chained so the stack survives
+        throw new OrmException(`Could not load migration file ${file}`, undefined, undefined, undefined, err);
       }
 
       for (const [name, exported] of Object.entries(module)) {

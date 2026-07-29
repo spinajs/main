@@ -1,22 +1,20 @@
-import { join, normalize, resolve } from 'path';
-
 /**
- * Migration directories are the APPLICATION's, not this package's - `@spinajs/orm` ships no
- * migrations of its own. So these resolve off the process working directory, matching the default
- * `@spinajs/orm-cli`'s `migrate-create` writes to.
+ * `@spinajs/orm` ships no migrations of its own - this key exists only so an app knows
+ * `system.dirs.migrations` is the config surface for `FilesystemMigrationSource`, and documents it.
  *
- * All three build layouts are listed because a project is scanned wherever it happens to have been
- * compiled to. A migration found in more than one of them is the same class name twice and is
- * deduped by `Orm`; the `src` copy of a compiled project fails to import and is warned about.
+ * It is an empty array on purpose, not the three cwd build-layout paths you might expect here.
+ * Package configs merge into the app's config by ARRAY CONCAT (`mergeArrays` in
+ * `@spinajs/configuration`'s `util-common.ts`), so anything non-empty shipped here would sit in
+ * every app's scan set forever, on top of whatever that app configures, with no way to switch it
+ * off. The three cwd defaults ( `src/migrations`, `lib/migrations`, `dist/migrations` - one per
+ * build layout a project might have been compiled to ) live instead as `DEFAULT_MIGRATION_DIRS` in
+ * `migration-sources.ts`, and `FilesystemMigrationSource` falls back to them only when this key is
+ * absent or empty - so a configured value REPLACES them rather than adding to them.
  */
-function dir(...parts: string[]) {
-  return resolve(normalize(join(process.cwd(), ...parts)));
-}
-
 const orm = {
   system: {
     dirs: {
-      migrations: [dir('src', 'migrations'), dir('lib', 'migrations'), dir('dist', 'migrations')],
+      migrations: [] as string[],
     },
   },
 };
