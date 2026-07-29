@@ -938,7 +938,10 @@ describe('Sqlite driver migrate with transaction', function () {
       expect(beginIdx).to.be.greaterThan(-1);
       expect(rollbackIdx).to.be.greaterThan(beginIdx);
 
-      expect(driver.executeOnDb('SELECT * FROM user', [] as any, QueryContext.Select)).to.be.rejected;
+      // `beginIdx < rollbackIdx` alone is satisfied by BEGIN ... COMMIT ... ROLLBACK, which is a
+      // committed migration followed by a stray rollback - the exact thing this test exists to
+      // refuse. The absolute indices this check replaced excluded it only by accident of position.
+      expect(statements.indexOf('COMMIT')).to.eq(-1);
 
       // The row is no longer absent: the tracking table now keeps a trace of the failure,
       // written after the transaction unwound. What must still hold is that the migration is
