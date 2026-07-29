@@ -269,6 +269,98 @@ describe('Orm migrations', () => {
     expect(d2.calledOnce, 'a hook after a failing one still has to run').to.be.true;
   });
 
+  it('data() failing with a non-Error still names the reason', async () => {
+    const orm = await db();
+
+    // nothing forces a hook to reject with an Error: `throw 'boom'` and `Promise.reject(code)`
+    // are both legal, and reading `.message` off either yields undefined - so the aggregate would
+    // report "Migration1_... (undefined)" and name no cause at all for the boot it just failed
+    const d1 = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'data').callsFake(() => Promise.reject('rejected with a bare string'));
+    const d2 = sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'data').callsFake(() => {
+      throw 42;
+    });
+
+    try {
+      await (orm as any).runDataPhase([new Migration1_2021_12_01_12_00_00(), new Migration2_2021_12_02_12_00_00()]);
+      expect.fail('a failed data() phase must not resolve');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message, 'a non-Error rejection has to be stringified, not read for .message').to.contain('rejected with a bare string');
+      expect(e.message, 'a thrown non-string primitive has to be rendered too').to.contain('42');
+      expect(e.message, 'reading .message off a non-Error is what puts "undefined" in here').to.not.contain('undefined');
+      expect(e.inner, 'the original rejection value is carried through verbatim, not wrapped').to.eq('rejected with a bare string');
+    }
+
+    expect(d1.calledOnce).to.be.true;
+    expect(d2.calledOnce).to.be.true;
+  });
+
+  it('resolve() runs the data() phase of the migrations it applied, after model wiring', async () => {
+    class FakeConf extends FrameworkConfiguration {
+      public async resolve(): Promise<void> {
+        await super.resolve();
+
+        _.mergeWith(
+          this.Config,
+          {
+            logger: {
+              targets: [
+                {
+                  name: 'Empty',
+                  type: 'BlackHoleTarget',
+                },
+              ],
+
+              rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+            },
+            db: {
+              Connections: [
+                {
+                  Driver: 'sqlite',
+                  Filename: 'foo.sqlite',
+                  Name: 'sqlite',
+                  Migration: {
+                    OnStartup: true,
+                    Transaction: {
+                      Mode: MigrationTransactionMode.None,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+
+          mergeArrays,
+        );
+      }
+    }
+
+    const container = DI.child();
+    container.register(FakeConf).as(Configuration);
+
+    // OnStartup is on, so resolving the Orm is what applies the migrations - the tracking table
+    // has to answer empty before that, or nothing is pending and no data() would be due
+    stubDb([]);
+
+    // the last wiring step of resolve(), spied so the assertions below pin WHERE the data phase
+    // sits, not merely that it happened: MODEL_STATIC_MIXINS ( ModelBase.query, .insert, ... )
+    // land on the model classes here, and a seed that runs before this call has no model API to
+    // seed through. `data()` is documented as "execute AFTER orm module has been initialized".
+    const mixins = sinon.spy(Orm.prototype as unknown as { applyModelMixins(): void }, 'applyModelMixins');
+
+    const d1 = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'data').resolves();
+    const d2 = sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'data').resolves();
+
+    await container.resolve(Orm);
+
+    expect(d1.calledOnce, 'resolve() has to seed every migration it just applied - boot is the only caller that ever will').to.be.true;
+    expect(d2.calledOnce).to.be.true;
+
+    expect(mixins.calledOnce, 'the ordering assertions below are vacuous if the wiring step never ran').to.be.true;
+    expect(d1.calledAfter(mixins), 'data() may use models, so it must run after applyModelMixins()').to.be.true;
+    expect(d2.calledAfter(mixins)).to.be.true;
+  });
+
   it('migrations discovered purely via DI registration', async () => {
     const orm = await db();
 

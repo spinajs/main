@@ -177,7 +177,10 @@ export class Orm extends AsyncService {
    * "applied", and nothing would ever mention the seeds that never ran.
    */
   protected async runDataPhase(executed: OrmMigration[]): Promise<void> {
-    const errors: Array<{ name: string; error: Error }> = [];
+    // `error` is deliberately `unknown` and kept verbatim - a rejection value is not promoted to
+    // an Error, so `inner` still carries whatever the hook actually threw. `reason` is the
+    // human-readable rendering of it, computed once and used by both the log line and the aggregate.
+    const errors: Array<{ name: string; reason: string; error: unknown }> = [];
 
     for (const m of executed) {
       this.Log.trace(`Migrating data function for migration ${m.constructor.name} ...`);
@@ -185,15 +188,20 @@ export class Orm extends AsyncService {
       try {
         await m.data();
       } catch (err) {
-        this.Log.error(`Migration ${m.constructor.name}:data() failed: ${(err as Error).message}`);
-        errors.push({ name: m.constructor.name, error: err as Error });
+        // a hook is free to reject with something that is not an Error - `throw 'boom'`,
+        // `Promise.reject(someCode)` - and reading `.message` off that yields undefined, so the
+        // message reporting the failure would name no reason for it at all
+        const reason = err instanceof Error ? err.message : String(err);
+
+        this.Log.error(`Migration ${m.constructor.name}:data() failed: ${reason}`);
+        errors.push({ name: m.constructor.name, reason, error: err });
       }
     }
 
     if (errors.length > 0) {
       // the first failure is carried as `inner` - the aggregate message names them all, but a
-      // caller unwinding the chain gets a real stack rather than this summary
-      throw new OrmException(`Migration data() phase failed for: ${errors.map((e) => `${e.name} (${e.error.message})`).join(', ')}`, undefined, undefined, undefined, errors[0].error);
+      // caller unwinding the chain gets the original rejection rather than this summary
+      throw new OrmException(`Migration data() phase failed for: ${errors.map((e) => `${e.name} (${e.reason})`).join(', ')}`, undefined, undefined, undefined, errors[0].error);
     }
   }
 
