@@ -3,9 +3,8 @@ import { Configuration } from '@spinajs/configuration-common';
 import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
-import { IDriverOptions, IMigrationDescriptor, OrmMigration, MigrationTransactionMode } from './interfaces.js';
+import { IDriverOptions, OrmMigration } from './interfaces.js';
 import { ModelBase, MODEL_STATIC_MIXINS, updateModelDescriptor } from './model.js';
-import { MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 import { OrmDriver } from './driver.js';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
@@ -13,13 +12,12 @@ import { DateTime } from 'luxon';
 import { extractModelDescriptor } from './descriptor.js';
 import { buildModelJsonSchema } from './schema.js';
 import { TimeSpan } from '@spinajs/util';
+import { MIGRATION_FILE_REGEXP, MigrationRunner } from './migration-runner.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
  */
 const CFG_PROPS = ['Database', 'User', 'Host', 'Port', 'Filename', 'Driver', 'Name'];
-const MIGRATION_TABLE_NAME = 'spinajs_migration';
-const MIGRATION_FILE_REGEXP = /(.*)_([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2})/;
 
 export class Orm extends AsyncService {
   public Models: Array<ClassInfo<ModelBase>> = [];
@@ -27,6 +25,12 @@ export class Orm extends AsyncService {
   public Migrations: Array<ClassInfo<OrmMigration>> = [];
 
   public Connections: Map<string, OrmDriver> = new Map<string, OrmDriver>();
+
+  /**
+   * Everything migration-related: `up`, `down`, `status`, `resolve`. Assigned in `resolve()`,
+   * once the connections it dispatches to exist - so it is only usable on a resolved Orm.
+   */
+  public Migration: MigrationRunner;
 
   @Autoinject()
   public Container: Container;
@@ -36,89 +40,6 @@ export class Orm extends AsyncService {
 
   @Autoinject()
   protected Configuration: Configuration;
-
-  /**
-   *
-   * Migrates schema up ( fill function is not executed )
-   *
-   * @param name - migration file name
-   */
-  public async migrateUp(name?: string, force: boolean = true): Promise<OrmMigration[]> {
-    this.Log.info('DB migration UP started ...');
-
-    const executedMigrations: OrmMigration[] = [];
-
-    await this.executeAvaibleMigrations(
-      name,
-      async (migration: OrmMigration, driver: OrmDriver) => {
-        const trFunction = async (driver: OrmDriver) => {
-          await migration.up(driver);
-
-          await driver
-            .insert()
-            .into(driver.Options.Migration?.Table ?? MIGRATION_TABLE_NAME)
-            .values({
-              Migration: migration.constructor.name,
-              CreatedAt: new Date(),
-            });
-
-          executedMigrations.push(migration);
-
-          this.Log.info(`Migration ${migration.constructor.name}:up() success !`);
-        };
-
-        if (driver.Options.Migration?.Transaction?.Mode === MigrationTransactionMode.PerMigration) {
-          await driver.transaction(trFunction);
-        } else {
-          await trFunction(driver);
-        }
-      },
-      false,
-      force,
-    );
-
-    this.Log.info('DB migration ended ...');
-
-    return executedMigrations;
-  }
-
-  /**
-   *
-   * Migrates schema up ( fill function is not executed )
-   *
-   * @param name - migration file name
-   */
-  public async migrateDown(name?: string, force: boolean = true): Promise<void> {
-    this.Log.info('DB migration DOWN started ...');
-
-    await this.executeAvaibleMigrations(
-      name,
-      async (migration: OrmMigration, driver: OrmDriver) => {
-        const trFunction = async (driver: OrmDriver) => {
-          await migration.down(driver);
-
-          await driver
-            .del()
-            .from(driver.Options.Migration?.Table ?? MIGRATION_TABLE_NAME)
-            .where({
-              Migration: migration.constructor.name,
-            });
-
-          this.Log.info(`Migration down ${migration.constructor.name}:DOWN success !`);
-        };
-
-        if (driver.Options.Migration?.Transaction?.Mode === MigrationTransactionMode.PerMigration) {
-          await driver.transaction(trFunction);
-        } else {
-          await trFunction(driver);
-        }
-      },
-      true,
-      force,
-    );
-
-    this.Log.info('DB migration ended ...');
-  }
 
   /**
    * This function is exposed mainly for unit testing purposes. It reloads table information for models
@@ -230,7 +151,12 @@ export class Orm extends AsyncService {
       });
     }
 
-    const executedMigrations = await this.migrateUp(undefined, false);
+    this.Migration = new MigrationRunner(this);
+
+    // force: false - the boot run honours each connection's Migration.OnStartup gate. Every
+    // other caller ( CLI, an explicit orm.Migration.up() ) defaults to force: true, because
+    // asking for a migration by hand is the explicit intent that gate exists to require.
+    const executedMigrations = await this.Migration.up(undefined, { force: false });
 
     this.registerDefaultConverters();
 
@@ -238,9 +164,36 @@ export class Orm extends AsyncService {
     this.wireRelations();
     this.applyModelMixins();
 
-    for (const m of executedMigrations) {
+    await this.runDataPhase(executedMigrations);
+  }
+
+  /**
+   * Runs the `data()` hook of every migration that was just applied - the seeding pass, which
+   * happens after models and relations are wired because that is what it is allowed to use.
+   *
+   * Every hook runs even when an earlier one throws, and the failures are reported together.
+   * Stopping at the first one leaves the migrations after it unseeded while their schema is
+   * already applied and recorded, so a rerun will not retry them: their tracking rows say
+   * "applied", and nothing would ever mention the seeds that never ran.
+   */
+  protected async runDataPhase(executed: OrmMigration[]): Promise<void> {
+    const errors: Array<{ name: string; error: Error }> = [];
+
+    for (const m of executed) {
       this.Log.trace(`Migrating data function for migration ${m.constructor.name} ...`);
-      await m.data();
+
+      try {
+        await m.data();
+      } catch (err) {
+        this.Log.error(`Migration ${m.constructor.name}:data() failed: ${(err as Error).message}`);
+        errors.push({ name: m.constructor.name, error: err as Error });
+      }
+    }
+
+    if (errors.length > 0) {
+      // the first failure is carried as `inner` - the aggregate message names them all, but a
+      // caller unwinding the chain gets a real stack rather than this summary
+      throw new OrmException(`Migration data() phase failed for: ${errors.map((e) => `${e.name} (${e.error.message})`).join(', ')}`, undefined, undefined, undefined, errors[0].error);
     }
   }
 
@@ -309,9 +262,13 @@ export class Orm extends AsyncService {
    * @param model - model to register
    */
   protected registerMigration<T extends OrmMigration>(migration: Class<T>) {
-    const created = this.getMigrationDate(migration);
+    // validated here as well as in the runner, and deliberately: this is the earliest point the
+    // class is seen, so a migration nobody can order is refused before the Orm reports itself
+    // resolved rather than at the first migration run, possibly in another process
+    const match = migration.name.match(MIGRATION_FILE_REGEXP);
+    const created = match && match.length === 3 ? DateTime.fromFormat(match[2], 'yyyy_MM_dd_HH_mm_ss') : null;
 
-    if (created === null) {
+    if (created === null || !created.isValid) {
       throw new OrmException(`Migration file ${migration.name} have invalid name format ( invalid migration name,  expected: some_name_yyyy_MM_dd_HH_mm_ss got ${migration.name})`);
     }
 
@@ -404,96 +361,6 @@ export class Orm extends AsyncService {
         m.type[mixin] = (MODEL_STATIC_MIXINS as any)[mixin].bind(m.type);
       }
     });
-  }
-
-  private getMigrationDate(migration: Class<OrmMigration>) {
-    const match = migration.name.match(MIGRATION_FILE_REGEXP);
-    if (match === null || match.length !== 3) {
-      return null;
-    }
-
-    const created = DateTime.fromFormat(match[2], 'yyyy_MM_dd_HH_mm_ss');
-
-    if (!created.isValid) {
-      return null;
-    }
-
-    return created;
-  }
-
-  private async executeAvaibleMigrations(name: string | undefined, callback: (migration: OrmMigration, driver: OrmDriver) => Promise<void>, down: boolean, force: boolean) {
-    const toMigrate = name ? this.Migrations.filter((m) => m.name === name) : this.Migrations;
-
-    let migrations = toMigrate
-      .map((x) => {
-        const created = this.getMigrationDate(x.type);
-
-        if (created === null) {
-          throw new OrmException(`Migration file ${x.name} have invalid name format ( invalid migration name,  expected: some_name_yyyy_MM_dd_HH_mm_ss got ${x.name})`);
-        }
-
-        return {
-          created,
-          ...x,
-        };
-      })
-      .filter((x) => x !== null)
-      .sort((a, b) => {
-        if (a.created < b.created) {
-          return -1;
-        }
-        return 1;
-      });
-
-    if (down) {
-      migrations = migrations.reverse();
-    }
-
-    for (const m of migrations) {
-      const md = m.type[MIGRATION_DESCRIPTION_SYMBOL] as IMigrationDescriptor;
-      const cn = this.Connections.get(md.Connection);
-
-      if (!cn) {
-        this.Log.warn(`Connection ${md.Connection} not exists for migration ${m.name} at file ${m.file}`);
-        continue;
-      }
-
-      const migrationTableName = cn.Options.Migration?.Table ?? MIGRATION_TABLE_NAME;
-      if (!cn.Options.Migration?.OnStartup) {
-        if (!force) {
-          this.Log.warn(`Migration for connection ${md.Connection} is disabled on startup, please check conf file for db.[connection].migration.OnStartup property`);
-          continue;
-        }
-      }
-
-      // if there is no info on migraiton table
-      const migrationTableExists = await cn.schema().tableExists(migrationTableName, cn.Options.Database);
-
-      if (!migrationTableExists) {
-        this.Log.info(`No migration table in database, recreating migration information ...`);
-
-        await cn.schema().createTable(migrationTableName, (table) => {
-          table.string('Migration').unique().notNull();
-          table.dateTime('CreatedAt').notNull();
-        });
-      }
-
-      const exists = await cn.select().from(migrationTableName).where({ Migration: m.name }).orderByDescending('CreatedAt').first();
-
-      // up() must run only for migrations NOT yet recorded; down() must run only
-      // for migrations that ARE recorded (previously applied). The gate was
-      // inverted for down, which skipped applied migrations and ran down() on
-      // never-applied ones.
-      const shouldRun = down ? Boolean(exists) : !exists;
-
-      if (shouldRun) {
-        const migration = await this.Container.resolve<OrmMigration>(m.type, [cn]);
-
-        this.Log.info(`Setting up migration ${m.name} from file ${m.file} created at ${m.created} mode: ${down ? 'migrate down' : 'migrate up'}`);
-
-        await callback(migration, cn);
-      }
-    }
   }
 
   public async dispose(): Promise<void> {
