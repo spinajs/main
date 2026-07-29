@@ -23,6 +23,10 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 export const TEST_MIGRATION_TABLE_NAME = 'orm_migrations';
 
+// Host port of the docker-compose `mysql` fixture. Same env var the integration suites in
+// test/integration already read, so one override moves every suite and the container with it.
+const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306);
+
 export class ConnectionConf extends FrameworkConfiguration {
   protected onLoad() {
     return {
@@ -56,7 +60,7 @@ export class ConnectionConf extends FrameworkConfiguration {
             Password: 'root',
             User: 'root',
             Database: 'test-2',
-            Port: 3900,
+            Port: PORT,
             Migration: {
               Table: TEST_MIGRATION_TABLE_NAME,
               OnStartup: true,
@@ -72,7 +76,7 @@ export class ConnectionConf extends FrameworkConfiguration {
             Password: 'root',
             User: 'root',
             Database: 'test',
-            Port: 3900,
+            Port: PORT,
             Migration: {
               Table: TEST_MIGRATION_TABLE_NAME,
               OnStartup: true,

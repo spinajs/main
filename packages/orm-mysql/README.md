@@ -99,5 +99,6 @@ docker compose --profile test up -d mysql  # from the repo root
 npm run test:integration
 ```
 
-The container publishes MySQL on host port **3900**, deliberately not 3306, so it cannot collide
-with a locally installed MySQL. See the [repository README](../../README.md).
+The container publishes MySQL on host port **13306**, deliberately not 3306, so it cannot collide
+with a locally installed MySQL. Override with `ORM_TEST_MYSQL_PORT`, which moves the published
+port and every suite together. See the [repository README](../../README.md).

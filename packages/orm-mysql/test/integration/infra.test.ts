@@ -30,7 +30,7 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 
 const HOST = process.env.ORM_TEST_MYSQL_HOST ?? '127.0.0.1';
-const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 3900);
+const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306);
 const USER = process.env.ORM_TEST_MYSQL_USER ?? 'root';
 const PASSWORD = process.env.ORM_TEST_MYSQL_PASSWORD ?? 'root';
 const DATABASE = process.env.ORM_TEST_MYSQL_DATABASE ?? 'test';

@@ -31,8 +31,14 @@ services:
       - --max-connections=32
     ports:
       # deliberately not 3306: never collide with a MySQL already installed on the host.
-      # 3900 is what packages/orm-mysql/test expects.
-      - '3900:3306'
+      # 13306 is what packages/orm-mysql/test defaults to; override both sides with
+      # ORM_TEST_MYSQL_PORT if it collides with something on yours.
+      #
+      # Was 3900 until it turned out to sit inside a range Windows reserves for Hyper-V
+      # dynamic ports ( `netsh interface ipv4 show excludedportrange protocol=tcp` ), where
+      # Docker cannot bind at all without elevation. Most of 2646-4244 is unusable there, so
+      # a five-digit port well clear of the reserved blocks is the portable choice.
+      - '${ORM_TEST_MYSQL_PORT:-13306}:3306'
     volumes:
       - mysql-data:/var/lib/mysql
       - ./scripts/docker/mysql-init:/docker-entrypoint-initdb.d:ro
