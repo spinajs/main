@@ -17,8 +17,12 @@ export const MIGRATION_FILE_REGEXP = /(.*)_([0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_
  * The slice of `Orm` this facade consumes. Narrow on purpose: the runner is constructible from
  * anything holding a migration registry and a connection map, which is what makes it testable
  * without booting an Orm.
+ *
+ * Named for its one consumer rather than for `Orm`: this is part of `@spinajs/orm`'s public
+ * surface, and a name like `IOrmLike` would read as "the general-purpose Orm interface" to
+ * everyone who imports it.
  */
-export interface IOrmLike {
+export interface IMigrationRunnerHost {
   Migrations: Array<ClassInfo<OrmMigration>>;
   Connections: Map<string, OrmDriver>;
 }
@@ -53,8 +57,16 @@ export class MigrationRunner {
   @Logger('ORM')
   protected Log: Log;
 
-  constructor(protected orm: IOrmLike) {}
+  constructor(protected orm: IMigrationRunnerHost) {}
 
+  /**
+   * Applies every pending migration on every configured connection, or only `name` when one is
+   * given, in `(created, name)` order.
+   *
+   * A `name` that matches nothing in the registry throws rather than returning `[]`: an empty
+   * result from a typo is indistinguishable from "already up to date", so the CLI would exit 0
+   * reporting "0 migrations applied" and the operator would believe the schema is current.
+   */
   public async up(name?: string, options?: IMigrationUpOptions): Promise<OrmMigration[]> {
     const executed: OrmMigration[] = [];
 
@@ -66,6 +78,20 @@ export class MigrationRunner {
     return executed;
   }
 
+  /**
+   * Rolls the last applied batch back on every configured connection, or every batch with
+   * `{ all: true }`. `name` narrows the run to a single migration and - exactly like `up` - throws
+   * when the registry carries nothing by that name.
+   *
+   * KNOWN SHARP EDGE, `down(name)`: the service is handed a one-element unit list, and it treats
+   * every applied row in the target batch that has no matching unit as an orphan. So a named
+   * rollback warns that perfectly healthy, merely-unrequested migrations are "recorded as applied
+   * but no registered migration matches them (file deleted or renamed)" and advises restoring the
+   * file or removing the row by hand - guidance that is destructive if followed here, because
+   * nothing is actually wrong with those rows. The rollback itself is correct; only the warning
+   * lies. Fixing it means giving `IMigrationDownOptions` an "only these" notion, i.e. reshaping the
+   * service contract, so it is deliberately not done inside this facade.
+   */
   public async down(name?: string, options?: IMigrationDownFacadeOptions): Promise<OrmMigration[]> {
     const executed: OrmMigration[] = [];
 
@@ -105,9 +131,11 @@ export class MigrationRunner {
       }
     }
 
-    // no connection claims it: either the name is a typo or its class is gone. Silently doing
-    // nothing would look like a successful resolve and leave the connection blocked
-    throw new OrmException(`Migration ${name} is not registered - nothing to resolve`);
+    // `plan()` already refused an unknown name, so reaching here means the class IS registered and
+    // `plan()` dropped it: the connection it declared is missing from this deployment's
+    // configuration, or it carries no `@Migration()` at all. Both left a warn naming it. Silently
+    // doing nothing would look like a successful resolve and leave the connection blocked
+    throw new OrmException(`Migration ${name} is registered, but its connection is not configured ( or the class carries no @Migration('connection') decorator ) - nothing to resolve`);
   }
 
   /**
@@ -125,20 +153,36 @@ export class MigrationRunner {
    *
    * Keyed by driver rather than by connection name so aliases ( two names bound to the same
    * `OrmDriver` ) collapse into one group instead of running the same migration twice.
+   *
+   * `name` narrows the set to one migration, and is the single place all three public entry
+   * points get their "that name is not registered" refusal from.
    */
   protected plan(name: string | undefined, force: boolean): Array<[OrmDriver, IMigrationUnit[]]> {
+    // `ClassInfo.name` is the migration's identity everywhere else in the system - it is what the
+    // filter below matches, what becomes `IMigrationUnit.name`, and what lands in the `Migration`
+    // column the service compares its rows against. So `m.name` ( never `m.type.name`, which
+    // `Orm.registerMigration` copies it from and which is therefore only *usually* the same ) is
+    // what gets validated, reported and recorded here - one value, so the three cannot disagree.
     const source = name ? this.orm.Migrations.filter((m) => m.name === name) : this.orm.Migrations;
+
+    // an explicitly named migration that matches nothing is a typo, not an empty run. Returning
+    // [] would let `migrate-up --name Ceate_2021_01_01_00_00_00` exit 0 reporting "0 migrations
+    // applied", leaving the operator believing the schema is current - the same reason `resolve()`
+    // refuses to no-op below
+    if (name && source.length === 0) {
+      throw new OrmException(`Migration ${name} is not registered - check the name for typos`);
+    }
 
     const units = source
       .map((m) => {
-        const match = m.type.name.match(MIGRATION_FILE_REGEXP);
+        const match = m.name.match(MIGRATION_FILE_REGEXP);
         const created = match && match.length === 3 ? DateTime.fromFormat(match[2], 'yyyy_MM_dd_HH_mm_ss') : null;
 
         // a migration whose name carries no timestamp cannot be placed in the order, and a
         // half-ordered run applies schema changes in an order nobody described - so the whole
         // set is refused rather than the one entry skipped
         if (!created || !created.isValid) {
-          throw new OrmException(`Migration file ${m.name} have invalid name format ( invalid migration name,  expected: some_name_yyyy_MM_dd_HH_mm_ss got ${m.name})`);
+          throw new OrmException(`Migration ${m.name} has invalid name format - expected some_name_yyyy_MM_dd_HH_mm_ss`);
         }
 
         return { name: m.name, created, type: m.type } as IMigrationUnit;
