@@ -1,0 +1,89 @@
+import * as chai from 'chai';
+import 'mocha';
+import * as path from 'node:path';
+import { MIGRATION_DI_SOURCE, OrmException, mergeMigrationEnv, parseMigrationFileEnv, resolveMigrationEnv } from '../src/index.js';
+
+const expect = chai.expect;
+
+const p = (...parts: string[]) => path.join('C:', 'app', 'src', 'migrations', ...parts);
+
+describe('parseMigrationFileEnv', () => {
+  it('returns undefined for an unsuffixed file', () => {
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.ts'))).to.equal(undefined);
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.js'))).to.equal(undefined);
+  });
+
+  it('returns the tag of a suffixed file', () => {
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.local.ts'))).to.equal('local');
+  });
+
+  it('normalizes the tag', () => {
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.development.ts'))).to.equal('dev');
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.production.js'))).to.equal('prod');
+  });
+
+  it('is not confused by dots in the directories above it', () => {
+    expect(parseMigrationFileEnv(path.join('C:', 'my.app', 'v1.2', 'Foo_2026_07_29_10_00_00.ts'))).to.equal(undefined);
+  });
+
+  it('returns undefined for the DI sentinel', () => {
+    expect(parseMigrationFileEnv(MIGRATION_DI_SOURCE)).to.equal(undefined);
+  });
+
+  it('refuses more than one tag', () => {
+    expect(() => parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.local.dev.ts'))).to.throw(OrmException, /one environment/);
+  });
+});
+
+describe('resolveMigrationEnv', () => {
+  it('takes the suffix when only the file carries one', () => {
+    expect(resolveMigrationEnv('Foo_2026_07_29_10_00_00', p('Foo_2026_07_29_10_00_00.local.ts'), undefined)).to.equal('local');
+  });
+
+  it('takes the decorator when only it carries one', () => {
+    expect(resolveMigrationEnv('Foo_2026_07_29_10_00_00', p('Foo_2026_07_29_10_00_00.ts'), 'local')).to.equal('local');
+  });
+
+  it('normalizes the decorator value', () => {
+    expect(resolveMigrationEnv('Foo_2026_07_29_10_00_00', MIGRATION_DI_SOURCE, 'development')).to.equal('dev');
+  });
+
+  it('accepts agreement, including across aliases', () => {
+    expect(resolveMigrationEnv('Foo_2026_07_29_10_00_00', p('Foo_2026_07_29_10_00_00.dev.ts'), 'development')).to.equal('dev');
+  });
+
+  it('refuses disagreement, naming both sides', () => {
+    const call = () => resolveMigrationEnv('Foo_2026_07_29_10_00_00', p('Foo_2026_07_29_10_00_00.local.ts'), 'dev');
+
+    expect(call).to.throw(OrmException, /local/);
+    expect(call).to.throw(OrmException, /dev/);
+  });
+
+  it('returns undefined when neither carries one', () => {
+    expect(resolveMigrationEnv('Foo_2026_07_29_10_00_00', p('Foo_2026_07_29_10_00_00.ts'), undefined)).to.equal(undefined);
+  });
+});
+
+describe('mergeMigrationEnv', () => {
+  const entry = (env: string | undefined, file: string) => ({ env, file });
+
+  it('lets a defined env win over an absent one, in either order', () => {
+    expect(mergeMigrationEnv('Foo', entry(undefined, MIGRATION_DI_SOURCE), entry('local', p('Foo.local.ts')))).to.equal('local');
+    expect(mergeMigrationEnv('Foo', entry('local', p('Foo.local.ts')), entry(undefined, MIGRATION_DI_SOURCE))).to.equal('local');
+  });
+
+  it('keeps an agreed env', () => {
+    expect(mergeMigrationEnv('Foo', entry('local', p('a', 'Foo.local.ts')), entry('local', p('b', 'Foo.local.ts')))).to.equal('local');
+  });
+
+  it('keeps absent when neither side has one', () => {
+    expect(mergeMigrationEnv('Foo', entry(undefined, p('Foo.ts')), entry(undefined, MIGRATION_DI_SOURCE))).to.equal(undefined);
+  });
+
+  it('refuses two different envs, naming both origins', () => {
+    const call = () => mergeMigrationEnv('Foo', entry('local', p('src', 'Foo.local.ts')), entry('dev', p('lib', 'Foo.dev.js')));
+
+    expect(call).to.throw(OrmException, /Foo\.local\.ts/);
+    expect(call).to.throw(OrmException, /Foo\.dev\.js/);
+  });
+});

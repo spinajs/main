@@ -2,6 +2,7 @@ export * from './interfaces.js';
 export * from './enums.js';
 export * from './symbols.js';
 export * from './source-file.js';
+export * from './migration-environment.js';
 export * from './descriptor.js';
 export * from './primary-keys.js';
 export * from './resilience.js';
