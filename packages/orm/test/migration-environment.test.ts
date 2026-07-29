@@ -41,6 +41,16 @@ describe('parseMigrationFileEnv', () => {
   it('rejects empty middle segment (malformed filename)', () => {
     expect(() => parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00..ts'))).to.throw(OrmException, /Foo_2026_07_29_10_00_00\.\.ts/);
   });
+
+  it('returns undefined for a test suite that declares a migration inline, without a blocklist', () => {
+    expect(parseMigrationFileEnv(p('migration.test.ts'))).to.equal(undefined);
+    expect(parseMigrationFileEnv(p('migration.spec.ts'))).to.equal(undefined);
+  });
+
+  it('returns undefined for any other dotted non-migration filename (no blocklist needed)', () => {
+    expect(parseMigrationFileEnv(p('Bar.stories.ts'))).to.equal(undefined);
+    expect(parseMigrationFileEnv(p('helper.mock.ts'))).to.equal(undefined);
+  });
 });
 
 describe('resolveMigrationEnv', () => {

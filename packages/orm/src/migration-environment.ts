@@ -1,5 +1,6 @@
 import { normalizeEnvironment } from '@spinajs/configuration-common';
 import { OrmException } from './exceptions.js';
+import { MIGRATION_FILE_REGEXP } from './migration-runner.js';
 
 /**
  * `ClassInfo.file` for a migration whose source file could not be determined - registered through
@@ -10,11 +11,23 @@ export const MIGRATION_DI_SOURCE = '<di>';
 
 /**
  * The environment tag carried by a migration's FILE NAME, normalized, or `undefined` when it has
- * none. The tag is the single dot-segment between the class name and the extension:
+ * none. The tag is the single dot-segment between the class name and the extension - but a
+ * filename only HAS a tag to read if it is a migration file in the first place, which the
+ * convention already marks: its first dot-segment carries the `_yyyy_MM_dd_HH_mm_ss` timestamp
+ * every migration class name is stamped with (`MIGRATION_FILE_REGEXP`). A filename whose first
+ * segment doesn't carry that stamp isn't an environment-tagged migration file at all, so there is
+ * no tag to read, no matter how many dots follow:
  *
  *   Foo_2026_07_29_10_00_00.ts        -> undefined  ( every environment )
  *   Foo_2026_07_29_10_00_00.local.ts  -> 'local'
  *   Foo_2026_07_29_10_00_00.dev.ts    -> 'dev'
+ *   migration.test.ts                 -> undefined  ( 'migration' carries no timestamp )
+ *   Bar.stories.ts                    -> undefined  ( 'Bar' carries no timestamp )
+ *
+ * This is what lets `@Migration`'s `SourceFile` - captured off the V8 stack, so it can be ANY file
+ * that declares a migration, including a test suite living at `migration.test.ts` - be read safely
+ * without a growing blocklist of exemptions for every dotted naming convention nobody thought of
+ * yet (`.mock.ts`, `.stories.ts`, `.fixture.ts`, ...).
  *
  * Only the BASENAME is examined - a project living under `C:\my.app\v1.2\` would otherwise read
  * its directory names as environments.
@@ -30,17 +43,17 @@ export function parseMigrationFileEnv(file: string): string | undefined {
     return undefined;
   }
 
-  // .d.ts is a TypeScript declaration file (routine compilation artifact), not an environment-tagged migration
-  if (segments.length === 3 && segments[1] === 'd' && segments[2] === 'ts') {
+  // The first segment must carry the migration's own timestamp stamp. If it doesn't, this isn't
+  // an environment-tagged migration file - it's some other file that happens to have dots in its
+  // name (a test suite, a Storybook file, a mock) - and there is no tag to read.
+  if (!MIGRATION_FILE_REGEXP.test(segments[0])) {
     return undefined;
   }
 
-  // .test.ts / .spec.ts are test-runner naming conventions (mocha, jest, vitest), not environment
-  // tags - a migration declared inline in a suite file is exactly what `DiRegistryMigrationSource`
-  // is for, and its `SourceFile` is that suite's own path. Without this carve-out every such
-  // fixture would be misread as belonging to an environment literally named 'test' or 'spec' and
-  // vanish under any other APP_ENV, which is the same false positive `.d.ts` guards against above.
-  if (segments.length === 3 && (segments[1] === 'test' || segments[1] === 'spec')) {
+  // .d.ts is a TypeScript declaration file (routine compilation artifact) generated FOR a
+  // migration - its first segment DOES carry the timestamp, so the anchor check above alone
+  // would not exclude it.
+  if (segments.length === 3 && segments[1] === 'd' && segments[2] === 'ts') {
     return undefined;
   }
 
