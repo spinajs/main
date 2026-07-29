@@ -425,6 +425,147 @@ describe('orm-cli against a FAILED migration', function () {
 });
 
 /**
+ * `--connection` on `migrate-up` / `migrate-down`. Two connections, one migration each, and the
+ * whole point is what the excluded one does NOT do: a filter that only trimmed the reported list
+ * would still have applied its migration and written its tracking row.
+ */
+describe('orm-cli --connection', function () {
+  this.timeout(20000);
+
+  /** No state word in either name - see the note on the lockout suite below. */
+  const FIRST_CONNECTION = 'orm-cli-conn-one';
+  const SECOND_CONNECTION = 'orm-cli-conn-two';
+  const FIRST_TABLE = 'orm_cli_conn_one_migrations';
+  const SECOND_TABLE = 'orm_cli_conn_two_migrations';
+
+  const FIRST_MIGRATION = 'OrmCliConnOne_2021_07_01_00_00_00';
+  const SECOND_MIGRATION = 'OrmCliConnTwo_2021_07_02_00_00_00';
+
+  class TwoConnectionConf extends FrameworkConfiguration {
+    public async resolve(): Promise<void> {
+      await super.resolve();
+
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: FIRST_CONNECTION, Migration: { Table: FIRST_TABLE, OnStartup: false } });
+      applyConnectionConf(this.Config, { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: SECOND_CONNECTION, Migration: { Table: SECOND_TABLE, OnStartup: false } });
+    }
+  }
+
+  let orm: Orm;
+  let firstType: any;
+  let secondType: any;
+
+  /** Counted rather than spied: the count is the assertion, in both directions. */
+  let firstUpRuns = 0;
+  let secondUpRuns = 0;
+  let firstDownRuns = 0;
+
+  function defineMigrations() {
+    @Migration(FIRST_CONNECTION)
+    class OrmCliConnOne_2021_07_01_00_00_00 extends OrmMigration {
+      public up(_connection: OrmDriver): Promise<void> {
+        firstUpRuns++;
+        return Promise.resolve();
+      }
+
+      public down(_connection: OrmDriver): Promise<void> {
+        firstDownRuns++;
+        return Promise.resolve();
+      }
+    }
+
+    @Migration(SECOND_CONNECTION)
+    class OrmCliConnTwo_2021_07_02_00_00_00 extends OrmMigration {
+      public up(_connection: OrmDriver): Promise<void> {
+        secondUpRuns++;
+        return Promise.resolve();
+      }
+
+      public down(_connection: OrmDriver): Promise<void> {
+        return Promise.resolve();
+      }
+    }
+
+    firstType = OrmCliConnOne_2021_07_01_00_00_00;
+    secondType = OrmCliConnTwo_2021_07_02_00_00_00;
+  }
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+    defineMigrations();
+    DI.register(TwoConnectionConf).as(Configuration);
+    orm = await DI.resolve(Orm);
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(TwoConnectionConf);
+      [firstType, secondType].filter(Boolean).forEach((t) => DI.unregister(t));
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  beforeEach(() => {
+    process.exitCode = 0;
+  });
+
+  // MUST RUN FIRST: the tests below depend on exactly one of the two being applied.
+  it('migrate-up --connection applies that connection and leaves the other alone', async () => {
+    const cmd = await DI.resolve(MigrateUpCommand);
+    await cmd.execute({ connection: FIRST_CONNECTION });
+
+    expect(firstUpRuns, 'the requested connection did not migrate').to.equal(1);
+    expect(secondUpRuns, 'the excluded connection was migrated anyway').to.equal(0);
+
+    // The decisive one, and stronger than "no tracking row": the excluded connection's tracking
+    // table does not exist at all. `ensureStorage()` is the first thing a per-connection run does,
+    // so a filter that merely trimmed the reported list would have created it here.
+    const tables = (await orm.Connections.get(SECOND_CONNECTION)!.select().from('sqlite_master').where('name', SECOND_TABLE).asRaw<any[]>()) as any[];
+    expect(tables, `the excluded connection was reached: ${SECOND_TABLE} exists`).to.have.length(0);
+
+    expect(process.exitCode).to.equal(0);
+  });
+
+  it('migrate-status still reports every connection, filter or no filter', async () => {
+    const out = await captureStdout(() => DI.resolve(MigrateStatusCommand).then((c) => c.execute()));
+    const text = out.join('\n');
+
+    expect(stateOf(out.find((l) => l.includes(FIRST_MIGRATION))!)).to.equal('applied');
+    expect(stateOf(out.find((l) => l.includes(SECOND_MIGRATION))!)).to.equal('pending');
+
+    // the report has no --connection of its own: hiding a connection is exactly how a deploy
+    // gate comes to answer "nothing to see" about the one that is behind
+    expect(text).to.contain(FIRST_CONNECTION);
+    expect(text).to.contain(SECOND_CONNECTION);
+
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('migrate-down --connection rolls back only that connection', async () => {
+    const cmd = await DI.resolve(MigrateDownCommand);
+    await cmd.execute({ connection: FIRST_CONNECTION });
+
+    expect(firstDownRuns).to.equal(1);
+    expect(secondUpRuns, 'a rollback must not migrate the connection it was pointed away from').to.equal(0);
+  });
+
+  it('a --connection nothing answers to throws instead of reporting an empty run', async () => {
+    const cmd = await DI.resolve(MigrateUpCommand);
+
+    const err = await thrownBy(() => cmd.execute({ connection: 'orm-cli-conn-typo' }));
+
+    expect(err, 'a typo was reported as an empty, successful run').to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.contain('orm-cli-conn-typo');
+  });
+});
+
+/**
  * The state a FAILED row cannot express: a migration that was started and never finished, because
  * the process running it was killed before it could record either outcome. Its row carries
  * `StartedAt` with neither `FinishedAt` nor `Logs`, which used to be indistinguishable from

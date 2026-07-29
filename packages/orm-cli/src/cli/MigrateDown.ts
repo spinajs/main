@@ -6,6 +6,7 @@ export interface IMigrateDownCommandOptions {
   name?: string;
   all?: boolean;
   fake?: boolean;
+  connection?: string;
 }
 
 /**
@@ -15,6 +16,7 @@ export interface IMigrateDownCommandOptions {
  */
 @Command('migrate-down', 'Rolls ORM migrations back - the LAST APPLIED BATCH only, unless --all is given')
 @Option('-n, --name [name]', false, 'roll back a single migration, by class name')
+@Option('-c, --connection [connection]', false, 'limit the rollback to one connection, by name')
 @Option('-a, --all', false, 'roll back EVERY applied migration, not just the last batch')
 @Option('-f, --fake', false, 'record the migrations as rolled back without executing them')
 export class MigrateDownCommand extends CliCommand {
@@ -29,10 +31,12 @@ export class MigrateDownCommand extends CliCommand {
 
     this.announce(options);
 
-    const executed = await orm.Migration.down(options.name, { all: options.all, fake: options.fake });
+    const executed = await orm.Migration.down(options.name, { all: options.all, fake: options.fake, connection: options.connection });
 
     if (executed.length === 0) {
-      this.Log.info(options.name ? `Nothing rolled back - ${options.name} is not applied on any configured connection` : 'Nothing to roll back - no applied migrations found');
+      const scope = options.connection ? ` on connection ${options.connection}` : ' on any configured connection';
+
+      this.Log.info(options.name ? `Nothing rolled back - ${options.name} is not applied${scope}` : `Nothing to roll back - no applied migrations found${options.connection ? scope : ''}`);
       return;
     }
 
@@ -44,6 +48,12 @@ export class MigrateDownCommand extends CliCommand {
    * line is printed the schema change has already happened.
    */
   protected announce(options: IMigrateDownCommandOptions): void {
+    // first, and separate from the three below: it narrows all of them, and an operator reading
+    // "rolling back EVERY applied migration" needs to know it means every one on ONE connection
+    if (options.connection) {
+      this.Log.info(`Limited to connection ${options.connection} - no other configured connection is touched`);
+    }
+
     if (options.name) {
       // A named rollback hands the migration service a one-element unit list, so every other
       // applied row in the target batch looks unmatched to it and it warns about them. Those rows

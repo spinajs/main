@@ -186,6 +186,144 @@ describe('MigrationRunner', () => {
     expect(executed.map((e) => e.constructor.name)).to.eql(['MigrationRunnerTest_GroupA_2021_03_01_00_00_00', 'MigrationRunnerTest_GroupB_2021_03_02_00_00_00']);
   });
 
+  it('up({ connection }) hands only that connection a run', async () => {
+    @Migration('sqlite')
+    class MigrationRunnerTest_OnlyA_2021_03_03_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    @Migration('SampleConnection1')
+    class MigrationRunnerTest_OnlyB_2021_03_04_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    const sqlite = await makeDriver('sqlite');
+    const sample = await makeSecondDriver('SampleConnection1');
+    stubDb([]);
+
+    const upA = sinon.spy(MigrationRunnerTest_OnlyA_2021_03_03_00_00_00.prototype, 'up');
+    const upB = sinon.spy(MigrationRunnerTest_OnlyB_2021_03_04_00_00_00.prototype, 'up');
+    const serviceUp = sinon.spy(DefaultMigrationService.prototype, 'up');
+
+    const executed = await new MigrationRunner(
+      ormLike(
+        [ci(MigrationRunnerTest_OnlyA_2021_03_03_00_00_00), ci(MigrationRunnerTest_OnlyB_2021_03_04_00_00_00)],
+        [
+          ['sqlite', sqlite],
+          ['SampleConnection1', sample],
+        ],
+      ),
+    ).up(undefined, { connection: 'SampleConnection1' });
+
+    // the filter has to stop the OTHER connection's service being reached at all, not merely hide
+    // its results: a service that runs writes to its own tracking table either way
+    expect(serviceUp.callCount, 'exactly one connection may be handed a run').to.eq(1);
+    expect((serviceUp.firstCall.thisValue as any).driver.Options.Name).to.eq('SampleConnection1');
+    expect(upB.calledOnce).to.be.true;
+    expect(upA.called, 'the excluded connection must not be touched').to.be.false;
+    expect(executed.map((e) => e.constructor.name)).to.eql(['MigrationRunnerTest_OnlyB_2021_03_04_00_00_00']);
+  });
+
+  it('down({ connection }) narrows the rollback the same way', async () => {
+    @Migration('sqlite')
+    class MigrationRunnerTest_DownOnlyA_2021_03_07_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    @Migration('SampleConnection1')
+    class MigrationRunnerTest_DownOnlyB_2021_03_08_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    const sqlite = await makeDriver('sqlite');
+    const sample = await makeSecondDriver('SampleConnection1');
+    // applied on both connections, so an unfiltered rollback would reach both
+    stubDb([row({ Migration: 'MigrationRunnerTest_DownOnlyA_2021_03_07_00_00_00', Batch: 1 }), row({ Migration: 'MigrationRunnerTest_DownOnlyB_2021_03_08_00_00_00', Batch: 1 })]);
+
+    const downA = sinon.spy(MigrationRunnerTest_DownOnlyA_2021_03_07_00_00_00.prototype, 'down');
+    const downB = sinon.spy(MigrationRunnerTest_DownOnlyB_2021_03_08_00_00_00.prototype, 'down');
+
+    const rolledBack = await new MigrationRunner(
+      ormLike(
+        [ci(MigrationRunnerTest_DownOnlyA_2021_03_07_00_00_00), ci(MigrationRunnerTest_DownOnlyB_2021_03_08_00_00_00)],
+        [
+          ['sqlite', sqlite],
+          ['SampleConnection1', sample],
+        ],
+      ),
+    ).down(undefined, { connection: 'sqlite' });
+
+    expect(downA.calledOnce).to.be.true;
+    expect(downB.called, 'the excluded connection keeps its schema').to.be.false;
+    expect(rolledBack.map((e) => e.constructor.name)).to.eql(['MigrationRunnerTest_DownOnlyA_2021_03_07_00_00_00']);
+  });
+
+  it('an alias and the connection it points at select the same run', async () => {
+    @Migration('sqlite')
+    class MigrationRunnerTest_Alias_2021_03_05_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    const sqlite = await makeDriver('sqlite');
+    stubDb([]);
+    const up = sinon.spy(MigrationRunnerTest_Alias_2021_03_05_00_00_00.prototype, 'up');
+
+    // db.Aliases binds a second name to the very same OrmDriver - so a filter that compared the
+    // migration's declared connection name as a string would refuse this run
+    const runner = new MigrationRunner(
+      ormLike(
+        [ci(MigrationRunnerTest_Alias_2021_03_05_00_00_00)],
+        [
+          ['sqlite', sqlite],
+          ['reporting-alias', sqlite],
+        ],
+      ),
+    );
+
+    const executed = await runner.up(undefined, { connection: 'reporting-alias' });
+
+    expect(up.calledOnce, 'the alias names the same driver the migration declared').to.be.true;
+    expect(executed.map((e) => e.constructor.name)).to.eql(['MigrationRunnerTest_Alias_2021_03_05_00_00_00']);
+  });
+
+  it('a --connection nothing answers to throws rather than running nothing', async () => {
+    @Migration('sqlite')
+    class MigrationRunnerTest_Typo_2021_03_06_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    const driver = await makeDriver();
+    stubDb([]);
+    const up = sinon.spy(MigrationRunnerTest_Typo_2021_03_06_00_00_00.prototype, 'up');
+    const runner = new MigrationRunner(ormLike([ci(MigrationRunnerTest_Typo_2021_03_06_00_00_00)], [['sqlite', driver]]));
+
+    // same refusal as an unregistered migration name, for the same reason: returning [] would let
+    // a typo exit 0 reporting "0 migrations applied" and leave the operator believing it is done
+    try {
+      await runner.up(undefined, { connection: 'sqlyte' });
+      expect.fail('a --connection typo was reported as an empty, successful run');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('sqlyte');
+      expect(e.message, 'the operator needs to see what IS configured').to.contain('sqlite');
+    }
+
+    try {
+      await runner.down(undefined, { connection: 'sqlyte' });
+      expect.fail('down must refuse it too');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+    }
+
+    expect(up.called).to.be.false;
+  });
+
   it('runs only the named migration when a name is given', async () => {
     @Migration('sqlite')
     class MigrationRunnerTest_Named1_2021_09_01_00_00_00 extends OrmMigration {

@@ -63,8 +63,8 @@ Two consequences worth knowing:
 
 | Command | Options | Does |
 | --- | --- | --- |
-| `migrate-up` | `-n, --name [name]`, `-f, --fake` | Applies pending migrations on every configured connection |
-| `migrate-down` | `-n, --name [name]`, `-a, --all`, `-f, --fake` | Rolls back — **the last applied batch only** unless `--all` |
+| `migrate-up` | `-n, --name [name]`, `-c, --connection [connection]`, `-f, --fake` | Applies pending migrations on every configured connection |
+| `migrate-down` | `-n, --name [name]`, `-c, --connection [connection]`, `-a, --all`, `-f, --fake` | Rolls back — **the last applied batch only** unless `--all` |
 | `migrate-status` | — | Prints one line per migration per connection; the deploy gate |
 | `migrate-resolve` | `-n, --name [name]` (required), `--applied`, `--rolled-back` | Records the outcome of a FAILED migration |
 | `migrate-create` | `-n, --name [name]` (required), `-d, --dir [dir]`, `-c, --connection [connection]` | Scaffolds a migration file |
@@ -74,11 +74,18 @@ Two consequences worth knowing:
 ```bash
 spinajs migrate-up
 spinajs migrate-up --name AddUserTable_2026_07_29_10_00_00
+spinajs migrate-up --connection reporting   # this connection only
 spinajs migrate-up --fake            # record as applied without running anything
 ```
 
 Without `--name` it applies everything pending, in `(timestamp, name)` order, across every
 configured connection. With `--name` it applies exactly that one.
+
+`--connection` limits the run to one connection. Every other configured connection is left
+completely untouched — its migration service is never reached, so its tracking table is not even
+created. The name is matched against the configured connections (aliases included, since they
+resolve to the same connection), and one nothing answers to **throws** rather than running
+nothing: a filter that silently matched nothing would exit `0` reporting "0 migrations applied".
 
 Two named-run outcomes are deliberately **not** reported as success:
 
@@ -94,11 +101,14 @@ Two named-run outcomes are deliberately **not** reported as success:
 spinajs migrate-down                 # the LAST APPLIED BATCH, not everything
 spinajs migrate-down --all           # every applied migration, on every connection
 spinajs migrate-down --name AddUserTable_2026_07_29_10_00_00
+spinajs migrate-down --connection reporting --all   # everything, on one connection
 ```
 
 The default scope is the last applied batch — one `migrate-up` run undone, not the whole
-history. `--all` reverses everything. The command says which of the two it is about to do
-*before* it does it, because by the time the result line prints, the schema has already changed.
+history. `--all` reverses everything. `--connection` narrows whichever of those two applies, and
+is announced first for that reason: `--all --connection reporting` is "every applied migration on
+*one* connection". The command says which scope it is about to reverse *before* it does it,
+because by the time the result line prints, the schema has already changed.
 
 A rollback drops the tracking row rather than stamping it "rolled back": the table is meant to
 hold only migrations that are actually present in the database, and both a missing row and a
@@ -187,8 +197,8 @@ files are re-exported elsewhere in spinajs.
 
 | Command | `0` | non-zero |
 | --- | --- | --- |
-| `migrate-up` | migrations applied, or nothing was pending | a named run applied nothing because its connection is not configured, or it is still pending/failed; any error from the run |
-| `migrate-down` | rollback completed, or nothing to roll back | any error from the run |
+| `migrate-up` | migrations applied, or nothing was pending | a named run applied nothing because its connection is not configured, or it is still pending/failed; a `--connection` nothing answers to; any error from the run |
+| `migrate-down` | rollback completed, or nothing to roll back | a `--connection` nothing answers to; any error from the run |
 | `migrate-status` | every migration is applied | anything is pending or failed |
 | `migrate-resolve` | the state was recorded | both/neither flag given; the row is neither failed nor interrupted |
 | `migrate-create` | file written | invalid name or connection; the file already exists |
@@ -232,4 +242,6 @@ by itself proof that the failure was resolved. Check `migrate-status`.
   brought in line.
 - `migrate-status` reports every configured connection, including ones whose
   `Migration.OnStartup` is off — hiding those would answer "nothing to see" for exactly the
-  connections somebody is most likely asking about.
+  connections somebody is most likely asking about. It has no `--connection` of its own, for the
+  same reason: the report is the deploy gate, and a gate that can be narrowed is a gate that can
+  be talked past.

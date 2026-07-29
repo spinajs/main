@@ -6,6 +6,7 @@ import { resolveCliOrm } from '../orm.js';
 export interface IMigrateUpCommandOptions {
   name?: string;
   fake?: boolean;
+  connection?: string;
 }
 
 /**
@@ -20,6 +21,7 @@ export interface IMigrateUpCommandOptions {
  */
 @Command('migrate-up', 'Runs pending ORM migrations on every configured connection')
 @Option('-n, --name [name]', false, 'run a single migration, by class name')
+@Option('-c, --connection [connection]', false, 'limit the run to one connection, by name')
 @Option('-f, --fake', false, 'record the migrations as applied without executing them')
 export class MigrateUpCommand extends CliCommand {
   @Logger('ORM-CLI')
@@ -27,7 +29,7 @@ export class MigrateUpCommand extends CliCommand {
 
   public async execute(options: IMigrateUpCommandOptions): Promise<void> {
     const orm = await resolveCliOrm();
-    const executed = await orm.Migration.up(options.name, { fake: options.fake });
+    const executed = await orm.Migration.up(options.name, { fake: options.fake, connection: options.connection });
 
     if (executed.length > 0) {
       this.Log.success(`${options.fake ? 'Recorded as applied ( --fake, nothing was executed )' : 'Applied'} ${executed.length} migration(s): ${executed.map((m) => m.constructor.name).join(', ')}`);
@@ -35,7 +37,7 @@ export class MigrateUpCommand extends CliCommand {
     }
 
     if (!options.name) {
-      this.Log.info('No pending migrations - every configured connection is already up to date');
+      this.Log.info(options.connection ? `No pending migrations on connection ${options.connection} - it is already up to date ( --connection was given, other connections were not touched )` : 'No pending migrations - every configured connection is already up to date');
       return;
     }
 
@@ -45,15 +47,19 @@ export class MigrateUpCommand extends CliCommand {
     // `up()` throws outright on a name nothing is registered under, so a typo is already excluded
     // here. `status()` reports exactly the connections that ARE configured, which makes "absent
     // from status" the reliable signal for the second case.
-    await this.explainEmptyNamedRun(orm, options.name);
+    await this.explainEmptyNamedRun(orm, options.name, options.connection);
   }
 
   /**
    * Turns an empty `up(name)` into a statement about what actually happened - and a non-zero exit
    * code whenever the requested schema change is not in the database, so a deploy script cannot
    * march past it believing "0 applied" meant "nothing left to do".
+   *
+   * `status()` here is deliberately NOT narrowed by `--connection`: with the filter on, "the
+   * migration lives on a connection this run excluded" is the likeliest reason the run was empty,
+   * and a narrowed report could not tell that from "not registered at all".
    */
-  protected async explainEmptyNamedRun(orm: Orm, name: string): Promise<void> {
+  protected async explainEmptyNamedRun(orm: Orm, name: string, connection?: string): Promise<void> {
     const entry = (await orm.Migration.status()).find((e) => e.name === name);
 
     if (!entry) {
@@ -65,6 +71,13 @@ export class MigrateUpCommand extends CliCommand {
     if (entry.applied) {
       this.Log.info(`Migration ${name} is already applied on connection ${entry.connection} ( batch ${entry.batch ?? '-'} ) - nothing to do`);
       return;
+    }
+
+    // `--connection` resolves through aliases, so the requested name and the connection reported
+    // here can differ while naming the same driver. Stated as a possibility rather than as fact
+    // for exactly that reason - the alternative readings below are printed either way.
+    if (connection) {
+      this.Log.error(`Migration ${name} did NOT run, and --connection ${connection} was given while the migration belongs to connection ${entry.connection}. Drop --connection, or point it at ${entry.connection}.`);
     }
 
     if (entry.failed) {

@@ -90,13 +90,20 @@ unresolved `Orm`.
 | `force` | `up`, `down` | `true` | Run even for connections whose `Migration.OnStartup` is off. Only the boot pass passes `false`. |
 | `fake` | `up`, `down` | `false` | Record — or drop — the tracking row without executing the migration. |
 | `all` | `down` | `false` | Roll every applied migration back instead of only the last batch. |
+| `connection` | `up`, `down` | — | Limit the run to one connection, by name. Every other configured connection is left completely untouched — its service is never reached, so its tracking table is not even created. |
 
 `up` and `down` resolve with the `OrmMigration` instances they actually ran, and `[]` when there
 was nothing to do.
 
 A `name` that matches nothing in the registry **throws**, on all of `up`, `down` and `resolve`.
 Returning `[]` would make a typo indistinguishable from "already up to date", and a deploy script
-would read that as success.
+would read that as success. A `connection` no configured connection answers to throws for the
+same reason.
+
+`connection` is resolved to a driver before it is compared, so a `db.Aliases` entry and the
+connection it points at select the same run. `status()` has no such option on purpose: hiding a
+connection is exactly how a deploy gate comes to answer "nothing to see" about the one that is
+behind.
 
 > **Breaking change.** `orm.migrateUp()` and `orm.migrateDown()` are gone. `orm.Migration.up()`
 > and `orm.Migration.down()` replace them — and `down()` is *not* a drop-in: it defaults to the
@@ -118,6 +125,9 @@ export async function migrate() {
 
   // Just one, by class name. An unregistered name throws rather than returning [].
   await orm.Migration.up('CreateShop_2026_07_27_10_00_00');
+
+  // One connection only. Nothing else is opened, migrated or even probed.
+  await orm.Migration.up(undefined, { connection: 'reporting' });
 
   // Roll back the LAST BATCH only — one up() run undone.
   await orm.Migration.down();

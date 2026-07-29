@@ -38,6 +38,14 @@ export interface IMigrationUpOptions {
    * Record the migrations as applied without running them.
    */
   fake?: boolean;
+
+  /**
+   * Limit the run to one connection, by name. Absent means every configured connection.
+   *
+   * The name is resolved to a driver before it is compared, so an alias ( `db.Aliases` ) and the
+   * connection it points at select the same run. A name no connection answers to throws.
+   */
+  connection?: string;
 }
 
 export interface IMigrationDownFacadeOptions extends IMigrationUpOptions {
@@ -70,7 +78,7 @@ export class MigrationRunner {
   public async up(name?: string, options?: IMigrationUpOptions): Promise<OrmMigration[]> {
     const executed: OrmMigration[] = [];
 
-    for (const [driver, units] of this.plan(name, options?.force ?? true)) {
+    for (const [driver, units] of this.plan(name, options?.force ?? true, options?.connection)) {
       const service = await this.service(driver);
       executed.push(...(await service.up(units, { fake: options?.fake })));
     }
@@ -95,7 +103,7 @@ export class MigrationRunner {
   public async down(name?: string, options?: IMigrationDownFacadeOptions): Promise<OrmMigration[]> {
     const executed: OrmMigration[] = [];
 
-    for (const [driver, units] of this.plan(name, options?.force ?? true)) {
+    for (const [driver, units] of this.plan(name, options?.force ?? true, options?.connection)) {
       const service = await this.service(driver);
       executed.push(...(await service.down(units, { fake: options?.fake, all: options?.all })));
     }
@@ -155,9 +163,10 @@ export class MigrationRunner {
    * `OrmDriver` ) collapse into one group instead of running the same migration twice.
    *
    * `name` narrows the set to one migration, and is the single place all three public entry
-   * points get their "that name is not registered" refusal from.
+   * points get their "that name is not registered" refusal from. `connection` narrows it to one
+   * connection - the two compose, and a `name` on a connection the filter excludes runs nothing.
    */
-  protected plan(name: string | undefined, force: boolean): Array<[OrmDriver, IMigrationUnit[]]> {
+  protected plan(name: string | undefined, force: boolean, connection?: string): Array<[OrmDriver, IMigrationUnit[]]> {
     // `ClassInfo.name` is the migration's identity everywhere else in the system - it is what the
     // filter below matches, what becomes `IMigrationUnit.name`, and what lands in the `Migration`
     // column the service compares its rows against. So `m.name` ( never `m.type.name`, which
@@ -192,6 +201,24 @@ export class MigrationRunner {
       // boot and a programmatic registration. Equal on both = 0, so the sort stays stable
       .sort((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : a.name.localeCompare(b.name)));
 
+    // Resolved to a DRIVER rather than compared as a string, because that is what the groups
+    // below are keyed by: `db.Aliases` binds several names to one `OrmDriver`, so
+    // `--connection <alias>` and `--connection <the name it points at>` have to select the same
+    // group. Comparing the migration's declared `@Migration('...')` name instead would make those
+    // two filters disagree about a connection that is one connection.
+    let only: OrmDriver | undefined;
+
+    if (connection !== undefined) {
+      only = this.orm.Connections.get(connection);
+
+      // refused for the same reason an unregistered migration name is: a filter that matches
+      // nothing would let `migrate-up --connection typo` exit 0 reporting "0 migrations applied",
+      // and the operator would believe the schema is current
+      if (!only) {
+        throw new OrmException(`Connection ${connection} is not configured - check the name for typos ( configured: ${[...this.orm.Connections.keys()].join(', ') || 'none'} )`);
+      }
+    }
+
     const groups = new Map<OrmDriver, IMigrationUnit[]>();
     const gated = new Set<OrmDriver>();
 
@@ -210,6 +237,13 @@ export class MigrationRunner {
 
       if (!driver) {
         this.Log.warn(`Connection ${md.Connection} not exists for migration ${u.name} - migration is skipped`);
+        continue;
+      }
+
+      // silently, and before the OnStartup gate below: the operator asked for one connection, so
+      // a line per migration on every OTHER connection is noise, and the gate warning in
+      // particular would name connections this run was never going to touch
+      if (only && driver !== only) {
         continue;
       }
 

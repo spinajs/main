@@ -73,16 +73,22 @@ Follows the `@spinajs/email` CLI pattern: commands in `src/cli/`, `@Command`/`@O
 ```ts
 orm.Migration.up(): Promise<OrmMigration[]>                    // all pending, one new batch per connection
 orm.Migration.up(name: string): Promise<OrmMigration[]>        // single migration by class name
-orm.Migration.up(name?, { force?: boolean, fake?: boolean })   // force default true; boot passes false
+orm.Migration.up(name?, { force?: boolean, fake?: boolean, connection?: string })  // force default true; boot passes false
 
 orm.Migration.down(): Promise<OrmMigration[]>                  // LAST BATCH only (changed default)
 orm.Migration.down(name: string)                               // single migration by class name
 orm.Migration.down(undefined, { all: true })                   // previous behavior: everything, reverse order
-orm.Migration.down(name?, { all?: boolean, force?: boolean, fake?: boolean })
+orm.Migration.down(name?, { all?: boolean, force?: boolean, fake?: boolean, connection?: string })
 
 orm.Migration.status(): Promise<IMigrationStatusEntry[]>
 orm.Migration.resolve(name: string, action: 'applied' | 'rolled-back'): Promise<void>
 ```
+
+`connection` is the facade half of the CLI's `--connection` filter (command table above). It is
+resolved to an `OrmDriver` before comparison, so an alias and the connection it points at select
+the same run; a name no configured connection answers to throws, exactly as an unregistered
+migration name does. `status()` deliberately has no such option — narrowing the deploy gate is
+how a gate comes to answer "nothing to see" about the connection that is behind.
 
 `Orm.migrateUp` / `Orm.migrateDown` are deleted. All call sites (~60, exclusively tests plus docs) switch mechanically: `db().migrateUp()` → `db().Migration.up()`. Down-tests that assert full teardown pass `{ all: true }`.
 
