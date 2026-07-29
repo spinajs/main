@@ -66,6 +66,19 @@ export interface IMigrationStatusEntry {
   failed: boolean;
   rolledBack: boolean;
   pending: boolean;
+
+  /**
+   * The row was opened by a run that never reached either outcome: `StartedAt` is set while both
+   * `FinishedAt` and `Logs` are NULL, and no run is currently holding the migration lock. A
+   * process killed between the start and the outcome ( OOM, SIGKILL, a lost connection that took
+   * the failure write down with it ) leaves exactly this.
+   *
+   * Orthogonal to `pending`, like `rolledBack`: such a migration IS pending and the next `up()`
+   * WILL re-run it from the top. What the flag adds is that nobody knows how much of it already
+   * reached the database. It never blocks a run - see `warnOnInterrupted` for why.
+   */
+  interrupted: boolean;
+
   batch: number | null;
   startedAt: Date | null;
   finishedAt: Date | null;
@@ -314,6 +327,100 @@ export class DefaultMigrationService extends OrmMigrationService {
     }
   }
 
+  /**
+   * The shape of a row whose run never reached an outcome: `StartedAt`, written by `upsertStart`,
+   * and neither of the two writes that close it - `markFinished`'s `FinishedAt` or `markFailed`'s
+   * `Logs`. Nothing in this class produces it deliberately; a process killed between the start and
+   * the outcome does.
+   *
+   * `RolledBackAt` is excluded on purpose. `resolve('rolled-back')` also leaves `FinishedAt` and
+   * `Logs` NULL with `StartedAt` set, and that row is pending because somebody said so - not
+   * abandoned.
+   *
+   * The predicate says nothing about how much of the migration reached the database. It says only
+   * that nobody recorded the answer, which is exactly why it is worth surfacing.
+   */
+  protected isInterrupted(rec: IMigrationRecord): boolean {
+    return !!rec.StartedAt && !rec.FinishedAt && !rec.Logs && !rec.RolledBackAt;
+  }
+
+  /**
+   * Is a migration run in flight on this connection right now? Read, never acquired: the caller is
+   * `status()`, which must not block behind the run it is reporting on.
+   *
+   * The lock row is the only honest signal available, and it is judged exactly as `acquireLock`
+   * judges it - a row younger than `StaleAfter` means somebody is inside a run, an older one means
+   * the holder is presumed dead. Freshness rather than mere presence is what makes this usable
+   * here: a process killed mid-migration leaves BOTH its open tracking row and its lock row
+   * behind, so "a lock row exists" would hide every crash this is meant to surface, permanently.
+   *
+   * Two deliberate consequences. For `StaleAfter` after a crash the answer is "running" and the
+   * open row is not yet reported as interrupted - the same window in which `acquireLock` still
+   * waits for the holder, and with the same client-clock caveat documented there. And
+   * `Lock.Enabled: false` removes the signal altogether, so the answer is "not running": an open
+   * row then always reads as interrupted, which is right for the crash and wrong only for a report
+   * taken while a run is genuinely in progress.
+   */
+  protected async runInProgress(): Promise<boolean> {
+    const { enabled, staleAfter } = this.lockOptions();
+
+    if (!enabled) {
+      return false;
+    }
+
+    const rows = ((await this.driver.select().from(this.lockTable).where({ Id: 1 })) ?? []) as Array<{ AcquiredAt: Date | string }>;
+    const holder = rows[0];
+
+    if (!holder) {
+      return false;
+    }
+
+    const acquiredAt = holder.AcquiredAt instanceof Date ? holder.AcquiredAt : new Date(holder.AcquiredAt);
+
+    // NaN from an unreadable timestamp compares false, which reports "not running" - the same
+    // bias as everywhere else here: a warning an operator can dismiss beats a silence they cannot
+    return Date.now() - acquiredAt.getTime() <= staleAfter;
+  }
+
+  /**
+   * Warns about every migration this run is about to re-run whose row says a previous attempt was
+   * started and never closed. No lock check is needed here, unlike in `status()`: this runs inside
+   * `withLock`, so the only run in flight on this connection is this one.
+   *
+   * It warns rather than blocks, and that is a judgement call worth stating. The row records that
+   * a run STARTED, not that anything reached the database, so blocking would escalate "unknown" to
+   * "refuse to migrate" - and it would do so for the common, harmless shapes too: an idempotent
+   * `CREATE TABLE` that had not run yet, or any migration on a `PerMigration` / `PerRun`
+   * connection, whose transaction unwound the partial work when the process died. In those cases
+   * re-running from the top is exactly right, and a block would turn every OOM kill during a long
+   * migration into an operator ticket.
+   *
+   * The case that is genuinely dangerous is `Transaction.Mode: None` ( the default ) plus
+   * non-idempotent DML: half the INSERTs are already in, nothing recorded which half, and the
+   * re-run applies them again. Non-idempotent DDL is the recoverable version of the same thing -
+   * it fails, and the failed row then blocks properly. Neither is detectable from here, so the
+   * warning describes them and leaves the decision with the operator, who is also the only party
+   * that can look at the data.
+   */
+  protected warnOnInterrupted(records: IMigrationRecord[], pending: IMigrationUnit[]): void {
+    for (const u of pending) {
+      const rec = records.find((r) => r.Migration === u.name);
+
+      if (!rec || !this.isInterrupted(rec)) {
+        continue;
+      }
+
+      // rendered without `new Date(...)`: a dialect that hands timestamps back as strings would
+      // make that an Invalid Date on some formats, and `toISOString()` on one THROWS - out of a
+      // warning, which would replace the diagnosis with a crash
+      const started = rec.StartedAt instanceof Date ? rec.StartedAt.toISOString() : String(rec.StartedAt);
+
+      this.Log.warn(
+        `Migration ${u.name} on connection ${this.driver.Options.Name} was STARTED and never finished - its tracking row carries StartedAt with neither FinishedAt nor Logs, so the process running it was killed mid-migration ( started ${started} ). It is being RE-RUN from the top and nothing recorded how far the first attempt got. Under Migration.Transaction.Mode None ( the default ) whatever it had already applied is still in the database: non-idempotent DDL will fail and land in the failed state, non-idempotent data changes will be applied a second time and nothing will say so. Check what the first attempt left behind, or record the truth with orm.Migration.resolve('${u.name}', 'applied') or ('rolled-back') before running again.`,
+      );
+    }
+  }
+
   protected transactionMode(): MigrationTransactionMode {
     return this.driver.Options.Migration?.Transaction?.Mode ?? MigrationTransactionMode.None;
   }
@@ -484,6 +591,11 @@ export class DefaultMigrationService extends OrmMigrationService {
       if (pending.length === 0) {
         return [];
       }
+
+      // before the fake branch as well as the real one: `fake: true` on a row nobody closed
+      // records "applied" over a migration whose actual effect is unknown, which is the outcome
+      // most worth being told about
+      this.warnOnInterrupted(records, pending);
 
       // Resolved up front, once each. `transaction = false` only exists on a constructed
       // migration, so the segmenting below cannot be decided without instances - and resolving
@@ -798,6 +910,11 @@ export class DefaultMigrationService extends OrmMigrationService {
     // somebody is asking what is going on
     const records = await this.records();
 
+    // read once for the whole report rather than per entry: every row on this connection is
+    // judged against the same "is anything running right now?", and asking N times would let the
+    // answer change halfway down a single report
+    const running = await this.runInProgress();
+
     return units.map((u) => {
       const rec = records.find((r) => r.Migration === u.name);
       const applied = !!(rec?.FinishedAt && !rec.RolledBackAt);
@@ -810,6 +927,9 @@ export class DefaultMigrationService extends OrmMigrationService {
         failed,
         rolledBack: !!rec?.RolledBackAt,
         pending: !applied && !failed,
+        // a live run legitimately holds an open row, so it is only "interrupted" once nobody is
+        // there to close it
+        interrupted: !!rec && !running && this.isInterrupted(rec),
         batch: rec?.Batch ?? null,
         startedAt: rec?.StartedAt ?? null,
         finishedAt: rec?.FinishedAt ?? null,
@@ -827,10 +947,18 @@ export class DefaultMigrationService extends OrmMigrationService {
     const records = await this.records();
     const rec = records.find((r) => r.Migration === name);
 
-    // only a row in the failed state may be forced - anything else is either healthy or
-    // absent, and rewriting it would destroy state nobody asked to lose
-    if (!rec || rec.FinishedAt || !rec.Logs) {
-      throw new OrmException(`Migration ${name} is not in failed state on connection ${this.driver.Options.Name} - nothing to resolve`);
+    // Two shapes may be forced, and they are the two whose real outcome nobody recorded: FAILED
+    // ( FinishedAt NULL, Logs set ) and INTERRUPTED ( StartedAt set, neither FinishedAt nor Logs -
+    // a run killed before it could write either ). Anything else is healthy, rolled back or
+    // absent, and rewriting it would destroy state nobody asked to lose.
+    //
+    // Deliberately without a lock check, exactly as the method comment above says: this is the
+    // recovery path for a run that died, quite possibly still holding the lock. The cost is that
+    // an operator who forces a row while a run is genuinely in progress overwrites it - in a
+    // deployment running one migration process at a time, which is the supported shape, the run
+    // in progress is the operator's own.
+    if (!rec || (!(!rec.FinishedAt && rec.Logs) && !this.isInterrupted(rec))) {
+      throw new OrmException(`Migration ${name} is not in failed state on connection ${this.driver.Options.Name}, and was not interrupted either - nothing to resolve`);
     }
 
     if (action === 'applied') {

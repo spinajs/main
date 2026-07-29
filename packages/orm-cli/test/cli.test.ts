@@ -425,6 +425,132 @@ describe('orm-cli against a FAILED migration', function () {
 });
 
 /**
+ * The state a FAILED row cannot express: a migration that was started and never finished, because
+ * the process running it was killed before it could record either outcome. Its row carries
+ * `StartedAt` with neither `FinishedAt` nor `Logs`, which used to be indistinguishable from
+ * "never ran" - `migrate-status` printed `pending` and the next `migrate-up` re-ran it silently.
+ *
+ * The row is PLANTED rather than produced: producing it means killing a process mid-run. What it
+ * is, exactly, is what `upsertStart` writes and nothing ever closed.
+ */
+describe('orm-cli against an INTERRUPTED migration', function () {
+  this.timeout(20000);
+
+  /** No state word in either name - see the note on the lockout suite below. */
+  const CONNECTION_NAME = 'orm-cli-killed-run';
+  const TRACKING_TABLE = 'orm_cli_killed_migrations';
+  const KILLED_MIGRATION = 'OrmCliKilled_2021_06_01_00_00_00';
+
+  const Conf = connectionConf(CONNECTION_NAME, TRACKING_TABLE);
+
+  let orm: Orm;
+  let killedType: any;
+
+  /** Counted rather than spied: the count is the assertion, in both directions. */
+  let upRuns = 0;
+
+  function defineMigration() {
+    @Migration(CONNECTION_NAME)
+    class OrmCliKilled_2021_06_01_00_00_00 extends OrmMigration {
+      public up(_connection: OrmDriver): Promise<void> {
+        upRuns++;
+        return Promise.resolve();
+      }
+
+      public down(_connection: OrmDriver): Promise<void> {
+        return Promise.resolve();
+      }
+    }
+
+    killedType = OrmCliKilled_2021_06_01_00_00_00;
+  }
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    DI.clearCache();
+    defineMigration();
+    DI.register(Conf).as(Configuration);
+    orm = await DI.resolve(Orm);
+
+    // `OnStartup: false` means the boot pass skipped this connection entirely, so its tracking
+    // tables do not exist yet. `status()` calls `ensureStorage()` and changes nothing else.
+    await orm.Migration.status();
+
+    await orm.Connections.get(CONNECTION_NAME)!
+      .insert()
+      .into(TRACKING_TABLE)
+      .values({ Migration: KILLED_MIGRATION, CreatedAt: new Date(), StartedAt: new Date(), FinishedAt: null, RolledBackAt: null, Logs: null, Checksum: null, Batch: 0 });
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+
+      if (killedType) {
+        DI.unregister(killedType);
+      }
+
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  beforeEach(() => {
+    process.exitCode = 0;
+  });
+
+  // MUST RUN FIRST: the migrate-resolve test below clears the row these assertions are about.
+  it('migrate-status reports it as INTERRUPTED rather than as ordinary pending work', async () => {
+    const cmd = await DI.resolve(MigrateStatusCommand);
+    const out = await captureStdout(() => cmd.execute());
+
+    // `??` in the leftmost column, the counterpart of the failed row's `!!`: this line blocks
+    // nothing, and the next migrate-up re-runs it whether or not anybody looked
+    const line = out.find((l) => l.startsWith('??'));
+
+    expect(line, `no marked INTERRUPTED line in:\n${out.join('\n')}`).to.be.a('string');
+    expect(line).to.contain('INTERRUPTED');
+    expect(line).to.contain(KILLED_MIGRATION);
+
+    const text = out.join('\n');
+
+    // counted apart from plain pending, or the summary would say "1 pending" against a table in
+    // which no line reads `pending`
+    expect(text).to.contain('1 interrupted');
+    expect(text).to.contain(`migrate-resolve --name ${KILLED_MIGRATION} --applied`);
+    expect(text).to.contain(`migrate-resolve --name ${KILLED_MIGRATION} --rolled-back`);
+
+    // it is still work the next migrate-up will do, so the deploy gate says "not current"
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('migrate-resolve --applied accepts it, which is the only lever an operator has on it', async () => {
+    // the whole point of reporting the state: without this the row is unreachable except by
+    // editing the tracking table by hand
+    await (await DI.resolve(MigrateResolveCommand)).execute({ name: KILLED_MIGRATION, applied: true });
+
+    const rows = (await orm.Connections.get(CONNECTION_NAME)!.select().from(TRACKING_TABLE).asRaw<any[]>()) as any[];
+    const row = rows.find((r) => r.Migration === KILLED_MIGRATION);
+
+    expect(row.FinishedAt, 'the row was not recorded as applied').to.not.equal(null);
+    // stamped exactly as a real finish would have been, so a later default rollback reaches it
+    expect(row.Batch).to.equal(1);
+
+    // and the migration must not be applied a second time over a schema that already has it
+    const up = await DI.resolve(MigrateUpCommand);
+    await up.execute({});
+
+    expect(upRuns, `${KILLED_MIGRATION} ran after being resolved as applied`).to.equal(0);
+    expect(process.exitCode).to.equal(0);
+  });
+});
+
+/**
  * The trap: a connection with `Migration.OnStartup: true` - the configuration the ORM docs ship
  * as their example - holding a migration in the FAILED state.
  *

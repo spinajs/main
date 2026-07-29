@@ -815,6 +815,143 @@ describe('DefaultMigrationService down/resolve/status', () => {
     expect(st.find((s) => s.name.startsWith('MigA'))!.checksumMismatch).to.be.true;
     expect(st.find((s) => s.name.startsWith('MigB'))!.failed).to.be.true;
     expect(st.find((s) => s.name.startsWith('MigB'))!.pending).to.be.false;
+
+    // neither of these was left open by a killed run
+    expect(st.every((s) => s.interrupted === false)).to.be.true;
+  });
+
+  it('status() reports a row a killed run left open as interrupted, not merely pending', async () => {
+    const driver = await makeDriver();
+    // exactly what upsertStart writes and nothing else ever closed: StartedAt set, no FinishedAt,
+    // no Logs. Indistinguishable from "never started" before this flag existed
+    stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', StartedAt: now, FinishedAt: null, Logs: null, Batch: 0 }), row({ Migration: 'MigB_2021_01_02_00_00_00', Batch: 1 })]);
+    const svc = new DefaultMigrationService(driver);
+
+    const st = await svc.status([unit(MigA_2021_01_01_00_00_00), unit(MigB_2021_01_02_00_00_00)]);
+    const a = st.find((s) => s.name.startsWith('MigA'))!;
+
+    expect(a.interrupted, 'an open row with nobody holding the lock is an interrupted run').to.be.true;
+
+    // orthogonal to pending, like rolledBack - the next up() really will re-run it, and the
+    // existing meanings of the other flags must not shift underneath anybody
+    expect(a.pending).to.be.true;
+    expect(a.applied).to.be.false;
+    expect(a.failed).to.be.false;
+    expect(a.rolledBack).to.be.false;
+
+    expect(st.find((s) => s.name.startsWith('MigB'))!.interrupted, 'a finished row is never interrupted').to.be.false;
+  });
+
+  it('status() does not call a live run interrupted while its lock is still fresh', async () => {
+    const driver = await makeDriver();
+    driver.Options.Migration = { ...driver.Options.Migration, Lock: { StaleAfter: 60_000 } };
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        return [row({ Migration: 'MigA_2021_01_01_00_00_00', StartedAt: now, FinishedAt: null, Logs: null, Batch: 0 })];
+      }
+      // somebody is inside a run right now and legitimately holds the row open
+      if (b instanceof SelectQueryBuilder && b.Table === LOCK_TABLE) {
+        return [{ Id: 1, AcquiredAt: new Date(), Owner: 'someone:1' }];
+      }
+      return [{ 1: 1 }];
+    });
+    const svc = new DefaultMigrationService(driver);
+
+    const st = await svc.status([unit(MigA_2021_01_01_00_00_00)]);
+
+    expect(st[0].interrupted, 'a run in flight owns its open row').to.be.false;
+    expect(st[0].pending, 'it is still not applied, whoever is running it').to.be.true;
+  });
+
+  it('status() reports interrupted once the crashed holder its lock row belongs to has gone stale', async () => {
+    const driver = await makeDriver();
+    driver.Options.Migration = { ...driver.Options.Migration, Lock: { StaleAfter: 1_000 } };
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        return [row({ Migration: 'MigA_2021_01_01_00_00_00', StartedAt: now, FinishedAt: null, Logs: null, Batch: 0 })];
+      }
+      // a process killed mid-run leaves its lock row behind too - "a lock row exists" would
+      // therefore hide the crash forever, which is why freshness rather than presence decides
+      if (b instanceof SelectQueryBuilder && b.Table === LOCK_TABLE) {
+        return [{ Id: 1, AcquiredAt: new Date(Date.now() - 10_000), Owner: 'dead:1' }];
+      }
+      return [{ 1: 1 }];
+    });
+    const svc = new DefaultMigrationService(driver);
+
+    const st = await svc.status([unit(MigA_2021_01_01_00_00_00)]);
+
+    expect(st[0].interrupted).to.be.true;
+  });
+
+  it('resolve() accepts an interrupted row, which the operator has no other lever on', async () => {
+    const driver = await makeDriver();
+    const table = [row({ Migration: 'MigA_2021_01_01_00_00_00', StartedAt: now, FinishedAt: null, Logs: null, Batch: 0 })];
+
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        return table.map((r) => ({ ...r }));
+      }
+      if (b instanceof UpdateQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        Object.assign(table[0], b.Value as any);
+      }
+      return [{ 1: 1 }];
+    });
+    const upA = sinon.stub(MigA_2021_01_01_00_00_00.prototype, 'up').resolves();
+    const svc = new DefaultMigrationService(driver);
+
+    // the run really did reach the database, so it must not be applied a second time
+    await svc.resolve('MigA_2021_01_01_00_00_00', 'applied', unit(MigA_2021_01_01_00_00_00));
+
+    expect(table[0].FinishedAt).to.be.instanceOf(Date);
+    // stamped exactly as markFinished would have, so a later default down() reaches it
+    expect(table[0].Batch).to.eq(1);
+    expect(table[0].Checksum).to.eq(migrationChecksum(MigA_2021_01_01_00_00_00));
+
+    const executed = await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+
+    expect(upA.called, 'a resolved-as-applied migration must not run again').to.be.false;
+    expect(executed).to.have.length(0);
+  });
+
+  it('up() warns before it re-runs a migration a killed run left open', async () => {
+    const driver = await makeDriver();
+    stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', StartedAt: now, FinishedAt: null, Logs: null, Batch: 0 })]);
+    const upA = sinon.stub(MigA_2021_01_01_00_00_00.prototype, 'up').resolves();
+    const svc = new DefaultMigrationService(driver);
+    const warn = sinon.spy((svc as any).Log, 'warn');
+
+    const executed = await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+
+    // it warns and proceeds - it must NOT block. The row records that a run started, not that
+    // anything reached the database, and under PerMigration / PerRun the partial work was already
+    // unwound, so refusing to boot would be wrong far more often than it would be right
+    expect(upA.calledOnce, 'the re-run must still happen').to.be.true;
+    expect(executed).to.have.length(1);
+
+    const loud = warn.getCalls().find((c) => String(c.args[0]).includes('MigA_2021_01_01_00_00_00'));
+    expect(loud, 'expected a warning about the interrupted run').to.not.be.undefined;
+    expect(String(loud!.args[0])).to.contain('never finished');
+    expect(String(loud!.args[0]), 'the operator needs the lever named').to.contain('resolve');
+  });
+
+  it('up() does not warn about a rolled-back row, which carries the same NULLs on purpose', async () => {
+    const driver = await makeDriver();
+    // resolve('rolled-back') leaves StartedAt set with FinishedAt and Logs NULL as well - it is
+    // pending because somebody said so, not because anything was abandoned
+    stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', StartedAt: now, FinishedAt: null, RolledBackAt: now, Logs: null, Batch: 1 })]);
+    sinon.stub(MigA_2021_01_01_00_00_00.prototype, 'up').resolves();
+    const svc = new DefaultMigrationService(driver);
+    const warn = sinon.spy((svc as any).Log, 'warn');
+
+    await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+
+    expect(
+      warn.getCalls().some((c) => String(c.args[0]).includes('never finished')),
+      'a deliberately rolled-back row must not be reported as an interrupted run',
+    ).to.be.false;
   });
 });
 

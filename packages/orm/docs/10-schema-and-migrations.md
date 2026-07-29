@@ -144,8 +144,9 @@ export async function report(): Promise<IMigrationStatusEntry[]> {
   const entries = await orm.Migration.status();
 
   for (const e of entries) {
-    // exactly one of applied / failed / pending is true; rolledBack is orthogonal
-    const state = e.applied ? `applied (batch ${e.batch ?? '-'})` : e.failed ? 'FAILED' : 'pending';
+    // exactly one of applied / failed / pending is true; rolledBack and interrupted are
+    // orthogonal narrowings of pending
+    const state = e.applied ? `applied (batch ${e.batch ?? '-'})` : e.failed ? 'FAILED' : e.interrupted ? 'INTERRUPTED' : 'pending';
 
     console.log(`${e.connection} ${e.name} ${state}${e.checksumMismatch ? ' [checksum mismatch]' : ''}`);
   }
@@ -156,8 +157,13 @@ export async function report(): Promise<IMigrationStatusEntry[]> {
 ```
 
 An `IMigrationStatusEntry` carries `name`, `connection`, `applied`, `failed`, `rolledBack`,
-`pending`, `batch`, `startedAt`, `finishedAt` and `checksumMismatch`. `batch`, `startedAt` and
-`finishedAt` are `null` for a migration that has no row yet; the five flags are always booleans.
+`pending`, `interrupted`, `batch`, `startedAt`, `finishedAt` and `checksumMismatch`. `batch`,
+`startedAt` and `finishedAt` are `null` for a migration that has no row yet; the six flags are
+always booleans.
+
+`rolledBack` and `interrupted` are narrowings of `pending`, not alternatives to it: both describe
+a migration the next `up()` **will** run. They are mutually exclusive — see
+[interrupted runs](#interrupted-runs) for what the second one means and why it does not block.
 
 ### The lifecycle
 
@@ -243,7 +249,8 @@ Migrations sharing a timestamp fall back to reverse name order, mirroring the fo
 | `Batch` | Which `up()` run applied it. |
 
 **Applied** means `FinishedAt NOT NULL AND RolledBackAt NULL` — that pair, not merely "a row
-exists". **Failed** means `FinishedAt NULL AND Logs NOT NULL`. Everything else is pending.
+exists". **Failed** means `FinishedAt NULL AND Logs NOT NULL`. Everything else is pending —
+including the row shape described under [interrupted runs](#interrupted-runs).
 
 A rollback drops the row rather than stamping it: the table is meant to hold only migrations
 actually present in the database, and a missing row and a rolled-back one both read as pending to
@@ -318,9 +325,10 @@ export async function recover(name: string, schemaChangeIsPresent: boolean) {
 }
 ```
 
-`resolve()` is valid **only** on a row in the failed state; anything healthy or absent is refused
-rather than silently rewritten. Like `status()`, it deliberately does not take the lock — it is
-the recovery path for a run that may well have died holding it.
+`resolve()` is valid on a row in the **failed** state or in the **interrupted** state (below) —
+the two shapes whose real outcome nobody recorded. Anything healthy, rolled back or absent is
+refused rather than silently rewritten. Like `status()`, it deliberately does not take the lock —
+it is the recovery path for a run that may well have died holding it.
 
 Two things worth knowing before you rely on the block:
 
@@ -335,6 +343,51 @@ Two things worth knowing before you rely on the block:
 
 `resolve()` reaches registered migrations only. If the failed migration's class has been deleted,
 delete its row from the tracking table by hand instead.
+
+### Interrupted runs
+
+A failed migration is one the ORM watched fail. An **interrupted** one is a migration whose
+process was killed before it could record anything at all — OOM, `SIGKILL`, a node that went
+away, a connection that dropped and took the failure write with it.
+
+Its row is what `up()` wrote on the way in and nothing ever closed: `StartedAt` set, `FinishedAt`
+`NULL`, `Logs` `NULL`. That is not the failed state (`Logs` is empty) and it is not applied
+(`FinishedAt` is empty), so it counts as **pending** and the next `up()` re-runs the migration
+from the top — which is very often the right thing, and sometimes is not:
+
+- under `Transaction.Mode` `PerMigration` or `PerRun`, whatever the killed attempt had done was
+  unwound with its transaction. Re-running is exactly correct.
+- under `None` — **the default** — nothing was unwound. Idempotent DDL is fine. Non-idempotent
+  DDL fails on the re-run and lands in the failed state, which is recoverable and loud.
+  Non-idempotent **data** changes are the dangerous case: the `INSERT`s that got through are
+  still there, and the re-run applies them a second time, silently.
+
+The lock does not help here. It guards against a *concurrent* run, and this is the same run
+happening twice, minutes or days apart.
+
+So the state is reported rather than acted on:
+
+- `status()` sets `interrupted: true` on the entry, and `spinajs migrate-status` prints the row as
+  `INTERRUPTED` with a `??` marker and the two `migrate-resolve` invocations under the table.
+- `up()` logs a warning naming the migration before it re-runs it.
+- `resolve(name, 'applied' | 'rolled-back')` accepts such a row, so there is a lever: `'applied'`
+  when you have checked and the change is in the database, `'rolled-back'` when it is not.
+
+It deliberately does **not** block. The row records that a run *started*, not that anything
+reached the database, and turning "unknown" into "refuse to migrate" would stop every boot after
+every OOM kill — including the majority of cases where re-running is correct and nothing is
+wrong. The failed state is for what the ORM knows went wrong; this is for what nobody knows.
+
+**"Nobody is running it" is decided from the lock row**, which `up()` holds for the length of a
+run and drops in a `finally`. A row younger than `Migration.Lock.StaleAfter` (default 10 minutes)
+means a run really is in flight, and an open tracking row then belongs to it — `interrupted` stays
+false. Freshness rather than mere presence, because a killed process leaves its lock row behind
+too. Two consequences:
+
+- for up to `StaleAfter` after a crash, `status()` still reports the row as an ordinary `pending`.
+  That is the same window in which a restarted process waits for the lock rather than stealing it.
+- with `Migration.Lock.Enabled: false` there is no signal at all, so every open row reads as
+  interrupted. Right for the crash, wrong only for a report taken while a run is in progress.
 
 ### Fake runs
 

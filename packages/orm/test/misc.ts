@@ -1310,6 +1310,12 @@ export function stubDb(rows: IMigrationRecord[]) {
     if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
       return rows;
     }
+    // nobody holds the migration lock. Stated rather than left to the catch-all below, because
+    // `status()` reads this table to tell an abandoned row from one a live run legitimately holds
+    // open - and a `{ 1: 1 }` there would be read as a lock row with an unreadable AcquiredAt
+    if (b instanceof SelectQueryBuilder && b.Table === `${MIGRATION_TABLE_NAME}_lock`) {
+      return [];
+    }
     // one row back = tableExists true, and a harmless result for everything else
     return [{ 1: 1 }];
   });

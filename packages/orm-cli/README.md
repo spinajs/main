@@ -120,6 +120,7 @@ spinajs migrate-status
    STATE         BATCH  CONNECTION       MIGRATION
    applied           1  default          AddUserTable_2026_07_29_10_00_00
 !! FAILED            0  default          AddOrderIndex_2026_07_29_11_00_00
+?? INTERRUPTED       0  default          BackfillTotals_2026_07_29_12_00_00
    pending           -  default          AddInvoices_2026_07_30_09_00_00
 ```
 
@@ -132,15 +133,24 @@ one line in the report that stops every later `migrate-up` on its connection, an
 survive being skimmed in a wall of `applied`. Below the table the command prints the two exact
 `migrate-resolve` invocations for each failed migration.
 
+`??` marks an **interrupted** migration — one that was started and never finished, because the
+process running it was killed before it could record either outcome. It carries the opposite
+warning to `FAILED`: it blocks nothing, and the next `migrate-up` re-runs it from the top, whether
+or not anybody looked. Under the default `Transaction.Mode: None` that means non-idempotent data
+changes get applied twice, silently. The same two `migrate-resolve` invocations are printed for
+it. See "Interrupted runs" in
+[the ORM migration docs](../orm/docs/10-schema-and-migrations.md#interrupted-runs).
+
 `[checksum mismatch]` marks a migration whose source changed after it was applied. It is
 reported but does **not** on its own make the command exit non-zero — only pending and failed
 work do.
 
 ### `migrate-resolve`
 
-The escape hatch for a run that died halfway. Valid **only** on a row in the failed state
-(`FinishedAt` NULL and `Logs` set); anything healthy or absent is refused rather than silently
-rewritten.
+The escape hatch for a run that died halfway. Valid on the two row shapes whose real outcome
+nobody recorded — **failed** (`FinishedAt` NULL and `Logs` set) and **interrupted** (`StartedAt`
+set, `FinishedAt` and `Logs` both NULL). Anything healthy, rolled back or absent is refused rather
+than silently rewritten.
 
 ```bash
 spinajs migrate-resolve --name AddOrderIndex_2026_07_29_11_00_00 --applied      # the change IS in the database
@@ -180,7 +190,7 @@ files are re-exported elsewhere in spinajs.
 | `migrate-up` | migrations applied, or nothing was pending | a named run applied nothing because its connection is not configured, or it is still pending/failed; any error from the run |
 | `migrate-down` | rollback completed, or nothing to roll back | any error from the run |
 | `migrate-status` | every migration is applied | anything is pending or failed |
-| `migrate-resolve` | the state was recorded | both/neither flag given; the row is not in the failed state |
+| `migrate-resolve` | the state was recorded | both/neither flag given; the row is neither failed nor interrupted |
 | `migrate-create` | file written | invalid name or connection; the file already exists |
 
 `migrate-status` is meant to be a deploy gate — "is this database current?" — so an un-run
