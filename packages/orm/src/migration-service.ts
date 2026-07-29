@@ -197,10 +197,7 @@ export class DefaultMigrationService extends OrmMigrationService {
           }
         });
 
-        // legacy rows: applied long ago, treat CreatedAt as both start and finish
-        await schema().raw(`UPDATE ${this.table} SET StartedAt = CreatedAt WHERE StartedAt IS NULL`);
-        await schema().raw(`UPDATE ${this.table} SET FinishedAt = CreatedAt WHERE FinishedAt IS NULL AND Logs IS NULL`);
-        await schema().raw(`UPDATE ${this.table} SET Batch = 1 WHERE Batch IS NULL`);
+        await this.backfillLegacyRows();
       }
     }
 
@@ -213,6 +210,50 @@ export class DefaultMigrationService extends OrmMigrationService {
 
   protected async records(): Promise<IMigrationRecord[]> {
     return ((await this.driver.select().from(this.table)) ?? []) as IMigrationRecord[];
+  }
+
+  /**
+   * Fills the columns the upgrade above has just added. A row written before they existed carries
+   * nothing but `CreatedAt`, and a NULL `FinishedAt` reads as "never applied" - so without this
+   * every migration the deployment ran years ago would run again over a schema that already has
+   * it. `CreatedAt` is the only timestamp such a row has, so it is treated as both start and
+   * finish.
+   *
+   * Row by row through the update builder rather than as three set-based `UPDATE`s, and that is
+   * the point of the method: a set-based statement has to name the table itself, and the only
+   * way to do that here is raw SQL. `Migration.Table` is configuration - a name that needs
+   * quoting ( a reserved word, a dot, a space ) would then break this path alone, and only on a
+   * deployment that already has rows, which is the least reachable corner in the file. The
+   * builder quotes it exactly as every other statement in this class does. The cost is one UPDATE
+   * per legacy row, on the single boot that performs the upgrade and never again.
+   */
+  protected async backfillLegacyRows(): Promise<void> {
+    for (const r of await this.records()) {
+      const patch: Partial<IMigrationRecord> = {};
+
+      // `== null` on purpose - the column is either absent from the row object ( undefined ) or
+      // present and NULL, depending on how the driver hydrates a freshly added column
+      if (r.StartedAt == null) {
+        patch.StartedAt = r.CreatedAt;
+      }
+
+      // `Logs` set with a NULL `FinishedAt` is the FAILED state. It cannot occur on a table this
+      // old - there was no Logs column to write - but stamping a finish over one would silently
+      // unblock a half-applied migration, so the guard is stated rather than assumed away.
+      if (r.FinishedAt == null && !r.Logs) {
+        patch.FinishedAt = r.CreatedAt;
+      }
+
+      if (r.Batch == null) {
+        patch.Batch = 1;
+      }
+
+      if (Object.keys(patch).length === 0) {
+        continue;
+      }
+
+      await this.driver.update().in(this.table).update(patch).where({ Migration: r.Migration });
+    }
   }
 
   public async applied(): Promise<IMigrationRecord[]> {

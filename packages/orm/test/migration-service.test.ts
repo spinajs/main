@@ -42,12 +42,22 @@ describe('DefaultMigrationService storage', () => {
     expect(created.map((c) => (c.args[0] as TableQueryBuilder).Table)).to.eql([MIGRATION_TABLE_NAME, `${MIGRATION_TABLE_NAME}_lock`]);
   });
 
-  it('upgrades legacy 2-column table and backfills', async () => {
+  it('upgrades legacy 2-column table and backfills through the builder', async () => {
     const driver = await makeDriver();
     // legacy shape: only Migration + CreatedAt known to tableInfo
     TEST_TABLE_INFO[MIGRATION_TABLE_NAME] = [{ Name: 'Migration' }, { Name: 'CreatedAt' }] as any;
-    // tableExists → any non-empty row = exists
-    const exec = sinon.stub(FakeSqliteDriver.prototype, 'execute').resolves([{ 1: 1 }]);
+
+    const legacyCreatedAt = new Date('2020-01-01T00:00:00.000Z');
+    // one row of the shape a legacy table really holds: everything the upgrade adds is NULL on it
+    const legacyRow = { Migration: 'Legacy_2020_01_01_00_00_00', CreatedAt: legacyCreatedAt, StartedAt: null, FinishedAt: null, RolledBackAt: null, Logs: null, Checksum: null, Batch: null };
+
+    const exec = sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        return [{ ...legacyRow }];
+      }
+      // one row back = tableExists true, and a harmless result for everything else
+      return [{ 1: 1 }];
+    });
     const svc = new DefaultMigrationService(driver);
 
     await svc.ensureStorage();
@@ -57,11 +67,51 @@ describe('DefaultMigrationService storage', () => {
     expect(alters.length).to.be.gte(1);
     expect(alters.flatMap((c) => (c.args[0] as AlterTableQueryBuilder).Columns.map((col) => col.Name))).to.eql(['StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum', 'Batch']);
 
-    const raws = exec.getCalls().filter((c) => c.args[0] instanceof RawSchemaQueryBuilder);
-    expect(raws.length).to.be.gte(1); // backfill UPDATE ran
+    // the backfill goes out as a builder UPDATE, so the configured table name is quoted by the
+    // dialect instead of being interpolated into a string
+    const updates = exec.getCalls().filter((c) => c.args[0] instanceof UpdateQueryBuilder && (c.args[0] as UpdateQueryBuilder<unknown>).Table === MIGRATION_TABLE_NAME);
+    expect(updates, 'backfill UPDATE ran').to.have.length(1);
+    expect((updates[0].args[0] as UpdateQueryBuilder<unknown>).Value).to.eql({ StartedAt: legacyCreatedAt, FinishedAt: legacyCreatedAt, Batch: 1 });
+
+    // the one place the table name used to bypass the builder - a `Migration.Table` needing
+    // quoting broke only here, and only on a deployment that already had rows
+    expect(
+      exec.getCalls().filter((c) => c.args[0] instanceof RawSchemaQueryBuilder),
+      'the tracking table name must never reach raw SQL',
+    ).to.have.length(0);
 
     // an already-upgraded table is left alone
     expect(exec.getCalls().filter((c) => c.args[0] instanceof TableQueryBuilder)).to.have.length(0);
+  });
+
+  it('the legacy backfill skips a whole row and never stamps a finish over a failed one', async () => {
+    const driver = await makeDriver();
+    // Batch is the only missing column, so the upgrade branch is entered while the rest of the
+    // table is already in its current shape
+    TEST_TABLE_INFO[MIGRATION_TABLE_NAME] = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum'].map((Name) => ({ Name })) as any;
+
+    const stamp = new Date('2021-06-01T00:00:00.000Z');
+    const healthy = { Migration: 'Healthy_2021_06_01_00_00_00', CreatedAt: stamp, StartedAt: stamp, FinishedAt: stamp, RolledBackAt: null, Logs: null, Checksum: 'abc', Batch: 4 };
+    // FinishedAt NULL *and* Logs set is the FAILED state - a backfilled finish would silently
+    // unblock a half-applied migration
+    const failed = { Migration: 'Failed_2021_06_02_00_00_00', CreatedAt: stamp, StartedAt: stamp, FinishedAt: null, RolledBackAt: null, Logs: 'kaboom', Checksum: null, Batch: null };
+
+    const exec = sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof SelectQueryBuilder && b.Table === MIGRATION_TABLE_NAME) {
+        return [{ ...healthy }, { ...failed }];
+      }
+      return [{ 1: 1 }];
+    });
+    const svc = new DefaultMigrationService(driver);
+
+    await svc.ensureStorage();
+
+    const updates = exec.getCalls().filter((c) => c.args[0] instanceof UpdateQueryBuilder && (c.args[0] as UpdateQueryBuilder<unknown>).Table === MIGRATION_TABLE_NAME);
+
+    // the healthy row needs nothing, so it is not written to at all
+    expect(updates, 'only the row missing a Batch may be written').to.have.length(1);
+    expect((updates[0].args[0] as UpdateQueryBuilder<unknown>).Value).to.eql({ Batch: 1 });
+    expect(exec.getCalls().filter((c) => c.args[0] instanceof RawSchemaQueryBuilder)).to.have.length(0);
   });
 
   it('tolerates a table another process created between the probe and the CREATE', async () => {
