@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 import { createRequire } from 'module';
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
-import type { BaseController } from './controllers.js';
+import type { BaseController } from './base-controller.js';
 import { Logger, Log } from '@spinajs/log';
 
 // ---------------------------------------------------------------------------

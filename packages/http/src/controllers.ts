@@ -1,301 +1,12 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { isPromise } from '@spinajs/util';
-
 import Express from 'express';
 
-import _ from 'lodash';
-
 import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container, Class } from '@spinajs/di';
-import { UnexpectedServerError } from '@spinajs/exceptions';
 import { ListFromFiles } from '@spinajs/reflection';
 import { Logger, Log } from '@spinajs/log';
-import { DataValidator } from '@spinajs/validation';
-import { Configuration } from '@spinajs/configuration';
 import { HttpServer } from './server.js';
-import { RouteArgs } from './route-args/index.js';
-import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext, Request } from './interfaces.js';
-import { CONTROLLED_DESCRIPTOR_SYMBOL } from './decorators.js';
-import { tryGetHash, uniqueBy } from '@spinajs/util';
+import { uniqueBy } from '@spinajs/util';
 import { DefaultControllerCache } from './cache.js';
-import { __handle_response__ } from './response.js';
-import { __handle_error__ } from './error.js';
-
-
-
-export abstract class BaseController extends AsyncService implements IController {
-  /**
-   * Array index getter
-   */
-  [action: string]: any;
-
-  protected _router!: Express.Router;
-
-  @Autoinject(Container)
-  protected _container!: IContainer;
-
-  @Autoinject()
-  protected _validator!: DataValidator;
-
-  @Logger('http')
-  protected _log!: Log;
-
-  @Autoinject()
-  protected _actionLocalStorage!: AsyncLocalStorage<IActionLocalStoregeContext>;
-
-  @Autoinject(Configuration)
-  protected _cfg!: Configuration;
-
-  
-
-  /**
-   * Express router with middleware stack
-   */
-  public get Router(): Express.Router {
-    return this._router;
-  }
-
-  /**
-   * Controller descriptor
-   */
-  public get Descriptor(): IControllerDescriptor {
-    return Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, this) as IControllerDescriptor;
-  }
-
-  /**
-   * Base path for all controller routes eg. my/custom/path/
-   *
-   * It can be defined via `@BasePath` decorator, defaults to controller name without `Controller` part.
-   */
-  public get BasePath(): string {
-    return this.Descriptor.BasePath ? this.Descriptor.BasePath : this.constructor.name.toLowerCase();
-  }
-
-  public async resolve() {
-
-    await super.resolve();
-
-    const self = this;
-
-    
-
-    if (!this.Descriptor) {
-      this._log.warn(`Controller ${this.constructor.name} does not have descriptor. It its abstract or base class ignore this message.`);
-      return;
-    }
-
-    this._router = Express.Router();
-
-    for (const [, route] of this.Descriptor.Routes) {
-      const handlers: (Express.RequestHandler | Express.ErrorRequestHandler)[] = [];
-
-      let path = '';
-      if (route.Path) {
-        if (route.Path === '/') {
-          path = `/${this.BasePath}`;
-        } else {
-          if (this.BasePath === '/') {
-            path = `/${route.Path}`;
-          } else {
-            path = `/${this.BasePath}/${route.Path}`;
-          }
-        }
-      } else {
-        path = `/${this.BasePath}/${String(route.Method)}`;
-      }
-
-      // add global route path prefix
-      if (this._cfg.get('http.controllers.route.prefix')) {
-        path = `/${this._cfg.get('http.controllers.route.prefix')}${path}`;
-      }
-
-      const middlewares = await Promise.all<RouteMiddleware>(
-        this.Descriptor.Middlewares.concat(route.Middlewares || []).map((m: IMiddlewareDescriptor) => {
-          return self._container.resolve(m.Type, m.Options);
-        }),
-      );
-      const policies = await Promise.all<BasePolicy>(
-        this.Descriptor.Policies.concat(route.Policies || [])
-          .map((m: IPolicyDescriptor) => {
-            if (_.isString(m.Type)) {
-              const policyType = this._cfg.get<string>(m.Type);
-              if (!DI.checkType(BasePolicy, policyType)) {
-                self._log.warn(`No policy named ${policyType} is registered ( check your configuration at ${m.Type})`);
-                return null;
-              } else {
-                self._log.trace(`Policy ${policyType} is used in controller ${self.constructor.name}::${String(route.Method)} at path ${path}`);
-                return self._container.resolve<BasePolicy>(policyType, m.Options);
-              }
-            } else {
-              self._log.trace(`Policy ${m.Type.name} is used in controller ${self.constructor.name}::${String(route.Method)} at path ${path}`);
-              return self._container.resolve<BasePolicy>(m.Type, m.Options);
-            }
-          })
-          .filter((x) => x !== null),
-      );
-      const enabledMiddlewares = middlewares.filter((m) => m.isEnabled(route, this));
-
-      this._log.trace(`Registering route ${route.Type.toUpperCase()} ${this.constructor.name}::${String(route.Method)} at ${path}`);
-
-      // Execute all policies for route
-      // If at least ONE policy returns no error allow route to execute
-      // It allows to use multiple access to resource eg. token access & session
-      handlers.push((req: Express.Request, _res: Express.Response, next: Express.NextFunction) => {
-        // Only policies enabled for this concrete route participate in the gate.
-        // A route whose policies are ALL disabled has no active authorization
-        // check, so it is allowed through — same semantics as having no policies
-        // at all. Computing this up front is what prevents the request from
-        // hanging: `Promise.allSettled([])` resolves to `[]`, which matches
-        // neither the fulfilled nor the rejected branch below, so `next` would
-        // never be called.
-        const enabledPolicies = policies.filter((p) => p.isEnabled(route, this));
-        if (enabledPolicies.length === 0) {
-          next();
-          return;
-        }
-
-        Promise.allSettled(enabledPolicies
-          .map((p) => {
-            return p
-              .execute(req, route, this)
-              .then(() => {
-                this._log.trace(`Policy succeded for route ${self.constructor.name}:${String(route.Method)} ${self.BasePath}/${String(route.Path || route.Method)}, policy: ${p.constructor.name}`);
-              })
-              .catch((err) => {
-                this._log.trace(`Policy failed for route ${self.constructor.name}:${String(route.Method)} ${self.BasePath}/${String(route.Path || route.Method)} error ${err}, policy: ${p.constructor.name}`);
-                throw err;
-              });
-          })).then((results) => {
-            const fullfilled = results.find(r => r.status === 'fulfilled');
-            if (fullfilled) {
-              this._log.trace(`Policy for route ${self.constructor.name}:${String(route.Method)} ${self.BasePath}/${String(route.Path || route.Method)} succeded, continue execution`);
-              next();
-              return;
-            }
-
-            // Every policy rejected — forward the first failure to the express
-            // error handler. Use next(err) directly (not `throw next(...)`,
-            // which would reject this .then() with `undefined` as an unhandled
-            // rejection while the error was already forwarded).
-            const failed = results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
-            next(failed ? failed.reason : new UnexpectedServerError('Policy evaluation produced no result'));
-          })
-          // Guard against unexpected throws in the settle/handler chain so the
-          // request can never stall without a response.
-          .catch((err) => next(err));
-      });
-      handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onBefore.bind(m), route)));
-
-      const acionWrapper = async (req: sRequest, res: Express.Response, next: Express.NextFunction) => {
-        try {
-          await this._actionLocalStorage.run(req.storage, async () => {
-            const args = (await _extractRouteArgs(route, req, res)).concat([req, res, next]);
-
-            try {
-              const result = (this as any)[route.Method].call(this, ...args);
-
-              if (isPromise(result)) {
-                result
-                  .then((r) => {
-                    if (r instanceof Response) {
-                      enabledMiddlewares.forEach((x) => x.onResponse(r, route, this));
-                    }
-                    res.locals.response = r;
-                    next();
-                  })
-                  .catch((err) => {
-                    next(err);
-                  });
-              } else {
-                if (result instanceof Response) {
-                  enabledMiddlewares.forEach((x) => x.onResponse(result, route, this));
-                }
-                res.locals.response = result;
-                next();
-              }
-            } catch (err) {
-              next(err);
-            }
-          });
-        } catch (err) {
-          next(err);
-        }
-      };
-
-      Object.defineProperty(acionWrapper, 'name', {
-        value: this.constructor.name,
-        writable: true,
-      });
-
-      handlers.push(acionWrapper);
-      handlers.push(...enabledMiddlewares.map((m) => _invokeAction(m, m.onAfter.bind(m), route)));
-
-      // register to express router
-      if (route.InternalType === 'unknown') {
-        this._log.warn(`Unknown route type for ${this.constructor.name}::${String(route.Method)} at path ${path}`);
-        return;
-      }
-
-      handlers.push(__handle_response__());
-      handlers.push(__handle_error__());
-
-      (this._router as any)[route.InternalType as string](path, handlers);
-    }
-
-    function _invokeAction(source: any, action: any, route: IRoute) {
-      const wrapper = (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
-        action(req, res, route, self)
-          .then(() => {
-            next();
-          })
-          .catch((err: any) => {
-            next(err);
-          });
-      };
-
-      Object.defineProperty(wrapper, 'name', {
-        value: source.constructor.name,
-        writable: true,
-      });
-      return wrapper;
-    }
-
-    async function _extractRouteArgs(route: IRoute, req: Request, res: Express.Response) {
-      const callArgs = new Array(route.Parameters.size);
-      const argsCache = new Map<ParameterType | string, RouteArgs>();
-
-      let callData = {
-        Payload: {},
-      };
-
-      // Sort parameters by priority (higher priority first)
-      // Get all parameters as array, resolve their handlers to check priority, then sort
-      const paramsWithPriority = await Promise.all(
-        Array.from(route.Parameters.values()).map(async (param) => {
-          const handler = await tryGetHash(argsCache, param.Type, () => DI.resolve(param.Type));
-          return { param, handler, priority: handler?.Priority ?? 0 };
-        })
-      );
-
-      // Sort by priority descending (higher priority first)
-      const sortedParams = paramsWithPriority.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
-
-      for (const { param, handler: routeArgsHandler } of sortedParams) {
-        if (!routeArgsHandler) {
-          throw new UnexpectedServerError(`Route parameter not registered for parameter: ${param.Name},
-            in method: ${String(route.Method)},
-            in controller: ${self.constructor.name}. Check if you have registered it in DI container.`);
-        }
-
-        const { Args, CallData } = await routeArgsHandler.extract(callData, callArgs, param, req, res, route);
-
-        callData = CallData;
-        callArgs[param.Index] = Args;
-      }
-
-      return callArgs;
-    }
-  }
-}
+import { BaseController } from './base-controller.js';
 
 export class Controllers extends AsyncService {
   /**
@@ -377,7 +88,7 @@ export class Controllers extends AsyncService {
     }
 
     const parameters = await this.ControllersCache.getCache(controller);
-    if(!controller.instance){
+    if (!controller.instance) {
       this.Log.warn(`Controller ${controller.name} in file ${controller.file} is not resolved. Make sure it is decorated with @injectable and has a public constructor without required parameters`);
       return;
     }
@@ -400,8 +111,7 @@ export class Controllers extends AsyncService {
         }
       }
 
-
-      if(!controller.instance.Router){
+      if (!controller.instance.Router) {
         this.Log.warn(`Controller ${controller.name} in file ${controller.file} has no router instance. Check if it extends BaseController and super.resolve() is called in resolve method`);
         return;
       }
@@ -414,7 +124,6 @@ export class Controllers extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-
     await super.resolve();
 
     // Shared sub-router. All controller routers mount onto this one; this
@@ -441,11 +150,11 @@ export class Controllers extends AsyncService {
     // ControllersCache.getCache() which expects a real on-disk source file.
     const fileByType = new Map<Class<BaseController>, ClassInfo<BaseController>>();
 
-    for (const ci of uniqueBy(listed, c => c.name)) {
-      if (!ci.type){
+    for (const ci of uniqueBy(listed, (c) => c.name)) {
+      if (!ci.type) {
         this.Log.warn(`Controller ${ci.name} in file ${ci.file} has no type. Make sure it is decorated with @injectable and has a public constructor without required parameters`);
         continue;
-      };
+      }
 
       fileByType.set(ci.type as Class<BaseController>, ci);
       DI.register(ci.type).as(BaseController);
@@ -484,16 +193,18 @@ export class Controllers extends AsyncService {
     for (const instance of instances) {
       const type = instance.constructor as Class<BaseController>;
       const originalCi = fileByType.get(type);
-      const ci = originalCi ?? Object.assign(new ClassInfo<BaseController>(), {
-        name: type.name,
-        type,
-        instance,
-        // For DI-registered controllers without a file scan entry, fall back
-        // to the source file captured at decoration time by `Controller()`.
-        // Only sentinel '<di>' if nothing was captured (abstract base, or no
-        // route decorators ran).
-        file: instance.Descriptor?.SourceFile ?? '<di>',
-      } as Partial<ClassInfo<BaseController>>);
+      const ci =
+        originalCi ??
+        Object.assign(new ClassInfo<BaseController>(), {
+          name: type.name,
+          type,
+          instance,
+          // For DI-registered controllers without a file scan entry, fall back
+          // to the source file captured at decoration time by `Controller()`.
+          // Only sentinel '<di>' if nothing was captured (abstract base, or no
+          // route decorators ran).
+          file: instance.Descriptor?.SourceFile ?? '<di>',
+        } as Partial<ClassInfo<BaseController>>);
       // The file-scanned entry has no instance (List, not Resolve) — patch it.
       if (!ci.instance) ci.instance = instance;
       await this.register(ci);

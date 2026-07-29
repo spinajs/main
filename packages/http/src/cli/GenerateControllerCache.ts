@@ -4,7 +4,7 @@ import { ClassInfo, DI } from '@spinajs/di';
 import { fsService } from '@spinajs/fs';
 import { DefaultControllerCache } from '../cache.js';
 import { ListFromFiles } from '@spinajs/reflection';
-import { BaseController } from '../controllers.js';
+import { BaseController } from '../base-controller.js';
 
 @Command('http:controllers:cache', 'generate controllers cache')
 export class ControllersCacheCommand extends CliCommand {
