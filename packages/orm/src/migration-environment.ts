@@ -35,6 +35,15 @@ export function parseMigrationFileEnv(file: string): string | undefined {
     return undefined;
   }
 
+  // .test.ts / .spec.ts are test-runner naming conventions (mocha, jest, vitest), not environment
+  // tags - a migration declared inline in a suite file is exactly what `DiRegistryMigrationSource`
+  // is for, and its `SourceFile` is that suite's own path. Without this carve-out every such
+  // fixture would be misread as belonging to an environment literally named 'test' or 'spec' and
+  // vanish under any other APP_ENV, which is the same false positive `.d.ts` guards against above.
+  if (segments.length === 3 && (segments[1] === 'test' || segments[1] === 'spec')) {
+    return undefined;
+  }
+
   if (segments.length > 3) {
     throw new OrmException(`Migration file ${file} carries more than one environment tag (${segments.slice(1, -1).join(', ')}) - a migration belongs to exactly one environment. Rename it to <Name>_yyyy_MM_dd_HH_mm_ss.<env>.ts`);
   }
