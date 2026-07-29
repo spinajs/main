@@ -13,6 +13,13 @@ export const MIGRATION_LOCK_POLL_INTERVAL = 500;
 export const MIGRATION_LOCK_TIMEOUT = 30_000;
 export const MIGRATION_LOCK_STALE_AFTER = 600_000;
 
+/**
+ * How many times one `acquireLock()` call may remove a lock row it judged stale. A steal is
+ * not proof the row is gone - a DELETE can succeed and remove nothing - so without a cap the
+ * stale branch is free to warn and retry forever.
+ */
+export const MIGRATION_LOCK_MAX_STEALS = 3;
+
 export type MigrationResolveAction = 'applied' | 'rolled-back';
 
 /**
@@ -127,9 +134,10 @@ export class DefaultMigrationService extends OrmMigrationService {
    * Only a table that really is present afterwards excuses the failure - anything else ( no
    * permission, bad DDL, dead connection ) is a genuine error and is rethrown.
    *
-   * Returns true when the table was absent at probe time. Callers use that to skip the legacy
-   * upgrade path: a table that appeared inside the race window was created by a peer running
-   * this same DDL, so it already carries the current shape.
+   * Returns true when the table was *absent at probe time* - which is not the same as "this
+   * process created it", since the lost-race path returns true too. Callers use it to skip the
+   * legacy upgrade path: a table that appeared inside the race window was created by a peer
+   * running this same DDL, so it already carries the current shape.
    */
   protected async createTableIfAbsent(name: string, columns: (t: TableQueryBuilder) => void): Promise<boolean> {
     // a builder executes at most once, so every statement needs a fresh SchemaQueryBuilder
@@ -157,7 +165,8 @@ export class DefaultMigrationService extends OrmMigrationService {
     const schema = () => this.driver.schema();
     const db = this.driver.Options.Database;
 
-    const created = await this.createTableIfAbsent(this.table, (t) => {
+    // "was absent when we probed", not "we created it" - a lost race reports absent too
+    const wasAbsent = await this.createTableIfAbsent(this.table, (t) => {
       t.string('Migration').unique().notNull();
       t.dateTime('CreatedAt').notNull();
       t.dateTime('StartedAt').notNull();
@@ -168,7 +177,7 @@ export class DefaultMigrationService extends OrmMigrationService {
       t.int('Batch').notNull().default().value(1);
     });
 
-    if (!created) {
+    if (!wasAbsent) {
       const cols = (await this.driver.tableInfo(this.table, db)) ?? [];
       const has = (n: string) => cols.some((c) => c.Name === n);
 
@@ -317,11 +326,21 @@ export class DefaultMigrationService extends OrmMigrationService {
    * database decides the winner in one statement and two processes racing here cannot both
    * succeed. A refused insert is therefore read as "somebody else holds it" - which is also why
    * the holder is re-read afterwards rather than guessed at.
+   *
+   * Staleness is judged against the *client* clock: `AcquiredAt` is written here as
+   * `new Date()` and compared to this host's `Date.now()`. That is sound for the case this
+   * lock is built for - one process migrating, crashing, and restarting to find its own
+   * abandoned row - but on hosts whose clocks disagree the window is off by the skew, which
+   * shows up as stealing too early or waiting too long. Stamping `AcquiredAt` from the
+   * database ( a driver-level `CURRENT_TIMESTAMP` default and a server-side comparison ) would
+   * remove the assumption; it needs dialect support that does not exist here yet.
    */
   protected async acquireLock(): Promise<void> {
     const { timeout, staleAfter } = this.lockOptions();
     const owner = this.lockOwner();
     const start = Date.now();
+    const expired = () => Date.now() - start > timeout;
+    let steals = 0;
 
     for (;;) {
       try {
@@ -330,25 +349,37 @@ export class DefaultMigrationService extends OrmMigrationService {
       } catch (err) {
         // deliberately unguarded: a select that dies here means the connection is gone, and that
         // has to surface as itself rather than as a lock timeout thirty seconds later
-        const rows = ((await this.driver.select().from(this.lockTable)) ?? []) as Array<{ AcquiredAt: Date | string; Owner: string }>;
+        const rows = ((await this.driver.select().from(this.lockTable).where({ Id: 1 })) ?? []) as Array<{ AcquiredAt: Date | string; Owner: string }>;
         const holder = rows[0];
 
         if (holder) {
           const acquiredAt = holder.AcquiredAt instanceof Date ? holder.AcquiredAt : new Date(holder.AcquiredAt);
+          const stale = Date.now() - acquiredAt.getTime() > staleAfter;
 
-          if (Date.now() - acquiredAt.getTime() > staleAfter) {
-            // a process that died mid-run leaves its row behind and nothing else will ever clear
-            // it. Loud, because the alternative reading is a live run that outlasted StaleAfter -
-            // in which case two migration runs are now in flight and somebody has to know
+          // A process that died mid-run leaves its row behind and nothing else will ever clear
+          // it. The attempts are capped because a steal is not proof the row is gone - a DELETE
+          // can succeed and remove nothing, and the read that follows then finds the same row.
+          // Uncapped, that is a sleepless loop warning once per turn and never timing out.
+          if (stale && steals < MIGRATION_LOCK_MAX_STEALS) {
+            steals++;
+
+            // Loud, because the alternative reading is a live run that outlasted StaleAfter - in
+            // which case two migration runs are now in flight and somebody has to know
             this.Log.warn(`Stealing stale migration lock on connection ${this.driver.Options.Name}, held by ${holder.Owner} since ${acquiredAt.toISOString()} ( older than ${staleAfter}ms ). If that process is still alive, two migration runs are now in flight - raise Migration.Lock.StaleAfter above the longest run.`);
             await this.driver.del().from(this.lockTable).where({ Id: 1 });
-            continue;
+
+            // straight back to the INSERT: the row should be free now, and sleeping a poll
+            // interval for a lock nobody holds is pure boot latency. Only when the deadline has
+            // already passed does this fall through to the throw below
+            if (!expired()) {
+              continue;
+            }
           }
 
-          if (Date.now() - start > timeout) {
-            throw new OrmException(`Could not acquire migration lock on connection ${this.driver.Options.Name} within ${timeout}ms - held by ${holder.Owner} since ${acquiredAt.toISOString()}`);
+          if (expired()) {
+            throw new OrmException(`Could not acquire migration lock on connection ${this.driver.Options.Name} within ${timeout}ms - held by ${holder.Owner} since ${acquiredAt.toISOString()}${steals > 0 ? `, and ${steals} attempt(s) to remove it as stale left it in place - delete the row from ${this.lockTable} by hand` : ''}`);
           }
-        } else if (Date.now() - start > timeout) {
+        } else if (expired()) {
           // no row to blame, so the insert is failing for its own reasons ( missing table, lost
           // connection ). Carrying that message is the only thing that makes this diagnosable
           throw new OrmException(`Could not acquire migration lock on connection ${this.driver.Options.Name} within ${timeout}ms - no lock row is present, the last insert failed with: ${(err as Error).message}`, undefined, undefined, undefined, err);
@@ -716,6 +747,10 @@ export class DefaultMigrationService extends OrmMigrationService {
 
   public async status(units: IMigrationUnit[]): Promise<IMigrationStatusEntry[]> {
     await this.ensureStorage();
+
+    // deliberately unlocked, unlike up()/down(): this is a read-only report and taking the lock
+    // would make it block for the whole Timeout behind any running migration - exactly when
+    // somebody is asking what is going on
     const records = await this.records();
 
     return units.map((u) => {
@@ -740,6 +775,10 @@ export class DefaultMigrationService extends OrmMigrationService {
 
   public async resolve(name: string, action: MigrationResolveAction, unit?: IMigrationUnit): Promise<void> {
     await this.ensureStorage();
+
+    // deliberately unlocked, unlike up()/down(): this is the recovery path for a run that died,
+    // quite possibly while holding the lock. Blocking it behind that lock would shut the only
+    // door left open
     const records = await this.records();
     const rec = records.find((r) => r.Migration === name);
 

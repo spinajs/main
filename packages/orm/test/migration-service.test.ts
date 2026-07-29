@@ -6,7 +6,7 @@ import 'mocha';
 import { createHash } from 'node:crypto';
 import * as sinon from 'sinon';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeTableQueryCompiler, FakeColumnQueryCompiler, FakeTableExistsCompiler, FakeDefaultValueBuilder, TEST_TABLE_INFO } from './misc.js';
-import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, TableExistsCompiler, DefaultValueBuilder, DefaultMigrationService, MIGRATION_TABLE_NAME, migrationChecksum, OrmMigration, MigrationTransactionMode, IMigrationRecord, IMigrationUnit, OrmException } from '../src/index.js';
+import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, TableExistsCompiler, DefaultValueBuilder, DefaultMigrationService, MIGRATION_TABLE_NAME, MIGRATION_LOCK_MAX_STEALS, migrationChecksum, OrmMigration, MigrationTransactionMode, IMigrationRecord, IMigrationUnit, OrmException } from '../src/index.js';
 import { TableQueryBuilder, AlterTableQueryBuilder, RawSchemaQueryBuilder, SelectQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, DeleteQueryBuilder, TableExistsQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
 import '../src/bootstrap.js';
@@ -789,13 +789,20 @@ describe('DefaultMigrationService down/resolve/status', () => {
 
   it('status() merges registry with records', async () => {
     const driver = await makeDriver();
-    stubDb([
+    const exec = stubDb([
       row({ Migration: 'MigA_2021_01_01_00_00_00', Batch: 1, Checksum: 'deadbeef' }), // mismatch
       row({ Migration: 'MigB_2021_01_02_00_00_00', FinishedAt: null, Logs: 'x' }), // failed
     ]);
     const svc = new DefaultMigrationService(driver);
 
     const st = await svc.status([unit(MigA_2021_01_01_00_00_00), unit(MigB_2021_01_02_00_00_00)]);
+
+    // deliberately unlocked, unlike up()/down(): a read-only report must not block for the whole
+    // Timeout behind a running migration, which is exactly when somebody asks for it
+    expect(
+      exec.getCalls().some((c) => c.args[0] instanceof InsertQueryBuilder && (c.args[0] as InsertQueryBuilder).Table === LOCK_TABLE),
+      'status() must not take the migration lock',
+    ).to.be.false;
 
     expect(st.find((s) => s.name.startsWith('MigA'))!.applied).to.be.true;
     expect(st.find((s) => s.name.startsWith('MigA'))!.checksumMismatch).to.be.true;
@@ -944,6 +951,53 @@ describe('DefaultMigrationService lock', () => {
     const stolen = warn.getCalls().find((c) => String(c.args[0]).includes('dead:1'));
     expect(stolen, 'stealing a lock must be loud - it may be a live process the clock disagrees with').to.not.be.undefined;
   });
+
+  it('a steal that does not free the row is bounded, not an endless spin', async () => {
+    const driver = await makeDriver();
+    // long enough that all three steals are reached even on a slow machine, short enough that
+    // the poll loop after the cap ends the acquire in about a second
+    driver.Options.Migration = { ...driver.Options.Migration, Lock: { Timeout: 700, StaleAfter: 1_000 } };
+
+    const ops: string[] = [];
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof InsertQueryBuilder && b.Table === LOCK_TABLE) {
+        ops.push('lock-insert');
+        throw new Error('UNIQUE constraint failed');
+      }
+      // the DELETE reports success and removes nothing, so the next read finds the same stale
+      // row: the steal never converges. A crashed run that left a row this where clause does not
+      // match looks exactly like this, and it happens on a boot path
+      if (b instanceof DeleteQueryBuilder && b.Table === LOCK_TABLE) {
+        ops.push('lock-delete');
+        return [{ 1: 1 }];
+      }
+      if (b instanceof SelectQueryBuilder && b.Table === LOCK_TABLE) return [{ Id: 1, AcquiredAt: new Date(Date.now() - 10_000), Owner: 'dead:1' }];
+      if (b instanceof SelectQueryBuilder) return [];
+      return [{ 1: 1 }];
+    });
+    const upA = sinon.spy(MigA_2021_01_01_00_00_00.prototype, 'up');
+    const svc = new DefaultMigrationService(driver);
+    const warn = sinon.spy((svc as any).Log, 'warn');
+
+    try {
+      await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+      expect.fail('should have thrown');
+    } catch (e: any) {
+      // the acquire has to end in an error - retrying silently forever raises nothing at all
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message, 'the operator needs to know which row is stuck').to.contain('dead:1');
+      expect(e.message).to.contain('sqlite');
+      expect(e.message, 'and where to delete it by hand').to.contain(LOCK_TABLE);
+    }
+
+    expect(upA.called, 'nothing may run without the lock').to.be.false;
+    // the spin showed up as a steal per turn with no sleep between them: capped, so the delete
+    // and its warning are issued a bounded number of times and the loop falls back to polling
+    expect(ops.filter((o) => o === 'lock-delete').length, 'steals must be capped').to.eq(MIGRATION_LOCK_MAX_STEALS);
+    expect(warn.getCalls().filter((c) => String(c.args[0]).includes('Stealing stale')).length, 'one warning per steal and no more - this runs on boot').to.eq(MIGRATION_LOCK_MAX_STEALS);
+    // an unbounded loop issues thousands of these in the same window
+    expect(ops.filter((o) => o === 'lock-insert').length, 'the retry loop must poll, not spin').to.be.at.most(MIGRATION_LOCK_MAX_STEALS + 4);
+  }).timeout(5000);
 
   it('Lock.Enabled false skips the lock entirely', async () => {
     const driver = await makeDriver();
