@@ -65,9 +65,10 @@ separate hook that runs afterwards.
 
 **`data()` belongs to the boot pass, not to the facade.** `Orm.resolve()` collects the migrations
 its own startup run applied and calls their `data()` once models and relations are usable.
-Nothing else does. A migration applied later — `orm.Migration.up()` by hand, or the CLI's
-`migrate-up` against a connection whose `Migration.OnStartup` is off — gets its schema and never
-gets its seed in that process. Every `data()` runs even when an earlier one throws; the failures
+Nothing else does. A migration applied any other way — `orm.Migration.up()` by hand, or
+`spinajs migrate-up`, which resolves its Orm with the boot pass suppressed — gets its schema and
+never gets its seed, in that process or in any later one: the next boot finds it already applied,
+and a boot seeds only what it applied itself. Every `data()` runs even when an earlier one throws; the failures
 are collected and reported together, because stopping at the first would leave the migrations
 after it recorded as applied and unseeded, with nothing to make a rerun retry them.
 
@@ -169,9 +170,41 @@ An `IMigrationStatusEntry` carries `name`, `connection`, `applied`, `failed`, `r
    driver's `tableInfo()` may read the `__orm_db_value_converters__` map that this step is what
    fills. Running it afterwards crashed every restart of an already-migrated database.
 4. `orm.Migration.up(undefined, { force: false })` — pending migrations, but only on connections
-   whose `Migration.OnStartup` is on.
+   whose `Migration.OnStartup` is on. **Skipped entirely** when the Orm was resolved with
+   `MigrateOnStartup: false` — see below.
 5. `reloadTableInfo()`, `wireRelations()`, `applyModelMixins()`.
 6. `data()` for whatever step 4 applied.
+
+#### Resolving an Orm that must not migrate
+
+```ts sample
+import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
+
+export async function inspectOnly() {
+  // everything else about resolve() happens - connections, models, converters, orm.Migration -
+  // but step 4 above does not run, so nothing is applied and nothing is seeded
+  const orm = await DI.resolve(Orm, [{ MigrateOnStartup: false }]);
+
+  return await orm.Migration.status();
+}
+```
+
+`MigrateOnStartup` is an `IOrmOptions` field, handed over at construction rather than read from
+configuration: what it describes is a property of the *process*, not of the deployment. Leave it
+out and you get the documented behaviour — this is an opt-out that only a caller who says so gets.
+
+It exists for processes whose job is to operate **on** migrations rather than with them, and
+`@spinajs/orm-cli` passes it in every command. Without it a migration tool cannot work: a
+connection holding a FAILED row refuses every migration run, so the boot pass takes the process
+down before the command body starts — including the `migrate-resolve` invoked to clear that row,
+which is the remedy the refusal itself names. And where the boot pass *succeeds*, it silently
+turns `migrate-status` from a report into a migration: the deploy gate asking "is this database
+current?" makes it current, answers "yes", and exits 0.
+
+Note it is not a `force` variation. `force` chooses whether the `OnStartup` gate is honoured, and
+both of its values run migrations — `force: false` runs every connection whose gate is on, which
+is exactly the set a migration tool must not touch on its way in.
 
 Within one run, per connection, in `(timestamp, name)` order:
 
@@ -492,6 +525,11 @@ Migration: {
 operator-facing wording and exit codes suitable for a deploy gate. Its README documents the
 options, the exit codes and one example per command; everything on this page about what a run
 *means* applies unchanged there.
+
+Every one of those commands resolves its Orm with `MigrateOnStartup: false`, so the act of
+running a command never migrates anything: what a command does is what it says on the tin, and
+nothing else. The consequence to know is the one above — a migration applied by the CLI never
+gets its `data()` hook.
 
 ## The schema builder
 

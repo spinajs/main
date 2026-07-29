@@ -3,7 +3,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { MIGRATION_FILE_REGEXP, Migration, Orm, OrmDriver, OrmMigration } from '@spinajs/orm';
+import { MIGRATION_FILE_REGEXP, Migration, Orm, OrmDriver, OrmException, OrmMigration } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 import * as fs from 'node:fs';
@@ -16,37 +16,49 @@ import { MigrateCreateCommand, MigrateDownCommand, MigrateResolveCommand, Migrat
 const expect = chai.expect;
 
 /**
- * One sqlite connection, named and with its own tracking table, plus a logger wired to nothing.
+ * Writes one sqlite connection plus a logger wired to nothing into a configuration object.
  *
- * `OnStartup: false` is the load-bearing part: the Orm's boot pass runs with `force: false` and
- * honours that gate, so the migrations below are still PENDING when the first command runs. With
- * it on, every assertion here would be made against a database the Orm had already migrated by
- * itself, and the commands would be tested against nothing.
+ * Kept as a function over `this.Config` rather than living in a base class, because the suites
+ * below need configuration classes with distinct NAMES: `DI.register()` deduplicates by type
+ * name, so two classes handed back by the same factory - both anonymous - would collapse into
+ * one registration and the second config would silently never take effect.
  */
-function connectionConf(name: string, table: string): Class<FrameworkConfiguration> {
+function applyConnectionConf(config: any, connection: Record<string, unknown>) {
+  // Targets are APPENDED and rules REPLACED: appending a rule would leave the packaged
+  // console rule matching as well, and every framework log line would land in the mocha
+  // reporter on top of the `console.log` output these tests actually assert on.
+  const logger = (config.logger ?? {}) as Record<string, unknown>;
+  logger.targets = [...((logger.targets as unknown[]) ?? []), { name: 'Empty', type: 'BlackHoleTarget' }];
+  logger.rules = [{ name: '*', level: 'trace', target: 'Empty' }];
+  config.logger = logger;
+
+  const db = (config.db ?? {}) as Record<string, unknown>;
+  db.Connections = [...((db.Connections as unknown[]) ?? []), connection];
+  config.db = db;
+}
+
+/**
+ * One in-memory sqlite connection, named and with its own tracking table.
+ *
+ * `OnStartup: false` is the load-bearing part for the suites that take the default: the Orm's
+ * boot pass runs with `force: false` and honours that gate, so the migrations are still PENDING
+ * when the first command runs. With it on, every assertion would be made against a database the
+ * Orm had already migrated by itself, and the commands would be tested against nothing.
+ *
+ * `onStartup: true` is the opposite fixture - the configuration this branch's docs ship as the
+ * example - and the suites that pass it are testing exactly what a command does on its way in.
+ */
+function connectionConf(name: string, table: string, onStartup = false): Class<FrameworkConfiguration> {
   return class extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
 
-      // Targets are APPENDED and rules REPLACED: appending a rule would leave the packaged
-      // console rule matching as well, and every framework log line would land in the mocha
-      // reporter on top of the `console.log` output these tests actually assert on.
-      const logger = (this.Config.logger ?? {}) as Record<string, unknown>;
-      logger.targets = [...((logger.targets as unknown[]) ?? []), { name: 'Empty', type: 'BlackHoleTarget' }];
-      logger.rules = [{ name: '*', level: 'trace', target: 'Empty' }];
-      this.Config.logger = logger;
-
-      const db = (this.Config.db ?? {}) as Record<string, unknown>;
-      db.Connections = [
-        ...((db.Connections as unknown[]) ?? []),
-        {
-          Driver: 'orm-driver-sqlite',
-          Filename: ':memory:',
-          Name: name,
-          Migration: { Table: table, OnStartup: false },
-        },
-      ];
-      this.Config.db = db;
+      applyConnectionConf(this.Config, {
+        Driver: 'orm-driver-sqlite',
+        Filename: ':memory:',
+        Name: name,
+        Migration: { Table: table, OnStartup: onStartup },
+      });
     }
   };
 }
@@ -75,8 +87,21 @@ async function captureStdout(fn: () => Promise<void>): Promise<string[]> {
   return lines;
 }
 
+/**
+ * The STATE column of one `migrate-status` line. The report is `<marker> <state> <batch>
+ * <connection> <migration>`, and the marker is blank for everything but a failed row - so the
+ * first token of the trimmed line is the state, or `!!` when it is FAILED.
+ *
+ * Worth the parse: connection names and migration names sit on the same line, so asserting that
+ * a line *contains* `pending` passes on a connection called `reporting-pending` no matter what
+ * its state actually is.
+ */
+function stateOf(line: string): string {
+  return line.trim().split(/\s+/)[0];
+}
+
 /** Runs `fn` and hands back whatever it threw, or `undefined` when it did not throw. */
-async function thrownBy(fn: () => Promise<void>): Promise<unknown> {
+async function thrownBy(fn: () => Promise<unknown>): Promise<unknown> {
   try {
     await fn();
   } catch (err) {
@@ -396,6 +421,321 @@ describe('orm-cli against a FAILED migration', function () {
 
     expect(err, 'a row that was not failed got silently rewritten').to.be.instanceOf(Error);
     expect((err as Error).message).to.contain('not in failed state');
+  });
+});
+
+/**
+ * The trap: a connection with `Migration.OnStartup: true` - the configuration the ORM docs ship
+ * as their example - holding a migration in the FAILED state.
+ *
+ * Every command starts by resolving an Orm, and an ordinary resolve ends with the boot migration
+ * pass, which refuses to run at all while such a row is there. So every invocation died on the
+ * row it was called about - including `migrate-resolve`, the one command that can clear it, and
+ * the one the error message names as the remedy. The only ways out were editing the tracking
+ * table or the configuration by hand.
+ *
+ * `:memory:` cannot express this. The failed row has to already be in the database when the Orm
+ * the command resolves opens the connection, and every sqlite handle gets its own private
+ * in-memory database - so the row would be invisible. Hence the temp file.
+ */
+describe('orm-cli against a FAILED row on a Migration.OnStartup connection', function () {
+  this.timeout(20000);
+
+  /**
+   * Neither name may contain a state word - `pending`, `applied`, `rolled-back`. The connection
+   * is printed on the same status line as the STATE column, so a `to.contain('rolled-back')`
+   * would pass on a line whose state says something else entirely.
+   */
+  const CONNECTION_NAME = 'orm-cli-startup-lockout';
+  const TRACKING_TABLE = 'orm_cli_lockout_migrations';
+  const FAILING_MIGRATION = 'OrmCliStartupBoom_2021_04_01_00_00_00';
+  const BOOM = 'orm-cli startup-lockout migration failed on purpose';
+
+  let scratch = '';
+  let dbFile = '';
+
+  /**
+   * Read at configuration-resolve time, so one registered class covers both phases: the fixture
+   * is planted through a gated connection this suite can hold and dispose, and the commands then
+   * run against the same database with the gate ON. Two classes would not work - see
+   * `applyConnectionConf`.
+   */
+  let onStartup = false;
+
+  class StartupFailedConf extends FrameworkConfiguration {
+    public async resolve(): Promise<void> {
+      await super.resolve();
+
+      applyConnectionConf(this.Config, {
+        Driver: 'orm-driver-sqlite',
+        Filename: dbFile,
+        Name: CONNECTION_NAME,
+
+        // one handle per Orm, so as little as possible is left holding the file at cleanup
+        Pool: { Max: 1 },
+
+        Migration: { Table: TRACKING_TABLE, OnStartup: onStartup },
+      });
+    }
+  }
+
+  let failingType: any;
+
+  /** Assigned by the tests, so `after()` disposes only an Orm that really was resolved. */
+  let orm: Orm | undefined;
+
+  function defineMigration() {
+    @Migration(CONNECTION_NAME)
+    class OrmCliStartupBoom_2021_04_01_00_00_00 extends OrmMigration {
+      public up(_connection: OrmDriver): Promise<void> {
+        return Promise.reject(new Error(BOOM));
+      }
+
+      public down(_connection: OrmDriver): Promise<void> {
+        return Promise.resolve();
+      }
+    }
+
+    failingType = OrmCliStartupBoom_2021_04_01_00_00_00;
+  }
+
+  const originalExitCode = process.exitCode;
+
+  before(async () => {
+    scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'spinajs-orm-cli-lockout-'));
+    dbFile = path.join(scratch, 'lockout.sqlite');
+
+    DI.clearCache();
+    defineMigration();
+    DI.register(StartupFailedConf).as(Configuration);
+
+    // Phase 1 - plant the failed row the way a real failure does: a real migration whose `up()`
+    // throws, through the real service. The gate is off only so this Orm can be resolved, held
+    // and disposed; what the tests need is the row it leaves behind.
+    const seed = await DI.resolve(Orm);
+    const err = await thrownBy(() => seed.Migration.up());
+
+    expect(err, 'the fixture needs a migration that really failed').to.be.instanceOf(OrmException);
+
+    // Guard for every assertion below: FAILED is `FinishedAt` NULL *and* `Logs` set, and that
+    // pair is exactly what blocks a migration run. A fixture that recorded anything else would
+    // make the tests pass against a database that was never blocking anything.
+    const rows = (await seed.Connections.get(CONNECTION_NAME)!.select().from(TRACKING_TABLE).asRaw<any[]>()) as any[];
+    const row = rows.find((r) => r.Migration === FAILING_MIGRATION);
+
+    expect(row, `no tracking row for ${FAILING_MIGRATION}, got: ${JSON.stringify(rows)}`).to.not.equal(undefined);
+    expect(row.FinishedAt, 'the fixture row is not in the failed state').to.equal(null);
+    expect(row.Logs, 'the fixture row carries no failure log, so nothing would block').to.be.a('string');
+
+    await seed.dispose();
+
+    // Phase 2 - same database, now with migrations running at boot. Nothing resolves an Orm from
+    // here on: the commands have to be the first thing that does, exactly as in a CLI process.
+    onStartup = true;
+    DI.clearCache();
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(StartupFailedConf);
+
+      if (failingType) {
+        DI.unregister(failingType);
+      }
+
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+
+      // Best effort: a test that failed leaves a connected driver nobody has a handle to, and
+      // windows refuses to remove a file sqlite still holds open. A strict cleanup would turn
+      // one real failure into two, the second saying nothing about the code under test.
+      try {
+        fs.rmSync(scratch, { recursive: true, force: true });
+      } catch {
+        // nothing to do about it, and nothing depends on it
+      }
+    }
+  });
+
+  beforeEach(() => {
+    process.exitCode = 0;
+  });
+
+  // MUST RUN FIRST, with the one below it: it asserts on the failed row, which the
+  // `migrate-resolve` test clears. Add new cases after those two, never between them.
+  it('an ordinary DI.resolve(Orm) is still blocked by the failed row', async () => {
+    // The opt-out is opt-in: nothing about this branch weakens what a failed migration does to an
+    // application that boots normally. It is also what makes the next test non-vacuous - the
+    // fixture really does refuse a boot migration pass.
+    const err = await thrownBy(() => DI.resolve(Orm));
+
+    expect(err, 'a failed migration no longer blocks an ordinary Orm boot').to.be.instanceOf(OrmException);
+    expect((err as Error).message).to.contain('blocks migration runs');
+    expect((err as Error).message).to.contain(FAILING_MIGRATION);
+  });
+
+  it('migrate-resolve clears the failed row instead of dying on it', async () => {
+    // The command resolves its own Orm - and with the boot migration pass suppressed, that
+    // resolve gets as far as the command body. Without the suppression this line threw
+    // `Migration ... failed previously and blocks migration runs` before `resolve()` was reached.
+    await (await DI.resolve(MigrateResolveCommand)).execute({ name: FAILING_MIGRATION, rolledBack: true });
+
+    // the Orm the command resolved, from the cache - not a second one
+    orm = await DI.resolve(Orm);
+
+    const rows = (await orm.Connections.get(CONNECTION_NAME)!.select().from(TRACKING_TABLE).asRaw<any[]>()) as any[];
+    const row = rows.find((r) => r.Migration === FAILING_MIGRATION);
+
+    expect(row, 'the tracking row disappeared').to.not.equal(undefined);
+    expect(row.Logs, 'Logs survived, so the row still blocks every later run').to.equal(null);
+    expect(row.RolledBackAt, 'the row was not recorded as rolled back').to.not.equal(null);
+  });
+
+  it('migrate-status runs on the same connection and reports the migration as pending work', async () => {
+    const cmd = await DI.resolve(MigrateStatusCommand);
+    const out = await captureStdout(() => cmd.execute());
+
+    const line = out.find((l) => l.includes(FAILING_MIGRATION));
+
+    expect(line, `no status line for ${FAILING_MIGRATION} in:\n${out.join('\n')}`).to.be.a('string');
+
+    // the STATE column itself, not merely the line: a state word can appear in the connection
+    // name or the migration name and make a `contain` assertion pass on the wrong row
+    expect(stateOf(line!), `status line: ${line}`).to.equal('rolled-back');
+
+    // rolled back is not done - it runs again on the next migrate-up
+    expect(process.exitCode).to.equal(1);
+  });
+});
+
+/**
+ * Consequence B of the same root cause, and the one that fails silently: `migrate-status` is
+ * sold as a deploy gate - "is this database current?" - but an ordinary `DI.resolve(Orm)` applies
+ * every pending migration on every `Migration.OnStartup` connection BEFORE `status()` is called.
+ * The report then truthfully says "all applied" and exits 0, having itself run the DDL the gate
+ * existed to hold back.
+ *
+ * `:memory:` is enough here, unlike the suite above: nothing has to survive between two Orms -
+ * the command's own resolve is the only one, which is the point.
+ */
+describe('migrate-status against a Migration.OnStartup connection with pending work', function () {
+  this.timeout(20000);
+
+  /** No state word in the name - see the note on the suite above. */
+  const CONNECTION_NAME = 'orm-cli-startup-gate';
+  const TRACKING_TABLE = 'orm_cli_gate_migrations';
+  const MARKER_TABLE = 'orm_cli_startup_marker';
+  const PENDING_MIGRATION = 'OrmCliStartupPending_2021_05_01_00_00_00';
+
+  const Conf = connectionConf(CONNECTION_NAME, TRACKING_TABLE, true);
+
+  let pendingType: any;
+  let orm: Orm | undefined;
+
+  /** Counted rather than spied: the count is the assertion, in both directions. */
+  let upRuns = 0;
+
+  function defineMigration() {
+    @Migration(CONNECTION_NAME)
+    class OrmCliStartupPending_2021_05_01_00_00_00 extends OrmMigration {
+      public async up(connection: OrmDriver): Promise<void> {
+        upRuns++;
+
+        await connection.schema().createTable(MARKER_TABLE, (table) => {
+          table.int('Id').primaryKey().autoIncrement();
+        });
+      }
+
+      public async down(connection: OrmDriver): Promise<void> {
+        await connection.schema().dropTable(MARKER_TABLE);
+      }
+    }
+
+    pendingType = OrmCliStartupPending_2021_05_01_00_00_00;
+  }
+
+  const originalExitCode = process.exitCode;
+
+  before(() => {
+    DI.clearCache();
+    defineMigration();
+    DI.register(Conf).as(Configuration);
+
+    // deliberately no `DI.resolve(Orm)` here: the command has to be the first thing in the
+    // process that resolves one, which is the only situation a CLI is ever in
+  });
+
+  after(async () => {
+    try {
+      if (orm) {
+        await orm.dispose();
+      }
+    } finally {
+      DI.unregister(Conf);
+
+      if (pendingType) {
+        DI.unregister(pendingType);
+      }
+
+      DI.clearCache();
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  beforeEach(() => {
+    process.exitCode = 0;
+  });
+
+  async function markerTableExists(connection: OrmDriver): Promise<boolean> {
+    const rows = (await connection.select().from('sqlite_master').where('name', MARKER_TABLE).asRaw<any[]>()) as any[];
+    return rows.length > 0;
+  }
+
+  // MUST RUN FIRST - the migrate-up below applies the very migration this one asserts is still
+  // pending and unapplied.
+  it('reports the pending migration without applying it', async () => {
+    const cmd = await DI.resolve(MigrateStatusCommand);
+    const out = await captureStdout(() => cmd.execute());
+
+    const line = out.find((l) => l.includes(PENDING_MIGRATION));
+
+    expect(line, `no status line for ${PENDING_MIGRATION} in:\n${out.join('\n')}`).to.be.a('string');
+    expect(stateOf(line!), 'the report describes a database it had just migrated itself').to.equal('pending');
+
+    // the deploy gate: an un-run migration means "this database is not current". Resolving the
+    // Orm the ordinary way would have made it current first, and this would be 0.
+    expect(process.exitCode).to.equal(1);
+
+    expect(upRuns, 'migrate-status ran the migration it was asked to report on').to.equal(0);
+
+    // the Orm the command resolved, from the cache - the schema really is untouched, not merely
+    // un-instrumented
+    orm = await DI.resolve(Orm);
+    const connection = orm.Connections.get(CONNECTION_NAME)!;
+
+    expect(await markerTableExists(connection), `${MARKER_TABLE} exists, so up() executed`).to.equal(false);
+
+    const rows = (await connection.select().from(TRACKING_TABLE).asRaw<any[]>()) as any[];
+    expect(
+      rows.find((r) => r.Migration === PENDING_MIGRATION),
+      'a tracking row exists, so the report recorded a migration as applied',
+    ).to.equal(undefined);
+  });
+
+  it('migrate-up still applies it - the suppression is about booting, not about migrating', async () => {
+    const cmd = await DI.resolve(MigrateUpCommand);
+    await cmd.execute({});
+
+    expect(upRuns, 'migrate-up applied nothing').to.equal(1);
+
+    orm = await DI.resolve(Orm);
+    expect(await markerTableExists(orm.Connections.get(CONNECTION_NAME)!), 'up() did not actually run').to.equal(true);
+
+    expect(process.exitCode).to.equal(0);
   });
 });
 

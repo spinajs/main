@@ -9,6 +9,7 @@
  * Nothing here is exported from `@spinajs/orm`: the dependency runs one way only, from orm-cli to
  * orm, so the ORM stays usable ( and testable ) with no CLI in its dependency tree.
  */
+export * from './orm.js';
 export * from './cli/MigrateUp.js';
 export * from './cli/MigrateDown.js';
 export * from './cli/MigrateStatus.js';

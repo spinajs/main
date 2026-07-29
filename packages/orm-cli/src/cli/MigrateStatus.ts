@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 import { CliCommand, Command } from '@spinajs/cli';
-import { DI } from '@spinajs/di';
-import { IMigrationStatusEntry, Orm } from '@spinajs/orm';
+import { IMigrationStatusEntry } from '@spinajs/orm';
+import { resolveCliOrm } from '../orm.js';
 
 /**
  * The report goes to stdout with `console.log`, not through the framework logger: it is this
@@ -11,7 +11,10 @@ import { IMigrationStatusEntry, Orm } from '@spinajs/orm';
 @Command('migrate-status', 'Prints migration status for every configured connection')
 export class MigrateStatusCommand extends CliCommand {
   public async execute(): Promise<void> {
-    const orm = await DI.resolve(Orm);
+    // Not `DI.resolve(Orm)`: that boots with a migration pass, so this report would apply every
+    // pending migration on every `Migration.OnStartup` connection and only then describe the
+    // database it had just changed - always "all applied", always exit 0. See `resolveCliOrm`.
+    const orm = await resolveCliOrm();
     const entries = await orm.Migration.status();
 
     if (entries.length === 0) {

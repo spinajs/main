@@ -8,7 +8,7 @@ import 'mocha';
 import { Orm } from '../src/orm.js';
 import { FakeSqliteDriver, FakeMysqlDriver, TEST_TABLE_INFO, bootstrapAll, mergeArrays, registerFakes, stubDb } from './misc.js';
 import * as sinon from 'sinon';
-import { ModelToSqlConverter, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter, IMigrationRecord, MIGRATION_TABLE_NAME, OrmException } from '../src/index.js';
+import { ModelToSqlConverter, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter, IMigrationRecord, MIGRATION_TABLE_NAME, OrmException, MigrationRunner, IOrmOptions } from '../src/index.js';
 import { Migration1_2021_12_01_12_00_00, Migration2_2021_12_02_12_00_00 } from './mocks/migrations/index.js';
 import { OrmDriver } from '../src/driver.js';
 import '@spinajs/log';
@@ -460,5 +460,104 @@ describe('Orm migrations', () => {
       expect(e.message).to.contain('MigrationTest_Malformed');
       expect(e.message).to.contain('some_name_yyyy_MM_dd_HH_mm_ss');
     }
+  });
+
+  /**
+   * `MigrateOnStartup` is an `IOrmOptions` field, handed over at construction -
+   * `DI.resolve(Orm, [{ MigrateOnStartup: false }])` - and it exists for processes that operate ON
+   * migrations rather than with them ( `@spinajs/orm-cli` ). The pair below is what makes it an
+   * OPT-OUT: the first test is every application that never heard of the option.
+   */
+  describe('MigrateOnStartup', () => {
+    /** One connection, `OnStartup` ON - so the boot pass is exactly what the gate lets through. */
+    class StartupConf extends FrameworkConfiguration {
+      public async resolve(): Promise<void> {
+        await super.resolve();
+
+        _.mergeWith(
+          this.Config,
+          {
+            logger: {
+              targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
+              rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+            },
+            db: {
+              Connections: [
+                {
+                  Driver: 'sqlite',
+                  Filename: 'foo.sqlite',
+                  Name: 'sqlite',
+                  Migration: {
+                    OnStartup: true,
+                    Transaction: { Mode: MigrationTransactionMode.None },
+                  },
+                },
+              ],
+            },
+          },
+          mergeArrays,
+        );
+      }
+    }
+
+    /** Both mock migrations declare the `sqlite` connection, so both are in the boot pass. */
+    function spyMigrations() {
+      return {
+        up1: sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'up').resolves(),
+        up2: sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'up').resolves(),
+        data1: sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'data').resolves(),
+        data2: sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'data').resolves(),
+      };
+    }
+
+    function container() {
+      const c = DI.child();
+      c.register(StartupConf).as(Configuration);
+
+      // an empty tracking table, so both migrations are pending and a boot pass has work to do -
+      // without this the "did not run" assertions below would pass on an already-migrated database
+      stubDb([]);
+
+      return c;
+    }
+
+    it('runs the boot migration pass on an ordinary DI.resolve(Orm)', async () => {
+      const { up1, up2, data1, data2 } = spyMigrations();
+
+      await container().resolve(Orm);
+
+      expect(up1.calledOnce, 'resolving an Orm the ordinary way must still migrate - that is what Migration.OnStartup means').to.be.true;
+      expect(up2.calledOnce).to.be.true;
+
+      // the seeding pass belongs to the boot run, so it moves with it
+      expect(data1.calledOnce).to.be.true;
+      expect(data2.calledOnce).to.be.true;
+    });
+
+    it('MigrateOnStartup: false skips the pass and leaves the rest of resolve() intact', async () => {
+      const { up1, up2, data1, data2 } = spyMigrations();
+
+      const orm = await container().resolve(Orm, [{ MigrateOnStartup: false } as IOrmOptions]);
+
+      expect(up1.called, 'the boot pass ran despite MigrateOnStartup: false').to.be.false;
+      expect(up2.called).to.be.false;
+
+      // nothing was applied, so there is nothing to seed - a data() hook firing here would run
+      // against a schema this process never touched
+      expect(data1.called, 'the data() phase ran for a migration that never ran').to.be.false;
+      expect(data2.called).to.be.false;
+
+      // everything the commands need is still there. `Migration` above all: a suppressed boot
+      // whose facade was also missing would be useless to the tool the suppression is for
+      expect(orm.Migration, 'orm.Migration must survive a suppressed boot - it is the point of it').to.be.instanceOf(MigrationRunner);
+      expect(orm.Connections.get('sqlite'), 'connections are not part of the migration pass and must still be open').to.not.be.undefined;
+      expect(orm.Container.get('__orm_db_value_converters__'), 'value converters are registered before the pass and must not move with it').to.be.instanceOf(Map);
+
+      // and the facade really works - the option suppresses the BOOT run, not migrations
+      await orm.Migration.up();
+
+      expect(up1.calledOnce, 'an explicit run through the facade must be unaffected by the suppression').to.be.true;
+      expect(up2.calledOnce).to.be.true;
+    });
   });
 });

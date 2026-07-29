@@ -1,8 +1,8 @@
 import { CliCommand, Command, Option } from '@spinajs/cli';
-import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
-import { MigrationResolveAction, Orm } from '@spinajs/orm';
+import { MigrationResolveAction } from '@spinajs/orm';
+import { resolveCliOrm } from '../orm.js';
 
 export interface IMigrateResolveCommandOptions {
   name: string;
@@ -24,7 +24,10 @@ export class MigrateResolveCommand extends CliCommand {
     // malformed invocation would be a side effect nobody asked for.
     const action = this.action(options);
 
-    const orm = await DI.resolve(Orm);
+    // Not `DI.resolve(Orm)`: this command is invoked precisely when a connection holds a FAILED
+    // row, and a boot migration pass refuses to run against one - so resolving an ordinary Orm
+    // would fail here, on the very row this call is about to clear. See `resolveCliOrm`.
+    const orm = await resolveCliOrm();
 
     // The facade refuses anything that is not in the failed state - `FinishedAt` NULL and `Logs`
     // set - so a healthy or absent row throws rather than being silently rewritten. That error is

@@ -1,7 +1,7 @@
 import { CliCommand, Command, Option } from '@spinajs/cli';
-import { DI } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { Orm } from '@spinajs/orm';
+import { resolveCliOrm } from '../orm.js';
 
 export interface IMigrateUpCommandOptions {
   name?: string;
@@ -12,6 +12,11 @@ export interface IMigrateUpCommandOptions {
  * `orm.Migration` only exists on a RESOLVED Orm - it is assigned inside `Orm.resolve()`, once the
  * connections it dispatches to have been created. So every command here resolves the Orm first
  * and reaches the facade through it, rather than injecting a migration service directly.
+ *
+ * Through `resolveCliOrm()`, so that resolve does not run a migration pass of its own: the run
+ * below is the one the operator asked for, and it is the only one. Without that, `--fake` on a
+ * `Migration.OnStartup` connection would really apply the migrations it promises to merely
+ * record, because the boot pass would have executed them before this line is reached.
  */
 @Command('migrate-up', 'Runs pending ORM migrations on every configured connection')
 @Option('-n, --name [name]', false, 'run a single migration, by class name')
@@ -21,7 +26,7 @@ export class MigrateUpCommand extends CliCommand {
   protected Log: Log;
 
   public async execute(options: IMigrateUpCommandOptions): Promise<void> {
-    const orm = await DI.resolve(Orm);
+    const orm = await resolveCliOrm();
     const executed = await orm.Migration.up(options.name, { fake: options.fake });
 
     if (executed.length > 0) {

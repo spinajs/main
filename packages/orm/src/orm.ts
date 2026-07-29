@@ -19,6 +19,32 @@ import { MIGRATION_FILE_REGEXP, MigrationRunner } from './migration-runner.js';
  */
 const CFG_PROPS = ['Database', 'User', 'Host', 'Port', 'Filename', 'Driver', 'Name'];
 
+/**
+ * What `DI.resolve(Orm, [ ... ])` hands the Orm at construction - the same way a driver is
+ * handed its `IDriverOptions`. Not configuration: nothing here comes from a config file, because
+ * the one thing it controls has to be a property of THIS PROCESS rather than of the deployment.
+ */
+export interface IOrmOptions {
+  /**
+   * Run the boot migration pass - `Migration.up(undefined, { force: false })` and the `data()`
+   * phase that seeds whatever it applied? Defaults to true, and an ordinary application never
+   * passes it: leaving it out is what keeps `db.Connections[n].Migration.OnStartup` meaning what
+   * it says.
+   *
+   * `false` is for a process whose job is to operate ON the migrations - `@spinajs/orm-cli`
+   * passes it. Such a process needs everything else resolve() does ( connections, models,
+   * converters, `orm.Migration` ) but must not have the schema move underneath it as a side
+   * effect of booting: a boot pass that meets a FAILED row takes down even the command invoked
+   * to clear that row, and a boot pass that succeeds turns `migrate-status` from a report into a
+   * migration.
+   *
+   * It is deliberately not a `force` variation. `force` chooses whether the `OnStartup` gate is
+   * honoured, and both of its values RUN migrations - `force: false` runs every connection whose
+   * gate is on, which is exactly the set a migration tool must not touch on its way in.
+   */
+  MigrateOnStartup?: boolean;
+}
+
 export class Orm extends AsyncService {
   public Models: Array<ClassInfo<ModelBase>> = [];
 
@@ -40,6 +66,14 @@ export class Orm extends AsyncService {
 
   @Autoinject()
   protected Configuration: Configuration;
+
+  /**
+   * `DI.resolve(Orm)` leaves this empty, which is every application: the defaults are the
+   * documented behaviour and nothing has to opt into them.
+   */
+  constructor(protected Options: IOrmOptions = {}) {
+    super();
+  }
 
   /**
    * This function is exposed mainly for unit testing purposes. It reloads table information for models
@@ -161,10 +195,22 @@ export class Orm extends AsyncService {
     // never showed ). Nothing here touches the database or the models, so it is free to move up.
     this.registerDefaultConverters();
 
+    // The boot migration pass, unless this Orm was resolved with MigrateOnStartup: false - see
+    // IOrmOptions. Suppressed here rather than inside the runner on purpose: `plan()` reads the
+    // OnStartup gate, so no `force` value can express "run nothing at all".
+    //
     // force: false - the boot run honours each connection's Migration.OnStartup gate. Every
     // other caller ( CLI, an explicit orm.Migration.up() ) defaults to force: true, because
     // asking for a migration by hand is the explicit intent that gate exists to require.
-    const executedMigrations = await this.Migration.up(undefined, { force: false });
+    const migrateOnStartup = this.Options.MigrateOnStartup !== false;
+
+    if (!migrateOnStartup) {
+      this.Log.trace('Boot migration pass skipped - this Orm was resolved with MigrateOnStartup: false. Nothing is applied by resolving it; orm.Migration is assigned and usable.');
+    }
+
+    // [] when suppressed, so the data() phase below has nothing to seed - which is correct: it
+    // seeds exactly what this pass applied, and this pass applied nothing.
+    const executedMigrations = migrateOnStartup ? await this.Migration.up(undefined, { force: false }) : [];
 
     // reloadTableInfo / wireRelations / applyModelMixins and the data() phase all stay AFTER the
     // migration pass: up() runs against a schema no model is wired to yet, data() against one

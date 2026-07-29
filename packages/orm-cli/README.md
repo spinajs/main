@@ -29,6 +29,36 @@ import { MigrateStatusCommand } from '@spinajs/orm-cli';
 await (await DI.resolve(MigrateStatusCommand)).execute();
 ```
 
+## Running a command never migrates anything
+
+Every command starts by resolving an `Orm`, and an ordinary `DI.resolve(Orm)` ends with the boot
+migration pass — every pending migration on every connection whose `Migration.OnStartup` is on.
+For an application that is the point. For a migration tool it is a trap, twice over:
+
+- a connection holding a **failed** migration refuses every migration run, so the resolve throws
+  before the command body starts. That took down every command on the row it was invoked about,
+  including `migrate-resolve` — the one command that clears it, and the one the refusal names as
+  the remedy.
+- `migrate-status` would apply everything pending and only then report, so the deploy gate asking
+  "is this database current?" made it current, answered "yes" and exited `0`, with the DDL it was
+  meant to hold back already run.
+
+So the commands resolve their Orm through `resolveCliOrm()`, which passes `MigrateOnStartup:
+false` (an `IOrmOptions` field of `@spinajs/orm`). Everything else about resolving happens —
+connections, models, value converters, `orm.Migration` — only the boot pass is skipped. It is
+opt-**in**: nothing changes for an application that resolves an Orm the ordinary way, and this
+package ships no configuration that would switch startup migrations off for anybody.
+
+Two consequences worth knowing:
+
+- `migrate-up --fake` means what it says on a `Migration.OnStartup` connection. A boot pass would
+  have really applied the migrations the flag promises only to record.
+- **A migration applied by the CLI never gets its `data()` hook.** Seeding belongs to the boot
+  pass: `Orm.resolve()` seeds what its own startup run applied, and a later boot finds the
+  migration already applied and seeds nothing. That was already true of every connection with
+  `Migration.OnStartup` off; it is now true of all of them. Migrations that must be seeded have to
+  be applied by an application boot, not by `migrate-up`.
+
 ## Commands
 
 | Command | Options | Does |
