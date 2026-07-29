@@ -278,8 +278,8 @@ export class DefaultMigrationService extends OrmMigrationService {
    * the runner or the CLI calls it, because they all need the registry merged in and go through
    * `status()`. It is kept because a subclass, a script or a health check reaching for "what does
    * this connection think it has applied?" should not have to reimplement the applied-gate, and
-   * getting that gate subtly wrong ( "a row exists" rather than `FinishedAt NOT NULL AND
-   * RolledBackAt NULL` ) is the classic way to re-run a migration.
+   * getting that gate subtly wrong ( "a row exists" rather than the FinishedAt NOT NULL and
+   * RolledBackAt NULL pair ) is the classic way to re-run a migration.
    */
   public async applied(): Promise<IMigrationRecord[]> {
     return (await this.records()).filter((r) => r.FinishedAt !== null && r.FinishedAt !== undefined && !r.RolledBackAt);
@@ -427,9 +427,7 @@ export class DefaultMigrationService extends OrmMigrationService {
       // warning, which would replace the diagnosis with a crash
       const started = rec.StartedAt instanceof Date ? rec.StartedAt.toISOString() : String(rec.StartedAt);
 
-      this.Log.warn(
-        `Migration ${u.name} on connection ${this.driver.Options.Name} was STARTED and never finished - its tracking row carries StartedAt with neither FinishedAt nor Logs, so the process running it was killed mid-migration ( started ${started} ). It is being RE-RUN from the top and nothing recorded how far the first attempt got. Under Migration.Transaction.Mode None ( the default ) whatever it had already applied is still in the database: non-idempotent DDL will fail and land in the failed state, non-idempotent data changes will be applied a second time and nothing will say so. Check what the first attempt left behind, or record the truth with orm.Migration.resolve('${u.name}', 'applied') or ('rolled-back') before running again.`,
-      );
+      this.Log.warn(`Migration ${u.name} on connection ${this.driver.Options.Name} was STARTED and never finished - its tracking row carries StartedAt with neither FinishedAt nor Logs, so the process running it was killed mid-migration ( started ${started} ). It is being RE-RUN from the top and nothing recorded how far the first attempt got. Under Migration.Transaction.Mode None ( the default ) whatever it had already applied is still in the database: non-idempotent DDL will fail and land in the failed state, non-idempotent data changes will be applied a second time and nothing will say so. Check what the first attempt left behind, or record the truth with orm.Migration.resolve('${u.name}', 'applied') or ('rolled-back') before running again.`);
     }
   }
 
