@@ -4,7 +4,7 @@ import { AsyncService, IContainer, Autoinject, DI, ClassInfo, Container, Class }
 import { Logger, Log } from '@spinajs/log';
 import { HttpServer } from './server.js';
 import { uniqueBy } from '@spinajs/util';
-import { DefaultControllerCache, parseFnParamNames } from './cache.js';
+import { DefaultControllerCache, parseFnParamNames, isOnDiskSource } from './cache.js';
 import { BaseController } from './base-controller.js';
 import { ControllerSource } from './controller-sources.js';
 import { ControllerRegistrationException, RouteRegistrationException } from './exceptions.js';
@@ -67,7 +67,6 @@ export class Controllers extends AsyncService {
     const sources = await this.getSources();
     const lists = await Promise.all(sources.map((s) => s.getControllers()));
 
-    const isRealFile = (f: string | undefined) => !!f && !(f.startsWith('<') && f.endsWith('>'));
     const byType = new Map<Class<BaseController>, ClassInfo<BaseController>>();
     const untyped: Array<ClassInfo<BaseController>> = [];
 
@@ -78,7 +77,7 @@ export class Controllers extends AsyncService {
       }
 
       const existing = byType.get(ci.type as Class<BaseController>);
-      if (!existing || (!isRealFile(existing.file) && isRealFile(ci.file))) {
+      if (!existing || (!isOnDiskSource(existing.file) && isOnDiskSource(ci.file))) {
         byType.set(ci.type as Class<BaseController>, ci);
       }
     }
