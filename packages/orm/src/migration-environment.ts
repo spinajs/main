@@ -30,8 +30,18 @@ export function parseMigrationFileEnv(file: string): string | undefined {
     return undefined;
   }
 
+  // .d.ts is a TypeScript declaration file (routine compilation artifact), not an environment-tagged migration
+  if (segments.length === 3 && segments[1] === 'd' && segments[2] === 'ts') {
+    return undefined;
+  }
+
   if (segments.length > 3) {
     throw new OrmException(`Migration file ${file} carries more than one environment tag (${segments.slice(1, -1).join(', ')}) - a migration belongs to exactly one environment. Rename it to <Name>_yyyy_MM_dd_HH_mm_ss.<env>.ts`);
+  }
+
+  // Reject empty middle segment (malformed filename like Foo..ts)
+  if (segments[1] === '') {
+    throw new OrmException(`Migration file ${file} has an empty environment segment - a migration belongs to exactly one environment. Rename it to <Name>_yyyy_MM_dd_HH_mm_ss.<env>.ts`);
   }
 
   return normalizeEnvironment(segments[1]);
@@ -48,6 +58,9 @@ export function parseMigrationFileEnv(file: string): string | undefined {
  */
 export function resolveMigrationEnv(name: string, file: string, decoratorEnv?: string): string | undefined {
   const fromFile = parseMigrationFileEnv(file);
+  // An empty decoratorEnv string means "decorator not declared" (returns undefined), which differs from
+  // normalizeEnvironment('') that maps empty to 'prod'. Both are "unset" semantics: here, an absent or empty
+  // decorator means no environment was declared, while APP_ENV defaults to 'prod' via normalizeEnvironment.
   const fromDecorator = decoratorEnv ? normalizeEnvironment(decoratorEnv) : undefined;
 
   if (fromFile !== undefined && fromDecorator !== undefined && fromFile !== fromDecorator) {

@@ -33,6 +33,14 @@ describe('parseMigrationFileEnv', () => {
   it('refuses more than one tag', () => {
     expect(() => parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.local.dev.ts'))).to.throw(OrmException, /one environment/);
   });
+
+  it('treats .d.ts as unsuffixed (declaration file)', () => {
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.d.ts'))).to.equal(undefined);
+  });
+
+  it('rejects empty middle segment (malformed filename)', () => {
+    expect(() => parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00..ts'))).to.throw(OrmException, /Foo_2026_07_29_10_00_00\.\.ts/);
+  });
 });
 
 describe('resolveMigrationEnv', () => {
