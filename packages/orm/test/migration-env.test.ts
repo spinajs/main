@@ -186,9 +186,10 @@ describe('Orm migration environments', () => {
     Object.defineProperty(MigrationEnvTest_CollisionB_2026_07_29_10_03_00, 'name', { value: MigrationEnvTest_CollisionA_2026_07_29_10_03_00.name });
 
     FakeMigrationSource.Entries = [
-      // unsuffixed, so the kept entry stays visible under any environment - isolating the
-      // assertion below from the env-merge behaviour that finding 5 explicitly skips on this branch
-      entry(MigrationEnvTest_CollisionA_2026_07_29_10_03_00, '/app/MigrationEnvTest_CollisionA_2026_07_29_10_03_00.js'),
+      // both suffixed with different environments, so the collision scenario exercises the
+      // logic that would call mergeMigrationEnv if these were the same class - the prod-suffixed
+      // entry stays visible under the current prod environment, so one survivor remains visible
+      entry(MigrationEnvTest_CollisionA_2026_07_29_10_03_00, '/app/MigrationEnvTest_CollisionA_2026_07_29_10_03_00.prod.js'),
       entry(MigrationEnvTest_CollisionB_2026_07_29_10_03_00, '/app/MigrationEnvTest_CollisionB_2026_07_29_10_03_00.dev.js'),
     ];
 

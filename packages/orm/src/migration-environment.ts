@@ -23,11 +23,19 @@ export const MIGRATION_DI_SOURCE = '<di>';
  * no tag to read, no matter how many dots follow:
  *
  *   Foo_2026_07_29_10_00_00.ts        -> undefined  ( every environment )
+ *   Foo_2026_07_29_10_00_00.ts.js     -> undefined  ( .js is an unsuffixed compiled artifact )
  *   Foo_2026_07_29_10_00_00.local.ts  -> 'local'
+ *   Foo_2026_07_29_10_00_00.local.js  -> 'local'
  *   Foo_2026_07_29_10_00_00.dev.ts    -> 'dev'
+ *   Foo_2026_07_29_10_00_00.dev.js    -> 'dev'
  *   Foo_2026_07_29_10_00_00.test.ts   -> undefined  ( a test suite named after its migration,
  *                                                      carved out below - see its comment )
+ *   Foo_2026_07_29_10_00_00.test.js   -> undefined  ( same, .js compiled artifact of test suite )
  *   Foo_2026_07_29_10_00_00.spec.ts   -> undefined  ( same, .spec naming convention )
+ *   Foo_2026_07_29_10_00_00.spec.js   -> undefined  ( same, .js compiled artifact of spec suite )
+ *   Foo_2026_07_29_10_00_00.d.ts      -> undefined  ( TypeScript declaration file )
+ *   Foo_2026_07_29_10_00_00.d.js      -> 'd'        ( .d.js is not a declaration convention,
+ *                                                      so 'd' is a legitimate environment name )
  *   migration.test.ts                 -> undefined  ( 'migration' carries no timestamp )
  *   Bar.stories.ts                    -> undefined  ( 'Bar' carries no timestamp )
  *
@@ -65,8 +73,15 @@ export function parseMigrationFileEnv(file: string): string | undefined {
   // middle segments is an environment tag - each names a KIND OF FILE the migration produced or
   // is described by, not where it should run - so they are carved out by name rather than left to
   // the anchor, which provably cannot reject them.
-  if (segments.length === 3 && segments[2] === 'ts' && ['d', 'test', 'spec'].includes(segments[1])) {
-    return undefined;
+  if (segments.length === 3) {
+    // `.d` is only a carve-out for `.d.ts` (TypeScript declaration files)
+    if (segments[1] === 'd' && segments[2] === 'ts') {
+      return undefined;
+    }
+    // `.test` and `.spec` are carve-outs for both `.ts` and `.js` (compiled test artifacts)
+    if (['test', 'spec'].includes(segments[1]) && (segments[2] === 'ts' || segments[2] === 'js')) {
+      return undefined;
+    }
   }
 
   if (segments.length > 3) {
