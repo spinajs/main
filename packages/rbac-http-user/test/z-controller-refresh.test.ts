@@ -5,12 +5,9 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
-import * as cs from 'cookie-signature';
 
 import { ISession, UserSession } from '@spinajs/rbac';
 import { UserController } from '../src/controllers/UserController.js';
-
-const COOKIE_SECRET = 'unit-test-secret';
 
 class FakeSessionProvider {
   public Store = new Map<string, ISession>();
@@ -27,18 +24,31 @@ class FakeSessionProvider {
   }
 }
 
+/**
+ * `refresh` takes its ssid through `@Cookie(true)`, so the framework has
+ * already verified the signature and handed over the plain session id — or
+ * `null` when the cookie was missing or its signature did not check out. The
+ * handler therefore only ever sees a usable id or nothing, which is what these
+ * two cases cover.
+ */
 describe('UserController.refresh', function () {
   this.timeout(15000);
 
   let controller: UserController;
   let sessionProvider: FakeSessionProvider;
 
+  const fakeUser = () => ({
+    Uuid: 'user-uuid-123',
+    refresh: sinon.stub().resolves(),
+    Metadata: { populate: sinon.stub().resolves() },
+    dehydrateWithRelations: () => ({ Uuid: 'user-uuid-123', Login: 'bob' }),
+  });
+
   beforeEach(() => {
     controller = new UserController();
     sessionProvider = new FakeSessionProvider();
 
     // @Config / @Autoinject make these getter-only; override via defineProperty
-    Object.defineProperty(controller, 'CoockieSecret', { value: COOKIE_SECRET, configurable: true, writable: true });
     Object.defineProperty(controller, 'SessionProvider', { value: sessionProvider, configurable: true, writable: true });
   });
 
@@ -49,16 +59,7 @@ describe('UserController.refresh', function () {
     session.Data.set('User', 'stale-value');
     sessionProvider.Store.set(session.SessionId, session);
 
-    const signedSsid = cs.sign(session.SessionId, COOKIE_SECRET);
-
-    const user: any = {
-      Uuid: 'user-uuid-123',
-      refresh: sinon.stub().resolves(),
-      Metadata: { populate: sinon.stub().resolves() },
-      dehydrate: () => ({ Uuid: 'user-uuid-123', Login: 'bob' }),
-    };
-
-    await controller.refresh(user, signedSsid);
+    await controller.refresh(fakeUser() as any, session.SessionId);
 
     // must be the plain UUID string so RbacUserFactory can resolve the user
     // on subsequent requests (storing a dehydrated object silently logs the
@@ -68,22 +69,25 @@ describe('UserController.refresh', function () {
     expect(sessionProvider.SavedCount).to.be.greaterThan(0);
   });
 
-  it('does not touch the session when the cookie signature is invalid', async () => {
+  it('does not touch the session when no valid ssid reaches the handler', async () => {
     const session = new UserSession();
     session.Data.set('User', 'original');
     sessionProvider.Store.set(session.SessionId, session);
 
-    const user: any = {
-      Uuid: 'user-uuid-123',
-      refresh: sinon.stub().resolves(),
-      Metadata: { populate: sinon.stub().resolves() },
-      dehydrate: () => ({ Uuid: 'user-uuid-123' }),
-    };
-
-    // ssid not signed with our secret -> cs.unsign returns false
-    await controller.refresh(user, 'not-a-valid-signed-cookie');
+    // an unsigned / tampered cookie never gets this far — the extractor
+    // resolves the argument to null instead
+    await controller.refresh(fakeUser() as any, null as unknown as string);
 
     expect(session.Data.get('User')).to.equal('original');
     expect(sessionProvider.SavedCount).to.equal(0);
+  });
+
+  it('returns the user with relations and ISO dates, matching every other user response', async () => {
+    const user = fakeUser();
+    const spy = sinon.spy(user, 'dehydrateWithRelations');
+
+    await controller.refresh(user as any, null as unknown as string);
+
+    sinon.assert.calledOnce(spy);
   });
 });

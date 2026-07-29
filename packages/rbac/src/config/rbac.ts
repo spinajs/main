@@ -214,6 +214,17 @@ const rbac = {
        * How long we should wait to reset password ( after this time reset token is invalid )
        */
       passwordResetWaitTime: 60 * 60,
+
+      /**
+       * Consecutive failed logins that lock the account. 0 disables throttling.
+       */
+      blockAfterAttempts: 5,
+
+      /**
+       * How long the account stays locked once `blockAfterAttempts` is hit,
+       * in seconds.
+       */
+      lockoutTime: 15 * 60,
     },
     user: {
       profile: "BasicProfileProvider"
@@ -228,12 +239,40 @@ const rbac = {
        */
       expiration: {
         service: 'SlidingCappedExpiration',
-        ttl: 120, // minutes
-        maxLifetime: 1440, // minutes (SlidingCappedExpiration only)
+
+        // idle timeout — OWASP puts a low-risk application at 15-30 minutes
+        ttl: 30, // minutes
+
+        // hard ceiling on a single session's life, regardless of activity
+        maxLifetime: 480, // minutes (SlidingCappedExpiration only)
       },
 
-      // passthrough express cookie options
-      cookie: {},
+      /**
+       * Session cookie. Passed through to express, EXCEPT:
+       *  - `httpOnly` is forced on and cannot be configured away,
+       *  - `secure` and `sameSite` default to `true` / `'strict'`,
+       *  - `name` sets the cookie name ( default `ssid` ),
+       *  - `hostPrefix: true` emits it as `__Host-<name>`, which additionally
+       *    forces `secure`, `path: '/'` and drops `domain`.
+       *
+       * Local http development needs `secure: false`; everything else should be
+       * left alone.
+       */
+      cookie: {
+        /**
+         * Secure everywhere except local development.
+         *
+         * `NODE_ENV=production` is what a deployment sets, and there the cookie
+         * must never leave over plain http. Anywhere else ( a developer running
+         * the app on http://localhost ) the browser would simply drop a Secure
+         * cookie and nobody could log in, so it is relaxed there and only
+         * there.
+         *
+         * An application serving https outside production should set this back
+         * to `true` in its own config.
+         */
+        secure: process.env.NODE_ENV === 'production',
+      },
     },
 
     /**

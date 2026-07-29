@@ -8,6 +8,7 @@ import sinon from 'sinon';
 import { ISession, UserSession } from '@spinajs/rbac';
 import { Ok } from '@spinajs/http';
 import { TwoFactorAuthController } from '../src/controllers/TwoFactorAuthController.js';
+import { SessionCookieFactory } from '../src/services/SessionCookies.js';
 import { TokenDto } from '../src/dto/token-dto.js';
 
 class FakeSessionProvider {
@@ -49,8 +50,12 @@ describe('TwoFactorAuthController.verifyToken — session regeneration on 2FA au
     sessionProvider = new FakeSessionProvider();
 
     Object.defineProperty(controller, 'SessionProvider', { value: sessionProvider, configurable: true, writable: true });
-    Object.defineProperty(controller, 'SessionCookieConfig', { value: {}, configurable: true, writable: true });
     Object.defineProperty(controller, 'AC', { value: { getGrants: () => ({}) }, configurable: true, writable: true });
+
+    // the cookie factory reads its overrides from config; hand it an empty set
+    const cookies = new SessionCookieFactory();
+    Object.defineProperty(cookies, 'SessionCookieConfig', { value: {}, configurable: true, writable: true });
+    Object.defineProperty(controller, 'SessionCookies', { value: cookies, configurable: true, writable: true });
 
     // Stub the protected 2FA verification wrapper so no TOTP/DB is needed.
     sinon.stub(controller as any, 'verifyTwoFactorToken').resolves();

@@ -211,15 +211,19 @@ describe('Where query builder', () => {
     expect(result.bindings).to.be.an('array').to.include.members([1, 2, 3]);
   });
 
+  // These used to expect FIND_IN_SET. That is MySQL and nothing else, and this is
+  // the package every driver inherits from — SQLite and MSSQL took it and failed at
+  // the database. The shared implementation is now portable; the FIND_IN_SET shape
+  // is asserted in orm-mysql, against the driver that has the function.
   it('where in set', () => {
     const result = sqb().select('*').from('users').whereInSet('tags', ['admin', 'user']).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE (FIND_IN_SET(?, `tags`) > 0 OR FIND_IN_SET(?, `tags`) > 0)');
+    expect(result.expression).to.equal("SELECT * FROM `users` WHERE ((`tags` = ? OR `tags` LIKE ? ESCAPE '~' OR `tags` LIKE ? ESCAPE '~' OR `tags` LIKE ? ESCAPE '~') OR (`tags` = ? OR `tags` LIKE ? ESCAPE '~' OR `tags` LIKE ? ESCAPE '~' OR `tags` LIKE ? ESCAPE '~'))");
     expect(result.bindings).to.be.an('array').to.include.members(['admin', 'user']);
   });
 
   it('where not in set', () => {
     const result = sqb().select('*').from('users').whereNotInSet('tags', ['admin', 'user']).toDB();
-    expect(result.expression).to.equal('SELECT * FROM `users` WHERE (FIND_IN_SET(?, `tags`) = 0 AND FIND_IN_SET(?, `tags`) = 0)');
+    expect(result.expression).to.equal("SELECT * FROM `users` WHERE (NOT (`tags` = ? OR `tags` LIKE ? ESCAPE '~' OR `tags` LIKE ? ESCAPE '~' OR `tags` LIKE ? ESCAPE '~') AND NOT (`tags` = ? OR `tags` LIKE ? ESCAPE '~' OR `tags` LIKE ? ESCAPE '~' OR `tags` LIKE ? ESCAPE '~'))");
     expect(result.bindings).to.be.an('array').to.include.members(['admin', 'user']);
   });
 

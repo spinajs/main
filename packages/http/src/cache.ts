@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 import { createRequire } from 'module';
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
-import type { BaseController } from './controllers.js';
+import type { BaseController } from './base-controller.js';
 import { Logger, Log } from '@spinajs/log';
 
 // ---------------------------------------------------------------------------
@@ -122,8 +122,16 @@ export class DefaultControllerCache extends AsyncService {
     this.Log.info(`Controller cache dir is: ${this.CacheFS.resolvePath('')}`);
   }
 
-  /** Returns parameter-name map used for route argument binding. */
-  public async getCache(controller: ClassInfo<BaseController>): Promise<Record<string, string[]>> {
+  /**
+   * Returns parameter-name map used for route argument binding.
+   *
+   * Cache entries are keyed by source-file content hash, so a changed file
+   * naturally gets a fresh entry. `options.rebuild` forces regeneration and
+   * overwrite even when entries for the current hash already exist — used by
+   * the `http:controllers:cache` CLI command to refresh a pre-built cache
+   * (e.g. inside a docker image build).
+   */
+  public async getCache(controller: ClassInfo<BaseController>, options?: { rebuild?: boolean }): Promise<Record<string, string[]>> {
     // Sentinel values like `<di>` are set by Controllers.resolve() / add() for
     // controllers registered through DI rather than a file scan. There's no
     // on-disk source to parse, so fall back to a runtime extraction of
@@ -136,8 +144,9 @@ export class DefaultControllerCache extends AsyncService {
     const hash = await this.Hasher.hash(file);
     const docHash = `doc_${hash}`;
 
-    const paramExists = await this.CacheFS.exists(hash);
-    const docExists = await this.CacheFS.exists(docHash);
+    const rebuild = options?.rebuild === true;
+    const paramExists = !rebuild && (await this.CacheFS.exists(hash));
+    const docExists = !rebuild && (await this.CacheFS.exists(docHash));
 
     if (!paramExists || !docExists) {
       this.Log.info(`Generating controller cache for ${controller.name}`);
@@ -154,10 +163,7 @@ export class DefaultControllerCache extends AsyncService {
 
   /** Whether `file` points at a real on-disk source we can parse. */
   private isResolvableSource(file: string | undefined): boolean {
-    if (!file) return false;
-    // Bracketed sentinels (e.g. `<di>`, `<dynamic>`) are used by Controllers
-    // for entries that were never loaded from a file.
-    return !(file.startsWith('<') && file.endsWith('>'));
+    return isOnDiskSource(file);
   }
 
   /**
@@ -642,6 +648,16 @@ export class DefaultControllerCache extends AsyncService {
   }
 }
 
+/**
+ * Whether a ClassInfo `file` points at a real on-disk source. Bracketed
+ * sentinels (e.g. `<di>`, `<dynamic>`) are used by Controllers for entries
+ * that were never loaded from a file.
+ */
+export function isOnDiskSource(file: string | undefined): boolean {
+  if (!file) return false;
+  return !(file.startsWith('<') && file.endsWith('>'));
+}
+
 /** Rightmost identifier of an entity name. */
 function entityNameRight(name: ts.EntityName): string {
   return ts.isIdentifier(name) ? name.text : name.right.text;
@@ -652,7 +668,7 @@ function entityNameRight(name: ts.EntityName): string {
  * preserves the literal signature so we can regex out `(a, b = 1, ...rest)`.
  * Stripped of default values and TypeScript type annotations.
  */
-function parseFnParamNames(fn: Function): string[] {
+export function parseFnParamNames(fn: Function): string[] {
   const src = Function.prototype.toString.call(fn);
   const match = src.match(/^[^(]*\(([\s\S]*?)\)/);
   if (!match) return [];

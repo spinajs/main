@@ -3,9 +3,9 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler, IdentifierQuoter } from '@spinajs/orm';
 import { use } from 'typescript-mix';
-import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
+import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
 import _ from 'lodash';
 
 /**
@@ -17,9 +17,11 @@ import _ from 'lodash';
  * (`` `${name}` ``), so existing generated SQL is unchanged; only names that
  * actually contain a backtick produce different — and now safe — output.
  *
- * Dialects that quote differently (e.g. `[name]` with `]`-doubling) override
- * this by shadowing the relevant compiler/statement, the same way
- * {@link SqlTableAliasCompiler} is already overridden per driver.
+ * NOTE: compilers and statements no longer call this. They quote through the
+ * injected {@link IdentifierQuoter}, which a driver registers for its own dialect —
+ * shadowing a compiler could never shadow a function it called internally, which is
+ * how MSSQL ended up emitting backticks. This is kept for a DRIVER's own internal
+ * SQL ( schema probes, savepoint names ), where the driver already knows its dialect.
  */
 export function escapeIdentifier(name: string): string {
   return '`' + String(name).replace(/`/g, '``') + '`';
@@ -36,6 +38,20 @@ export function escapeIdentifier(name: string): string {
  * therefore read as a qualifier separator; a table whose name genuinely contains a
  * dot cannot be expressed through that API (it never could).
  */
+/**
+ * Backtick quoting — MySQL's rule, which SQLite also accepts.
+ *
+ * Registered by the MySQL and SQLite drivers, NOT by the shared `SqlDriver`: backticks
+ * are not portable ( MSSQL rejects them ), and a driver inheriting another dialect's
+ * quoting silently is exactly the failure this service exists to end.
+ */
+@NewInstance()
+export class BacktickIdentifierQuoter extends IdentifierQuoter {
+  public quote(name: string): string {
+    return escapeIdentifier(name);
+  }
+}
+
 export function escapeQualifiedIdentifier(name: string): string {
   return String(name)
     .split('.')
@@ -56,17 +72,20 @@ export function escapeStringLiteral(value: string): string {
 
 @NewInstance()
 export class SqlTableAliasCompiler implements TableAliasCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   public compile(builder: IQueryBuilder, tbl?: string) {
     let table = '';
 
     if (builder.Database) {
-      table += `${escapeIdentifier(builder.Database)}.`;
+      table += `${this.Quoter.quote(builder.Database)}.`;
     }
 
-    table += escapeIdentifier(tbl ? tbl : builder.Table);
+    table += this.Quoter.quote(tbl ? tbl : builder.Table);
 
     if (builder.TableAlias) {
-      table += ` as ${escapeIdentifier(builder.TableAlias)}`;
+      table += ` as ${this.Quoter.quote(builder.TableAlias)}`;
     }
 
     return table;
@@ -99,6 +118,9 @@ export abstract class SqlQueryCompiler<T extends QueryBuilder> extends SelectQue
 
 @NewInstance()
 export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   protected _builder: OrderByBuilder;
 
   constructor(builder: OrderByBuilder) {
@@ -117,7 +139,7 @@ export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
     const bindings: string[] = [];
 
     if (sorts.length > 0) {
-      stmt = ` ORDER BY ${sorts.map((s) => `${escapeIdentifier(s.column)} ${s.order}`).join(', ')}`;
+      stmt = ` ORDER BY ${sorts.map((s) => `${this.Quoter.quote(s.column)} ${s.order}`).join(', ')}`;
     }
 
     return {
@@ -150,6 +172,9 @@ export class SqlWithRecursiveCompiler implements IRecursiveCompiler {
 
 @NewInstance()
 export class SqlForeignKeyQueryCompiler implements ForeignKeyQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   constructor(protected _builder: ForeignKeyBuilder) {
     if (!_builder) {
       throw new Error('foreign key query builder cannot be null');
@@ -157,7 +182,7 @@ export class SqlForeignKeyQueryCompiler implements ForeignKeyQueryCompiler {
   }
 
   public compile(): ICompilerOutput {
-    const exprr = `FOREIGN KEY (${escapeIdentifier(this._builder.ForeignKeyField)}) REFERENCES ${escapeQualifiedIdentifier(this._builder.Table)}(${escapeIdentifier(this._builder.PrimaryKey)}) ON DELETE ${this._builder.OnDeleteAction} ON UPDATE ${this._builder.OnUpdateAction}`;
+    const exprr = `FOREIGN KEY (${this.Quoter.quote(this._builder.ForeignKeyField)}) REFERENCES ${this.Quoter.quoteQualified(this._builder.Table)}(${this.Quoter.quote(this._builder.PrimaryKey)}) ON DELETE ${this._builder.OnDeleteAction} ON UPDATE ${this._builder.OnUpdateAction}`;
 
     return {
       bindings: [],
@@ -168,6 +193,7 @@ export class SqlForeignKeyQueryCompiler implements ForeignKeyQueryCompiler {
 
 @NewInstance()
 export class SqlLimitQueryCompiler extends LimitQueryCompiler {
+
   protected _builder: LimitBuilder<unknown>;
 
   constructor(builder: LimitBuilder<unknown>) {
@@ -410,6 +436,9 @@ export interface SqlUpdateQueryCompiler extends IWhereCompiler { }
 @NewInstance()
 @Inject(Container)
 export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<unknown>> {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   @use(SqlWhereCompiler, TableAliasCompiler) this: this;
 
   constructor(protected _container: IContainer, builder: UpdateQueryBuilder<unknown>) {
@@ -438,7 +467,7 @@ export class SqlUpdateQueryCompiler extends SqlQueryCompiler<UpdateQueryBuilder<
     for (const prop of Object.keys(this._builder.Value)) {
       const v = (this._builder.Value as never)[`${prop}`] as any;
 
-      exprr.push(`${escapeIdentifier(prop)} = ?`);
+      exprr.push(`${this.Quoter.quote(prop)} = ?`);
 
       bindings = bindings.concat(this.tryConvertValue(v));
     }
@@ -497,6 +526,10 @@ export class SqlDeleteQueryCompiler extends SqlQueryCompiler<DeleteQueryBuilder<
 
 @NewInstance()
 export class SqlOnDuplicateQueryCompiler implements OnDuplicateQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+
   protected _builder: OnDuplicateQueryBuilder;
 
   constructor(builder: OnDuplicateQueryBuilder) {
@@ -512,7 +545,7 @@ export class SqlOnDuplicateQueryCompiler implements OnDuplicateQueryCompiler {
           // re-binding one specific row's value. Binding `parent.Values[0]`
           // applied the FIRST row's values to every conflicting row in a
           // multi row upsert.
-          return `${escapeIdentifier(c)} = VALUES(${escapeIdentifier(c)})`;
+          return `${this.Quoter.quote(c)} = VALUES(${this.Quoter.quote(c)})`;
         } else {
           return c.Query;
         }
@@ -535,6 +568,9 @@ export class SqlOnDuplicateQueryCompiler implements OnDuplicateQueryCompiler {
 
 @NewInstance()
 export class SqlIndexQueryCompiler extends IndexQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   protected _builder: IndexQueryBuilder;
 
   constructor(builder: IndexQueryBuilder) {
@@ -546,7 +582,7 @@ export class SqlIndexQueryCompiler extends IndexQueryCompiler {
   public compile(): ICompilerOutput {
     return {
       bindings: [],
-      expression: `CREATE ${this._builder.Unique ? 'UNIQUE ' : ''}INDEX ${escapeIdentifier(this._builder.Name)} ON ${escapeIdentifier(this._builder.Table)} (${this._builder.Columns.map((c) => escapeIdentifier(c)).join(',')});`,
+      expression: `CREATE ${this._builder.Unique ? 'UNIQUE ' : ''}INDEX ${this.Quoter.quote(this._builder.Name)} ON ${this.Quoter.quote(this._builder.Table)} (${this._builder.Columns.map((c) => this.Quoter.quote(c)).join(',')});`,
     };
   }
 }
@@ -554,6 +590,9 @@ export class SqlIndexQueryCompiler extends IndexQueryCompiler {
 @NewInstance()
 @Inject(Container)
 export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder> {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   @use(TableAliasCompiler) this: this;
 
   constructor(_container: IContainer, builder: InsertQueryBuilder) {
@@ -666,7 +705,7 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
       .map((c) => {
         // RawQuery columns carry raw SQL - preserve the existing (unescaped)
         // backtick wrapping. String columns go through the identifier escaper.
-        return c instanceof RawQuery ? `\`${c.Query}\`` : escapeIdentifier(c as string);
+        return c instanceof RawQuery ? `\`${c.Query}\`` : this.Quoter.quote(c);
       });
 
     if (columns.length === 0) {
@@ -787,6 +826,9 @@ export interface SqlTableCloneQueryCompiler { }
 @NewInstance()
 @Inject(Container)
 export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   @use(TableAliasCompiler) this: this;
 
   constructor(protected container: Container, protected builder: CloneTableQueryBuilder) {
@@ -813,7 +855,7 @@ export class SqlTableCloneQueryCompiler extends TableCloneQueryCompiler {
             expression: `SELECT * FROM ${_tblName}`,
           };
 
-      const fExprr = `INSERT INTO ${escapeIdentifier(this.builder.Table)} ${fOut.expression}`;
+      const fExprr = `INSERT INTO ${this.Quoter.quote(this.builder.Table)} ${fOut.expression}`;
 
       return [
         out1,
@@ -851,6 +893,7 @@ export class SqlTruncateTableQueryCompiler extends TableQueryCompiler {
 @NewInstance()
 @Inject(Container)
 export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
+
   constructor(protected container: Container, protected builder: TableQueryBuilder) {
     super();
   }
@@ -961,6 +1004,9 @@ export interface SqlTableQueryCompiler { }
 @NewInstance()
 @Inject(Container)
 export class SqlTableQueryCompiler extends TableQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   constructor(protected container: Container, protected builder: TableQueryBuilder) {
     super();
   }
@@ -998,7 +1044,7 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
 
   protected _primaryKeys() {
     const _keys = this.builder.Columns.filter((x) => x.PrimaryKey)
-      .map((c) => escapeIdentifier(c.Name))
+      .map((c) => this.Quoter.quote(c.Name))
       .join(',');
 
     if (!_.isEmpty(_keys)) {
@@ -1015,6 +1061,10 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
 
 @NewInstance()
 export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+
   protected _statementsMappings = {
     set: (builder: ColumnQueryBuilder) => `SET(${builder.Args[0].map((a: string) => `'${escapeStringLiteral(a)}'`).join(',')})`,
     string: (builder: ColumnQueryBuilder) => `VARCHAR(${builder.Args[0] ? builder.Args[0] : 255})`,
@@ -1066,7 +1116,7 @@ export class SqlColumnQueryCompiler implements ColumnQueryCompiler {
   public compile(): ICompilerOutput {
     const _stmt: string[] = [];
 
-    _stmt.push(escapeIdentifier(this.builder.Name));
+    _stmt.push(this.Quoter.quote(this.builder.Name));
     _stmt.push(this._statementsMappings[this.builder.Type](this.builder));
 
     if (this.builder.Unsigned) {
@@ -1124,6 +1174,9 @@ export interface SqlAlterColumnQueryCompiler { }
 @NewInstance()
 @Inject(Container)
 export class SqlAlterColumnQueryCompiler extends AlterColumnQueryCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   constructor(protected container: Container, protected builder: AlterColumnQueryBuilder) {
     super();
 
@@ -1164,7 +1217,7 @@ export class SqlAlterColumnQueryCompiler extends AlterColumnQueryCompiler {
   protected _add(definition: string): string | null {
     // escapeIdentifier, not raw backticks: an identifier containing a backtick would
     // otherwise terminate the quote and splice arbitrary SQL into the DDL ( A3 ).
-    return `ADD ${definition} ${this.builder.AfterColumn ? `AFTER ${escapeIdentifier(this.builder.AfterColumn)}` : ''}`;
+    return `ADD ${definition} ${this.builder.AfterColumn ? `AFTER ${this.Quoter.quote(this.builder.AfterColumn)}` : ''}`;
   }
 
   protected _modify(definition: string): string | null {
@@ -1172,7 +1225,7 @@ export class SqlAlterColumnQueryCompiler extends AlterColumnQueryCompiler {
   }
 
   protected _rename(): string | null {
-    return `RENAME COLUMN ${escapeIdentifier(this.builder.OldName)} TO ${escapeIdentifier(this.builder.Name)}`;
+    return `RENAME COLUMN ${this.Quoter.quote(this.builder.OldName)} TO ${this.Quoter.quote(this.builder.Name)}`;
   }
 
   public compile(): ICompilerOutput {
@@ -1209,6 +1262,7 @@ export class SqlAlterColumnQueryCompiler extends AlterColumnQueryCompiler {
 @NewInstance()
 @Inject(Container)
 export class SqlEventQueryCompiler extends SqlQueryCompiler<EventQueryBuilder> {
+
   constructor(container: IContainer, builder: EventQueryBuilder) {
     super(builder, container);
   }

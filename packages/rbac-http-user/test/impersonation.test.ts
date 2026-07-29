@@ -18,6 +18,7 @@ import {
 } from '@spinajs/rbac';
 
 import { ImpersonationController } from '../src/controllers/ImpersonationController.js';
+import { ImpersonationService } from '../src/services/ImpersonationService.js';
 import { ImpersonateDto } from '../src/dto/impersonate-dto.js';
 
 import { Ok, BadRequestResponse, Unauthorized, ForbiddenResponse, Conflict, NotFound } from '@spinajs/http';
@@ -73,11 +74,12 @@ class TestPasswordProvider extends PasswordProvider {
 
 class TestSessionProvider extends SessionProvider<ISession> {
   public Saved: ISession[] = [];
+  public Deleted: string[] = [];
   public async restore(): Promise<ISession | null> {
     return null;
   }
-  public async delete(): Promise<void> {
-    /* noop */
+  public async delete(sessionId: string): Promise<void> {
+    this.Deleted.push(sessionId);
   }
   public async save(session: ISession): Promise<void> {
     this.Saved.push(session);
@@ -143,6 +145,8 @@ describe('ImpersonationController', function () {
   let passwordProvider: TestPasswordProvider;
   let sessionProvider: TestSessionProvider;
   let evStub: sinon.SinonStub;
+  let impersonationService: ImpersonationService;
+  let endedStub: sinon.SinonStub;
 
   before(() => {
     DI.register(TestConfiguration).as(Configuration);
@@ -176,8 +180,13 @@ describe('ImpersonationController', function () {
     sessionProvider = DI.get(SessionProvider) as TestSessionProvider;
 
     // Intercept event emission so tests can assert it without a real queue.
-    // Stubs the controller's protected emit wrapper.
+    // Starting an impersonation is emitted by the controller; ending one is
+    // emitted by ImpersonationService, which owns the revert path shared with
+    // the logout handler — so both boundaries get a stub.
     evStub = sinon.stub(controller as any, 'emitEvent').resolves();
+
+    impersonationService = (controller as any).Impersonation;
+    endedStub = sinon.stub(impersonationService as any, 'emitEnded').resolves();
   });
 
   afterEach(() => {
@@ -241,6 +250,22 @@ describe('ImpersonationController', function () {
       expect(s.Data.get('ImpersonationStartedAt')).to.equal(body.StartedAt);
 
       expect(sessionProvider.Saved).to.have.lengthOf(1);
+
+      // Taking on another identity is a privilege change: the id the session
+      // ran under before must not keep working afterwards, and the client is
+      // handed the new one.
+      const rotated = sessionProvider.Saved[0];
+      expect(rotated.SessionId).to.not.equal(s.SessionId);
+      expect(sessionProvider.Deleted).to.deep.equal([s.SessionId]);
+
+      const issued = ((result as any).options?.Coockies ?? [])[0];
+      expect(issued, 'the rotated session id must be returned as a cookie').to.not.be.undefined;
+      expect(issued.Value).to.equal(rotated.SessionId);
+
+      // Ownership follows the identity, so "log this user out everywhere"
+      // aimed at the target also reaches the impersonating session.
+      expect(rotated.UserId).to.equal(target.Id);
+      expect(rotated.Data.get('OriginalUserId')).to.equal(s.UserId);
 
       // UserImpersonationStarted event emitted exactly once with the right pair
       sinon.assert.calledOnce(evStub);
@@ -370,7 +395,7 @@ describe('ImpersonationController', function () {
     it('restores original session and emits UserImpersonationEnded', async () => {
       const target = userTarget(); // currently in storage.User
       const original = adminCaller();
-      sinon.stub(controller as any, 'loadOriginal').resolves(original);
+      sinon.stub(impersonationService as any, 'loadOriginal').resolves(original);
 
       const s = session({
         User: 'user-uuid',
@@ -395,22 +420,24 @@ describe('ImpersonationController', function () {
 
       expect(sessionProvider.Saved).to.have.lengthOf(1);
 
-      sinon.assert.calledOnce(evStub);
-      const event = evStub.firstCall.args[0];
-      expect(event).to.be.instanceOf(UserImpersonationEnded);
-      expect((event as UserImpersonationEnded).UserUUID).to.equal('admin-uuid');
-      expect((event as UserImpersonationEnded).TargetUUID).to.equal('user-uuid');
+      // ending an impersonation is emitted by the service, at the boundary
+      // shared with the logout handler
+      sinon.assert.calledOnce(endedStub);
+      const [emittedOriginal, emittedTarget] = endedStub.firstCall.args;
+      expect(emittedOriginal.Uuid).to.equal('admin-uuid');
+      expect(emittedTarget.Uuid).to.equal('user-uuid');
+      expect(UserImpersonationEnded).to.be.a('function');
     });
 
     it('returns 400 when no impersonation is active', async () => {
       const result = await controller.stop(adminCaller(), session());
       expect(result).to.be.instanceOf(BadRequestResponse);
       expect(data(result).error.code).to.equal('E_NO_IMPERSONATION');
-      sinon.assert.notCalled(evStub);
+      sinon.assert.notCalled(endedStub);
     });
 
     it('returns 400 E_IMPERSONATOR_GONE and cleans state when original cannot be loaded', async () => {
-      sinon.stub(controller as any, 'loadOriginal').resolves(undefined);
+      sinon.stub(impersonationService as any, 'loadOriginal').resolves(undefined);
       const target = userTarget();
       const s = session({
         User: 'user-uuid',

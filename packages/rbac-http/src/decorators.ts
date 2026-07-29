@@ -201,6 +201,15 @@ export function FromSession() {
   return Route(Parameter('SessionArg'));
 }
 
-export function Session(){ 
+export function Session(){
   return Route(Parameter("CurrentSessionArg"));
+}
+
+/**
+ * Verified session id from the session cookie, resolved under whatever name the
+ * cookie is configured with. Prefer this over `@Cookie(true) ssid`, which ties
+ * the read to the parameter name.
+ */
+export function SessionId() {
+  return Route(Parameter('SessionIdArg'));
 }
