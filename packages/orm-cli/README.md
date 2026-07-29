@@ -156,11 +156,16 @@ files are re-exported elsewhere in spinajs.
 `migrate-status` is meant to be a deploy gate — "is this database current?" — so an un-run
 migration is a "no", not just a failed one.
 
-> **Known limitation.** The commands set `process.exitCode`, but the `spinajs` bin shipped by
-> `@spinajs/cli` ends its success path with `process.exit(0)`, which discards it. Driven through
-> that bin, `migrate-status` therefore still exits 0 with pending work. Until the bin propagates
-> `process.exitCode`, a deploy gate should either call the command class directly (see the
-> snippet at the top) or use its own entry point.
+Two things the table does not say:
+
+- **A `0` from `migrate-status` means "nothing is pending", not "the database is reachable and
+  configured".** With no connections configured, nothing is registered, so nothing is pending and
+  the command exits `0`. A gate that must also catch a failed config should check that the command
+  reported migrations at all.
+- **Requires a `@spinajs/cli` that propagates `process.exitCode`.** Earlier versions ended the
+  bin's success path with a bare `process.exit(0)`, which discards whatever a command set — driven
+  through such a bin, `migrate-status` exits `0` even with pending work. If you are pinned to one,
+  call the command class directly (see the snippet at the top) rather than going through the bin.
 
 ## The blocking guarantee is best-effort
 
