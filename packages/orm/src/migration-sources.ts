@@ -98,8 +98,9 @@ export class FilesystemMigrationSource extends MigrationSource {
           continue;
         }
 
-        // a compiled migration ( `.js` / `.cjs` / `.mjs` ) that fails to import is not the same
-        // case - a syntax error, a broken relative import, a module body that throws. Swallowing
+        // a compiled migration ( `.js` - the only other extension the glob above ever emits ) that
+        // fails to import is not the same case - a syntax error, a broken relative import, a module
+        // body that throws. Swallowing
         // it down to a warning would let discovery report "no pending migrations" and let a
         // deployment proceed against an unmigrated schema, so this one is not tolerated: throw
         // with the original error chained so the stack survives

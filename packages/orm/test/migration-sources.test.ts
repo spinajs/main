@@ -5,6 +5,7 @@ import 'mocha';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as sinon from 'sinon';
 import { DEFAULT_MIGRATION_DIRS, DiRegistryMigrationSource, FilesystemMigrationSource, MIGRATION_DI_SOURCE, Migration, OrmDriver, OrmException, OrmMigration } from '../src/index.js';
 import { ConnectionConf, registerFakes } from './misc.js';
 import '@spinajs/log';
@@ -80,7 +81,16 @@ describe('FilesystemMigrationSource under prod', () => {
     expect(sideEffects).to.include('Always_2026_07_29_10_00_00.ts');
   });
 
-  it('returns nothing when no directory is configured', async () => {
+  it('falls back to the default directories when the configured value is empty, finding nothing while they are absent from disk', async () => {
+    // an empty `system.dirs.migrations` no longer means "scan nothing" - it means "fall back to
+    // DEFAULT_MIGRATION_DIRS". This asserts the negative half of that: if one of those defaults
+    // happened to exist on disk ( a stray build, residue from another suite ) this would pass for
+    // the wrong reason and any later failure here would point nowhere near the actual cause, so the
+    // precondition is asserted explicitly rather than trusted
+    DEFAULT_MIGRATION_DIRS.forEach((d) => {
+      expect(fs.existsSync(d), `${d} exists on disk - this test needs every default migration directory absent to be meaningful`).to.equal(false);
+    });
+
     MigrationSourcesConf.Dirs = [];
 
     expect(await discover()).to.have.lengthOf(0);
@@ -138,6 +148,19 @@ describe('FilesystemMigrationSource default directories', () => {
     return file;
   }
 
+  // removes `defaultDir` ( the `migrations` leaf ) and, if that leaves its parent ( `dist` ) empty,
+  // removes the parent too - git cannot track an empty directory, so leaving it behind is residue
+  // that `git status` will not show and a later `dist` build could mistake for its own output
+  function cleanupDefaultDir(): void {
+    fs.rmSync(defaultDir, { recursive: true, force: true });
+
+    const parent = path.dirname(defaultDir);
+
+    if (fs.existsSync(parent) && fs.readdirSync(parent).length === 0) {
+      fs.rmdirSync(parent);
+    }
+  }
+
   it('falls back to the exported defaults when the configured value is empty', async () => {
     writeFallbackMigration('DefaultDirsFallback_2026_07_29_10_03_00');
 
@@ -147,7 +170,7 @@ describe('FilesystemMigrationSource default directories', () => {
 
       expect(found.map((f) => f.name)).to.include('DefaultDirsFallback_2026_07_29_10_03_00');
     } finally {
-      fs.rmSync(defaultDir, { recursive: true, force: true });
+      cleanupDefaultDir();
       MigrationSourcesConf.Dirs = [FIXTURES];
     }
   });
@@ -163,7 +186,7 @@ describe('FilesystemMigrationSource default directories', () => {
       expect(found.map((f) => f.name)).to.not.include('DefaultDirsReplaced_2026_07_29_10_04_00');
       expect(found.map((f) => f.name)).to.include('Always_2026_07_29_10_00_00');
     } finally {
-      fs.rmSync(defaultDir, { recursive: true, force: true });
+      cleanupDefaultDir();
       MigrationSourcesConf.Dirs = [FIXTURES];
     }
   });
@@ -178,6 +201,7 @@ describe('FilesystemMigrationSource import failures', () => {
   });
 
   afterEach(() => {
+    sinon.restore();
     fs.rmSync(scratch, { recursive: true, force: true });
     MigrationSourcesConf.Dirs = [FIXTURES];
   });
@@ -207,6 +231,25 @@ describe('FilesystemMigrationSource import failures', () => {
     const found = await discover();
 
     expect(found).to.have.lengthOf(0);
+  });
+
+  it('logs a .ts import failure at trace, not warn', async () => {
+    const brokenFile = path.join(scratch, 'BrokenTsLog_2026_07_29_10_07_00.ts');
+    fs.writeFileSync(brokenFile, "throw new Error('boom - intentional ts import failure for log level check');\n");
+
+    // inlined rather than routed through discover(): a spy needs the resolved instance, which
+    // discover() does not hand back - see its own comment for why clearCache() then
+    // setESMModuleSupport() is the required order
+    DI.clearCache();
+    DI.setESMModuleSupport();
+    const source = await DI.resolve(FilesystemMigrationSource);
+    const trace = sinon.spy((source as any).Log, 'trace');
+    const warn = sinon.spy((source as any).Log, 'warn');
+
+    await source.getMigrations();
+
+    expect(warn.called, 'a .ts import failure must not be logged at warn').to.equal(false);
+    expect(trace.getCalls().some((c) => String(c.args[0]).includes(brokenFile)), 'expected the failure to be logged at trace, naming the file').to.equal(true);
   });
 });
 
