@@ -5,6 +5,7 @@ export * from './responses.js';
 export * from './route-args/index.js';
 export * from './exceptions.js';
 export * from './base-controller.js';
+export * from './controller-sources.js';
 export * from './route-builder.js';
 export * from './controllers.js';
 export * from './server.js';
