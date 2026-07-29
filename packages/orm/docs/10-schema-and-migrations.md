@@ -72,6 +72,33 @@ and a boot seeds only what it applied itself. Every `data()` runs even when an e
 are collected and reported together, because stopping at the first would leave the migrations
 after it recorded as applied and unseeded, with nothing to make a rerun retry them.
 
+> **A seed is lost for good if the run it belongs to does not finish.** The `data()` phase is
+> handed the migrations *this* run applied, and it happens after the whole run. So if M1 applies
+> and M2 then throws, `Orm.resolve()` fails before the phase is reached — and M1's schema is
+> already recorded as applied. On the next boot M1 is no longer pending, it is not in the applied
+> list the phase is given, and **`M1.data()` never runs, on this boot or any other**. Nothing
+> reports it: the migration is applied, `migrate-status` is clean, and only the missing rows say
+> otherwise.
+>
+> The same applies to a migration whose own `up()` succeeded in a run a *later* `data()` hook then
+> failed: `resolve()` throws the aggregate, boot fails, and the schema rows stay.
+>
+> There is no automatic recovery, because there is nothing recorded to recover from — the tracking
+> table has no notion of "applied but unseeded". What to do about it:
+>
+> - **Write `data()` so that running it again is harmless** — upsert rather than insert, check
+>   before you write. Then re-seeding by hand is a one-liner and never a question of "did this
+>   already run?".
+> - **After a failed boot, fix the cause and check the seeds of everything the failed run had
+>   already applied.** The log names each one (`Migration <name>:up() success !`), and
+>   `migrate-status` shows them as applied.
+> - **To make one run again**, roll the migration back and re-apply it through an application
+>   boot: `orm.Migration.down('<name>')`, then boot. `down()` deletes the tracking row, so the
+>   next boot pass applies it and this time reaches its `data()`. That re-runs `up()` as well, so
+>   it is only an option where `down()` really undoes it.
+> - **Keep large or fragile seeding out of `data()`** and in a task you can run and re-run on its
+>   own. `data()` is for the small, essential rows a schema is useless without.
+
 ### The facade: `orm.Migration`
 
 Everything migration-related hangs off `orm.Migration`, a `MigrationRunner` **assigned inside
@@ -189,7 +216,10 @@ a migration the next `up()` **will** run. They are mutually exclusive — see
    whose `Migration.OnStartup` is on. **Skipped entirely** when the Orm was resolved with
    `MigrateOnStartup: false` — see below.
 5. `reloadTableInfo()`, `wireRelations()`, `applyModelMixins()`.
-6. `data()` for whatever step 4 applied.
+6. `data()` for whatever step 4 applied — **and only if step 4 completed**. A migration that
+   throws in step 4 takes the whole resolve down before step 6 runs, so the migrations that had
+   already succeeded in that pass keep their recorded schema and never get their seed, on this
+   boot or any later one. See [the three hooks](#the-three-hooks).
 
 #### Resolving an Orm that must not migrate
 
@@ -991,6 +1021,10 @@ export function schema() {
 
 - **Do not import models into `up()`.** They are not wired yet. Use `data()` — and remember it
   runs only for migrations applied by `Orm.resolve()`'s own boot pass.
+- **Make `data()` safe to run twice, and never assume it ran at all.** It is skipped for anything
+  the CLI applied, and it is lost outright for every migration of a boot run that failed before
+  reaching the phase — the schema is recorded applied, so no later boot will retry the seed. See
+  the note under [the three hooks](#the-three-hooks).
 - **Never edit an applied migration.** The recorded row keeps it from re-running, so the edit
   silently never reaches any database that already has the old version. `Checksum` will warn
   about it and nothing more. Write a new migration.

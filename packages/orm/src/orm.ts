@@ -219,6 +219,9 @@ export class Orm extends AsyncService {
     this.wireRelations();
     this.applyModelMixins();
 
+    // Reached only if the pass above completed. A migration that throws takes this resolve down
+    // with it, and the migrations that had already succeeded in that pass keep their recorded
+    // schema while never reaching their `data()` - see the note on `runDataPhase`.
     await this.runDataPhase(executedMigrations);
   }
 
@@ -230,6 +233,19 @@ export class Orm extends AsyncService {
    * Stopping at the first one leaves the migrations after it unseeded while their schema is
    * already applied and recorded, so a rerun will not retry them: their tracking rows say
    * "applied", and nothing would ever mention the seeds that never ran.
+   *
+   * KNOWN LOSS, and it is the same shape one level up: `executed` is what THIS run applied, and
+   * this phase runs after the whole run. A run in which M1 applies and M2 throws never reaches
+   * here at all - and M1's schema is already recorded, so the next boot does not find it pending,
+   * it never enters `executed`, and `M1.data()` never runs on any boot. Nothing reports it: the
+   * migration is applied and `status()` is clean.
+   *
+   * Not fixed here, because the tracking table has no notion of "applied but unseeded" and
+   * inventing one would make the seed phase a second, weaker migration state machine - `data()`
+   * has no `down()`, no checksum and no failure row, so a "seeded" column would be a claim
+   * nothing could verify or undo. It is documented instead ( packages/orm/docs,
+   * 10-schema-and-migrations.md ), where the guidance is the one thing that actually holds:
+   * write `data()` so that running it again is harmless.
    */
   protected async runDataPhase(executed: OrmMigration[]): Promise<void> {
     // `error` is deliberately `unknown` and kept verbatim - a rejection value is not promoted to
