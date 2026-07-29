@@ -72,10 +72,18 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
         roles: [
           { Name: 'admin', Description: 'Administrator' },
+          { Name: 'superadmin', Description: 'Administrator that can also read secrets' },
           { Name: 'user', Description: 'Simple account' },
           { Name: 'guest', Description: 'Guest account' },
         ],
         grants: {
+          system: {
+            $extend: ['admin'],
+          },
+          superadmin: {
+            $extend: ['admin'],
+            secrets: { 'read:any': ['*'] },
+          },
           admin: {
             users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
           },
@@ -84,6 +92,23 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
         },
         defaultRole: 'guest',
+        systemRole: 'system',
+
+        // Guard defaults are normally supplied by this package's own config file,
+        // which the test configuration does not load — declared here so the
+        // suites exercise the shipped values rather than an empty object.
+        admin: {
+          roleGuard: {
+            service: 'DefaultRoleGuard',
+            requireKnownRole: true,
+            protectSystemRole: true,
+            preventEscalation: true,
+            preventSelfLockout: true,
+            preventLastPrivilegedRemoval: true,
+            privilegedResource: 'users',
+            privilegedAction: 'update:any',
+          },
+        },
         session: {
           service: 'MemorySessionStore',
           expiration: {
@@ -104,6 +129,14 @@ export class TestConfiguration extends FrameworkConfiguration {
           enabled: true,
           forceUser: false,
           service: 'Default2FaToken',
+        },
+        otpauth: {
+          issuer: 'spinajs-test',
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          window: 1,
+          secretSize: 20,
         },
         password: {
           service: 'BasicPasswordProvider',

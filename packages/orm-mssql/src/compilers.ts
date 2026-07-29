@@ -6,6 +6,7 @@ import _ from 'lodash';
 
 @NewInstance()
 export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
+
   public compile() {
     const table = this._builder.getParent().Container.resolve(TableAliasCompiler).compile(this._builder.getParent());
     const descriptor = extractModelDescriptor(this._builder.getParent().Model);
@@ -27,8 +28,7 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
 
     const parent = this._builder.getParent() as InsertQueryBuilder;
 
-    const valueMap = parent.getColumns()
-      .map((c: ColumnStatement) => c.Column);
+    const valueMap = parent.getColumns().map((c: ColumnStatement) => c.Column);
     const bindings = this._builder.getColumnsToUpdate().map((c: string | RawQuery): any => {
       if (_.isString(c)) {
         return parent.Values[0][valueMap.indexOf(c)];
@@ -119,6 +119,7 @@ export class MsSqlTableExistsCompiler implements TableExistsCompiler {
 
 @NewInstance()
 export class MsSqlLimitCompiler extends SqlLimitQueryCompiler {
+
   public compile(): ICompilerOutput {
     const limits = this._builder.getLimits();
     const bindings = [];
@@ -196,6 +197,7 @@ export class MsSqlTableQueryCompiler extends SqlTableQueryCompiler {
 
 @NewInstance()
 export class MsSqlColumnQueryCompiler extends SqlColumnQueryCompiler {
+
   constructor(protected builder: ColumnQueryBuilder) {
     super(builder);
 

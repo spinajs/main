@@ -23,6 +23,12 @@ export interface ILogoutCookie {
   Options: Record<string, unknown>;
 }
 
+/** Response header a handler may attach to its response */
+export interface ILogoutHeader {
+  Name: string;
+  Value: string;
+}
+
 /** Response payload a handler returns when it takes ownership of the logout */
 export interface ILogoutResult {
   /** Response body */
@@ -30,6 +36,9 @@ export interface ILogoutResult {
 
   /** Cookie operations to attach */
   Cookies?: ILogoutCookie[];
+
+  /** Response headers to attach ( eg. `Clear-Site-Data` ) */
+  Headers?: ILogoutHeader[];
 }
 
 /**

@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { ClassInfo, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { BaseController, BasePath, Controllers, Get, Middleware, Ok, Policy, Query, CONTROLLED_DESCRIPTOR_SYMBOL } from '../src/index.js';
+import { BaseController, BasePath, Controllers, ControllerSource, Get, Middleware, Ok, Policy, Query, CONTROLLED_DESCRIPTOR_SYMBOL } from '../src/index.js';
 import { BasePolicy, RouteMiddleware } from '../src/interfaces.js';
 import type { IControllerDescriptor, IRoute, IController, Response } from '../src/interfaces.js';
 import { OtherFilePkgController } from './controller-inheritance-fixture.js';
@@ -126,15 +126,13 @@ class TestControllers extends Controllers {
     // Express; recording the name is all these tests need.
     this.Mounted.push(controller.name);
   }
-}
 
-// `@ListFromFiles` installed a getter on Controllers.prototype - shadow it so
-// the test decides what "found on disk" means.
-Object.defineProperty(TestControllers.prototype, 'Controllers', {
-  get(this: TestControllers) {
-    return Promise.resolve(this.Scanned);
-  },
-});
+  // Discovery goes through ControllerSource services - substitute a single
+  // fake source so the test decides what "found on disk" means.
+  protected async getSources(): Promise<ControllerSource[]> {
+    return [{ getControllers: async () => this.Scanned } as unknown as ControllerSource];
+  }
+}
 
 async function runLoader(scanned: Array<Class<BaseController>>) {
   const calls: ILogCall[] = [];

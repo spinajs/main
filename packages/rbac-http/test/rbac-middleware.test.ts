@@ -29,7 +29,7 @@ describe('RbacMiddleware sliding renewal', function () {
 
   const makeReqRes = (signedSsid: string) => {
     const req: any = { cookies: { ssid: signedSsid }, storage: {} };
-    const res: any = { cookie: sinon.spy() };
+    const res: any = { cookie: sinon.spy(), setHeader: sinon.spy() };
     const next = sinon.spy();
     return { req, res, next };
   };
@@ -88,6 +88,25 @@ describe('RbacMiddleware sliding renewal', function () {
     expect(opts.signed).to.be.false;
   });
 
+  it('marks an authenticated response as uncacheable', async () => {
+    const { req, res, next } = makeReqRes(cs.sign(session.SessionId, COOKIE_SECRET));
+
+    await middleware.before()(req, res, next);
+
+    // a response rendered for an identified user, possibly carrying a renewed
+    // session cookie, must never land in a shared cache
+    sinon.assert.calledWith(res.setHeader, 'Cache-Control', 'no-store');
+  });
+
+  it('leaves an anonymous response cacheable', async () => {
+    const { req, res, next } = makeReqRes('not-a-valid-signed-value');
+
+    await middleware.before()(req, res, next);
+
+    sinon.assert.notCalled(res.setHeader);
+    sinon.assert.calledOnce(next);
+  });
+
   it('does NOT refresh the cookie when touch reports no change (absolute mode)', async () => {
     touchStub.resolves(false);
 
@@ -125,7 +144,7 @@ describe('RbacMiddleware sliding renewal', function () {
     const req: any = { headers: { cookie: `ssid=${encodeURIComponent(onWire)}` }, storage: {} };
     await new Promise<void>((res) => cookieParser(COOKIE_SECRET)(req, {} as any, () => res()));
 
-    const second = { res: { cookie: sinon.spy() } as any, next: sinon.spy() };
+    const second = { res: { cookie: sinon.spy(), setHeader: sinon.spy() } as any, next: sinon.spy() };
     await middleware.before()(req, second.res, second.next);
 
     expect(req.storage.Session, 'session lost on the request following a renewal').to.not.be.undefined;

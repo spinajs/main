@@ -59,6 +59,8 @@
     "@spinajs/rbac": "^2.0.486",
     "@spinajs/rbac-http": "^2.0.486",
     "@spinajs/rbac-http-user": "^2.0.486",
+    "@spinajs/validation": "^2.0.486",
+    "lodash": "^4.17.21",
     "luxon": "^3.6.1",
     "uuid": "^9.0.0"
   },

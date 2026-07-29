@@ -1,7 +1,9 @@
-import { Injectable } from '@spinajs/di';
-import { AutoinjectService, Config } from '@spinajs/configuration';
-import { SessionProvider } from '@spinajs/rbac';
+import { Autoinject, Injectable } from '@spinajs/di';
+import { AutoinjectService } from '@spinajs/configuration';
+import { SessionProvider, hashSessionId } from '@spinajs/rbac';
+import { Log, Logger } from '@spinajs/log';
 import { LogoutHandler, ILogoutContext, ILogoutResult } from '../logout.js';
+import { SessionCookieFactory } from '../services/SessionCookies.js';
 
 /**
  * Default logout handler: deletes the session and clears the ssid cookie.
@@ -12,11 +14,14 @@ import { LogoutHandler, ILogoutContext, ILogoutResult } from '../logout.js';
 export class DefaultLogoutHandler extends LogoutHandler {
   public Priority = 999;
 
+  @Logger('rbac-session')
+  protected Log!: Log;
+
   @AutoinjectService('rbac.session')
   protected SessionProvider!: SessionProvider;
 
-  @Config('rbac.session.cookie', {})
-  protected SessionCookieConfig!: Record<string, unknown>;
+  @Autoinject(SessionCookieFactory)
+  protected SessionCookies!: SessionCookieFactory;
 
   public async handle(context: ILogoutContext): Promise<ILogoutResult | null> {
     if (!context.Ssid) {
@@ -26,18 +31,20 @@ export class DefaultLogoutHandler extends LogoutHandler {
 
     await this.SessionProvider.delete(context.Ssid);
 
+    this.Log.info(`Session destroyed by logout`, {
+      Session: hashSessionId(context.Ssid),
+      User: context.User?.Uuid,
+    });
+
     return {
       Body: null,
-      Cookies: [
-        {
-          Name: 'ssid',
-          Value: '',
-          Options: {
-            httpOnly: true,
-            maxAge: 0,
-            ...this.SessionCookieConfig,
-          },
-        },
+      Cookies: [this.SessionCookies.clear()],
+      Headers: [
+        // Drop everything this origin left in the browser, not just the cookie:
+        // a cached authenticated page is still readable after logout on a
+        // shared machine, and `max-age=0` on the cookie does nothing about it.
+        { Name: 'Clear-Site-Data', Value: '"cache", "cookies", "storage"' },
+        { Name: 'Cache-Control', Value: 'no-store' },
       ],
     };
   }

@@ -1,14 +1,17 @@
 import { UserLoginDto } from '../dto/userLogin-dto.js';
-import { BaseController, BasePath, Post, Body, Ok, Get, Cookie, Unauthorized, Policy } from '@spinajs/http';
-import { AuthProvider, SessionProvider, login, UserSession, AccessControl, _unwindGrants, sessionCookieMaxAge, AthenticationErrorCodes } from '@spinajs/rbac';
+import { BaseController, BasePath, Post, Body, Ok, Get, Unauthorized, Policy } from '@spinajs/http';
+import { AuthProvider, SessionProvider, login, UserSession, AccessControl, AthenticationErrorCodes, hashSessionId } from '@spinajs/rbac';
 import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, ILoginResponse, IUserWithGrants, SkipModelPermission } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, SessionId, FromSession, ILoginResponse, SkipModelPermission } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { LogoutHandler, ILogoutContext } from '../logout.js';
+import { SessionCookieFactory } from '../services/SessionCookies.js';
+import { buildUserWithGrants } from '../services/grants.js';
+import { TWO_FA_METATADATA_KEYS } from '../2fa/Default2FaToken.js';
 
 
 /**
@@ -39,8 +42,8 @@ export class LoginController extends BaseController {
   })
   protected TwoFactorAuthForceUser: boolean;
 
-  @Config('rbac.session.cookie', {})
-  protected SessionCookieConfig: any;
+  @Autoinject(SessionCookieFactory)
+  protected SessionCookies: SessionCookieFactory;
 
   @Autoinject(AccessControl)
   protected AC: AccessControl;
@@ -57,7 +60,7 @@ export class LoginController extends BaseController {
    */
   @Post()
   @SkipModelPermission()
-  public async login(@UserRouteArg() logged: User, @Cookie(true) ssid: string, @Body() credentials: UserLoginDto): Promise<Ok<ILoginResponse> | Unauthorized> {
+  public async login(@UserRouteArg() logged: User, @SessionId() ssid: string, @Body() credentials: UserLoginDto): Promise<Ok<ILoginResponse> | Unauthorized> {
     try {
 
       // if logged user is already logged in, delete his session
@@ -87,7 +90,9 @@ export class LoginController extends BaseController {
       session.Data.set('Logged', true);
       session.UserId = user.Id;
 
-      if (this.TwoFactorAuthForceUser && !user.Metadata['2fa:enabled']) {
+      const twoFaEnabledForUser = Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]);
+
+      if (this.TwoFactorAuthForceUser && !twoFaEnabledForUser) {
         this._log.trace('User logged in, 2fa init required', {
           Uuid: user.Uuid
         });
@@ -97,7 +102,7 @@ export class LoginController extends BaseController {
 
         result = { TwoFactorInitRequired: true };
       }
-      else if (this.TwoFactorAuthEnabled && user.Metadata['2fa:enabled']) {
+      else if (this.TwoFactorAuthEnabled && twoFaEnabledForUser) {
 
         this._log.trace('User logged in, 2fa required', {
           Uuid: user.Uuid
@@ -111,48 +116,30 @@ export class LoginController extends BaseController {
 
         session.Data.set('Authorized', true);
 
-        const grants = this.AC.getGrants();
-        const combinedGrants = activeRole ? _unwindGrants(activeRole, grants) : {};
+        this._log.trace('User logged in, no 2fa required', {
+          Uuid: user.Uuid
+        });
 
-        // dehydrateWithRelations({ dateTimeFormat: 'iso' }) converts DateTime to ISO strings
-        // at runtime — the ORM types don't reflect the dateTimeFormat option in generics
-        result = {
-          ...user.dehydrateWithRelations({ dateTimeFormat: "iso" }),
-          Role: user.Role, // temp fix for role grants, as dehydrateWithRelations returns string of roles, not array
-          ActiveRole: activeRole,
-          Grants: combinedGrants,
-        } as unknown as IUserWithGrants;
+        result = buildUserWithGrants(user, activeRole, this.AC);
       }
-
-
-      this._log.trace('User logged in, no 2fa required', {
-        Uuid: user.Uuid
-      });
 
       // save() schedules the session's initial expiration via the configured
       // strategy; the cookie maxAge is then derived from that real expiry (B1),
       // no longer the bogus `expiration * 1000` (~2 min) value.
       await this.SessionProvider.save(session);
 
-      const coockies = [
-        {
-          Name: 'ssid',
-          Value: session.SessionId,
-          Options: {
-            signed: true,
-            httpOnly: true,
-
-            // cookie lifetime tracks the session's real expiration
-            maxAge: sessionCookieMaxAge(session),
-
-            // any optional cookie options / override default ones
-            ...this.SessionCookieConfig
-          },
-        },
-      ];
+      this._log.info(`Session created`, {
+        // never the raw id — a log file must not be a bag of live credentials
+        Session: hashSessionId(session.SessionId),
+        User: user.Uuid,
+      });
 
       return new Ok(result, {
-        Coockies: coockies
+        Coockies: [this.SessionCookies.issue(session)],
+
+        // The response carries the session id in a Set-Cookie and the user's
+        // own data in the body. Neither may be written to any cache.
+        Headers: [{ Name: 'Cache-Control', Value: 'no-store' }],
       });
 
     } catch (err) {
@@ -189,12 +176,16 @@ export class LoginController extends BaseController {
    * If an impersonation is active, the session is NOT destroyed — instead the
    * impersonation is ended and the original user resumes their session.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
+   *
+   * POST, not GET: under `SameSite=Lax` a cookie rides a top-level cross-site
+   * GET, so a third-party page could log any visitor out simply by linking to
+   * this route.
    * @security cookieAuth
    * @response 401 No active session
    */
-  @Get()
+  @Post()
   @Policy(LoggedPolicy)
-  public async logout(@Cookie(true) ssid: string, @SessionRouteArg() session: ISession, @UserRouteArg() user: User) {
+  public async logout(@SessionId() ssid: string, @SessionRouteArg() session: ISession, @UserRouteArg() user: User) {
     if (!ssid) {
       return new Ok();
     }
@@ -214,7 +205,10 @@ export class LoginController extends BaseController {
     for (const handler of sorted) {
       const result = await handler.handle(ctx);
       if (result) {
-        return new Ok(result.Body ?? null, { Coockies: result.Cookies ?? [] });
+        return new Ok(result.Body ?? null, {
+          Coockies: result.Cookies ?? [],
+          Headers: result.Headers ?? [],
+        });
       }
     }
 
