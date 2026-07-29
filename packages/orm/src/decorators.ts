@@ -139,9 +139,14 @@ export function Migration(connection: string, options?: IMigrationOptions) {
   const sourceFile = captureSourceFile(MIGRATION_SOURCE_SKIP_MARKERS);
 
   return (target: any) => {
+    // Static properties are inherited through the constructor's prototype chain. A plain
+    // truthiness check would find the parent's descriptor and mutate it in place, silently
+    // rewriting the parent migration's connection, environment, and source file. Only create a
+    // new descriptor if the target does NOT own this symbol already.
+    const hasOwnDescriptor = Object.prototype.hasOwnProperty.call(target, MIGRATION_DESCRIPTION_SYMBOL);
     let metadata = target[MIGRATION_DESCRIPTION_SYMBOL] as IMigrationDescriptor;
 
-    if (!metadata) {
+    if (!hasOwnDescriptor) {
       metadata = {
         Connection: '',
       };
