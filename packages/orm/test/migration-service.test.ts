@@ -7,11 +7,13 @@ import { createHash } from 'node:crypto';
 import * as sinon from 'sinon';
 import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeTableQueryCompiler, FakeColumnQueryCompiler, FakeTableExistsCompiler, FakeDefaultValueBuilder, TEST_TABLE_INFO } from './misc.js';
 import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, TableExistsCompiler, DefaultValueBuilder, DefaultMigrationService, MIGRATION_TABLE_NAME, migrationChecksum, OrmMigration, MigrationTransactionMode, IMigrationRecord, IMigrationUnit, OrmException } from '../src/index.js';
-import { TableQueryBuilder, AlterTableQueryBuilder, RawSchemaQueryBuilder, SelectQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, DeleteQueryBuilder } from '../src/builders.js';
+import { TableQueryBuilder, AlterTableQueryBuilder, RawSchemaQueryBuilder, SelectQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, DeleteQueryBuilder, TableExistsQueryBuilder } from '../src/builders.js';
 import { OrmDriver } from '../src/driver.js';
 import '../src/bootstrap.js';
 
 const expect = chai.expect;
+
+const LOCK_TABLE = `${MIGRATION_TABLE_NAME}_lock`;
 
 async function makeDriver(): Promise<FakeSqliteDriver> {
   // resolve driver exactly like Orm does, with the sqlite connection options from ConnectionConf
@@ -88,6 +90,61 @@ describe('DefaultMigrationService storage', () => {
 
     // an already-upgraded table is left alone
     expect(exec.getCalls().filter((c) => c.args[0] instanceof TableQueryBuilder)).to.have.length(0);
+  });
+
+  it('tolerates a table another process created between the probe and the CREATE', async () => {
+    const driver = await makeDriver();
+
+    // The lock table cannot guard its own creation, so two processes booting together both see
+    // "absent" and both reach the CREATE. Here every table is absent on its first probe and
+    // present on the next one - the loser's view of that race.
+    const probes: Record<string, number> = {};
+    const attempted: string[] = [];
+    const exec = sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof TableExistsQueryBuilder) {
+        probes[b.Table] = (probes[b.Table] ?? 0) + 1;
+        return probes[b.Table] === 1 ? [] : [{ 1: 1 }];
+      }
+      if (b instanceof TableQueryBuilder) {
+        attempted.push(b.Table);
+        throw new Error(`table ${b.Table} already exists`);
+      }
+      return [{ 1: 1 }];
+    });
+    const svc = new DefaultMigrationService(driver);
+
+    await svc.ensureStorage(); // a lost race is not an error
+
+    expect(attempted, 'both tables must still be attempted').to.eql([MIGRATION_TABLE_NAME, LOCK_TABLE]);
+    // probed once before the CREATE and once after it failed - the re-check is what proves the
+    // failure was a lost race rather than a broken CREATE
+    expect(probes[MIGRATION_TABLE_NAME]).to.eq(2);
+    expect(probes[LOCK_TABLE]).to.eq(2);
+
+    // a table that appeared inside that window was created by a peer running this same DDL, so
+    // it already carries the current shape - re-running the legacy upgrade against it would try
+    // to add columns that are all there
+    expect(exec.getCalls().filter((c) => c.args[0] instanceof AlterTableQueryBuilder), 'a lost race must not fall into the legacy upgrade path').to.have.length(0);
+  });
+
+  it('does not swallow a CREATE that really failed', async () => {
+    const driver = await makeDriver();
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      // the table stays absent, so nothing excuses the failure
+      if (b instanceof TableExistsQueryBuilder) return [];
+      if (b instanceof TableQueryBuilder) throw new Error('disk full');
+      return [{ 1: 1 }];
+    });
+    const svc = new DefaultMigrationService(driver);
+
+    try {
+      await svc.ensureStorage();
+      expect.fail('should have thrown');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('disk full');
+      expect(e.message).to.contain(MIGRATION_TABLE_NAME);
+    }
   });
 
   it('applied() returns only finished, not-rolled-back rows', async () => {
@@ -195,7 +252,8 @@ describe('DefaultMigrationService up', () => {
     expect(executed).to.have.length(1);
     expect(executed[0]).to.be.instanceOf(MigB_2021_01_02_00_00_00);
 
-    const inserts = exec.getCalls().filter((c) => c.args[0] instanceof InsertQueryBuilder);
+    // scoped to the tracking table - the run also writes the lock row
+    const inserts = exec.getCalls().filter((c) => c.args[0] instanceof InsertQueryBuilder && (c.args[0] as InsertQueryBuilder).Table === MIGRATION_TABLE_NAME);
     expect(inserts).to.have.length(1);
     expect((inserts[0].args[0] as InsertQueryBuilder).getColumnValues('Migration')).to.eql(['MigB_2021_01_02_00_00_00']);
 
@@ -218,7 +276,8 @@ describe('DefaultMigrationService up', () => {
     expect(upB.called).to.be.false;
     expect(executed).to.have.length(1);
 
-    const inserts = exec.getCalls().filter((c) => c.args[0] instanceof InsertQueryBuilder);
+    // scoped to the tracking table - the run also writes the lock row
+    const inserts = exec.getCalls().filter((c) => c.args[0] instanceof InsertQueryBuilder && (c.args[0] as InsertQueryBuilder).Table === MIGRATION_TABLE_NAME);
     expect(inserts).to.have.length(1);
 
     const insert = inserts[0].args[0] as InsertQueryBuilder;
@@ -742,5 +801,197 @@ describe('DefaultMigrationService down/resolve/status', () => {
     expect(st.find((s) => s.name.startsWith('MigA'))!.checksumMismatch).to.be.true;
     expect(st.find((s) => s.name.startsWith('MigB'))!.failed).to.be.true;
     expect(st.find((s) => s.name.startsWith('MigB'))!.pending).to.be.false;
+  });
+});
+
+describe('DefaultMigrationService lock', () => {
+  before(() => {
+    registerFakes();
+  });
+
+  beforeEach(async () => {
+    await bootstrapAll();
+
+    // tracking table already in its current shape, so ensureStorage() adds nothing to the
+    // executed-builder list these tests assert on
+    TEST_TABLE_INFO[MIGRATION_TABLE_NAME] = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum', 'Batch'].map((Name) => ({ Name })) as any;
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+    sinon.restore();
+    delete TEST_TABLE_INFO[MIGRATION_TABLE_NAME];
+  });
+
+  it('acquires and releases the lock around up()', async () => {
+    const driver = await makeDriver();
+    const exec = stubDb([]);
+    const svc = new DefaultMigrationService(driver);
+
+    const executed = await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+    expect(executed, 'the run itself must still happen').to.have.length(1);
+
+    const calls = exec.getCalls();
+    const lockInserts = calls.filter((c) => c.args[0] instanceof InsertQueryBuilder && (c.args[0] as InsertQueryBuilder).Table === LOCK_TABLE);
+    const lockDeletes = calls.filter((c) => c.args[0] instanceof DeleteQueryBuilder && (c.args[0] as DeleteQueryBuilder<unknown>).Table === LOCK_TABLE);
+    expect(lockInserts, 'exactly one acquire').to.have.length(1);
+    expect(lockDeletes, 'exactly one release').to.have.length(1);
+
+    // the row identifies who is holding it, otherwise a stuck lock names nobody
+    expect(String((lockInserts[0].args[0] as InsertQueryBuilder).getColumnValues('Owner')[0])).to.contain(String(process.pid));
+    expect((lockInserts[0].args[0] as InsertQueryBuilder).getColumnValues('AcquiredAt')[0]).to.be.instanceOf(Date);
+
+    // counting the pair is not enough - it has to actually bracket the run
+    const at = (pred: (b: any) => boolean) => calls.findIndex((c) => pred(c.args[0]));
+    const trackingInsert = at((b) => b instanceof InsertQueryBuilder && b.Table === MIGRATION_TABLE_NAME);
+    expect(trackingInsert, 'the migration row was written').to.be.greaterThan(-1);
+    expect(at((b) => b instanceof InsertQueryBuilder && b.Table === LOCK_TABLE), 'the lock is taken before any migration work').to.be.lessThan(trackingInsert);
+    expect(at((b) => b instanceof DeleteQueryBuilder && b.Table === LOCK_TABLE), 'the lock is released after the migration work').to.be.greaterThan(trackingInsert);
+  });
+
+  it('releases the lock even when the migration throws', async () => {
+    const driver = await makeDriver();
+    const exec = stubDb([]);
+    sinon.stub(MigA_2021_01_01_00_00_00.prototype, 'up').rejects(new Error('ddl exploded'));
+    const svc = new DefaultMigrationService(driver);
+
+    try {
+      await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+      expect.fail('should have thrown');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('ddl exploded');
+    }
+
+    // a lock left behind by a failed run blocks the connection until it goes stale
+    const lockDeletes = exec.getCalls().filter((c) => c.args[0] instanceof DeleteQueryBuilder && (c.args[0] as DeleteQueryBuilder<unknown>).Table === LOCK_TABLE);
+    expect(lockDeletes, 'a failed run must still release the lock').to.have.length(1);
+  });
+
+  it('fresh foreign lock: times out naming the holder, and never evicts it', async () => {
+    const driver = await makeDriver();
+    // replaced rather than mutated in place: Options.Migration is the object the Configuration
+    // handed out, and mutating it would leak the lock settings into every later resolve
+    driver.Options.Migration = { ...driver.Options.Migration, Lock: { Timeout: 600, StaleAfter: 60_000 } };
+
+    const ops: string[] = [];
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof InsertQueryBuilder && b.Table === LOCK_TABLE) {
+        ops.push('lock-insert');
+        throw new Error('UNIQUE constraint failed');
+      }
+      if (b instanceof DeleteQueryBuilder && b.Table === LOCK_TABLE) {
+        ops.push('lock-delete');
+        return [{ 1: 1 }];
+      }
+      // held right now by somebody else, well inside the staleness window
+      if (b instanceof SelectQueryBuilder && b.Table === LOCK_TABLE) return [{ Id: 1, AcquiredAt: new Date(), Owner: 'other:123' }];
+      if (b instanceof SelectQueryBuilder) return [];
+      return [{ 1: 1 }];
+    });
+    const upA = sinon.spy(MigA_2021_01_01_00_00_00.prototype, 'up');
+    const svc = new DefaultMigrationService(driver);
+
+    try {
+      await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+      expect.fail('should have thrown');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message, 'the operator needs to know who is holding it').to.contain('other:123');
+      expect(e.message).to.contain('sqlite');
+    }
+
+    expect(upA.called, 'nothing may run without the lock').to.be.false;
+    // it polled rather than giving up on the first refusal
+    expect(ops.filter((o) => o === 'lock-insert').length).to.be.greaterThan(1);
+    // and a failed acquisition must never delete the row - that is somebody else's lock
+    expect(ops, 'a timed-out acquire must not evict the holder').to.not.include('lock-delete');
+  }).timeout(5000);
+
+  it('steals a stale lock and says so', async () => {
+    const driver = await makeDriver();
+    driver.Options.Migration = { ...driver.Options.Migration, Lock: { Timeout: 5_000, StaleAfter: 1_000 } };
+
+    const ops: string[] = [];
+    let insertAttempt = 0;
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof InsertQueryBuilder && b.Table === LOCK_TABLE) {
+        ops.push('lock-insert');
+        insertAttempt++;
+        // the stale row is still there on the first attempt, gone once it has been stolen
+        if (insertAttempt === 1) throw new Error('UNIQUE constraint failed');
+        return [];
+      }
+      if (b instanceof DeleteQueryBuilder && b.Table === LOCK_TABLE) {
+        ops.push('lock-delete');
+        return [{ 1: 1 }];
+      }
+      // abandoned 10s ago by a process that died, well past StaleAfter
+      if (b instanceof SelectQueryBuilder && b.Table === LOCK_TABLE) return [{ Id: 1, AcquiredAt: new Date(Date.now() - 10_000), Owner: 'dead:1' }];
+      if (b instanceof SelectQueryBuilder) return [];
+      return [{ 1: 1 }];
+    });
+    const svc = new DefaultMigrationService(driver);
+    const warn = sinon.spy((svc as any).Log, 'warn');
+
+    const executed = await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+
+    expect(executed, 'the run proceeds once the stale lock is gone').to.have.length(1);
+    // refused, stolen, retaken, released - the whole steal protocol, in order
+    expect(ops).to.eql(['lock-insert', 'lock-delete', 'lock-insert', 'lock-delete']);
+    expect(insertAttempt).to.eq(2);
+
+    const stolen = warn.getCalls().find((c) => String(c.args[0]).includes('dead:1'));
+    expect(stolen, 'stealing a lock must be loud - it may be a live process the clock disagrees with').to.not.be.undefined;
+  });
+
+  it('Lock.Enabled false skips the lock entirely', async () => {
+    const driver = await makeDriver();
+    driver.Options.Migration = { ...driver.Options.Migration, Lock: { Enabled: false } };
+    const exec = stubDb([]);
+    const svc = new DefaultMigrationService(driver);
+
+    const executed = await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+
+    expect(executed, 'the run still happens').to.have.length(1);
+    expect(exec.getCalls().some((c) => c.args[0] instanceof InsertQueryBuilder && (c.args[0] as InsertQueryBuilder).Table === LOCK_TABLE), 'no acquire').to.be.false;
+    expect(exec.getCalls().some((c) => c.args[0] instanceof DeleteQueryBuilder && (c.args[0] as DeleteQueryBuilder<unknown>).Table === LOCK_TABLE), 'no release').to.be.false;
+  });
+
+  it('a lock that cannot be released does not mask the migration error', async () => {
+    const driver = await makeDriver();
+    sinon.stub(FakeSqliteDriver.prototype, 'execute').callsFake(async (b: any) => {
+      if (b instanceof DeleteQueryBuilder && b.Table === LOCK_TABLE) throw new Error('lock table vanished');
+      if (b instanceof SelectQueryBuilder) return [];
+      return [{ 1: 1 }];
+    });
+    sinon.stub(MigA_2021_01_01_00_00_00.prototype, 'up').rejects(new Error('ddl exploded'));
+    const svc = new DefaultMigrationService(driver);
+    const error = sinon.spy((svc as any).Log, 'error');
+
+    try {
+      await svc.up([unit(MigA_2021_01_01_00_00_00)]);
+      expect.fail('should have thrown');
+    } catch (e: any) {
+      // a throw out of the release would replace the in-flight error and hide why the run died
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message, 'the migration failure is what the operator needs, not the release failure').to.contain('ddl exploded');
+    }
+
+    const loud = error.getCalls().find((c) => String(c.args[0]).includes('lock table vanished'));
+    expect(loud, 'a lock left behind must still be reported, even though it is not rethrown').to.not.be.undefined;
+    expect(String(loud!.args[0]), 'the operator has to be told which row to clear').to.contain(LOCK_TABLE);
+  });
+
+  it('down() takes the lock too', async () => {
+    const driver = await makeDriver();
+    const exec = stubDb([row({ Migration: 'MigA_2021_01_01_00_00_00', Batch: 1 })]);
+    const svc = new DefaultMigrationService(driver);
+
+    const executed = await svc.down([unit(MigA_2021_01_01_00_00_00)]);
+
+    expect(executed).to.have.length(1);
+    expect(exec.getCalls().filter((c) => c.args[0] instanceof InsertQueryBuilder && (c.args[0] as InsertQueryBuilder).Table === LOCK_TABLE)).to.have.length(1);
+    expect(exec.getCalls().filter((c) => c.args[0] instanceof DeleteQueryBuilder && (c.args[0] as DeleteQueryBuilder<unknown>).Table === LOCK_TABLE)).to.have.length(1);
   });
 });

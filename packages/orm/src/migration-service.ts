@@ -2,6 +2,8 @@ import { NewInstance, Class } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { DateTime } from 'luxon';
 import { createHash } from 'node:crypto';
+import { hostname } from 'node:os';
+import type { TableQueryBuilder } from './builders.js';
 import { OrmDriver } from './driver.js';
 import { MigrationTransactionMode, OrmMigration } from './interfaces.js';
 import { OrmException } from './exceptions.js';
@@ -115,23 +117,58 @@ export class DefaultMigrationService extends OrmMigrationService {
     return `${this.table}_lock`;
   }
 
+  /**
+   * Creates `name` unless it is already there, tolerating a second process that creates it in
+   * the window between the probe and the CREATE.
+   *
+   * That window cannot be closed with a lock: the lock table is one of the tables being created
+   * here, so it cannot guard its own creation. Two processes booting together therefore both see
+   * "absent" and both issue a CREATE, and the loser must not take the whole boot down with it.
+   * Only a table that really is present afterwards excuses the failure - anything else ( no
+   * permission, bad DDL, dead connection ) is a genuine error and is rethrown.
+   *
+   * Returns true when the table was absent at probe time. Callers use that to skip the legacy
+   * upgrade path: a table that appeared inside the race window was created by a peer running
+   * this same DDL, so it already carries the current shape.
+   */
+  protected async createTableIfAbsent(name: string, columns: (t: TableQueryBuilder) => void): Promise<boolean> {
+    // a builder executes at most once, so every statement needs a fresh SchemaQueryBuilder
+    const db = this.driver.Options.Database;
+
+    if (await this.driver.schema().tableExists(name, db)) {
+      return false;
+    }
+
+    try {
+      await this.driver.schema().createTable(name, columns);
+    } catch (err) {
+      if (!(await this.driver.schema().tableExists(name, db))) {
+        throw new OrmException(`Could not create migration table ${name} on connection ${this.driver.Options.Name}: ${(err as Error).message}`, undefined, undefined, undefined, err);
+      }
+
+      this.Log.trace(`Migration table ${name} on connection ${this.driver.Options.Name} was created concurrently by another process - continuing`);
+    }
+
+    return true;
+  }
+
   public async ensureStorage(): Promise<void> {
     // a builder executes at most once, so every statement needs a fresh SchemaQueryBuilder
     const schema = () => this.driver.schema();
     const db = this.driver.Options.Database;
 
-    if (!(await schema().tableExists(this.table, db))) {
-      await schema().createTable(this.table, (t) => {
-        t.string('Migration').unique().notNull();
-        t.dateTime('CreatedAt').notNull();
-        t.dateTime('StartedAt').notNull();
-        t.dateTime('FinishedAt');
-        t.dateTime('RolledBackAt');
-        t.text('Logs');
-        t.string('Checksum', 64);
-        t.int('Batch').notNull().default().value(1);
-      });
-    } else {
+    const created = await this.createTableIfAbsent(this.table, (t) => {
+      t.string('Migration').unique().notNull();
+      t.dateTime('CreatedAt').notNull();
+      t.dateTime('StartedAt').notNull();
+      t.dateTime('FinishedAt');
+      t.dateTime('RolledBackAt');
+      t.text('Logs');
+      t.string('Checksum', 64);
+      t.int('Batch').notNull().default().value(1);
+    });
+
+    if (!created) {
       const cols = (await this.driver.tableInfo(this.table, db)) ?? [];
       const has = (n: string) => cols.some((c) => c.Name === n);
 
@@ -158,13 +195,11 @@ export class DefaultMigrationService extends OrmMigrationService {
       }
     }
 
-    if (!(await schema().tableExists(this.lockTable, db))) {
-      await schema().createTable(this.lockTable, (t) => {
-        t.int('Id').unique().notNull();
-        t.dateTime('AcquiredAt').notNull();
-        t.string('Owner', 255).notNull();
-      });
-    }
+    await this.createTableIfAbsent(this.lockTable, (t) => {
+      t.int('Id').unique().notNull();
+      t.dateTime('AcquiredAt').notNull();
+      t.string('Owner', 255).notNull();
+    });
   }
 
   protected async records(): Promise<IMigrationRecord[]> {
@@ -257,11 +292,109 @@ export class DefaultMigrationService extends OrmMigrationService {
     }
   }
 
+  protected lockOptions() {
+    const cfg = this.driver.Options.Migration?.Lock;
+
+    return {
+      enabled: cfg?.Enabled ?? true,
+      timeout: cfg?.Timeout ?? MIGRATION_LOCK_TIMEOUT,
+      staleAfter: cfg?.StaleAfter ?? MIGRATION_LOCK_STALE_AFTER,
+    };
+  }
+
   /**
-   * Concurrency guard around a whole run. A passthrough until the lock table is wired up.
+   * Identity written into the lock row. It exists to answer "who is holding this?" when a run
+   * blocks, so it has to survive being read on another machine.
+   */
+  protected lockOwner(): string {
+    return `${hostname()}:${process.pid}`;
+  }
+
+  /**
+   * Takes the single row of the lock table, waiting for whoever has it.
+   *
+   * The row is claimed by INSERT rather than by "SELECT then INSERT": `Id` is unique, so the
+   * database decides the winner in one statement and two processes racing here cannot both
+   * succeed. A refused insert is therefore read as "somebody else holds it" - which is also why
+   * the holder is re-read afterwards rather than guessed at.
+   */
+  protected async acquireLock(): Promise<void> {
+    const { timeout, staleAfter } = this.lockOptions();
+    const owner = this.lockOwner();
+    const start = Date.now();
+
+    for (;;) {
+      try {
+        await this.driver.insert().into(this.lockTable).values({ Id: 1, AcquiredAt: new Date(), Owner: owner });
+        return;
+      } catch (err) {
+        // deliberately unguarded: a select that dies here means the connection is gone, and that
+        // has to surface as itself rather than as a lock timeout thirty seconds later
+        const rows = ((await this.driver.select().from(this.lockTable)) ?? []) as Array<{ AcquiredAt: Date | string; Owner: string }>;
+        const holder = rows[0];
+
+        if (holder) {
+          const acquiredAt = holder.AcquiredAt instanceof Date ? holder.AcquiredAt : new Date(holder.AcquiredAt);
+
+          if (Date.now() - acquiredAt.getTime() > staleAfter) {
+            // a process that died mid-run leaves its row behind and nothing else will ever clear
+            // it. Loud, because the alternative reading is a live run that outlasted StaleAfter -
+            // in which case two migration runs are now in flight and somebody has to know
+            this.Log.warn(`Stealing stale migration lock on connection ${this.driver.Options.Name}, held by ${holder.Owner} since ${acquiredAt.toISOString()} ( older than ${staleAfter}ms ). If that process is still alive, two migration runs are now in flight - raise Migration.Lock.StaleAfter above the longest run.`);
+            await this.driver.del().from(this.lockTable).where({ Id: 1 });
+            continue;
+          }
+
+          if (Date.now() - start > timeout) {
+            throw new OrmException(`Could not acquire migration lock on connection ${this.driver.Options.Name} within ${timeout}ms - held by ${holder.Owner} since ${acquiredAt.toISOString()}`);
+          }
+        } else if (Date.now() - start > timeout) {
+          // no row to blame, so the insert is failing for its own reasons ( missing table, lost
+          // connection ). Carrying that message is the only thing that makes this diagnosable
+          throw new OrmException(`Could not acquire migration lock on connection ${this.driver.Options.Name} within ${timeout}ms - no lock row is present, the last insert failed with: ${(err as Error).message}`, undefined, undefined, undefined, err);
+        }
+
+        await new Promise((r) => setTimeout(r, MIGRATION_LOCK_POLL_INTERVAL));
+      }
+    }
+  }
+
+  /**
+   * Drops the lock row unconditionally rather than only the row this process wrote. A run whose
+   * lock was stolen as stale would otherwise have nothing to release, and the alternative -
+   * deleting only `Owner = ours` - leaves the table holding a row nobody will clear if the owner
+   * string ever changes underneath a run. Losing a stolen lock is the lesser harm: the thief
+   * already assumed the run was dead.
+   */
+  protected async releaseLock(): Promise<void> {
+    await this.driver.del().from(this.lockTable).where({ Id: 1 });
+  }
+
+  /**
+   * Concurrency guard around a whole run: one migration run per connection at a time, across
+   * processes. Note the release is `finally` - a run that throws must not leave the connection
+   * locked until the staleness window expires.
    */
   protected async withLock<R>(fn: () => Promise<R>): Promise<R> {
-    return fn();
+    if (!this.lockOptions().enabled) {
+      return fn();
+    }
+
+    await this.acquireLock();
+
+    try {
+      return await fn();
+    } finally {
+      try {
+        await this.releaseLock();
+      } catch (err) {
+        // a throw out of `finally` replaces whatever the run was already throwing, and the
+        // migration error is the one the operator actually needs - the likeliest reason the
+        // release died is the same dead connection that killed the run. The lock is left behind
+        // instead: it goes stale and the next run steals it, which is what StaleAfter is for.
+        this.Log.error(`Could not release the migration lock on connection ${this.driver.Options.Name}: ${(err as Error).message}. It will block further runs until it goes stale ( Migration.Lock.StaleAfter ) or its row is deleted from ${this.lockTable} by hand.`);
+      }
+    }
   }
 
   public async up(units: IMigrationUnit[], options?: IMigrationRunOptions): Promise<OrmMigration[]> {
