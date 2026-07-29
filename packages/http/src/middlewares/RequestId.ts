@@ -24,6 +24,11 @@ export class RequestId extends ServerMiddleware {
     return (req: sRequest, res: express.Response, next: express.NextFunction) => {
       req.storage.requestId = uuidv4();
 
+      // Emitted here, not in after(): ServerMiddleware after() handlers never
+      // run for matched controller routes ( response is flushed inside the
+      // controllers router without calling next() ).
+      res.header('x-request-id', req.storage.requestId);
+
       // Continue an inbound W3C traceparent ( or start a new trace ) and seed
       // traceId / spanId onto req.storage so the ambient log context merges them
       // into every log line — trace ids are shared across services.

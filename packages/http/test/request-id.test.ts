@@ -64,16 +64,16 @@ describe('RequestId middleware — traceparent seeding', () => {
     expect(call!.args[1]).to.eq(`00-${INBOUND_TRACE_ID}-${req.storage.spanId}-01`);
   });
 
-  it('after() still sets x-request-id from storage', () => {
+  it('before() sets x-request-id header, after() is disabled', () => {
     const mw = new RequestId();
     const req = fakeReq();
-    req.storage.requestId = 'req-123';
     const res = fakeRes();
-    const next = sinon.spy();
 
-    mw.after()(req, res, next);
+    mw.before()(req, res, sinon.spy());
 
-    expect((res.header as sinon.SinonStub).calledWith('x-request-id', 'req-123')).to.eq(true);
-    expect(next.calledOnce).to.eq(true);
+    // after() never runs for matched controller routes, so the header MUST be
+    // emitted in before() — from the freshly generated storage.requestId.
+    expect((res.header as sinon.SinonStub).calledWith('x-request-id', req.storage.requestId)).to.eq(true);
+    expect(mw.after()).to.eq(null);
   });
 });
