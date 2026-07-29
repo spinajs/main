@@ -1,37 +1,60 @@
 /* eslint-disable prettier/prettier */
 import { NonDbPropertyHydrator } from './../src/hydrators.js';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { Class, DI } from '@spinajs/di';
 import * as chai from 'chai';
 import _ from 'lodash';
 import 'mocha';
 import { Orm } from '../src/orm.js';
-import { FakeSqliteDriver, FakeSelectQueryCompiler, FakeDeleteQueryCompiler, FakeUpdateQueryCompiler, FakeInsertQueryCompiler, ConnectionConf, FakeMysqlDriver, FakeTableQueryCompiler, FakeColumnQueryCompiler, mergeArrays, FakeTableExistsCompiler } from './misc.js';
+import { FakeSqliteDriver, FakeMysqlDriver, TEST_TABLE_INFO, bootstrapAll, mergeArrays, registerFakes, stubDb } from './misc.js';
 import * as sinon from 'sinon';
-import { ModelToSqlConverter, SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, TableExistsCompiler, TableQueryCompiler, ColumnQueryCompiler, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter } from '../src/index.js';
+import { ModelToSqlConverter, DbPropertyHydrator, ModelHydrator, OrmMigration, Migration, MigrationTransactionMode, StandardModelToSqlConverter, ObjectToSqlConverter, StandardObjectToSqlConverter, IMigrationRecord, MIGRATION_TABLE_NAME, OrmException, MigrationRunner, IOrmOptions } from '../src/index.js';
 import { Migration1_2021_12_01_12_00_00, Migration2_2021_12_02_12_00_00 } from './mocks/migrations/index.js';
 import { OrmDriver } from '../src/driver.js';
+import '@spinajs/log';
 import "./../src/bootstrap.js";
 
 const expect = chai.expect;
+
+const now = new Date();
+
+/**
+ * One tracking row in its current shape - applied and not rolled back unless a test says
+ * otherwise. `up()` skips a migration only when its row carries `FinishedAt`, so a half-filled
+ * row would read as "never applied" and quietly turn a "must not run" test into a green no-op.
+ */
+const row = (over: Partial<IMigrationRecord>): IMigrationRecord => ({
+  Migration: 'X',
+  CreatedAt: now,
+  StartedAt: now,
+  FinishedAt: now,
+  RolledBackAt: null,
+  Logs: null,
+  Checksum: null,
+  Batch: 1,
+  ...over,
+});
 
 async function db() {
   return await DI.resolve(Orm);
 }
 
 describe('Orm migrations', () => {
-  before(() => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(FakeSqliteDriver).as('sqlite');
-    DI.register(FakeMysqlDriver).as('mysql');
+  /**
+   * `@Migration()` registers the decorated class into the ROOT container under `__migrations__`
+   * and that registration outlives the test that declared it - so the fixture declared inside
+   * 'Should register migration programatically' would otherwise still be there when the next
+   * test asserts on how many migrations the Orm found.
+   *
+   * Identity decides what to remove, but `DI.unregister` removes by TYPE NAME across every
+   * registry bucket, so a fixture sharing a name with another suite's registration would delete
+   * THAT entry instead - see the longer note in `migration-runner.test.ts`.
+   */
+  let preRegistered: unknown[] = [];
 
-    DI.register(FakeSelectQueryCompiler).as(SelectQueryCompiler);
-    DI.register(FakeDeleteQueryCompiler).as(DeleteQueryCompiler);
-    DI.register(FakeUpdateQueryCompiler).as(UpdateQueryCompiler);
-    DI.register(FakeInsertQueryCompiler).as(InsertQueryCompiler);
-    DI.register(FakeTableQueryCompiler).as(TableQueryCompiler);
-    DI.register(FakeColumnQueryCompiler).as(ColumnQueryCompiler);
-    DI.register(FakeTableExistsCompiler).as(TableExistsCompiler);
+  before(() => {
+    registerFakes();
+    DI.register(FakeMysqlDriver).as('mysql');
 
     DI.register(DbPropertyHydrator).as(ModelHydrator);
     DI.register(NonDbPropertyHydrator).as(ModelHydrator);
@@ -39,17 +62,28 @@ describe('Orm migrations', () => {
     DI.register(StandardObjectToSqlConverter).as(ObjectToSqlConverter);
   });
 
-  beforeEach(async () =>{ 
+  beforeEach(async () => {
+    DI.removeAllListeners('di.resolve.Configuration');
 
-    DI.removeAllListeners("di.resolve.Configuration");
+    await bootstrapAll();
 
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
+    // tracking table already in its current shape, so ensureStorage() has nothing to create or
+    // upgrade and the tests below observe only the statements their own migration run issued
+    TEST_TABLE_INFO[MIGRATION_TABLE_NAME] = ['Migration', 'CreatedAt', 'StartedAt', 'FinishedAt', 'RolledBackAt', 'Logs', 'Checksum', 'Batch'].map((Name) => ({ Name })) as any;
+
+    // copied, not aliased: getRegisteredTypes hands back the registry's own array, which a
+    // decorator running inside a test then pushes into
+    preRegistered = [...(DI.getRegisteredTypes('__migrations__') ?? [])];
+  });
+
+  afterEach(() => {
+    for (const t of [...(DI.getRegisteredTypes('__migrations__') ?? [])]) {
+      if (!preRegistered.includes(t)) {
+        DI.unregister(t as Class<unknown>);
+      }
     }
-  })
 
-  afterEach(async () => {
+    delete TEST_TABLE_INFO[MIGRATION_TABLE_NAME];
     DI.clearCache();
     sinon.restore();
   });
@@ -64,10 +98,14 @@ describe('Orm migrations', () => {
 
   it('ORM should run migration by name', async () => {
     const orm = await db();
+    stubDb([]);
     const up = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'up');
-    await orm.migrateUp('Migration1_2021_12_01_12_00_00');
+    const up2 = sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'up');
+
+    await orm.Migration.up('Migration1_2021_12_01_12_00_00');
 
     expect(up.calledOnceWith(orm.Connections.get('sqlite'))).to.be.true;
+    expect(up2.called, 'a named run must not drag the rest of the registry along').to.be.false;
   });
 
   it('ORM should run migration in transaction scope', async () => {
@@ -95,7 +133,7 @@ describe('Orm migrations', () => {
                   Filename: 'foo.sqlite',
                   Name: 'sqlite',
                   Migration: {
-                    Startup: true,
+                    OnStartup: true,
                     Transaction: {
                       Mode: MigrationTransactionMode.PerMigration,
                     },
@@ -113,24 +151,31 @@ describe('Orm migrations', () => {
     const container = DI.child();
     container.register(FakeConf).as(Configuration);
 
+    // OnStartup is on for this connection, so resolving the Orm already migrates - the tracking
+    // table has to answer before that, not after
+    stubDb([]);
+
     const orm = await container.resolve(Orm);
 
     // transaction() now owns commit/rollback itself and resolves with the callback's result,
     // so there is no ITransaction handle to fake any more
     const tr = sinon.stub(FakeSqliteDriver.prototype, 'transaction').resolves(undefined);
-    await orm.migrateUp();
+    await orm.Migration.up();
 
-    expect(tr.called).to.be.true;
+    // PerMigration means one transaction per migration, and both are pending again because the
+    // stubbed tracking table always reports empty
+    expect(tr.callCount).to.eq(2);
   });
 
   it('ORM should run all migrations', async () => {
     // @ts-ignore
     const orm = await db();
+    stubDb([]);
 
     const up = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'up');
     const up2 = sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'up');
 
-    await orm.migrateUp();
+    await orm.Migration.up();
 
     expect(up.calledOnceWith(orm.Connections.get('sqlite'))).to.be.true;
     expect(up2.calledOnceWith(orm.Connections.get('sqlite'))).to.be.true;
@@ -139,11 +184,12 @@ describe('Orm migrations', () => {
   it('Should run migration in proper order up', async () => {
     // @ts-ignore
     const orm = await db();
+    stubDb([]);
 
     const spy1 = sinon.spy(Migration1_2021_12_01_12_00_00.prototype, 'up');
     const spy2 = sinon.spy(Migration2_2021_12_02_12_00_00.prototype, 'up');
 
-    await orm.migrateUp();
+    await orm.Migration.up();
 
     expect(spy1.calledBefore(spy2)).to.be.true;
     expect(spy1.calledOnce).to.be.true;
@@ -154,15 +200,14 @@ describe('Orm migrations', () => {
     // @ts-ignore
     const orm = await db();
 
-    // seed migration table: both migrations are recorded so down() must fire for both
-    const exec = sinon.stub(FakeSqliteDriver.prototype, 'execute').resolves([{ Migration: 'recorded', CreatedAt: new Date() }]);
+    // seed migration table: both migrations are recorded so down() must fire for both. They sit
+    // in different batches, so only { all: true } reaches past the last one
+    stubDb([row({ Migration: 'Migration1_2021_12_01_12_00_00', Batch: 1 }), row({ Migration: 'Migration2_2021_12_02_12_00_00', Batch: 2 })]);
 
     const spy1 = sinon.spy(Migration1_2021_12_01_12_00_00.prototype, 'down');
     const spy2 = sinon.spy(Migration2_2021_12_02_12_00_00.prototype, 'down');
 
-    await orm.migrateDown();
-
-    exec.restore();
+    await orm.Migration.down(undefined, { all: true });
 
     expect(spy1.calledAfter(spy2)).to.be.true;
     expect(spy1.calledOnce).to.be.true;
@@ -173,11 +218,13 @@ describe('Orm migrations', () => {
     // @ts-ignore
     const orm = await db();
 
-    // migration table empty (execute returns falsy row) => nothing recorded => down must NOT run
+    // migration table empty => nothing recorded => down must NOT run
+    stubDb([]);
+
     const spy1 = sinon.spy(Migration1_2021_12_01_12_00_00.prototype, 'down');
     const spy2 = sinon.spy(Migration2_2021_12_02_12_00_00.prototype, 'down');
 
-    await orm.migrateDown();
+    await orm.Migration.down(undefined, { all: true });
 
     expect(spy1.called).to.be.false;
     expect(spy2.called).to.be.false;
@@ -188,17 +235,142 @@ describe('Orm migrations', () => {
     const orm = await db();
 
     // seed migration table: both migrations already recorded so up() must be skipped
-    const exec = sinon.stub(FakeSqliteDriver.prototype, 'execute').resolves([{ Migration: 'recorded', CreatedAt: new Date() }]);
+    stubDb([row({ Migration: 'Migration1_2021_12_01_12_00_00' }), row({ Migration: 'Migration2_2021_12_02_12_00_00' })]);
 
     const spy1 = sinon.spy(Migration1_2021_12_01_12_00_00.prototype, 'up');
     const spy2 = sinon.spy(Migration2_2021_12_02_12_00_00.prototype, 'up');
 
-    await orm.migrateUp();
-
-    exec.restore();
+    await orm.Migration.up();
 
     expect(spy1.called).to.be.false;
     expect(spy2.called).to.be.false;
+  });
+
+  it('data() failures aggregate and every hook still runs', async () => {
+    const orm = await db();
+
+    // a data() that throws used to abort the whole phase at the first failure, so every seed
+    // after it was silently skipped and only the first error was ever reported
+    const d1 = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'data').rejects(new Error('seed 1 failed'));
+    const d2 = sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'data').rejects(new Error('seed 2 failed'));
+
+    try {
+      await (orm as any).runDataPhase([new Migration1_2021_12_01_12_00_00(), new Migration2_2021_12_02_12_00_00()]);
+      expect.fail('a failed data() phase must not resolve');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('seed 1 failed');
+      expect(e.message, 'every failure has to be named, not just the first').to.contain('seed 2 failed');
+      expect(e.message).to.contain('Migration1_2021_12_01_12_00_00');
+      expect(e.message).to.contain('Migration2_2021_12_02_12_00_00');
+    }
+
+    expect(d1.calledOnce).to.be.true;
+    expect(d2.calledOnce, 'a hook after a failing one still has to run').to.be.true;
+  });
+
+  it('data() failing with a non-Error still names the reason', async () => {
+    const orm = await db();
+
+    // nothing forces a hook to reject with an Error: `throw 'boom'` and `Promise.reject(code)`
+    // are both legal, and reading `.message` off either yields undefined - so the aggregate would
+    // report "Migration1_... (undefined)" and name no cause at all for the boot it just failed
+    const d1 = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'data').callsFake(() => Promise.reject('rejected with a bare string'));
+    const d2 = sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'data').callsFake(() => {
+      throw 42;
+    });
+
+    try {
+      await (orm as any).runDataPhase([new Migration1_2021_12_01_12_00_00(), new Migration2_2021_12_02_12_00_00()]);
+      expect.fail('a failed data() phase must not resolve');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message, 'a non-Error rejection has to be stringified, not read for .message').to.contain('rejected with a bare string');
+      expect(e.message, 'a thrown non-string primitive has to be rendered too').to.contain('42');
+      expect(e.message, 'reading .message off a non-Error is what puts "undefined" in here').to.not.contain('undefined');
+      expect(e.inner, 'the original rejection value is carried through verbatim, not wrapped').to.eq('rejected with a bare string');
+    }
+
+    expect(d1.calledOnce).to.be.true;
+    expect(d2.calledOnce).to.be.true;
+  });
+
+  it('resolve() runs the data() phase of the migrations it applied, after model wiring', async () => {
+    class FakeConf extends FrameworkConfiguration {
+      public async resolve(): Promise<void> {
+        await super.resolve();
+
+        _.mergeWith(
+          this.Config,
+          {
+            logger: {
+              targets: [
+                {
+                  name: 'Empty',
+                  type: 'BlackHoleTarget',
+                },
+              ],
+
+              rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+            },
+            db: {
+              Connections: [
+                {
+                  Driver: 'sqlite',
+                  Filename: 'foo.sqlite',
+                  Name: 'sqlite',
+                  Migration: {
+                    OnStartup: true,
+                    Transaction: {
+                      Mode: MigrationTransactionMode.None,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+
+          mergeArrays,
+        );
+      }
+    }
+
+    const container = DI.child();
+    container.register(FakeConf).as(Configuration);
+
+    // OnStartup is on, so resolving the Orm is what applies the migrations - the tracking table
+    // has to answer empty before that, or nothing is pending and no data() would be due
+    stubDb([]);
+
+    // the last wiring step of resolve(), spied so the assertions below pin WHERE the data phase
+    // sits, not merely that it happened: MODEL_STATIC_MIXINS ( ModelBase.query, .insert, ... )
+    // land on the model classes here, and a seed that runs before this call has no model API to
+    // seed through. `data()` is documented as "execute AFTER orm module has been initialized".
+    const mixins = sinon.spy(Orm.prototype as unknown as { applyModelMixins(): void }, 'applyModelMixins');
+
+    const d1 = sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'data').resolves();
+    const d2 = sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'data').resolves();
+
+    await container.resolve(Orm);
+
+    expect(d1.calledOnce, 'resolve() has to seed every migration it just applied - boot is the only caller that ever will').to.be.true;
+    expect(d2.calledOnce).to.be.true;
+
+    expect(mixins.calledOnce, 'the ordering assertions below are vacuous if the wiring step never ran').to.be.true;
+    expect(d1.calledAfter(mixins), 'data() may use models, so it must run after applyModelMixins()').to.be.true;
+    expect(d2.calledAfter(mixins)).to.be.true;
+  });
+
+  it('migrations discovered purely via DI registration', async () => {
+    const orm = await db();
+
+    expect(orm.Migrations.every((m) => typeof m.type === 'function'), 'the registry carries classes, not file paths').to.be.true;
+    expect(orm.Migrations.map((m) => m.name)).to.eql(['Migration1_2021_12_01_12_00_00', 'Migration2_2021_12_02_12_00_00']);
+    expect(orm.Migrations.map((m) => m.type)).to.eql([Migration1_2021_12_01_12_00_00, Migration2_2021_12_02_12_00_00]);
+
+    const registered = DI.getRegisteredTypes('__migrations__');
+    expect(registered).to.include(Migration1_2021_12_01_12_00_00);
+    expect(registered).to.include(Migration2_2021_12_02_12_00_00);
   });
 
   it('Should register migration programatically', async () => {
@@ -259,10 +431,133 @@ describe('Orm migrations', () => {
     container.register(FakeConf).as(Configuration);
     container.register(FakeOrm).as(Orm);
 
-    const orm = await container.resolve(Orm);
-    const migrations = await orm.Migrations;
+    // OnStartup is on, so the boot run is what exercises the programmatic registration
+    stubDb([]);
 
-    expect(migrations.find((m) => m.name === 'Test')).to.be.not.null;
+    const orm = await container.resolve(Orm);
+    const migrations = orm.Migrations;
+
+    expect(migrations.find((m) => m.name === 'Test_2021_12_02_12_00_00'), 'a DI-registered migration has to reach the Orm registry').to.not.be.undefined;
     expect(fakeUp.calledOnce).to.be.true;
+  });
+
+  it('Should refuse a migration whose name carries no timestamp', async () => {
+    @Migration('sqlite')
+    class MigrationTest_Malformed extends OrmMigration {
+      public async up(_: OrmDriver) {}
+      public async down(_: OrmDriver) {}
+    }
+
+    expect(DI.getRegisteredTypes('__migrations__'), 'the decorator registers it regardless of the name').to.include(MigrationTest_Malformed);
+
+    // registerMigration validates at boot, so the Orm never comes up holding a migration that
+    // cannot be ordered - a half-ordered run applies schema changes in an order nobody described
+    try {
+      await db();
+      expect.fail('an unorderable migration must not boot');
+    } catch (e: any) {
+      expect(e).to.be.instanceOf(OrmException);
+      expect(e.message).to.contain('MigrationTest_Malformed');
+      expect(e.message).to.contain('some_name_yyyy_MM_dd_HH_mm_ss');
+    }
+  });
+
+  /**
+   * `MigrateOnStartup` is an `IOrmOptions` field, handed over at construction -
+   * `DI.resolve(Orm, [{ MigrateOnStartup: false }])` - and it exists for processes that operate ON
+   * migrations rather than with them ( `@spinajs/orm-cli` ). The pair below is what makes it an
+   * OPT-OUT: the first test is every application that never heard of the option.
+   */
+  describe('MigrateOnStartup', () => {
+    /** One connection, `OnStartup` ON - so the boot pass is exactly what the gate lets through. */
+    class StartupConf extends FrameworkConfiguration {
+      public async resolve(): Promise<void> {
+        await super.resolve();
+
+        _.mergeWith(
+          this.Config,
+          {
+            logger: {
+              targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
+              rules: [{ name: '*', level: 'trace', target: 'Empty' }],
+            },
+            db: {
+              Connections: [
+                {
+                  Driver: 'sqlite',
+                  Filename: 'foo.sqlite',
+                  Name: 'sqlite',
+                  Migration: {
+                    OnStartup: true,
+                    Transaction: { Mode: MigrationTransactionMode.None },
+                  },
+                },
+              ],
+            },
+          },
+          mergeArrays,
+        );
+      }
+    }
+
+    /** Both mock migrations declare the `sqlite` connection, so both are in the boot pass. */
+    function spyMigrations() {
+      return {
+        up1: sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'up').resolves(),
+        up2: sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'up').resolves(),
+        data1: sinon.stub(Migration1_2021_12_01_12_00_00.prototype, 'data').resolves(),
+        data2: sinon.stub(Migration2_2021_12_02_12_00_00.prototype, 'data').resolves(),
+      };
+    }
+
+    function container() {
+      const c = DI.child();
+      c.register(StartupConf).as(Configuration);
+
+      // an empty tracking table, so both migrations are pending and a boot pass has work to do -
+      // without this the "did not run" assertions below would pass on an already-migrated database
+      stubDb([]);
+
+      return c;
+    }
+
+    it('runs the boot migration pass on an ordinary DI.resolve(Orm)', async () => {
+      const { up1, up2, data1, data2 } = spyMigrations();
+
+      await container().resolve(Orm);
+
+      expect(up1.calledOnce, 'resolving an Orm the ordinary way must still migrate - that is what Migration.OnStartup means').to.be.true;
+      expect(up2.calledOnce).to.be.true;
+
+      // the seeding pass belongs to the boot run, so it moves with it
+      expect(data1.calledOnce).to.be.true;
+      expect(data2.calledOnce).to.be.true;
+    });
+
+    it('MigrateOnStartup: false skips the pass and leaves the rest of resolve() intact', async () => {
+      const { up1, up2, data1, data2 } = spyMigrations();
+
+      const orm = await container().resolve(Orm, [{ MigrateOnStartup: false } as IOrmOptions]);
+
+      expect(up1.called, 'the boot pass ran despite MigrateOnStartup: false').to.be.false;
+      expect(up2.called).to.be.false;
+
+      // nothing was applied, so there is nothing to seed - a data() hook firing here would run
+      // against a schema this process never touched
+      expect(data1.called, 'the data() phase ran for a migration that never ran').to.be.false;
+      expect(data2.called).to.be.false;
+
+      // everything the commands need is still there. `Migration` above all: a suppressed boot
+      // whose facade was also missing would be useless to the tool the suppression is for
+      expect(orm.Migration, 'orm.Migration must survive a suppressed boot - it is the point of it').to.be.instanceOf(MigrationRunner);
+      expect(orm.Connections.get('sqlite'), 'connections are not part of the migration pass and must still be open').to.not.be.undefined;
+      expect(orm.Container.get('__orm_db_value_converters__'), 'value converters are registered before the pass and must not move with it').to.be.instanceOf(Map);
+
+      // and the facade really works - the option suppresses the BOOT run, not migrations
+      await orm.Migration.up();
+
+      expect(up1.calledOnce, 'an explicit run through the facade must be unaffected by the suppression').to.be.true;
+      expect(up2.calledOnce).to.be.true;
+    });
   });
 });

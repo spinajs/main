@@ -30,6 +30,7 @@
     { "path": "packages/orm-mysql/tsconfig.mjs.json" },
     { "path": "packages/orm-sql/tsconfig.mjs.json" },
     { "path": "packages/orm-sqlite/tsconfig.mjs.json" },
+    { "path": "packages/orm-cli/tsconfig.mjs.json" },
     { "path": "packages/queue/tsconfig.mjs.json" },
     { "path": "packages/queue-orm-transport/tsconfig.mjs.json" },
     { "path": "packages/queue-stomp-transport/tsconfig.mjs.json" },

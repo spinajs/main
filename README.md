@@ -49,9 +49,15 @@ cd packages/orm-mysql && npm run test:integration
 
 Tear down with `docker compose --profile test down` (add `-v` to drop the data volume too).
 
-The container publishes MySQL on host port **3900**, deliberately not 3306, so it cannot
+The container publishes MySQL on host port **13306**, deliberately not 3306, so it cannot
 collide with a MySQL already installed on the machine. It creates the `test` and `test-2`
 schemas the suites expect.
+
+`ORM_TEST_MYSQL_PORT` moves both sides at once — the published port and every suite that
+connects to it — so change it there rather than in the compose file. The port was 3900 until
+that turned out to sit inside a range Windows reserves for Hyper-V dynamic ports, where Docker
+cannot bind at all without elevation; `netsh interface ipv4 show excludedportrange protocol=tcp`
+lists them, and on Windows most of 2646-4244 is unusable.
 
 #### Environment
 
@@ -60,7 +66,7 @@ The MySQL integration suite reads these, falling back to the compose defaults:
 | Variable | Default |
 | --- | --- |
 | `ORM_TEST_MYSQL_HOST` | `127.0.0.1` |
-| `ORM_TEST_MYSQL_PORT` | `3900` |
+| `ORM_TEST_MYSQL_PORT` | `13306` |
 | `ORM_TEST_MYSQL_USER` | `root` |
 | `ORM_TEST_MYSQL_PASSWORD` | `root` |
 | `ORM_TEST_MYSQL_DATABASE` | `test` |

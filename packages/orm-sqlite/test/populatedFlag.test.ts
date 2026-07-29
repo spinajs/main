@@ -27,7 +27,7 @@ describe('Populated flag', function () {
       await b.bootstrap();
     }
     await DI.resolve(Orm);
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
   });
 

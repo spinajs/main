@@ -236,6 +236,23 @@ keys should go through it rather than touching `descriptor.PrimaryKey` directly.
 | `generateClientSideKeys(target, d)` | Fill `uuid` keys. |
 | `assertAssignedKeys(target, d)` | Throw when an `assigned` key is missing. |
 
+## The migration layer
+
+Two modules, split along one line: anything that spans connections is orchestration, anything
+that touches a database is execution.
+
+| Module | Owns |
+| --- | --- |
+| `migration-runner.ts` | `MigrationRunner` — the `orm.Migration` facade. Validates and orders the migration registry, groups it by the connection each migration declared, and dispatches each group to that connection's `OrmMigrationService`. Touches no database itself. |
+| `migration-service.ts` | `OrmMigrationService` (abstract) and `DefaultMigrationService` — the per-connection contract: tracking-table storage and upgrade, the lock, batches, checksums, transaction wrapping, failure rows and `resolve`. |
+
+`MigrationRunner` is constructed from an `IMigrationRunnerHost` — just `{ Migrations, Connections }`
+— rather than from `Orm`, which is what makes it testable without booting one. The service is
+selected per connection by the `Migration.Service` DI token and resolved from the driver's own
+child container with the driver as its argument, so a dialect can replace migration execution
+without replacing the runner. See
+[10-schema-and-migrations.md](10-schema-and-migrations.md).
+
 ## Recurring hazards in this codebase
 
 These show up throughout the source comments and are worth internalising.
@@ -292,4 +309,5 @@ import { MetadataModel, MetadataRelation } from '@spinajs/orm/lib/mjs/metadata.j
 | `ModelToSqlConverter` | One connection's write payloads. |
 | Relation `type` / `factory` | One relation. |
 | `QueryScope` | One model's builders. |
+| `OrmMigrationService` | One connection's migration execution — see [10-schema-and-migrations.md](10-schema-and-migrations.md). |
 | Custom `OrmDriver` | A whole dialect — see [orm-sql's docs](../../orm-sql/docs/04-writing-a-driver.md). |

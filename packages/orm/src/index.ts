@@ -17,6 +17,8 @@ export * from './model.js';
 export * from './relations.js';
 export * from './relation-objects.js';
 export * from './middlewares.js';
+export * from './migration-service.js';
+export * from './migration-runner.js';
 export * from './discrimination-middleware.js';
 export * from './orm.js';
 export * from './types.js';

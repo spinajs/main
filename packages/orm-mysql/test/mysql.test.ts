@@ -23,6 +23,10 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 export const TEST_MIGRATION_TABLE_NAME = 'orm_migrations';
 
+// Host port of the docker-compose `mysql` fixture. Same env var the integration suites in
+// test/integration already read, so one override moves every suite and the container with it.
+const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306);
+
 export class ConnectionConf extends FrameworkConfiguration {
   protected onLoad() {
     return {
@@ -56,7 +60,7 @@ export class ConnectionConf extends FrameworkConfiguration {
             Password: 'root',
             User: 'root',
             Database: 'test-2',
-            Port: 3900,
+            Port: PORT,
             Migration: {
               Table: TEST_MIGRATION_TABLE_NAME,
               OnStartup: true,
@@ -72,7 +76,7 @@ export class ConnectionConf extends FrameworkConfiguration {
             Password: 'root',
             User: 'root',
             Database: 'test',
-            Port: 3900,
+            Port: PORT,
             Migration: {
               Table: TEST_MIGRATION_TABLE_NAME,
               OnStartup: true,
@@ -141,14 +145,14 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
   });
 
   it('Should migrate', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
 
     await db().Connections.get('mysql')!.select().from('user_test');
     await expect(db().Connections.get('mysql')!.select().from('notexisted')).to.be.rejected;
   });
 
   it('Should check if table exists', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
 
     const exists = await db().Connections.get('mysql')!.schema().tableExists('user_test');
     const notExists = await db().Connections.get('mysql')!.schema().tableExists('user2');
@@ -158,7 +162,7 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should insert query', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
     const iResult = await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
@@ -188,7 +192,7 @@ describe('Mysql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should update', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
     const iResult = await db().Connections.get('mysql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',

@@ -68,7 +68,7 @@ class MysqlQueueConf extends FrameworkConfiguration {
             Password: PASSWORD,
             Database: DB,
             // OnStartup: false so resolving Orm does NOT auto-migrate - the suite drops any
-            // leftover tables from a dirty previous run first, then drives migrateUp() itself.
+            // leftover tables from a dirty previous run first, then drives Migration.up() itself.
             Migration: {
               OnStartup: false,
               Table: MIGRATION_TABLE,
@@ -91,6 +91,10 @@ async function dropQueueTables(cn: OrmDriver) {
   // order does not matter ( no FKs ); ifExists keeps this idempotent across dirty runs
   await cn.schema().dropTable('queue_jobs').ifExists();
   await cn.schema().dropTable(MIGRATION_TABLE).ifExists();
+  // the migration service keeps its concurrency lock in `<table>_lock`. A run that died holding
+  // it leaves the row behind, and the next run then waits out the lock timeout before stealing
+  // it - which is exactly the dirty-previous-run state this helper exists to erase.
+  await cn.schema().dropTable(`${MIGRATION_TABLE}_lock`).ifExists();
 }
 
 interface IColumnRow {
@@ -125,7 +129,7 @@ suite('queue migrations against MySQL (dialect regression: Status default across
 
     // the actual exercise: every queue migration ( incl. the MySQL-only MODIFY / ENUM branches )
     // must apply without a dialect error. This line alone catches the enum / MODIFY regressions.
-    await orm.migrateUp();
+    await orm.Migration.up();
   });
 
   after(async () => {

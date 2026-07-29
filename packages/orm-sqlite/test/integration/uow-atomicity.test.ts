@@ -68,7 +68,7 @@ async function boot() {
   }
 
   const orm = await DI.resolve(Orm);
-  await orm!.migrateUp();
+  await orm!.Migration.up();
   await orm!.reloadTableInfo();
 
   return orm!;

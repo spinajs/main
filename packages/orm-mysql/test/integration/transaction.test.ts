@@ -34,7 +34,7 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 
 const HOST = process.env.ORM_TEST_MYSQL_HOST ?? '127.0.0.1';
-const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 3900);
+const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306);
 const USER = process.env.ORM_TEST_MYSQL_USER ?? 'root';
 const PASSWORD = process.env.ORM_TEST_MYSQL_PASSWORD ?? 'root';
 const DATABASE = process.env.ORM_TEST_MYSQL_DATABASE ?? 'test';
@@ -101,7 +101,7 @@ describe('MySQL transaction contract (integration)', function () {
     DI.register(IntegrationConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-    await db().migrateUp();
+    await db().Migration.up();
     // model descriptors get their columns from the live schema; without this the
     // insert compiler has no columns to work with
     await db().reloadTableInfo();

@@ -409,12 +409,17 @@ export class SqliteOrmDriver extends SqlDriver {
    * @param _schema - optional schema name
    */
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
-    // Empty map, not a non-null assertion: the default converters are registered
-    // AFTER migrations run ( see Orm.resolve ), so a migration inspecting the
-    // schema — the one place introspection is genuinely needed — reached a
-    // container entry that does not exist yet and died on `undefined.get`.
-    // Without a converter the raw default value is reported, which is exactly
-    // what the fallback below already does for unknown types.
+    // An absent converter map is a normal state here, not a bug to assert away. The map lives in
+    // the container CACHE and is put there by `Orm.registerDefaultConverters()`, which runs AFTER
+    // the boot migration pass - and the migration service calls `tableInfo` from `ensureStorage()`
+    // to find out which tracking columns an EXISTING table is missing. So the first `tableInfo` of
+    // a boot against an already-migrated database arrives before any converter exists, and the `!`
+    // that used to stand here turned that into `Cannot read properties of undefined (reading
+    // 'get')` - a crash on every restart, invisible on the first boot because a table that had to
+    // be created skips the probe entirely.
+    //
+    // Falling back to an empty map degrades exactly as an unrecognised column type already does:
+    // `DefaultValue` keeps the raw `dflt_value` sqlite reported.
     const converters = this.Container.get<Map<string, any>>('__orm_db_value_converters__') ?? new Map<string, any>();
 
     const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${name});`, [] as any, QueryContext.Select)) as ITableInfo[];

@@ -31,7 +31,7 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 
 const HOST = process.env.ORM_TEST_MYSQL_HOST ?? '127.0.0.1';
-const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 3900);
+const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306);
 const USER = process.env.ORM_TEST_MYSQL_USER ?? 'root';
 const PASSWORD = process.env.ORM_TEST_MYSQL_PASSWORD ?? 'root';
 const DATABASE = process.env.ORM_TEST_MYSQL_DATABASE ?? 'test';
@@ -70,7 +70,7 @@ export class UowIntegrationConf extends FrameworkConfiguration {
               // MySQL driver throws for a missing table where SQLite returns null.
               // The SAME ledger the other two integration suites use. @Migration registers
               // globally on import and mocha loads every file into one process, so
-              // migrateUp() here also sees theirs. With a private ledger it would find no
+              // Migration.up() here also sees theirs. With a private ledger it would find no
               // applied migrations and re-run them, failing on `Table ... already exists`.
               Migration: { Table: 'orm_migrations_integration', OnStartup: true },
             },
@@ -99,7 +99,7 @@ describe('MySQL save() integration', function () {
     DI.register(UowIntegrationConf).as(Configuration);
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
     await DI.resolve(Orm);
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
   });
 

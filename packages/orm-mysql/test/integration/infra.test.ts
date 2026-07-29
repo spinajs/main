@@ -30,7 +30,7 @@ const expect = chai.expect;
 chai.use(chaiAsPromised);
 
 const HOST = process.env.ORM_TEST_MYSQL_HOST ?? '127.0.0.1';
-const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 3900);
+const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306);
 const USER = process.env.ORM_TEST_MYSQL_USER ?? 'root';
 const PASSWORD = process.env.ORM_TEST_MYSQL_PASSWORD ?? 'root';
 const DATABASE = process.env.ORM_TEST_MYSQL_DATABASE ?? 'test';
@@ -79,7 +79,7 @@ class InfraConf extends FrameworkConfiguration {
               // changelog entry in docs/orm-analysis.md.
               // Same ledger as the transaction suite on purpose. `@Migration` registers into DI
               // at import time, so once mocha has loaded both integration files EVERY suite's
-              // migrateUp() runs EVERY migration. Two ledgers would mean each migration is
+              // Migration.up() runs EVERY migration. Two ledgers would mean each migration is
               // recorded in one of them and re-run from the other, failing on "table already
               // exists". One database, one ledger.
               Migration: { Table: 'orm_migrations_integration', OnStartup: true },
@@ -145,7 +145,7 @@ describe('MySQL integration - orm-infra', function () {
     DI.register(MySqlOrmDriver).as('orm-driver-mysql');
 
     await DI.resolve(Orm);
-    await db().migrateUp();
+    await db().Migration.up();
     // Model descriptors get their columns from the live schema; without this the insert
     // compiler has no columns to work with.
     await db().reloadTableInfo();

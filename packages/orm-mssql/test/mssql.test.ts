@@ -96,14 +96,14 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
   });
 
   it('Should migrate', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
 
     await db().Connections.get('mssql')!.select().from('user_test');
     await expect(db().Connections.get('mssql')!.select().from('notexisted')).to.be.rejected;
   });
 
   it('Should check if table exists', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
 
     const exists = await db().Connections.get('mssql')!.schema().tableExists('user_test');
     const notExists = await db().Connections.get('mssql')!.schema().tableExists('user2');
@@ -113,7 +113,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should insert query', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
     const iResult = await db().Connections.get('mssql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
@@ -149,7 +149,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should delete', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
     await db().Connections.get('mssql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
@@ -163,7 +163,7 @@ describe('MsSql driver migration, updates, deletions & inserts', () => {
   });
 
   it('should update', async () => {
-    await db().migrateUp();
+    await db().Migration.up();
     const iResult = await db().Connections.get('mssql')!.insert().into('user_test').values({
       Name: 'test',
       Password: 'test_password',
@@ -193,7 +193,7 @@ describe('mssql model functions', () => {
     DI.register(MsSqlOrmDriver).as('orm-driver-mssql');
     await DI.resolve(Orm);
 
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
   });
 
@@ -224,7 +224,7 @@ describe('MsSql queries', () => {
     await DI.resolve(Orm);
 
     await db().Connections.get('mssql')!.truncate('user_test');
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
   });
 

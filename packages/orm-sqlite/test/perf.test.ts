@@ -43,7 +43,7 @@ describe('orm-sqlite emits exactly one orm.query span per query', () => {
     sink = (DI.resolve(Array.ofType(PerfSink)) as PerfSink[]).find((s) => s instanceof RecordingSink) as RecordingSink;
     Perf.refreshSinks();
 
-    await db().migrateUp();
+    await db().Migration.up();
     await db().reloadTableInfo();
   });
 
