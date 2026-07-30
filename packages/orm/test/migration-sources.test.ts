@@ -362,7 +362,11 @@ describe('FilesystemMigrationSource import failures', () => {
     MigrationSourcesConf.Dirs = [FIXTURES];
   });
 
-  it('throws when a .js migration fails to import, naming the file', async () => {
+  it('throws when a .js migration in a CONFIGURED directory fails to import, naming the file', async () => {
+    // `scratch` is set on `MigrationSourcesConf.Dirs` in this suite's `beforeEach` above, i.e.
+    // `system.dirs.migrations` is non-empty - a CONFIGURED directory, not a fallback one. That
+    // distinction is exactly what now decides throw-vs-warn, so it is spelled out here rather than
+    // left implicit.
     const brokenFile = path.join(scratch, 'BrokenJs_2026_07_29_10_05_00.js');
     fs.writeFileSync(brokenFile, "throw new Error('boom - intentional js import failure');\n");
 
@@ -374,7 +378,7 @@ describe('FilesystemMigrationSource import failures', () => {
       caught = err;
     }
 
-    expect(caught, 'a broken .js migration must not be swallowed').to.be.instanceOf(OrmException);
+    expect(caught, 'a broken .js migration in a configured directory must not be swallowed').to.be.instanceOf(OrmException);
     expect((caught as OrmException).message).to.contain(brokenFile);
     expect((caught as OrmException).inner).to.be.instanceOf(Error);
     expect(((caught as OrmException).inner as Error).message).to.contain('boom - intentional js import failure');
@@ -441,6 +445,86 @@ describe('FilesystemMigrationSource import failures', () => {
 
     expect(caught, 'a .mjs file must be matched by the scan and its failure surfaced').to.be.instanceOf(OrmException);
     expect((caught as OrmException).message).to.contain(brokenFile);
+  });
+});
+
+/**
+ * The decision this suite locks in: an import failure in a directory the OPERATOR named
+ * (`system.dirs.migrations` configured, covered above) still throws - but the same failure in a
+ * directory WE guessed (`DEFAULT_MIGRATION_DIRS`) only warns and is skipped. Nobody asked for that
+ * directory to be scanned, so a broken file sitting in it is not this ORM's business to kill a
+ * boot over.
+ */
+describe('FilesystemMigrationSource import failures - fallback directory', () => {
+  // `lib/migrations` ( `DEFAULT_MIGRATION_DIRS[1]` ), not `dist` or `build` - both of those are
+  // already round-tripped by the "default directories" suites above, and sharing one here would
+  // make cross-suite cleanup ordering load-bearing for no reason. Like `dist` and `build`, `lib`
+  // alone is never a real compile output directory in this repo - that is `lib/cjs` / `lib/mjs`,
+  // see the doc comment on `DEFAULT_MIGRATION_DIRS` - so a plain filesystem round-trip is safe.
+  const fallbackDir = DEFAULT_MIGRATION_DIRS[1];
+
+  function writeGoodMigration(name: string): void {
+    const importDir = path.relative(fallbackDir, path.join(process.cwd(), 'src')).replace(/\\/g, '/');
+
+    fs.mkdirSync(fallbackDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(fallbackDir, `${name}.ts`),
+      [`import { OrmDriver } from '${importDir}/driver.js';`, `import { OrmMigration } from '${importDir}/interfaces.js';`, '', `export class ${name} extends OrmMigration {`, '  public async up(_connection: OrmDriver): Promise<void> {}', '  public async down(_connection: OrmDriver): Promise<void> {}', '}', ''].join('\n'),
+    );
+  }
+
+  function cleanup(): void {
+    fs.rmSync(fallbackDir, { recursive: true, force: true });
+
+    const parent = path.dirname(fallbackDir);
+    if (fs.existsSync(parent) && fs.readdirSync(parent).length === 0) {
+      fs.rmdirSync(parent);
+    }
+  }
+
+  afterEach(() => {
+    sinon.restore();
+    cleanup();
+    MigrationSourcesConf.Dirs = [FIXTURES];
+  });
+
+  it('warns and skips a broken .js migration, and still returns the good migrations found alongside it', async () => {
+    fs.mkdirSync(fallbackDir, { recursive: true });
+
+    const brokenFile = path.join(fallbackDir, 'BrokenFallbackJs_2026_07_29_10_12_00.js');
+    fs.writeFileSync(brokenFile, "throw new Error('boom - intentional js import failure in a fallback directory');\n");
+    writeGoodMigration('GoodFallback_2026_07_29_10_13_00');
+
+    // an empty configured value is what selects the fallback dirs - see `getMigrations()`'s own
+    // comment on `isConfigured`
+    MigrationSourcesConf.Dirs = [];
+
+    // inlined rather than routed through discover(): a spy needs the resolved instance, same as
+    // the .ts trace-vs-warn test above
+    DI.clearCache();
+    DI.setESMModuleSupport();
+    const source = await DI.resolve(FilesystemMigrationSource);
+    const warn = sinon.spy((source as any).Log, 'warn');
+
+    let found: Array<ClassInfo<OrmMigration>> | undefined;
+    let caught: unknown;
+
+    try {
+      found = await source.getMigrations();
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught, 'a broken .js migration in a FALLBACK directory must not throw').to.equal(undefined);
+
+    expect(warn.called, 'the failure must be logged at warn').to.equal(true);
+    const call = warn.getCalls().find((c) => String(c.args[1]).includes(brokenFile));
+    expect(call, 'the warning must name the file').to.not.equal(undefined);
+    expect(call!.args[0], 'the warning must carry the original error so the stack survives').to.be.instanceOf(Error);
+    expect(String(call!.args[1]), 'the warning must say the migration was not registered').to.match(/not registered/i);
+
+    // one bad file must not have voided the rest of the scan
+    expect(found!.map((f) => f.name), 'the good migration alongside the skipped one must still be reported').to.include('GoodFallback_2026_07_29_10_13_00');
   });
 });
 

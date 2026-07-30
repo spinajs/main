@@ -110,7 +110,14 @@ export class FilesystemMigrationSource extends MigrationSource {
     // computed here rather than folded into `DEFAULT_MIGRATION_DIRS` itself: which one applies
     // depends on the `__esmMode__` DI flag, which is not knowable at module-load time and can
     // change between calls in a test process that flips it.
-    const dirs = configured.length > 0 ? configured : [...DEFAULT_MIGRATION_DIRS, currentBuildMigrationDir()];
+    //
+    // Whether this scan is running over a directory the OPERATOR named, or one we guessed, is
+    // carried down to the `.js`-import-failure handler below rather than recomputed there: it is
+    // the same "configured vs fallback" split as the line above, and re-deriving it from `dirs`
+    // itself later would have to somehow tell "the operator configured exactly the default list"
+    // apart from "nothing was configured" - which is not recoverable once the two are merged.
+    const isConfigured = configured.length > 0;
+    const dirs = isConfigured ? configured : [...DEFAULT_MIGRATION_DIRS, currentBuildMigrationDir()];
 
     const env = normalizeEnvironment(this.Configuration.get<string>('process.env.APP_ENV', undefined));
 
@@ -163,12 +170,25 @@ export class FilesystemMigrationSource extends MigrationSource {
         }
 
         // a compiled migration ( `.js` - the only other extension the glob above ever emits ) that
-        // fails to import is not the same case - a syntax error, a broken relative import, a module
-        // body that throws. Swallowing
-        // it down to a warning would let discovery report "no pending migrations" and let a
-        // deployment proceed against an unmigrated schema, so this one is not tolerated: throw
-        // with the original error chained so the stack survives
-        throw new OrmException(`Could not load migration file ${file}`, undefined, undefined, undefined, err);
+        // fails to import is not the same case as a `.ts` casualty above - a syntax error, a broken
+        // relative import, a module body that throws. Whether that is tolerated now depends on WHO
+        // named this directory:
+        //
+        // - a CONFIGURED directory is one the operator wrote into `system.dirs.migrations`
+        //   themselves. A file in it that will not load is their bug, in a place they told us to
+        //   look - swallowing it down to a warning would let discovery report "no pending
+        //   migrations" and let a deployment proceed against an unmigrated schema, so this case is
+        //   not tolerated: throw, with the original error chained so the stack survives.
+        // - a FALLBACK directory is one WE guessed ( `DEFAULT_MIGRATION_DIRS`, or the build dir
+        //   `currentBuildMigrationDir()` picks ). Nobody asked us to scan it, so a file in it that
+        //   fails to import is not our place to kill the boot over - warn loudly, naming the file
+        //   and the fact that it was NOT registered, and move on to the rest of the scan.
+        if (isConfigured) {
+          throw new OrmException(`Could not load migration file ${file}`, undefined, undefined, undefined, err);
+        }
+
+        this.Log.warn(err as Error, `Could not load migration file ${file} from a fallback migration directory - this migration was NOT registered`);
+        continue;
       }
 
       for (const [name, exported] of Object.entries(module)) {

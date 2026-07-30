@@ -126,9 +126,18 @@ failure naming a file nobody meant to write as a migration.
 A `.ts` file that fails to import is tolerated silently (logged at trace level): the default search
 includes `src/migrations`, so a compiled deployment routinely fails to import the `.ts` copy of
 every migration under a plain JS runtime while its compiled `.js`/`.cjs`/`.mjs` copy is found by
-the same scan. A compiled file that fails to import is not given the same pass — it is never a
-source artifact tried on spec, so a broken one means a real syntax error or a throwing module body,
-and the boot fails with the original error rather than silently reporting "nothing pending".
+the same scan. A compiled file that fails to import is never a source artifact tried on spec, so a
+broken one means a real syntax error, a broken relative import, or a throwing module body — but
+what happens next depends on **who named the directory it lives in**:
+
+- in a directory **configured** at `system.dirs.migrations`, the failure throws, naming the file
+  and chaining the original error — the operator pointed the scan there, so a file that will not
+  load is their bug and they must hear about it as a boot failure, not a quiet gap in coverage.
+- in a **fallback** directory (the defaults above, scanned only because nothing was configured),
+  the failure is logged at **warn** instead — naming the file, carrying the original error, and
+  stating plainly that the migration was **not registered** — and the scan continues with whatever
+  else it finds. Nobody asked for that directory to be scanned, so it is not this ORM's place to
+  take a boot down over what it happened to find there.
 
 A migration reached by `import` rather than by discovery — a package re-exporting its migrations
 from `index.ts` — declares its environment on the decorator instead:
